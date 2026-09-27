@@ -5,6 +5,7 @@ import aiOperationsIcon from "../../assets/navigation/ai-operations.svg";
 import assetExplorerIcon from "../../assets/navigation/asset-explorer.svg";
 import jobQueueIcon from "../../assets/navigation/job-queue.svg";
 import reviewBoardIcon from "../../assets/navigation/review-board.svg";
+import realisticReviewUgcIcon from "../../assets/navigation/realistic-review-ugc.svg";
 import videoGenerationIcon from "../../assets/navigation/video-generation.svg";
 import {
   AI_OPERATIONS_TABS,
@@ -12,7 +13,7 @@ import {
   type AiOpsTab,
 } from "../ai-operations/navigation";
 
-export type WorkspaceRoute = "assets" | "operations" | "queue" | "generation" | "review-board" | "access";
+export type WorkspaceRoute = "assets" | "operations" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
 
 export const mayViewReviewBoard = (permissions: readonly string[]) => permissions.includes("public_review.read");
 
@@ -21,6 +22,7 @@ const navigationIconSources: Record<WorkspaceRoute, string> = {
   operations: aiOperationsIcon,
   queue: jobQueueIcon,
   generation: videoGenerationIcon,
+  "realistic-review-ugc": realisticReviewUgcIcon,
   "review-board": reviewBoardIcon,
   access: accessManagementIcon,
 };
@@ -65,6 +67,9 @@ export function WorkspaceNavigation({
     { id: "assets", href: "/", label: "Asset Explorer" },
     ...(showOperations ? [
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
+    ] : []),
+    { id: "realistic-review-ugc", href: "/realistic-review-ugc", label: "Realistic Review UGC" },
+    ...(showOperations ? [
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },
     ] : []),
     { id: "generation", href: "/video-generation", label: "Video Generation" },

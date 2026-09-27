@@ -34,6 +34,9 @@ PERMISSION_DEFINITIONS = {
     "public_review.resolve": "Resolve tenant review board issues",
     "public_review.manage": "Create and manage tenant public review shares",
     "application_logs.manage": "Manage external log applications",
+    "realistic_review_ugc.read": "Read Realistic Review UGC workflows",
+    "realistic_review_ugc.run": "Run Realistic Review UGC workflows",
+    "realistic_review_ugc.configure": "Configure Realistic Review UGC workflows",
     **INVENTORY_PERMISSION_DEFINITIONS,
 }
 
@@ -44,6 +47,8 @@ OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
     "ai_analysis.run",
     "ai_jobs.retry",
     "ai_jobs.cancel",
+    "realistic_review_ugc.read",
+    "realistic_review_ugc.run",
 }
 BILLING_ADMIN_PERMISSIONS = {
     "ai_operations.read",

@@ -32,6 +32,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.authorization.admin_router import router as access_management_router
 from app.modules.authorization.router import router as authorization_router
 from app.modules.public_review.router import router as public_review_router
+from app.modules.realistic_review_ugc.router import router as realistic_review_ugc_router
 from app.modules.public_review.board_router import router as public_review_board_router
 from app.modules.public_review.public_router import router as public_review_public_router
 from app.modules.explorer.router import router as explorer_router
@@ -201,6 +202,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(desktop_oauth_router, prefix="/api")
     api.include_router(authorization_router)
     api.include_router(public_review_router)
+    api.include_router(realistic_review_ugc_router)
     api.include_router(public_review_board_router)
     api.include_router(public_review_public_router)
     api.include_router(access_management_router)

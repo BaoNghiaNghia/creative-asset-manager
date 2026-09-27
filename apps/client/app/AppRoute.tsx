@@ -9,14 +9,16 @@ const PrivacyPolicyPage = lazy(() => import("./legal/LegalPages").then(module =>
 const TermsOfServicePage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.TermsOfServicePage })));
 const PublicReviewRoute = lazy(() => import("./public-review/PublicReviewRoute").then(module => ({ default: module.PublicReviewRoute })));
 const ReviewBoardPage = lazy(() => import("./review-board/ReviewBoardPage").then(module => ({ default: module.ReviewBoardPage })));
+const RealisticReviewUgcPage = lazy(() => import("./realistic-review-ugc/RealisticReviewUgcPage").then(module => ({ default: module.RealisticReviewUgcPage })));
 const VideoGenerationPage = lazy(() => import("./video-generation/VideoGenerationPage").then(module => ({ default: module.VideoGenerationPage })));
 
-export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation";
+export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation" | "realistic-review-ugc";
 
 export function routeForPath(pathname: string): ApplicationRoute {
   if (/^\/share\/[A-Za-z0-9_-]{1,128}(?:\/folder\/[^/]{1,1024})?\/?$/.test(pathname)) return "public-review";
   if (pathname === "/review-board" || pathname === "/review-board/") return "review-board";
   if (pathname === "/job-queue") return "job-queue";
+  if (pathname === "/realistic-review-ugc" || pathname === "/realistic-review-ugc/") return "realistic-review-ugc";
   if (pathname === "/video-generation" || pathname.startsWith("/video-generation/")) return "video-generation";
   if (pathname.startsWith("/inventory")) return "inventory";
   if (pathname === "/privacy-policy" || pathname === "/privacy") return "privacy";
@@ -28,6 +30,7 @@ export function routeForPath(pathname: string): ApplicationRoute {
 export function AppRoute() {
   const route = routeForPath(window.location.pathname);
   const page = route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
+    : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />
     : route === "inventory" ? <InventoryApp />
     : route === "privacy" ? <PrivacyPolicyPage />
