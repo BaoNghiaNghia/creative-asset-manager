@@ -417,6 +417,14 @@ class InventoryKnowledgeService:
             and hasattr(row, "kind")
             and hasattr(row, "content")
         ]
+        rows = [
+            row for row in rows
+            if not (
+                bool((getattr(row, "structured_rule_json", {}) or {}).get("suspended"))
+                or str((getattr(row, "structured_rule_json", {}) or {}).get("state") or "").lower() == "suspended"
+                or str((getattr(row, "structured_rule_json", {}) or {}).get("mode") or "").lower() == "suspended"
+            )
+        ]
         entries = _bounded_active_entries(rows)
         digest = _canonical_hash(entries)
         return {
@@ -500,6 +508,7 @@ class InventoryKnowledgeService:
                     "verification_status": "verified",
                 })
             support = len(observations)
+            distinct_business_dates = len({audit.business_date for _change, audit in observations})
             # Historical candidates remain shadow-only until a human explicitly
             # activates them. Eligibility is advisory and can be revoked by a
             # later conflicting observation without ever granting write access.
@@ -514,7 +523,13 @@ class InventoryKnowledgeService:
             }
             conflicts = max(0, len(outcomes) - 1)
             confidence = min(0.99, max(0.0, 0.5 + (0.1 * support) - (0.2 * conflicts)))
-            eligible_for_activation = support >= max(required_support, 3) and conflicts == 0 and confidence >= 0.8
+            eligible_for_activation = (
+                support >= max(required_support, 3)
+                and distinct_business_dates >= 2
+                and conflicts == 0
+                and confidence >= 0.8
+            )
+            risk_level = "LOW" if operation_type in {"set_cell", "copy_cell"} and provenance else "MEDIUM"
             structured_rule = {
                 "learner": "verified_operation_history_v1",
                 "mode": "shadow",
@@ -523,9 +538,13 @@ class InventoryKnowledgeService:
                 "provenance": provenance or None,
                 "reason": reason,
                 "support": support,
+                "distinct_business_dates": distinct_business_dates,
                 "conflicts": conflicts,
                 "minimum_support": required_support,
                 "confidence": confidence,
+                "risk_level": risk_level,
+                "executable": False,
+                "execution_block_reason": "historical_rule_missing_complete_mechanical_contract",
                 "eligible_for_activation": eligible_for_activation,
             }
             canonical = {
