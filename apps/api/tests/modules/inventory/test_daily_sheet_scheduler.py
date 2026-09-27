@@ -667,6 +667,46 @@ class DailySheetSchedulerTest(unittest.TestCase):
             self.assertEqual("retry", reset.status)
             self.assertEqual("completed", snapshot.status)
 
+    def test_v4_morning_reset_stops_automatic_retries_after_safe_window(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_carry_forward_time_local = "05:00"
+            settings.daily_snapshot_time_local = "23:50"
+            settings.daily_reconcile_time_local = "23:55"
+
+        class Carry:
+            def __init__(self): self.calls = []
+            def run(self, tenant_id, business_date):
+                self.calls.append((tenant_id, business_date.isoformat()))
+                return SimpleNamespace(status="completed")
+
+        carry = Carry()
+        scheduler = InventoryDailyScheduler(
+            self.sessions,
+            sheet_service=SimpleNamespace(),
+            carry_forward_service=carry,
+        )
+        self.assertEqual(
+            0,
+            scheduler.run_once(
+                datetime(2030, 8, 10, 12, 0, tzinfo=timezone.utc)
+            ),
+        )
+        self.assertEqual([], carry.calls)
+        with self.sessions() as session:
+            reset = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_morning_reset_slot"
+            ))
+            self.assertIsNotNone(reset)
+            self.assertEqual("failed", reset.status)
+            self.assertEqual(
+                "inventory_morning_reset_missed_safe_window",
+                reset.last_error_code,
+            )
+
     def test_historical_replay_recovers_current_day_reset_within_safe_window(self):
         self._enable_v4()
         with self.sessions.begin() as session:

@@ -526,9 +526,12 @@ class GeminiCarryForwardPlanner:
                 "text": (
                     prompt
                     + "\nThe server has bound roles previous_gemini and shared_current. "
-                    "Use the read-only tools. Search material and warehouse catalogs with "
-                    "specific queries and copy returned canonical IDs verbatim instead of inventing IDs. "
-                    "Call submit_carry_forward_plan only after the evidence and IDs are ready. If the server returns accepted=false with retryable=true, follow its guidance, correct the IDs, and resubmit; only an accepted submission is final."
+                    "Use the read-only tools. Prefer range reads over many single-cell turns so the bounded "
+                    "tool budget is spent on evidence rather than repeated requests. Search material and warehouse "
+                    "catalogs with specific queries and copy returned canonical IDs verbatim instead of inventing IDs. "
+                    "Call submit_carry_forward_plan after the evidence and IDs are ready; do not consume the final "
+                    "rounds without submitting. If the server returns accepted=false with retryable=true, follow its "
+                    "guidance, correct the plan, and resubmit; only an accepted submission is final."
                 )
             }],
         }]
@@ -555,13 +558,24 @@ class GeminiCarryForwardPlanner:
                 return error
 
             last_retryable_error: InventoryAiGatewayError | None = None
+            last_submit_error: str | None = None
+            last_submit_retryable = False
+            max_tool_rounds = 16
             try:
                 for model in models:
                     active_model = model
                     consecutive_no_tool_turns = 0
                     force_submit_next = False
                     try:
-                        for _round in range(1, 13):
+                        for _round in range(1, max_tool_rounds + 1):
+                            # Reserve bounded finalization opportunities so a
+                            # model that keeps reading cannot silently consume
+                            # the entire tool budget without a submission.
+                            if host.plan is None and _round in {
+                                max_tool_rounds - 2,
+                                max_tool_rounds,
+                            }:
+                                force_submit_next = True
                             rounds += 1
                             turn = self.gateway.generate_tool_turn(
                                 tenant_id=tenant_id,
@@ -599,6 +613,18 @@ class GeminiCarryForwardPlanner:
                             responses = []
                             for call in turn.calls:
                                 result = host.execute(call.name, call.arguments)
+                                if call.name == "submit_carry_forward_plan":
+                                    if bool(result.get("accepted")):
+                                        last_submit_error = None
+                                        last_submit_retryable = False
+                                    else:
+                                        last_submit_error = str(
+                                            result.get("error")
+                                            or "carry_forward_plan_not_submitted"
+                                        )
+                                        last_submit_retryable = bool(
+                                            result.get("retryable")
+                                        )
                                 responses.append(
                                     {"functionResponse": {"name": call.name, "response": result}}
                                 )
@@ -626,7 +652,11 @@ class GeminiCarryForwardPlanner:
                 setattr(wrapped, "retryable", True)
                 attach_context(wrapped)
                 raise wrapped from last_retryable_error
-            error = CarryForwardReviewRequired("carry_forward_plan_not_submitted")
+            error = CarryForwardReviewRequired(
+                last_submit_error or "carry_forward_plan_not_submitted"
+            )
+            if last_submit_retryable:
+                setattr(error, "retryable", True)
             attach_context(error)
             raise error
 

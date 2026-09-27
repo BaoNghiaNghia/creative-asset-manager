@@ -806,6 +806,20 @@ class InventoryDailyScheduler:
                         if claimed:
                             job_id, worker_id = claimed
                             try:
+                                reset_time = _configured_time(
+                                    settings.daily_carry_forward_time_local, time(5, 0)
+                                )
+                                reset_scheduled = datetime.combine(
+                                    target_business_date, reset_time, tzinfo=local.tzinfo
+                                )
+                                if local > reset_scheduled + timedelta(hours=1):
+                                    # Never let an automatic late retry overwrite an
+                                    # already-active operational workbook. Outside the
+                                    # one-hour reset window, switch to explicit manual
+                                    # recovery (opening rows only) instead.
+                                    raise RuntimeError(
+                                        "inventory_morning_reset_missed_safe_window"
+                                    )
                                 if self._morning_reset_completed(tenant_id=tenant_id, business_date=target_business_date):
                                     self._complete_v4_slot(tenant_id=tenant_id, job_id=job_id, worker_id=worker_id)
                                 else:

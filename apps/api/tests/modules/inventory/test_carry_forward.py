@@ -200,6 +200,85 @@ def test_carry_forward_planner_nudges_model_to_submit_after_prose_only_turn():
     engine.dispose(); temp.cleanup()
 
 
+class RepeatedReaderGateway:
+    def __init__(self):
+        self.forced_functions = []
+
+    def generate_tool_turn(self, **kwargs):
+        forced = kwargs.get("force_function_name")
+        self.forced_functions.append(forced)
+        if forced == "submit_carry_forward_plan":
+            arguments = {
+                "operations": [],
+                "issues": [{
+                    "code": "INSUFFICIENT_EVIDENCE",
+                    "message": "Bounded read budget ended before a safe mapping was proven.",
+                }],
+            }
+            return InventoryGeminiToolTurn(
+                content={"role": "model", "parts": [{
+                    "functionCall": {
+                        "name": "submit_carry_forward_plan",
+                        "args": arguments,
+                    }
+                }]},
+                calls=(InventoryGeminiToolCall(
+                    name="submit_carry_forward_plan",
+                    arguments=arguments,
+                ),),
+            )
+        return InventoryGeminiToolTurn(
+            content={"role": "model", "parts": [{
+                "functionCall": {
+                    "name": "get_source_workbook_metadata",
+                    "args": {},
+                }
+            }]},
+            calls=(InventoryGeminiToolCall(
+                name="get_source_workbook_metadata",
+                arguments={},
+            ),),
+        )
+
+
+def test_carry_forward_planner_reserves_finalization_round_before_budget_exhaustion():
+    temp, engine, sessions = make_db()
+    with sessions.begin() as session:
+        session.add(InventoryAiControlModel(
+            tenant_id="tenant-a",
+            enabled=True,
+            emergency_stop=False,
+            provider="gemini",
+            allowed_models_json=["Gemini-3.5-Flash-Lite"],
+            max_concurrent=1,
+            min_start_interval_seconds=0,
+            per_run_limit=10,
+        ))
+    gateway = RepeatedReaderGateway()
+    planner = GeminiCarryForwardPlanner(
+        sessions,
+        gateway,
+        enabled=True,
+        deployment_allowed_models=("Gemini-3.5-Flash-Lite",),
+        client_factory=lambda _token: Google(),
+        token_resolver=lambda _id: "token",
+    )
+
+    plan = planner.plan(
+        tenant_id="tenant-a",
+        previous_gemini_file_id="gemini",
+        shared_workbook_id="shared",
+        prompt="Build an evidence-backed carry-forward plan.",
+        connection_id="connection",
+    )
+
+    assert plan.rows == []
+    assert plan.issues[0]["code"] == "INSUFFICIENT_EVIDENCE"
+    assert plan.audit["tool_rounds"] == 14
+    assert gateway.forced_functions[13] == "submit_carry_forward_plan"
+    engine.dispose(); temp.cleanup()
+
+
 def test_dependency_failure_is_persisted_before_context_resolution():
     temp, engine, sessions = make_db()
     with sessions.begin() as session:
