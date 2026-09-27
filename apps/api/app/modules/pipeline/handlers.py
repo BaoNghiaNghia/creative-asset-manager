@@ -282,6 +282,8 @@ class AssetStoreJobHandler(_PipelineHandler):
             return JobHandlerResult.non_retryable("managed_storage_disabled", "Managed storage is disabled.")
         stage = context.dependencies.resources.get("pipeline_storage_stage")
         if stage is None:
+            if settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED:
+                return self._continue_from_source_unavailable(context, settings)
             return self._failed(
                 context,
                 RuntimeError("Pipeline storage stage is not configured."),
@@ -340,6 +342,35 @@ class AssetStoreJobHandler(_PipelineHandler):
             )
         except Exception as exc:
             return self._failed(context, exc)
+
+    def _continue_from_source_unavailable(
+        self, context: JobHandlerContext, settings: Settings,
+    ) -> JobHandlerResult:
+        session, repository, pipeline = self._load(context)
+        try:
+            if pipeline.state == PipelineState.STORAGE_PENDING.value:
+                repository.record_failure(
+                    pipeline,
+                    "storage",
+                    error_code="storage_stage_unconfigured",
+                    error_message="Managed storage is unavailable; continuing from source.",
+                    retryable=False,
+                )
+            if pipeline.state != PipelineState.STORAGE_FAILED.value:
+                return JobHandlerResult.completed()
+            coordinator = AssetPipelineService(
+                repository, ProcessingRepository(session)
+            )
+            SourceAssetDownloadJobHandler._enqueue_after_storage(
+                coordinator,
+                pipeline,
+                settings,
+                analysis_content_source="source_asset",
+            )
+            session.commit()
+            return JobHandlerResult.completed()
+        finally:
+            session.close()
 
     def _continue_from_source(
         self, context: JobHandlerContext, settings: Settings,

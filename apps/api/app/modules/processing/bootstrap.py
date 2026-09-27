@@ -192,12 +192,17 @@ def build_worker_runtime(
     )
     enabled_job_types = globally_enabled_job_types(settings)
     if not storage_configured:
-        enabled_job_types = tuple(
-            job_type for job_type in enabled_job_types if job_type != "asset_store"
-        )
-        (logger or logging.getLogger("cam.worker")).warning(
-            "managed_storage_unavailable_asset_store_paused"
-        )
+        if not settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED:
+            enabled_job_types = tuple(
+                job_type for job_type in enabled_job_types if job_type != "asset_store"
+            )
+            (logger or logging.getLogger("cam.worker")).warning(
+                "managed_storage_unavailable_asset_store_paused"
+            )
+        else:
+            (logger or logging.getLogger("cam.worker")).warning(
+                "managed_storage_unavailable_asset_store_source_fallback"
+            )
     if (
         storage_configured
         and operational_schedulers_enabled
