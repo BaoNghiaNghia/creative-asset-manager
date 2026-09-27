@@ -357,6 +357,11 @@ class DailySheetSchedulerTest(unittest.TestCase):
         self.assertTrue(InventoryDailyScheduler._retryable_v4_error(transient))
         self.assertTrue(
             InventoryDailyScheduler._retryable_v4_error(
+                RuntimeError("inventory_gemini_request_failed")
+            )
+        )
+        self.assertTrue(
+            InventoryDailyScheduler._retryable_v4_error(
                 RuntimeError("inventory_gemini_rate_limited")
             )
         )
@@ -370,6 +375,51 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 RuntimeError("inventory_morning_reset_missed_safe_window")
             )
         )
+
+    def test_v4_due_gate_self_heals_legacy_transient_terminal_failure(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 10, 0, 0, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_morning_reset_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-10:morning_reset",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-10:morning_reset",
+                payload_json={"business_date": "2030-08-10", "slot_kind": "morning_reset"},
+                status="failed",
+                attempt_count=1,
+                max_attempts=5,
+                last_error_code="inventory_gemini_request_failed",
+                next_attempt_at=moment,
+                completed_at=moment,
+            ))
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        self.assertEqual(
+            frozenset({"morning_reset"}),
+            scheduler._v4_due_slot_candidates(
+                tenant_id="tenant-a",
+                business_date=date(2030, 8, 10),
+                slot_kinds=("morning_reset",),
+                now=moment,
+            ),
+        )
+        claimed = scheduler._claim_v4_slot(
+            tenant_id="tenant-a",
+            business_date=date(2030, 8, 10),
+            slot_kind="morning_reset",
+            now=moment,
+        )
+        self.assertIsNotNone(claimed)
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.idempotency_key
+                == "inventory-v5-slot:tenant-a:2030-08-10:morning_reset"
+            ))
+            self.assertEqual("processing", job.status)
+            self.assertEqual(2, job.attempt_count)
+            self.assertIsNone(job.completed_at)
 
     def test_v4_due_gate_keeps_terminal_jobs_cold_until_durable_repair(self):
         self._enable_v4()

@@ -3,9 +3,10 @@
 .inventory-audit-toggle{display:flex;width:100%;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid #d7e1ed;border-radius:8px;background:#f8fbff;color:#3159b8;font-weight:750;cursor:pointer}
 .inventory-audit-panel{display:grid;gap:12px;margin-top:10px}
 .inventory-audit-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
-.inventory-audit-summary article{display:grid;gap:3px;padding:9px;border:1px solid #e3eaf2;border-radius:8px;background:#fbfcfe}
+.inventory-audit-summary article{display:grid;min-width:0;gap:3px;padding:9px;overflow:hidden;border:1px solid #e3eaf2;border-radius:8px;background:#fbfcfe}
 .inventory-audit-summary span,.inventory-audit-provenance span{color:#718096;font-size:10px;text-transform:capitalize}
-.inventory-audit-summary strong{color:#2b3d53;font-size:14px}
+.inventory-audit-summary strong{min-width:0;overflow-wrap:anywhere;color:#2b3d53;font-size:14px}
+.inventory-audit-summary article.is-hash strong{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 .inventory-audit-provenance{display:flex;flex-wrap:wrap;gap:8px 14px;padding:9px;border-radius:8px;background:#f7f9fc}
 .inventory-audit-provenance b{color:#33465f}
 .inventory-audit-provenance code,.inventory-audit-ranges code{font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -27,9 +28,13 @@
 .inventory-audit-verification.verified{background:#eaf8ef;color:#287047}
 .inventory-audit-evidence{margin-top:5px}.inventory-audit-evidence summary{cursor:pointer;color:#3159b8;font-size:9px;font-weight:700}.inventory-audit-evidence pre{max-width:320px;max-height:180px;overflow:auto;margin:5px 0 0;padding:6px;border-radius:5px;background:#f7f9fc;white-space:pre-wrap;font:9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 .inventory-audit-empty{padding:10px;border:1px dashed #d7e0ec;border-radius:8px;color:#718096!important;text-align:center}
-.inventory-audit-tools{display:grid;gap:5px;margin:0;padding:0;list-style:none}
-.inventory-audit-tools li{display:grid;grid-template-columns:150px 1fr;gap:8px;padding:7px;border:1px solid #edf1f5;border-radius:7px}
-.inventory-audit-tools code{overflow-wrap:anywhere;font:9px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#65748a}
+.inventory-audit-tools{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.inventory-audit-tools li{display:grid;grid-template-columns:minmax(170px,220px) minmax(0,1fr);align-items:start;gap:10px;min-width:0;padding:8px;border:1px solid #e5ebf2;border-radius:8px;background:#fff}
+.inventory-audit-tools li>b{min-width:0;overflow-wrap:anywhere;color:#24364e;font-size:11px;line-height:1.35}
+.inventory-audit-tool-details{display:flex;flex-wrap:wrap;gap:5px 8px;min-width:0}
+.inventory-audit-tool-details>span{display:grid;min-width:110px;max-width:100%;gap:2px;padding:4px 6px;border-radius:6px;background:#f7f9fc}
+.inventory-audit-tool-details small{color:#8a96a8;font-size:8px;text-transform:capitalize}
+.inventory-audit-tools code{display:block;min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word;white-space:normal;font:9px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#65748a}
 
 .inventory-knowledge{display:grid;gap:14px}
 .inventory-knowledge-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:20px;border:1px solid #dfe7f1;border-radius:14px;background:linear-gradient(135deg,#fff,#f5f8ff)}

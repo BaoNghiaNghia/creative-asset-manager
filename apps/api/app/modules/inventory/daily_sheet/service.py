@@ -43,7 +43,11 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
         category = "VERIFICATION"
     elif any(token in value for token in ("google_sheets", "spreadsheet", "sheets_scope", "drive_")):
         category = "GOOGLE_SHEETS"
-    elif any(token in value for token in ("transport", "timeout", "timed out", "network", "connection reset", "service unavailable", "502", "503", "504")):
+    elif any(token in value for token in (
+        "inventory_gemini_request_failed",
+        "transport", "timeout", "timed out", "network", "connection reset",
+        "service unavailable", "502", "503", "504",
+    )):
         category = "TRANSPORT"
     elif any(token in value for token in ("configuration", "not_configured")):
         category = "CONFIGURATION"

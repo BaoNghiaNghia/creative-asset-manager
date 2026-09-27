@@ -740,14 +740,32 @@ class V4WorkbookToolHost:
             }
             self.tool_trace.append({"tool": name, "accepted": False, "error": error_code})
             return result
-        except ValidationError:
+        except ValidationError as exc:
+            validation_errors = [
+                {
+                    "path": ".".join(str(part) for part in item.get("loc") or ()),
+                    "type": str(item.get("type") or "validation_error"),
+                }
+                for item in exc.errors()[:8]
+            ]
             result = {
                 "accepted": False,
                 "error": "invalid_tool_arguments",
-                "instruction": "Correct the tool arguments to match the declared schema, then retry.",
+                "validation_errors": validation_errors,
+                "instruction": (
+                    "Correct the tool arguments to match the declared schema, then retry. "
+                    "For submit_workbook_assessment provide summary, observations, "
+                    "uncertainties, and additional_reads_needed; each observation requires "
+                    "code, conclusion, evidence, and confidence."
+                ),
             }
             self.tool_trace.append(
-                {"tool": name, "accepted": False, "error": "invalid_tool_arguments"}
+                {
+                    "tool": name,
+                    "accepted": False,
+                    "error": "invalid_tool_arguments",
+                    "validation_errors": validation_errors,
+                }
             )
             return result
         trace: dict[str, Any] = {"tool": name}

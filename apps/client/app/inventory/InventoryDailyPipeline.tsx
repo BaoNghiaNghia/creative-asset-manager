@@ -3,6 +3,7 @@ import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalRepla
 
 const labels: Record<string, string> = { morning_reset: "Reset đầu ngày", afternoon_snapshot: "Đang snapshot", evening_reconcile: "Đang đối soát", verified: "Cần xác minh", completed: "Hoàn tất" };
 const symbols: Record<InventoryLifecycleStageStatus, string> = { pending: "○", scheduled: "◌", running: "●", completed: "✓", blocked: "!", review_required: "!", failed: "×", stale: "×" };
+const statusLabels: Record<InventoryLifecycleStageStatus, string> = { pending: "Chờ chạy", scheduled: "Đã lên lịch", running: "Đang chạy", completed: "Hoàn tất", blocked: "Bị chặn", review_required: "Cần xem lại", failed: "Thất bại", stale: "Dữ liệu cũ" };
 type MenuState = { item: InventoryLifecycleHistoryItem; stage: InventoryLifecycleStage; x: number; y: number };
 
 function format(value: string | null) { return value ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—"; }
@@ -59,8 +60,9 @@ const errorHints: Record<string, string> = {
   closing_opening_mismatch: "Giá trị Closing và Opening chưa khớp theo evidence đã đọc. Recovery sẽ chỉ cho phép các ô Opening an toàn sau khi preview lại.",
   unknown_material: "Có vật tư chưa map vào catalog chuẩn. Hãy xử lý trong Nguyên vật liệu rồi tạo preview recovery mới.",
   unknown_warehouse: "Có kho chưa map vào catalog chuẩn. Cần hoàn tất mapping trước khi recovery.",
-  inventory_gemini_rate_limited: "Gemini đã bị giới hạn tần suất ở lần trước. Recovery có thể được preview lại khi provider sẵn sàng.",
-  inventory_gemini_transport_error: "Không kết nối được Gemini trong lần xử lý này. Hãy kiểm tra credential và trạng thái provider trước khi chạy lại.",
+  inventory_gemini_rate_limited: "Gemini đã bị giới hạn tần suất ở lần trước. Hệ thống sẽ tự retry có backoff khi provider sẵn sàng.",
+  inventory_gemini_transport_error: "Không kết nối được Gemini trong lần xử lý này. Hệ thống sẽ tự retry có backoff; nếu hết số lần thử mới cần can thiệp.",
+  inventory_gemini_request_failed: "Gemini trả lỗi tạm thời từ provider. Hệ thống sẽ tự retry có backoff thay vì kết thúc job ngay.",
 };
 const auditSummaryLabels: Record<string, string> = {
   operation_count: "Cell dự kiến thay đổi",
@@ -81,6 +83,13 @@ function auditValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   try { return JSON.stringify(value); } catch { return String(value); }
+}
+function auditSummaryValue(key: string, value: unknown) {
+  const raw = auditValue(value);
+  return key === "plan_hash" && raw.length > 18 ? raw.slice(0, 16) + "…" : raw;
+}
+function toolTraceEntries(trace: Record<string, unknown>) {
+  return Object.entries(trace).filter(([key]) => key !== "tool");
 }
 function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage: "morning_reset"|"evening_reconcile" }) {
   const [open, setOpen] = useState(false);
@@ -108,7 +117,7 @@ function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage:
       {error ? <p className="inventory-audit-empty">{error}</p> : null}
       {detail ? <>
         <div className="inventory-audit-summary">
-          {summaryEntries.slice(0, 10).map(([key,value]) => <article key={key}><span>{auditSummaryLabels[key] || key.replaceAll("_"," ")}</span><strong>{auditValue(value)}</strong></article>)}
+          {summaryEntries.slice(0, 10).map(([key,value]) => <article key={key} className={key === "plan_hash" ? "is-hash" : undefined}><span>{auditSummaryLabels[key] || key.replaceAll("_"," ")}</span><strong title={auditValue(value)}>{auditSummaryValue(key, value)}</strong></article>)}
         </div>
         <div className="inventory-audit-provenance">
           <span>Prompt <b>{detail.prompt.version || detail.prompt.source || "—"}</b></span>
@@ -121,7 +130,7 @@ function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage:
         {assessment.summary || observations.length || uncertainties.length ? <section className="inventory-audit-section">
           <h4>Đánh giá Gemini</h4>
           {assessment.summary ? <p>{auditValue(assessment.summary)}</p> : null}
-          {observations.map((observation,index)=><article className="inventory-audit-observation" key={"observation-"+index}><b>{auditValue(observation.code)}</b><p>{auditValue(observation.conclusion)}</p><small>{"Confidence: "+auditValue(observation.confidence)}</small></article>)}
+          {observations.map((observation,index)=><article className="inventory-audit-observation" key={"observation-"+index}><b>{auditValue(observation.code)}</b><p>{auditValue(observation.conclusion)}</p><small>{"Độ tin cậy: "+auditValue(observation.confidence)}</small></article>)}
           {uncertainties.map((uncertainty,index)=><article className="inventory-audit-observation warning" key={"uncertainty-"+index}><b>{auditValue(uncertainty.code)}</b><p>{auditValue(uncertainty.message)}</p></article>)}
         </section> : null}
         <section className="inventory-audit-section">
@@ -130,7 +139,7 @@ function AuditDisclosure({ businessDate, stage }: { businessDate: string; stage:
             {detail.changes.map((change)=><tr key={change.sequence}><td><b>{change.sheet}</b><small>{change.row_number ? "Row "+change.row_number : "—"}</small>{change.material_id ? <small>{"Material "+change.material_id}</small> : null}{change.warehouse_id ? <small>{"Kho "+change.warehouse_id}</small> : null}</td><td><code>{change.cell}</code></td><td><code>{auditValue(change.before)}</code></td><td><code>{auditValue(change.after)}</code></td><td>{change.source_cell ? <><b>{change.source_sheet || change.sheet}</b><code>{change.source_cell}</code></> : "—"}</td><td><span>{change.reason || change.operation_type}</span>{change.provenance ? <small>{change.provenance}</small> : null}{change.evidence.length ? <details className="inventory-audit-evidence"><summary>Evidence ({change.evidence.length})</summary><pre>{JSON.stringify(change.evidence,null,2)}</pre></details> : null}</td><td><span className={"inventory-audit-verification "+change.verification_status}>{change.verification_status}</span></td></tr>)}
           </tbody></table></div> : <p className="inventory-audit-empty">Run này không có cell nào cần thay đổi.</p>}
         </section>
-        {detail.tool_trace.length ? <section className="inventory-audit-section"><h4>Tool log</h4><ol className="inventory-audit-tools">{detail.tool_trace.map((trace,index)=><li key={index}><b>{auditValue(trace.tool)}</b><code>{JSON.stringify(trace)}</code></li>)}</ol></section> : null}
+        {detail.tool_trace.length ? <section className="inventory-audit-section"><h4>Nhật ký tool</h4><ol className="inventory-audit-tools">{detail.tool_trace.map((trace,index)=><li key={index}><b>{auditValue(trace.tool)}</b><div className="inventory-audit-tool-details">{toolTraceEntries(trace).map(([key,value])=><span key={key}><small>{key.replaceAll("_"," ")}</small><code title={auditValue(value)}>{auditValue(value)}</code></span>)}</div></li>)}</ol></section> : null}
         {detail.issues?.length ? <section className="inventory-audit-section"><h4>Issues</h4><pre>{JSON.stringify(detail.issues,null,2)}</pre></section> : null}
       </> : null}
     </div> : null}
@@ -146,15 +155,15 @@ function Details({ item, onClose, onReplay, onReset, onRecoveryPreview, onOpenMa
     <div className="inventory-pipeline-detail-list">{item.stages.map((stage) => {
       const message = stage.error_message || (stage.error_code ? errorHints[stage.error_code] : null);
       return <section key={stage.key} className={"inventory-pipeline-detail-stage " + stage.status}>
-        <div className="inventory-pipeline-detail-stage-title"><span aria-hidden="true">{symbols[stage.status]}</span><div><b>{stage.label}</b><small>{stage.status}</small></div></div>
+        <div className="inventory-pipeline-detail-stage-title"><span aria-hidden="true">{symbols[stage.status]}</span><div><b>{stage.label}</b><small>{statusLabels[stage.status]}</small></div></div>
         <ol className="inventory-pipeline-log">
           <li><span>Đã lên lịch</span><time>{stage.scheduled_time || "—"}</time></li>
           <li><span>Bắt đầu</span><time>{format(stage.started_at || null)}</time></li>
           <li><span>Hoàn tất</span><time>{format(stage.completed_at || null)}</time></li>
-          {stage.attempt_count !== null && stage.attempt_count !== undefined ? <li><span>Attempts</span><time>{stage.attempt_count}/{stage.max_attempts ?? "—"}</time></li> : null}
-          {stage.last_attempt_at ? <li><span>Attempt gần nhất</span><time>{format(stage.last_attempt_at)}</time></li> : null}
+          {stage.attempt_count !== null && stage.attempt_count !== undefined ? <li><span>Lần thử</span><time>{stage.attempt_count}/{stage.max_attempts ?? "—"}</time></li> : null}
+          {stage.last_attempt_at ? <li><span>Lần thử gần nhất</span><time>{format(stage.last_attempt_at)}</time></li> : null}
           {stage.next_attempt_at && stage.status === "scheduled" ? <li><span>Retry tiếp theo</span><time>{format(stage.next_attempt_at)}</time></li> : null}
-          {stage.self_healed ? <li><span>Recovery</span><time>Self-healed từ durable state</time></li> : null}
+          {stage.self_healed ? <li><span>Khôi phục</span><time>Tự phục hồi từ trạng thái bền vững</time></li> : null}
         </ol>
         {stage.error_code ? <div className="inventory-pipeline-log-error"><b>Chi tiết lỗi</b><code>{stage.error_code}</code>{stage.error_category ? <p>Nhóm: <b>{stage.error_category}</b> · {stage.retryable ? "Có thể retry" : "Không tự retry"}</p> : null}{message ? <p>{message}</p> : null}</div> : null}
         {stage.run_id ? <p className="inventory-pipeline-run-id">Run: <code>{stage.run_id}</code></p> : null}

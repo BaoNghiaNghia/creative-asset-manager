@@ -165,9 +165,14 @@ class InventoryDailyScheduler:
                     if lease_expires_at is not None and lease_expires_at > now:
                         continue
                 if job.status == "failed":
-                    # Terminal failures stay cold unless an external repair has
-                    # produced durable evidence that can safely self-heal them.
-                    if self._durable_v4_slot_completed_at(
+                    # Preserve true terminal failures, but self-heal legacy rows
+                    # that were incorrectly terminalized even though the provider
+                    # error is transient and bounded attempts remain.
+                    transient_legacy_failure = (
+                        job.attempt_count < job.max_attempts
+                        and bool(inventory_error_metadata(job.last_error_code)["retryable"])
+                    )
+                    if not transient_legacy_failure and self._durable_v4_slot_completed_at(
                         session,
                         tenant_id=tenant_id,
                         business_date=business_date,
@@ -260,6 +265,20 @@ class InventoryDailyScheduler:
                     job.updated_at = now
                     session.flush()
                 return None
+            if (
+                job.status == "failed"
+                and job.attempt_count < job.max_attempts
+                and bool(inventory_error_metadata(job.last_error_code)["retryable"])
+            ):
+                # Backward-compatible repair for transient provider failures that
+                # older scheduler versions incorrectly persisted as terminal.
+                job.status = "retry"
+                job.completed_at = None
+                job.next_attempt_at = now
+                job.claimed_by = None
+                job.claimed_at = None
+                job.lease_expires_at = None
+                job.updated_at = now
             if job.status in {"completed", "failed"}:
                 return None
             next_attempt_at = job.next_attempt_at
