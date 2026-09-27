@@ -89,6 +89,93 @@ export type Candidate = {
   updated_at: string;
 };
 
+
+
+export type ProductReferenceView =
+  | "front"
+  | "front_45_left"
+  | "front_45_right"
+  | "side_left"
+  | "side_right"
+  | "back"
+  | "top"
+  | "logo_closeup"
+  | "embroidery_closeup"
+  | "material_closeup";
+
+export type Product = {
+  id: string;
+  sku: string;
+  name: string;
+  product_type: string;
+  color: string | null;
+  material: string | null;
+  crown_profile: string | null;
+  crown_height_mm: number | null;
+  brim_style: string | null;
+  brim_length_mm: number | null;
+  circumference_mm: number | null;
+  logo_position: string | null;
+  fit_notes: string | null;
+  revision: number;
+  status: "active" | "archived";
+  reference_count: number;
+  active_views: ProductReferenceView[];
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type ProductReference = {
+  id: string;
+  product_id: string;
+  view_type: ProductReferenceView;
+  version: number;
+  status: "active" | "archived";
+  content_hash: string;
+  original_filename: string | null;
+  content_type: string;
+  size_bytes: number;
+  width: number;
+  height: number;
+  image_format: string;
+  remote_file_id: string | null;
+  remote_folder_id: string | null;
+  web_url: string | null;
+  reused_storage: boolean;
+  created_at: string;
+  archived_at: string | null;
+};
+
+export type ProductCreateRequest = {
+  sku: string;
+  name: string;
+  product_type: string;
+  color?: string;
+  material?: string;
+  crown_profile?: string;
+  crown_height_mm?: number;
+  brim_style?: string;
+  brim_length_mm?: number;
+  circumference_mm?: number;
+  logo_position?: string;
+  fit_notes?: string;
+};
+
+export type ProductUpdateRequest = {
+  name?: string;
+  product_type?: string;
+  color?: string | null;
+  material?: string | null;
+  crown_profile?: string | null;
+  crown_height_mm?: number | null;
+  brim_style?: string | null;
+  brim_length_mm?: number | null;
+  circumference_mm?: number | null;
+  logo_position?: string | null;
+  fit_notes?: string | null;
+};
+
 export type CampaignCreateRequest = {
   name: string;
   query: string;

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcProductModel,
+    RrugcProductReferenceModel,
 )
 
 
@@ -98,5 +100,124 @@ class RrugcRepository:
                 RrugcCandidateModel.id != exclude_id,
             )
             .order_by(RrugcCandidateModel.imported_at.desc())
+            .limit(1)
+        )
+
+    def list_products(
+        self, tenant_id: str, *, include_archived: bool = False, limit: int = 200
+    ) -> list[RrugcProductModel]:
+        statement = select(RrugcProductModel).where(
+            RrugcProductModel.tenant_id == tenant_id
+        )
+        if not include_archived:
+            statement = statement.where(RrugcProductModel.status == "active")
+        return list(self.session.scalars(
+            statement
+            .order_by(RrugcProductModel.updated_at.desc(), RrugcProductModel.id.desc())
+            .limit(limit)
+        ))
+
+    def get_product(self, tenant_id: str, product_id: str) -> RrugcProductModel | None:
+        return self.session.scalar(
+            select(RrugcProductModel).where(
+                RrugcProductModel.tenant_id == tenant_id,
+                RrugcProductModel.id == product_id,
+            )
+        )
+
+    def lock_product(self, tenant_id: str, product_id: str) -> RrugcProductModel | None:
+        return self.session.scalar(
+            select(RrugcProductModel)
+            .where(
+                RrugcProductModel.tenant_id == tenant_id,
+                RrugcProductModel.id == product_id,
+            )
+            .with_for_update()
+        )
+
+    def product_by_sku(self, tenant_id: str, sku: str) -> RrugcProductModel | None:
+        return self.session.scalar(
+            select(RrugcProductModel).where(
+                RrugcProductModel.tenant_id == tenant_id,
+                RrugcProductModel.sku == sku,
+            )
+        )
+
+    def list_product_references(
+        self,
+        tenant_id: str,
+        product_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> list[RrugcProductReferenceModel]:
+        statement = select(RrugcProductReferenceModel).where(
+            RrugcProductReferenceModel.tenant_id == tenant_id,
+            RrugcProductReferenceModel.product_id == product_id,
+        )
+        if not include_archived:
+            statement = statement.where(RrugcProductReferenceModel.status == "active")
+        return list(self.session.scalars(
+            statement.order_by(
+                RrugcProductReferenceModel.view_type.asc(),
+                RrugcProductReferenceModel.version.desc(),
+                RrugcProductReferenceModel.created_at.desc(),
+            )
+        ))
+
+    def get_product_reference(
+        self, tenant_id: str, product_id: str, reference_id: str
+    ) -> RrugcProductReferenceModel | None:
+        return self.session.scalar(
+            select(RrugcProductReferenceModel).where(
+                RrugcProductReferenceModel.tenant_id == tenant_id,
+                RrugcProductReferenceModel.product_id == product_id,
+                RrugcProductReferenceModel.id == reference_id,
+            )
+        )
+
+    def latest_reference_version(
+        self, tenant_id: str, product_id: str, view_type: str
+    ) -> int:
+        value = self.session.scalar(
+            select(func.max(RrugcProductReferenceModel.version)).where(
+                RrugcProductReferenceModel.tenant_id == tenant_id,
+                RrugcProductReferenceModel.product_id == product_id,
+                RrugcProductReferenceModel.view_type == view_type,
+            )
+        )
+        return int(value or 0)
+
+    def product_reference_by_hash(
+        self,
+        tenant_id: str,
+        product_id: str,
+        view_type: str,
+        content_hash: str,
+    ) -> RrugcProductReferenceModel | None:
+        return self.session.scalar(
+            select(RrugcProductReferenceModel)
+            .where(
+                RrugcProductReferenceModel.tenant_id == tenant_id,
+                RrugcProductReferenceModel.product_id == product_id,
+                RrugcProductReferenceModel.view_type == view_type,
+                RrugcProductReferenceModel.content_hash == content_hash,
+                RrugcProductReferenceModel.status == "active",
+            )
+            .order_by(RrugcProductReferenceModel.version.desc())
+            .limit(1)
+        )
+
+    def reusable_product_reference_by_hash(
+        self, tenant_id: str, content_hash: str
+    ) -> RrugcProductReferenceModel | None:
+        return self.session.scalar(
+            select(RrugcProductReferenceModel)
+            .where(
+                RrugcProductReferenceModel.tenant_id == tenant_id,
+                RrugcProductReferenceModel.content_hash == content_hash,
+                RrugcProductReferenceModel.status == "active",
+                RrugcProductReferenceModel.remote_file_id.is_not(None),
+            )
+            .order_by(RrugcProductReferenceModel.created_at.desc())
             .limit(1)
         )

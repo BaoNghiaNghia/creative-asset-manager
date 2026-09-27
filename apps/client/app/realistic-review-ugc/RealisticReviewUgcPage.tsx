@@ -3,6 +3,7 @@ import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { analyzeCandidate, createCampaign, importCandidate, listCampaigns, listCandidates } from "./api";
+import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import type { Campaign, CampaignCreated, Candidate, CandidateStatus } from "./types";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
@@ -239,6 +240,8 @@ export function RealisticReviewUgcPage() {
           <article><span>Approved</span><strong>{kpis.approved}</strong></article>
           <article><span>Drive ready</span><strong>{kpis.driveReady}</strong></article>
         </section>
+
+        <ProductRegistryPanel />
 
         <div className="rrugc-columns">
           <section className="rrugc-card">

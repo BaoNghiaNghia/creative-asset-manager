@@ -535,6 +535,16 @@ Product metadata includes geometry:
 
 Reference and geometry versions are immutable for historical runs.
 
+### B3 implementation status
+
+The production registry now persists tenant-scoped hat SKU geometry and versioned product reference views. Supported views are `front`, `front_45_left`, `front_45_right`, `side_left`, `side_right`, `back`, `top`, `logo_closeup`, `embroidery_closeup`, and `material_closeup`.
+
+Reference uploads are bounded to 20 MB and decoded through CAM's existing safe visual-image path before storage. SHA-256 is the stable binary identity: replaying the same bytes for the same SKU/view is idempotent, while the same bytes assigned to another view reuse the existing Managed Drive object and create only the new registry relationship. New bytes for the same view create the next immutable reference version.
+
+Product and reference deletion is soft archival. Historical versions therefore remain addressable for future generation-run provenance. The UI exposes the latest reference matrix, geometry revision, version history, Drive link, and an authenticated image preview streamed from Managed Drive.
+
+Product Reference Registry files are durable creative inputs rather than temporary AI staging objects. They intentionally do not create `AssetStorageObjectModel` staging rows, so the Managed Storage cleanup lifecycle cannot expire them as transient analysis files. Database registry rows remain the durable tenant-scoped source of truth for product/reference ownership and versioning.
+
 ---
 
 ## 13. Worker Skill

@@ -8,6 +8,20 @@ from pydantic import BaseModel, Field, model_validator
 
 CampaignStatus = Literal["running", "paused", "completed", "stopped"]
 ScoutStatus = Literal["offline", "ready", "busy", "needs_login", "error"]
+ProductStatus = Literal["active", "archived"]
+ProductReferenceStatus = Literal["active", "archived"]
+ProductReferenceView = Literal[
+    "front",
+    "front_45_left",
+    "front_45_right",
+    "side_left",
+    "side_right",
+    "back",
+    "top",
+    "logo_closeup",
+    "embroidery_closeup",
+    "material_closeup",
+]
 CandidateStatus = Literal[
     "discovered",
     "analysis_queued",
@@ -28,6 +42,79 @@ CandidateStatus = Literal[
     "import_failed",
     "rejected_duplicate",
 ]
+
+
+class ProductCreateRequest(BaseModel):
+    sku: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    name: str = Field(min_length=1, max_length=200)
+    product_type: str = Field(default="hat", min_length=1, max_length=64)
+    color: str | None = Field(default=None, max_length=120)
+    material: str | None = Field(default=None, max_length=200)
+    crown_profile: str | None = Field(default=None, max_length=64)
+    crown_height_mm: float | None = Field(default=None, gt=0, le=500)
+    brim_style: str | None = Field(default=None, max_length=64)
+    brim_length_mm: float | None = Field(default=None, gt=0, le=500)
+    circumference_mm: float | None = Field(default=None, gt=0, le=2000)
+    logo_position: str | None = Field(default=None, max_length=120)
+    fit_notes: str | None = Field(default=None, max_length=4000)
+
+
+class ProductUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    product_type: str | None = Field(default=None, min_length=1, max_length=64)
+    color: str | None = Field(default=None, max_length=120)
+    material: str | None = Field(default=None, max_length=200)
+    crown_profile: str | None = Field(default=None, max_length=64)
+    crown_height_mm: float | None = Field(default=None, gt=0, le=500)
+    brim_style: str | None = Field(default=None, max_length=64)
+    brim_length_mm: float | None = Field(default=None, gt=0, le=500)
+    circumference_mm: float | None = Field(default=None, gt=0, le=2000)
+    logo_position: str | None = Field(default=None, max_length=120)
+    fit_notes: str | None = Field(default=None, max_length=4000)
+
+
+class ProductResponse(BaseModel):
+    id: str
+    sku: str
+    name: str
+    product_type: str
+    color: str | None
+    material: str | None
+    crown_profile: str | None
+    crown_height_mm: float | None
+    brim_style: str | None
+    brim_length_mm: float | None
+    circumference_mm: float | None
+    logo_position: str | None
+    fit_notes: str | None
+    revision: int
+    status: ProductStatus
+    reference_count: int = 0
+    active_views: list[ProductReferenceView] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None
+
+
+class ProductReferenceResponse(BaseModel):
+    id: str
+    product_id: str
+    view_type: ProductReferenceView
+    version: int
+    status: ProductReferenceStatus
+    content_hash: str
+    original_filename: str | None
+    content_type: str
+    size_bytes: int
+    width: int
+    height: int
+    image_format: str
+    remote_file_id: str | None
+    remote_folder_id: str | None
+    web_url: str | None
+    reused_storage: bool
+    created_at: datetime
+    archived_at: datetime | None
 
 
 class CampaignCreateRequest(BaseModel):

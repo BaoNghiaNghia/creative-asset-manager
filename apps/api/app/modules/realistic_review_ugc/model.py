@@ -56,6 +56,81 @@ class RrugcCampaignModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class RrugcProductModel(Base):
+    __tablename__ = "rrugc_products"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "sku", name="uq_rrugc_product_tenant_sku"),
+        UniqueConstraint("tenant_id", "id", name="uq_rrugc_product_tenant_id"),
+        Index("ix_rrugc_product_tenant_status", "tenant_id", "status", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    sku: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    product_type: Mapped[str] = mapped_column(String(64), nullable=False, default="hat")
+    color: Mapped[str | None] = mapped_column(String(120))
+    material: Mapped[str | None] = mapped_column(String(200))
+    crown_profile: Mapped[str | None] = mapped_column(String(64))
+    crown_height_mm: Mapped[float | None] = mapped_column(Float)
+    brim_style: Mapped[str | None] = mapped_column(String(64))
+    brim_length_mm: Mapped[float | None] = mapped_column(Float)
+    circumference_mm: Mapped[float | None] = mapped_column(Float)
+    logo_position: Mapped[str | None] = mapped_column(String(120))
+    fit_notes: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcProductReferenceModel(Base):
+    __tablename__ = "rrugc_product_references"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["rrugc_products.tenant_id", "rrugc_products.id"],
+            name="fk_rrugc_product_reference_product",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id", "product_id", "view_type", "version",
+            name="uq_rrugc_product_reference_version",
+        ),
+        Index(
+            "ix_rrugc_product_reference_product_view",
+            "tenant_id", "product_id", "view_type", "version",
+        ),
+        Index(
+            "ix_rrugc_product_reference_hash",
+            "tenant_id", "content_hash",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    view_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_filename: Mapped[str | None] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    image_format: Mapped[str] = mapped_column(String(16), nullable=False)
+    remote_file_id: Mapped[str | None] = mapped_column(String(255))
+    remote_folder_id: Mapped[str | None] = mapped_column(String(255))
+    web_url: Mapped[str | None] = mapped_column(Text)
+    reused_storage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RrugcCandidateModel(Base):
     __tablename__ = "rrugc_candidates"
     __table_args__ = (

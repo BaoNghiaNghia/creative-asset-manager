@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from io import BytesIO
 from threading import Event
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from PIL import Image
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -16,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
 from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, JobOutcome, WorkerDependencies
-from app.domain.providers.contracts import AiMetadataAnalysisResult, StoredAsset
+from app.domain.providers.contracts import AiMetadataAnalysisResult, StoredAsset, StoredAssetReadStream
 from app.domain.providers.registry import AiProviderRegistry
 from app.infrastructure.downloader.secure_image import DownloadedImage
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
@@ -28,9 +30,16 @@ from app.modules.realistic_review_ugc.analysis import (
     evaluate_reference,
 )
 from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
-from app.modules.realistic_review_ugc.model import RrugcCampaignModel, RrugcCandidateModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcCampaignModel,
+    RrugcCandidateModel,
+    RrugcProductModel,
+    RrugcProductReferenceModel,
+)
+from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
+from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.router import router
-from app.modules.realistic_review_ugc.schema import CandidateSubmission
+from app.modules.realistic_review_ugc.schema import CandidateSubmission, ProductCreateRequest
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
@@ -66,6 +75,8 @@ def database():
     TenantProcessingPolicyModel.__table__.create(engine)
     ProcessingJobModel.__table__.create(engine)
     RrugcCampaignModel.__table__.create(engine)
+    RrugcProductModel.__table__.create(engine)
+    RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
@@ -299,8 +310,10 @@ class FakeStorage:
     def __init__(self):
         self.payload = b""
         self.input = None
+        self.calls = 0
 
     async def store_asset(self, input):
+        self.calls += 1
         self.input = input
         chunks = []
         async for chunk in input.body:
@@ -314,6 +327,20 @@ class FakeStorage:
             remote_file_id="file-1",
             remote_folder_id="folder-1",
             web_url="https://drive.google.com/file/d/file-1/view",
+        )
+
+    async def open_asset(self, input):
+        async def body():
+            yield self.payload or _png_bytes()
+
+        async def close():
+            return None
+
+        return StoredAssetReadStream(
+            body=body(),
+            close=close,
+            content_type=input.content_type or "image/png",
+            size_bytes=len(self.payload or _png_bytes()),
         )
 
 
@@ -450,3 +477,219 @@ def test_analysis_worker_persists_metrics_and_queues_auto_import(database, monke
                 )
             ))
             assert len(import_jobs) == 1
+
+
+def _png_bytes(width: int = 48, height: int = 32, value: int = 120) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (width, height), (value, 80, 40)).save(output, format="PNG")
+    return output.getvalue()
+
+
+def test_product_registry_crud_api(api):
+    created = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={
+            "sku": "hat-001",
+            "name": "Forest Cap",
+            "product_type": "hat",
+            "color": "forest green",
+            "material": "cotton twill",
+            "crown_profile": "mid",
+            "crown_height_mm": 118,
+            "brim_style": "curved",
+            "brim_length_mm": 72,
+            "circumference_mm": 580,
+            "logo_position": "front center",
+            "fit_notes": "Structured six-panel cap.",
+        },
+    )
+    assert created.status_code == 201
+    product = created.json()
+    assert product["sku"] == "HAT-001"
+    assert product["status"] == "active"
+    assert product["revision"] == 1
+    assert product["reference_count"] == 0
+
+    duplicate = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={"sku": "HAT-001", "name": "Duplicate"},
+    )
+    assert duplicate.status_code == 409
+
+    rows = api.get("/api/v1/realistic-review-ugc/products")
+    assert rows.status_code == 200
+    assert [row["id"] for row in rows.json()] == [product["id"]]
+
+    updated = api.patch(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}",
+        json={"color": "dark forest green", "fit_notes": "Updated geometry notes."},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["color"] == "dark forest green"
+    assert updated.json()["revision"] == 2
+
+    archived = api.delete(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}"
+    )
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "archived"
+    assert archived.json()["revision"] == 3
+
+    active = api.get("/api/v1/realistic-review-ugc/products")
+    assert active.json() == []
+    all_rows = api.get(
+        "/api/v1/realistic-review-ugc/products?include_archived=true"
+    )
+    assert len(all_rows.json()) == 1
+
+
+def test_product_reference_upload_is_versioned_and_reuses_hash(database):
+    first_bytes = _png_bytes(value=100)
+    second_bytes = _png_bytes(value=180)
+    storage = FakeStorage()
+
+    with database() as session:
+        product = RrugcProductRegistry(session).create_product(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            request=ProductCreateRequest(
+                sku="CAP-100",
+                name="Everyday Cap",
+                color="navy",
+                crown_profile="mid",
+                brim_style="curved",
+            ),
+        )
+        registry = RrugcProductRegistry(session)
+
+        front_v1 = asyncio.run(registry.upload_reference(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            product_id=product.id,
+            view_type="front",
+            original_filename="front.png",
+            content=first_bytes,
+            storage=storage,
+        ))
+        assert front_v1.version == 1
+        assert front_v1.width == 48
+        assert front_v1.height == 32
+        assert front_v1.image_format == "PNG"
+        assert front_v1.reused_storage is False
+        assert storage.calls == 1
+
+        exact_replay = asyncio.run(registry.upload_reference(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            product_id=product.id,
+            view_type="front",
+            original_filename="front-copy.png",
+            content=first_bytes,
+            storage=storage,
+        ))
+        assert exact_replay.id == front_v1.id
+        assert storage.calls == 1
+
+        side_same_content = asyncio.run(registry.upload_reference(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            product_id=product.id,
+            view_type="side_left",
+            original_filename="side.png",
+            content=first_bytes,
+            storage=storage,
+        ))
+        assert side_same_content.version == 1
+        assert side_same_content.reused_storage is True
+        assert side_same_content.remote_file_id == front_v1.remote_file_id
+        assert storage.calls == 1
+
+        front_v2 = asyncio.run(registry.upload_reference(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            product_id=product.id,
+            view_type="front",
+            original_filename="front-v2.png",
+            content=second_bytes,
+            storage=storage,
+        ))
+        assert front_v2.version == 2
+        assert front_v2.id != front_v1.id
+        assert storage.calls == 2
+
+        references = RrugcRepository(session).list_product_references(
+            "tenant-a", product.id
+        )
+        assert [(row.view_type, row.version) for row in references] == [
+            ("front", 2),
+            ("front", 1),
+            ("side_left", 1),
+        ]
+
+
+def test_product_reference_upload_rejects_invalid_image(database):
+    with database() as session:
+        product = RrugcProductRegistry(session).create_product(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            request=ProductCreateRequest(sku="CAP-BAD", name="Bad Image Guard"),
+        )
+        with pytest.raises(RrugcError) as captured:
+            asyncio.run(RrugcProductRegistry(session).upload_reference(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                product_id=product.id,
+                view_type="front",
+                original_filename="not-image.png",
+                content=b"not an image",
+                storage=FakeStorage(),
+            ))
+        assert captured.value.code == "product_reference_invalid_image"
+
+
+def test_product_reference_upload_api(api, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+    product = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={"sku": "CAP-API", "name": "API Cap"},
+    ).json()
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/references",
+        data={"view_type": "logo_closeup"},
+        files={"file": ("logo.png", _png_bytes(), "image/png")},
+    )
+    assert response.status_code == 201
+    reference = response.json()
+    assert reference["view_type"] == "logo_closeup"
+    assert reference["version"] == 1
+    assert reference["remote_file_id"] == "file-1"
+
+    listed = api.get(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/references"
+    )
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+
+    refreshed_product = api.get(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}"
+    )
+    assert refreshed_product.json()["reference_count"] == 1
+    assert refreshed_product.json()["active_views"] == ["logo_closeup"]
+
+    preview = api.get(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/references/{reference['id']}/image"
+    )
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("image/png")
+    assert preview.content == storage.payload
+
+    archived = api.delete(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/references/{reference['id']}"
+    )
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "archived"
