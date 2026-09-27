@@ -18,6 +18,9 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 
 
+DOWNLOAD_RECOVERY_CODES = frozenset({
+    "onedrive_notAllowed",
+})
 STORAGE_FALLBACK_CODES = frozenset({
     "managed_storage_forbidden",
     "managed_storage_unauthorized",
@@ -33,6 +36,7 @@ ANALYSIS_RECOVERY_CODES = frozenset({
 
 @dataclass(slots=True)
 class PipelineAttentionRecoveryResult:
+    download_pipelines: int = 0
     storage_pipelines: int = 0
     analysis_jobs: int = 0
     projection_jobs: int = 0
@@ -55,6 +59,13 @@ class PipelineAttentionRecovery:
 
     def preview(self, tenant_id: str) -> PipelineAttentionRecoveryResult:
         result = PipelineAttentionRecoveryResult()
+        result.download_pipelines = len(list(self.session.scalars(
+            select(AssetPipelineModel.id).where(
+                AssetPipelineModel.tenant_id == tenant_id,
+                AssetPipelineModel.state == PipelineState.DOWNLOAD_FAILED.value,
+                AssetPipelineModel.last_error_code.in_(DOWNLOAD_RECOVERY_CODES),
+            )
+        )))
         result.storage_pipelines = len(list(self.session.scalars(
             select(AssetPipelineModel.id).where(
                 AssetPipelineModel.tenant_id == tenant_id,
@@ -85,6 +96,35 @@ class PipelineAttentionRecovery:
             raise RuntimeError("source_analysis_fallback_disabled")
         result = PipelineAttentionRecoveryResult()
 
+        download_rows = list(self.session.scalars(
+            select(AssetPipelineModel)
+            .where(
+                AssetPipelineModel.tenant_id == tenant_id,
+                AssetPipelineModel.state == PipelineState.DOWNLOAD_FAILED.value,
+                AssetPipelineModel.last_error_code.in_(DOWNLOAD_RECOVERY_CODES),
+            )
+            .order_by(AssetPipelineModel.updated_at, AssetPipelineModel.id)
+            .limit(limit)
+            .with_for_update()
+        ))
+        for pipeline in download_rows:
+            if not pipeline.source_asset_id:
+                result.skipped_missing_identity += 1
+                continue
+            self.pipelines.transition(pipeline, PipelineState.DOWNLOAD_PENDING)
+            self.coordinator.enqueue(
+                pipeline,
+                "source_asset_download",
+                entity_type=pipeline.origin_type,
+                entity_id=pipeline.origin_id,
+                transition=False,
+            )
+            job = self._pipeline_job(pipeline, "source_asset_download")
+            if job is not None and job.status == "failed":
+                self._reset_job(job)
+            result.download_pipelines += 1
+
+        remaining = max(0, limit - result.download_pipelines)
         storage_rows = list(self.session.scalars(
             select(AssetPipelineModel)
             .where(
@@ -93,7 +133,7 @@ class PipelineAttentionRecovery:
                 AssetPipelineModel.last_error_code.in_(STORAGE_FALLBACK_CODES),
             )
             .order_by(AssetPipelineModel.updated_at, AssetPipelineModel.id)
-            .limit(limit)
+            .limit(remaining)
             .with_for_update()
         ))
         for pipeline in storage_rows:
@@ -105,7 +145,10 @@ class PipelineAttentionRecovery:
                 continue
             result.storage_pipelines += 1
 
-        remaining = max(0, limit - result.storage_pipelines)
+        remaining = max(
+            0,
+            limit - result.download_pipelines - result.storage_pipelines,
+        )
         if remaining:
             failed_analysis_jobs = list(self.session.scalars(
                 select(ProcessingJobModel)
@@ -129,7 +172,17 @@ class PipelineAttentionRecovery:
                     continue
                 result.analysis_jobs += 1
 
-        self._repair_projection_jobs(tenant_id, result, limit=max(0, limit - result.analysis_jobs))
+        self._repair_projection_jobs(
+            tenant_id,
+            result,
+            limit=max(
+                0,
+                limit
+                - result.download_pipelines
+                - result.storage_pipelines
+                - result.analysis_jobs,
+            ),
+        )
         self.session.flush()
         return result
 

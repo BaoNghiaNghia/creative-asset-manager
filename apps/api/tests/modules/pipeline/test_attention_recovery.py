@@ -99,6 +99,58 @@ def settings():
     )
 
 
+def test_onedrive_download_failure_is_requeued_without_creating_asset_identity():
+    engine, factory = sessions()
+    try:
+        with factory() as session:
+            pipeline, _analysis = seed(
+                session,
+                state="download_failed",
+                error_code="onedrive_notAllowed",
+            )
+            pipeline.asset_id = None
+            pipeline.analysis_id = None
+            pipeline.content_hash = None
+            job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="source_asset_download",
+                entity_type="source_asset",
+                entity_id=pipeline.origin_id,
+                idempotency_key=(
+                    f"pipeline:{pipeline.id}:source_asset_download:"
+                    f"{pipeline.source_asset_id}"
+                ),
+                payload_json={
+                    "pipeline_id": pipeline.id,
+                    "correlation_id": pipeline.correlation_id,
+                },
+                status="failed",
+                attempt_count=5,
+                max_attempts=5,
+                last_error_code="onedrive_notAllowed",
+            )
+            session.add(job)
+            session.commit()
+
+            recovery = PipelineAttentionRecovery(session, settings())
+            preview = recovery.preview("tenant-a")
+            assert preview.download_pipelines == 1
+
+            result = recovery.apply("tenant-a")
+            session.commit()
+
+            assert result.download_pipelines == 1
+            repaired_pipeline = session.get(AssetPipelineModel, pipeline.id)
+            repaired_job = session.get(ProcessingJobModel, job.id)
+            assert repaired_pipeline.state == "download_pending"
+            assert repaired_pipeline.asset_id is None
+            assert repaired_pipeline.content_hash is None
+            assert repaired_job.status == "retry"
+            assert repaired_job.max_attempts >= 8
+    finally:
+        engine.dispose()
+
+
 def test_storage_failure_is_recovered_to_source_analysis():
     engine, factory = sessions()
     try:

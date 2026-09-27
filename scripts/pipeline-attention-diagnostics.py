@@ -18,6 +18,7 @@ from app.modules.storage.managed_oauth import (
 )
 from app.modules.ai_metadata.model import AssetAiAnalysisModel, MetadataProfileModel
 from app.modules.ai_operations.pipeline import PipelineOperationsRepository
+from app.modules.assets.content_resolver import SourceAssetContentResolver
 from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
 from app.modules.explorer.tenant_source import TenantSourceResolver
 from app.modules.pipeline.attention_recovery import ANALYSIS_RECOVERY_CODES
@@ -277,6 +278,46 @@ def main() -> None:
                 )
             not_allowed = not_allowed_all[:1]
             if not_allowed:
+                async def sample_not_allowed_original():
+                    resolver = SourceAssetContentResolver(SessionLocal)
+                    pipeline = not_allowed[0]
+                    try:
+                        async with resolver.open(
+                            tenant_id=tenant_id,
+                            source_asset_id=pipeline.source_asset_id,
+                            range_header="bytes=0-63",
+                        ) as stream:
+                            prefix = bytearray()
+                            async for chunk in stream.body:
+                                prefix.extend(chunk)
+                                if len(prefix) >= 64:
+                                    break
+                            data = bytes(prefix[:64])
+                            kind = (
+                                "jpeg"
+                                if data.startswith(b"\xff\xd8\xff")
+                                else (
+                                    "png"
+                                    if data.startswith(b"\x89PNG\r\n\x1a\n")
+                                    else (
+                                        "bmff"
+                                        if len(data) >= 12 and data[4:8] == b"ftyp"
+                                        else "other"
+                                    )
+                                )
+                            )
+                            return kind, stream.content_type
+                    except Exception as exc:
+                        return f"error:{type(exc).__name__}", ""
+
+                original_kind, original_type = asyncio.run(
+                    sample_not_allowed_original()
+                )
+                print(
+                    "ONEDRIVE_NOT_ALLOWED_ORIGINAL "
+                    f"{original_kind}:{original_type or '-'}"
+                )
+
                 async def sample_not_allowed_thumbnails():
                     samples = []
                     for pipeline in not_allowed:
