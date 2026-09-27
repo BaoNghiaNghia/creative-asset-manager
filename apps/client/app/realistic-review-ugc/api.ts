@@ -3,6 +3,11 @@ import type {
   CampaignCreateRequest,
   CampaignCreated,
   CampaignExportSummary,
+  CampaignDeliverySummary,
+  DeliveryDestination,
+  DeliveryLifecycleReconcile,
+  DeliveryPackage,
+  DeliveryPackageList,
   Candidate,
   GenerationAttempt,
   GenerationCapability,
@@ -99,6 +104,12 @@ export const archiveProductReference = (productId: string, referenceId: string) 
 
 export const listCampaigns = (signal?: AbortSignal) =>
   request<Campaign[]>("/api/v1/realistic-review-ugc/campaigns", { signal });
+
+export const getCampaign = (campaignId: string, signal?: AbortSignal) =>
+  request<Campaign>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId),
+    { signal },
+  );
 
 export const createCampaign = (body: CampaignCreateRequest) =>
   request<CampaignCreated>("/api/v1/realistic-review-ugc/campaigns", {
@@ -257,6 +268,91 @@ export const getCampaignExportSummary = (
     "/api/v1/realistic-review-ugc/campaigns/"
       + encodeURIComponent(campaignId) + "/export-summary",
     { signal },
+  );
+
+export const listDeliveryDestinations = (signal?: AbortSignal) =>
+  request<DeliveryDestination[]>(
+    "/api/v1/realistic-review-ugc/delivery-destinations",
+    { signal },
+  );
+
+export const createDeliveryDestination = (input: {
+  name: string;
+  target_ref: string;
+  retention_days: number;
+}) =>
+  request<DeliveryDestination>(
+    "/api/v1/realistic-review-ugc/delivery-destinations",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...input,
+        kind: "google_drive_folder",
+      }),
+    },
+  );
+
+export const archiveDeliveryDestination = (destinationId: string) =>
+  request<DeliveryDestination>(
+    "/api/v1/realistic-review-ugc/delivery-destinations/"
+      + encodeURIComponent(destinationId),
+    { method: "DELETE" },
+  );
+
+export const updateCampaignLifecyclePolicy = (
+  campaignId: string,
+  autoCompleteOnDelivery: boolean,
+  completionDestinationId: string | null,
+) =>
+  request<Campaign>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/lifecycle-policy",
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        auto_complete_on_delivery: autoCompleteOnDelivery,
+        completion_destination_id: completionDestinationId,
+      }),
+    },
+  );
+
+export const listDeliveryPackages = (
+  campaignId?: string,
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "100", offset: "0" });
+  if (campaignId) params.set("campaign_id", campaignId);
+  return request<DeliveryPackageList>(
+    "/api/v1/realistic-review-ugc/delivery-packages?" + params.toString(),
+    { signal },
+  );
+};
+
+export const deliverCampaign = (
+  campaignId: string,
+  destinationId: string,
+) =>
+  request<DeliveryPackage>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/deliveries/"
+      + encodeURIComponent(destinationId),
+    { method: "POST", body: "{}" },
+  );
+
+export const getCampaignDeliverySummary = (
+  campaignId: string,
+  signal?: AbortSignal,
+) =>
+  request<CampaignDeliverySummary>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/delivery-summary",
+    { signal },
+  );
+
+export const reconcileDeliveryLifecycle = (limit = 200) =>
+  request<DeliveryLifecycleReconcile>(
+    "/api/v1/realistic-review-ugc/delivery-lifecycle/reconcile?limit=" + limit,
+    { method: "POST", body: "{}" },
   );
 
 

@@ -1577,5 +1577,48 @@ The Realistic Review UGC generation workspace exposes the Phase 9 summary and a 
 
 Read operations remain protected by `realistic_review_ugc.read`; export mutations require `realistic_review_ugc.run`. All lookups and writes remain tenant-scoped.
 
-The next remaining phase is downstream delivery and lifecycle automation: channel/package delivery for cataloged assets, explicit export destinations, campaign auto-completion rules, retention/lifecycle policy and richer operational reporting. Those capabilities are not part of Phase 9.
+Phase 9 ends when approved outputs are registered as canonical catalog assets.
+
+---
+
+## 42. Implemented downstream delivery + lifecycle controls
+
+Phase 10 adds an explicit delivery layer after catalog registration:
+
+```text
+cataloged outputs
+  ↓
+explicit delivery destination
+  ↓
+delivery package + immutable item manifest
+  ↓
+Google Drive server-side copy
+  ↓
+delivered / partial_failed
+  ↓
+optional campaign auto-completion
+  ↓
+retention lifecycle reconciliation
+```
+
+A delivery destination is tenant-scoped configuration with a human-readable name, destination type, Google Drive folder ID and retention period. The first supported destination type is `google_drive_folder`. Destinations are intentionally explicit; the workflow never guesses a folder from the campaign or product.
+
+Delivery does not download and re-upload the generated image. The Managed Google Drive provider performs a Drive server-side copy from the cataloged managed object into the configured destination folder. Each delivery item writes `cam_rrugc_delivery_item` into Drive `appProperties`, so a retry can discover an already-created copy after a network timeout instead of producing duplicates.
+
+Every delivery creates durable provenance:
+
+- `rrugc_delivery_packages` records campaign, destination, immutable export manifest, counts, delivery timestamps and retention expiry,
+- `rrugc_delivery_items` records the source export/catalog asset, source Drive ID, delivered Drive ID, delivered URL, status and any bounded error,
+- deterministic package idempotency prevents the same campaign/export set from producing duplicate packages for the same destination,
+- `partial_failed` packages can be retried in place; already-delivered items are skipped.
+
+Campaign lifecycle policy can optionally auto-complete the workflow for one selected destination. Completion is only recorded when the chosen destination has a fully delivered package covering all current cataloged outputs, there are no `export_ready` outputs, and there are no pending human-review tasks. The campaign stores the selected completion destination and `completed_at` timestamp. Existing campaign status semantics remain compatible with the earlier scouting workflow; `completed_at` is the stronger delivery-completion marker introduced here.
+
+Retention is deliberately non-destructive to the asset catalog. A delivered package receives `expires_at` from the destination retention policy. Lifecycle reconciliation marks the package `expired` after that time, but does **not** delete the canonical AssetModel, the managed original, or its Phase 9 export provenance. Delivery copies can therefore be governed independently without risking the source-of-truth asset.
+
+The RRUGC API now supports destination create/list/archive, campaign lifecycle policy, campaign delivery, package listing, delivery summary and bounded lifecycle reconciliation. Read endpoints require `realistic_review_ugc.read`; destination, policy, delivery and lifecycle mutations require `realistic_review_ugc.run`.
+
+The Realistic Review UGC workspace exposes **PHASE 10 · DELIVERY + LIFECYCLE** with destination creation/selection, server-side delivery, campaign auto-completion policy, package outcome counters and retention reconciliation. The UI explicitly states that delivery expiry leaves catalog originals untouched.
+
+A future phase can add channel-specific adapters (for example ad-platform or commerce destinations), scheduled retention reconciliation independent of UI/API activity, delivery webhooks/notifications and richer cross-campaign operations reporting. Those integrations are not part of Phase 10.
 

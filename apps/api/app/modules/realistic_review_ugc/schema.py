@@ -167,6 +167,9 @@ class CampaignResponse(BaseModel):
     product_bound_at: datetime | None = None
     product_binding_stale: bool = False
     generation_ready: bool = False
+    auto_complete_on_delivery: bool = False
+    completion_destination_id: str | None = None
+    completed_at: datetime | None = None
     status: CampaignStatus
     scout_status: ScoutStatus
     scout_last_seen_at: datetime | None
@@ -370,6 +373,90 @@ class CampaignExportSummaryResponse(BaseModel):
     rejected: int
     export_ready: int
     exported: int
+
+
+class DeliveryDestinationCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    kind: Literal["google_drive_folder"] = "google_drive_folder"
+    target_ref: str = Field(min_length=1, max_length=255)
+    retention_days: int = Field(default=90, ge=1, le=3650)
+
+
+class DeliveryDestinationResponse(BaseModel):
+    id: str
+    name: str
+    kind: Literal["google_drive_folder"]
+    target_ref: str
+    retention_days: int
+    active: bool
+    created_by_user_id: str
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = None
+
+
+class DeliveryItemResponse(BaseModel):
+    id: str
+    export_id: str
+    catalog_asset_id: str
+    source_remote_file_id: str
+    delivered_remote_file_id: str | None = None
+    delivered_web_url: str | None = None
+    status: Literal["pending", "delivered", "failed"]
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    delivered_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeliveryPackageResponse(BaseModel):
+    id: str
+    campaign_id: str
+    destination_id: str
+    status: Literal["pending", "delivering", "delivered", "partial_failed", "expired"]
+    export_count: int
+    delivered_count: int
+    failed_count: int
+    items: list[DeliveryItemResponse] = Field(default_factory=list)
+    started_at: datetime | None = None
+    delivered_at: datetime | None = None
+    expires_at: datetime | None = None
+    expired_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeliveryPackageListResponse(BaseModel):
+    items: list[DeliveryPackageResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class CampaignLifecyclePolicyRequest(BaseModel):
+    auto_complete_on_delivery: bool = False
+    completion_destination_id: str | None = Field(default=None, max_length=36)
+
+
+class CampaignDeliverySummaryResponse(BaseModel):
+    campaign_status: CampaignStatus
+    auto_complete_on_delivery: bool
+    completion_destination_id: str | None = None
+    cataloged: int
+    packages_total: int
+    packages_delivered: int
+    packages_partial_failed: int
+    packages_expired: int
+    latest_delivered_count: int
+    latest_export_count: int
+    auto_complete_eligible: bool
+    completed_at: datetime | None = None
+
+
+class DeliveryLifecycleReconcileResponse(BaseModel):
+    scanned: int
+    expired: int
 
 
 class CandidateSubmission(BaseModel):

@@ -170,6 +170,105 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
             ) from exc
         return files
 
+    async def copy_asset_to_folder(
+        self,
+        *,
+        tenant_id: str,
+        asset_id: str,
+        content_hash: str,
+        source_remote_file_id: str,
+        destination_folder_id: str,
+        delivery_item_id: str,
+        filename: str | None = None,
+    ) -> StoredAsset:
+        """Idempotently copy a managed asset into an explicitly configured Drive folder.
+
+        Delivery copies are identified by the immutable RRUGC delivery item id, so a
+        retry after a timeout can discover the already-created copy instead of
+        duplicating the file.
+        """
+        destination_folder_id = str(destination_folder_id or "").strip()
+        source_remote_file_id = str(source_remote_file_id or "").strip()
+        delivery_item_id = str(delivery_item_id or "").strip()
+        if not destination_folder_id or not source_remote_file_id or not delivery_item_id:
+            raise ValueError("delivery copy requires source, destination, and item identity")
+
+        access_token = await self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
+        try:
+            async with httpx.AsyncClient(
+                headers=headers,
+                timeout=httpx.Timeout(60, connect=10, read=60),
+                transport=self._transport,
+            ) as client:
+                query = (
+                    f"'{_escape_query(destination_folder_id)}' in parents "
+                    "and trashed = false "
+                    "and appProperties has { key='cam_rrugc_delivery_item' "
+                    f"and value='{_escape_query(delivery_item_id)}' }}"
+                )
+                existing_response = await client.get(
+                    "https://www.googleapis.com/drive/v3/files",
+                    params={
+                        "q": query,
+                        "pageSize": "1",
+                        "fields": "files(id,parents,webViewLink,size)",
+                        "supportsAllDrives": "true",
+                        "includeItemsFromAllDrives": "true",
+                    },
+                )
+                self._raise_for_status(existing_response)
+                existing = (existing_response.json().get("files") or [])
+                if existing:
+                    data = existing[0]
+                else:
+                    metadata: dict[str, object] = {
+                        "parents": [destination_folder_id],
+                        "appProperties": {
+                            "cam_tenant_id": tenant_id,
+                            "cam_asset_id": asset_id,
+                            "cam_content_hash": content_hash,
+                            "cam_rrugc_delivery_item": delivery_item_id,
+                        },
+                    }
+                    if filename:
+                        metadata["name"] = filename
+                    copy_response = await client.post(
+                        f"https://www.googleapis.com/drive/v3/files/{source_remote_file_id}/copy",
+                        params={
+                            "supportsAllDrives": "true",
+                            "fields": "id,parents,webViewLink,size",
+                        },
+                        json=metadata,
+                    )
+                    self._raise_for_status(copy_response)
+                    data = copy_response.json()
+                remote_file_id = str(data.get("id") or "")
+                if not remote_file_id:
+                    raise StorageProviderError(
+                        "Google Drive delivery copy returned no file ID.",
+                        code="managed_storage_delivery_copy_invalid",
+                        retryable=True,
+                    )
+                size = data.get("size")
+                return StoredAsset(
+                    storage_key=f"{self.provider_name}:{remote_file_id}",
+                    content_hash=content_hash,
+                    size_bytes=int(size) if str(size or "").isdigit() else None,
+                    storage_provider=self.provider_name,
+                    remote_file_id=remote_file_id,
+                    remote_folder_id=destination_folder_id,
+                    web_url=data.get("webViewLink"),
+                )
+        except StorageProviderError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise StorageProviderError(
+                "Google Drive delivery copy failed.",
+                code="managed_storage_delivery_copy_network_error",
+                retryable=True,
+            ) from exc
+
     async def delete_asset(self, input: DeleteStoredAssetInput) -> None:
         """Delete only a tracked managed-storage object, never a source object."""
         access_token = await self._get_access_token()

@@ -24,6 +24,9 @@ export type Campaign = {
   product_bound_at: string | null;
   product_binding_stale: boolean;
   generation_ready: boolean;
+  auto_complete_on_delivery: boolean;
+  completion_destination_id: string | null;
+  completed_at: string | null;
   status: "running" | "paused" | "completed" | "stopped";
   scout_status: "offline" | "ready" | "busy" | "needs_login" | "error";
   scout_last_seen_at: string | null;
@@ -345,6 +348,78 @@ export type CampaignExportSummary = {
   rejected: number;
   export_ready: number;
   exported: number;
+};
+
+export type DeliveryDestination = {
+  id: string;
+  name: string;
+  kind: "google_drive_folder";
+  target_ref: string;
+  retention_days: number;
+  active: boolean;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type DeliveryItem = {
+  id: string;
+  export_id: string;
+  catalog_asset_id: string;
+  source_remote_file_id: string;
+  delivered_remote_file_id: string | null;
+  delivered_web_url: string | null;
+  status: "pending" | "delivered" | "failed";
+  last_error_code: string | null;
+  last_error_message: string | null;
+  delivered_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DeliveryPackage = {
+  id: string;
+  campaign_id: string;
+  destination_id: string;
+  status: "pending" | "delivering" | "delivered" | "partial_failed" | "expired";
+  export_count: number;
+  delivered_count: number;
+  failed_count: number;
+  items: DeliveryItem[];
+  started_at: string | null;
+  delivered_at: string | null;
+  expires_at: string | null;
+  expired_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DeliveryPackageList = {
+  items: DeliveryPackage[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type CampaignDeliverySummary = {
+  campaign_status: "running" | "paused" | "completed" | "stopped";
+  auto_complete_on_delivery: boolean;
+  completion_destination_id: string | null;
+  cataloged: number;
+  packages_total: number;
+  packages_delivered: number;
+  packages_partial_failed: number;
+  packages_expired: number;
+  latest_delivered_count: number;
+  latest_export_count: number;
+  auto_complete_eligible: boolean;
+  completed_at: string | null;
+};
+
+export type DeliveryLifecycleReconcile = {
+  scanned: number;
+  expired: number;
 };
 
 export type CampaignCreateRequest = {

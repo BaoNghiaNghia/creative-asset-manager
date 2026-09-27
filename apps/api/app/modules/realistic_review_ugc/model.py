@@ -61,6 +61,9 @@ class RrugcCampaignModel(Base):
     product_reference_snapshot_json: Mapped[list | None] = mapped_column(JSON)
     product_bound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    auto_complete_on_delivery: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    completion_destination_id: Mapped[str | None] = mapped_column(String(36))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scout_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     scout_status: Mapped[str] = mapped_column(String(32), nullable=False, default="offline")
     scout_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -471,6 +474,159 @@ class RrugcExportModel(Base):
     exported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+class RrugcDeliveryDestinationModel(Base):
+    __tablename__ = "rrugc_delivery_destinations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "name",
+            name="uq_rrugc_delivery_destination_name",
+        ),
+        Index(
+            "ix_rrugc_delivery_destination_tenant_active",
+            "tenant_id",
+            "active",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="google_drive_folder"
+    )
+    target_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=90)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcDeliveryPackageModel(Base):
+    __tablename__ = "rrugc_delivery_packages"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_delivery_package_campaign",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["destination_id"],
+            ["rrugc_delivery_destinations.id"],
+            name="fk_rrugc_delivery_package_destination",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_rrugc_delivery_package_key",
+        ),
+        Index(
+            "ix_rrugc_delivery_package_campaign_status",
+            "tenant_id",
+            "campaign_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_rrugc_delivery_package_expires",
+            "tenant_id",
+            "status",
+            "expires_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    destination_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    export_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivered_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    manifest_json: Mapped[list | None] = mapped_column(JSON)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class RrugcDeliveryItemModel(Base):
+    __tablename__ = "rrugc_delivery_items"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["package_id"],
+            ["rrugc_delivery_packages.id"],
+            name="fk_rrugc_delivery_item_package",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["export_id"],
+            ["rrugc_exports.id"],
+            name="fk_rrugc_delivery_item_export",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_asset_id"],
+            ["assets.tenant_id", "assets.id"],
+            name="fk_rrugc_delivery_item_catalog_asset",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "package_id",
+            "export_id",
+            name="uq_rrugc_delivery_item_export",
+        ),
+        Index(
+            "ix_rrugc_delivery_item_package_status",
+            "tenant_id",
+            "package_id",
+            "status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    export_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    catalog_asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    delivered_remote_file_id: Mapped[str | None] = mapped_column(String(255))
+    delivered_web_url: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )

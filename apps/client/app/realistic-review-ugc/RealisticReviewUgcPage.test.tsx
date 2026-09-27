@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { routeForPath } from "../AppRoute";
-import { CampaignExportPanel } from "./CampaignGenerationPanel";
+import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { scoutCommand } from "./RealisticReviewUgcPage";
 
 describe("Realistic Review UGC route", () => {
@@ -45,5 +45,102 @@ describe("Realistic Review UGC route", () => {
     );
     expect(markup).toContain("disabled");
     expect(markup).toContain("Export ready (0)");
+  });
+
+
+  it("renders Phase 10 delivery status and destination controls", () => {
+    const markup = renderToStaticMarkup(
+      <CampaignDeliveryPanel
+        summary={{
+          campaign_status: "running",
+          auto_complete_on_delivery: true,
+          completion_destination_id: "destination-1",
+          cataloged: 4,
+          packages_total: 2,
+          packages_delivered: 1,
+          packages_partial_failed: 1,
+          packages_expired: 0,
+          latest_delivered_count: 3,
+          latest_export_count: 4,
+          auto_complete_eligible: false,
+          completed_at: null,
+        }}
+        destinations={[{
+          id: "destination-1",
+          name: "Paid Social Finals",
+          kind: "google_drive_folder",
+          target_ref: "drive-folder-1",
+          retention_days: 30,
+          active: true,
+          created_by_user_id: "user-a",
+          created_at: "2026-09-28T00:00:00Z",
+          updated_at: "2026-09-28T00:00:00Z",
+          archived_at: null,
+        }]}
+        packages={[{
+          id: "package-1",
+          campaign_id: "campaign-1",
+          destination_id: "destination-1",
+          status: "partial_failed",
+          export_count: 4,
+          delivered_count: 3,
+          failed_count: 1,
+          items: [],
+          started_at: "2026-09-28T00:00:00Z",
+          delivered_at: null,
+          expires_at: null,
+          expired_at: null,
+          created_at: "2026-09-28T00:00:00Z",
+          updated_at: "2026-09-28T00:00:00Z",
+        }]}
+        selectedDestinationId="destination-1"
+        autoComplete={true}
+        destinationName=""
+        destinationFolderId=""
+        retentionDays={90}
+        busy=""
+        onDestinationChange={() => undefined}
+        onAutoCompleteChange={() => undefined}
+        onDestinationNameChange={() => undefined}
+        onDestinationFolderIdChange={() => undefined}
+        onRetentionDaysChange={() => undefined}
+        onCreateDestination={() => undefined}
+        onDeliver={() => undefined}
+        onSavePolicy={() => undefined}
+        onReconcile={() => undefined}
+      />,
+    );
+    expect(markup).toContain("PHASE 10 · DELIVERY + LIFECYCLE");
+    expect(markup).toContain("Deliver cataloged (4)");
+    expect(markup).toContain("Paid Social Finals");
+    expect(markup).toContain("retry needed");
+    expect(markup).toContain("3/4 delivered");
+  });
+
+  it("disables delivery when no destination is selected", () => {
+    const markup = renderToStaticMarkup(
+      <CampaignDeliveryPanel
+        summary={null}
+        destinations={[]}
+        packages={[]}
+        selectedDestinationId=""
+        autoComplete={false}
+        destinationName=""
+        destinationFolderId=""
+        retentionDays={90}
+        busy=""
+        onDestinationChange={() => undefined}
+        onAutoCompleteChange={() => undefined}
+        onDestinationNameChange={() => undefined}
+        onDestinationFolderIdChange={() => undefined}
+        onRetentionDaysChange={() => undefined}
+        onCreateDestination={() => undefined}
+        onDeliver={() => undefined}
+        onSavePolicy={() => undefined}
+        onReconcile={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Deliver cataloged (0)");
+    expect(markup).toContain("disabled");
   });
 });

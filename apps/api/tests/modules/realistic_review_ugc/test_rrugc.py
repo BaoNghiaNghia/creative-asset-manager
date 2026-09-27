@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from threading import Event
 from pathlib import Path
@@ -48,6 +49,9 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
+    RrugcDeliveryDestinationModel,
+    RrugcDeliveryPackageModel,
+    RrugcDeliveryItemModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -55,6 +59,7 @@ from app.modules.realistic_review_ugc.product_registry import RrugcProductRegist
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.export import RrugcExportService
+from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -107,6 +112,9 @@ def database():
     AssetModel.__table__.create(engine)
     AssetStorageObjectModel.__table__.create(engine)
     RrugcExportModel.__table__.create(engine)
+    RrugcDeliveryDestinationModel.__table__.create(engine)
+    RrugcDeliveryPackageModel.__table__.create(engine)
+    RrugcDeliveryItemModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -892,6 +900,259 @@ def test_export_api_single_batch_list_and_summary(api, database):
     assert batch.status_code == 200
     assert batch.json()["scanned"] == 0
     assert batch.json()["exported"] == 0
+
+
+
+
+class _FakeDeliveryStorage:
+    def __init__(self, *, fail_first: bool = False):
+        self.calls: list[dict] = []
+        self.fail_first = fail_first
+
+    async def copy_asset_to_folder(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        if self.fail_first and len(self.calls) == 1:
+            raise StorageProviderError(
+                "temporary delivery failure",
+                code="delivery_temporary",
+                retryable=True,
+            )
+        item_id = kwargs["delivery_item_id"]
+        return StoredAsset(
+            storage_key=f"google_drive_managed:copy-{item_id}",
+            content_hash=kwargs["content_hash"],
+            size_bytes=2048,
+            storage_provider="google_drive_managed",
+            remote_file_id=f"copy-{item_id}",
+            remote_folder_id=kwargs["destination_folder_id"],
+            web_url=f"https://drive.google.com/file/d/copy-{item_id}/view",
+        )
+
+
+def _catalog_one_for_delivery(session, *, key: str):
+    campaign, attempt, task = _approve_review_for_export(session, key=key)
+    export, created = RrugcExportService(session).export_attempt(
+        tenant_id="tenant-a",
+        generation_attempt_id=attempt.id,
+        user_id="exporter-a",
+    )
+    assert created is True
+    return campaign, attempt, task, export
+
+
+def test_delivery_copies_cataloged_asset_idempotently_and_auto_completes(database):
+    with database() as session:
+        campaign, _attempt, _task, export = _catalog_one_for_delivery(
+            session,
+            key="delivery-a",
+        )
+        fake = _FakeDeliveryStorage()
+        service = RrugcDeliveryService(session, storage=fake)
+        destination = service.create_destination(
+            tenant_id="tenant-a",
+            user_id="operator-a",
+            name="Paid Social Finals",
+            kind="google_drive_folder",
+            target_ref="drive-folder-final",
+            retention_days=30,
+        )
+        service.set_campaign_policy(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            auto_complete_on_delivery=True,
+            completion_destination_id=destination.id,
+        )
+
+        package = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        assert package.status == "delivered"
+        assert package.export_count == 1
+        assert package.delivered_count == 1
+        assert package.failed_count == 0
+        assert package.delivered_at is not None
+        assert package.expires_at is not None
+        assert len(fake.calls) == 1
+        assert fake.calls[0]["source_remote_file_id"] == export.remote_file_id
+        assert fake.calls[0]["destination_folder_id"] == "drive-folder-final"
+
+        refreshed_campaign = RrugcRepository(session).get_campaign(
+            "tenant-a",
+            campaign.id,
+        )
+        assert refreshed_campaign is not None
+        assert refreshed_campaign.completed_at is not None
+
+        repeated = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-b",
+            )
+        )
+        assert repeated.id == package.id
+        assert len(fake.calls) == 1
+
+        summary = service.delivery_summary(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+        )
+        assert summary["cataloged"] == 1
+        assert summary["packages_delivered"] == 1
+        assert summary["auto_complete_eligible"] is True
+
+
+def test_delivery_partial_failure_retries_same_package_without_new_package(database):
+    with database() as session:
+        campaign, _attempt, _task, _export = _catalog_one_for_delivery(
+            session,
+            key="delivery-retry",
+        )
+        fake = _FakeDeliveryStorage(fail_first=True)
+        service = RrugcDeliveryService(session, storage=fake)
+        destination = service.create_destination(
+            tenant_id="tenant-a",
+            user_id="operator-a",
+            name="Retry Folder",
+            kind="google_drive_folder",
+            target_ref="drive-folder-retry",
+            retention_days=14,
+        )
+
+        first = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        assert first.status == "partial_failed"
+        assert first.failed_count == 1
+        assert first.delivered_count == 0
+
+        second = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        assert second.id == first.id
+        assert second.status == "delivered"
+        assert second.delivered_count == 1
+        assert len(fake.calls) == 2
+
+        packages, total = service.list_packages(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+        )
+        assert total == 1
+        assert packages[0].id == first.id
+
+
+def test_delivery_lifecycle_marks_expired_without_deleting_catalog_asset(database):
+    with database() as session:
+        campaign, _attempt, _task, export = _catalog_one_for_delivery(
+            session,
+            key="delivery-expire",
+        )
+        fake = _FakeDeliveryStorage()
+        service = RrugcDeliveryService(session, storage=fake)
+        destination = service.create_destination(
+            tenant_id="tenant-a",
+            user_id="operator-a",
+            name="Short Retention",
+            kind="google_drive_folder",
+            target_ref="drive-folder-short",
+            retention_days=1,
+        )
+        package = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        package.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        session.commit()
+
+        result = service.reconcile_lifecycle(
+            tenant_id="tenant-a",
+            now=datetime.now(timezone.utc),
+        )
+        assert result.scanned == 1
+        assert result.expired == 1
+        session.refresh(package)
+        assert package.status == "expired"
+        assert package.expired_at is not None
+        asset = session.scalar(
+            select(AssetModel).where(
+                AssetModel.tenant_id == "tenant-a",
+                AssetModel.id == export.catalog_asset_id,
+            )
+        )
+        assert asset is not None
+
+
+def test_delivery_destination_policy_and_summary_api(api, database):
+    with database() as session:
+        campaign, _attempt, _task, _export = _catalog_one_for_delivery(
+            session,
+            key="delivery-api",
+        )
+        campaign_id = campaign.id
+
+    created = api.post(
+        "/api/v1/realistic-review-ugc/delivery-destinations",
+        json={
+            "name": "TikTok Finals",
+            "kind": "google_drive_folder",
+            "target_ref": "drive-folder-tiktok",
+            "retention_days": 45,
+        },
+    )
+    assert created.status_code == 201
+    destination_id = created.json()["id"]
+
+    listed = api.get("/api/v1/realistic-review-ugc/delivery-destinations")
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == destination_id
+
+    policy = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/lifecycle-policy",
+        json={
+            "auto_complete_on_delivery": True,
+            "completion_destination_id": destination_id,
+        },
+    )
+    assert policy.status_code == 200
+    assert policy.json()["auto_complete_on_delivery"] is True
+    assert policy.json()["completion_destination_id"] == destination_id
+
+    summary = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/delivery-summary",
+    )
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["cataloged"] == 1
+    assert payload["packages_total"] == 0
+    assert payload["auto_complete_eligible"] is False
+
+    packages = api.get(
+        "/api/v1/realistic-review-ugc/delivery-packages",
+        params={"campaign_id": campaign_id},
+    )
+    assert packages.status_code == 200
+    assert packages.json()["total"] == 0
 
 
 def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):

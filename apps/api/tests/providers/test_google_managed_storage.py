@@ -257,6 +257,66 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(notified, [True])
 
 
+
+
+    async def test_delivery_copy_is_idempotent_by_delivery_item(self) -> None:
+        copied = None
+        methods = []
+        posted_metadata = []
+
+        async def handler(request):
+            nonlocal copied
+            methods.append(request.method)
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={"files": [copied] if copied else []},
+                )
+            metadata = __import__("json").loads((await request.aread()).decode())
+            posted_metadata.append(metadata)
+            self.assertEqual(metadata["parents"], ["delivery-folder"])
+            self.assertEqual(
+                metadata["appProperties"]["cam_rrugc_delivery_item"],
+                "delivery-item-1",
+            )
+            copied = {
+                "id": "delivery-copy-1",
+                "parents": ["delivery-folder"],
+                "webViewLink": "https://drive.google.com/file/d/delivery-copy-1/view",
+                "size": "123",
+            }
+            return httpx.Response(200, json=copied)
+
+        provider = GoogleDriveAssetStorage(
+            "storage-token",
+            root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
+        )
+        first = await provider.copy_asset_to_folder(
+            tenant_id="tenant-a",
+            asset_id="asset-a",
+            content_hash="d" * 64,
+            source_remote_file_id="managed-source-1",
+            destination_folder_id="delivery-folder",
+            delivery_item_id="delivery-item-1",
+            filename="final.png",
+        )
+        second = await provider.copy_asset_to_folder(
+            tenant_id="tenant-a",
+            asset_id="asset-a",
+            content_hash="d" * 64,
+            source_remote_file_id="managed-source-1",
+            destination_folder_id="delivery-folder",
+            delivery_item_id="delivery-item-1",
+            filename="final.png",
+        )
+
+        self.assertEqual(first.remote_file_id, "delivery-copy-1")
+        self.assertEqual(second.remote_file_id, "delivery-copy-1")
+        self.assertEqual(methods.count("POST"), 1)
+        self.assertEqual(len(posted_metadata), 1)
+
+
     async def test_delete_uses_managed_remote_identity_and_supports_all_drives(self) -> None:
         requests = []
 

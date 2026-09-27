@@ -25,6 +25,9 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
+    RrugcDeliveryDestinationModel,
+    RrugcDeliveryPackageModel,
+    RrugcDeliveryItemModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -57,6 +60,14 @@ from app.modules.realistic_review_ugc.schema import (
     ExportListResponse,
     BatchExportResponse,
     CampaignExportSummaryResponse,
+    DeliveryDestinationCreateRequest,
+    DeliveryDestinationResponse,
+    DeliveryItemResponse,
+    DeliveryPackageResponse,
+    DeliveryPackageListResponse,
+    CampaignLifecyclePolicyRequest,
+    CampaignDeliverySummaryResponse,
+    DeliveryLifecycleReconcileResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
     ProductReferenceView,
@@ -67,6 +78,7 @@ from app.modules.realistic_review_ugc.schema import (
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.export import RrugcExportService
+from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -77,6 +89,7 @@ from app.modules.realistic_review_ugc.service import (
     campaign_token_matches,
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
 
@@ -442,6 +455,68 @@ def _export(row: RrugcExportModel) -> ExportResponse:
     )
 
 
+def _delivery_destination(
+    row: RrugcDeliveryDestinationModel,
+) -> DeliveryDestinationResponse:
+    return DeliveryDestinationResponse(
+        id=row.id,
+        name=row.name,
+        kind=row.kind,
+        target_ref=row.target_ref,
+        retention_days=row.retention_days,
+        active=row.active,
+        created_by_user_id=row.created_by_user_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        archived_at=row.archived_at,
+    )
+
+
+def _delivery_item(row: RrugcDeliveryItemModel) -> DeliveryItemResponse:
+    return DeliveryItemResponse(
+        id=row.id,
+        export_id=row.export_id,
+        catalog_asset_id=row.catalog_asset_id,
+        source_remote_file_id=row.source_remote_file_id,
+        delivered_remote_file_id=row.delivered_remote_file_id,
+        delivered_web_url=row.delivered_web_url,
+        status=row.status,
+        last_error_code=row.last_error_code,
+        last_error_message=row.last_error_message,
+        delivered_at=row.delivered_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _delivery_package(
+    service: RrugcDeliveryService,
+    row: RrugcDeliveryPackageModel,
+) -> DeliveryPackageResponse:
+    return DeliveryPackageResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        destination_id=row.destination_id,
+        status=row.status,
+        export_count=row.export_count,
+        delivered_count=row.delivered_count,
+        failed_count=row.failed_count,
+        items=[
+            _delivery_item(item)
+            for item in service.package_items(
+                tenant_id=row.tenant_id,
+                package_id=row.id,
+            )
+        ],
+        started_at=row.started_at,
+        delivered_at=row.delivered_at,
+        expires_at=row.expires_at,
+        expired_at=row.expired_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
 def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignResponse:
     counts = repository.campaign_counts(row.tenant_id, row.id)
     approved = _count_sum(counts, ANALYSIS_APPROVED_STATUSES)
@@ -484,6 +559,9 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
             and not binding_stale
             and binding_is_generation_ready(reference_snapshot)
         ),
+        auto_complete_on_delivery=row.auto_complete_on_delivery,
+        completion_destination_id=row.completion_destination_id,
+        completed_at=row.completed_at,
         status=row.status,
         scout_status=row.scout_status,
         scout_last_seen_at=row.scout_last_seen_at,
@@ -1185,6 +1263,183 @@ def get_campaign_export_summary(
     except RrugcError as exc:
         raise _error(exc) from exc
     return CampaignExportSummaryResponse(**summary)
+
+
+@router.get(
+    "/delivery-destinations",
+    response_model=list[DeliveryDestinationResponse],
+)
+def list_delivery_destinations(
+    include_archived: bool = Query(default=False),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    service = RrugcDeliveryService(session)
+    return [
+        _delivery_destination(row)
+        for row in service.list_destinations(
+            tenant_id=principal.active_tenant_id,
+            include_archived=include_archived,
+        )
+    ]
+
+
+@router.post(
+    "/delivery-destinations",
+    response_model=DeliveryDestinationResponse,
+    status_code=201,
+)
+def create_delivery_destination(
+    request: DeliveryDestinationCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcDeliveryService(session).create_destination(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            **request.model_dump(),
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _delivery_destination(row)
+
+
+@router.delete(
+    "/delivery-destinations/{destination_id}",
+    response_model=DeliveryDestinationResponse,
+)
+def archive_delivery_destination(
+    destination_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcDeliveryService(session).archive_destination(
+            tenant_id=principal.active_tenant_id,
+            destination_id=destination_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _delivery_destination(row)
+
+
+@router.put(
+    "/campaigns/{campaign_id}/lifecycle-policy",
+    response_model=CampaignResponse,
+)
+def update_campaign_lifecycle_policy(
+    campaign_id: str,
+    request: CampaignLifecyclePolicyRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcDeliveryService(session).set_campaign_policy(
+            tenant_id=principal.active_tenant_id,
+            campaign_id=campaign_id,
+            auto_complete_on_delivery=request.auto_complete_on_delivery,
+            completion_destination_id=request.completion_destination_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _campaign(RrugcRepository(session), row)
+
+
+@router.get(
+    "/delivery-packages",
+    response_model=DeliveryPackageListResponse,
+)
+def list_delivery_packages(
+    campaign_id: str | None = Query(default=None, max_length=36),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    service = RrugcDeliveryService(session)
+    rows, total = service.list_packages(
+        tenant_id=principal.active_tenant_id,
+        campaign_id=campaign_id,
+        limit=limit,
+        offset=offset,
+    )
+    return DeliveryPackageListResponse(
+        items=[_delivery_package(service, row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/campaigns/{campaign_id}/deliveries/{destination_id}",
+    response_model=DeliveryPackageResponse,
+)
+async def deliver_campaign(
+    campaign_id: str,
+    destination_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    storage = build_managed_storage_provider(get_settings())
+    if not isinstance(storage, GoogleDriveAssetStorage):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+    service = RrugcDeliveryService(session, storage=storage)
+    try:
+        row = await service.deliver_campaign(
+            tenant_id=principal.active_tenant_id,
+            campaign_id=campaign_id,
+            destination_id=destination_id,
+            user_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _delivery_package(service, row)
+
+
+@router.get(
+    "/campaigns/{campaign_id}/delivery-summary",
+    response_model=CampaignDeliverySummaryResponse,
+)
+def get_campaign_delivery_summary(
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    try:
+        summary = RrugcDeliveryService(session).delivery_summary(
+            tenant_id=principal.active_tenant_id,
+            campaign_id=campaign_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return CampaignDeliverySummaryResponse(**summary)
+
+
+@router.post(
+    "/delivery-lifecycle/reconcile",
+    response_model=DeliveryLifecycleReconcileResponse,
+)
+def reconcile_delivery_lifecycle(
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    result = RrugcDeliveryService(session).reconcile_lifecycle(
+        tenant_id=principal.active_tenant_id,
+        limit=limit,
+    )
+    return DeliveryLifecycleReconcileResponse(
+        scanned=result.scanned,
+        expired=result.expired,
+    )
 
 
 @router.get("/generation-attempts/{attempt_id}/output")
