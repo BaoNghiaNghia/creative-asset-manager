@@ -21,6 +21,7 @@ from app.modules.inventory.persistence_model import InventoryDailySheetSnapshotM
 
 from .contracts import V4AgentRunResult
 from .tools import V4AgentSafetyError, V4WorkbookToolHost, function_declarations
+from ..rule_compiler import compile_active_rules
 
 logger = logging.getLogger("cam.inventory.daily_sheet.agent_v4")
 
@@ -146,6 +147,7 @@ class InventoryDailySheetV4Service:
             ),
             sheet_keys=tuple(config.source.allowed_sheets or ()),
         )
+        compiled_rules = compile_active_rules(knowledge_snapshot["entries"])
         knowledge_text = json.dumps(
             knowledge_snapshot["entries"],
             ensure_ascii=False,
@@ -177,6 +179,7 @@ class InventoryDailySheetV4Service:
                                 "knowledge_hash": knowledge_snapshot["hash"],
                                 "knowledge_version": knowledge_snapshot["version"],
                                 "knowledge_entry_count": knowledge_snapshot["count"],
+                                "deterministic_rule_compiler": compiled_rules,
                                 "allow_auto_evidence_backed_transforms": config.agent.allow_auto_evidence_backed_transforms,
                                 "rate_limit_strategy": {
                                     "models": list(models),
