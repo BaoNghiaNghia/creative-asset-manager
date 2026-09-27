@@ -309,6 +309,15 @@ class PipelineAttentionRecovery:
             PipelineState.DUPLICATE_DETECTED.value,
         }:
             self.pipelines.transition(pipeline, PipelineState.ANALYSIS_PENDING)
+        elif pipeline.state == PipelineState.ANALYZING.value:
+            # A failed analysis job proves this is not an active analyzing run.
+            # Recovery may rewind this stale state without weakening the normal
+            # pipeline transition graph used by live workers.
+            pipeline.state = PipelineState.ANALYSIS_PENDING.value
+            pipeline.last_error_code = None
+            pipeline.last_error_message = None
+            pipeline.failure_retryable = None
+            self.session.flush()
         elif pipeline.state != PipelineState.ANALYSIS_PENDING.value:
             return False
         payload = dict(job.payload_json or {})
