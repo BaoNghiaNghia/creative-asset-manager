@@ -285,9 +285,52 @@ def test_tool_gateway_uses_native_function_declarations(monkeypatch):
     )
     assert turn.calls == (InventoryGeminiToolCall(name="get_workbook_metadata", arguments={}),)
     assert captured["json"]["tools"][0]["functionDeclarations"][0]["name"] == "get_workbook_metadata"
+    assert captured["json"]["toolConfig"]["functionCallingConfig"] == {"mode": "AUTO"}
     assert "responseSchema" not in captured["json"]
     assert "responseJsonSchema" not in captured["json"]
     assert resolver.resolve.call_args.args == ("tenant-a",)
+
+
+def test_tool_gateway_can_force_one_native_function(monkeypatch):
+    captured = {}
+    resolver = Mock()
+    resolver.resolve.return_value = "secret"
+    response = Mock(status_code=200)
+    response.json.return_value = {
+        "candidates": [{
+            "content": {
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "submit_carry_forward_plan",
+                        "args": {"operations": [], "issues": []},
+                    }
+                }],
+            }
+        }]
+    }
+
+    def post(_url, **kwargs):
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr("app.modules.inventory.ai.gateway.httpx.post", post)
+    gateway = RuntimeInventoryGeminiGateway(resolver)
+    gateway.generate_tool_turn(
+        tenant_id="tenant-a",
+        contents=[{"role": "user", "parts": [{"text": "submit"}]}],
+        function_declarations=[{
+            "name": "submit_carry_forward_plan",
+            "parameters": {"type": "object"},
+        }],
+        provider="gemini",
+        model="gemini-test",
+        force_function_name="submit_carry_forward_plan",
+    )
+    assert captured["json"]["toolConfig"]["functionCallingConfig"] == {
+        "mode": "ANY",
+        "allowedFunctionNames": ["submit_carry_forward_plan"],
+    }
 
 
 def test_metadata_is_authorized_and_contains_grid_merge_protection():

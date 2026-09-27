@@ -393,7 +393,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 idempotency_key="inventory-v5-slot:tenant-a:2030-08-10:morning_reset",
                 payload_json={"business_date": "2030-08-10", "slot_kind": "morning_reset"},
                 status="failed",
-                attempt_count=1,
+                attempt_count=5,
                 max_attempts=5,
                 last_error_code="inventory_gemini_request_failed",
                 next_attempt_at=moment,
@@ -423,8 +423,38 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 == "inventory-v5-slot:tenant-a:2030-08-10:morning_reset"
             ))
             self.assertEqual("processing", job.status)
-            self.assertEqual(2, job.attempt_count)
+            self.assertEqual(6, job.attempt_count)
+            self.assertEqual(12, job.max_attempts)
             self.assertIsNone(job.completed_at)
+
+    def test_v4_rate_limit_uses_longer_retry_cooldown(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 10, 0, 0, tzinfo=timezone.utc)
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        claimed = scheduler._claim_v4_slot(
+            tenant_id="tenant-a",
+            business_date=date(2030, 8, 10),
+            slot_kind="morning_reset",
+            now=moment,
+        )
+        self.assertIsNotNone(claimed)
+        job_id, worker_id = claimed
+        scheduler._fail_v4_slot(
+            tenant_id="tenant-a",
+            job_id=job_id,
+            worker_id=worker_id,
+            error=RuntimeError("inventory_gemini_rate_limited"),
+            retryable=True,
+            now=moment,
+        )
+        with self.sessions() as session:
+            job = session.get(InventoryJobModel, job_id)
+            self.assertEqual("retry", job.status)
+            next_attempt_at = job.next_attempt_at
+            if next_attempt_at.tzinfo is None:
+                next_attempt_at = next_attempt_at.replace(tzinfo=timezone.utc)
+            self.assertGreaterEqual(next_attempt_at, moment + timedelta(minutes=5))
+            self.assertEqual(12, job.max_attempts)
 
     def test_v4_due_gate_keeps_terminal_jobs_cold_until_durable_repair(self):
         self._enable_v4()

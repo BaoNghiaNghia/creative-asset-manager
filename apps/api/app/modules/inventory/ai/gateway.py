@@ -110,6 +110,7 @@ class RuntimeInventoryGeminiGateway:
         function_declarations: list[Mapping[str, Any]],
         provider: str,
         model: str,
+        force_function_name: str | None = None,
     ) -> InventoryGeminiToolTurn:
         if provider != "gemini":
             raise InventoryAiGatewayError("inventory_ai_provider_unsupported", retryable=False)
@@ -121,7 +122,16 @@ class RuntimeInventoryGeminiGateway:
                 json={
                     "contents": deepcopy(contents),
                     "tools": [{"functionDeclarations": deepcopy(function_declarations)}],
-                    "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
+                    "toolConfig": {
+                        "functionCallingConfig": (
+                            {
+                                "mode": "ANY",
+                                "allowedFunctionNames": [force_function_name],
+                            }
+                            if force_function_name
+                            else {"mode": "AUTO"}
+                        )
+                    },
                 },
                 timeout=self.timeout_seconds,
             )

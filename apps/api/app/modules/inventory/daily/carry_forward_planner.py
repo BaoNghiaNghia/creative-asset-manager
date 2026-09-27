@@ -547,6 +547,7 @@ class GeminiCarryForwardPlanner:
                 for model in models:
                     active_model = model
                     consecutive_no_tool_turns = 0
+                    force_submit_next = False
                     try:
                         for _round in range(1, 13):
                             rounds += 1
@@ -556,11 +557,18 @@ class GeminiCarryForwardPlanner:
                                 function_declarations=function_declarations(),
                                 provider=provider,
                                 model=model,
+                                force_function_name=(
+                                    "submit_carry_forward_plan"
+                                    if force_submit_next
+                                    else None
+                                ),
                             )
+                            force_submit_next = False
                             contents.append(dict(turn.content))
                             if not turn.calls:
                                 if host.plan is None and consecutive_no_tool_turns < 2:
                                     consecutive_no_tool_turns += 1
+                                    force_submit_next = True
                                     contents.append({
                                         "role": "user",
                                         "parts": [{

@@ -119,9 +119,11 @@ def make_db():
 class NoToolThenSubmitGateway:
     def __init__(self):
         self.calls = []
+        self.forced_functions = []
 
     def generate_tool_turn(self, **kwargs):
         self.calls.append(list(kwargs["contents"]))
+        self.forced_functions.append(kwargs.get("force_function_name"))
         if len(self.calls) == 1:
             return InventoryGeminiToolTurn(
                 content={"role": "model", "parts": [{"text": "No changes are needed."}]},
@@ -180,6 +182,7 @@ def test_carry_forward_planner_nudges_model_to_submit_after_prose_only_turn():
     assert plan.rows == []
     assert plan.issues == []
     assert plan.audit["tool_rounds"] == 2
+    assert gateway.forced_functions == [None, "submit_carry_forward_plan"]
     second_request_text = "\n".join(
         str(part.get("text") or "")
         for message in gateway.calls[1]

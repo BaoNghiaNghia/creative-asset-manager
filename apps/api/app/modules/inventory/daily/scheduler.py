@@ -24,8 +24,9 @@ V4_SLOT_JOB_TYPES = {
     "evening_reconcile": "inventory_v5_evening_reconcile_slot",
 }
 V4_SETTLED_RESULTS = frozenset({"completed", "shadow", "review_required"})
-V4_SLOT_MAX_ATTEMPTS = 5
+V4_SLOT_MAX_ATTEMPTS = 12
 V4_SLOT_LEASE_SECONDS = 15 * 60
+V4_RATE_LIMIT_RETRY_SECONDS = 5 * 60
 V4_MANUAL_RECOVERY_ERROR_CODES = frozenset({
     "previous_day_gemini_not_verified",
     "inventory_morning_reset_missed_safe_window",
@@ -165,11 +166,11 @@ class InventoryDailyScheduler:
                     if lease_expires_at is not None and lease_expires_at > now:
                         continue
                 if job.status == "failed":
-                    # Preserve true terminal failures, but self-heal legacy rows
-                    # that were incorrectly terminalized even though the provider
-                    # error is transient and bounded attempts remain.
+                    # Preserve true terminal failures, but self-heal retryable
+                    # rows created with an older, smaller bounded-attempt budget.
+                    effective_max_attempts = max(job.max_attempts, V4_SLOT_MAX_ATTEMPTS)
                     transient_legacy_failure = (
-                        job.attempt_count < job.max_attempts
+                        job.attempt_count < effective_max_attempts
                         and bool(inventory_error_metadata(job.last_error_code)["retryable"])
                     )
                     if not transient_legacy_failure and self._durable_v4_slot_completed_at(
@@ -265,6 +266,11 @@ class InventoryDailyScheduler:
                     job.updated_at = now
                     session.flush()
                 return None
+            if job.max_attempts < V4_SLOT_MAX_ATTEMPTS:
+                # Raise the bounded budget for rows created before the current
+                # retry policy without resetting the number of attempts used.
+                job.max_attempts = V4_SLOT_MAX_ATTEMPTS
+                job.updated_at = now
             if (
                 job.status == "failed"
                 and job.attempt_count < job.max_attempts
@@ -338,7 +344,9 @@ class InventoryDailyScheduler:
             if job is None:
                 raise RuntimeError("inventory_v5_slot_missing")
             message = str(error).strip() or type(error).__name__
-            InventoryJobRepository(session, tuple(V4_SLOT_JOB_TYPES.values())).fail(
+            can_retry = InventoryJobRepository(
+                session, tuple(V4_SLOT_JOB_TYPES.values())
+            ).fail(
                 job,
                 worker_id,
                 error_code=message if len(message) <= 100 else type(error).__name__,
@@ -346,6 +354,13 @@ class InventoryDailyScheduler:
                 retryable=retryable,
                 now=now,
             )
+            if can_retry and job.last_error_code == "inventory_gemini_rate_limited":
+                # Avoid hammering a provider quota every scheduler minute.
+                job.next_attempt_at = max(
+                    job.next_attempt_at or now,
+                    now + timedelta(seconds=V4_RATE_LIMIT_RETRY_SECONDS),
+                )
+                job.updated_at = now
 
     def _execute_v4_tenant(
         self, *, settings: InventorySettingsModel, business_date: date,
