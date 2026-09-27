@@ -151,6 +151,101 @@ def test_onedrive_download_failure_is_requeued_without_creating_asset_identity()
         engine.dispose()
 
 
+
+
+
+def test_stale_downloading_pipeline_with_completed_job_is_requeued():
+    engine, factory = sessions()
+    try:
+        with factory() as session:
+            pipeline, _analysis = seed(
+                session,
+                state="downloading",
+                error_code="stale_download",
+            )
+            pipeline.asset_id = None
+            pipeline.analysis_id = None
+            pipeline.content_hash = None
+            pipeline.last_error_code = None
+            pipeline.last_error_message = None
+            pipeline.failure_retryable = None
+            job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="source_asset_download",
+                entity_type="source_asset",
+                entity_id=pipeline.source_asset_id,
+                idempotency_key=(
+                    f"source-asset-download:{pipeline.source_asset_id}:initial-import-v2"
+                ),
+                payload_json={"source_asset_id": pipeline.source_asset_id},
+                status="completed",
+                attempt_count=1,
+                max_attempts=5,
+            )
+            session.add(job)
+            session.commit()
+
+            recovery = PipelineAttentionRecovery(session, settings())
+            preview = recovery.preview("tenant-a")
+            assert preview.stale_download_pipelines == 1
+
+            result = recovery.apply("tenant-a")
+            session.commit()
+
+            repaired_pipeline = session.get(AssetPipelineModel, pipeline.id)
+            repaired_job = session.get(ProcessingJobModel, job.id)
+            assert result.stale_download_pipelines == 1
+            assert repaired_pipeline.state == "download_pending"
+            assert repaired_job.status == "retry"
+            assert repaired_job.completed_at is None
+            assert repaired_job.last_error_code == "operator_recovery_requested"
+    finally:
+        engine.dispose()
+
+
+def test_active_downloading_pipeline_is_not_rewound():
+    engine, factory = sessions()
+    try:
+        with factory() as session:
+            pipeline, _analysis = seed(
+                session,
+                state="downloading",
+                error_code="active_download",
+            )
+            pipeline.asset_id = None
+            pipeline.analysis_id = None
+            pipeline.content_hash = None
+            pipeline.last_error_code = None
+            pipeline.last_error_message = None
+            pipeline.failure_retryable = None
+            job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="source_asset_download",
+                entity_type="source_asset",
+                entity_id=pipeline.source_asset_id,
+                idempotency_key=(
+                    f"source-asset-download:{pipeline.source_asset_id}:initial-import-v2"
+                ),
+                payload_json={"source_asset_id": pipeline.source_asset_id},
+                status="processing",
+                attempt_count=1,
+                max_attempts=5,
+            )
+            session.add(job)
+            session.commit()
+
+            recovery = PipelineAttentionRecovery(session, settings())
+            assert recovery.preview("tenant-a").stale_download_pipelines == 0
+            result = recovery.apply("tenant-a")
+            session.commit()
+
+            assert result.stale_download_pipelines == 0
+            assert session.get(AssetPipelineModel, pipeline.id).state == "downloading"
+            assert session.get(ProcessingJobModel, job.id).status == "processing"
+    finally:
+        engine.dispose()
+
+
 def test_storage_failure_is_recovered_to_source_analysis():
     engine, factory = sessions()
     try:

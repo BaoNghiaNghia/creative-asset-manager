@@ -58,8 +58,15 @@ def main() -> None:
                 .order_by(AssetPipelineModel.updated_at.desc())
             )
         )
-        tenant_ids = sorted({row.tenant_id for row in pipelines})
-        print(f"PIPELINE_FAILURES total={len(pipelines)} tenants={len(tenant_ids)}")
+        failure_tenant_ids = {row.tenant_id for row in pipelines}
+        source_tenant_ids = set(session.scalars(
+            select(SourceAssetModel.tenant_id).distinct()
+        ))
+        tenant_ids = sorted(failure_tenant_ids | source_tenant_ids)
+        print(
+            f"PIPELINE_FAILURES total={len(pipelines)} "
+            f"tenants={len(failure_tenant_ids)} source_tenants={len(source_tenant_ids)}"
+        )
 
         settings = get_settings()
         oauth_status = managed_storage_oauth_status(settings)
@@ -192,6 +199,73 @@ def main() -> None:
                     for key, value in actionable_codes.most_common()
                 )
             )
+
+            ops = PipelineOperationsRepository(session)
+            active_source_ids, _ = ops._active_source_ids(tenant_id)
+            logical = ops._logical_assets(tenant_id, active_source_ids)
+            logical_state_counts = Counter(
+                str(state or "none")
+                for state in session.scalars(select(logical.c.pipeline_state))
+            )
+            print(
+                "LOGICAL_PIPELINE_STATES "
+                + ",".join(
+                    f"{key}:{value}"
+                    for key, value in logical_state_counts.most_common()
+                )
+            )
+            discovered_rows = list(session.execute(
+                select(logical).where(
+                    (logical.c.pipeline_state.is_(None))
+                    | logical.c.pipeline_state.in_(
+                        ("discovered", "download_pending", "downloading")
+                    )
+                )
+            ).mappings())
+            discovered_ids = [str(row["logical_id"]) for row in discovered_rows]
+            latest_download_jobs: dict[str, ProcessingJobModel] = {}
+            if discovered_ids:
+                for job in session.scalars(
+                    select(ProcessingJobModel)
+                    .where(
+                        ProcessingJobModel.tenant_id == tenant_id,
+                        ProcessingJobModel.job_type == "source_asset_download",
+                        ProcessingJobModel.entity_type == "source_asset",
+                        ProcessingJobModel.entity_id.in_(discovered_ids),
+                    )
+                    .order_by(
+                        ProcessingJobModel.entity_id,
+                        ProcessingJobModel.updated_at.desc(),
+                        ProcessingJobModel.created_at.desc(),
+                        ProcessingJobModel.id.desc(),
+                    )
+                ):
+                    latest_download_jobs.setdefault(str(job.entity_id), job)
+            discovered_job_statuses = Counter(
+                (
+                    latest_download_jobs[str(row["logical_id"])].status
+                    if str(row["logical_id"]) in latest_download_jobs
+                    else "missing_job"
+                )
+                for row in discovered_rows
+            )
+            discovered_sources = Counter(str(row["source_type"] or "unknown") for row in discovered_rows)
+            discovered_content = Counter(
+                f"{Path(str(row['filename'] or '')).suffix.lower() or '<none>'}|{str(row['mime_type'] or '<none>').lower()}"
+                for row in discovered_rows
+            )
+            if discovered_rows:
+                print(
+                    f"DISCOVERED_REMAINDER total={len(discovered_rows)} "
+                    + "jobs="
+                    + ",".join(f"{key}:{value}" for key, value in discovered_job_statuses.most_common())
+                    + " sources="
+                    + ",".join(f"{key}:{value}" for key, value in discovered_sources.most_common())
+                )
+                print(
+                    "DISCOVERED_CONTENT "
+                    + ",".join(f"{key}:{value}" for key, value in discovered_content.most_common(12))
+                )
             actionable_messages = Counter(
                 (pipeline.last_error_message or "").strip().replace("\n", " ")[:180]
                 for pipeline in tenant_rows

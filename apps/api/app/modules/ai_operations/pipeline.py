@@ -299,8 +299,21 @@ class PipelineOperationsRepository:
         skipped_stage = sum(any(row["state"] == "skipped" for row in rows) for rows in by_asset.values())
         supported = len(by_asset)
         progress = {"discovered": 0, "downloaded": 0, "stored": 0, "analyzed": 0, "projection_ready": 0, "search_ready": 0}
+        failure_position = {
+            "download_failed": 0,
+            "storage_failed": 1,
+            "analysis_failed": 2,
+            "projection_failed": 3,
+            "search_failed": 4,
+        }
         for rows in by_asset.values():
-            position = _STATE_POSITION.get(rows[0]["pipeline_state"] or "discovered", 0)
+            # Permanently skipped assets are reported only in the exclusions
+            # breakdown. Counting them as "discovered" made terminal download
+            # failures look like a live backlog that would never drain.
+            if any(row["state"] == "skipped" for row in rows):
+                continue
+            state = rows[0]["pipeline_state"] or "discovered"
+            position = failure_position.get(state, _STATE_POSITION.get(state, 0))
             key = "search_ready" if position >= 5 else "projection_ready" if position == 4 else "analyzed" if position == 3 else "stored" if position == 2 else "downloaded" if position == 1 else "discovered"
             progress[key] += 1
         source_filter = SourceAssetModel.external_source_id.in_(source_ids) if source_ids else SourceAssetModel.id == literal("__no_active_source__")
@@ -317,8 +330,9 @@ class PipelineOperationsRepository:
                     code = row["error_code"] or "processing_failed"; category = self._failure_category(code); key = (row["stage"], code, category)
                     item = failures.setdefault(key, {"stage": next(label for stage, label, _ in PIPELINE_STAGES if stage == row["stage"]), "error_code": code, "category": category, "message": code.replace("_", " "), "count": 0, "latest_at": now})
                     item["count"] += 1
+        eligible = max(0, supported - skipped_stage)
         return {"generated_at": now, "definitions": {"snapshot": "Current logical asset state; reporting date filters never affect this endpoint.", "attempt_diagnostics": "Raw immutable processing-job attempts; diagnostics only."}, "latest_source_sync": self._latest_source_sync(tenant_id),
-            "overall": {"source_items_discovered": all_active, "supported_assets": supported, "eligible_assets": supported, "unsupported_assets": skipped["unsupported"], "completed": progress["search_ready"], "search_ready_assets": progress["search_ready"], "active": in_progress, "in_progress_assets": in_progress, "queued": queued, "queued_assets": queued, "failed": attention, "needs_attention_assets": attention, "skipped": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "skipped_assets": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "indexed_percentage": round(progress["search_ready"] / supported * 100, 1) if supported else None, "throughput_today": 0, "asset_progress": [{"key": key, "count": count} for key, count in progress.items()]},
+            "overall": {"source_items_discovered": all_active, "supported_assets": supported, "eligible_assets": eligible, "unsupported_assets": skipped["unsupported"], "completed": progress["search_ready"], "search_ready_assets": progress["search_ready"], "active": in_progress, "in_progress_assets": in_progress, "queued": queued, "queued_assets": queued, "failed": attention, "needs_attention_assets": attention, "skipped": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "skipped_assets": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "indexed_percentage": round(progress["search_ready"] / eligible * 100, 1) if eligible else None, "throughput_today": 0, "asset_progress": [{"key": key, "count": count} for key, count in progress.items()]},
             "stages": stages, "active_job": self._active_job(tenant_id, now), "failure_groups": list(failures.values()), "skipped_breakdown": [{"category": key, "count": value} for key, value in skipped.items() if value], "recent_assets": self._recent_assets(logical, page=recent_page, page_size=recent_page_size),
             "diagnostics": {"decommissioned_sources_excluded": decommissioned_sources, "raw_attempts": {stage["key"]: {key: stage[key] for key in ("total_attempts", "completed_attempts", "failed_attempts")} for stage in stages}}}
 

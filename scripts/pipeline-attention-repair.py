@@ -78,6 +78,7 @@ def main() -> int:
         print(f"PIPELINE_ATTENTION_REPAIR managed_storage={storage_status}")
         total = {
             "download_pipelines": 0,
+            "stale_download_pipelines": 0,
             "storage_pipelines": 0,
             "analysis_jobs": 0,
             "projection_jobs": 0,

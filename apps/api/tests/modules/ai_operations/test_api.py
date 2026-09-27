@@ -755,12 +755,17 @@ class AiOperationsApiTest(unittest.TestCase):
             ])
             session.commit()
         value = self.get("/api/v1/admin/ai-operations/pipeline").json()
-        self.assertEqual(value["overall"]["eligible_assets"], 2)
+        self.assertEqual(value["overall"]["supported_assets"], 2)
+        self.assertEqual(value["overall"]["eligible_assets"], 1)
         self.assertEqual(value["overall"]["needs_attention_assets"], 0)
         self.assertEqual(value["overall"]["skipped_assets"], 1)
+        self.assertEqual(
+            dict((item["key"], item["count"]) for item in value["overall"]["asset_progress"])["discovered"],
+            0,
+        )
         self.assertEqual(value["diagnostics"]["decommissioned_sources_excluded"], 1)
         download = next(item for item in value["stages"] if item["key"] == "source_asset_download")
-        self.assertLessEqual(download["total_logical_assets"], value["overall"]["eligible_assets"])
+        self.assertLessEqual(download["total_logical_assets"], value["overall"]["supported_assets"])
         self.assertEqual(download["needs_attention_assets"], 0)
 
     def test_pipeline_snapshot_does_not_repeat_window_query_per_stage(self):

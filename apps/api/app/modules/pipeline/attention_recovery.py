@@ -37,6 +37,7 @@ ANALYSIS_RECOVERY_CODES = frozenset({
 @dataclass(slots=True)
 class PipelineAttentionRecoveryResult:
     download_pipelines: int = 0
+    stale_download_pipelines: int = 0
     storage_pipelines: int = 0
     analysis_jobs: int = 0
     projection_jobs: int = 0
@@ -67,6 +68,20 @@ class PipelineAttentionRecovery:
                 AssetPipelineModel.last_error_code.in_(DOWNLOAD_RECOVERY_CODES),
             )
         )))
+        stale_downloads = list(self.session.scalars(
+            select(AssetPipelineModel).where(
+                AssetPipelineModel.tenant_id == tenant_id,
+                AssetPipelineModel.state == PipelineState.DOWNLOADING.value,
+            )
+        ))
+        result.stale_download_pipelines = sum(
+            1
+            for pipeline in stale_downloads
+            if (
+                (job := self._latest_source_download_job(pipeline)) is None
+                or job.status in {"completed", "failed"}
+            )
+        )
         result.storage_pipelines = len(list(self.session.scalars(
             select(AssetPipelineModel.id).where(
                 AssetPipelineModel.tenant_id == tenant_id,
@@ -126,6 +141,47 @@ class PipelineAttentionRecovery:
             result.download_pipelines += 1
 
         remaining = max(0, limit - result.download_pipelines)
+        if remaining:
+            downloading_rows = list(self.session.scalars(
+                select(AssetPipelineModel)
+                .where(
+                    AssetPipelineModel.tenant_id == tenant_id,
+                    AssetPipelineModel.state == PipelineState.DOWNLOADING.value,
+                )
+                .order_by(AssetPipelineModel.updated_at, AssetPipelineModel.id)
+                .limit(remaining)
+                .with_for_update()
+            ))
+            for pipeline in downloading_rows:
+                job = self._latest_source_download_job(pipeline)
+                if job is not None and job.status not in {"completed", "failed"}:
+                    continue
+                if not pipeline.source_asset_id:
+                    result.skipped_missing_identity += 1
+                    continue
+                pipeline.state = PipelineState.DOWNLOAD_PENDING.value
+                pipeline.last_error_code = None
+                pipeline.last_error_message = None
+                pipeline.failure_retryable = None
+                pipeline.completed_at = None
+                pipeline.updated_at = datetime.now(timezone.utc)
+                if job is None:
+                    self.coordinator.enqueue(
+                        pipeline,
+                        "source_asset_download",
+                        entity_type=pipeline.origin_type,
+                        entity_id=pipeline.origin_id,
+                        transition=False,
+                    )
+                    job = self._latest_source_download_job(pipeline)
+                if job is not None:
+                    self._reset_job(job)
+                result.stale_download_pipelines += 1
+
+        remaining = max(
+            0,
+            limit - result.download_pipelines - result.stale_download_pipelines,
+        )
         storage_rows = list(self.session.scalars(
             select(AssetPipelineModel)
             .where(
@@ -148,7 +204,10 @@ class PipelineAttentionRecovery:
 
         remaining = max(
             0,
-            limit - result.download_pipelines - result.storage_pipelines,
+            limit
+            - result.download_pipelines
+            - result.stale_download_pipelines
+            - result.storage_pipelines,
         )
         if remaining:
             failed_analysis_jobs = list(self.session.scalars(
@@ -189,6 +248,7 @@ class PipelineAttentionRecovery:
                 0,
                 limit
                 - result.download_pipelines
+                - result.stale_download_pipelines
                 - result.storage_pipelines
                 - result.analysis_jobs,
             ),
@@ -330,6 +390,28 @@ class PipelineAttentionRecovery:
         job.payload_json = payload
         self._reset_analysis_job(job, analysis)
         return True
+
+    def _latest_source_download_job(
+        self, pipeline: AssetPipelineModel
+    ) -> ProcessingJobModel | None:
+        source_asset_id = pipeline.source_asset_id or pipeline.origin_id
+        if not source_asset_id:
+            return None
+        return self.session.scalar(
+            select(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.tenant_id == pipeline.tenant_id,
+                ProcessingJobModel.job_type == "source_asset_download",
+                ProcessingJobModel.entity_type == "source_asset",
+                ProcessingJobModel.entity_id == source_asset_id,
+            )
+            .order_by(
+                ProcessingJobModel.updated_at.desc(),
+                ProcessingJobModel.created_at.desc(),
+                ProcessingJobModel.id.desc(),
+            )
+            .limit(1)
+        )
 
     def _pipeline_job(
         self, pipeline: AssetPipelineModel, job_type: str
