@@ -39,6 +39,7 @@ from app.modules.pipeline.stages import (
 )
 from app.modules.search.index_sync_handler import SearchIndexSyncJobHandler
 from app.modules.visual_search.index_handler import VisualIndexSyncJobHandler
+from app.modules.visual_search.backfill_scheduler import VisualSearchBackfillScheduler
 from app.modules.creative_pipeline.input_handler import CreativePipelineNodeHandler
 from app.modules.creative_pipeline.canary import CreativePipelineCanaryScanHandler, CreativePipelineCanaryScheduler
 from app.modules.visual_search.model_spec import VISUAL_SEARCH_ACTIVE_DESCRIPTOR
@@ -356,6 +357,7 @@ def run_worker(
     creative_pipeline_canary_scheduler: CreativePipelineCanaryScheduler | None = None
     managed_cleanup_scheduler: ManagedStorageCleanupSchedulerRunner | None = None
     video_cache_cleanup: VideoCacheCleanupRunner | None = None
+    visual_backfill_scheduler: VisualSearchBackfillScheduler | None = None
     try:
         runtime = build_worker_runtime(
             settings,
@@ -369,6 +371,16 @@ def run_worker(
             settings.WORKER_HEALTH_PORT,
         )
         health_server.start()
+        if runtime.config.worker_role.strip().casefold() == "visual":
+            visual_backfill_scheduler = VisualSearchBackfillScheduler(
+                session_factory,
+                settings,
+                getattr(runtime.dependencies, "resources", {}).get(
+                    "visual_index_provider"
+                ),
+                logger=worker_logger,
+            )
+            visual_backfill_scheduler.start()
         if (
             runs_operational_schedulers(runtime.config.worker_role)
             and settings.WORKER_RUN_OPERATIONAL_SCHEDULERS
@@ -454,6 +466,8 @@ def run_worker(
             managed_cleanup_scheduler.stop()
         if video_cache_cleanup is not None:
             video_cache_cleanup.stop()
+        if visual_backfill_scheduler is not None:
+            visual_backfill_scheduler.stop()
         if runtime is not None:
             runtime.close()
         if health_server is not None:

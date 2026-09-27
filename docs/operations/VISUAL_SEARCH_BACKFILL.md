@@ -41,6 +41,20 @@ while the isolated encoder remains the single inference concurrency boundary.
 The dedicated worker must be drained together with the encoder before alias
 cutover or rollback.
 
+The same dedicated visual worker owns a lightweight backfill scheduler. When
+`VISUAL_SEARCH_BACKFILL_ENABLED=true`, it advances the durable reconciliation
+run in bounded slices and keeps the queue filled up to the configured cap. It
+creates an initial run when none exists and also permits a new run when the
+active embedding schema changes. A paused, failed, cancelled, or completed run
+for the current schema is not silently restarted. This preserves explicit
+operator pause/cancel semantics while removing the need to manually invoke one
+HTTP backfill slice after another.
+
+The scheduler checks for another bounded slice every
+`VISUAL_SEARCH_BACKFILL_SCHEDULER_INTERVAL_SECONDS` (15 seconds by default).
+When the queue cap is full, the slice is recorded as throttled and no additional
+visual jobs are added.
+
 Default production-safe values are:
 
     VISUAL_SEARCH_BACKFILL_MAX_QUEUED_JOBS=250
