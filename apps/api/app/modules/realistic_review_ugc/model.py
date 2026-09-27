@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -36,6 +37,16 @@ class RrugcCampaignModel(Base):
     target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     max_scroll_batches: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    min_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.20)
+    max_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.45)
+    min_smile_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.65)
+    max_head_occlusion: Mapped[float] = mapped_column(Float, nullable=False, default=0.25)
+    max_ai_risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.20)
+    min_quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
+    min_ugc_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
+    min_product_fit_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
+    require_head_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reject_headwear: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     scout_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     scout_status: Mapped[str] = mapped_column(String(32), nullable=False, default="offline")
@@ -75,7 +86,26 @@ class RrugcCandidateModel(Base):
     pin_url: Mapped[str] = mapped_column(Text, nullable=False)
     image_url: Mapped[str] = mapped_column(Text, nullable=False)
     alt_text: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="discovered")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="analysis_queued")
+    analysis_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    import_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    people_count: Mapped[int | None] = mapped_column(Integer)
+    primary_head_ratio: Mapped[float | None] = mapped_column(Float)
+    smile_score: Mapped[float | None] = mapped_column(Float)
+    head_visible: Mapped[bool | None] = mapped_column(Boolean)
+    existing_headwear: Mapped[bool | None] = mapped_column(Boolean)
+    head_occlusion: Mapped[float | None] = mapped_column(Float)
+    mobile_ugc_score: Mapped[float | None] = mapped_column(Float)
+    quality_score: Mapped[float | None] = mapped_column(Float)
+    ai_risk_score: Mapped[float | None] = mapped_column(Float)
+    product_fit_score: Mapped[float | None] = mapped_column(Float)
+    final_score: Mapped[float | None] = mapped_column(Float)
+    reject_reason: Mapped[str | None] = mapped_column(String(64))
+    analyzer_provider: Mapped[str | None] = mapped_column(String(64))
+    analyzer_model: Mapped[str | None] = mapped_column(String(128))
+    analyzer_version: Mapped[str | None] = mapped_column(String(64))
+    analysis_summary: Mapped[str | None] = mapped_column(Text)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     content_hash: Mapped[str | None] = mapped_column(String(64))
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)

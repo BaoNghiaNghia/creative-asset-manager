@@ -38,6 +38,12 @@ export const createCampaign = (body: CampaignCreateRequest) =>
 export const listCandidates = (campaignId: string, signal?: AbortSignal) =>
   request<Candidate[]>("/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates?limit=120", { signal });
 
+export const analyzeCandidate = (campaignId: string, candidateId: string) =>
+  request<{ candidate: Candidate }>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates/" + encodeURIComponent(candidateId) + "/analyze",
+    { method: "POST", body: "{}" },
+  );
+
 export const importCandidate = (campaignId: string, candidateId: string) =>
   request<{ candidate: Candidate }>(
     "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates/" + encodeURIComponent(candidateId) + "/import",

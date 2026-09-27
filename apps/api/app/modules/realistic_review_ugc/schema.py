@@ -3,13 +3,26 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 CampaignStatus = Literal["running", "paused", "completed", "stopped"]
 ScoutStatus = Literal["offline", "ready", "busy", "needs_login", "error"]
 CandidateStatus = Literal[
     "discovered",
+    "analysis_queued",
+    "analyzing",
+    "approved",
+    "analysis_failed",
+    "rejected_no_person",
+    "rejected_head_ratio",
+    "rejected_expression",
+    "rejected_existing_headwear",
+    "rejected_head_occlusion",
+    "rejected_quality",
+    "rejected_ai_risk",
+    "rejected_context",
+    "import_queued",
     "importing",
     "drive_ready",
     "import_failed",
@@ -23,6 +36,22 @@ class CampaignCreateRequest(BaseModel):
     target_count: int = Field(default=100, ge=1, le=5000)
     max_scroll_batches: int = Field(default=5, ge=1, le=50)
     auto_import: bool = False
+    min_head_ratio: float = Field(default=0.20, ge=0.05, le=0.90)
+    max_head_ratio: float = Field(default=0.45, ge=0.05, le=0.95)
+    min_smile_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    max_head_occlusion: float = Field(default=0.25, ge=0.0, le=1.0)
+    max_ai_risk_score: float = Field(default=0.20, ge=0.0, le=1.0)
+    min_quality_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    min_ugc_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    min_product_fit_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    require_head_visible: bool = True
+    reject_headwear: bool = True
+
+    @model_validator(mode="after")
+    def validate_head_ratio_range(self):
+        if self.min_head_ratio >= self.max_head_ratio:
+            raise ValueError("min_head_ratio must be lower than max_head_ratio")
+        return self
 
 
 class CampaignResponse(BaseModel):
@@ -32,10 +61,24 @@ class CampaignResponse(BaseModel):
     target_count: int
     max_scroll_batches: int
     auto_import: bool
+    min_head_ratio: float
+    max_head_ratio: float
+    min_smile_score: float
+    max_head_occlusion: float
+    max_ai_risk_score: float
+    min_quality_score: float
+    min_ugc_score: float
+    min_product_fit_score: float
+    require_head_visible: bool
+    reject_headwear: bool
     status: CampaignStatus
     scout_status: ScoutStatus
     scout_last_seen_at: datetime | None
     discovered: int = 0
+    analysis_pending: int = 0
+    analyzing: int = 0
+    approved: int = 0
+    rejected: int = 0
     drive_ready: int = 0
     failed: int = 0
     created_at: datetime
@@ -63,6 +106,25 @@ class CandidateResponse(BaseModel):
     image_url: str
     alt_text: str | None
     status: CandidateStatus
+    analysis_revision: int
+    import_revision: int
+    people_count: int | None
+    primary_head_ratio: float | None
+    smile_score: float | None
+    head_visible: bool | None
+    existing_headwear: bool | None
+    head_occlusion: float | None
+    mobile_ugc_score: float | None
+    quality_score: float | None
+    ai_risk_score: float | None
+    product_fit_score: float | None
+    final_score: float | None
+    reject_reason: str | None
+    analyzer_provider: str | None
+    analyzer_model: str | None
+    analyzer_version: str | None
+    analysis_summary: str | None
+    analyzed_at: datetime | None
     content_hash: str | None
     width: int | None
     height: int | None
@@ -93,8 +155,15 @@ class ScoutTaskResponse(BaseModel):
     auto_import: bool
     status: CampaignStatus
     discovered: int
+    approved: int
+    rejected: int
+    analysis_pending: int
     drive_ready: int
 
 
 class ImportResponse(BaseModel):
+    candidate: CandidateResponse
+
+
+class AnalyzeResponse(BaseModel):
     candidate: CandidateResponse

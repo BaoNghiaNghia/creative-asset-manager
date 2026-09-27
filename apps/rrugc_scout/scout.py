@@ -140,7 +140,7 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
     target = int(task["target_count"])
     max_scroll_batches = int(task["max_scroll_batches"])
     auto_import = bool(task["auto_import"])
-    starting = int(task["drive_ready"] if auto_import else task["discovered"])
+    starting = int(task["drive_ready"] if auto_import else task["approved"])
 
     for batch in range(max_scroll_batches):
         await client.heartbeat("busy")
@@ -152,18 +152,15 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
         for row in fresh:
             seen.add((row.pin_url, row.image_url))
 
-        submit_size = 1 if auto_import else 10
+        submit_size = 10
         for start in range(0, len(fresh), submit_size):
             chunk = fresh[start:start + submit_size]
             if not chunk:
                 continue
             result = await client.submit(chunk)
             created = int(result.get("created") or 0)
-            if auto_import:
-                latest = await client.task()
-                starting = int(latest["drive_ready"])
-            else:
-                starting += created
+            latest = await client.task()
+            starting = int(latest["drive_ready"] if auto_import else latest["approved"])
             print(
                 "batch="
                 + str(batch + 1)
@@ -173,10 +170,16 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
                 + str(len(chunk))
                 + " created="
                 + str(created)
-                + " total="
+                + " approved="
+                + str(latest["approved"])
+                + " rejected="
+                + str(latest["rejected"])
+                + " pending="
+                + str(latest["analysis_pending"])
+                + " target_progress="
                 + str(starting)
             )
-            if starting >= target:
+            if latest["status"] != "running" or starting >= target:
                 await client.heartbeat("ready")
                 return
 

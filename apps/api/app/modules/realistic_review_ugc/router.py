@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.realistic_review_ugc.model import RrugcCampaignModel, RrugcCandidateModel
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.schema import (
+    AnalyzeResponse,
     CampaignCreatedResponse,
     CampaignCreateRequest,
     CampaignResponse,
@@ -26,7 +27,6 @@ from app.modules.realistic_review_ugc.service import (
     RrugcService,
     campaign_token_matches,
 )
-from app.modules.storage.provider_factory import build_managed_storage_provider
 
 
 router = APIRouter(
@@ -35,6 +35,24 @@ router = APIRouter(
 )
 READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
+
+ANALYSIS_APPROVED_STATUSES = {
+    "approved",
+    "import_queued",
+    "importing",
+    "drive_ready",
+    "rejected_duplicate",
+}
+ANALYSIS_REJECTED_STATUSES = {
+    "rejected_no_person",
+    "rejected_head_ratio",
+    "rejected_expression",
+    "rejected_existing_headwear",
+    "rejected_head_occlusion",
+    "rejected_quality",
+    "rejected_ai_risk",
+    "rejected_context",
+}
 
 
 def _error(exc: RrugcError) -> HTTPException:
@@ -52,6 +70,25 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "image_url": row.image_url,
         "alt_text": row.alt_text,
         "status": row.status,
+        "analysis_revision": row.analysis_revision,
+        "import_revision": row.import_revision,
+        "people_count": row.people_count,
+        "primary_head_ratio": row.primary_head_ratio,
+        "smile_score": row.smile_score,
+        "head_visible": row.head_visible,
+        "existing_headwear": row.existing_headwear,
+        "head_occlusion": row.head_occlusion,
+        "mobile_ugc_score": row.mobile_ugc_score,
+        "quality_score": row.quality_score,
+        "ai_risk_score": row.ai_risk_score,
+        "product_fit_score": row.product_fit_score,
+        "final_score": row.final_score,
+        "reject_reason": row.reject_reason,
+        "analyzer_provider": row.analyzer_provider,
+        "analyzer_model": row.analyzer_model,
+        "analyzer_version": row.analyzer_version,
+        "analysis_summary": row.analysis_summary,
+        "analyzed_at": row.analyzed_at,
         "content_hash": row.content_hash,
         "width": row.width,
         "height": row.height,
@@ -65,8 +102,14 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
     })
 
 
+def _count_sum(counts: Counter, statuses: set[str]) -> int:
+    return sum(int(counts.get(status, 0)) for status in statuses)
+
+
 def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignResponse:
     counts = repository.campaign_counts(row.tenant_id, row.id)
+    approved = _count_sum(counts, ANALYSIS_APPROVED_STATUSES)
+    rejected = _count_sum(counts, ANALYSIS_REJECTED_STATUSES)
     return CampaignResponse(
         id=row.id,
         name=row.name,
@@ -74,12 +117,26 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
         target_count=row.target_count,
         max_scroll_batches=row.max_scroll_batches,
         auto_import=row.auto_import,
+        min_head_ratio=row.min_head_ratio,
+        max_head_ratio=row.max_head_ratio,
+        min_smile_score=row.min_smile_score,
+        max_head_occlusion=row.max_head_occlusion,
+        max_ai_risk_score=row.max_ai_risk_score,
+        min_quality_score=row.min_quality_score,
+        min_ugc_score=row.min_ugc_score,
+        min_product_fit_score=row.min_product_fit_score,
+        require_head_visible=row.require_head_visible,
+        reject_headwear=row.reject_headwear,
         status=row.status,
         scout_status=row.scout_status,
         scout_last_seen_at=row.scout_last_seen_at,
         discovered=sum(counts.values()),
+        analysis_pending=counts.get("analysis_queued", 0),
+        analyzing=counts.get("analyzing", 0),
+        approved=approved,
+        rejected=rejected,
         drive_ready=counts.get("drive_ready", 0),
-        failed=counts.get("import_failed", 0),
+        failed=counts.get("analysis_failed", 0) + counts.get("import_failed", 0),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -126,11 +183,7 @@ def create_campaign(
     row, raw_token = RrugcService(session).create_campaign(
         tenant_id=principal.active_tenant_id,
         user_id=principal.user_id,
-        name=request.name,
-        query=request.query,
-        target_count=request.target_count,
-        max_scroll_batches=request.max_scroll_batches,
-        auto_import=request.auto_import,
+        **request.model_dump(),
     )
     response = _campaign(RrugcRepository(session), row).model_dump()
     return CampaignCreatedResponse(**response, scout_token=raw_token)
@@ -168,10 +221,11 @@ def list_candidates(
 
 
 @router.post(
-    "/campaigns/{campaign_id}/candidates/{candidate_id}/import",
-    response_model=ImportResponse,
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/analyze",
+    response_model=AnalyzeResponse,
+    status_code=202,
 )
-async def import_candidate(
+def analyze_candidate(
     campaign_id: str,
     candidate_id: str,
     session: Session = Depends(get_db),
@@ -185,10 +239,32 @@ async def import_candidate(
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
     try:
-        row = await RrugcService(session).import_candidate(
-            candidate=candidate,
-            storage=build_managed_storage_provider(get_settings()),
-        )
+        row = RrugcService(session).reanalyze_candidate(candidate)
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return AnalyzeResponse(candidate=_candidate(row))
+
+
+@router.post(
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/import",
+    response_model=ImportResponse,
+    status_code=202,
+)
+def import_candidate(
+    campaign_id: str,
+    candidate_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    candidate = repository.get_candidate(
+        principal.active_tenant_id, campaign_id, candidate_id
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        row = RrugcService(session).queue_candidate_import(candidate)
     except RrugcError as exc:
         raise _error(exc) from exc
     return ImportResponse(candidate=_candidate(row))
@@ -214,6 +290,9 @@ def scout_task(
         auto_import=row.auto_import,
         status=row.status,
         discovered=sum(counts.values()),
+        approved=_count_sum(counts, ANALYSIS_APPROVED_STATUSES),
+        rejected=_count_sum(counts, ANALYSIS_REJECTED_STATUSES),
+        analysis_pending=counts.get("analysis_queued", 0) + counts.get("analyzing", 0),
         drive_ready=counts.get("drive_ready", 0),
     )
 
@@ -236,41 +315,22 @@ def scout_heartbeat(
     "/scout/{campaign_id}/candidates",
     response_model=CandidateBatchResponse,
 )
-async def scout_candidates(
+def scout_candidates(
     campaign_id: str,
     request: CandidateBatchRequest,
     authorization: str | None = Header(default=None),
     session: Session = Depends(get_db),
 ):
     row = _scout_campaign(campaign_id, authorization, session)
-    service = RrugcService(session)
+    if row.status != "running":
+        raise HTTPException(status_code=409, detail="Campaign is not running")
     try:
-        candidates, created, existing = service.ingest_candidates(
+        candidates, created, existing = RrugcService(session).ingest_candidates(
             campaign=row,
             submissions=request.items,
         )
     except RrugcError as exc:
         raise _error(exc) from exc
-
-    if row.auto_import:
-        storage = build_managed_storage_provider(get_settings())
-        for candidate in candidates:
-            if candidate.status != "discovered":
-                continue
-            try:
-                await service.import_candidate(candidate=candidate, storage=storage)
-            except RrugcError:
-                # The candidate retains a durable import_failed state; one bad
-                # remote image must not discard the rest of a bounded Scout batch.
-                continue
-
-    repository = RrugcRepository(session)
-    counts = repository.campaign_counts(row.tenant_id, row.id)
-    progress = counts.get("drive_ready", 0) if row.auto_import else sum(counts.values())
-    if progress >= row.target_count:
-        row.status = "completed"
-        row.scout_status = "ready"
-        session.commit()
 
     return CandidateBatchResponse(
         created=created,

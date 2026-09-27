@@ -26,6 +26,8 @@ class JobType(str, Enum):
     VIDEO_GENERATE = "video_generate"
     CREATIVE_PIPELINE_NODE = "creative_pipeline_node"
     CREATIVE_PIPELINE_SCAN = "creative_pipeline_scan"
+    RRUGC_CANDIDATE_ANALYZE = "rrugc_candidate_analyze"
+    RRUGC_CANDIDATE_IMPORT = "rrugc_candidate_import"
 
 
 JOB_TYPES = tuple(job_type.value for job_type in JobType)

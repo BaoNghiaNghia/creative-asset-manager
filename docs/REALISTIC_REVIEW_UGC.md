@@ -1402,3 +1402,45 @@ RRUGC-04 managed Google Drive export
 
 Generation and Supervisor work starts only after the reference acquisition pipeline is measurable and reliable.
 
+---
+
+## 38. Implemented reference-analysis slice
+
+The reference acquisition pipeline now separates browser discovery from analysis and storage:
+
+```text
+Pinterest Browser Scout
+  ↓
+candidate persistence
+  ↓
+rrugc_candidate_analyze Processing Job
+  ↓
+tenant-aware Gemini visual assessment (v1 metric source)
+  ↓
+deterministic CAM threshold policy
+  ├── rejected_* + metrics + reason
+  └── approved
+        ↓
+      rrugc_candidate_import Processing Job
+        ↓
+      Managed Google Drive
+```
+
+The v1 analyzer returns visible composition metrics only. It must not identify people or infer demographic/protected attributes. `ai_risk_score` is treated as a risk signal rather than proof of image origin.
+
+Campaign-level filter defaults for hats are:
+
+- primary head ratio: 20–45% of full image height
+- minimum smile score: 0.65
+- maximum head occlusion: 0.25
+- maximum AI-risk signal: 0.20
+- minimum quality score: 0.55
+- minimum casual/mobile UGC score: 0.55
+- minimum hat/product-fit score: 0.55
+- visible head required
+- existing headwear rejected
+
+These thresholds are persisted on each campaign. The deterministic policy owns PASS/FAIL decisions; the model only supplies the structured visible measurements. Individual measurements can later migrate to YOLO/MediaPipe/local CV without changing the Scout, database workflow, or approval state machine.
+
+Only an `approved` reference can be queued for Drive. Auto-import queues a separate idempotent storage job after analysis passes, so Pinterest scanning no longer blocks on VLM or Drive network latency.
+

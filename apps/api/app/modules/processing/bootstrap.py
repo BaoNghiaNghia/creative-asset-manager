@@ -54,6 +54,10 @@ from app.modules.pipeline.handlers import (
 )
 from app.modules.processing.registry import build_handler_registry
 from app.modules.retention.handler import RetentionCleanupJobHandler
+from app.modules.realistic_review_ugc.handler import (
+    RrugcCandidateAnalyzeJobHandler,
+    RrugcCandidateImportJobHandler,
+)
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.storage.managed_cleanup_handler import ManagedStorageCleanupJobHandler
 from app.modules.storage.managed_cleanup_scheduler import (
@@ -101,6 +105,8 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "video_generate": ("PROCESSING_JOBS_ENABLED", "VIDEO_GENERATION_ENABLED", "DOLA_RENDER_GATEWAY_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "creative_pipeline_node": ("PROCESSING_JOBS_ENABLED",),
     "creative_pipeline_scan": ("PROCESSING_JOBS_ENABLED", "CREATIVE_PIPELINE_CANARY_ENABLED"),
+    "rrugc_candidate_analyze": ("PROCESSING_JOBS_ENABLED",),
+    "rrugc_candidate_import": ("PROCESSING_JOBS_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -118,11 +124,14 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
         if enabled(job_type, flags)
         and not (
             settings.AI_EMERGENCY_STOP_ENABLED
-            and job_type.startswith(("asset_analyze", "video_analyze", "ai_batch_"))
+            and (
+                job_type.startswith(("asset_analyze", "video_analyze", "ai_batch_"))
+                or job_type == "rrugc_candidate_analyze"
+            )
         )
         and not (
             settings.GEMINI_EMERGENCY_STOP_ENABLED
-            and job_type == "video_analyze"
+            and job_type in {"video_analyze", "rrugc_candidate_analyze"}
         )
     )
 
@@ -314,6 +323,8 @@ def build_worker_runtime(
                 ("video_generate", VideoGenerateJobHandler(settings)),
                 ("creative_pipeline_node", CreativePipelineNodeHandler(settings)),
                 ("creative_pipeline_scan", CreativePipelineCanaryScanHandler(settings)),
+                ("rrugc_candidate_analyze", RrugcCandidateAnalyzeJobHandler(settings)),
+                ("rrugc_candidate_import", RrugcCandidateImportJobHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),
