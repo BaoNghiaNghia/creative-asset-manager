@@ -19,7 +19,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
 from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, JobOutcome, WorkerDependencies
-from app.domain.providers.contracts import AiMetadataAnalysisResult, StoredAsset, StoredAssetReadStream
+from app.domain.providers.contracts import (
+    AiMetadataAnalysisResult,
+    StorageProviderError,
+    StoredAsset,
+    StoredAssetReadStream,
+)
 from app.domain.providers.registry import AiProviderRegistry
 from app.infrastructure.downloader.secure_image import DownloadedImage
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
@@ -1163,3 +1168,166 @@ def test_rrugc_generation_worker_retryable_provider_error_returns_attempt_to_que
         persisted = session.get(RrugcGenerationAttemptModel, attempt_id)
         assert persisted.status == "queued"
         assert persisted.last_error_code == "gemini_image_provider_unavailable"
+
+def test_rrugc_generation_storage_retry_reuses_staged_provider_result(database, monkeypatch):
+    output_bytes = _png_bytes(width=88, height=58, value=180)
+    calls = {"provider": 0}
+
+    class CountingReferenceProvider:
+        def __init__(self, *, api_key):
+            assert api_key == "test-image-key"
+
+        async def generate_from_references(self, *, person, references, prompt):
+            calls["provider"] += 1
+            return GeneratedImageResult(
+                provider="gemini",
+                model="gemini-3.1-flash-image",
+                image_bytes=output_bytes,
+                mime_type="image/png",
+                provider_request_id="staged-request-1",
+            )
+
+        async def aclose(self):
+            return None
+
+    class FlakyStorage(FakeStorage):
+        def __init__(self):
+            super().__init__()
+            self.fail_next_store = True
+
+        async def store_asset(self, input):
+            if self.fail_next_store:
+                self.fail_next_store = False
+                raise StorageProviderError(
+                    "temporary managed storage failure",
+                    retryable=True,
+                    code="managed_storage_network_error",
+                )
+            return await super().store_asset(input)
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.generation_handler.GeminiReferenceImageProvider",
+        CountingReferenceProvider,
+    )
+    monkeypatch.setattr(
+        RrugcGenerateJobHandler,
+        "_gemini_image_key",
+        lambda self, context, settings: "test-image-key",
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="staged retry generation",
+            query="review portrait",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a",
+            sku="CAP-STAGE",
+            name="Stage cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product)
+        session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="3" * 64,
+            pin_url="https://www.pinterest.com/pin/6003/",
+            image_url="https://i.pinimg.com/stage-source.jpg",
+            status="drive_ready",
+            remote_file_id="person-file",
+        )
+        session.add(candidate)
+        session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            product_revision=1,
+            product_snapshot_json={
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "revision": 1,
+            },
+            product_reference_snapshot_json=[{
+                "id": "front",
+                "view_type": "front",
+                "content_type": "image/png",
+                "remote_file_id": "front-file",
+            }],
+            candidate_snapshot_json={
+                "id": candidate.id,
+                "remote_file_id": "person-file",
+            },
+            generation_variant=1,
+            worker_skill_version="worker-hat-v1",
+            provider="gemini",
+            provider_model="gemini-3.1-flash-image",
+            prompt_text="preserve person",
+            status="queued",
+            idempotency_key="stage-retry-attempt-key",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt)
+        session.commit()
+        attempt_id = attempt.id
+
+    storage = FlakyStorage()
+    with TemporaryDirectory() as temp:
+        settings = SimpleNamespace(
+            IMAGE_GENERATION_ENABLED=True,
+            GEMINI_IMAGE_GENERATION_ENABLED=True,
+            GEMINI_IMAGE_API_KEY="test-image-key",
+            IMAGE_GENERATION_STAGING_ROOT=temp,
+        )
+
+        def context():
+            return JobHandlerContext(
+                job=ClaimedJob(
+                    id="job-generate-stage-retry",
+                    tenant_id="tenant-a",
+                    job_type="rrugc_generate",
+                    entity_type="rrugc_generation_attempt",
+                    entity_id=attempt_id,
+                    payload={"generation_attempt_id": attempt_id},
+                    attempt_count=1,
+                    lease_owner="test-worker",
+                    provider_key="gemini",
+                ),
+                dependencies=WorkerDependencies(
+                    session_factory=database,
+                    storage_provider=storage,
+                ),
+                shutdown_requested=Event(),
+                cancellation_requested=Event(),
+                logger=logging.LoggerAdapter(
+                    logging.getLogger("rrugc-generation-stage-retry-test"), {}
+                ),
+            )
+
+        first = RrugcGenerateJobHandler(settings)(context())
+        assert first.outcome == JobOutcome.RETRYABLE_FAILURE
+        assert first.error_code == "managed_storage_network_error"
+        assert calls["provider"] == 1
+        staged = Path(temp) / "rrugc" / f"{attempt_id}.result"
+        assert staged.is_file()
+
+        second = RrugcGenerateJobHandler(settings)(context())
+        assert second.outcome == JobOutcome.COMPLETED
+        assert calls["provider"] == 1
+        assert storage.payload == output_bytes
+        assert not staged.exists()
+
+    with database() as session:
+        persisted = session.get(RrugcGenerationAttemptModel, attempt_id)
+        assert persisted is not None
+        assert persisted.status == "completed"
+        assert persisted.provider_request_id == "staged-request-1"
+        assert persisted.output_remote_file_id == "file-1"
