@@ -135,14 +135,20 @@ class NoToolThenSubmitGateway:
                 "parts": [{
                     "functionCall": {
                         "name": "submit_carry_forward_plan",
-                        "args": {"operations": [], "issues": []},
+                        "args": {
+                            "operations": [],
+                            "issues": [{"code": "NO_SAFE_OPERATION", "message": "No evidence-backed mapping found"}],
+                        },
                     }
                 }],
             },
             calls=(
                 InventoryGeminiToolCall(
                     name="submit_carry_forward_plan",
-                    arguments={"operations": [], "issues": []},
+                    arguments={
+                        "operations": [],
+                        "issues": [{"code": "NO_SAFE_OPERATION", "message": "No evidence-backed mapping found"}],
+                    },
                 ),
             ),
         )
@@ -180,7 +186,7 @@ def test_carry_forward_planner_nudges_model_to_submit_after_prose_only_turn():
     )
 
     assert plan.rows == []
-    assert plan.issues == []
+    assert plan.issues == [{"code": "NO_SAFE_OPERATION", "message": "No evidence-backed mapping found"}]
     assert plan.audit["tool_rounds"] == 2
     assert gateway.forced_functions == [None, "submit_carry_forward_plan"]
     second_request_text = "\n".join(
@@ -190,7 +196,7 @@ def test_carry_forward_planner_nudges_model_to_submit_after_prose_only_turn():
         if isinstance(part, dict)
     )
     assert "Do not finish with prose" in second_request_text
-    assert "empty operations array is valid" in second_request_text
+    assert "Do not submit both arrays empty" in second_request_text
     engine.dispose(); temp.cleanup()
 
 
@@ -629,6 +635,27 @@ def test_unknown_tool_is_returned_to_gemini_as_recoverable_feedback():
         "tool": "made_up_tool",
         "status": "rejected_unknown_tool",
     }
+    engine.dispose(); temp.cleanup()
+
+
+def test_empty_carry_forward_submission_is_retryable_and_not_final():
+    temp, engine, sessions = make_db()
+    host = CarryForwardToolHost(
+        tenant_id="tenant-a",
+        source_id="gemini",
+        target_id="shared",
+        google=Google(),
+        sessions=sessions,
+    )
+    result = host.execute(
+        "submit_carry_forward_plan",
+        {"operations": [], "issues": []},
+    )
+    assert result["accepted"] is False
+    assert result["retryable"] is True
+    assert result["error"] == "empty_carry_forward_plan"
+    assert host.plan is None
+    assert host.submitted is False
     engine.dispose(); temp.cleanup()
 
 

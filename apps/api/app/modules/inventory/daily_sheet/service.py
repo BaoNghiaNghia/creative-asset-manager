@@ -35,7 +35,10 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
         category = "RATE_LIMIT"
     elif "model_not_found" in value or ("model" in value and "not found" in value):
         category = "MODEL"
-    elif any(token in value for token in ("tool_call", "missing_tool", "round_limit", "plan_not_submitted")):
+    elif any(token in value for token in (
+        "tool_call", "missing_tool", "round_limit", "plan_not_submitted",
+        "empty_carry_forward_plan",
+    )):
         category = "TOOL_PROTOCOL"
     elif any(token in value for token in ("previous_day_gemini_not_verified", "morning_reset_not_completed", "afternoon_snapshot_not_ready", "missed_safe_window", "dependency")):
         category = "DEPENDENCY"
@@ -63,6 +66,7 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
             "inventory_sheet_agent_v4_missing_tool_call",
             "inventory_sheet_agent_v4_round_limit",
             "carry_forward_plan_not_submitted",
+            "empty_carry_forward_plan",
         ))
     )
     if "missed_safe_window" in value:

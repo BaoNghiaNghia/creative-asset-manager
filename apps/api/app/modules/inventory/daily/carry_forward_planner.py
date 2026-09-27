@@ -211,6 +211,18 @@ class CarryForwardToolHost:
     def submit_carry_forward_plan(self, args: Mapping[str, Any]) -> dict[str, Any]:
         if self.submitted: raise CarryForwardReviewRequired("carry_forward_plan_already_submitted")
         rows, issues = list(args.get("operations") or args.get("rows") or []), list(args.get("issues") or [])
+        if not rows and not issues:
+            return {
+                "accepted": False,
+                "retryable": True,
+                "error": "empty_carry_forward_plan",
+                "guidance": (
+                    "An empty plan cannot complete Morning Reset. Read enough SOURCE and TARGET evidence "
+                    "to identify evidence-backed set_cell/clear_cell operations. If no safe operation exists "
+                    "after inspection, submit a concrete issue explaining the structural, identity, or "
+                    "evidence blocker instead of an empty success plan."
+                ),
+            }
         missing_catalog_issues = [
             issue for issue in issues
             if isinstance(issue, dict)
@@ -576,8 +588,8 @@ class GeminiCarryForwardPlanner:
                                                 "No accepted carry-forward plan has been submitted yet. "
                                                 "Do not finish with prose. Continue using the available read-only "
                                                 "tools as needed, then call submit_carry_forward_plan with both "
-                                                "operations and issues. An empty operations array is valid when "
-                                                "the evidence shows that no cell changes are required."
+                                                "operations and issues. Do not submit both arrays empty: if no safe "
+                                                "operation can be proven, report a concrete evidence-backed issue."
                                             )
                                         }],
                                     })
