@@ -220,6 +220,12 @@ export type GenerationAttempt = {
   parent_attempt_id: string | null;
   correction_supervisor_result_id: string | null;
   supervisor_correction: Record<string, unknown> | null;
+  review_status: "pending" | "approved" | "rejected" | null;
+  review_task_id: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  export_status: "pending_review" | "export_ready" | "not_exportable" | null;
   last_error_code: string | null;
   last_error_message: string | null;
   queued_at: string | null;
@@ -253,6 +259,45 @@ export type SupervisorResult = {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ReviewTask = {
+  id: string;
+  campaign_id: string;
+  campaign_name: string;
+  candidate_id: string;
+  product_id: string;
+  product_sku: string;
+  product_name: string;
+  generation_attempt_id: string;
+  generation_variant: number;
+  supervisor_result_id: string;
+  supervisor_status: "pass" | "needs_human_review";
+  supervisor_reason: string | null;
+  supervisor_summary: string | null;
+  supervisor_metrics: Record<string, number | null> | null;
+  queue_reason: "supervisor_pass" | "supervisor_needs_human_review";
+  priority: "standard" | "high";
+  status: "pending" | "approved" | "rejected";
+  review_note: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  export_status: "pending_review" | "export_ready" | "not_exportable";
+  output_url: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewTaskList = {
+  items: ReviewTask[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ReviewTaskTransition = {
+  transitioned: boolean;
+  task: ReviewTask;
 };
 
 export type CampaignCreateRequest = {

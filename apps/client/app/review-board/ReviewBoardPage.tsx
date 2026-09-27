@@ -18,6 +18,10 @@ import type {
   BoardPage,
   BoardStats,
 } from "./types";
+import {
+  ReviewBoardModeSwitch,
+  RrugcReviewBoardMode,
+} from "./RrugcReviewBoardMode";
 
 const initialFilters: BoardFilters = {
   status: "open",
@@ -329,6 +333,7 @@ export function ReviewIssueInspector({
 export function ReviewBoardPage() {
   const [permissions, setPermissions] = useState<string[] | null>(null);
   const [identityError, setIdentityError] = useState(false);
+  const [mode, setMode] = useState<"shared" | "rrugc">("shared");
   const [filters, setFilters] = useState<BoardFilters>(initialFilters);
   const [page, setPage] = useState<BoardPage | null>(null);
   const [stats, setStats] = useState<BoardStats | null>(null);
@@ -342,9 +347,12 @@ export function ReviewBoardPage() {
 
   const canRead = permissions?.includes("public_review.read") === true;
   const canResolve = permissions?.includes("public_review.resolve") === true;
+  const canReadRrugc = permissions?.includes("realistic_review_ugc.read") === true;
+  const canRunRrugc = permissions?.includes("realistic_review_ugc.run") === true;
+  const canReadAny = canRead || canReadRrugc;
 
   const reload = useCallback(async () => {
-    if (!canRead) return;
+    if (!canRead || mode !== "shared") return;
     setLoading(true);
     setError("");
     try {
@@ -366,13 +374,20 @@ export function ReviewBoardPage() {
     } finally {
       setLoading(false);
     }
-  }, [canRead, filters]);
+  }, [canRead, filters, mode]);
 
   useEffect(() => {
     let alive = true;
     fetchAccessIdentity()
       .then((identity) => {
-        if (alive) setPermissions(identity.permissions);
+        if (!alive) return;
+        setPermissions(identity.permissions);
+        if (
+          !identity.permissions.includes("public_review.read")
+          && identity.permissions.includes("realistic_review_ugc.read")
+        ) {
+          setMode("rrugc");
+        }
       })
       .catch(() => {
         if (alive) setIdentityError(true);
@@ -387,7 +402,7 @@ export function ReviewBoardPage() {
   }, [reload]);
 
   useEffect(() => {
-    if (!selectedId || !canRead) return;
+    if (!selectedId || !canRead || mode !== "shared") return;
     const controller = new AbortController();
     setDetailLoading(true);
     setMutationError("");
@@ -406,7 +421,7 @@ export function ReviewBoardPage() {
         if (!controller.signal.aborted) setDetailLoading(false);
       });
     return () => controller.abort();
-  }, [selectedId, canRead]);
+  }, [selectedId, canRead, mode]);
 
   const updateFilter = <K extends keyof BoardFilters>(
     key: K,
@@ -468,11 +483,33 @@ export function ReviewBoardPage() {
     );
   }
 
-  if (!canRead) {
+  if (!canReadAny) {
     return (
       <main className="review-board-state" role="alert">
         You are signed in, but do not have permission to view the Review Board.
       </main>
+    );
+  }
+
+  if (mode === "rrugc" && canReadRrugc) {
+    return (
+      <RrugcReviewBoardMode
+        canShared={canRead}
+        canRrugc={canReadRrugc}
+        canRun={canRunRrugc}
+        onMode={setMode}
+      />
+    );
+  }
+
+  if (!canRead && canReadRrugc) {
+    return (
+      <RrugcReviewBoardMode
+        canShared={false}
+        canRrugc
+        canRun={canRunRrugc}
+        onMode={setMode}
+      />
     );
   }
 
@@ -488,7 +525,7 @@ export function ReviewBoardPage() {
             <small>Review operations</small>
           </span>
         </div>
-        <WorkspaceNavigation active="review-board" showReviewBoard={canRead} />
+        <WorkspaceNavigation active="review-board" showReviewBoard={canReadAny} />
         <small className="ops-sidebar-note">
           Review and resolve shared asset feedback.
         </small>
@@ -509,6 +546,13 @@ export function ReviewBoardPage() {
             <ReviewBoardIcon name="refresh" />
             {loading ? "Refreshing…" : "Refresh"}
           </button>}
+        />
+
+        <ReviewBoardModeSwitch
+          mode="shared"
+          canShared={canRead}
+          canRrugc={canReadRrugc}
+          onMode={setMode}
         />
 
         <section className="review-board-stats" aria-label="Review Board statistics">

@@ -15,7 +15,9 @@ import {
 
 export type WorkspaceRoute = "assets" | "operations" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
 
-export const mayViewReviewBoard = (permissions: readonly string[]) => permissions.includes("public_review.read");
+export const mayViewReviewBoard = (permissions: readonly string[]) =>
+  permissions.includes("public_review.read")
+  || permissions.includes("realistic_review_ugc.read");
 
 const navigationIconSources: Record<WorkspaceRoute, string> = {
   assets: assetExplorerIcon,

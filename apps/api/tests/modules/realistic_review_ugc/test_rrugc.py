@@ -44,11 +44,13 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
+    RrugcReviewTaskModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -97,6 +99,7 @@ def database():
     RrugcCandidateModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
+    RrugcReviewTaskModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -461,6 +464,247 @@ def test_supervisor_worker_persists_pass_for_completed_generation(database):
         assert result.provider_model == "fake-supervisor"
         assert result.metrics_json["product_visual_similarity"] == pytest.approx(0.92)
         assert result.completed_at is not None
+
+
+
+
+def _seed_review_case(session, *, supervisor_status: str, key: str):
+    campaign, _ = RrugcService(session).create_campaign(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        name=f"Review {key}",
+        query="casual review portrait",
+        target_count=1,
+        max_scroll_batches=1,
+        auto_import=False,
+    )
+    product = RrugcProductModel(
+        tenant_id="tenant-a",
+        sku=f"CAP-{key.upper()}",
+        name=f"Review cap {key}",
+        created_by_user_id="user-a",
+    )
+    session.add(product)
+    session.flush()
+    candidate = RrugcCandidateModel(
+        tenant_id="tenant-a",
+        campaign_id=campaign.id,
+        source_key=(key * 64)[:64],
+        pin_url=f"https://www.pinterest.com/pin/{9000 + ord(key[0])}/",
+        image_url=f"https://i.pinimg.com/review-{key}.jpg",
+        status="drive_ready",
+        remote_file_id=f"person-review-{key}",
+    )
+    session.add(candidate)
+    session.flush()
+    attempt = RrugcGenerationAttemptModel(
+        tenant_id="tenant-a",
+        campaign_id=campaign.id,
+        candidate_id=candidate.id,
+        product_id=product.id,
+        product_revision=1,
+        product_snapshot_json={
+            "id": product.id,
+            "sku": product.sku,
+            "name": product.name,
+            "revision": 1,
+        },
+        product_reference_snapshot_json=[{
+            "id": f"review-ref-{key}",
+            "view_type": "front",
+            "version": 1,
+            "remote_file_id": f"review-ref-file-{key}",
+        }],
+        candidate_snapshot_json={
+            "id": candidate.id,
+            "remote_file_id": candidate.remote_file_id,
+        },
+        generation_variant=1,
+        worker_skill_version="worker-hat-v1",
+        status="completed",
+        idempotency_key=f"review-attempt-{key}",
+        output_remote_file_id=f"generated-review-{key}",
+        output_content_type="image/png",
+        created_by_user_id="user-a",
+    )
+    session.add(attempt)
+    session.flush()
+    result = RrugcSupervisorResultModel(
+        tenant_id="tenant-a",
+        campaign_id=campaign.id,
+        generation_attempt_id=attempt.id,
+        candidate_id=candidate.id,
+        product_id=product.id,
+        supervisor_skill_version="supervisor-hat-v1",
+        status=supervisor_status,
+        reason=(
+            "HAT_TOO_LARGE"
+            if supervisor_status == "needs_human_review"
+            else None
+        ),
+        metrics_json={"product_visual_similarity": 0.91},
+        summary="Review handoff test.",
+    )
+    session.add(result)
+    session.commit()
+    return campaign, attempt, result
+
+
+def test_review_handoff_routes_terminal_supervisor_states_idempotently(database):
+    with database() as session:
+        _campaign, pass_attempt, pass_result = _seed_review_case(
+            session, supervisor_status="pass", key="p"
+        )
+        service = RrugcReviewService(session)
+        task, created = service.ensure_from_supervisor(result=pass_result)
+        assert created is True
+        assert task is not None
+        assert task.priority == "standard"
+        assert task.queue_reason == "supervisor_pass"
+        assert task.status == "pending"
+        assert pass_attempt.review_status == "pending"
+        assert pass_attempt.export_status == "pending_review"
+
+        duplicate, created_again = service.ensure_from_supervisor(result=pass_result)
+        assert created_again is False
+        assert duplicate is not None
+        assert duplicate.id == task.id
+
+        _campaign2, human_attempt, human_result = _seed_review_case(
+            session, supervisor_status="needs_human_review", key="h"
+        )
+        human_task, human_created = service.ensure_from_supervisor(
+            result=human_result
+        )
+        assert human_created is True
+        assert human_task is not None
+        assert human_task.priority == "high"
+        assert human_task.queue_reason == "supervisor_needs_human_review"
+        assert human_attempt.review_status == "pending"
+
+        _campaign3, fail_attempt, fail_result = _seed_review_case(
+            session, supervisor_status="fail", key="f"
+        )
+        skipped, fail_created = service.ensure_from_supervisor(result=fail_result)
+        assert skipped is None
+        assert fail_created is False
+        assert (
+            RrugcRepository(session).review_task_for_attempt(
+                "tenant-a", fail_attempt.id
+            )
+            is None
+        )
+
+
+def test_review_transition_updates_generation_provenance_and_rejects_conflict(database):
+    with database() as session:
+        _campaign, attempt, result = _seed_review_case(
+            session, supervisor_status="pass", key="t"
+        )
+        service = RrugcReviewService(session)
+        task, _ = service.ensure_from_supervisor(result=result)
+        assert task is not None
+
+        approved, transitioned = service.transition(
+            tenant_id="tenant-a",
+            task_id=task.id,
+            target_status="approved",
+            user_id="reviewer-a",
+            review_note="Looks good for export.",
+        )
+        assert transitioned is True
+        assert approved.status == "approved"
+        assert approved.reviewed_by_user_id == "reviewer-a"
+        assert attempt.review_status == "approved"
+        assert attempt.export_status == "export_ready"
+        assert attempt.review_note == "Looks good for export."
+        assert attempt.reviewed_at is not None
+
+        same, transitioned_again = service.transition(
+            tenant_id="tenant-a",
+            task_id=task.id,
+            target_status="approved",
+            user_id="reviewer-a",
+            review_note="Ignored idempotent retry.",
+        )
+        assert transitioned_again is False
+        assert same.status == "approved"
+
+        with pytest.raises(RrugcError) as exc:
+            service.transition(
+                tenant_id="tenant-a",
+                task_id=task.id,
+                target_status="rejected",
+                user_id="reviewer-b",
+            )
+        assert exc.value.code == "review_transition_conflict"
+
+
+def test_review_reconcile_backfills_terminal_supervisor_results(database):
+    with database() as session:
+        _seed_review_case(session, supervisor_status="pass", key="r")
+        _seed_review_case(session, supervisor_status="needs_human_review", key="n")
+        _seed_review_case(session, supervisor_status="fail", key="x")
+        result = RrugcReviewService(session).reconcile(
+            tenant_id="tenant-a",
+            limit=20,
+        )
+        assert result.scanned == 2
+        assert result.created == 2
+        rows, total = RrugcRepository(session).list_review_tasks(
+            "tenant-a",
+            limit=20,
+        )
+        assert total == 2
+        assert {row.priority for row in rows} == {"standard", "high"}
+
+
+def test_review_task_api_lists_and_approves_with_export_state(api, database):
+    with database() as session:
+        _campaign, attempt, result = _seed_review_case(
+            session, supervisor_status="pass", key="a"
+        )
+        task, created = RrugcReviewService(session).ensure_from_supervisor(
+            result=result
+        )
+        assert created is True
+        assert task is not None
+        task_id = task.id
+        attempt_id = attempt.id
+
+    listed = api.get(
+        "/api/v1/realistic-review-ugc/review-tasks",
+        params={"status": "pending", "priority": "standard"},
+    )
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == task_id
+    assert payload["items"][0]["output_url"].endswith(
+        f"/generation-attempts/{attempt_id}/output"
+    )
+
+    approved = api.post(
+        f"/api/v1/realistic-review-ugc/review-tasks/{task_id}/approve",
+        json={"review_note": "Approved in board."},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["transitioned"] is True
+    assert approved.json()["task"]["status"] == "approved"
+    assert approved.json()["task"]["export_status"] == "export_ready"
+
+    repeated = api.post(
+        f"/api/v1/realistic-review-ugc/review-tasks/{task_id}/approve",
+        json={"review_note": "same-state retry"},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["transitioned"] is False
+
+    conflict = api.post(
+        f"/api/v1/realistic-review-ugc/review-tasks/{task_id}/reject",
+        json={},
+    )
+    assert conflict.status_code == 409
 
 
 def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):

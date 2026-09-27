@@ -1503,5 +1503,40 @@ A failed Supervisor result can prepare a corrected generation attempt. Correctio
 
 The Realistic Review UGC UI now surfaces Supervisor status, failure reason, important metrics, summary, correction preparation, and the human-review state next to each generation attempt.
 
-The next Phase 7/8 handoff remains the Review Board integration: route `PASS` outputs into review/export, route `needs_human_review` directly to a bounded reviewer task, and attach final approval/rejection provenance to the generated asset.
+Phase 7 hands terminal Supervisor outcomes to Phase 8 through durable review provenance.
+
+---
+
+## 40. Implemented Review Board handoff
+
+Phase 8 adds an auditable review gate between Supervisor QA and export:
+
+```text
+Supervisor PASS
+  └── standard-priority RRUGC review task
+Supervisor NEEDS_HUMAN_REVIEW
+  └── high-priority RRUGC review task
+Supervisor FAIL with retry budget remaining
+  └── correction workflow only; no review task
+        ↓
+existing Review Board
+  ├── Shared feedback
+  └── Realistic UGC
+        ↓
+reviewer decision
+  ├── APPROVED → export_ready
+  └── REJECTED → not_exportable
+```
+
+Review tasks are persisted in `rrugc_review_tasks` and are unique per generated attempt. The task stores the Supervisor result, campaign/candidate/product provenance, queue reason, priority, reviewer identity, optional bounded note and review timestamps. The generated attempt itself also carries `review_status`, `review_task_id`, `reviewed_by_user_id`, `reviewed_at`, `review_note` and `export_status`, so final approval/rejection provenance remains attached to the exact stored output.
+
+The handoff is idempotent. A retried Supervisor job reuses the existing review task instead of creating duplicates. A `PASS` result creates a standard-priority task; `needs_human_review` creates a high-priority task. A normal `FAIL` result that can still use the correction loop is intentionally excluded from Review Board.
+
+The existing Review Board now has two sources: **Shared feedback** and **Realistic UGC**. Access to the page is visible when the user has either `public_review.read` or `realistic_review_ugc.read`; backend permissions remain source-specific. Realistic UGC mode uses the authenticated generation-output endpoint for image preview, shows product/campaign and Supervisor evidence, highlights high-priority human-review cases, and exposes Approve/Reject only to users with `realistic_review_ugc.run`.
+
+Approval/rejection is atomic across the review task and generation attempt. Repeating the same terminal decision is idempotent; attempting the opposite terminal transition returns a conflict. Approval does not copy or re-upload the Managed Drive image—it only marks the exact stored output `export_ready`. Rejection marks it `not_exportable`.
+
+A bounded reconcile path can backfill review tasks for older terminal Supervisor results that predate this handoff.
+
+The next remaining phase is the export/catalog layer: batch export of `export_ready` outputs, optional registration into the final asset catalog, export provenance, campaign-level completion analytics and operational reporting. Those capabilities are not part of Phase 8.
 

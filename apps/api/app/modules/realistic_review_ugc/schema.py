@@ -231,6 +231,12 @@ class GenerationAttemptResponse(BaseModel):
     parent_attempt_id: str | None = None
     correction_supervisor_result_id: str | None = None
     supervisor_correction: dict | None = None
+    review_status: Literal["pending", "approved", "rejected"] | None = None
+    review_task_id: str | None = None
+    reviewed_by_user_id: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
+    export_status: Literal["pending_review", "export_ready", "not_exportable"] | None = None
     last_error_code: str | None = None
     last_error_message: str | None = None
     queued_at: datetime | None = None
@@ -269,6 +275,54 @@ class SupervisorResultResponse(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ReviewTaskDecisionRequest(BaseModel):
+    review_note: str | None = Field(default=None, max_length=1000)
+
+
+class ReviewTaskResponse(BaseModel):
+    id: str
+    campaign_id: str
+    campaign_name: str
+    candidate_id: str
+    product_id: str
+    product_sku: str
+    product_name: str
+    generation_attempt_id: str
+    generation_variant: int
+    supervisor_result_id: str
+    supervisor_status: Literal["pass", "needs_human_review"]
+    supervisor_reason: str | None = None
+    supervisor_summary: str | None = None
+    supervisor_metrics: dict | None = None
+    queue_reason: Literal["supervisor_pass", "supervisor_needs_human_review"]
+    priority: Literal["standard", "high"]
+    status: Literal["pending", "approved", "rejected"]
+    review_note: str | None = None
+    reviewed_by_user_id: str | None = None
+    reviewed_at: datetime | None = None
+    export_status: Literal["pending_review", "export_ready", "not_exportable"]
+    output_url: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReviewTaskListResponse(BaseModel):
+    items: list[ReviewTaskResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class ReviewTaskTransitionResponse(BaseModel):
+    transitioned: bool
+    task: ReviewTaskResponse
+
+
+class ReviewTaskReconcileResponse(BaseModel):
+    scanned: int
+    created: int
 
 
 class CandidateSubmission(BaseModel):

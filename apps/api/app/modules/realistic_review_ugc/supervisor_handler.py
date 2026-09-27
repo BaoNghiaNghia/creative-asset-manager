@@ -18,6 +18,7 @@ from app.modules.ai_metadata.analysis_image import (
     AnalysisImagePreparer,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     SupervisorAnalysisDocument,
@@ -117,6 +118,24 @@ class RrugcSupervisorQaJobHandler:
                     "Supervisor source generation was not found.",
                 )
             if result.status in {"pass", "fail", "needs_human_review"}:
+                if result.status in {"pass", "needs_human_review"}:
+                    try:
+                        RrugcReviewService(session).ensure_from_supervisor(
+                            result=result
+                        )
+                    except Exception:
+                        context.logger.exception(
+                            "rrugc_review_handoff_failed",
+                            extra={
+                                "supervisor_result_id": result.id,
+                                "generation_attempt_id": attempt.id,
+                                "tenant_id": context.job.tenant_id,
+                            },
+                        )
+                        return JobHandlerResult.retryable(
+                            "rrugc_review_handoff_failed",
+                            "Supervisor completed but review handoff could not be persisted.",
+                        )
                 return JobHandlerResult.completed()
             if attempt.status != "completed" or not attempt.output_remote_file_id:
                 return JobHandlerResult.retryable(
@@ -265,6 +284,24 @@ class RrugcSupervisorQaJobHandler:
             result.last_error_message = None
             result.completed_at = datetime.now(timezone.utc)
             session.commit()
+            if final_status in {"pass", "needs_human_review"}:
+                try:
+                    RrugcReviewService(session).ensure_from_supervisor(
+                        result=result
+                    )
+                except Exception:
+                    context.logger.exception(
+                        "rrugc_review_handoff_failed",
+                        extra={
+                            "supervisor_result_id": result.id,
+                            "generation_attempt_id": attempt.id,
+                            "tenant_id": context.job.tenant_id,
+                        },
+                    )
+                    return JobHandlerResult.retryable(
+                        "rrugc_review_handoff_failed",
+                        "Supervisor completed but review handoff could not be persisted.",
+                    )
 
         context.logger.info(
             "rrugc_supervisor_qa_completed",

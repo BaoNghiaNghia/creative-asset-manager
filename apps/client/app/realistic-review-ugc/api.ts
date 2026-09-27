@@ -10,6 +10,9 @@ import type {
   ProductReference,
   ProductReferenceView,
   ProductUpdateRequest,
+  ReviewTask,
+  ReviewTaskList,
+  ReviewTaskTransition,
   SupervisorResult,
 } from "./types";
 
@@ -157,6 +160,62 @@ export const prepareSupervisorCorrection = (resultId: string) =>
   request<{ created: boolean; attempt: GenerationAttempt }>(
     "/api/v1/realistic-review-ugc/supervisor-results/"
       + encodeURIComponent(resultId) + "/prepare-correction",
+    { method: "POST", body: "{}" },
+  );
+
+export type ReviewTaskFilters = {
+  status?: ReviewTask["status"];
+  priority?: ReviewTask["priority"];
+  campaign_id?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export const listReviewTasks = (
+  filters: ReviewTaskFilters = {},
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.priority) params.set("priority", filters.priority);
+  if (filters.campaign_id) params.set("campaign_id", filters.campaign_id);
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return request<ReviewTaskList>(
+    "/api/v1/realistic-review-ugc/review-tasks?" + params.toString(),
+    { signal },
+  );
+};
+
+export const getReviewTask = (taskId: string, signal?: AbortSignal) =>
+  request<ReviewTask>(
+    "/api/v1/realistic-review-ugc/review-tasks/" + encodeURIComponent(taskId),
+    { signal },
+  );
+
+const transitionReviewTask = (
+  taskId: string,
+  action: "approve" | "reject",
+  reviewNote?: string,
+) =>
+  request<ReviewTaskTransition>(
+    "/api/v1/realistic-review-ugc/review-tasks/"
+      + encodeURIComponent(taskId) + "/" + action,
+    {
+      method: "POST",
+      body: JSON.stringify({ review_note: reviewNote?.trim() || null }),
+    },
+  );
+
+export const approveReviewTask = (taskId: string, reviewNote?: string) =>
+  transitionReviewTask(taskId, "approve", reviewNote);
+
+export const rejectReviewTask = (taskId: string, reviewNote?: string) =>
+  transitionReviewTask(taskId, "reject", reviewNote);
+
+export const reconcileReviewTasks = (limit = 100) =>
+  request<{ scanned: number; created: number }>(
+    "/api/v1/realistic-review-ugc/review-tasks/reconcile?limit=" + limit,
     { method: "POST", body: "{}" },
   );
 

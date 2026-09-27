@@ -10,6 +10,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
+    RrugcReviewTaskModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -361,3 +362,102 @@ class RrugcRepository:
                 RrugcGenerationAttemptModel.correction_supervisor_result_id == supervisor_result_id,
             )
         )
+
+    def review_task_for_attempt(
+        self, tenant_id: str, generation_attempt_id: str
+    ) -> RrugcReviewTaskModel | None:
+        return self.session.scalar(
+            select(RrugcReviewTaskModel).where(
+                RrugcReviewTaskModel.tenant_id == tenant_id,
+                RrugcReviewTaskModel.generation_attempt_id == generation_attempt_id,
+            )
+        )
+
+    def get_review_task(
+        self, tenant_id: str, task_id: str
+    ) -> RrugcReviewTaskModel | None:
+        return self.session.scalar(
+            select(RrugcReviewTaskModel).where(
+                RrugcReviewTaskModel.tenant_id == tenant_id,
+                RrugcReviewTaskModel.id == task_id,
+            )
+        )
+
+    def lock_review_task(
+        self, tenant_id: str, task_id: str
+    ) -> RrugcReviewTaskModel | None:
+        return self.session.scalar(
+            select(RrugcReviewTaskModel)
+            .where(
+                RrugcReviewTaskModel.tenant_id == tenant_id,
+                RrugcReviewTaskModel.id == task_id,
+            )
+            .with_for_update()
+        )
+
+    def list_review_tasks(
+        self,
+        tenant_id: str,
+        *,
+        status: str | None = None,
+        priority: str | None = None,
+        campaign_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[RrugcReviewTaskModel], int]:
+        statement = select(RrugcReviewTaskModel).where(
+            RrugcReviewTaskModel.tenant_id == tenant_id
+        )
+        if status is not None:
+            statement = statement.where(RrugcReviewTaskModel.status == status)
+        if priority is not None:
+            statement = statement.where(RrugcReviewTaskModel.priority == priority)
+        if campaign_id is not None:
+            statement = statement.where(
+                RrugcReviewTaskModel.campaign_id == campaign_id
+            )
+        total = int(
+            self.session.scalar(
+                select(func.count()).select_from(statement.order_by(None).subquery())
+            )
+            or 0
+        )
+        rows = list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcReviewTaskModel.created_at.desc(),
+                    RrugcReviewTaskModel.id.desc(),
+                )
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        return rows, total
+
+    def terminal_supervisor_results_without_review(
+        self, tenant_id: str, *, limit: int = 100
+    ) -> list[RrugcSupervisorResultModel]:
+        statement = (
+            select(RrugcSupervisorResultModel)
+            .outerjoin(
+                RrugcReviewTaskModel,
+                (RrugcReviewTaskModel.tenant_id == RrugcSupervisorResultModel.tenant_id)
+                & (
+                    RrugcReviewTaskModel.generation_attempt_id
+                    == RrugcSupervisorResultModel.generation_attempt_id
+                ),
+            )
+            .where(
+                RrugcSupervisorResultModel.tenant_id == tenant_id,
+                RrugcSupervisorResultModel.status.in_(
+                    ("pass", "needs_human_review")
+                ),
+                RrugcReviewTaskModel.id.is_(None),
+            )
+            .order_by(
+                RrugcSupervisorResultModel.completed_at.asc().nullsfirst(),
+                RrugcSupervisorResultModel.id.asc(),
+            )
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement))

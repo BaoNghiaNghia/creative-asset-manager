@@ -8,7 +8,13 @@ import {
   ReviewIssueInspector,
   ReviewIssueRow,
 } from "./ReviewBoardPage";
+import {
+  ReviewBoardModeSwitch,
+  RrugcReviewInspector,
+  RrugcReviewTaskRow,
+} from "./RrugcReviewBoardMode";
 import type { BoardIssue, BoardIssueDetail } from "./types";
+import type { ReviewTask } from "../realistic-review-ugc/types";
 
 const issue: BoardIssue = {
   id: "issue-1",
@@ -30,6 +36,41 @@ const issue: BoardIssue = {
   resolved_at: null,
   resolver: null,
 };
+
+
+
+const rrugcTask: ReviewTask = {
+  id: "rrugc-review-1",
+  campaign_id: "campaign-1",
+  campaign_name: "Pinterest UGC September",
+  candidate_id: "candidate-1",
+  product_id: "product-1",
+  product_sku: "CAP-RED-01",
+  product_name: "Red embroidered cap",
+  generation_attempt_id: "attempt-1",
+  generation_variant: 2,
+  supervisor_result_id: "supervisor-1",
+  supervisor_status: "needs_human_review",
+  supervisor_reason: "HAT_TOO_LARGE",
+  supervisor_summary: "Hat scale needs a human check before export.",
+  supervisor_metrics: {
+    product_visual_similarity: 0.91,
+    placement_score: 0.84,
+    person_scene_preservation: 0.96,
+    artifact_risk: 0.08,
+  },
+  queue_reason: "supervisor_needs_human_review",
+  priority: "high",
+  status: "pending",
+  review_note: null,
+  reviewed_by_user_id: null,
+  reviewed_at: null,
+  export_status: "pending_review",
+  output_url: "/api/v1/realistic-review-ugc/generation-attempts/attempt-1/output",
+  created_at: "2026-09-28T00:20:00Z",
+  updated_at: "2026-09-28T00:20:00Z",
+};
+
 
 const detail: BoardIssueDetail = {
   ...issue,
@@ -72,9 +113,11 @@ describe("Review Board boundary", () => {
     expect(routeForPath("/job-queue")).toBe("job-queue");
   });
 
-  it("uses the exact read permission for navigation visibility", () => {
+  it("shows Review Board navigation for either supported review source", () => {
     expect(mayViewReviewBoard(["public_review.read"])).toBe(true);
+    expect(mayViewReviewBoard(["realistic_review_ugc.read"])).toBe(true);
     expect(mayViewReviewBoard(["public_review.resolve"])).toBe(false);
+    expect(mayViewReviewBoard(["realistic_review_ugc.run"])).toBe(false);
     expect(mayViewReviewBoard(["public_review.manage"])).toBe(false);
   });
 
@@ -125,5 +168,56 @@ describe("Review Board workspace", () => {
     expect(markup).toContain("Will update this.");
     expect(markup).toContain("Resolve issue");
     expect(markup).not.toContain("Mark Done");
+  });
+});
+
+describe("Realistic UGC Review Board mode", () => {
+  it("renders the source switch without exposing unavailable modes", () => {
+    const markup = renderToStaticMarkup(
+      <ReviewBoardModeSwitch
+        mode="rrugc"
+        canShared={false}
+        canRrugc
+        onMode={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Realistic UGC");
+    expect(markup).not.toContain("Shared feedback");
+    expect(markup).toContain('aria-selected="true"');
+  });
+
+  it("surfaces high-priority Supervisor handoff state in the task row", () => {
+    const markup = renderToStaticMarkup(
+      <RrugcReviewTaskRow
+        task={rrugcTask}
+        selected
+        onSelect={() => undefined}
+      />,
+    );
+    expect(markup).toContain("High priority");
+    expect(markup).toContain("CAP-RED-01");
+    expect(markup).toContain("HAT_TOO_LARGE");
+    expect(markup).toContain("Supervisor requires human review");
+    expect(markup).toContain("Pending review");
+  });
+
+  it("renders supervisor metrics and explicit approve/reject actions", () => {
+    const markup = renderToStaticMarkup(
+      <RrugcReviewInspector
+        task={rrugcTask}
+        canRun
+        note=""
+        busy={false}
+        error=""
+        onNote={() => undefined}
+        onApprove={() => undefined}
+        onReject={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Needs human review");
+    expect(markup).toContain("91%");
+    expect(markup).toContain("Approve");
+    expect(markup).toContain("Reject");
+    expect(markup).toContain("Review note");
   });
 });

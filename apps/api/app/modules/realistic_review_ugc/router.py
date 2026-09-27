@@ -23,6 +23,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
+    RrugcReviewTaskModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -46,6 +47,11 @@ from app.modules.realistic_review_ugc.schema import (
     GenerationCapabilityResponse,
     ImportResponse,
     SupervisorResultResponse,
+    ReviewTaskDecisionRequest,
+    ReviewTaskListResponse,
+    ReviewTaskReconcileResponse,
+    ReviewTaskResponse,
+    ReviewTaskTransitionResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
     ProductReferenceView,
@@ -54,6 +60,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
 )
+from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -297,6 +304,12 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
             if row.supervisor_correction_json
             else None
         ),
+        review_status=row.review_status,
+        review_task_id=row.review_task_id,
+        reviewed_by_user_id=row.reviewed_by_user_id,
+        reviewed_at=row.reviewed_at,
+        review_note=row.review_note,
+        export_status=row.export_status,
         last_error_code=row.last_error_code,
         last_error_message=row.last_error_message,
         queued_at=row.queued_at,
@@ -344,6 +357,54 @@ def _supervisor_result(
         attempt_count=attempt_count,
         max_attempts=MAX_GENERATION_ATTEMPTS,
         completed_at=row.completed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _review_task(
+    repository: RrugcRepository,
+    row: RrugcReviewTaskModel,
+) -> ReviewTaskResponse:
+    attempt = repository.get_generation_attempt(row.tenant_id, row.generation_attempt_id)
+    supervisor = repository.get_supervisor_result(row.tenant_id, row.supervisor_result_id)
+    campaign = repository.get_campaign(row.tenant_id, row.campaign_id)
+    if attempt is None or supervisor is None:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "rrugc_review_provenance_missing",
+                "message": "Review task provenance is incomplete.",
+            },
+        )
+    product = dict(attempt.product_snapshot_json or {})
+    return ReviewTaskResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        campaign_name=campaign.name if campaign is not None else row.campaign_id,
+        candidate_id=row.candidate_id,
+        product_id=row.product_id,
+        product_sku=str(product.get("sku") or ""),
+        product_name=str(product.get("name") or ""),
+        generation_attempt_id=row.generation_attempt_id,
+        generation_variant=attempt.generation_variant,
+        supervisor_result_id=row.supervisor_result_id,
+        supervisor_status=supervisor.status,
+        supervisor_reason=supervisor.reason,
+        supervisor_summary=supervisor.summary,
+        supervisor_metrics=dict(supervisor.metrics_json or {}) or None,
+        queue_reason=row.queue_reason,
+        priority=row.priority,
+        status=row.status,
+        review_note=row.review_note,
+        reviewed_by_user_id=row.reviewed_by_user_id,
+        reviewed_at=row.reviewed_at,
+        export_status=attempt.export_status or "pending_review",
+        output_url=(
+            "/api/v1/realistic-review-ugc/generation-attempts/"
+            + row.generation_attempt_id
+            + "/output"
+        ),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -870,6 +931,136 @@ def execute_generation_attempt(
     except RrugcError as exc:
         raise _error(exc) from exc
     return _generation_attempt(row)
+
+
+@router.get(
+    "/review-tasks",
+    response_model=ReviewTaskListResponse,
+)
+def list_review_tasks(
+    status: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    campaign_id: str | None = Query(default=None, max_length=36),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    if status is not None and status not in {"pending", "approved", "rejected"}:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "rrugc_review_status_invalid"},
+        )
+    if priority is not None and priority not in {"standard", "high"}:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "rrugc_review_priority_invalid"},
+        )
+    repository = RrugcRepository(session)
+    rows, total = repository.list_review_tasks(
+        principal.active_tenant_id,
+        status=status,
+        priority=priority,
+        campaign_id=campaign_id,
+        limit=limit,
+        offset=offset,
+    )
+    return ReviewTaskListResponse(
+        items=[_review_task(repository, row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/review-tasks/{task_id}",
+    response_model=ReviewTaskResponse,
+)
+def get_review_task(
+    task_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    row = repository.get_review_task(principal.active_tenant_id, task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Review task not found")
+    return _review_task(repository, row)
+
+
+@router.post(
+    "/review-tasks/{task_id}/approve",
+    response_model=ReviewTaskTransitionResponse,
+)
+def approve_review_task(
+    task_id: str,
+    request: ReviewTaskDecisionRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, transitioned = RrugcReviewService(session).transition(
+            tenant_id=principal.active_tenant_id,
+            task_id=task_id,
+            target_status="approved",
+            user_id=principal.user_id,
+            review_note=request.review_note,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return ReviewTaskTransitionResponse(
+        transitioned=transitioned,
+        task=_review_task(RrugcRepository(session), row),
+    )
+
+
+@router.post(
+    "/review-tasks/{task_id}/reject",
+    response_model=ReviewTaskTransitionResponse,
+)
+def reject_review_task(
+    task_id: str,
+    request: ReviewTaskDecisionRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, transitioned = RrugcReviewService(session).transition(
+            tenant_id=principal.active_tenant_id,
+            task_id=task_id,
+            target_status="rejected",
+            user_id=principal.user_id,
+            review_note=request.review_note,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return ReviewTaskTransitionResponse(
+        transitioned=transitioned,
+        task=_review_task(RrugcRepository(session), row),
+    )
+
+
+@router.post(
+    "/review-tasks/reconcile",
+    response_model=ReviewTaskReconcileResponse,
+)
+def reconcile_review_tasks(
+    limit: int = Query(default=100, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        result = RrugcReviewService(session).reconcile(
+            tenant_id=principal.active_tenant_id,
+            limit=limit,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return ReviewTaskReconcileResponse(
+        scanned=result.scanned,
+        created=result.created,
+    )
 
 
 @router.get("/generation-attempts/{attempt_id}/output")

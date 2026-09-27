@@ -277,6 +277,12 @@ class RrugcGenerationAttemptModel(Base):
     parent_attempt_id: Mapped[str | None] = mapped_column(String(36))
     correction_supervisor_result_id: Mapped[str | None] = mapped_column(String(36))
     supervisor_correction_json: Mapped[dict | None] = mapped_column(JSON)
+    review_status: Mapped[str | None] = mapped_column(String(32))
+    review_task_id: Mapped[str | None] = mapped_column(String(36))
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(Text)
+    export_status: Mapped[str | None] = mapped_column(String(32))
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_error_message: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -340,6 +346,64 @@ class RrugcSupervisorResultModel(Base):
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_error_message: Mapped[str | None] = mapped_column(Text)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class RrugcReviewTaskModel(Base):
+    __tablename__ = "rrugc_review_tasks"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_attempt_id"],
+            ["rrugc_generation_attempts.id"],
+            name="fk_rrugc_review_task_generation_attempt",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["supervisor_result_id"],
+            ["rrugc_supervisor_results.id"],
+            name="fk_rrugc_review_task_supervisor_result",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "generation_attempt_id",
+            name="uq_rrugc_review_task_attempt",
+        ),
+        Index(
+            "ix_rrugc_review_task_status_priority",
+            "tenant_id",
+            "status",
+            "priority",
+            "created_at",
+        ),
+        Index(
+            "ix_rrugc_review_task_campaign",
+            "tenant_id",
+            "campaign_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation_attempt_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    supervisor_result_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    queue_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="standard")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    review_note: Mapped[str | None] = mapped_column(Text)
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
