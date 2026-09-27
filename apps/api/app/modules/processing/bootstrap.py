@@ -60,6 +60,7 @@ from app.modules.realistic_review_ugc.handler import (
     RrugcCandidateImportJobHandler,
 )
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
+from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.storage.managed_cleanup_handler import ManagedStorageCleanupJobHandler
 from app.modules.storage.managed_cleanup_scheduler import (
@@ -115,6 +116,12 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
         "GEMINI_IMAGE_GENERATION_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED",
     ),
+    "rrugc_supervisor_qa": (
+        "PROCESSING_JOBS_ENABLED",
+        "DYNAMIC_AI_METADATA_ENABLED",
+        "AI_SINGLE_ANALYSIS_ENABLED",
+        "MANAGED_ASSET_STORAGE_ENABLED",
+    ),
 }
 
 def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
@@ -134,12 +141,12 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
             settings.AI_EMERGENCY_STOP_ENABLED
             and (
                 job_type.startswith(("asset_analyze", "video_analyze", "ai_batch_"))
-                or job_type in {"rrugc_candidate_analyze", "rrugc_generate"}
+                or job_type in {"rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa"}
             )
         )
         and not (
             settings.GEMINI_EMERGENCY_STOP_ENABLED
-            and job_type in {"video_analyze", "rrugc_candidate_analyze", "rrugc_generate"}
+            and job_type in {"video_analyze", "rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa"}
         )
     )
 
@@ -334,6 +341,7 @@ def build_worker_runtime(
                 ("rrugc_candidate_analyze", RrugcCandidateAnalyzeJobHandler(settings)),
                 ("rrugc_candidate_import", RrugcCandidateImportJobHandler(settings)),
                 ("rrugc_generate", RrugcGenerateJobHandler(settings)),
+                ("rrugc_supervisor_qa", RrugcSupervisorQaJobHandler(settings)),
             )
         ),
         health=WorkerHealthState(worker_id),

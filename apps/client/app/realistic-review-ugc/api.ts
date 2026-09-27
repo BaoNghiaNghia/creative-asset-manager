@@ -10,6 +10,7 @@ import type {
   ProductReference,
   ProductReferenceView,
   ProductUpdateRequest,
+  SupervisorResult,
 } from "./types";
 
 export class RrugcApiError extends Error {
@@ -145,6 +146,19 @@ export const generationAttemptOutputUrl = (attemptId: string) =>
   "/api/v1/realistic-review-ugc/generation-attempts/"
     + encodeURIComponent(attemptId) + "/output";
 
+export const listSupervisorResults = (campaignId: string, signal?: AbortSignal) =>
+  request<SupervisorResult[]>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/supervisor-results",
+    { signal },
+  );
+
+export const prepareSupervisorCorrection = (resultId: string) =>
+  request<{ created: boolean; attempt: GenerationAttempt }>(
+    "/api/v1/realistic-review-ugc/supervisor-results/"
+      + encodeURIComponent(resultId) + "/prepare-correction",
+    { method: "POST", body: "{}" },
+  );
 
 
 export const listCandidates = (campaignId: string, signal?: AbortSignal) =>

@@ -95,6 +95,18 @@ def build_worker_prompt(attempt: RrugcGenerationAttemptModel) -> str:
         + "\n".join(geometry)
         + f"\nGeneration variant: {attempt.generation_variant}"
         + f"\nWorker skill version: {attempt.worker_skill_version}"
+        + (
+            "\n\nSUPERVISOR CORRECTION FOR THIS RETRY:\n"
+            + json.dumps(
+                dict(attempt.supervisor_correction_json or {}),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\nApply only this correction while preserving every property that "
+              "already matches the person reference and frozen product references."
+            if attempt.supervisor_correction_json
+            else ""
+        )
     )
 
 

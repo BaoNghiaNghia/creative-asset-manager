@@ -274,6 +274,9 @@ class RrugcGenerationAttemptModel(Base):
     output_remote_file_id: Mapped[str | None] = mapped_column(String(255))
     output_remote_folder_id: Mapped[str | None] = mapped_column(String(255))
     output_web_url: Mapped[str | None] = mapped_column(Text)
+    parent_attempt_id: Mapped[str | None] = mapped_column(String(36))
+    correction_supervisor_result_id: Mapped[str | None] = mapped_column(String(36))
+    supervisor_correction_json: Mapped[dict | None] = mapped_column(JSON)
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_error_message: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -281,6 +284,65 @@ class RrugcGenerationAttemptModel(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class RrugcSupervisorResultModel(Base):
+    __tablename__ = "rrugc_supervisor_results"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_attempt_id"],
+            ["rrugc_generation_attempts.id"],
+            name="fk_rrugc_supervisor_generation_attempt",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "generation_attempt_id",
+            "supervisor_skill_version",
+            name="uq_rrugc_supervisor_attempt_skill",
+        ),
+        Index(
+            "ix_rrugc_supervisor_campaign_status",
+            "tenant_id",
+            "campaign_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_rrugc_supervisor_attempt",
+            "tenant_id",
+            "generation_attempt_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation_attempt_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    supervisor_skill_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    reason: Mapped[str | None] = mapped_column(String(100))
+    metrics_json: Mapped[dict | None] = mapped_column(JSON)
+    expected_json: Mapped[dict | None] = mapped_column(JSON)
+    correction_json: Mapped[dict | None] = mapped_column(JSON)
+    summary: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(String(64))
+    provider_model: Mapped[str | None] = mapped_column(String(128))
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )

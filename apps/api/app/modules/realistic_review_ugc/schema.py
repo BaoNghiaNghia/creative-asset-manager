@@ -228,6 +228,9 @@ class GenerationAttemptResponse(BaseModel):
     output_height: int | None = None
     output_remote_file_id: str | None = None
     output_web_url: str | None = None
+    parent_attempt_id: str | None = None
+    correction_supervisor_result_id: str | None = None
+    supervisor_correction: dict | None = None
     last_error_code: str | None = None
     last_error_message: str | None = None
     queued_at: datetime | None = None
@@ -240,6 +243,32 @@ class GenerationAttemptResponse(BaseModel):
 class GenerationAttemptCreatedResponse(BaseModel):
     created: bool
     attempt: GenerationAttemptResponse
+
+
+class SupervisorResultResponse(BaseModel):
+    id: str
+    campaign_id: str
+    generation_attempt_id: str
+    candidate_id: str
+    product_id: str
+    supervisor_skill_version: str
+    status: Literal["queued", "running", "pass", "fail", "needs_human_review", "error"]
+    reason: str | None = None
+    metrics: dict | None = None
+    expected: dict | None = None
+    correction: dict | None = None
+    summary: str | None = None
+    provider: str | None = None
+    provider_model: str | None = None
+    processing_job_id: str | None = None
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    can_retry: bool = False
+    attempt_count: int = 0
+    max_attempts: int = 3
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class CandidateSubmission(BaseModel):

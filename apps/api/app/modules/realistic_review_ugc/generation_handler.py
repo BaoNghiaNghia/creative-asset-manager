@@ -32,6 +32,7 @@ from app.modules.image_generation.providers import (
 )
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.supervisor import RrugcSupervisorService
 from app.providers.ai.gemini_image import (
     GeminiImageProviderError,
     GeminiReferenceImageProvider,
@@ -208,6 +209,8 @@ class RrugcGenerateJobHandler:
                     "Generation attempt was not found.",
                 )
             if attempt.status == "completed":
+                if attempt.output_remote_file_id:
+                    RrugcSupervisorService(session).enqueue(attempt=attempt)
                 return JobHandlerResult.completed()
             if attempt.status == "failed":
                 return JobHandlerResult.non_retryable(
@@ -385,6 +388,7 @@ class RrugcGenerateJobHandler:
             attempt.last_error_code = None
             attempt.last_error_message = None
             session.commit()
+            RrugcSupervisorService(session).enqueue(attempt=attempt)
 
         self._remove_stage(staged)
         context.logger.info(

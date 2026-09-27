@@ -6,7 +6,9 @@ import {
   getGenerationCapability,
   listGenerationAttempts,
   listProducts,
+  listSupervisorResults,
   prepareGenerationAttempt,
+  prepareSupervisorCorrection,
 } from "./api";
 import type {
   Campaign,
@@ -14,6 +16,7 @@ import type {
   GenerationAttempt,
   GenerationCapability,
   Product,
+  SupervisorResult,
 } from "./types";
 
 type Props = {
@@ -26,6 +29,10 @@ type Props = {
 const durableStatuses = new Set(["drive_ready", "rejected_duplicate"]);
 const activeAttemptStatuses = new Set(["queued", "running"]);
 
+function metricPercent(value: number | null | undefined) {
+  return typeof value === "number" ? Math.round(value * 100) + "%" : "—";
+}
+
 export function CampaignGenerationPanel({
   campaign,
   candidates,
@@ -34,6 +41,7 @@ export function CampaignGenerationPanel({
 }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [attempts, setAttempts] = useState<GenerationAttempt[]>([]);
+  const [supervisorResults, setSupervisorResults] = useState<SupervisorResult[]>([]);
   const [capability, setCapability] = useState<GenerationCapability | null>(null);
   const [productId, setProductId] = useState(campaign.product_id || "");
   const [candidateId, setCandidateId] = useState("");
@@ -44,6 +52,16 @@ export function CampaignGenerationPanel({
     [candidates],
   );
   const hasActiveAttempt = attempts.some(attempt => activeAttemptStatuses.has(attempt.status));
+  const hasActiveSupervisor = supervisorResults.some(
+    result => result.status === "queued" || result.status === "running",
+  );
+  const supervisorByAttempt = useMemo(() => {
+    const rows = new Map<string, SupervisorResult>();
+    for (const result of supervisorResults) {
+      if (!rows.has(result.generation_attempt_id)) rows.set(result.generation_attempt_id, result);
+    }
+    return rows;
+  }, [supervisorResults]);
 
   useEffect(() => {
     setProductId(campaign.product_id || "");
@@ -63,10 +81,12 @@ export function CampaignGenerationPanel({
       listProducts(controller.signal),
       listGenerationAttempts(campaign.id, controller.signal),
       getGenerationCapability(controller.signal),
-    ]).then(([productRows, attemptRows, generationCapability]) => {
+      listSupervisorResults(campaign.id, controller.signal),
+    ]).then(([productRows, attemptRows, generationCapability, supervisorRows]) => {
       setProducts(productRows);
       setAttempts(attemptRows);
       setCapability(generationCapability);
+      setSupervisorResults(supervisorRows);
     }).catch(reason => {
       if (!controller.signal.aborted) {
         onError(reason instanceof Error ? reason.message : "Unable to load generation workspace.");
@@ -76,14 +96,18 @@ export function CampaignGenerationPanel({
   }, [campaign.id]);
 
   useEffect(() => {
-    if (!hasActiveAttempt) return;
+    if (!hasActiveAttempt && !hasActiveSupervisor) return;
     const timer = window.setInterval(() => {
-      void listGenerationAttempts(campaign.id)
-        .then(setAttempts)
-        .catch(() => undefined);
+      void Promise.all([
+        listGenerationAttempts(campaign.id),
+        listSupervisorResults(campaign.id),
+      ]).then(([attemptRows, supervisorRows]) => {
+        setAttempts(attemptRows);
+        setSupervisorResults(supervisorRows);
+      }).catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [campaign.id, hasActiveAttempt]);
+  }, [campaign.id, hasActiveAttempt, hasActiveSupervisor]);
 
   async function bindProduct() {
     if (busy) return;
@@ -143,12 +167,31 @@ export function CampaignGenerationPanel({
     }
   }
 
+  async function prepareCorrection(resultId: string) {
+    if (busy) return;
+    setBusy("correction:" + resultId);
+    onError("");
+    try {
+      const result = await prepareSupervisorCorrection(resultId);
+      setAttempts(rows => {
+        const without = rows.filter(row => row.id !== result.attempt.id);
+        return [result.attempt, ...without];
+      });
+      const refreshed = await listSupervisorResults(campaign.id);
+      setSupervisorResults(refreshed);
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to prepare Supervisor correction.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return <section className="rrugc-generation-foundation">
     <div className="rrugc-generation-heading">
       <div>
-        <small>PHASE 6 · WORKER SKILL</small>
-        <strong>Reference-conditioned product generation</strong>
-        <p>Freeze the person, SKU geometry and exact product-reference versions, then run a traceable Gemini multi-reference edit.</p>
+        <small>PHASE 6–7 · WORKER + SUPERVISOR</small>
+        <strong>Reference-conditioned generation + deterministic QA</strong>
+        <p>Freeze person/SKU provenance, run the multi-reference edit, then score the stored output with structured Supervisor QA before any correction is prepared.</p>
       </div>
       <span className={capability?.available ? "rrugc-safe-badge" : "rrugc-safe-badge unavailable"}>
         {capability == null
@@ -227,8 +270,9 @@ export function CampaignGenerationPanel({
         <b>{attempts.length}</b>
       </div>
       {attempts.length === 0 ? <p>No generation attempt prepared yet.</p> :
-        attempts.slice(0, 8).map(attempt =>
-          <article key={attempt.id}>
+        attempts.slice(0, 8).map(attempt => {
+          const qa = supervisorByAttempt.get(attempt.id);
+          return <article key={attempt.id}>
             <div>
               <strong>{attempt.product_sku}</strong>
               <small>{attempt.worker_skill_version}</small>
@@ -259,8 +303,36 @@ export function CampaignGenerationPanel({
             >
               {attempt.last_error_code || "generation_failed"}
             </small>}
-          </article>
-        )}
+            {qa && <div className={"rrugc-supervisor-card status-" + qa.status}>
+              <div className="rrugc-supervisor-heading">
+                <strong>Supervisor QA</strong>
+                <em>{qa.status.replaceAll("_", " ")}</em>
+              </div>
+              {qa.reason && <b className="rrugc-supervisor-reason">{qa.reason}</b>}
+              {qa.metrics && <div className="rrugc-supervisor-metrics">
+                <span>Product <b>{metricPercent(qa.metrics.product_visual_similarity)}</b></span>
+                <span>Placement <b>{metricPercent(qa.metrics.placement_score)}</b></span>
+                <span>Scene <b>{metricPercent(qa.metrics.person_scene_preservation)}</b></span>
+                <span>Artifact risk <b>{metricPercent(qa.metrics.artifact_risk)}</b></span>
+              </div>}
+              {qa.summary && <small className="rrugc-supervisor-summary">{qa.summary}</small>}
+              {qa.can_retry && <button
+                type="button"
+                className="rrugc-attempt-action"
+                disabled={Boolean(busy)}
+                onClick={() => void prepareCorrection(qa.id)}
+              >
+                {busy === "correction:" + qa.id ? "Preparing…" : "Prepare correction"}
+              </button>}
+              {qa.status === "needs_human_review" && <small className="rrugc-human-review">
+                Retry budget exhausted ({qa.attempt_count}/{qa.max_attempts}) · human review required.
+              </small>}
+              {qa.status === "error" && <small className="rrugc-attempt-error">
+                {qa.last_error_code || "supervisor_failed"}
+              </small>}
+            </div>}
+          </article>;
+        })}
     </div>
   </section>;
 }

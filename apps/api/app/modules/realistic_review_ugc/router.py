@@ -22,6 +22,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
+    RrugcSupervisorResultModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -44,6 +45,7 @@ from app.modules.realistic_review_ugc.schema import (
     GenerationAttemptResponse,
     GenerationCapabilityResponse,
     ImportResponse,
+    SupervisorResultResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
     ProductReferenceView,
@@ -51,6 +53,10 @@ from app.modules.realistic_review_ugc.schema import (
     ProductUpdateRequest,
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
+)
+from app.modules.realistic_review_ugc.supervisor import (
+    MAX_GENERATION_ATTEMPTS,
+    RrugcSupervisorService,
 )
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
@@ -284,10 +290,59 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
         output_height=row.output_height,
         output_remote_file_id=row.output_remote_file_id,
         output_web_url=row.output_web_url,
+        parent_attempt_id=row.parent_attempt_id,
+        correction_supervisor_result_id=row.correction_supervisor_result_id,
+        supervisor_correction=(
+            dict(row.supervisor_correction_json or {})
+            if row.supervisor_correction_json
+            else None
+        ),
         last_error_code=row.last_error_code,
         last_error_message=row.last_error_message,
         queued_at=row.queued_at,
         started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _supervisor_result(
+    repository: RrugcRepository,
+    row: RrugcSupervisorResultModel,
+) -> SupervisorResultResponse:
+    attempts = repository.list_generation_attempts(
+        row.tenant_id,
+        row.campaign_id,
+        candidate_id=row.candidate_id,
+        limit=100,
+    )
+    attempt_count = len(attempts)
+    return SupervisorResultResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        generation_attempt_id=row.generation_attempt_id,
+        candidate_id=row.candidate_id,
+        product_id=row.product_id,
+        supervisor_skill_version=row.supervisor_skill_version,
+        status=row.status,
+        reason=row.reason,
+        metrics=dict(row.metrics_json or {}) or None,
+        expected=dict(row.expected_json or {}) or None,
+        correction=dict(row.correction_json or {}) or None,
+        summary=row.summary,
+        provider=row.provider,
+        provider_model=row.provider_model,
+        processing_job_id=row.processing_job_id,
+        last_error_code=row.last_error_code,
+        last_error_message=row.last_error_message,
+        can_retry=(
+            row.status == "fail"
+            and bool(row.correction_json)
+            and attempt_count < MAX_GENERATION_ATTEMPTS
+        ),
+        attempt_count=attempt_count,
+        max_attempts=MAX_GENERATION_ATTEMPTS,
         completed_at=row.completed_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -687,6 +742,59 @@ def list_generation_attempts(
             limit=limit,
         )
     ]
+
+
+@router.get(
+    "/campaigns/{campaign_id}/supervisor-results",
+    response_model=list[SupervisorResultResponse],
+)
+def list_supervisor_results(
+    campaign_id: str,
+    generation_attempt_id: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    return [
+        _supervisor_result(repository, row)
+        for row in repository.list_supervisor_results(
+            principal.active_tenant_id,
+            campaign_id,
+            generation_attempt_id=generation_attempt_id,
+            limit=limit,
+        )
+    ]
+
+
+@router.post(
+    "/supervisor-results/{result_id}/prepare-correction",
+    response_model=GenerationAttemptCreatedResponse,
+    status_code=201,
+)
+def prepare_supervisor_correction(
+    result_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    result = repository.get_supervisor_result(
+        principal.active_tenant_id, result_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Supervisor result not found")
+    try:
+        row, created = RrugcSupervisorService(session).prepare_correction(
+            result=result,
+            user_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return GenerationAttemptCreatedResponse(
+        created=created,
+        attempt=_generation_attempt(row),
+    )
 
 
 @router.post(

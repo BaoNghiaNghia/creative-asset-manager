@@ -9,6 +9,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
+    RrugcSupervisorResultModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -288,4 +289,75 @@ class RrugcRepository:
                 RrugcGenerationAttemptModel.id == attempt_id,
             )
             .with_for_update()
+        )
+
+    def list_supervisor_results(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        generation_attempt_id: str | None = None,
+        limit: int = 200,
+    ) -> list[RrugcSupervisorResultModel]:
+        statement = select(RrugcSupervisorResultModel).where(
+            RrugcSupervisorResultModel.tenant_id == tenant_id,
+            RrugcSupervisorResultModel.campaign_id == campaign_id,
+        )
+        if generation_attempt_id is not None:
+            statement = statement.where(
+                RrugcSupervisorResultModel.generation_attempt_id == generation_attempt_id
+            )
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcSupervisorResultModel.created_at.desc(),
+                    RrugcSupervisorResultModel.id.desc(),
+                ).limit(limit)
+            )
+        )
+
+    def get_supervisor_result(
+        self, tenant_id: str, result_id: str
+    ) -> RrugcSupervisorResultModel | None:
+        return self.session.scalar(
+            select(RrugcSupervisorResultModel).where(
+                RrugcSupervisorResultModel.tenant_id == tenant_id,
+                RrugcSupervisorResultModel.id == result_id,
+            )
+        )
+
+    def lock_supervisor_result(
+        self, tenant_id: str, result_id: str
+    ) -> RrugcSupervisorResultModel | None:
+        return self.session.scalar(
+            select(RrugcSupervisorResultModel)
+            .where(
+                RrugcSupervisorResultModel.tenant_id == tenant_id,
+                RrugcSupervisorResultModel.id == result_id,
+            )
+            .with_for_update()
+        )
+
+    def supervisor_result_for_attempt(
+        self,
+        tenant_id: str,
+        generation_attempt_id: str,
+        supervisor_skill_version: str,
+    ) -> RrugcSupervisorResultModel | None:
+        return self.session.scalar(
+            select(RrugcSupervisorResultModel).where(
+                RrugcSupervisorResultModel.tenant_id == tenant_id,
+                RrugcSupervisorResultModel.generation_attempt_id == generation_attempt_id,
+                RrugcSupervisorResultModel.supervisor_skill_version == supervisor_skill_version,
+            )
+        )
+
+    def correction_attempt_for_supervisor(
+        self, tenant_id: str, supervisor_result_id: str
+    ) -> RrugcGenerationAttemptModel | None:
+        return self.session.scalar(
+            select(RrugcGenerationAttemptModel).where(
+                RrugcGenerationAttemptModel.tenant_id == tenant_id,
+                RrugcGenerationAttemptModel.correction_supervisor_result_id == supervisor_result_id,
+            )
         )

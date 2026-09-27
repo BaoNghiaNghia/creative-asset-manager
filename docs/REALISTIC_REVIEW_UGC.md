@@ -1471,3 +1471,37 @@ These thresholds are persisted on each campaign. The deterministic policy owns P
 
 Only an `approved` reference can be queued for Drive. Auto-import queues a separate idempotent storage job after analysis passes, so Pinterest scanning no longer blocks on VLM or Drive network latency.
 
+---
+
+## 39. Implemented Supervisor QA slice
+
+Phase 7 now adds a durable Supervisor after every safely stored generated image:
+
+```text
+completed RRUGC generation
+  ↓
+rrugc_supervisor_qa Processing Job
+  ↓
+bounded comparison sheet
+  ├── generated output
+  ├── frozen person/scene source
+  └── frozen product-reference snapshot (up to 4 views)
+        ↓
+tenant-aware Gemini structured visible QA
+        ↓
+deterministic Supervisor policy
+  ├── PASS
+  ├── FAIL + structured correction
+  └── NEEDS_HUMAN_REVIEW after retry budget
+```
+
+Supervisor results are persisted in `rrugc_supervisor_results` with provider/model provenance, explicit metrics, expected thresholds, failure reason, structured correction and Processing Job linkage. The Supervisor prompt is limited to visible product fidelity and scene-preservation properties. It must not identify the person or infer protected/demographic attributes.
+
+The deterministic Supervisor currently evaluates product visual similarity, product color similarity, logo/embroidery fidelity, placement, scale, person/scene preservation, photorealism, artifact risk and an estimated hat/head width ratio when visible. Representative failure reasons include `HAT_TOO_LARGE`, `HAT_TOO_SMALL`, `PRODUCT_VISUAL_MISMATCH`, `PERSON_SCENE_CHANGED` and `ARTIFACT_RISK_HIGH`.
+
+A failed Supervisor result can prepare a corrected generation attempt. Correction preparation copies the exact frozen person/product provenance from the source generation and appends only the structured Supervisor correction to the worker prompt. It does **not** automatically execute another provider generation; an operator must explicitly queue the prepared attempt. The generation budget is capped at `MAX_GENERATION_ATTEMPTS = 3` per campaign/candidate path. Once that budget is exhausted, the Supervisor result is surfaced as `needs_human_review`.
+
+The Realistic Review UGC UI now surfaces Supervisor status, failure reason, important metrics, summary, correction preparation, and the human-review state next to each generation attempt.
+
+The next Phase 7/8 handoff remains the Review Board integration: route `PASS` outputs into review/export, route `needs_human_review` directly to a bounded reviewer task, and attach final approval/rejection provenance to the generated asset.
+

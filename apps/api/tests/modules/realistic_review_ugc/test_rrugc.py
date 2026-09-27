@@ -38,15 +38,23 @@ from app.modules.realistic_review_ugc.analysis import (
 )
 from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
+from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
+    RrugcSupervisorResultModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.supervisor import (
+    MAX_GENERATION_ATTEMPTS,
+    RrugcSupervisorService,
+    SupervisorAnalysisDocument,
+    evaluate_supervisor,
+)
 from app.modules.realistic_review_ugc.router import router
 from app.modules.realistic_review_ugc.schema import CandidateSubmission, ProductCreateRequest
 from app.modules.realistic_review_ugc.service import (
@@ -88,6 +96,7 @@ def database():
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
+    RrugcSupervisorResultModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -164,6 +173,294 @@ def test_reference_policy_rejects_failed_constraints(overrides, status, reason):
     decision = evaluate_reference(reference_document(**overrides), ReferenceFilterPolicy())
     assert decision.status == status
     assert decision.reject_reason == reason
+
+
+
+
+
+def supervisor_document(**overrides) -> SupervisorAnalysisDocument:
+    values = {
+        "product_visual_similarity": 0.92,
+        "product_color_similarity": 0.94,
+        "logo_fidelity": 0.90,
+        "placement_score": 0.91,
+        "scale_score": 0.90,
+        "person_scene_preservation": 0.96,
+        "photorealism_score": 0.91,
+        "artifact_risk": 0.07,
+        "hat_head_width_ratio": 1.05,
+        "summary": "Generated hat matches the product references and preserves the visible scene.",
+    }
+    values.update(overrides)
+    return SupervisorAnalysisDocument(**values)
+
+
+def test_supervisor_policy_passes_high_fidelity_generation():
+    decision = evaluate_supervisor(supervisor_document())
+    assert decision.status == "pass"
+    assert decision.reason is None
+    assert decision.correction is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason", "correction_kind"),
+    [
+        ({"person_scene_preservation": 0.5}, "PERSON_SCENE_CHANGED", "preserve_person_scene"),
+        ({"product_visual_similarity": 0.5}, "PRODUCT_VISUAL_MISMATCH", "increase_product_fidelity"),
+        ({"hat_head_width_ratio": 1.4}, "HAT_TOO_LARGE", "scale_product"),
+        ({"artifact_risk": 0.7}, "ARTIFACT_RISK_HIGH", "remove_generation_artifacts"),
+    ],
+)
+def test_supervisor_policy_returns_structured_correction(
+    overrides, reason, correction_kind
+):
+    decision = evaluate_supervisor(supervisor_document(**overrides))
+    assert decision.status == "fail"
+    assert decision.reason == reason
+    assert decision.correction is not None
+    assert decision.correction["kind"] == correction_kind
+
+
+
+
+def test_supervisor_prepare_correction_is_idempotent_and_preserves_frozen_provenance(database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Supervisor correction",
+            query="casual review portrait",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a",
+            sku="CAP-QA",
+            name="QA cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product)
+        session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="7" * 64,
+            pin_url="https://www.pinterest.com/pin/7001/",
+            image_url="https://i.pinimg.com/qa-source.jpg",
+            status="drive_ready",
+            remote_file_id="person-qa-file",
+        )
+        session.add(candidate)
+        session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            product_revision=2,
+            product_snapshot_json={
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "revision": 2,
+            },
+            product_reference_snapshot_json=[{
+                "id": "qa-front",
+                "view_type": "front",
+                "version": 3,
+                "remote_file_id": "qa-front-file",
+            }],
+            candidate_snapshot_json={
+                "id": candidate.id,
+                "remote_file_id": candidate.remote_file_id,
+            },
+            generation_variant=1,
+            worker_skill_version="worker-hat-v1",
+            status="completed",
+            idempotency_key="qa-source-attempt",
+            output_remote_file_id="generated-qa-file",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt)
+        session.flush()
+        result = RrugcSupervisorResultModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            generation_attempt_id=attempt.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            supervisor_skill_version="supervisor-hat-v1",
+            status="fail",
+            reason="HAT_TOO_LARGE",
+            metrics_json={"hat_head_width_ratio": 1.4},
+            expected_json={"max": 1.25},
+            correction_json={
+                "kind": "scale_product",
+                "direction": "down",
+                "preserve_brim_angle": True,
+            },
+        )
+        session.add(result)
+        session.commit()
+
+        service = RrugcSupervisorService(session)
+        correction, created = service.prepare_correction(
+            result=result,
+            user_id="user-a",
+        )
+        assert created is True
+        assert correction.status == "prepared"
+        assert correction.generation_variant == 2
+        assert correction.parent_attempt_id == attempt.id
+        assert correction.correction_supervisor_result_id == result.id
+        assert correction.supervisor_correction_json["direction"] == "down"
+        assert correction.product_snapshot_json == attempt.product_snapshot_json
+        assert (
+            correction.product_reference_snapshot_json
+            == attempt.product_reference_snapshot_json
+        )
+        assert correction.candidate_snapshot_json == attempt.candidate_snapshot_json
+
+        duplicate, created_again = service.prepare_correction(
+            result=result,
+            user_id="user-a",
+        )
+        assert created_again is False
+        assert duplicate.id == correction.id
+        attempts = RrugcRepository(session).list_generation_attempts(
+            "tenant-a",
+            campaign.id,
+            candidate_id=candidate.id,
+            limit=100,
+        )
+        assert len(attempts) == 2
+        assert len(attempts) < MAX_GENERATION_ATTEMPTS
+
+
+
+
+def test_supervisor_worker_persists_pass_for_completed_generation(database):
+    class FakeSupervisorProvider:
+        provider_name = "gemini"
+        supports_single = True
+        supports_batch = False
+        default_model = "fake-supervisor"
+
+        async def analyze_single(self, input):
+            assert input.metadata_profile == "rrugc_supervisor"
+            assert input.image_bytes
+            assert b"" != input.image_bytes
+            return AiMetadataAnalysisResult(
+                metadata=supervisor_document().model_dump(),
+                provider="gemini",
+                model="fake-supervisor",
+            )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Supervisor worker",
+            query="casual review portrait",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a",
+            sku="CAP-SUP",
+            name="Supervisor cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product)
+        session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="8" * 64,
+            pin_url="https://www.pinterest.com/pin/8001/",
+            image_url="https://i.pinimg.com/supervisor-source.jpg",
+            status="drive_ready",
+            remote_file_id="person-supervisor-file",
+        )
+        session.add(candidate)
+        session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            product_revision=1,
+            product_snapshot_json={
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "revision": 1,
+            },
+            product_reference_snapshot_json=[{
+                "id": "sup-front",
+                "view_type": "front",
+                "version": 1,
+                "content_type": "image/png",
+                "remote_file_id": "product-supervisor-front-file",
+            }],
+            candidate_snapshot_json={
+                "id": candidate.id,
+                "remote_file_id": candidate.remote_file_id,
+            },
+            generation_variant=1,
+            worker_skill_version="worker-hat-v1",
+            status="completed",
+            idempotency_key="supervisor-worker-attempt",
+            output_remote_file_id="generated-supervisor-file",
+            output_content_type="image/png",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt)
+        session.commit()
+        result, created = RrugcSupervisorService(session).enqueue(attempt=attempt)
+        assert created is True
+        job = session.get(ProcessingJobModel, result.processing_job_id)
+        assert job is not None
+        claimed = ClaimedJob(
+            id=job.id,
+            tenant_id=job.tenant_id,
+            job_type=job.job_type,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+            payload=job.payload_json,
+            attempt_count=job.attempt_count,
+            lease_owner="test-worker",
+            provider_key=job.provider_key,
+        )
+        result_id = result.id
+
+    registry = AiProviderRegistry()
+    registry.register("gemini", FakeSupervisorProvider())
+    context = JobHandlerContext(
+        job=claimed,
+        dependencies=WorkerDependencies(
+            session_factory=database,
+            storage_provider=FakeStorage(),
+            ai_provider_registry=registry,
+        ),
+        shutdown_requested=Event(),
+        cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("rrugc-supervisor-test"), {}),
+    )
+    outcome = RrugcSupervisorQaJobHandler()(context)
+    assert outcome.outcome == JobOutcome.COMPLETED
+
+    with database() as session:
+        result = session.get(RrugcSupervisorResultModel, result_id)
+        assert result is not None
+        assert result.status == "pass"
+        assert result.reason is None
+        assert result.provider == "gemini"
+        assert result.provider_model == "fake-supervisor"
+        assert result.metrics_json["product_visual_similarity"] == pytest.approx(0.92)
+        assert result.completed_at is not None
 
 
 def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):
