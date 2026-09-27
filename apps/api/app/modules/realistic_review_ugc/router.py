@@ -12,9 +12,14 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.realistic_review_ugc.generation import (
+    RrugcGenerationFoundation,
+    binding_is_generation_ready,
+)
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcGenerationAttemptModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -27,10 +32,14 @@ from app.modules.realistic_review_ugc.schema import (
     AnalyzeResponse,
     CampaignCreatedResponse,
     CampaignCreateRequest,
+    CampaignProductBindRequest,
     CampaignResponse,
     CandidateBatchRequest,
     CandidateBatchResponse,
     CandidateResponse,
+    GenerationAttemptCreateRequest,
+    GenerationAttemptCreatedResponse,
+    GenerationAttemptResponse,
     ImportResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
@@ -202,10 +211,45 @@ def _count_sum(counts: Counter, statuses: set[str]) -> int:
     return sum(int(counts.get(status, 0)) for status in statuses)
 
 
+def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptResponse:
+    product = dict(row.product_snapshot_json or {})
+    references = list(row.product_reference_snapshot_json or [])
+    return GenerationAttemptResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        candidate_id=row.candidate_id,
+        product_id=row.product_id,
+        product_revision=row.product_revision,
+        product_sku=str(product.get("sku") or ""),
+        product_name=str(product.get("name") or ""),
+        reference_count=len(references),
+        reference_views=sorted({
+            str(item.get("view_type"))
+            for item in references
+            if item.get("view_type")
+        }),
+        generation_variant=row.generation_variant,
+        worker_skill_version=row.worker_skill_version,
+        provider=row.provider,
+        provider_model=row.provider_model,
+        status=row.status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
 def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignResponse:
     counts = repository.campaign_counts(row.tenant_id, row.id)
     approved = _count_sum(counts, ANALYSIS_APPROVED_STATUSES)
     rejected = _count_sum(counts, ANALYSIS_REJECTED_STATUSES)
+    product = dict(row.product_snapshot_json or {})
+    reference_snapshot = list(row.product_reference_snapshot_json or [])
+    reference_views = sorted({
+        str(item.get("view_type"))
+        for item in reference_snapshot
+        if item.get("view_type")
+    })
+    binding_stale = RrugcGenerationFoundation(repository.session).binding_is_stale(row)
     return CampaignResponse(
         id=row.id,
         name=row.name,
@@ -223,6 +267,19 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
         min_product_fit_score=row.min_product_fit_score,
         require_head_visible=row.require_head_visible,
         reject_headwear=row.reject_headwear,
+        product_id=row.product_id,
+        product_sku=str(product.get("sku") or "") or None,
+        product_name=str(product.get("name") or "") or None,
+        product_revision=row.product_revision,
+        product_reference_count=len(reference_snapshot),
+        product_reference_views=reference_views,
+        product_bound_at=row.product_bound_at,
+        product_binding_stale=binding_stale,
+        generation_ready=bool(
+            row.product_id
+            and not binding_stale
+            and binding_is_generation_ready(reference_snapshot)
+        ),
         status=row.status,
         scout_status=row.scout_status,
         scout_last_seen_at=row.scout_last_seen_at,
@@ -512,6 +569,92 @@ def get_campaign(
         repository,
         _require_campaign(repository, principal.active_tenant_id, campaign_id),
     )
+
+
+@router.put(
+    "/campaigns/{campaign_id}/product",
+    response_model=CampaignResponse,
+)
+def bind_campaign_product(
+    campaign_id: str,
+    request: CampaignProductBindRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository, principal.active_tenant_id, campaign_id
+    )
+    try:
+        row = RrugcGenerationFoundation(session).bind_campaign_product(
+            campaign=campaign,
+            product_id=request.product_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _campaign(repository, row)
+
+
+@router.get(
+    "/campaigns/{campaign_id}/generation-attempts",
+    response_model=list[GenerationAttemptResponse],
+)
+def list_generation_attempts(
+    campaign_id: str,
+    candidate_id: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    return [
+        _generation_attempt(row)
+        for row in repository.list_generation_attempts(
+            principal.active_tenant_id,
+            campaign_id,
+            candidate_id=candidate_id,
+            limit=limit,
+        )
+    ]
+
+
+@router.post(
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/generation-attempts",
+    response_model=GenerationAttemptCreatedResponse,
+    status_code=201,
+)
+def prepare_generation_attempt(
+    campaign_id: str,
+    candidate_id: str,
+    request: GenerationAttemptCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository, principal.active_tenant_id, campaign_id
+    )
+    candidate = repository.get_candidate(
+        principal.active_tenant_id, campaign_id, candidate_id
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        row, created = RrugcGenerationFoundation(session).prepare_attempt(
+            campaign=campaign,
+            candidate=candidate,
+            user_id=principal.user_id,
+            generation_variant=request.generation_variant,
+            worker_skill_version=request.worker_skill_version,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return GenerationAttemptCreatedResponse(
+        created=created,
+        attempt=_generation_attempt(row),
+    )
+
 
 
 @router.get("/campaigns/{campaign_id}/candidates", response_model=list[CandidateResponse])

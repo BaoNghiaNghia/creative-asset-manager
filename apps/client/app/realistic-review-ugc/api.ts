@@ -3,6 +3,7 @@ import type {
   CampaignCreateRequest,
   CampaignCreated,
   Candidate,
+  GenerationAttempt,
   Product,
   ProductCreateRequest,
   ProductReference,
@@ -95,6 +96,37 @@ export const createCampaign = (body: CampaignCreateRequest) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+export const bindCampaignProduct = (campaignId: string, productId: string | null) =>
+  request<Campaign>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/product",
+    { method: "PUT", body: JSON.stringify({ product_id: productId }) },
+  );
+
+export const listGenerationAttempts = (campaignId: string, signal?: AbortSignal) =>
+  request<GenerationAttempt[]>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/generation-attempts",
+    { signal },
+  );
+
+export const prepareGenerationAttempt = (
+  campaignId: string,
+  candidateId: string,
+  generationVariant = 1,
+  workerSkillVersion = "worker-hat-v1",
+) =>
+  request<{ created: boolean; attempt: GenerationAttempt }>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId)
+      + "/candidates/" + encodeURIComponent(candidateId) + "/generation-attempts",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        generation_variant: generationVariant,
+        worker_skill_version: workerSkillVersion,
+      }),
+    },
+  );
+
 
 export const listCandidates = (campaignId: string, signal?: AbortSignal) =>
   request<Candidate[]>("/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates?limit=120", { signal });

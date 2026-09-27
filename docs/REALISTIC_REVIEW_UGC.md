@@ -562,6 +562,21 @@ Inputs:
 
 The first implementation should prefer reference-conditioned generation/inpainting so the original person, background, camera perspective and composition remain stable.
 
+### Phase 6 foundation implementation status
+
+Campaigns can now bind an active Product Registry SKU. The binding freezes the exact product geometry revision and latest active Product Reference versions into immutable campaign snapshots. If the SKU geometry or active reference set changes later, the campaign is marked stale and must explicitly refresh its product snapshot before new generation work can be prepared.
+
+A generation attempt can be prepared only when:
+
+- the person reference is durable in Managed Drive;
+- the campaign has a bound active product;
+- the bound product snapshot contains at least the required front reference;
+- the binding is not stale.
+
+Prepared attempts are persisted in `rrugc_generation_attempts` with exact candidate, product revision, product-reference snapshot, generation variant and Worker Skill version. The idempotency key includes the immutable binding fingerprint, so replaying the same preparation returns the same attempt while refreshing the product binding creates a new traceable attempt.
+
+This slice intentionally stops at `prepared`. It does not enqueue a generation provider yet. The existing CAM `image_generation` runtime is specialized for square expansion and must not be reused as if it were product-on-person generation. The next Phase 6 slice will add a provider-neutral reference-conditioned generation adapter and then queue execution through the existing Processing Job infrastructure.
+
 The worker should preserve, where supported:
 
 - face/appearance

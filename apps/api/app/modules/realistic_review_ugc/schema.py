@@ -158,6 +158,15 @@ class CampaignResponse(BaseModel):
     min_product_fit_score: float
     require_head_visible: bool
     reject_headwear: bool
+    product_id: str | None = None
+    product_sku: str | None = None
+    product_name: str | None = None
+    product_revision: int | None = None
+    product_reference_count: int = 0
+    product_reference_views: list[ProductReferenceView] = Field(default_factory=list)
+    product_bound_at: datetime | None = None
+    product_binding_stale: bool = False
+    generation_ready: bool = False
     status: CampaignStatus
     scout_status: ScoutStatus
     scout_last_seen_at: datetime | None
@@ -174,6 +183,41 @@ class CampaignResponse(BaseModel):
 
 class CampaignCreatedResponse(CampaignResponse):
     scout_token: str
+
+
+class CampaignProductBindRequest(BaseModel):
+    product_id: str | None = Field(default=None, max_length=36)
+
+
+class GenerationAttemptCreateRequest(BaseModel):
+    generation_variant: int = Field(default=1, ge=1, le=20)
+    worker_skill_version: str = Field(
+        default="worker-hat-v1", min_length=1, max_length=128
+    )
+
+
+class GenerationAttemptResponse(BaseModel):
+    id: str
+    campaign_id: str
+    candidate_id: str
+    product_id: str
+    product_revision: int
+    product_sku: str
+    product_name: str
+    reference_count: int
+    reference_views: list[ProductReferenceView]
+    generation_variant: int
+    worker_skill_version: str
+    provider: str | None
+    provider_model: str | None
+    status: Literal["prepared"]
+    created_at: datetime
+    updated_at: datetime
+
+
+class GenerationAttemptCreatedResponse(BaseModel):
+    created: bool
+    attempt: GenerationAttemptResponse
 
 
 class CandidateSubmission(BaseModel):

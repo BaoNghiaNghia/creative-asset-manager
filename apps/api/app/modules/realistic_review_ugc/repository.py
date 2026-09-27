@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcGenerationAttemptModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -221,3 +222,48 @@ class RrugcRepository:
             .order_by(RrugcProductReferenceModel.created_at.desc())
             .limit(1)
         )
+
+    def lock_campaign(self, tenant_id: str, campaign_id: str) -> RrugcCampaignModel | None:
+        return self.session.scalar(
+            select(RrugcCampaignModel)
+            .where(
+                RrugcCampaignModel.tenant_id == tenant_id,
+                RrugcCampaignModel.id == campaign_id,
+            )
+            .with_for_update()
+        )
+
+    def generation_attempt_by_key(
+        self, tenant_id: str, idempotency_key: str
+    ) -> RrugcGenerationAttemptModel | None:
+        return self.session.scalar(
+            select(RrugcGenerationAttemptModel).where(
+                RrugcGenerationAttemptModel.tenant_id == tenant_id,
+                RrugcGenerationAttemptModel.idempotency_key == idempotency_key,
+            )
+        )
+
+    def list_generation_attempts(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        candidate_id: str | None = None,
+        limit: int = 200,
+    ) -> list[RrugcGenerationAttemptModel]:
+        statement = select(RrugcGenerationAttemptModel).where(
+            RrugcGenerationAttemptModel.tenant_id == tenant_id,
+            RrugcGenerationAttemptModel.campaign_id == campaign_id,
+        )
+        if candidate_id is not None:
+            statement = statement.where(
+                RrugcGenerationAttemptModel.candidate_id == candidate_id
+            )
+        return list(self.session.scalars(
+            statement
+            .order_by(
+                RrugcGenerationAttemptModel.created_at.desc(),
+                RrugcGenerationAttemptModel.id.desc(),
+            )
+            .limit(limit)
+        ))

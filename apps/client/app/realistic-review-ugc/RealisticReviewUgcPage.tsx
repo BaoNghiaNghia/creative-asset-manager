@@ -3,6 +3,7 @@ import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { analyzeCandidate, createCampaign, importCandidate, listCampaigns, listCandidates } from "./api";
+import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import type { Campaign, CampaignCreated, Candidate, CandidateStatus } from "./types";
 
@@ -320,6 +321,14 @@ export function RealisticReviewUgcPage() {
             <span>AI risk <b>≤ {Math.round(selected.max_ai_risk_score * 100)}%</b></span>
             <span>{selected.reject_headwear ? "No existing headwear" : "Headwear allowed"}</span>
           </div>
+          <CampaignGenerationPanel
+            campaign={selected}
+            candidates={candidates}
+            onCampaignChanged={updated => {
+              setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
+            }}
+            onError={setError}
+          />
           {candidates.length === 0 ? <p className="rrugc-empty">Start the Browser Scout command to collect Pinterest candidates.</p> : <div className="rrugc-grid">
             {candidates.map(candidate => {
               const tone = candidateTone(candidate.status);

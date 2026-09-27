@@ -33,6 +33,7 @@ from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHan
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcGenerationAttemptModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -78,6 +79,7 @@ def database():
     RrugcProductModel.__table__.create(engine)
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
+    RrugcGenerationAttemptModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -693,3 +695,211 @@ def test_product_reference_upload_api(api, monkeypatch):
     )
     assert archived.status_code == 200
     assert archived.json()["status"] == "archived"
+
+
+def test_campaign_product_binding_and_generation_attempt_provenance(api, database, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+
+    product = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={
+            "sku": "CAP-GEN",
+            "name": "Generation Cap",
+            "color": "navy",
+            "crown_profile": "mid",
+            "brim_style": "curved",
+        },
+    ).json()
+    front = api.post(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/references",
+        data={"view_type": "front"},
+        files={"file": ("front.png", _png_bytes(value=130), "image/png")},
+    )
+    assert front.status_code == 201
+
+    campaign_created = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Generation foundation",
+            "query": "happy candid portrait",
+            "target_count": 2,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    )
+    assert campaign_created.status_code == 201
+    campaign = campaign_created.json()
+    token = campaign["scout_token"]
+
+    bound = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/product",
+        json={"product_id": product["id"]},
+    )
+    assert bound.status_code == 200
+    binding = bound.json()
+    assert binding["product_id"] == product["id"]
+    assert binding["product_sku"] == "CAP-GEN"
+    assert binding["product_revision"] == 1
+    assert binding["product_reference_views"] == ["front"]
+    assert binding["generation_ready"] is True
+    assert binding["product_binding_stale"] is False
+
+    submitted = api.post(
+        f"/api/v1/realistic-review-ugc/scout/{campaign['id']}/candidates",
+        headers={"Authorization": "Bearer " + token},
+        json={"items": [{
+            "pin_url": "https://www.pinterest.com/pin/444/",
+            "image_url": "https://i.pinimg.com/generation-source.jpg",
+        }]},
+    )
+    assert submitted.status_code == 200
+    candidate_id = submitted.json()["items"][0]["id"]
+
+    not_durable = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/candidates/{candidate_id}/generation-attempts",
+        json={"generation_variant": 1},
+    )
+    assert not_durable.status_code == 409
+
+    with database() as session:
+        candidate = session.get(RrugcCandidateModel, candidate_id)
+        assert candidate is not None
+        candidate.status = "drive_ready"
+        candidate.remote_file_id = "person-ref-file"
+        session.commit()
+
+    prepared = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/candidates/{candidate_id}/generation-attempts",
+        json={
+            "generation_variant": 1,
+            "worker_skill_version": "worker-hat-001-v1",
+        },
+    )
+    assert prepared.status_code == 201
+    payload = prepared.json()
+    assert payload["created"] is True
+    attempt = payload["attempt"]
+    assert attempt["status"] == "prepared"
+    assert attempt["product_sku"] == "CAP-GEN"
+    assert attempt["product_revision"] == 1
+    assert attempt["reference_views"] == ["front"]
+    assert attempt["worker_skill_version"] == "worker-hat-001-v1"
+
+    replay = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/candidates/{candidate_id}/generation-attempts",
+        json={
+            "generation_variant": 1,
+            "worker_skill_version": "worker-hat-001-v1",
+        },
+    )
+    assert replay.status_code == 201
+    assert replay.json()["created"] is False
+    assert replay.json()["attempt"]["id"] == attempt["id"]
+
+    updated = api.patch(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}",
+        json={"color": "forest green"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["revision"] == 2
+
+    stale = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}"
+    )
+    assert stale.status_code == 200
+    assert stale.json()["product_revision"] == 1
+    assert stale.json()["product_binding_stale"] is True
+    assert stale.json()["generation_ready"] is False
+
+    stale_prepare = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/candidates/{candidate_id}/generation-attempts",
+        json={
+            "generation_variant": 2,
+            "worker_skill_version": "worker-hat-001-v1",
+        },
+    )
+    assert stale_prepare.status_code == 409
+    assert stale_prepare.json()["detail"]["code"] == "campaign_product_binding_stale"
+
+    refreshed = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/product",
+        json={"product_id": product["id"]},
+    )
+    assert refreshed.status_code == 200
+    assert refreshed.json()["product_revision"] == 2
+    assert refreshed.json()["product_binding_stale"] is False
+
+    second = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/candidates/{candidate_id}/generation-attempts",
+        json={
+            "generation_variant": 1,
+            "worker_skill_version": "worker-hat-001-v1",
+        },
+    )
+    assert second.status_code == 201
+    assert second.json()["created"] is True
+    assert second.json()["attempt"]["id"] != attempt["id"]
+    assert second.json()["attempt"]["product_revision"] == 2
+
+    attempts = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/generation-attempts"
+    )
+    assert attempts.status_code == 200
+    rows = attempts.json()
+    assert len(rows) == 2
+    assert {row["product_revision"] for row in rows} == {1, 2}
+
+    with database() as session:
+        persisted = list(session.scalars(select(RrugcGenerationAttemptModel)))
+        assert len(persisted) == 2
+        first = next(row for row in persisted if row.id == attempt["id"])
+        assert first.product_snapshot_json["color"] == "navy"
+        assert first.product_revision == 1
+
+
+def test_generation_attempt_requires_bound_product_front_reference(api, database):
+    product = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={"sku": "CAP-NOREF", "name": "No front ref"},
+    ).json()
+    campaign_created = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Needs reference",
+            "query": "portrait",
+            "target_count": 1,
+            "max_scroll_batches": 1,
+        },
+    ).json()
+    campaign_id = campaign_created["id"]
+    bound = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/product",
+        json={"product_id": product["id"]},
+    )
+    assert bound.status_code == 200
+    assert bound.json()["generation_ready"] is False
+
+    with database() as session:
+        row = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="f" * 64,
+            pin_url="https://www.pinterest.com/pin/991/",
+            image_url="https://i.pinimg.com/no-ref-source.jpg",
+            status="drive_ready",
+            remote_file_id="person-file",
+        )
+        session.add(row)
+        session.commit()
+        candidate_id = row.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/generation-attempts",
+        json={},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "product_reference_incomplete"

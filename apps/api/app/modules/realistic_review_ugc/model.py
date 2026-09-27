@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKeyConstraint,
+    JSON,
     Index,
     Integer,
     String,
@@ -27,7 +28,14 @@ class RrugcCampaignModel(Base):
     __tablename__ = "rrugc_campaigns"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_rrugc_campaign_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["rrugc_products.tenant_id", "rrugc_products.id"],
+            name="fk_rrugc_campaign_product",
+            ondelete="RESTRICT",
+        ),
         Index("ix_rrugc_campaign_tenant_status", "tenant_id", "status", "updated_at"),
+        Index("ix_rrugc_campaign_product", "tenant_id", "product_id", "updated_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -47,6 +55,11 @@ class RrugcCampaignModel(Base):
     min_product_fit_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
     require_head_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     reject_headwear: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    product_id: Mapped[str | None] = mapped_column(String(36))
+    product_revision: Mapped[int | None] = mapped_column(Integer)
+    product_snapshot_json: Mapped[dict | None] = mapped_column(JSON)
+    product_reference_snapshot_json: Mapped[list | None] = mapped_column(JSON)
+    product_bound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     scout_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     scout_status: Mapped[str] = mapped_column(String(32), nullable=False, default="offline")
@@ -134,6 +147,7 @@ class RrugcProductReferenceModel(Base):
 class RrugcCandidateModel(Base):
     __tablename__ = "rrugc_candidates"
     __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_rrugc_candidate_tenant_id"),
         ForeignKeyConstraint(
             ["tenant_id", "campaign_id"],
             ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
@@ -193,3 +207,60 @@ class RrugcCandidateModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcGenerationAttemptModel(Base):
+    __tablename__ = "rrugc_generation_attempts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_generation_campaign",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "candidate_id"],
+            ["rrugc_candidates.tenant_id", "rrugc_candidates.id"],
+            name="fk_rrugc_generation_candidate",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["rrugc_products.tenant_id", "rrugc_products.id"],
+            name="fk_rrugc_generation_product",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "idempotency_key",
+            name="uq_rrugc_generation_attempt_idempotency",
+        ),
+        Index(
+            "ix_rrugc_generation_campaign_status",
+            "tenant_id", "campaign_id", "status", "created_at",
+        ),
+        Index(
+            "ix_rrugc_generation_candidate",
+            "tenant_id", "candidate_id", "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    product_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    product_snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    product_reference_snapshot_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    generation_variant: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    worker_skill_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64))
+    provider_model: Mapped[str | None] = mapped_column(String(128))
+    prompt_text: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="prepared")
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )

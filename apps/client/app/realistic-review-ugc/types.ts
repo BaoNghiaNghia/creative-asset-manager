@@ -15,6 +15,15 @@ export type Campaign = {
   min_product_fit_score: number;
   require_head_visible: boolean;
   reject_headwear: boolean;
+  product_id: string | null;
+  product_sku: string | null;
+  product_name: string | null;
+  product_revision: number | null;
+  product_reference_count: number;
+  product_reference_views: ProductReferenceView[];
+  product_bound_at: string | null;
+  product_binding_stale: boolean;
+  generation_ready: boolean;
   status: "running" | "paused" | "completed" | "stopped";
   scout_status: "offline" | "ready" | "busy" | "needs_login" | "error";
   scout_last_seen_at: string | null;
@@ -174,6 +183,25 @@ export type ProductUpdateRequest = {
   circumference_mm?: number | null;
   logo_position?: string | null;
   fit_notes?: string | null;
+};
+
+export type GenerationAttempt = {
+  id: string;
+  campaign_id: string;
+  candidate_id: string;
+  product_id: string;
+  product_revision: number;
+  product_sku: string;
+  product_name: string;
+  reference_count: number;
+  reference_views: ProductReferenceView[];
+  generation_variant: number;
+  worker_skill_version: string;
+  provider: string | null;
+  provider_model: string | null;
+  status: "prepared";
+  created_at: string;
+  updated_at: string;
 };
 
 export type CampaignCreateRequest = {
