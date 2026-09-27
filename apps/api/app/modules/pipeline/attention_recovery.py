@@ -164,10 +164,19 @@ class PipelineAttentionRecovery:
             ))
             for job in failed_analysis_jobs:
                 pipeline = self.pipelines.get(tenant_id, job.entity_id, for_update=True)
-                if pipeline is None or not pipeline.asset_id or not pipeline.source_asset_id:
+                if pipeline is None:
                     result.skipped_missing_identity += 1
                     continue
-                if not self._prepare_analysis_pipeline(pipeline, job):
+                analysis = self._analysis_from_job(pipeline, job)
+                if analysis is not None:
+                    if not pipeline.asset_id:
+                        pipeline.asset_id = analysis.asset_id
+                    if not pipeline.analysis_id:
+                        pipeline.analysis_id = analysis.id
+                if not pipeline.asset_id or not pipeline.source_asset_id:
+                    result.skipped_missing_identity += 1
+                    continue
+                if not self._prepare_analysis_pipeline(pipeline, job, analysis=analysis):
                     result.skipped_no_profile += 1
                     continue
                 result.analysis_jobs += 1
@@ -270,10 +279,26 @@ class PipelineAttentionRecovery:
             self._reset_analysis_job(job, analysis)
         return True
 
-    def _prepare_analysis_pipeline(
+    def _analysis_from_job(
         self, pipeline: AssetPipelineModel, job: ProcessingJobModel
+    ) -> AssetAiAnalysisModel | None:
+        payload = dict(job.payload_json or {})
+        analysis_id = payload.get("analysis_id") or pipeline.analysis_id
+        if not analysis_id:
+            return None
+        analysis = self.session.get(AssetAiAnalysisModel, analysis_id)
+        if analysis is None or analysis.tenant_id != pipeline.tenant_id:
+            return None
+        return analysis
+
+    def _prepare_analysis_pipeline(
+        self,
+        pipeline: AssetPipelineModel,
+        job: ProcessingJobModel,
+        *,
+        analysis: AssetAiAnalysisModel | None = None,
     ) -> bool:
-        analysis = self._analysis_for_pipeline(pipeline)
+        analysis = analysis or self._analysis_for_pipeline(pipeline)
         if analysis is None:
             return False
         if pipeline.state in {

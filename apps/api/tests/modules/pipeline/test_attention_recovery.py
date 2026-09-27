@@ -228,6 +228,81 @@ def test_gemini_terminal_failure_retries_from_source():
         engine.dispose()
 
 
+def test_legacy_analysis_job_restores_asset_identity_from_persisted_analysis():
+    engine, factory = sessions()
+    try:
+        with factory() as session:
+            pipeline, analysis = seed(
+                session,
+                state="analysis_failed",
+                error_code="gemini_invalid_json",
+            )
+            pipeline.asset_id = None
+            pipeline.analysis_id = None
+            job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_pipeline",
+                entity_id=pipeline.id,
+                idempotency_key=f"pipeline:{pipeline.id}:asset_analyze:{analysis.id}",
+                payload_json={"pipeline_id": pipeline.id, "analysis_id": analysis.id},
+                status="failed",
+                attempt_count=3,
+                max_attempts=3,
+                last_error_code="gemini_invalid_json",
+            )
+            session.add(job)
+            session.commit()
+
+            result = PipelineAttentionRecovery(session, settings()).apply("tenant-a")
+            session.commit()
+
+            repaired_pipeline = session.get(AssetPipelineModel, pipeline.id)
+            repaired_job = session.get(ProcessingJobModel, job.id)
+            assert result.analysis_jobs == 1
+            assert result.skipped_missing_identity == 0
+            assert repaired_pipeline.asset_id == analysis.asset_id
+            assert repaired_pipeline.analysis_id == analysis.id
+            assert repaired_pipeline.state == "analysis_pending"
+            assert repaired_job.status == "retry"
+    finally:
+        engine.dispose()
+
+
+def test_legacy_analysis_job_without_provable_identity_remains_skipped():
+    engine, factory = sessions()
+    try:
+        with factory() as session:
+            pipeline, analysis = seed(
+                session,
+                state="analysis_failed",
+                error_code="gemini_invalid_json",
+            )
+            pipeline.asset_id = None
+            pipeline.analysis_id = None
+            job = ProcessingJobModel(
+                tenant_id="tenant-a",
+                job_type="asset_analyze",
+                entity_type="asset_pipeline",
+                entity_id=pipeline.id,
+                idempotency_key=f"pipeline:{pipeline.id}:asset_analyze:legacy-missing",
+                payload_json={"pipeline_id": pipeline.id},
+                status="failed",
+                last_error_code="gemini_invalid_json",
+            )
+            session.add(job)
+            session.commit()
+
+            result = PipelineAttentionRecovery(session, settings()).apply("tenant-a")
+            session.commit()
+
+            assert result.analysis_jobs == 0
+            assert result.skipped_missing_identity == 1
+            assert session.get(ProcessingJobModel, job.id).status == "failed"
+    finally:
+        engine.dispose()
+
+
 def test_projection_failure_retries_only_with_completed_analysis():
     engine, factory = sessions()
     try:
