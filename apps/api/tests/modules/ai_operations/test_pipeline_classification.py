@@ -18,14 +18,18 @@ def test_invalid_image_signatures_are_skipped_as_unsupported():
     )
 
 
-def test_provider_download_rejection_remains_actionable():
-    assert (
-        PipelineOperationsRepository._skip_category(
-            "InvalidPipelineContent",
-            "source provider rejected the download request",
+def test_permanent_source_unavailability_is_skipped_as_unsupported():
+    for message in (
+        "source provider rejected the download request",
+        "source asset is unavailable",
+    ):
+        assert (
+            PipelineOperationsRepository._skip_category(
+                "InvalidPipelineContent",
+                message,
+            )
+            == "unsupported"
         )
-        is None
-    )
 
 
 def test_oversized_content_keeps_oversized_category():

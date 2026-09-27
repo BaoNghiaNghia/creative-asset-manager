@@ -91,6 +91,8 @@ class PipelineOperationsRepository:
             if (
                 "unsupported file signature" in normalized
                 or "invalid iso-bmff image signature" in normalized
+                or "source provider rejected the download request" in normalized
+                or "source asset is unavailable" in normalized
             ):
                 return "unsupported"
         return None
