@@ -76,9 +76,8 @@ function commentTime(value: string) { const time = new Date(value).getTime(); if
 function commentExcerpt(note: Annotation, limit = 96) { const text = (note.plain_text || "").replace(/\s+/g, " ").trim(); if (!text) return "Comment"; return text.length > limit ? text.slice(0, limit - 1).trimEnd() + "…" : text; }
 function PublicEmptyIcon({ kind = "folder" }: { kind?: "folder" | "search" | "comment" }) {
  if (kind === "comment") return <svg className="public-empty-icon-svg" viewBox="0 0 72 72" aria-hidden="true">
-  <path d="M18 18.5h36a8 8 0 0 1 8 8v17a8 8 0 0 1-8 8H36l-13 8v-8h-5a8 8 0 0 1-8-8v-17a8 8 0 0 1 8-8Z"/>
-  <path d="M24 31h24M24 39h16"/>
-  <path className="accent" d="m54 11 1.7 3.8L60 16.5l-4.3 1.7L54 22l-1.7-3.8-4.3-1.7 4.3-1.7L54 11Z"/>
+  <path d="M17 16h38a8 8 0 0 1 8 8v21a8 8 0 0 1-8 8H36l-12 8v-8h-7a8 8 0 0 1-8-8V24a8 8 0 0 1 8-8Z"/>
+  <path className="accent" d="M25 34h2m8 0h2m8 0h2"/>
  </svg>;
  if (kind === "search") return <svg className="public-empty-icon-svg" viewBox="0 0 72 72" aria-hidden="true">
   <rect x="13" y="12" width="38" height="34" rx="7"/>
@@ -88,11 +87,10 @@ function PublicEmptyIcon({ kind = "folder" }: { kind?: "folder" | "search" | "co
   <path className="accent" d="m56.5 55.5 7 7"/>
  </svg>;
  return <svg className="public-empty-icon-svg" viewBox="0 0 72 72" aria-hidden="true">
-  <path d="M11 31h50l-5 24a7 7 0 0 1-6.8 5H22.8A7 7 0 0 1 16 55l-5-24Z"/>
-  <rect x="20" y="12" width="32" height="32" rx="7"/>
-  <circle cx="31" cy="23" r="4"/>
-  <path d="m24 39 9-9 7 7 6-6 6 6"/>
-  <path className="accent" d="m56 10 1.8 4.2L62 16l-4.2 1.8L56 22l-1.8-4.2L50 16l4.2-1.8L56 10ZM63 24v8M59 28h8"/>
+  <path d="M11 24h18l5 6h27v25a7 7 0 0 1-7 7H18a7 7 0 0 1-7-7V24Z"/>
+  <rect className="accent" x="21" y="36" width="30" height="18" rx="4"/>
+  <circle className="accent" cx="29" cy="42" r="2.5"/>
+  <path className="accent" d="m24 51 7-6 5 4 5-5 7 7"/>
  </svg>;
 }
 function PublicEmptyState({ kind, title, description }: { kind: "folder" | "search" | "comment"; title: string; description: string }) {

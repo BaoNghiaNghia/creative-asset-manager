@@ -45,7 +45,7 @@ function ClockIcon() {
 }
 
 function CommentIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.8 7.5 8.4 8.4 0 0 1-3.4-.7L4 20l1.4-4A7.1 7.1 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z"/></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 4.5h13a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H12l-4.5 3v-3h-2a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3Z"/><path d="M8 11h.1m3.9 0h.1m3.9 0h.1"/></svg>;
 }
 
 function avatarInitials(name: string) {
