@@ -912,6 +912,61 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 datetime(2030, 8, 9, 22, 30, tzinfo=timezone.utc),
             )
 
+    def test_manual_recovery_is_available_after_scheduler_marks_safe_window_missed(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_carry_forward_time_local = "05:00"
+            source = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.business_date == date(2030, 8, 9)
+            ))
+            source.gemini_reconcile_status = "completed"
+            source.gemini_reconcile_verified_at = datetime.now(timezone.utc)
+            session.add(InventoryDailyCarryForwardModel(
+                tenant_id="tenant-a",
+                target_business_date=date(2030, 8, 10),
+                previous_business_date=date(2030, 8, 9),
+                idempotency_key="manual-recovery-after-tool-protocol",
+                status="review_required",
+                error_code="carry_forward_plan_not_submitted",
+            ))
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_morning_reset_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-10:morning_reset",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-10:morning_reset",
+                status="failed",
+                attempt_count=6,
+                max_attempts=12,
+                last_error_code="inventory_morning_reset_missed_safe_window",
+            ))
+
+        class Carry:
+            def preview_manual_recovery(self, _tenant_id, business_date):
+                return {
+                    "status": "preview_ready",
+                    "business_date": business_date.isoformat(),
+                    "plan_hash": "b" * 64,
+                    "safe_operation_count": 0,
+                    "write_operation_count": 0,
+                    "excluded_clear_count": 0,
+                    "operations": [],
+                }
+
+        scheduler = InventoryDailyScheduler(
+            self.sessions,
+            carry_forward_service=Carry(),
+        )
+        preview = scheduler.preview_v4_morning_reset_recovery(
+            "tenant-a",
+            date(2030, 8, 10),
+            datetime(2030, 8, 10, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual("preview_ready", preview["status"])
+
     def test_v4_morning_reset_retry_only_runs_within_one_hour(self):
         self._enable_v4()
         with self.sessions.begin() as session:

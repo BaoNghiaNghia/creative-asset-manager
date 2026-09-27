@@ -686,6 +686,8 @@ class InventoryDailyScheduler:
             if (
                 carry.status != "completed"
                 and carry.error_code not in V4_MANUAL_RECOVERY_ERROR_CODES
+                and job.last_error_code
+                != "inventory_morning_reset_missed_safe_window"
             ):
                 raise ValueError(
                     "inventory_morning_reset_recovery_blocked_by_other_error"
