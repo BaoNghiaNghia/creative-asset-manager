@@ -1,0 +1,165 @@
+/* Shared top-level title bar for every workspace route in WorkspaceNavigation.
+   New navbar pages should use WorkspacePageHeader instead of defining a page-specific title header. */
+.workspace-page-header{
+  box-sizing:border-box;
+  display:flex;
+  width:100%;
+  max-width:none;
+  height:auto;
+  min-height:116px;
+  margin:0;
+  padding:26px 36px 22px;
+  align-items:center;
+  justify-content:space-between;
+  gap:24px;
+  border-bottom:1px solid #e2e8f0;
+  background:#fff;
+  color:#172033;
+}
+.workspace-page-header-copy{min-width:0}
+.workspace-page-header .workspace-page-header-eyebrow{
+  display:block;
+  margin:0;
+  color:#667085;
+  font-size:10px;
+  font-weight:800;
+  line-height:1.2;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+.workspace-page-header .workspace-page-header-title-row{
+  display:flex;
+  min-width:0;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:4px;
+}
+.workspace-page-header h1{
+  margin:0;
+  color:#172033;
+  font-size:28px;
+  font-weight:750;
+  line-height:1.2;
+  letter-spacing:-.025em;
+}
+.workspace-page-header .workspace-page-header-description{
+  max-width:760px;
+  margin:5px 0 0;
+  color:#667085;
+  font-size:13px;
+  line-height:1.45;
+}
+.workspace-page-header-meta{margin-top:5px;color:#8995a6;font-size:11px;line-height:1.4}
+.workspace-page-header-actions{
+  display:flex;
+  min-width:0;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:10px;
+}
+.workspace-page-back-link{
+  display:inline-flex;
+  min-height:38px;
+  padding:0 12px;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #cedaef;
+  border-radius:8px;
+  background:#fff;
+  color:#294fb0;
+  font-size:12px;
+  font-weight:750;
+  line-height:1;
+  text-decoration:none;
+  white-space:nowrap;
+}
+.workspace-page-back-link:hover,.workspace-page-back-link:focus-visible{
+  border-color:#9eb5e3;
+  background:#f2f6ff;
+  outline:none;
+}
+.workspace-page-back-link:focus-visible{box-shadow:0 0 0 3px #7aa2f333}
+.workspace-page-chip{
+  display:inline-flex;
+  max-width:300px;
+  min-height:30px;
+  padding:0 10px;
+  align-items:center;
+  overflow:hidden;
+  border-radius:999px;
+  background:#eef3ff;
+  color:#3159b8;
+  font-size:11px;
+  font-weight:700;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* Pages that previously placed their title inside a padded content canvas. */
+.rrugc-main,.video-generation-main{padding:0!important}
+.rrugc-page-body{padding:22px clamp(20px,3.5vw,56px) 32px}
+.video-generation-page-body{padding:28px clamp(20px,4vw,64px) 36px}
+.review-board-main>.workspace-page-header{
+  width:calc(100% + 52px);
+  margin:-24px -26px 24px;
+}
+.explorer-workspace-header>.workspace-page-header{min-height:108px}
+
+/* Keep legacy per-page header classes as compatibility hooks while making their
+   visual contract identical to the shared title bar. */
+.workspace-page-header.rrugc-header,
+.workspace-page-header.video-generation-header,
+.workspace-page-header.review-board-header,
+.workspace-page-header.job-queue-header,
+.workspace-page-header.ops-header,
+.workspace-page-header.access-header{
+  max-width:none;
+  margin:0;
+  padding:26px 36px 22px;
+  border-bottom:1px solid #e2e8f0;
+  background:#fff;
+}
+.review-board-main>.workspace-page-header.review-board-header{
+  margin:-24px -26px 24px;
+}
+
+@media(max-width:1280px){
+  .review-board-main>.workspace-page-header,
+  .review-board-main>.workspace-page-header.review-board-header{
+    width:calc(100% + 40px);
+    margin:-20px -20px 20px;
+  }
+}
+@media(max-width:980px){
+  .review-board-main>.workspace-page-header,
+  .review-board-main>.workspace-page-header.review-board-header{
+    width:calc(100% + 32px);
+    margin:-16px -16px 20px;
+  }
+}
+@media(max-width:900px){
+  .workspace-page-header{padding-inline:22px}
+}
+@media(max-width:760px){
+  .review-board-main>.workspace-page-header,
+  .review-board-main>.workspace-page-header.review-board-header{
+    width:calc(100% + 24px);
+    margin:-12px -12px 18px;
+  }
+}
+@media(max-width:720px){
+  .workspace-page-header{
+    min-height:0;
+    padding:20px 16px 18px;
+    align-items:flex-start;
+    flex-direction:column;
+    gap:14px;
+  }
+  .workspace-page-header h1{font-size:25px}
+  .workspace-page-header .workspace-page-header-description{display:block;font-size:12px}
+  .workspace-page-header-actions{width:100%;justify-content:space-between}
+  .workspace-page-chip{max-width:58vw}
+  .rrugc-page-body,.video-generation-page-body{padding:18px 14px 28px}
+}

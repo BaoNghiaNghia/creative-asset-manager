@@ -20,6 +20,7 @@ import { CreativePipelineTab } from "./CreativePipelineTab";
 import { VisualSearchOperationsTab } from "./VisualSearchOperationsTab";
 import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
 import { BrandIcon } from "../components/Icons";
+import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import type { Asset } from "../types";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
@@ -435,9 +436,11 @@ export function AiOperationsContent({
   }, [tab]);
   if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
   return <>
-    <header className="ops-header">
-      <div><small>OPERATIONS</small><h1>Processing Operations</h1><p>Pipeline progress, AI analysis, usage and cost for the current tenant.</p></div>
-      <div className="ops-header-actions">
+    <WorkspacePageHeader
+      className="ops-header"
+      route="operations"
+      actionsClassName="ops-header-actions"
+      actions={<>
         <AiWorkerToggle workers={data.media?.workers ?? []} />
         <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
@@ -446,9 +449,9 @@ export function AiOperationsContent({
           <span className="ops-refresh-status-label">{loading ? "Refreshing dashboard" : lastUpdated ? "Last updated" : "Refresh status"}</span>
           {lastUpdated ? <time dateTime={lastUpdated.toISOString()}>{loading ? "Refreshing..." : lastUpdated.toLocaleTimeString()}</time> : <span className="ops-refresh-status-value">Manual refresh</span>}
         </div>
-        <a className="ops-back-link" href="/">← Back to assets</a>
-      </div>
-    </header>
+        <WorkspaceBackToAssets />
+      </>}
+    />
     <div className="ops-tabs-carousel">
       <button
         type="button"

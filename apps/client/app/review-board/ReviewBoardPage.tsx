@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAccessIdentity } from "../../features/access_management";
 import { BrandIcon } from "../components/Icons";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { RichAnnotation } from "../public-review/RichAnnotation";
 import {
@@ -494,19 +495,12 @@ export function ReviewBoardPage() {
       </aside>
 
       <section className="review-board-main" aria-busy={loading}>
-        <header className="review-board-header">
-          <div>
-            <small>PUBLIC REVIEW</small>
-            <div className="review-board-heading-row">
-              <h1>Review Board</h1>
-              <span className="review-board-open-count">
-                {totals.open_issues.toLocaleString()} open
-              </span>
-            </div>
-            <p>Review and resolve feedback across shared assets.</p>
-            <span className="review-board-secondary-summary">{secondarySummary}</span>
-          </div>
-          <button
+        <WorkspacePageHeader
+          className="review-board-header"
+          route="review-board"
+          titleAddon={<span className="review-board-open-count">{totals.open_issues.toLocaleString()} open</span>}
+          meta={<span className="review-board-secondary-summary">{secondarySummary}</span>}
+          actions={<button
             type="button"
             className="review-board-refresh"
             onClick={() => void reload()}
@@ -514,8 +508,8 @@ export function ReviewBoardPage() {
           >
             <ReviewBoardIcon name="refresh" />
             {loading ? "Refreshing…" : "Refresh"}
-          </button>
-        </header>
+          </button>}
+        />
 
         <section className="review-board-stats" aria-label="Review Board statistics">
           {[

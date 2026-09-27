@@ -8,6 +8,7 @@ import {
 } from "../../features/access_management";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
+import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 
 export type AccessTab = "members" | "roles" | "my-access";
 const tabs: Array<{ id: AccessTab; label: string }> = [
@@ -90,10 +91,15 @@ type ContentProps = {
 export function AccessManagementContent(props: ContentProps) {
   if (props.state !== "ready") return <AccessState state={props.state} message={props.message} onRetry={props.onRetry} />;
   const activeTenant = props.identity!.available_tenants.find(item => item.id === props.identity!.active_tenant_id);
-  return <><header className="access-header"><div><small>SETTINGS</small><h1>Access Management</h1><p>Manage tenant members, roles, and your active workspace.</p></div><div className="access-header-actions">
-    {activeTenant && <span className="access-tenant-chip">Workspace · {activeTenant.name}</span>}
-    <a href="/">← Back to assets</a>
-  </div></header>
+  return <><WorkspacePageHeader
+    className="access-header"
+    route="access"
+    actionsClassName="access-header-actions"
+    actions={<>
+      {activeTenant && <span className="workspace-page-chip access-tenant-chip">Workspace · {activeTenant.name}</span>}
+      <WorkspaceBackToAssets />
+    </>}
+  />
     <nav className="access-tabs" role="tablist" aria-label="Access Management sections" onKeyDown={event => handleAccessTabKeyDown(event, props.tab, props.onTab)}>
       {tabs.map(item => <button key={item.id} id={`access-tab-${item.id}`} role="tab" type="button" aria-selected={props.tab === item.id} aria-controls={`access-panel-${item.id}`} tabIndex={props.tab === item.id ? 0 : -1} className={props.tab === item.id ? "active" : ""} onClick={() => props.onTab(item.id)}>{item.label}</button>)}
     </nav>{props.message && <div className="access-notice" role="status" aria-live="polite">{props.message}</div>}

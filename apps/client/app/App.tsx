@@ -23,6 +23,7 @@ import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFol
 import { MediaViewer } from "./components/MediaViewer";
 import { FolderNoteDrawer } from "./components/FolderNoteDrawer";
 import { Sidebar } from "./components/Sidebar";
+import { WorkspacePageHeader } from "./components/WorkspacePageHeader";
 import { useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import { assetPreviewUrl, explorerAssetUrl } from "./utils/mediaUrls";
@@ -837,6 +838,9 @@ export default function App() {
       {isDraggingFiles && explorer.auth.authenticated && <div className="explorer-drop-overlay" role="status" aria-live="polite">
         <div><b>Drop files to upload</b><span>Files will be added to {explorer.path.at(-1)?.name || "My Drive"}.</span></div>
       </div>}
+      <div className="explorer-workspace-header">
+        <WorkspacePageHeader route="assets" />
+      </div>
       <header>
         <div className="search-area">
           <div className="search-tools">

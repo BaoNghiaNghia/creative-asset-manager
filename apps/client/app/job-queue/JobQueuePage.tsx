@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAiOperationsJobQueue, type AiOpsJob } from "../../features/ai_operations";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
+import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 
 type QueueStatus = "" | "queued" | "running" | "completed" | "failed";
@@ -258,17 +259,15 @@ export function JobQueuePage() {
     </aside>
 
     <section className="ops-main job-queue-main">
-      <header className="job-queue-header">
-        <div>
-          <small>OPERATIONS</small>
-          <h1>Job Queue</h1>
-          <p>Monitor Generate Square 1:1 jobs, retries, failures, and completed images.</p>
-        </div>
-        <div className="job-queue-header-actions">
-          <span>Workspace - Creative Assets</span>
-          <a href="/">&larr; Back to assets</a>
-        </div>
-      </header>
+      <WorkspacePageHeader
+        className="job-queue-header"
+        route="queue"
+        actionsClassName="job-queue-header-actions"
+        actions={<>
+          <span className="workspace-page-chip">Workspace · Creative Assets</span>
+          <WorkspaceBackToAssets />
+        </>}
+      />
 
       <nav className="job-queue-tabs" aria-label="Job Queue statuses">
         {statusTabs.map(tab => <button

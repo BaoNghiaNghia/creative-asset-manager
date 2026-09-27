@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
+import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { createCampaign, importCandidate, listCampaigns, listCandidates } from "./api";
 import type { Campaign, CampaignCreated, Candidate } from "./types";
 
@@ -143,11 +144,12 @@ export function RealisticReviewUgcPage() {
       <WorkspaceNavigation active="realistic-review-ugc" />
     </aside>
     <section className="rrugc-main">
-      <header className="rrugc-header">
-        <div><small>REFERENCE AUTOMATION</small><h1>Realistic Review UGC</h1><p>Scan Pinterest with a local authenticated Browser Scout and save references into CAM Managed Google Drive.</p></div>
-        <a className="ops-back-link" href="/">← Back to assets</a>
-      </header>
-
+      <WorkspacePageHeader
+        className="rrugc-header"
+        route="realistic-review-ugc"
+        actions={<WorkspaceBackToAssets />}
+      />
+      <div className="rrugc-page-body">
       {error && <div className="rrugc-error" role="alert">{error}</div>}
 
       <section className="rrugc-kpis" aria-label="Realistic Review UGC overview">
@@ -210,6 +212,7 @@ export function RealisticReviewUgcPage() {
           </article>)}
         </div>}
       </section>}
+      </div>
     </section>
   </main>;
 }
