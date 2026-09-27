@@ -803,6 +803,37 @@ def test_campaign_product_binding_and_generation_attempt_provenance(api, databas
     assert replay.json()["created"] is False
     assert replay.json()["attempt"]["id"] == attempt["id"]
 
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router._rrugc_generation_capability",
+        lambda *_args: SimpleNamespace(available=True, reason=None),
+    )
+    queued = api.post(
+        f"/api/v1/realistic-review-ugc/generation-attempts/{attempt['id']}/execute",
+        json={},
+    )
+    assert queued.status_code == 202
+    assert queued.json()["status"] == "queued"
+    assert queued.json()["provider"] == "gemini"
+    assert queued.json()["provider_model"] == "gemini-3.1-flash-image"
+    assert queued.json()["processing_job_id"]
+
+    replay_queue = api.post(
+        f"/api/v1/realistic-review-ugc/generation-attempts/{attempt['id']}/execute",
+        json={},
+    )
+    assert replay_queue.status_code == 202
+    assert replay_queue.json()["processing_job_id"] == queued.json()["processing_job_id"]
+    with database() as session:
+        jobs = list(session.scalars(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_generate",
+                ProcessingJobModel.entity_id == attempt["id"],
+            )
+        ))
+        assert len(jobs) == 1
+        assert jobs[0].provider_key == "gemini"
+        assert jobs[0].payload_json["generation_attempt_id"] == attempt["id"]
+
     updated = api.patch(
         f"/api/v1/realistic-review-ugc/products/{product['id']}",
         json={"color": "forest green"},
