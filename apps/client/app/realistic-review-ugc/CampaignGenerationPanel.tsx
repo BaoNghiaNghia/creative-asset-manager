@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   bindCampaignProduct,
   executeGenerationAttempt,
+  exportCampaignOutputs,
   generationAttemptOutputUrl,
+  getCampaignExportSummary,
   getGenerationCapability,
   listGenerationAttempts,
   listProducts,
@@ -15,6 +17,7 @@ import type {
   Candidate,
   GenerationAttempt,
   GenerationCapability,
+  CampaignExportSummary,
   Product,
   SupervisorResult,
 } from "./types";
@@ -33,6 +36,42 @@ function metricPercent(value: number | null | undefined) {
   return typeof value === "number" ? Math.round(value * 100) + "%" : "—";
 }
 
+export function CampaignExportPanel({
+  summary,
+  busy,
+  onExport,
+}: {
+  summary: CampaignExportSummary | null;
+  busy: boolean;
+  onExport: () => void;
+}) {
+  return <section className="rrugc-export-panel" aria-label="Export and catalog">
+    <div className="rrugc-generation-heading">
+      <div>
+        <small>PHASE 9 · EXPORT + CATALOG</small>
+        <strong>Approved output registry</strong>
+        <p>Register approved Managed Drive outputs in the canonical asset catalog without copying or re-uploading the file.</p>
+      </div>
+      <button
+        type="button"
+        className="rrugc-primary"
+        disabled={busy || !summary?.export_ready}
+        onClick={onExport}
+      >
+        {busy ? "Exporting…" : "Export ready (" + (summary?.export_ready ?? 0) + ")"}
+      </button>
+    </div>
+    <div className="rrugc-export-stats">
+      <span><small>Generated</small><b>{summary?.generated ?? 0}</b></span>
+      <span><small>Review pending</small><b>{summary?.review_pending ?? 0}</b></span>
+      <span><small>Approved</small><b>{summary?.approved ?? 0}</b></span>
+      <span><small>Rejected</small><b>{summary?.rejected ?? 0}</b></span>
+      <span><small>Export ready</small><b>{summary?.export_ready ?? 0}</b></span>
+      <span><small>Cataloged</small><b>{summary?.exported ?? 0}</b></span>
+    </div>
+  </section>;
+}
+
 export function CampaignGenerationPanel({
   campaign,
   candidates,
@@ -43,6 +82,7 @@ export function CampaignGenerationPanel({
   const [attempts, setAttempts] = useState<GenerationAttempt[]>([]);
   const [supervisorResults, setSupervisorResults] = useState<SupervisorResult[]>([]);
   const [capability, setCapability] = useState<GenerationCapability | null>(null);
+  const [exportSummary, setExportSummary] = useState<CampaignExportSummary | null>(null);
   const [productId, setProductId] = useState(campaign.product_id || "");
   const [candidateId, setCandidateId] = useState("");
   const [busy, setBusy] = useState("");
@@ -82,11 +122,13 @@ export function CampaignGenerationPanel({
       listGenerationAttempts(campaign.id, controller.signal),
       getGenerationCapability(controller.signal),
       listSupervisorResults(campaign.id, controller.signal),
-    ]).then(([productRows, attemptRows, generationCapability, supervisorRows]) => {
+      getCampaignExportSummary(campaign.id, controller.signal),
+    ]).then(([productRows, attemptRows, generationCapability, supervisorRows, exportStats]) => {
       setProducts(productRows);
       setAttempts(attemptRows);
       setCapability(generationCapability);
       setSupervisorResults(supervisorRows);
+      setExportSummary(exportStats);
     }).catch(reason => {
       if (!controller.signal.aborted) {
         onError(reason instanceof Error ? reason.message : "Unable to load generation workspace.");
@@ -101,9 +143,11 @@ export function CampaignGenerationPanel({
       void Promise.all([
         listGenerationAttempts(campaign.id),
         listSupervisorResults(campaign.id),
-      ]).then(([attemptRows, supervisorRows]) => {
+        getCampaignExportSummary(campaign.id),
+      ]).then(([attemptRows, supervisorRows, exportStats]) => {
         setAttempts(attemptRows);
         setSupervisorResults(supervisorRows);
+        setExportSummary(exportStats);
       }).catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
@@ -181,6 +225,25 @@ export function CampaignGenerationPanel({
       setSupervisorResults(refreshed);
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : "Unable to prepare Supervisor correction.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function exportApproved() {
+    if (busy || !exportSummary?.export_ready) return;
+    setBusy("export");
+    onError("");
+    try {
+      await exportCampaignOutputs(campaign.id, 100);
+      const [attemptRows, exportStats] = await Promise.all([
+        listGenerationAttempts(campaign.id),
+        getCampaignExportSummary(campaign.id),
+      ]);
+      setAttempts(attemptRows);
+      setExportSummary(exportStats);
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to export approved outputs.");
     } finally {
       setBusy("");
     }
@@ -281,6 +344,18 @@ export function CampaignGenerationPanel({
             <span>rev {attempt.product_revision} · variant {attempt.generation_variant}</span>
             <span>{attempt.reference_count} refs</span>
             <em>{attempt.status}</em>
+            {attempt.export_status && <span className={"rrugc-export-state status-" + attempt.export_status}>
+              {attempt.export_status === "exported"
+                ? "Cataloged"
+                : attempt.export_status === "export_ready"
+                  ? "Export ready"
+                  : attempt.export_status === "not_exportable"
+                    ? "Not exportable"
+                    : "Review pending"}
+            </span>}
+            {attempt.catalog_asset_id && <small className="rrugc-catalog-id">
+              asset {attempt.catalog_asset_id.slice(0, 8)}
+            </small>}
             {attempt.status === "prepared" && <button
               type="button"
               className="rrugc-attempt-action"
@@ -334,5 +409,10 @@ export function CampaignGenerationPanel({
           </article>;
         })}
     </div>
+    <CampaignExportPanel
+      summary={exportSummary}
+      busy={busy === "export"}
+      onExport={() => void exportApproved()}
+    />
   </section>;
 }

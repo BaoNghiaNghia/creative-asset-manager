@@ -236,7 +236,11 @@ class GenerationAttemptResponse(BaseModel):
     reviewed_by_user_id: str | None = None
     reviewed_at: datetime | None = None
     review_note: str | None = None
-    export_status: Literal["pending_review", "export_ready", "not_exportable"] | None = None
+    export_status: Literal["pending_review", "export_ready", "not_exportable", "exported"] | None = None
+    export_record_id: str | None = None
+    catalog_asset_id: str | None = None
+    exported_by_user_id: str | None = None
+    exported_at: datetime | None = None
     last_error_code: str | None = None
     last_error_message: str | None = None
     queued_at: datetime | None = None
@@ -302,7 +306,7 @@ class ReviewTaskResponse(BaseModel):
     review_note: str | None = None
     reviewed_by_user_id: str | None = None
     reviewed_at: datetime | None = None
-    export_status: Literal["pending_review", "export_ready", "not_exportable"]
+    export_status: Literal["pending_review", "export_ready", "not_exportable", "exported"]
     output_url: str
     created_at: datetime
     updated_at: datetime
@@ -323,6 +327,49 @@ class ReviewTaskTransitionResponse(BaseModel):
 class ReviewTaskReconcileResponse(BaseModel):
     scanned: int
     created: int
+
+
+class ExportResponse(BaseModel):
+    id: str
+    campaign_id: str
+    generation_attempt_id: str
+    review_task_id: str
+    catalog_asset_id: str
+    content_hash: str
+    content_type: str | None = None
+    size_bytes: int | None = None
+    storage_provider: str
+    remote_file_id: str
+    remote_folder_id: str | None = None
+    web_url: str | None = None
+    status: Literal["exported"]
+    requested_by_user_id: str
+    exported_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExportListResponse(BaseModel):
+    items: list[ExportResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class BatchExportResponse(BaseModel):
+    scanned: int
+    exported: int
+    reused: int
+    items: list[ExportResponse]
+
+
+class CampaignExportSummaryResponse(BaseModel):
+    generated: int
+    review_pending: int
+    approved: int
+    rejected: int
+    export_ready: int
+    exported: int
 
 
 class CandidateSubmission(BaseModel):

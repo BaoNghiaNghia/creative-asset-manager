@@ -11,6 +11,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
+    RrugcExportModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -461,3 +462,110 @@ class RrugcRepository:
             .limit(limit)
         )
         return list(self.session.scalars(statement))
+
+    def export_for_attempt(
+        self, tenant_id: str, generation_attempt_id: str
+    ) -> RrugcExportModel | None:
+        return self.session.scalar(
+            select(RrugcExportModel).where(
+                RrugcExportModel.tenant_id == tenant_id,
+                RrugcExportModel.generation_attempt_id == generation_attempt_id,
+            )
+        )
+
+    def get_export(
+        self, tenant_id: str, export_id: str
+    ) -> RrugcExportModel | None:
+        return self.session.scalar(
+            select(RrugcExportModel).where(
+                RrugcExportModel.tenant_id == tenant_id,
+                RrugcExportModel.id == export_id,
+            )
+        )
+
+    def list_exports(
+        self,
+        tenant_id: str,
+        *,
+        campaign_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[RrugcExportModel], int]:
+        statement = select(RrugcExportModel).where(
+            RrugcExportModel.tenant_id == tenant_id
+        )
+        if campaign_id is not None:
+            statement = statement.where(
+                RrugcExportModel.campaign_id == campaign_id
+            )
+        total = int(
+            self.session.scalar(
+                select(func.count()).select_from(statement.order_by(None).subquery())
+            )
+            or 0
+        )
+        rows = list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcExportModel.exported_at.desc(),
+                    RrugcExportModel.id.desc(),
+                )
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        return rows, total
+
+    def exportable_attempts(
+        self,
+        tenant_id: str,
+        *,
+        campaign_id: str,
+        limit: int = 100,
+    ) -> list[RrugcGenerationAttemptModel]:
+        return list(
+            self.session.scalars(
+                select(RrugcGenerationAttemptModel)
+                .where(
+                    RrugcGenerationAttemptModel.tenant_id == tenant_id,
+                    RrugcGenerationAttemptModel.campaign_id == campaign_id,
+                    RrugcGenerationAttemptModel.status == "completed",
+                    RrugcGenerationAttemptModel.review_status == "approved",
+                    RrugcGenerationAttemptModel.export_status == "export_ready",
+                    RrugcGenerationAttemptModel.output_content_hash.is_not(None),
+                    RrugcGenerationAttemptModel.output_remote_file_id.is_not(None),
+                )
+                .order_by(
+                    RrugcGenerationAttemptModel.reviewed_at.asc().nullsfirst(),
+                    RrugcGenerationAttemptModel.id.asc(),
+                )
+                .limit(limit)
+            )
+        )
+
+    def campaign_export_summary(
+        self, tenant_id: str, campaign_id: str
+    ) -> dict[str, int]:
+        base = (
+            RrugcGenerationAttemptModel.tenant_id == tenant_id,
+            RrugcGenerationAttemptModel.campaign_id == campaign_id,
+        )
+
+        def count(*extra) -> int:
+            return int(
+                self.session.scalar(
+                    select(func.count())
+                    .select_from(RrugcGenerationAttemptModel)
+                    .where(*base, *extra)
+                )
+                or 0
+            )
+
+        return {
+            "generated": count(RrugcGenerationAttemptModel.status == "completed"),
+            "review_pending": count(RrugcGenerationAttemptModel.review_status == "pending"),
+            "approved": count(RrugcGenerationAttemptModel.review_status == "approved"),
+            "rejected": count(RrugcGenerationAttemptModel.review_status == "rejected"),
+            "export_ready": count(RrugcGenerationAttemptModel.export_status == "export_ready"),
+            "exported": count(RrugcGenerationAttemptModel.export_status == "exported"),
+        }

@@ -28,6 +28,8 @@ from app.domain.providers.contracts import (
 from app.domain.providers.registry import AiProviderRegistry
 from app.infrastructure.downloader.secure_image import DownloadedImage
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
+from app.modules.assets.model import AssetModel
+from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.image_generation.providers import GeneratedImageResult
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
@@ -45,12 +47,14 @@ from app.modules.realistic_review_ugc.model import (
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
+    RrugcExportModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.review import RrugcReviewService
+from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -100,6 +104,9 @@ def database():
     RrugcGenerationAttemptModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
     RrugcReviewTaskModel.__table__.create(engine)
+    AssetModel.__table__.create(engine)
+    AssetStorageObjectModel.__table__.create(engine)
+    RrugcExportModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -523,8 +530,12 @@ def _seed_review_case(session, *, supervisor_status: str, key: str):
         worker_skill_version="worker-hat-v1",
         status="completed",
         idempotency_key=f"review-attempt-{key}",
+        output_content_hash=(key.encode().hex() * 64)[:64],
         output_remote_file_id=f"generated-review-{key}",
+        output_remote_folder_id="generated-folder",
+        output_web_url=f"https://drive.google.com/file/d/generated-review-{key}/view",
         output_content_type="image/png",
+        output_size_bytes=2048,
         created_by_user_id="user-a",
     )
     session.add(attempt)
@@ -705,6 +716,182 @@ def test_review_task_api_lists_and_approves_with_export_state(api, database):
         json={},
     )
     assert conflict.status_code == 409
+
+
+
+
+def _approve_review_for_export(session, *, key: str):
+    campaign, attempt, result = _seed_review_case(
+        session,
+        supervisor_status="pass",
+        key=key,
+    )
+    review_service = RrugcReviewService(session)
+    task, _ = review_service.ensure_from_supervisor(result=result)
+    assert task is not None
+    review_service.transition(
+        tenant_id="tenant-a",
+        task_id=task.id,
+        target_status="approved",
+        user_id="reviewer-a",
+        review_note="Approved for final catalog.",
+    )
+    return campaign, attempt, task
+
+
+def test_export_registers_catalog_asset_without_reupload_and_is_idempotent(database):
+    with database() as session:
+        campaign, attempt, task = _approve_review_for_export(session, key="e")
+        service = RrugcExportService(session)
+
+        row, created = service.export_attempt(
+            tenant_id="tenant-a",
+            generation_attempt_id=attempt.id,
+            user_id="exporter-a",
+        )
+        assert created is True
+        assert row.review_task_id == task.id
+        assert row.remote_file_id == attempt.output_remote_file_id
+        assert row.storage_provider == "google_drive_managed"
+        assert row.status == "exported"
+        assert attempt.export_status == "exported"
+        assert attempt.export_record_id == row.id
+        assert attempt.catalog_asset_id == row.catalog_asset_id
+        assert attempt.exported_by_user_id == "exporter-a"
+        assert attempt.exported_at is not None
+
+        asset = session.scalar(
+            select(AssetModel).where(
+                AssetModel.tenant_id == "tenant-a",
+                AssetModel.id == row.catalog_asset_id,
+            )
+        )
+        assert asset is not None
+        assert asset.content_hash == attempt.output_content_hash
+        storage = session.scalar(
+            select(AssetStorageObjectModel).where(
+                AssetStorageObjectModel.tenant_id == "tenant-a",
+                AssetStorageObjectModel.asset_id == row.catalog_asset_id,
+            )
+        )
+        assert storage is not None
+        assert storage.status == "stored"
+        assert storage.storage_class == "durable"
+        assert storage.remote_file_id == attempt.output_remote_file_id
+
+        same, created_again = service.export_attempt(
+            tenant_id="tenant-a",
+            generation_attempt_id=attempt.id,
+            user_id="exporter-b",
+        )
+        assert created_again is False
+        assert same.id == row.id
+        assert attempt.exported_by_user_id == "exporter-a"
+
+        rows, total = RrugcRepository(session).list_exports(
+            "tenant-a",
+            campaign_id=campaign.id,
+        )
+        assert total == 1
+        assert rows[0].id == row.id
+
+
+def test_export_rejects_unapproved_generation(database):
+    with database() as session:
+        _campaign, attempt, result = _seed_review_case(
+            session,
+            supervisor_status="pass",
+            key="u",
+        )
+        task, _ = RrugcReviewService(session).ensure_from_supervisor(result=result)
+        assert task is not None
+        with pytest.raises(RrugcError) as exc:
+            RrugcExportService(session).export_attempt(
+                tenant_id="tenant-a",
+                generation_attempt_id=attempt.id,
+                user_id="exporter-a",
+            )
+        assert exc.value.code == "rrugc_export_approval_required"
+
+
+def test_campaign_batch_export_and_summary(database):
+    with database() as session:
+        campaign, attempt_a, _task_a = _approve_review_for_export(session, key="b")
+        _campaign_b, attempt_b, _task_b = _approve_review_for_export(session, key="c")
+        # Move the second approved attempt into the same campaign to exercise one bounded batch.
+        attempt_b.campaign_id = campaign.id
+        session.commit()
+
+        service = RrugcExportService(session)
+        before = service.summary(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+        )
+        assert before["export_ready"] == 2
+        assert before["exported"] == 0
+
+        batch = service.export_campaign(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            user_id="exporter-a",
+            limit=20,
+        )
+        assert batch.scanned == 2
+        assert batch.exported == 2
+        assert batch.reused == 0
+        assert {item.generation_attempt_id for item in batch.items} == {
+            attempt_a.id,
+            attempt_b.id,
+        }
+
+        after = service.summary(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+        )
+        assert after["export_ready"] == 0
+        assert after["exported"] == 2
+
+
+def test_export_api_single_batch_list_and_summary(api, database):
+    with database() as session:
+        campaign, attempt, _task = _approve_review_for_export(session, key="z")
+        campaign_id = campaign.id
+        attempt_id = attempt.id
+
+    single = api.post(
+        f"/api/v1/realistic-review-ugc/generation-attempts/{attempt_id}/export",
+    )
+    assert single.status_code == 200
+    payload = single.json()
+    assert payload["generation_attempt_id"] == attempt_id
+    assert payload["status"] == "exported"
+    assert payload["catalog_asset_id"]
+
+    repeated = api.post(
+        f"/api/v1/realistic-review-ugc/generation-attempts/{attempt_id}/export",
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == payload["id"]
+
+    listed = api.get(
+        "/api/v1/realistic-review-ugc/exports",
+        params={"campaign_id": campaign_id},
+    )
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+
+    summary = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/export-summary",
+    )
+    assert summary.status_code == 200
+    assert summary.json()["exported"] == 1
+
+    batch = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/exports",
+    )
+    assert batch.status_code == 200
+    assert batch.json()["scanned"] == 0
+    assert batch.json()["exported"] == 0
 
 
 def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):

@@ -1538,5 +1538,44 @@ Approval/rejection is atomic across the review task and generation attempt. Repe
 
 A bounded reconcile path can backfill review tasks for older terminal Supervisor results that predate this handoff.
 
-The next remaining phase is the export/catalog layer: batch export of `export_ready` outputs, optional registration into the final asset catalog, export provenance, campaign-level completion analytics and operational reporting. Those capabilities are not part of Phase 8.
+Phase 8 ends when an approved generation is marked `export_ready`.
+
+---
+
+## 41. Implemented export + final asset catalog registration
+
+Phase 9 turns approved RRUGC outputs into first-class Creative Asset Manager assets without duplicating the generated file:
+
+```text
+review approved
+  ↓
+export_ready generation
+  ↓
+single or bounded campaign export
+  ↓
+canonical AssetModel (dedupe by tenant + content hash)
+  ↓
+durable managed-storage registration
+  ↓
+rrugc_exports provenance
+  ↓
+generation export_status = exported
+```
+
+Export is a metadata/catalog operation, not another image transfer. The generation output already lives in Managed Google Drive, so Phase 9 reuses its exact `remote_file_id`, folder and web URL. When the canonical catalog asset does not yet exist, the exporter creates the asset from the frozen output content hash, MIME type and byte size, then registers the existing Drive object as its durable managed-storage object. It does **not** copy or re-upload the file.
+
+Every exported generation has one durable `rrugc_exports` row containing the campaign, generation attempt, approved review task, canonical catalog asset, content hash, storage location, exporting user and timestamp. The generation attempt also carries `export_record_id`, `catalog_asset_id`, `exported_by_user_id` and `exported_at`. Export is idempotent per tenant/generation attempt; retries return the existing export record.
+
+The RRUGC API now supports:
+
+- exporting one approved generation,
+- bounded campaign export for all currently `export_ready` outputs,
+- listing export records,
+- campaign export summary for generated, review-pending, approved, rejected, export-ready and exported counts.
+
+The Realistic Review UGC generation workspace exposes the Phase 9 summary and a bounded **Export ready** action. Generation attempts show `Review pending`, `Export ready`, `Not exportable` or `Cataloged`. The Review Board also displays `Cataloged` after an approved output has been registered.
+
+Read operations remain protected by `realistic_review_ugc.read`; export mutations require `realistic_review_ugc.run`. All lookups and writes remain tenant-scoped.
+
+The next remaining phase is downstream delivery and lifecycle automation: channel/package delivery for cataloged assets, explicit export destinations, campaign auto-completion rules, retention/lifecycle policy and richer operational reporting. Those capabilities are not part of Phase 9.
 

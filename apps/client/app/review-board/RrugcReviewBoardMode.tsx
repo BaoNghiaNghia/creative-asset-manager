@@ -75,11 +75,13 @@ export function RrugcReviewTaskRow({
   onSelect: () => void;
 }) {
   const stateLabel =
-    task.status === "approved"
-      ? "Export ready"
-      : task.status === "rejected"
-        ? "Not exportable"
-        : "Pending review";
+    task.export_status === "exported"
+      ? "Cataloged"
+      : task.status === "approved"
+        ? "Export ready"
+        : task.status === "rejected"
+          ? "Not exportable"
+          : "Pending review";
   return (
     <button
       type="button"
@@ -157,11 +159,13 @@ export function RrugcReviewInspector({
             {task.priority === "high" ? "High priority" : "Standard"}
           </span>
           <span className={"rrugc-review-state " + task.status}>
-            {task.status === "approved"
-              ? "Export ready"
-              : task.status === "rejected"
-                ? "Not exportable"
-                : "Pending"}
+            {task.export_status === "exported"
+              ? "Cataloged"
+              : task.status === "approved"
+                ? "Export ready"
+                : task.status === "rejected"
+                  ? "Not exportable"
+                  : "Pending"}
           </span>
         </div>
       </header>

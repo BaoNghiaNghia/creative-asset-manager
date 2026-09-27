@@ -2,9 +2,13 @@ import type {
   Campaign,
   CampaignCreateRequest,
   CampaignCreated,
+  CampaignExportSummary,
   Candidate,
   GenerationAttempt,
   GenerationCapability,
+  BatchExportResult,
+  ExportList,
+  ExportRecord,
   Product,
   ProductCreateRequest,
   ProductReference,
@@ -217,6 +221,42 @@ export const reconcileReviewTasks = (limit = 100) =>
   request<{ scanned: number; created: number }>(
     "/api/v1/realistic-review-ugc/review-tasks/reconcile?limit=" + limit,
     { method: "POST", body: "{}" },
+  );
+
+export const listExports = (
+  campaignId?: string,
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "100", offset: "0" });
+  if (campaignId) params.set("campaign_id", campaignId);
+  return request<ExportList>(
+    "/api/v1/realistic-review-ugc/exports?" + params.toString(),
+    { signal },
+  );
+};
+
+export const exportGenerationAttempt = (attemptId: string) =>
+  request<ExportRecord>(
+    "/api/v1/realistic-review-ugc/generation-attempts/"
+      + encodeURIComponent(attemptId) + "/export",
+    { method: "POST", body: "{}" },
+  );
+
+export const exportCampaignOutputs = (campaignId: string, limit = 100) =>
+  request<BatchExportResult>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/exports?limit=" + limit,
+    { method: "POST", body: "{}" },
+  );
+
+export const getCampaignExportSummary = (
+  campaignId: string,
+  signal?: AbortSignal,
+) =>
+  request<CampaignExportSummary>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/export-summary",
+    { signal },
   );
 
 

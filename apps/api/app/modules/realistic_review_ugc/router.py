@@ -24,6 +24,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
+    RrugcExportModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -52,6 +53,10 @@ from app.modules.realistic_review_ugc.schema import (
     ReviewTaskReconcileResponse,
     ReviewTaskResponse,
     ReviewTaskTransitionResponse,
+    ExportResponse,
+    ExportListResponse,
+    BatchExportResponse,
+    CampaignExportSummaryResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
     ProductReferenceView,
@@ -61,6 +66,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutTaskResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
+from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -310,6 +316,10 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
         reviewed_at=row.reviewed_at,
         review_note=row.review_note,
         export_status=row.export_status,
+        export_record_id=row.export_record_id,
+        catalog_asset_id=row.catalog_asset_id,
+        exported_by_user_id=row.exported_by_user_id,
+        exported_at=row.exported_at,
         last_error_code=row.last_error_code,
         last_error_message=row.last_error_message,
         queued_at=row.queued_at,
@@ -405,6 +415,28 @@ def _review_task(
             + row.generation_attempt_id
             + "/output"
         ),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _export(row: RrugcExportModel) -> ExportResponse:
+    return ExportResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        generation_attempt_id=row.generation_attempt_id,
+        review_task_id=row.review_task_id,
+        catalog_asset_id=row.catalog_asset_id,
+        content_hash=row.content_hash,
+        content_type=row.content_type,
+        size_bytes=row.size_bytes,
+        storage_provider=row.storage_provider,
+        remote_file_id=row.remote_file_id,
+        remote_folder_id=row.remote_folder_id,
+        web_url=row.web_url,
+        status=row.status,
+        requested_by_user_id=row.requested_by_user_id,
+        exported_at=row.exported_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1061,6 +1093,98 @@ def reconcile_review_tasks(
         scanned=result.scanned,
         created=result.created,
     )
+
+
+@router.get(
+    "/exports",
+    response_model=ExportListResponse,
+)
+def list_exports(
+    campaign_id: str | None = Query(default=None, max_length=36),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    rows, total = repository.list_exports(
+        principal.active_tenant_id,
+        campaign_id=campaign_id,
+        limit=limit,
+        offset=offset,
+    )
+    return ExportListResponse(
+        items=[_export(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/generation-attempts/{attempt_id}/export",
+    response_model=ExportResponse,
+)
+def export_generation_attempt(
+    attempt_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, _created = RrugcExportService(session).export_attempt(
+            tenant_id=principal.active_tenant_id,
+            generation_attempt_id=attempt_id,
+            user_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _export(row)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/exports",
+    response_model=BatchExportResponse,
+)
+def export_campaign_outputs(
+    campaign_id: str,
+    limit: int = Query(default=100, ge=1, le=200),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        result = RrugcExportService(session).export_campaign(
+            tenant_id=principal.active_tenant_id,
+            campaign_id=campaign_id,
+            user_id=principal.user_id,
+            limit=limit,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return BatchExportResponse(
+        scanned=result.scanned,
+        exported=result.exported,
+        reused=result.reused,
+        items=[_export(row) for row in result.items],
+    )
+
+
+@router.get(
+    "/campaigns/{campaign_id}/export-summary",
+    response_model=CampaignExportSummaryResponse,
+)
+def get_campaign_export_summary(
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    try:
+        summary = RrugcExportService(session).summary(
+            tenant_id=principal.active_tenant_id,
+            campaign_id=campaign_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return CampaignExportSummaryResponse(**summary)
 
 
 @router.get("/generation-attempts/{attempt_id}/output")

@@ -225,7 +225,11 @@ export type GenerationAttempt = {
   reviewed_by_user_id: string | null;
   reviewed_at: string | null;
   review_note: string | null;
-  export_status: "pending_review" | "export_ready" | "not_exportable" | null;
+  export_status: "pending_review" | "export_ready" | "not_exportable" | "exported" | null;
+  export_record_id: string | null;
+  catalog_asset_id: string | null;
+  exported_by_user_id: string | null;
+  exported_at: string | null;
   last_error_code: string | null;
   last_error_message: string | null;
   queued_at: string | null;
@@ -282,7 +286,7 @@ export type ReviewTask = {
   review_note: string | null;
   reviewed_by_user_id: string | null;
   reviewed_at: string | null;
-  export_status: "pending_review" | "export_ready" | "not_exportable";
+  export_status: "pending_review" | "export_ready" | "not_exportable" | "exported";
   output_url: string;
   created_at: string;
   updated_at: string;
@@ -298,6 +302,49 @@ export type ReviewTaskList = {
 export type ReviewTaskTransition = {
   transitioned: boolean;
   task: ReviewTask;
+};
+
+export type ExportRecord = {
+  id: string;
+  campaign_id: string;
+  generation_attempt_id: string;
+  review_task_id: string;
+  catalog_asset_id: string;
+  content_hash: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  storage_provider: string;
+  remote_file_id: string;
+  remote_folder_id: string | null;
+  web_url: string | null;
+  status: "exported";
+  requested_by_user_id: string;
+  exported_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExportList = {
+  items: ExportRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type BatchExportResult = {
+  scanned: number;
+  exported: number;
+  reused: number;
+  items: ExportRecord[];
+};
+
+export type CampaignExportSummary = {
+  generated: number;
+  review_pending: number;
+  approved: number;
+  rejected: number;
+  export_ready: number;
+  exported: number;
 };
 
 export type CampaignCreateRequest = {

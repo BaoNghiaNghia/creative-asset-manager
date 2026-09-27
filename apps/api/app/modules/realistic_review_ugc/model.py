@@ -283,6 +283,10 @@ class RrugcGenerationAttemptModel(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_note: Mapped[str | None] = mapped_column(Text)
     export_status: Mapped[str | None] = mapped_column(String(32))
+    export_record_id: Mapped[str | None] = mapped_column(String(36))
+    catalog_asset_id: Mapped[str | None] = mapped_column(String(36))
+    exported_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_error_message: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -404,6 +408,69 @@ class RrugcReviewTaskModel(Base):
     review_note: Mapped[str | None] = mapped_column(Text)
     reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class RrugcExportModel(Base):
+    __tablename__ = "rrugc_exports"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_attempt_id"],
+            ["rrugc_generation_attempts.id"],
+            name="fk_rrugc_export_generation_attempt",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["review_task_id"],
+            ["rrugc_review_tasks.id"],
+            name="fk_rrugc_export_review_task",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_asset_id"],
+            ["assets.tenant_id", "assets.id"],
+            name="fk_rrugc_export_catalog_asset",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "generation_attempt_id",
+            name="uq_rrugc_export_attempt",
+        ),
+        Index(
+            "ix_rrugc_export_campaign_status",
+            "tenant_id",
+            "campaign_id",
+            "status",
+            "exported_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation_attempt_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    review_task_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    catalog_asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(128))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    storage_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    remote_folder_id: Mapped[str | None] = mapped_column(String(255))
+    web_url: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="exported")
+    requested_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    exported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
