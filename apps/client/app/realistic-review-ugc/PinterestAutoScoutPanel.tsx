@@ -122,6 +122,27 @@ export function PinterestAutoScoutPanel({
 
   const activeRun = runs.find(row => row.status === "claimed" || row.status === "running");
   const lastRun = runs[0] || null;
+  const recentRuns = runs.slice(0, 20);
+  const completedRuns = recentRuns.filter(row => row.status === "completed");
+  const submitted = completedRuns.reduce((sum, row) => sum + row.submitted_count, 0);
+  const createdCount = completedRuns.reduce((sum, row) => sum + row.created_count, 0);
+  const duplicateCount = completedRuns.reduce((sum, row) => sum + row.existing_count, 0);
+  const yieldRate = submitted > 0 ? Math.round((createdCount / submitted) * 100) : null;
+  const duplicateRate = submitted > 0 ? Math.round((duplicateCount / submitted) * 100) : null;
+  const heartbeatAgeMs = activeRun?.last_heartbeat_at
+    ? Date.now() - new Date(activeRun.last_heartbeat_at).getTime()
+    : null;
+  const isStalled = Boolean(activeRun && heartbeatAgeMs !== null && heartbeatAgeMs > 120_000);
+  const recentFailures = recentRuns.filter(row => row.status === "failed" || row.status === "cancelled").length;
+  const health = !isOnline
+    ? { tone: "is-offline", label: "Scout offline", detail: "Start or reconnect the local Scout." }
+    : isStalled
+      ? { tone: "is-warning", label: "Scan stalled", detail: "No run heartbeat for more than 2 minutes. The lease watchdog will release it automatically." }
+      : scout?.status === "needs_login"
+        ? { tone: "is-warning", label: "Login required", detail: "Open the persistent Pinterest profile and complete login." }
+        : scout?.status === "error" || recentFailures >= 3
+          ? { tone: "is-warning", label: "Recovery needed", detail: "Recent Scout runs are failing repeatedly; check diagnostics below." }
+          : { tone: "is-online", label: activeRun ? "Scanning normally" : "Pipeline healthy", detail: activeRun ? "Heartbeat is current and the campaign lease is active." : "Scout is online and ready for the next campaign." };
 
   return <section className="rrugc-card rrugc-auto-scout-panel" aria-label="Pinterest Auto Scout">
     <div className="rrugc-section-heading rrugc-auto-scout-heading">
@@ -134,9 +155,9 @@ export function PinterestAutoScoutPanel({
           and Drive pipeline automatically.
         </p>
       </div>
-      <span className={"rrugc-auto-scout-health " + (isOnline ? "is-online" : "is-offline")}>
+      <span className={"rrugc-auto-scout-health " + health.tone} title={health.detail}>
         <i aria-hidden="true" />
-        {isOnline ? "Scout online" : "Scout offline"}
+        {health.label}
       </span>
     </div>
 
@@ -145,6 +166,16 @@ export function PinterestAutoScoutPanel({
       <span><small>Connection</small><b>{scout?.status?.replaceAll("_", " ") || "Offline"}</b></span>
       <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
       <span><small>Last</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
+    </div>
+
+    <div className="rrugc-pipeline-health" role="status">
+      <div><small>PIPELINE HEALTH</small><strong>{health.label}</strong><p>{health.detail}</p></div>
+      <div className="rrugc-pipeline-metrics">
+        <span><small>20-run yield</small><b>{yieldRate === null ? "—" : yieldRate + "%"}</b></span>
+        <span><small>Duplicates</small><b>{duplicateRate === null ? "—" : duplicateRate + "%"}</b></span>
+        <span><small>New refs</small><b>{createdCount}</b></span>
+        <span><small>Run failures</small><b>{recentFailures}</b></span>
+      </div>
     </div>
 
     <details className="rrugc-compact-disclosure" open={created ? true : undefined}>
