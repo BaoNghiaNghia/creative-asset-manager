@@ -10,6 +10,22 @@ This companion runtime runs on a user-controlled desktop or laptop with Chrome/C
 4. Copy the one-time Agent command to the browser machine and keep that process running.
 5. Sign in to Pinterest manually in the persistent browser profile the first time.
 
+### Google sign-in says “This browser or app may not be secure”
+
+Google can refuse OAuth sign-in from a browser that is being controlled by Playwright. Do not try to bypass that check. Bootstrap the persistent Scout profile once in a normal local Chrome window instead:
+
+```powershell
+python apps\rrugc_scout\scout.py --profile-dir "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile" --bootstrap-login
+```
+
+Complete Pinterest sign-in manually in that normal Chrome window. If you use **Continue with Google**, do it there. After Pinterest is fully signed in, close the bootstrap Chrome window, then start Auto Scout with the same `--profile-dir`.
+
+Auto Scout now prefers an installed Google Chrome automatically when available. You can still pin a specific binary with:
+
+```powershell
+--chrome-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+```
+
 The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due.
 
 The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the browser stays open for manual resolution and the Agent resumes automatically when access is restored.

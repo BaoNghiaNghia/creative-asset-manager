@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import shutil
 import socket
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +17,63 @@ import httpx
 
 
 CLIENT_VERSION = "rrugc-scout-v2"
+
+
+def resolve_chrome_executable(explicit: str = "") -> str:
+    if explicit:
+        path = Path(explicit).expanduser()
+        if path.is_file():
+            return str(path.resolve())
+        raise SystemExit("Chrome executable was not found: " + explicit)
+
+    candidates: list[Path] = []
+    if sys.platform == "win32":
+        for root in filter(None, [
+            os.getenv("PROGRAMFILES"),
+            os.getenv("PROGRAMFILES(X86)"),
+            os.getenv("LOCALAPPDATA"),
+        ]):
+            candidates.append(Path(root) / "Google/Chrome/Application/chrome.exe")
+    elif sys.platform == "darwin":
+        candidates.extend([
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ])
+    else:
+        for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+            found = shutil.which(name)
+            if found:
+                candidates.append(Path(found))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return ""
+
+
+def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
+    chrome = resolve_chrome_executable(chrome_executable)
+    if not chrome:
+        raise SystemExit(
+            "Google Chrome was not found. Install Chrome or pass --chrome-executable."
+        )
+    profile = str(Path(profile_dir).expanduser().resolve())
+    Path(profile).mkdir(parents=True, exist_ok=True)
+    print("Opening a normal Chrome window for manual Pinterest sign-in.")
+    print("Profile: " + profile)
+    print(
+        "Complete Pinterest sign-in manually. If you use Continue with Google, do it "
+        "in this normal Chrome window. When Pinterest is fully signed in, close this "
+        "Chrome window before starting Auto Scout."
+    )
+    process = subprocess.Popen([
+        chrome,
+        "--user-data-dir=" + profile,
+        "--no-first-run",
+        "https://www.pinterest.com/login/",
+    ])
+    process.wait()
+    print("Bootstrap Chrome closed. The persistent Pinterest session is ready for Auto Scout.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,8 +494,12 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
         "headless": args.headless,
         "viewport": {"width": 1440, "height": 1000},
     }
-    if args.chrome_executable:
-        options["executable_path"] = args.chrome_executable
+    chrome = resolve_chrome_executable(args.chrome_executable)
+    if chrome:
+        options["executable_path"] = chrome
+        print("Using local Chrome: " + chrome)
+    else:
+        print("Local Chrome not found; using Playwright Chromium.")
     context = await playwright.chromium.launch_persistent_context(**options)
     return playwright, context
 
@@ -591,8 +655,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Realistic Review UGC Pinterest Browser Scout"
     )
-    parser.add_argument("--base-url", required=True)
-    mode = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument("--base-url", default="")
+    mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument(
         "--agent-id",
         help="Auto Scout v2 agent ID. Runs continuously and claims campaigns automatically.",
@@ -604,6 +668,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token", default="")
     parser.add_argument("--profile-dir", required=True)
     parser.add_argument("--chrome-executable", default="")
+    parser.add_argument(
+        "--bootstrap-login",
+        action="store_true",
+        help=(
+            "Open normal local Chrome with the persistent Scout profile for manual "
+            "Pinterest sign-in, then exit after Chrome is closed. Use this when Google "
+            "refuses sign-in inside an automated browser."
+        ),
+    )
     parser.add_argument("--machine-label", default="")
     parser.add_argument(
         "--poll-interval-seconds",
@@ -632,12 +705,22 @@ def parse_args() -> argparse.Namespace:
         parser.error("--poll-interval-seconds must be at least 2")
     if args.login_wait_seconds < 60:
         parser.error("--login-wait-seconds must be at least 60")
+    if args.bootstrap_login:
+        if args.agent_id or args.campaign_id or args.base_url:
+            parser.error("--bootstrap-login only needs --profile-dir and optional --chrome-executable")
+        return args
+    if not args.base_url:
+        parser.error("--base-url is required unless --bootstrap-login is used")
+    if not args.agent_id and not args.campaign_id:
+        parser.error("--agent-id or --campaign-id is required unless --bootstrap-login is used")
     args.token = resolve_token(args)
     return args
 
 
 async def run(args: argparse.Namespace) -> None:
-    if args.agent_id:
+    if args.bootstrap_login:
+        bootstrap_login(args.profile_dir, args.chrome_executable)
+    elif args.agent_id:
         await run_agent(args)
     else:
         await run_legacy(args)
