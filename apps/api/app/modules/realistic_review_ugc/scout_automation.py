@@ -421,6 +421,23 @@ class RrugcAutoScoutService:
         agent.machine_label = (machine_label or "").strip()[:160] or agent.machine_label
         agent.last_error_code = None
 
+        # Older releases exponentially backed off campaigns after empty scans.
+        # Collapse any legacy over-backoff immediately so an online Scout can
+        # resume at the configured cadence instead of remaining idle for up to an hour.
+        for campaign in self.repository.list_campaigns(agent.tenant_id, limit=200):
+            if (
+                campaign.status == "running"
+                and campaign.auto_scout
+                and int(campaign.scan_empty_streak or 0) > 0
+                and campaign.scan_next_at is not None
+                and campaign.scan_last_completed_at is not None
+            ):
+                expected_next = _as_utc(campaign.scan_last_completed_at) + timedelta(
+                    seconds=max(60, int(campaign.scan_interval_seconds or 300))
+                )
+                if _as_utc(campaign.scan_next_at) > expected_next + timedelta(seconds=5):
+                    campaign.scan_next_at = now
+
         campaigns = self.repository.claimable_campaigns(
             agent.tenant_id,
             now=now,

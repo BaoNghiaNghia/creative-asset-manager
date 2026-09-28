@@ -305,6 +305,13 @@ def test_auto_scout_empty_runs_keep_configured_scan_interval(database):
         ).total_seconds()
         assert 175 <= second_delay <= 185
 
+        # Simulate a schedule persisted by the old exponential-backoff logic.
+        campaign.scan_next_at = second_run.completed_at + timedelta(seconds=1440)
+        session.commit()
+        recovered = service.claim(agent_id=agent.id, raw_token=token)
+        assert recovered is not None
+        assert recovered.campaign.id == campaign.id
+
 
 def test_auto_scout_quality_pipeline_caps_to_target(database):
     with database() as session:
