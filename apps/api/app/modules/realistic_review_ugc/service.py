@@ -156,6 +156,7 @@ class RrugcService:
         target_count: int,
         max_scroll_batches: int,
         auto_import: bool,
+        search_queries: list[str] | None = None,
         auto_scout: bool = True,
         scan_interval_seconds: int = 300,
         min_head_ratio: float = 0.20,
@@ -170,10 +171,25 @@ class RrugcService:
         reject_headwear: bool = True,
     ) -> tuple[RrugcCampaignModel, str]:
         raw_token = secrets.token_urlsafe(32)
+        queries: list[str] = []
+        seen: set[str] = set()
+        for raw in [query, *(search_queries or [])]:
+            value = str(raw or "").strip()
+            key = value.casefold()
+            if value and key not in seen:
+                seen.add(key)
+                queries.append(value)
+        if not queries:
+            raise RrugcError(
+                "rrugc_search_query_required",
+                "At least one Pinterest search query is required.",
+                status_code=400,
+            )
         row = RrugcCampaignModel(
             tenant_id=tenant_id,
             name=name.strip(),
-            query=query.strip(),
+            query=queries[0],
+            search_queries_json=queries,
             target_count=target_count,
             max_scroll_batches=max_scroll_batches,
             auto_import=auto_import,
@@ -198,6 +214,90 @@ class RrugcService:
         self.session.commit()
         self.session.refresh(row)
         return row, raw_token
+
+    def update_campaign(
+        self,
+        campaign: RrugcCampaignModel,
+        *,
+        name: str | None = None,
+        search_queries: list[str] | None = None,
+        target_count: int | None = None,
+        max_scroll_batches: int | None = None,
+        auto_import: bool | None = None,
+        auto_scout: bool | None = None,
+        scan_interval_seconds: int | None = None,
+        min_head_ratio: float | None = None,
+        max_head_ratio: float | None = None,
+        min_smile_score: float | None = None,
+        max_head_occlusion: float | None = None,
+        max_ai_risk_score: float | None = None,
+        min_quality_score: float | None = None,
+        min_ugc_score: float | None = None,
+        min_product_fit_score: float | None = None,
+        require_head_visible: bool | None = None,
+        reject_headwear: bool | None = None,
+    ) -> RrugcCampaignModel:
+        if name is not None:
+            campaign.name = name.strip()
+
+        if search_queries is not None:
+            queries: list[str] = []
+            seen: set[str] = set()
+            for raw in search_queries:
+                value = str(raw or "").strip()
+                key = value.casefold()
+                if value and key not in seen:
+                    seen.add(key)
+                    queries.append(value)
+            if not queries:
+                raise RrugcError(
+                    "rrugc_search_query_required",
+                    "At least one Pinterest search query is required.",
+                    status_code=400,
+                )
+            campaign.query = queries[0]
+            campaign.search_queries_json = queries
+
+        for field, value in {
+            "target_count": target_count,
+            "max_scroll_batches": max_scroll_batches,
+            "scan_interval_seconds": scan_interval_seconds,
+            "min_head_ratio": min_head_ratio,
+            "max_head_ratio": max_head_ratio,
+            "min_smile_score": min_smile_score,
+            "max_head_occlusion": max_head_occlusion,
+            "max_ai_risk_score": max_ai_risk_score,
+            "min_quality_score": min_quality_score,
+            "min_ugc_score": min_ugc_score,
+            "min_product_fit_score": min_product_fit_score,
+            "require_head_visible": require_head_visible,
+            "reject_headwear": reject_headwear,
+        }.items():
+            if value is not None:
+                setattr(campaign, field, value)
+
+        if campaign.min_head_ratio >= campaign.max_head_ratio:
+            raise RrugcError(
+                "rrugc_head_ratio_invalid",
+                "Minimum head ratio must be lower than maximum head ratio.",
+                status_code=400,
+            )
+
+        if auto_import is not None:
+            campaign.auto_import = auto_import
+        if auto_scout is not None:
+            campaign.auto_scout = auto_scout
+            if not auto_scout:
+                campaign.scan_next_at = None
+
+        if campaign.auto_scout and campaign.status == "running":
+            campaign.scan_next_at = datetime.now(timezone.utc)
+            campaign.scan_empty_streak = 0
+            campaign.scan_last_error_code = None
+
+        self.session.commit()
+        self.session.refresh(campaign)
+        return campaign
 
     def _analysis_job_key(self, candidate: RrugcCandidateModel) -> str:
         return f"rrugc-analyze:{candidate.id}:{candidate.analysis_revision}"

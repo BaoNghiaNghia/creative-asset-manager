@@ -9,6 +9,7 @@ import {
   importCandidate,
   listCampaigns,
   listCandidates,
+  updateCampaign,
 } from "./api";
 import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
@@ -65,6 +66,77 @@ function candidateTone(status: CandidateStatus): string {
   return "working";
 }
 
+function SearchQueryEditor({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function add() {
+    const keyword = draft.trim();
+    if (!keyword || value.length >= 10) return;
+    if (value.some(item => item.toLocaleLowerCase() === keyword.toLocaleLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange([...value, keyword]);
+    setDraft("");
+  }
+
+  return <div className="rrugc-keyword-editor">
+    <div className="rrugc-keyword-chips">
+      {value.map((keyword, index) => <span key={keyword + index}>
+        {keyword}
+        <button
+          type="button"
+          aria-label={"Remove " + keyword}
+          onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}
+        >×</button>
+      </span>)}
+      {value.length === 0 && <small>Add at least one Pinterest search keyword.</small>}
+    </div>
+    <div className="rrugc-keyword-input">
+      <input
+        value={draft}
+        maxLength={500}
+        placeholder={value.length ? "Add another search keyword…" : "happy woman casual outdoor candid"}
+        onChange={event => setDraft(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            add();
+          }
+        }}
+      />
+      <button type="button" disabled={!draft.trim() || value.length >= 10} onClick={add}>Add</button>
+    </div>
+    <small>{value.length}/10 keywords · Auto Scout searches every keyword in each scan.</small>
+  </div>;
+}
+
+type CampaignEditDraft = {
+  name: string;
+  searchQueries: string[];
+  target: number;
+  scrolls: number;
+  autoImport: boolean;
+  autoScout: boolean;
+  scanIntervalMinutes: number;
+  minHeadRatio: number;
+  maxHeadRatio: number;
+  minSmile: number;
+  maxOcclusion: number;
+  maxAiRisk: number;
+  minQuality: number;
+  minUgc: number;
+  minProductFit: number;
+  requireHeadVisible: boolean;
+  rejectHeadwear: boolean;
+};
+
 export function scoutCommand(baseUrl: string, campaignId: string, token: string): string {
   const url = baseUrl.replace(/\/$/, "");
   return [
@@ -81,7 +153,7 @@ export function RealisticReviewUgcPage() {
   const [selectedId, setSelectedId] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [name, setName] = useState("Pinterest lifestyle references");
-  const [query, setQuery] = useState("happy woman casual outdoor candid");
+  const [searchQueries, setSearchQueries] = useState<string[]>(["happy woman casual outdoor candid"]);
   const [target, setTarget] = useState(100);
   const [scrolls, setScrolls] = useState(6);
   const [autoImport, setAutoImport] = useState(true);
@@ -100,6 +172,9 @@ export function RealisticReviewUgcPage() {
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState("");
   const [candidateLimit, setCandidateLimit] = useState(24);
+  const [editingId, setEditingId] = useState("");
+  const [editDraft, setEditDraft] = useState<CampaignEditDraft | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState("");
 
   const selected = campaigns.find(item => item.id === selectedId) || null;
@@ -150,7 +225,7 @@ export function RealisticReviewUgcPage() {
   }, [selectedId]);
 
   async function submit() {
-    if (!name.trim() || !query.trim() || busy) return;
+    if (!name.trim() || searchQueries.length === 0 || busy) return;
     if (minHeadRatio >= maxHeadRatio) {
       setError("Minimum head ratio must be lower than maximum head ratio.");
       return;
@@ -160,7 +235,8 @@ export function RealisticReviewUgcPage() {
     try {
       const next = await createCampaign({
         name: name.trim(),
-        query: query.trim(),
+        query: searchQueries[0],
+        search_queries: searchQueries,
         target_count: target,
         max_scroll_batches: scrolls,
         auto_import: autoImport,
@@ -234,6 +310,71 @@ export function RealisticReviewUgcPage() {
     }
   }
 
+  function openCampaignEditor(campaign: Campaign) {
+    setEditingId(campaign.id);
+    setEditDraft({
+      name: campaign.name,
+      searchQueries: campaign.search_queries?.length ? campaign.search_queries : [campaign.query],
+      target: campaign.target_count,
+      scrolls: campaign.max_scroll_batches,
+      autoImport: campaign.auto_import,
+      autoScout: campaign.auto_scout,
+      scanIntervalMinutes: Math.max(1, Math.round(campaign.scan_interval_seconds / 60)),
+      minHeadRatio: Math.round(campaign.min_head_ratio * 100),
+      maxHeadRatio: Math.round(campaign.max_head_ratio * 100),
+      minSmile: Math.round(campaign.min_smile_score * 100),
+      maxOcclusion: Math.round(campaign.max_head_occlusion * 100),
+      maxAiRisk: Math.round(campaign.max_ai_risk_score * 100),
+      minQuality: Math.round(campaign.min_quality_score * 100),
+      minUgc: Math.round(campaign.min_ugc_score * 100),
+      minProductFit: Math.round(campaign.min_product_fit_score * 100),
+      requireHeadVisible: campaign.require_head_visible,
+      rejectHeadwear: campaign.reject_headwear,
+    });
+  }
+
+  async function saveCampaignEdit() {
+    if (!editingId || !editDraft || savingEdit) return;
+    if (!editDraft.name.trim() || editDraft.searchQueries.length === 0) {
+      setError("Campaign name and at least one search keyword are required.");
+      return;
+    }
+    if (editDraft.minHeadRatio >= editDraft.maxHeadRatio) {
+      setError("Minimum head ratio must be lower than maximum head ratio.");
+      return;
+    }
+    setSavingEdit(true);
+    setError("");
+    try {
+      const updated = await updateCampaign(editingId, {
+        name: editDraft.name.trim(),
+        search_queries: editDraft.searchQueries,
+        target_count: editDraft.target,
+        max_scroll_batches: editDraft.scrolls,
+        auto_import: editDraft.autoImport,
+        auto_scout: editDraft.autoScout,
+        scan_interval_seconds: Math.max(60, Math.min(86400, editDraft.scanIntervalMinutes * 60)),
+        min_head_ratio: editDraft.minHeadRatio / 100,
+        max_head_ratio: editDraft.maxHeadRatio / 100,
+        min_smile_score: editDraft.minSmile / 100,
+        max_head_occlusion: editDraft.maxOcclusion / 100,
+        max_ai_risk_score: editDraft.maxAiRisk / 100,
+        min_quality_score: editDraft.minQuality / 100,
+        min_ugc_score: editDraft.minUgc / 100,
+        min_product_fit_score: editDraft.minProductFit / 100,
+        require_head_visible: editDraft.requireHeadVisible,
+        reject_headwear: editDraft.rejectHeadwear,
+      });
+      setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
+      setEditingId("");
+      setEditDraft(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update campaign.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   const kpis = {
     workflows: campaigns.length,
     running: campaigns.filter(item => item.status === "running").length,
@@ -278,7 +419,10 @@ export function RealisticReviewUgcPage() {
             </summary>
             <div className="rrugc-form">
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
-              <label>Search query<input value={query} maxLength={500} onChange={event => setQuery(event.target.value)} /></label>
+              <label>
+                Search keywords
+                <SearchQueryEditor value={searchQueries} onChange={setSearchQueries} />
+              </label>
               <div className="rrugc-form-row">
                 <label>Target approved images<input type="number" min={1} max={5000} value={target} onChange={event => setTarget(Number(event.target.value))} /></label>
                 <label>Scroll batches<input type="number" min={1} max={50} value={scrolls} onChange={event => setScrolls(Number(event.target.value))} /></label>
@@ -328,7 +472,7 @@ export function RealisticReviewUgcPage() {
               <label className="rrugc-check"><input type="checkbox" checked={autoImport} onChange={event => setAutoImport(event.target.checked)} /><span>Automatically save only approved references to Managed Google Drive</span></label>
               <div className="rrugc-form-submit">
                 <span>New campaigns start immediately when Auto Scout is enabled and a paired Agent is online.</span>
-                <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || !query.trim()} onClick={() => void submit()}>{busy ? "Creating…" : "Create & start campaign"}</button>
+                <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || searchQueries.length === 0} onClick={() => void submit()}>{busy ? "Creating…" : "Create & start campaign"}</button>
               </div>
             </div>
           </details>
@@ -342,27 +486,106 @@ export function RealisticReviewUgcPage() {
               {campaigns.map(item => {
                 const progressBase = item.auto_import ? item.drive_ready : item.approved;
                 const progress = Math.min(100, Math.round((progressBase / item.target_count) * 100));
-                return <button type="button" key={item.id} className={selectedId === item.id ? "active" : ""} onClick={() => setSelectedId(item.id)}>
-                  <div className="rrugc-campaign-card-head">
-                    <span className="rrugc-campaign-card-copy"><strong>{item.name}</strong><small>{item.query}</small></span>
-                    <span className="rrugc-campaign-card-badges">
-                      <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status.replaceAll("_", " ")}</span>
-                      <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
-                        {item.auto_scout ? "Auto" : "Paused"}
+                const keywords = item.search_queries?.length ? item.search_queries : [item.query];
+                return <article key={item.id} className={selectedId === item.id ? "active" : ""}>
+                  <button type="button" className="rrugc-campaign-select" onClick={() => setSelectedId(item.id)}>
+                    <div className="rrugc-campaign-card-head">
+                      <span className="rrugc-campaign-card-copy"><strong>{item.name}</strong></span>
+                      <span className="rrugc-campaign-card-badges">
+                        <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status.replaceAll("_", " ")}</span>
+                        <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
+                          {item.auto_scout ? "Auto" : "Paused"}
+                        </span>
                       </span>
+                    </div>
+                    <span className="rrugc-campaign-keywords">
+                      {keywords.slice(0, 3).map(keyword => <small key={keyword}>{keyword}</small>)}
+                      {keywords.length > 3 && <small>+{keywords.length - 3}</small>}
                     </span>
-                  </div>
-                  <div className="rrugc-campaign-progress-row">
-                    <span className="rrugc-progress"><i style={{ width: progress + "%" }} /></span>
-                    <strong>{progress}%</strong>
-                    <small>{progressBase}/{item.target_count}</small>
-                  </div>
-                  <span className="rrugc-campaign-stats"><small><b>{item.discovered}</b> scanned</small><small><b>{item.analysis_pending + item.analyzing}</b> pending</small><small><b>{item.approved}</b> approved</small><small><b>{item.rejected}</b> rejected</small></span>
-                </button>;
+                    <div className="rrugc-campaign-progress-row">
+                      <span className="rrugc-progress"><i style={{ width: progress + "%" }} /></span>
+                      <strong>{progress}%</strong>
+                      <small>{progressBase}/{item.target_count}</small>
+                    </div>
+                    <span className="rrugc-campaign-stats"><small><b>{item.discovered}</b> scanned</small><small><b>{item.analysis_pending + item.analyzing}</b> pending</small><small><b>{item.approved}</b> approved</small><small><b>{item.rejected}</b> rejected</small></span>
+                  </button>
+                  <button
+                    type="button"
+                    className="rrugc-campaign-edit"
+                    onClick={() => openCampaignEditor(item)}
+                  >
+                    Edit
+                  </button>
+                </article>;
               })}
             </div>}
           </section>
         </div>
+
+        {editingId && editDraft && <div className="rrugc-campaign-editor-backdrop" role="presentation" onMouseDown={() => {
+          if (!savingEdit) {
+            setEditingId("");
+            setEditDraft(null);
+          }
+        }}>
+          <section className="rrugc-campaign-editor" role="dialog" aria-modal="true" aria-label="Edit campaign" onMouseDown={event => event.stopPropagation()}>
+            <header>
+              <div><small>EDIT CAMPAIGN</small><h2>{editDraft.name || "Campaign"}</h2></div>
+              <button type="button" aria-label="Close editor" disabled={savingEdit} onClick={() => {
+                setEditingId("");
+                setEditDraft(null);
+              }}>×</button>
+            </header>
+            <div className="rrugc-campaign-editor-body">
+              <label>Campaign name<input value={editDraft.name} maxLength={200} onChange={event => setEditDraft(current => current ? { ...current, name: event.target.value } : current)} /></label>
+              <label>
+                Pinterest search keywords
+                <SearchQueryEditor
+                  value={editDraft.searchQueries}
+                  onChange={searchQueries => setEditDraft(current => current ? { ...current, searchQueries } : current)}
+                />
+              </label>
+              <div className="rrugc-form-row">
+                <label>Target approved<input type="number" min={1} max={5000} value={editDraft.target} onChange={event => setEditDraft(current => current ? { ...current, target: Number(event.target.value) } : current)} /></label>
+                <label>Scrolls / keyword<input type="number" min={1} max={50} value={editDraft.scrolls} onChange={event => setEditDraft(current => current ? { ...current, scrolls: Number(event.target.value) } : current)} /></label>
+              </div>
+              <div className="rrugc-editor-automation">
+                <label className="rrugc-check"><input type="checkbox" checked={editDraft.autoScout} onChange={event => setEditDraft(current => current ? { ...current, autoScout: event.target.checked } : current)} /><span>Auto Scout enabled</span></label>
+                <label>Rescan every<input type="number" min={1} max={1440} disabled={!editDraft.autoScout} value={editDraft.scanIntervalMinutes} onChange={event => setEditDraft(current => current ? { ...current, scanIntervalMinutes: Math.max(1, Number(event.target.value) || 1) } : current)} /><small>minutes</small></label>
+                <label className="rrugc-check"><input type="checkbox" checked={editDraft.autoImport} onChange={event => setEditDraft(current => current ? { ...current, autoImport: event.target.checked } : current)} /><span>Auto-save approved to Drive</span></label>
+              </div>
+              <details className="rrugc-filter-panel">
+                <summary><span><strong>Qualification rules</strong><small>Keep advanced QA thresholds out of the main form</small></span><b>Advanced</b></summary>
+                <div className="rrugc-filter-grid">
+                  <label>Head min<input type="number" min={5} max={90} value={editDraft.minHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, minHeadRatio: Number(event.target.value) } : current)} /></label>
+                  <label>Head max<input type="number" min={5} max={95} value={editDraft.maxHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, maxHeadRatio: Number(event.target.value) } : current)} /></label>
+                  <label>Smile min<input type="number" min={0} max={100} value={editDraft.minSmile} onChange={event => setEditDraft(current => current ? { ...current, minSmile: Number(event.target.value) } : current)} /></label>
+                  <label>Occlusion max<input type="number" min={0} max={100} value={editDraft.maxOcclusion} onChange={event => setEditDraft(current => current ? { ...current, maxOcclusion: Number(event.target.value) } : current)} /></label>
+                  <label>AI risk max<input type="number" min={0} max={100} value={editDraft.maxAiRisk} onChange={event => setEditDraft(current => current ? { ...current, maxAiRisk: Number(event.target.value) } : current)} /></label>
+                  <label>Quality min<input type="number" min={0} max={100} value={editDraft.minQuality} onChange={event => setEditDraft(current => current ? { ...current, minQuality: Number(event.target.value) } : current)} /></label>
+                  <label>UGC min<input type="number" min={0} max={100} value={editDraft.minUgc} onChange={event => setEditDraft(current => current ? { ...current, minUgc: Number(event.target.value) } : current)} /></label>
+                  <label>Product fit min<input type="number" min={0} max={100} value={editDraft.minProductFit} onChange={event => setEditDraft(current => current ? { ...current, minProductFit: Number(event.target.value) } : current)} /></label>
+                </div>
+                <div className="rrugc-filter-toggles">
+                  <label className="rrugc-check"><input type="checkbox" checked={editDraft.requireHeadVisible} onChange={event => setEditDraft(current => current ? { ...current, requireHeadVisible: event.target.checked } : current)} /><span>Require visible head</span></label>
+                  <label className="rrugc-check"><input type="checkbox" checked={editDraft.rejectHeadwear} onChange={event => setEditDraft(current => current ? { ...current, rejectHeadwear: event.target.checked } : current)} /><span>Reject existing headwear</span></label>
+                </div>
+              </details>
+            </div>
+            <footer>
+              <span>Keyword edits are used on the next Scout scan. Existing candidates are preserved.</span>
+              <div>
+                <button type="button" disabled={savingEdit} onClick={() => {
+                  setEditingId("");
+                  setEditDraft(null);
+                }}>Cancel</button>
+                <button type="button" className="rrugc-primary" disabled={savingEdit || !editDraft.name.trim() || editDraft.searchQueries.length === 0} onClick={() => void saveCampaignEdit()}>
+                  {savingEdit ? "Saving…" : "Save campaign"}
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>}
 
         <div id="rrugc-product" className="rrugc-anchor-section rrugc-secondary-workspace">
           <ProductRegistryPanel />
@@ -370,7 +593,13 @@ export function RealisticReviewUgcPage() {
 
         {selected && <section id="rrugc-production" className="rrugc-card rrugc-live rrugc-anchor-section">
           <div className="rrugc-section-heading rrugc-live-heading">
-            <div><small>ACTIVE CAMPAIGN</small><h2>{selected.name}</h2><p>{selected.query}</p></div>
+            <div>
+              <small>ACTIVE CAMPAIGN</small>
+              <h2>{selected.name}</h2>
+              <span className="rrugc-active-keywords">
+                {(selected.search_queries?.length ? selected.search_queries : [selected.query]).map(keyword => <small key={keyword}>{keyword}</small>)}
+              </span>
+            </div>
             <div className="rrugc-live-meta rrugc-live-meta-primary">
               <span>Pending <b>{selected.analysis_pending + selected.analyzing}</b></span>
               <span>Approved <b>{selected.approved}</b></span>

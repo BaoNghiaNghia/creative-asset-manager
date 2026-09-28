@@ -1733,3 +1733,20 @@ Within an active campaign, reference candidates are presented before generation.
 
 The UI uses a scoped RRUGC stylesheet so typography, spacing, cards, form controls, focus states, status pills, and responsive breakpoints can evolve without changing the shared Asset Explorer or other workspace routes. Desktop keeps a wide production canvas; tablet collapses major work areas to one column; mobile reduces KPI/status grids and candidate cards while preserving all actions.
 
+
+---
+
+## 46. Campaign editing and multi-keyword Pinterest discovery
+
+A reference campaign can contain up to ten Pinterest search keywords instead of one fixed query. The first keyword remains mirrored into the legacy `query` field for compatibility, while `search_queries_json` is the canonical ordered query set for Auto Scout v2.
+
+Each claimed Auto Scout run receives the complete keyword set. The local Scout visits every keyword in order and performs the configured number of bounded scroll batches **per keyword**. Candidate identity and deduplication remain campaign-wide, so the same Pin discovered from two keywords is stored only once.
+
+The campaign queue is intentionally denser than the previous two-panel layout:
+
+- campaign creation is a compact disclosure above the queue rather than an always-tall empty column;
+- campaign cards show keyword chips, progress, funnel counts, Auto Scout state, and a dedicated **Edit** action;
+- desktop can show two campaign cards per row, while smaller screens collapse to one column.
+
+**Edit campaign** updates campaign name, ordered search keywords, approved-reference target, scroll batches per keyword, Auto Scout cadence, Auto Import, and qualification thresholds without deleting existing candidates. Keyword/config changes take effect on the next eligible Auto Scout scan. Saving an active Auto Scout campaign moves its next scan to the current time so the updated keyword set is picked up promptly.
+

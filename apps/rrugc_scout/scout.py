@@ -391,8 +391,18 @@ async def scan_auto_run(
     login_wait_seconds: int,
 ) -> None:
     run_id = str(task["run"]["id"])
-    query = quote_plus(str(task["query"]))
-    url = "https://www.pinterest.com/search/pins/?q=" + query
+    raw_queries = task.get("search_queries") or [task["query"]]
+    search_queries: list[str] = []
+    seen_queries: set[str] = set()
+    for raw in raw_queries:
+        value = str(raw or "").strip()
+        key = value.casefold()
+        if value and key not in seen_queries:
+            seen_queries.add(key)
+            search_queries.append(value)
+    if not search_queries:
+        search_queries = [str(task["query"])]
+
     await client.heartbeat("busy", run_id=run_id)
     last_heartbeat = time.monotonic()
 
@@ -403,94 +413,113 @@ async def scan_auto_run(
             await client.heartbeat("busy", run_id=run_id)
             last_heartbeat = now
 
-    await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-    loaded_count = await wait_for_pin_growth(
-        page,
-        previous_count=0,
-        timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-    )
-
-    access_ready = await wait_for_manual_access(
-        page,
-        client,
-        run_id=run_id,
-        timeout_seconds=login_wait_seconds,
-    )
-    if not access_ready:
-        await client.complete(
-            run_id,
-            "needs_login",
-            error_code="pinterest_access_gate_timeout",
-        )
-        return
-
     seen: set[tuple[str, str]] = set()
     target = int(task["target_count"])
     max_scroll_batches = int(task["max_scroll_batches"])
     progress = int(task.get("progress") or 0)
 
-    for batch in range(max_scroll_batches):
-        await heartbeat_if_due()
-        visible = await extract_visible(page)
-        fresh = [
-            row
-            for row in visible
-            if (row.pin_url, row.image_url) not in seen
-        ]
-        for row in fresh:
-            seen.add((row.pin_url, row.image_url))
-
-        for start in range(0, len(fresh), SUBMIT_BATCH_SIZE):
-            chunk = fresh[start:start + SUBMIT_BATCH_SIZE]
-            if not chunk:
-                continue
-            result = await client.submit(run_id, chunk)
-            progress = int(result.get("progress") or 0)
-            print(
-                "campaign="
-                + str(task["campaign_id"])
-                + " batch="
-                + str(batch + 1)
-                + "/"
-                + str(max_scroll_batches)
-                + " submitted="
-                + str(len(chunk))
-                + " created="
-                + str(result.get("created") or 0)
-                + " existing="
-                + str(result.get("existing") or 0)
-                + " target_progress="
-                + str(progress)
-                + "/"
-                + str(target)
-            )
-            if result.get("campaign_status") != "running" or progress >= target:
-                await client.complete(run_id, "completed")
-                return
-
-        gate = await access_gate(page)
-        if gate is not None:
-            access_ready = await wait_for_manual_access(
-                page,
-                client,
-                run_id=run_id,
-                timeout_seconds=login_wait_seconds,
-            )
-            if not access_ready:
-                await client.complete(
-                    run_id,
-                    "needs_login",
-                    error_code="pinterest_access_gate_timeout",
-                )
-                return
-
-        before_scroll_count = max(loaded_count, await loaded_pin_count(page))
-        await page.mouse.wheel(0, 2800)
+    for query_index, raw_query in enumerate(search_queries):
+        query = quote_plus(raw_query)
+        url = "https://www.pinterest.com/search/pins/?q=" + query
+        await heartbeat_if_due(force=True)
+        await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         loaded_count = await wait_for_pin_growth(
             page,
-            previous_count=before_scroll_count,
-            timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+            previous_count=0,
+            timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
         )
+
+        access_ready = await wait_for_manual_access(
+            page,
+            client,
+            run_id=run_id,
+            timeout_seconds=login_wait_seconds,
+        )
+        if not access_ready:
+            await client.complete(
+                run_id,
+                "needs_login",
+                error_code="pinterest_access_gate_timeout",
+            )
+            return
+
+        print(
+            "campaign="
+            + str(task["campaign_id"])
+            + " keyword="
+            + str(query_index + 1)
+            + "/"
+            + str(len(search_queries))
+            + " query="
+            + raw_query
+        )
+
+        for batch in range(max_scroll_batches):
+            await heartbeat_if_due()
+            visible = await extract_visible(page)
+            fresh = [
+                row
+                for row in visible
+                if (row.pin_url, row.image_url) not in seen
+            ]
+            for row in fresh:
+                seen.add((row.pin_url, row.image_url))
+
+            for start in range(0, len(fresh), SUBMIT_BATCH_SIZE):
+                chunk = fresh[start:start + SUBMIT_BATCH_SIZE]
+                if not chunk:
+                    continue
+                result = await client.submit(run_id, chunk)
+                progress = int(result.get("progress") or 0)
+                print(
+                    "campaign="
+                    + str(task["campaign_id"])
+                    + " keyword="
+                    + str(query_index + 1)
+                    + "/"
+                    + str(len(search_queries))
+                    + " batch="
+                    + str(batch + 1)
+                    + "/"
+                    + str(max_scroll_batches)
+                    + " submitted="
+                    + str(len(chunk))
+                    + " created="
+                    + str(result.get("created") or 0)
+                    + " existing="
+                    + str(result.get("existing") or 0)
+                    + " target_progress="
+                    + str(progress)
+                    + "/"
+                    + str(target)
+                )
+                if result.get("campaign_status") != "running" or progress >= target:
+                    await client.complete(run_id, "completed")
+                    return
+
+            gate = await access_gate(page)
+            if gate is not None:
+                access_ready = await wait_for_manual_access(
+                    page,
+                    client,
+                    run_id=run_id,
+                    timeout_seconds=login_wait_seconds,
+                )
+                if not access_ready:
+                    await client.complete(
+                        run_id,
+                        "needs_login",
+                        error_code="pinterest_access_gate_timeout",
+                    )
+                    return
+
+            before_scroll_count = max(loaded_count, await loaded_pin_count(page))
+            await page.mouse.wheel(0, 2800)
+            loaded_count = await wait_for_pin_growth(
+                page,
+                previous_count=before_scroll_count,
+                timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+            )
 
     await client.complete(run_id, "completed")
 

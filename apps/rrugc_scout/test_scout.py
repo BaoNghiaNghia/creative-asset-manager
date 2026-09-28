@@ -9,6 +9,7 @@ from scout import (
     allowed_pin,
     extract_visible,
     normalize_candidates,
+    scan_auto_run,
     wait_for_pin_growth,
 )
 
@@ -79,6 +80,89 @@ def test_access_gate_detects_login_and_challenge_without_solving_them():
 
     assert asyncio.run(access_gate(LoginPage())) == "login"
     assert asyncio.run(access_gate(CaptchaPage())) == "challenge"
+
+
+def test_auto_scout_scans_every_campaign_keyword():
+    class FakeMouse:
+        def __init__(self, page):
+            self.page = page
+
+        async def wheel(self, _x, _y):
+            self.page.pin_count += 1
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+            self.visited: list[str] = []
+            self.pin_count = 1
+            self.mouse = FakeMouse(self)
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            self.visited.append(url)
+            self.pin_count = 1
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "querySelectorAll('a[href*=\"/pin/\"] img')" in script:
+                return self.pin_count
+            if "const out = []" in script:
+                suffix = "first" if "first+keyword" in self.url else "second"
+                return [{
+                    "pin_url": f"https://www.pinterest.com/pin/{suffix}/",
+                    "image_url": f"https://i.pinimg.com/736x/{suffix}.jpg",
+                    "alt_text": suffix,
+                }]
+            return False
+
+    class FakeClient:
+        def __init__(self):
+            self.submitted: list[str] = []
+            self.completed: list[str] = []
+
+        async def heartbeat(self, *_args, **_kwargs):
+            return {}
+
+        async def submit(self, _run_id, rows):
+            self.submitted.extend(row.pin_url for row in rows)
+            return {
+                "created": len(rows),
+                "existing": 0,
+                "progress": 0,
+                "target_count": 100,
+                "campaign_status": "running",
+            }
+
+        async def complete(self, run_id, status, **_kwargs):
+            self.completed.append(run_id + ":" + status)
+            return {}
+
+    page = FakePage()
+    client = FakeClient()
+    asyncio.run(scan_auto_run(
+        page,
+        client,
+        {
+            "run": {"id": "run-1"},
+            "campaign_id": "campaign-1",
+            "query": "first keyword",
+            "search_queries": ["first keyword", "second keyword"],
+            "target_count": 100,
+            "max_scroll_batches": 1,
+            "progress": 0,
+        },
+        login_wait_seconds=60,
+    ))
+
+    assert len(page.visited) == 2
+    assert "first+keyword" in page.visited[0]
+    assert "second+keyword" in page.visited[1]
+    assert len(client.submitted) == 2
+    assert client.completed == ["run-1:completed"]
 
 
 def test_auto_scout_client_uses_agent_scoped_endpoints():

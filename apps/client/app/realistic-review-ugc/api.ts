@@ -1,6 +1,7 @@
 import type {
   Campaign,
   CampaignCreateRequest,
+  CampaignUpdateRequest,
   CampaignCreated,
   CampaignExportSummary,
   CampaignDeliverySummary,
@@ -121,6 +122,15 @@ export const createCampaign = (body: CampaignCreateRequest) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+export const updateCampaign = (campaignId: string, body: CampaignUpdateRequest) =>
+  request<Campaign>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId),
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
 
 export const configureCampaignScoutAutomation = (
   campaignId: string,

@@ -43,6 +43,7 @@ from app.modules.realistic_review_ugc.schema import (
     AnalyzeResponse,
     CampaignCreatedResponse,
     CampaignCreateRequest,
+    CampaignUpdateRequest,
     CampaignProductBindRequest,
     CampaignResponse,
     CampaignScoutAutomationRequest,
@@ -571,6 +572,7 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
         id=row.id,
         name=row.name,
         query=row.query,
+        search_queries=list(row.search_queries_json or [row.query]),
         target_count=row.target_count,
         max_scroll_batches=row.max_scroll_batches,
         auto_import=row.auto_import,
@@ -970,6 +972,25 @@ def get_campaign(
         repository,
         _require_campaign(repository, principal.active_tenant_id, campaign_id),
     )
+
+
+@router.patch("/campaigns/{campaign_id}", response_model=CampaignResponse)
+def update_campaign(
+    campaign_id: str,
+    request: CampaignUpdateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    try:
+        row = RrugcService(session).update_campaign(
+            campaign,
+            **request.model_dump(exclude_unset=True),
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _campaign(repository, row)
 
 
 @router.put(
@@ -1885,6 +1906,7 @@ def auto_scout_agent_claim(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,
         query=claim.campaign.query,
+        search_queries=list(claim.campaign.search_queries_json or [claim.campaign.query]),
         target_count=claim.campaign.target_count,
         max_scroll_batches=claim.campaign.max_scroll_batches,
         auto_import=claim.campaign.auto_import,

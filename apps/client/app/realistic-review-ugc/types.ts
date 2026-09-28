@@ -2,6 +2,7 @@ export type Campaign = {
   id: string;
   name: string;
   query: string;
+  search_queries: string[];
   target_count: number;
   max_scroll_batches: number;
   auto_import: boolean;
@@ -511,6 +512,7 @@ export type DeliveryMaintenanceEnqueue = {
 export type CampaignCreateRequest = {
   name: string;
   query: string;
+  search_queries: string[];
   target_count: number;
   max_scroll_batches: number;
   auto_import: boolean;
@@ -527,3 +529,5 @@ export type CampaignCreateRequest = {
   require_head_visible: boolean;
   reject_headwear: boolean;
 };
+
+export type CampaignUpdateRequest = Partial<Omit<CampaignCreateRequest, "query">>;

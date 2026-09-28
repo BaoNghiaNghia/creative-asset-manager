@@ -44,6 +44,29 @@ CandidateStatus = Literal[
 ]
 
 
+def normalize_search_queries(values: list[str] | None, fallback: str | None = None) -> list[str]:
+    rows = [fallback] if fallback else []
+    rows.extend(values or [])
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in rows:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        if len(value) > 500:
+            raise ValueError("Each search query must be 500 characters or fewer")
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    if not result:
+        raise ValueError("At least one search query is required")
+    if len(result) > 10:
+        raise ValueError("A campaign can contain at most 10 search queries")
+    return result
+
+
 class ProductCreateRequest(BaseModel):
     sku: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
     name: str = Field(min_length=1, max_length=200)
@@ -120,6 +143,7 @@ class ProductReferenceResponse(BaseModel):
 class CampaignCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     query: str = Field(min_length=1, max_length=500)
+    search_queries: list[str] = Field(default_factory=list)
     target_count: int = Field(default=100, ge=1, le=5000)
     max_scroll_batches: int = Field(default=5, ge=1, le=50)
     auto_import: bool = False
@@ -137,8 +161,42 @@ class CampaignCreateRequest(BaseModel):
     reject_headwear: bool = True
 
     @model_validator(mode="after")
-    def validate_head_ratio_range(self):
+    def validate_campaign(self):
         if self.min_head_ratio >= self.max_head_ratio:
+            raise ValueError("min_head_ratio must be lower than max_head_ratio")
+        self.search_queries = normalize_search_queries(self.search_queries, self.query)
+        self.query = self.search_queries[0]
+        return self
+
+
+class CampaignUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    search_queries: list[str] | None = None
+    target_count: int | None = Field(default=None, ge=1, le=5000)
+    max_scroll_batches: int | None = Field(default=None, ge=1, le=50)
+    auto_import: bool | None = None
+    auto_scout: bool | None = None
+    scan_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
+    min_head_ratio: float | None = Field(default=None, ge=0.05, le=0.90)
+    max_head_ratio: float | None = Field(default=None, ge=0.05, le=0.95)
+    min_smile_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_head_occlusion: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_ai_risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    min_quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    min_ugc_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    min_product_fit_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    require_head_visible: bool | None = None
+    reject_headwear: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_campaign(self):
+        if self.search_queries is not None:
+            self.search_queries = normalize_search_queries(self.search_queries)
+        if (
+            self.min_head_ratio is not None
+            and self.max_head_ratio is not None
+            and self.min_head_ratio >= self.max_head_ratio
+        ):
             raise ValueError("min_head_ratio must be lower than max_head_ratio")
         return self
 
@@ -147,6 +205,7 @@ class CampaignResponse(BaseModel):
     id: str
     name: str
     query: str
+    search_queries: list[str] = Field(default_factory=list)
     target_count: int
     max_scroll_batches: int
     auto_import: bool
@@ -259,6 +318,7 @@ class ScoutClaimResponse(BaseModel):
     run: ScoutRunResponse
     campaign_id: str
     query: str
+    search_queries: list[str] = Field(default_factory=list)
     target_count: int
     max_scroll_batches: int
     auto_import: bool

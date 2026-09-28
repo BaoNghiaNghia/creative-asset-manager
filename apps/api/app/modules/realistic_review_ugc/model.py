@@ -49,6 +49,7 @@ class RrugcCampaignModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     query: Mapped[str] = mapped_column(String(500), nullable=False)
+    search_queries_json: Mapped[list | None] = mapped_column(JSON)
     target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     max_scroll_batches: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

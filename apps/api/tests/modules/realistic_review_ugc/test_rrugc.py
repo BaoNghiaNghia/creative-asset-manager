@@ -349,6 +349,11 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
         json={
             "name": "API auto scout",
             "query": "natural lifestyle review",
+            "search_queries": [
+                "natural lifestyle review",
+                "casual woman outdoors",
+                "candid smiling portrait",
+            ],
             "target_count": 10,
             "max_scroll_batches": 2,
             "auto_import": True,
@@ -357,7 +362,13 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
         },
     )
     assert campaign.status_code == 201
-    campaign_id = campaign.json()["id"]
+    campaign_payload = campaign.json()
+    campaign_id = campaign_payload["id"]
+    assert campaign_payload["search_queries"] == [
+        "natural lifestyle review",
+        "casual woman outdoors",
+        "candid smiling portrait",
+    ]
 
     claim = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/claim",
@@ -370,6 +381,7 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert claim.status_code == 200
     work = claim.json()
     assert work["campaign_id"] == campaign_id
+    assert work["search_queries"] == campaign_payload["search_queries"]
     run_id = work["run"]["id"]
 
     submitted = api.post(
@@ -393,6 +405,28 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     )
     assert finished.status_code == 200
     assert finished.json()["status"] == "completed"
+
+    edited = api.patch(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}",
+        json={
+            "name": "API auto scout edited",
+            "search_queries": [
+                "woman holding coffee candid",
+                "outdoor lifestyle portrait",
+            ],
+            "target_count": 25,
+            "max_scroll_batches": 4,
+        },
+    )
+    assert edited.status_code == 200
+    assert edited.json()["name"] == "API auto scout edited"
+    assert edited.json()["query"] == "woman holding coffee candid"
+    assert edited.json()["search_queries"] == [
+        "woman holding coffee candid",
+        "outdoor lifestyle portrait",
+    ]
+    assert edited.json()["target_count"] == 25
+    assert edited.json()["max_scroll_batches"] == 4
 
     paused = api.put(
         f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/scout-automation",
