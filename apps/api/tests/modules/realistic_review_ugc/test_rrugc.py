@@ -717,6 +717,8 @@ def reference_document(**overrides) -> ReferenceAnalysisDocument:
         "existing_headwear": False,
         "head_occlusion": 0.08,
         "mobile_ugc_score": 0.81,
+        "phone_authenticity_score": 0.78,
+        "artistic_editorial_risk": 0.12,
         "quality_score": 0.84,
         "ai_risk_score": 0.08,
         "product_fit_score": 0.91,

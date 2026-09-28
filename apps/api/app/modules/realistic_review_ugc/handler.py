@@ -230,12 +230,15 @@ class RrugcCandidateAnalyzeJobHandler:
                 if candidate.analysis_revision != revision:
                     return JobHandlerResult.completed()
 
-                existing_signals = repository.visual_fingerprint_rows(
-                    context.job.tenant_id, campaign_id, candidate_id
+                tenant_signals = repository.visual_fingerprint_rows(
+                    context.job.tenant_id, candidate_id
+                )
+                campaign_signals = repository.visual_fingerprint_rows(
+                    context.job.tenant_id, candidate_id, campaign_id=campaign_id
                 )
                 existing_fingerprints = [
                     fingerprint
-                    for signal in existing_signals
+                    for signal in tenant_signals
                     for fingerprint in signal.get("visual_fingerprints", [])
                     if isinstance(fingerprint, str)
                 ]
@@ -246,7 +249,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 similar_compositions = (
                     sum(
                         signal.get("diversity_signature") == diversity_signature
-                        for signal in existing_signals
+                        for signal in campaign_signals
                     )
                     if diversity_signature
                     else 0

@@ -363,10 +363,14 @@ def evaluate_reference(
     # Passing the hard gates means the image is usable, but only high-confidence
     # smartphone-like references should flow straight into automation. Borderline
     # references stay visible for human review instead of being silently accepted.
+    unresolved_ai_risk = (
+        ai_risk > AUTO_APPROVE_MAX_AI_RISK
+        and (ai_evidence_count is None or ai_evidence_count > 0 or bool(ai_risk_confirmed))
+    )
     if manual_ai_label != "real" and (
         final_score < AUTO_APPROVE_MIN_FINAL_SCORE
         or document.phone_authenticity_score < AUTO_APPROVE_MIN_PHONE_AUTHENTICITY
-        or ai_risk > AUTO_APPROVE_MAX_AI_RISK
+        or unresolved_ai_risk
     ):
         return ReferenceDecision("needs_review", "AUTO_APPROVE_UNCERTAIN", final_score)
     return ReferenceDecision("approved", None, final_score)

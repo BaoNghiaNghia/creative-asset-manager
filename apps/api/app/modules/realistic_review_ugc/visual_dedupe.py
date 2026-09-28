@@ -11,7 +11,7 @@ _NEAR_DUPLICATE_DISTANCE = 18
 
 def _dhash(image: Image.Image, size: int = _FINGERPRINT_SIZE) -> str:
     gray = ImageOps.grayscale(image).resize((size + 1, size), Image.Resampling.LANCZOS)
-    pixels = list(gray.getdata())
+    pixels = list(gray.get_flattened_data()) if hasattr(gray, "get_flattened_data") else list(gray.getdata())
     bits = 0
     for y in range(size):
         row = y * (size + 1)
