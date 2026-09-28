@@ -165,9 +165,9 @@ export function RealisticReviewUgcPage() {
   const [maxHeadRatio, setMaxHeadRatio] = useState(45);
   const [minSmile, setMinSmile] = useState(65);
   const [maxOcclusion, setMaxOcclusion] = useState(25);
-  const [maxAiRisk, setMaxAiRisk] = useState(20);
-  const [minQuality, setMinQuality] = useState(55);
-  const [minUgc, setMinUgc] = useState(55);
+  const [maxAiRisk, setMaxAiRisk] = useState(15);
+  const [minQuality, setMinQuality] = useState(60);
+  const [minUgc, setMinUgc] = useState(65);
   const [minProductFit, setMinProductFit] = useState(55);
   const [rejectHeadwear, setRejectHeadwear] = useState(true);
   const [requireHeadVisible, setRequireHeadVisible] = useState(true);
@@ -470,8 +470,8 @@ export function RealisticReviewUgcPage() {
 
               <details className="rrugc-filter-panel">
                 <summary>
-                  <span><strong>Qualification rules</strong><small>Head visibility, expression, quality, UGC style, AI risk</small></span>
-                  <b>Hat preset</b>
+                  <span><strong>Qualification rules</strong><small>Quality-first real photos: AI risk ≤ 15%, quality ≥ 60%, UGC ≥ 65%</small></span>
+                  <b>Real photo gate</b>
                 </summary>
                 <div className="rrugc-filter-grid">
                   <label>Head size min<input type="number" min={5} max={90} value={minHeadRatio} onChange={event => setMinHeadRatio(Number(event.target.value))} /><small>% of image height</small></label>
@@ -633,7 +633,7 @@ export function RealisticReviewUgcPage() {
               </section>
 
               <details className="rrugc-filter-panel rrugc-editor-advanced">
-                <summary><span><strong>Qualification rules</strong><small>Head visibility, smile, quality, UGC style, AI risk, and product fit</small></span><b>Advanced</b></summary>
+                <summary><span><strong>Qualification rules</strong><small>Real-photo gate plus head visibility, smile, quality, UGC style, and product fit</small></span><b>Quality-first</b></summary>
                 <div className="rrugc-filter-grid">
                   <label>Head min<input type="number" min={5} max={90} value={editDraft.minHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, minHeadRatio: Number(event.target.value) } : current)} /></label>
                   <label>Head max<input type="number" min={5} max={95} value={editDraft.maxHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, maxHeadRatio: Number(event.target.value) } : current)} /></label>

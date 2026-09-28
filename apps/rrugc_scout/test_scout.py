@@ -9,6 +9,8 @@ from scout import (
     allowed_pin,
     extract_visible,
     normalize_candidates,
+    quality_prefilter,
+    quality_search_query,
     scan_auto_run,
     wait_for_pin_growth,
 )
@@ -21,6 +23,30 @@ def test_url_allowlists():
     assert not allowed_pin("https://evil.example/pin/123/")
     assert allowed_image("https://i.pinimg.com/736x/a/b/c.jpg")
     assert not allowed_image("https://example.com/image.jpg")
+
+
+def test_quality_first_query_and_metadata_prefilter():
+    assert quality_search_query("cap man") == "cap man candid lifestyle photo"
+    assert quality_search_query("cap man candid photo") == "cap man candid photo"
+
+    rows = normalize_candidates([
+        {
+            "pin_url": "https://www.pinterest.com/pin/ai/",
+            "image_url": "https://i.pinimg.com/ai.jpg",
+            "alt_text": "AI generated fashion portrait made with Midjourney",
+        },
+        {
+            "pin_url": "https://www.pinterest.com/pin/photo/",
+            "image_url": "https://i.pinimg.com/photo.jpg",
+            "alt_text": "woman laughing outdoors",
+            "context_text": "casual summer outfit photography",
+        },
+    ])
+    accepted, filtered = quality_prefilter(rows)
+    assert filtered == 1
+    assert [row.pin_url for row in accepted] == [
+        "https://www.pinterest.com/pin/photo/"
+    ]
 
 
 def test_normalize_candidates_filters_and_dedupes():
@@ -171,7 +197,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v2"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v3"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

@@ -153,9 +153,9 @@ class CampaignCreateRequest(BaseModel):
     max_head_ratio: float = Field(default=0.45, ge=0.05, le=0.95)
     min_smile_score: float = Field(default=0.65, ge=0.0, le=1.0)
     max_head_occlusion: float = Field(default=0.25, ge=0.0, le=1.0)
-    max_ai_risk_score: float = Field(default=0.20, ge=0.0, le=1.0)
-    min_quality_score: float = Field(default=0.55, ge=0.0, le=1.0)
-    min_ugc_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    max_ai_risk_score: float = Field(default=0.15, ge=0.0, le=1.0)
+    min_quality_score: float = Field(default=0.60, ge=0.0, le=1.0)
+    min_ugc_score: float = Field(default=0.65, ge=0.0, le=1.0)
     min_product_fit_score: float = Field(default=0.55, ge=0.0, le=1.0)
     require_head_visible: bool = True
     reject_headwear: bool = True
@@ -323,6 +323,7 @@ class ScoutClaimResponse(BaseModel):
     max_scroll_batches: int
     auto_import: bool
     progress: int
+    pipeline_count: int
 
 
 class ScoutRunCompleteRequest(BaseModel):
@@ -697,6 +698,7 @@ class AutoScoutCandidateBatchResponse(BaseModel):
     created: int
     existing: int
     progress: int
+    pipeline_count: int
     target_count: int
     campaign_status: CampaignStatus
 

@@ -194,7 +194,7 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         claim = service.claim(
             agent_id=agent.id,
             raw_token=token,
-            client_version="rrugc-scout-v2",
+            client_version="rrugc-scout-v3",
             machine_label="studio-pc",
         )
         assert claim is not None
@@ -243,6 +243,74 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         assert campaign.scan_next_at is not None
         assert campaign.scan_empty_streak == 0
         assert campaign.scout_status == "ready"
+
+
+def test_auto_scout_quality_pipeline_caps_to_target(database):
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Quality-first capped scout",
+            query="candid lifestyle photo",
+            target_count=1,
+            max_scroll_batches=3,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=60,
+        )
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Quality Scout",
+        )
+
+        claim = service.claim(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v3",
+        )
+        assert claim is not None
+        assert claim.pipeline_count == 0
+
+        result = service.submit_candidates(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=claim.run.id,
+            submissions=[
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/quality-1/",
+                    image_url="https://i.pinimg.com/736x/quality/1.jpg",
+                    alt_text="candid outdoor photo",
+                ),
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/quality-2/",
+                    image_url="https://i.pinimg.com/736x/quality/2.jpg",
+                    alt_text="casual lifestyle photo",
+                ),
+            ],
+        )
+        assert result.created == 1
+        assert result.existing == 0
+        assert result.progress == 0
+        assert result.pipeline_count == 1
+
+        candidates = RrugcRepository(session).list_candidates(
+            "tenant-a",
+            campaign.id,
+        )
+        assert len(candidates) == 1
+
+        service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=claim.run.id,
+            status="completed",
+        )
+        campaign.scan_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+
+        assert service.claim(agent_id=agent.id, raw_token=token) is None
 
 
 def test_auto_scout_rejects_wrong_agent_token_and_cross_agent_run(database):
@@ -374,7 +442,7 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/claim",
         headers={
             "Authorization": "Bearer " + token,
-            "X-Scout-Version": "rrugc-scout-v2",
+            "X-Scout-Version": "rrugc-scout-v3",
             "X-Scout-Machine": "desktop-test",
         },
     )
@@ -382,6 +450,7 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     work = claim.json()
     assert work["campaign_id"] == campaign_id
     assert work["search_queries"] == campaign_payload["search_queries"]
+    assert work["pipeline_count"] == 0
     run_id = work["run"]["id"]
 
     submitted = api.post(
@@ -397,6 +466,8 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     )
     assert submitted.status_code == 200
     assert submitted.json()["created"] == 1
+    assert submitted.json()["progress"] == 0
+    assert submitted.json()["pipeline_count"] == 1
 
     finished = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/complete",
@@ -474,8 +545,9 @@ def test_reference_policy_approves_good_hat_reference():
         ({"existing_headwear": True}, "rejected_existing_headwear", "EXISTING_HEADWEAR"),
         ({"head_occlusion": 0.55}, "rejected_head_occlusion", "HEAD_OCCLUSION"),
         ({"smile_score": 0.20}, "rejected_expression", "SMILE_SCORE_LOW"),
-        ({"quality_score": 0.20}, "rejected_quality", "QUALITY_SCORE_LOW"),
-        ({"ai_risk_score": 0.80}, "rejected_ai_risk", "AI_RISK_HIGH"),
+        ({"quality_score": 0.59}, "rejected_quality", "QUALITY_SCORE_LOW"),
+        ({"mobile_ugc_score": 0.64}, "rejected_context", "UGC_SCORE_LOW"),
+        ({"ai_risk_score": 0.16}, "rejected_ai_risk", "AI_RISK_HIGH"),
     ],
 )
 def test_reference_policy_rejects_failed_constraints(overrides, status, reason):
@@ -1768,6 +1840,20 @@ def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):
     assert replay.status_code == 200
     assert replay.json()["created"] == 0
     assert replay.json()["existing"] == 1
+
+    synthetic = api.post(
+        "/api/v1/realistic-review-ugc/scout/" + campaign_id + "/candidates",
+        headers={"Authorization": "Bearer " + token},
+        json={"items": [{
+            "pin_url": "https://www.pinterest.com/pin/ai-portrait/",
+            "image_url": "https://i.pinimg.com/736x/ai/portrait.jpg",
+            "alt_text": "AI generated Midjourney fashion portrait",
+        }]},
+    )
+    assert synthetic.status_code == 200
+    assert synthetic.json()["created"] == 0
+    assert synthetic.json()["existing"] == 0
+    assert synthetic.json()["items"] == []
 
     with database() as session:
         jobs = list(session.scalars(select(ProcessingJobModel)))

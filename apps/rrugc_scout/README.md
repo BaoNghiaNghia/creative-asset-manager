@@ -2,7 +2,7 @@
 
 This companion runtime runs on a user-controlled desktop or laptop with Chrome/Chromium. Pinterest cookies and profile data stay on that machine.
 
-## Auto Scout v2 setup
+## Auto Scout v3 quality-first setup
 
 1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.
 2. Install Playwright Chromium, or pass `--chrome-executable` for a local Chrome/Chromium binary.
@@ -26,7 +26,7 @@ Auto Scout now prefers an installed Google Chrome automatically when available. 
 --chrome-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 ```
 
-The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due.
+The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due. Auto Scout v3 is quality-first: it enriches generic searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once the server already has enough viable work in the analysis/import pipeline.
 
 The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the browser stays open for manual resolution and the Agent resumes automatically when access is restored.
 

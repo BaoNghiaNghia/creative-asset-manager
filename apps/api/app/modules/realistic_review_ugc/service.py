@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import secrets
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
@@ -38,6 +39,34 @@ PIN_HOSTS = ("pinterest.com",)
 IMAGE_HOSTS = ("pinimg.com",)
 ANALYZE_JOB_TYPE = "rrugc_candidate_analyze"
 IMPORT_JOB_TYPE = "rrugc_candidate_import"
+SYNTHETIC_SOURCE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bai[- ]generated\b",
+        r"\bartificial intelligence\b",
+        r"\bmidjourney\b",
+        r"\bstable diffusion\b",
+        r"\bdall[- ]?e\b",
+        r"\bflux ai\b",
+        r"\bleonardo ai\b",
+        r"\bideogram\b",
+        r"\bdigital (?:art|illustration)\b",
+        r"\b3d (?:render|rendering|art)\b",
+        r"\bcgi\b",
+        r"\bconcept art\b",
+        r"\bvector (?:art|illustration)\b",
+        r"\banime\b",
+        r"\bcartoon\b",
+        r"\bgenerative art\b",
+        r"\bai art\b",
+        r"\bprompt\b",
+    )
+)
+
+
+def source_metadata_looks_synthetic(value: str | None) -> bool:
+    text = str(value or "").strip()
+    return bool(text and any(pattern.search(text) for pattern in SYNTHETIC_SOURCE_PATTERNS))
 
 
 class RrugcError(RuntimeError):
@@ -163,9 +192,9 @@ class RrugcService:
         max_head_ratio: float = 0.45,
         min_smile_score: float = 0.65,
         max_head_occlusion: float = 0.25,
-        max_ai_risk_score: float = 0.20,
-        min_quality_score: float = 0.55,
-        min_ugc_score: float = 0.55,
+        max_ai_risk_score: float = 0.15,
+        min_quality_score: float = 0.60,
+        min_ugc_score: float = 0.65,
         min_product_fit_score: float = 0.55,
         require_head_visible: bool = True,
         reject_headwear: bool = True,
@@ -391,6 +420,8 @@ class RrugcService:
         created = 0
         existing = 0
         for item in submissions:
+            if source_metadata_looks_synthetic(item.alt_text):
+                continue
             pin_url = validate_pin_url(item.pin_url)
             image_url = validate_image_url(item.image_url)
             key = source_key(pin_url, image_url)

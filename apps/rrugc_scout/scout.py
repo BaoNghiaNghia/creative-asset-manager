@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -16,12 +17,39 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v2"
-INITIAL_RESULTS_TIMEOUT_MS = 1_800
-SCROLL_RESULTS_TIMEOUT_MS = 900
+CLIENT_VERSION = "rrugc-scout-v3"
+INITIAL_RESULTS_TIMEOUT_MS = 3_000
+SCROLL_RESULTS_TIMEOUT_MS = 1_800
 MANUAL_GATE_POLL_MS = 1_500
-SUBMIT_BATCH_SIZE = 50
+SUBMIT_BATCH_SIZE = 6
+SUBMIT_PAUSE_MS = 650
+QUALITY_FIRST_RUN_CANDIDATE_CAP = 24
+QUALITY_QUERY_SUFFIX = "candid lifestyle photo"
 HEARTBEAT_INTERVAL_SECONDS = 10
+
+SYNTHETIC_METADATA_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bai[- ]generated\b",
+        r"\bartificial intelligence\b",
+        r"\bmidjourney\b",
+        r"\bstable diffusion\b",
+        r"\bdall[- ]?e\b",
+        r"\bflux ai\b",
+        r"\bleonardo ai\b",
+        r"\bideogram\b",
+        r"\bdigital (?:art|illustration)\b",
+        r"\b3d (?:render|rendering|art)\b",
+        r"\bcgi\b",
+        r"\bconcept art\b",
+        r"\bvector (?:art|illustration)\b",
+        r"\banime\b",
+        r"\bcartoon\b",
+        r"\bgenerative art\b",
+        r"\bai art\b",
+        r"\bprompt\b",
+    )
+)
 
 
 def resolve_chrome_executable(explicit: str = "") -> str:
@@ -86,6 +114,7 @@ class Candidate:
     pin_url: str
     image_url: str
     alt_text: str | None = None
+    context_text: str | None = None
 
     def as_json(self) -> dict[str, str | None]:
         return {
@@ -114,6 +143,42 @@ def allowed_image(value: str) -> bool:
     )
 
 
+def quality_search_query(value: str) -> str:
+    clean = " ".join(str(value or "").split())
+    if not clean:
+        return clean
+    lowered = clean.casefold()
+    if any(
+        marker in lowered
+        for marker in ("photo", "photography", "candid", "lifestyle")
+    ):
+        return clean
+    return clean + " " + QUALITY_QUERY_SUFFIX
+
+
+def synthetic_metadata_reason(candidate: Candidate) -> str | None:
+    text = " ".join(
+        part for part in (candidate.alt_text, candidate.context_text) if part
+    )
+    if not text:
+        return None
+    for pattern in SYNTHETIC_METADATA_PATTERNS:
+        if pattern.search(text):
+            return pattern.pattern
+    return None
+
+
+def quality_prefilter(rows: list[Candidate]) -> tuple[list[Candidate], int]:
+    accepted: list[Candidate] = []
+    filtered = 0
+    for row in rows:
+        if synthetic_metadata_reason(row) is not None:
+            filtered += 1
+            continue
+        accepted.append(row)
+    return accepted, filtered
+
+
 def normalize_candidates(rows: list[dict[str, Any]]) -> list[Candidate]:
     seen: set[tuple[str, str]] = set()
     result: list[Candidate] = []
@@ -121,13 +186,14 @@ def normalize_candidates(rows: list[dict[str, Any]]) -> list[Candidate]:
         pin_url = str(row.get("pin_url") or "").strip()
         image_url = str(row.get("image_url") or "").strip()
         alt_text = str(row.get("alt_text") or "").strip() or None
+        context_text = str(row.get("context_text") or "").strip()[:1200] or None
         if not allowed_pin(pin_url) or not allowed_image(image_url):
             continue
         key = (pin_url, image_url)
         if key in seen:
             continue
         seen.add(key)
-        result.append(Candidate(pin_url, image_url, alt_text))
+        result.append(Candidate(pin_url, image_url, alt_text, context_text))
     return result
 
 
@@ -152,6 +218,10 @@ async def extract_visible(page: Any) -> list[Candidate]:
           for (const anchor of anchors) {
             const href = anchor.href;
             const images = Array.from(anchor.querySelectorAll('img'));
+            const card = anchor.closest('[data-grid-item="true"]')
+              || anchor.parentElement?.parentElement
+              || anchor.parentElement;
+            const contextText = (card?.textContent || '').trim().slice(0, 1200);
             for (const image of images) {
               const src = bestSrc(image);
               if (!src) continue;
@@ -162,6 +232,7 @@ async def extract_visible(page: Any) -> list[Candidate]:
                   || image.getAttribute('aria-label')
                   || anchor.getAttribute('aria-label')
                   || null,
+                context_text: contextText || null,
               });
             }
           }
@@ -417,9 +488,20 @@ async def scan_auto_run(
     target = int(task["target_count"])
     max_scroll_batches = int(task["max_scroll_batches"])
     progress = int(task.get("progress") or 0)
+    pipeline_count = int(task.get("pipeline_count") or progress)
+    remaining_pipeline_budget = max(0, target - pipeline_count)
+    run_candidate_cap = min(
+        QUALITY_FIRST_RUN_CANDIDATE_CAP,
+        remaining_pipeline_budget,
+    )
+    submitted_this_run = 0
+    if run_candidate_cap <= 0:
+        await client.complete(run_id, "completed")
+        return
 
     for query_index, raw_query in enumerate(search_queries):
-        query = quote_plus(raw_query)
+        search_query = quality_search_query(raw_query)
+        query = quote_plus(search_query)
         url = "https://www.pinterest.com/search/pins/?q=" + query
         await heartbeat_if_due(force=True)
         await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
@@ -452,25 +534,47 @@ async def scan_auto_run(
             + str(len(search_queries))
             + " query="
             + raw_query
+            + " pinterest_query="
+            + search_query
         )
 
         for batch in range(max_scroll_batches):
             await heartbeat_if_due()
             visible = await extract_visible(page)
-            fresh = [
+            unseen = [
                 row
                 for row in visible
                 if (row.pin_url, row.image_url) not in seen
             ]
-            for row in fresh:
+            for row in unseen:
                 seen.add((row.pin_url, row.image_url))
+            fresh, metadata_filtered = quality_prefilter(unseen)
+            if metadata_filtered:
+                print(
+                    "campaign="
+                    + str(task["campaign_id"])
+                    + " keyword="
+                    + str(query_index + 1)
+                    + "/"
+                    + str(len(search_queries))
+                    + " batch="
+                    + str(batch + 1)
+                    + " metadata_filtered="
+                    + str(metadata_filtered)
+                )
 
             for start in range(0, len(fresh), SUBMIT_BATCH_SIZE):
-                chunk = fresh[start:start + SUBMIT_BATCH_SIZE]
+                remaining_run_budget = run_candidate_cap - submitted_this_run
+                if remaining_run_budget <= 0:
+                    await client.complete(run_id, "completed")
+                    return
+                chunk = fresh[start:start + min(SUBMIT_BATCH_SIZE, remaining_run_budget)]
                 if not chunk:
                     continue
                 result = await client.submit(run_id, chunk)
+                submitted_this_run += len(chunk)
                 progress = int(result.get("progress") or 0)
+                pipeline_count = int(result.get("pipeline_count") or progress)
                 print(
                     "campaign="
                     + str(task["campaign_id"])
@@ -492,10 +596,20 @@ async def scan_auto_run(
                     + str(progress)
                     + "/"
                     + str(target)
+                    + " pipeline="
+                    + str(pipeline_count)
+                    + "/"
+                    + str(target)
                 )
-                if result.get("campaign_status") != "running" or progress >= target:
+                if (
+                    result.get("campaign_status") != "running"
+                    or progress >= target
+                    or pipeline_count >= target
+                    or submitted_this_run >= run_candidate_cap
+                ):
                     await client.complete(run_id, "completed")
                     return
+                await page.wait_for_timeout(SUBMIT_PAUSE_MS)
 
             gate = await access_gate(page)
             if gate is not None:
@@ -514,7 +628,7 @@ async def scan_auto_run(
                     return
 
             before_scroll_count = max(loaded_count, await loaded_pin_count(page))
-            await page.mouse.wheel(0, 2800)
+            await page.mouse.wheel(0, 1800)
             loaded_count = await wait_for_pin_growth(
                 page,
                 previous_count=before_scroll_count,
@@ -536,7 +650,7 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
         await client.heartbeat("needs_login")
         raise RuntimeError(
             "Pinterest requires manual login/challenge resolution for this persistent profile. "
-            "Use Auto Scout v2 for automatic resume after manual resolution."
+            "Use Auto Scout v3 for automatic resume after manual resolution."
         )
 
     seen: set[tuple[str, str]] = set()
@@ -758,7 +872,7 @@ def parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument(
         "--agent-id",
-        help="Auto Scout v2 agent ID. Runs continuously and claims campaigns automatically.",
+        help="Auto Scout v3 agent ID. Runs quality-first and claims campaigns automatically.",
     )
     mode.add_argument(
         "--campaign-id",

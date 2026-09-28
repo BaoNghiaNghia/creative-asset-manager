@@ -1925,6 +1925,7 @@ def auto_scout_agent_claim(
         max_scroll_batches=claim.campaign.max_scroll_batches,
         auto_import=claim.campaign.auto_import,
         progress=claim.progress,
+        pipeline_count=claim.pipeline_count,
     )
 
 
@@ -1954,6 +1955,7 @@ def auto_scout_run_candidates(
         created=result.created,
         existing=result.existing,
         progress=result.progress,
+        pipeline_count=result.pipeline_count,
         target_count=result.target_count,
         campaign_status=result.campaign_status,
     )

@@ -22,7 +22,7 @@ from app.modules.realistic_review_ugc.service import (
 )
 
 
-SCOUT_AGENT_VERSION = "rrugc-scout-v2"
+SCOUT_AGENT_VERSION = "rrugc-scout-v3"
 SCOUT_LEASE_SECONDS = 15 * 60
 SCOUT_OFFLINE_SECONDS = 45
 SCOUT_MAX_IDLE_SECONDS = 60 * 60
@@ -32,11 +32,25 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+def quality_pipeline_count(counts, *, auto_import: bool) -> int:
+    analysis_in_flight = counts.get("analysis_queued", 0) + counts.get("analyzing", 0)
+    if auto_import:
+        return (
+            analysis_in_flight
+            + counts.get("approved", 0)
+            + counts.get("import_queued", 0)
+            + counts.get("importing", 0)
+            + counts.get("drive_ready", 0)
+        )
+    return analysis_in_flight + counts.get("approved", 0)
+
+
 @dataclass(frozen=True, slots=True)
 class ScoutClaim:
     run: RrugcScoutRunModel
     campaign: RrugcCampaignModel
     progress: int
+    pipeline_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +58,7 @@ class ScoutSubmitResult:
     created: int
     existing: int
     progress: int
+    pipeline_count: int
     target_count: int
     campaign_status: str
 
@@ -294,6 +309,7 @@ class RrugcAutoScoutService:
         )
         selected: RrugcCampaignModel | None = None
         progress = 0
+        pipeline_count = 0
         for campaign in campaigns:
             counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
             progress = (
@@ -304,6 +320,15 @@ class RrugcAutoScoutService:
             if progress >= campaign.target_count:
                 RrugcService(self.session).refresh_campaign_completion(campaign)
                 campaign.scan_next_at = None
+                continue
+            pipeline_count = quality_pipeline_count(
+                counts,
+                auto_import=campaign.auto_import,
+            )
+            if pipeline_count >= campaign.target_count:
+                campaign.scan_next_at = now + timedelta(
+                    seconds=max(60, min(int(campaign.scan_interval_seconds or 300), 300))
+                )
                 continue
             selected = campaign
             break
@@ -351,7 +376,12 @@ class RrugcAutoScoutService:
         self.session.commit()
         self.session.refresh(run)
         self.session.refresh(selected)
-        return ScoutClaim(run=run, campaign=selected, progress=progress)
+        return ScoutClaim(
+            run=run,
+            campaign=selected,
+            progress=progress,
+            pipeline_count=pipeline_count,
+        )
 
     def submit_candidates(
         self,
@@ -412,12 +442,29 @@ class RrugcAutoScoutService:
                 status_code=409,
             )
 
-        _rows, created, existing = RrugcService(self.session).ingest_candidates(
-            campaign=campaign,
-            submissions=submissions,
+        counts_before = self.repository.campaign_counts(
+            campaign.tenant_id,
+            campaign.id,
         )
+        pipeline_before = quality_pipeline_count(
+            counts_before,
+            auto_import=campaign.auto_import,
+        )
+        remaining_pipeline_budget = max(
+            0,
+            int(campaign.target_count) - pipeline_before,
+        )
+        accepted_submissions = submissions[:remaining_pipeline_budget]
+        if accepted_submissions:
+            _rows, created, existing = RrugcService(self.session).ingest_candidates(
+                campaign=campaign,
+                submissions=accepted_submissions,
+            )
+        else:
+            created = 0
+            existing = 0
         run.status = "running"
-        run.submitted_count += len(submissions)
+        run.submitted_count += len(accepted_submissions)
         run.created_count += created
         run.existing_count += existing
         run.last_heartbeat_at = now
@@ -432,11 +479,16 @@ class RrugcAutoScoutService:
             if campaign.auto_import
             else counts.get("approved", 0)
         )
+        pipeline_count = quality_pipeline_count(
+            counts,
+            auto_import=campaign.auto_import,
+        )
         self.session.commit()
         return ScoutSubmitResult(
             created=created,
             existing=existing,
             progress=progress,
+            pipeline_count=pipeline_count,
             target_count=campaign.target_count,
             campaign_status=campaign.status,
         )
