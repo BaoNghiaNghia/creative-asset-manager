@@ -33,9 +33,13 @@ def rate_limit_provider_key(
 
     return resolve_provider_key(session, settings, tenant_id, provider, **kwargs)
 
-AI_JOB_TYPES = ("asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate")
+AI_JOB_TYPES = (
+    "asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit",
+    "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate",
+    "rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa",
+)
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_scan")
-STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export")
+STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export", "rrugc_candidate_import")
 AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
 AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE = "ai_analysis_model_gate_unresolvable"
 _ANALYSIS_MODEL_GATE_UNRESOLVABLE = object()
@@ -73,6 +77,10 @@ STAGE_POLICY = {
     # tenant pause/total-cap gate as other pipeline work.
     "creative_pipeline_node": "pipeline_enabled",
     "creative_pipeline_scan": "pipeline_enabled",
+    "rrugc_candidate_analyze": "ai_analysis_enabled",
+    "rrugc_candidate_import": "managed_storage_enabled",
+    "rrugc_generate": "pipeline_enabled",
+    "rrugc_supervisor_qa": "ai_analysis_enabled",
     "rrugc_delivery_maintenance": "pipeline_enabled",
 }
 

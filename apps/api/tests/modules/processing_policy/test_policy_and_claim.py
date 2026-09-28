@@ -216,6 +216,32 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (0, 0))
             self.assertEqual((provider.active_jobs, provider.single_active_jobs), (0, 0))
 
+    def test_rrugc_jobs_are_claimable_by_image_worker(self):
+        cases = (
+            ("rrugc_candidate_analyze", "gemini", "ai"),
+            ("rrugc_candidate_import", "google_drive", "storage"),
+            ("rrugc_generate", "gemini", "ai"),
+            ("rrugc_supervisor_qa", "gemini", "ai"),
+        )
+        for kind, provider, scope in cases:
+            with self.subTest(kind=kind):
+                tenant = f"tenant-{kind}"
+                self.policy(tenant, total=2, ai=2)
+                job_id = self.job(
+                    tenant,
+                    kind,
+                    kind=kind,
+                    provider=provider,
+                    scope=scope,
+                )
+                claimed = self.claim(
+                    f"worker-{kind}",
+                    (kind,),
+                    worker_role="image",
+                )
+                self.assertIsNotNone(claimed)
+                self.assertEqual(claimed.id, job_id)
+
     def test_video_cache_fill_is_claimable_by_video_worker_when_pipeline_enabled(self):
         self.policy("tenant")
         cache_fill = self.job(
