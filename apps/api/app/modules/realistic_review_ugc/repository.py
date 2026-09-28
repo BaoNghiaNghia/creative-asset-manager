@@ -76,6 +76,23 @@ class RrugcRepository:
             .offset(offset)
         ))
 
+    def visual_fingerprint_rows(
+        self, tenant_id: str, campaign_id: str, exclude_id: str
+    ) -> list[dict]:
+        rows = self.session.execute(
+            select(RrugcCandidateModel.ai_signal_json)
+            .where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id == campaign_id,
+                RrugcCandidateModel.id != exclude_id,
+                RrugcCandidateModel.status.in_(
+                    ("approved", "import_queued", "importing", "drive_ready")
+                ),
+                RrugcCandidateModel.ai_signal_json.is_not(None),
+            )
+        ).all()
+        return [value for (value,) in rows if isinstance(value, dict)]
+
     def get_candidate(
         self, tenant_id: str, campaign_id: str, candidate_id: str
     ) -> RrugcCandidateModel | None:

@@ -37,6 +37,10 @@ from app.modules.realistic_review_ugc.service import (
     RrugcService,
     build_reference_downloader,
 )
+from app.modules.realistic_review_ugc.visual_dedupe import (
+    is_visual_near_duplicate,
+    visual_fingerprints,
+)
 
 
 def _image_mime(image_format: str) -> str:
@@ -200,6 +204,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 confirmation=confirmation,
                 calibration=calibration,
             )
+            fingerprints = visual_fingerprints(image_bytes)
             decision = evaluate_reference(
                 document,
                 policy,
@@ -224,12 +229,25 @@ class RrugcCandidateAnalyzeJobHandler:
                 if candidate.analysis_revision != revision:
                     return JobHandlerResult.completed()
 
+                existing_fingerprints = [
+                    fingerprint
+                    for signal in repository.visual_fingerprint_rows(
+                        context.job.tenant_id, campaign_id, candidate_id
+                    )
+                    for fingerprint in signal.get("visual_fingerprints", [])
+                    if isinstance(fingerprint, str)
+                ]
+                near_duplicate = decision.approved and is_visual_near_duplicate(
+                    fingerprints, existing_fingerprints
+                )
+                status = "rejected_duplicate" if near_duplicate else decision.status
+                reject_reason = "visual_near_duplicate" if near_duplicate else decision.reject_reason
                 self._apply_document(
                     candidate,
                     document,
                     ai_assessment,
-                    decision.status,
-                    decision.reject_reason,
+                    status,
+                    reject_reason,
                     decision.final_score,
                     provider_name,
                     model,
@@ -238,9 +256,10 @@ class RrugcCandidateAnalyzeJobHandler:
                     image.height,
                     image.size_bytes,
                     image.image_format,
+                    fingerprints,
                 )
                 service = RrugcService(session)
-                if decision.approved and campaign.auto_import:
+                if decision.approved and not near_duplicate and campaign.auto_import:
                     service.enqueue_import(candidate)
                 service.refresh_campaign_completion(campaign)
                 session.commit()
@@ -250,9 +269,9 @@ class RrugcCandidateAnalyzeJobHandler:
             extra={
                 "candidate_id": candidate_id,
                 "tenant_id": context.job.tenant_id,
-                "status": decision.status,
+                "status": status,
                 "final_score": decision.final_score,
-                "reject_reason": decision.reject_reason,
+                "reject_reason": reject_reason,
                 "analyzer_version": ANALYZER_VERSION,
             },
         )
@@ -273,6 +292,7 @@ class RrugcCandidateAnalyzeJobHandler:
         height: int,
         size_bytes: int,
         image_format: str,
+        fingerprints: list[str],
     ) -> None:
         candidate.status = status
         candidate.people_count = document.people_count
@@ -289,7 +309,10 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.ai_risk_raw_score = ai_assessment.raw_score
         candidate.ai_detector_confidence = ai_assessment.detector_confidence
         candidate.ai_risk_confirmed = ai_assessment.confirmed
-        candidate.ai_signal_json = ai_assessment.signal_json
+        candidate.ai_signal_json = {
+            **(ai_assessment.signal_json or {}),
+            "visual_fingerprints": fingerprints,
+        }
         candidate.product_fit_score = document.product_fit_score
         candidate.final_score = final_score
         candidate.reject_reason = reject_reason

@@ -3395,3 +3395,31 @@ def test_rrugc_generation_storage_retry_reuses_staged_provider_result(database, 
         assert persisted.status == "completed"
         assert persisted.provider_request_id == "staged-request-1"
         assert persisted.output_remote_file_id == "file-1"
+
+
+def test_visual_fingerprint_matches_resized_and_cropped_reposts():
+    from app.modules.realistic_review_ugc.visual_dedupe import (
+        is_visual_near_duplicate,
+        visual_fingerprints,
+    )
+
+    base = Image.new("RGB", (240, 320), "white")
+    for x in range(20, 220):
+        for y in range(30, 290):
+            if (int(x / 24) + int(y / 31)) % 3 == 0:
+                base.putpixel((x, y), (30, 80, 160))
+    original = BytesIO()
+    base.save(original, format="JPEG", quality=92)
+    repost = BytesIO()
+    base.crop((10, 14, 230, 306)).resize((440, 584)).save(repost, format="JPEG", quality=76)
+
+    assert is_visual_near_duplicate(
+        visual_fingerprints(original.getvalue()),
+        visual_fingerprints(repost.getvalue()),
+    )
+
+
+def test_visual_fingerprint_rejects_invalid_bytes_without_crashing():
+    from app.modules.realistic_review_ugc.visual_dedupe import visual_fingerprints
+
+    assert visual_fingerprints(b"not-an-image") == []
