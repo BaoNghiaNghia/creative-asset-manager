@@ -33,9 +33,9 @@ KEYWORD_EXPLORATION_RATE = 0.20
 def adaptive_search_queries(
     queries: list[str],
     runs: list[RrugcScoutRunModel],
-    outcomes: list[tuple[str, str]] | None = None,
+    outcomes: list[tuple[str, str] | tuple[str, str, str | None]] | None = None,
 ) -> list[str]:
-    """Rank keywords by downstream approved yield while retaining exploration."""
+    """Rank keywords by downstream approved and human reference yield."""
     clean = list(dict.fromkeys(query.strip() for query in queries if query.strip()))
     if len(clean) < 2:
         return clean
@@ -49,14 +49,20 @@ def adaptive_search_queries(
         row[1] += int(run.submitted_count or 0)
         row[2] += int(run.created_count or 0)
 
-    outcome_stats = {query: [0, 0] for query in clean}
+    outcome_stats = {query: [0, 0, 0, 0] for query in clean}
     useful_statuses = {"approved", "import_queued", "importing", "drive_ready"}
-    for query, status in outcomes or []:
+    for outcome in outcomes or []:
+        query, status = outcome[0], outcome[1]
+        reference_label = outcome[2] if len(outcome) > 2 else None
         if query not in outcome_stats:
             continue
         outcome_stats[query][1] += 1
         if status in useful_statuses:
             outcome_stats[query][0] += 1
+        if reference_label == "good":
+            outcome_stats[query][2] += 1
+        elif reference_label == "bad":
+            outcome_stats[query][3] += 1
 
     if random.random() < KEYWORD_EXPLORATION_RATE:
         random.shuffle(clean)
@@ -67,17 +73,22 @@ def adaptive_search_queries(
     def score(query: str) -> float:
         run_count, submitted, created = stats[query]
         discovery_yield = (created + 1.0) / (submitted + 2.0)
-        approved, evaluated = outcome_stats[query]
+        approved, evaluated, ref_good, ref_bad = outcome_stats[query]
         approved_yield = (approved + 1.0) / (evaluated + 2.0)
         approval_confidence = min(1.0, evaluated / 8.0)
+        reference_reviews = ref_good + ref_bad
+        reference_yield = (ref_good + 1.0) / (reference_reviews + 2.0)
+        reference_confidence = min(1.0, reference_reviews / 6.0)
         run_confidence = min(1.0, run_count / 5.0)
         novelty = 1.0 / (1.0 + run_count)
         duplicate_rate = max(0.0, (submitted - created) / submitted) if submitted else (0.5 if run_count else 0.0)
         quality_weight = 0.35 + 0.45 * approval_confidence
         discovery_weight = 0.40 - 0.20 * approval_confidence
+        human_reference_signal = (reference_yield - 0.5) * reference_confidence
         return (
             approved_yield * quality_weight
             + discovery_yield * discovery_weight * (0.65 + 0.35 * run_confidence)
+            + 0.35 * human_reference_signal
             + 0.20 * novelty
             - 0.15 * duplicate_rate
             + jitter[query]

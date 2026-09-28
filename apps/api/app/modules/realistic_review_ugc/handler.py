@@ -26,8 +26,11 @@ from app.modules.realistic_review_ugc.analysis import (
     analyze_reference_image,
     assess_ai_risk,
     build_ai_risk_calibration,
+    build_reference_preference_model,
     confirm_ai_authenticity,
     evaluate_reference,
+    reference_preference_adjustment,
+    reference_preference_features,
     policy_from_campaign,
     should_confirm_ai_risk,
 )
@@ -167,6 +170,9 @@ class RrugcCandidateAnalyzeJobHandler:
             calibration = build_ai_risk_calibration(
                 repository.ai_feedback_training_rows(context.job.tenant_id)
             )
+            reference_preference_model = build_reference_preference_model(
+                repository.reference_feedback_training_rows(context.job.tenant_id)
+            )
 
         registry = context.dependencies.ai_provider_registry
         if registry is None:
@@ -205,6 +211,18 @@ class RrugcCandidateAnalyzeJobHandler:
                 confirmation=confirmation,
                 calibration=calibration,
             )
+            preference_features = reference_preference_features(
+                phone_authenticity_score=document.phone_authenticity_score,
+                mobile_ugc_score=document.mobile_ugc_score,
+                product_fit_score=document.product_fit_score,
+                quality_score=document.quality_score,
+                artistic_editorial_risk=document.artistic_editorial_risk,
+                ai_risk_score=ai_assessment.calibrated_score,
+            )
+            preference_adjustment = reference_preference_adjustment(
+                preference_features,
+                reference_preference_model,
+            )
             fingerprints = visual_fingerprints(image_bytes)
             decision = evaluate_reference(
                 document,
@@ -214,6 +232,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 ai_detector_confidence=ai_assessment.detector_confidence,
                 ai_risk_confirmed=ai_assessment.confirmed,
                 manual_ai_label=manual_ai_label,
+                reference_preference_score=preference_adjustment,
             )
 
             with context.dependencies.session_factory() as session:
@@ -291,6 +310,15 @@ class RrugcCandidateAnalyzeJobHandler:
                     fingerprints,
                     diversity_signature,
                 )
+                candidate.ai_signal_json = {
+                    **(candidate.ai_signal_json or {}),
+                    "reference_preference_adjustment": preference_adjustment,
+                    "reference_preference_model": {
+                        "active": reference_preference_model.active,
+                        "good_count": reference_preference_model.good_count,
+                        "bad_count": reference_preference_model.bad_count,
+                    },
+                }
                 service = RrugcService(session)
                 if (
                     decision.approved
@@ -351,7 +379,7 @@ class RrugcCandidateAnalyzeJobHandler:
         provenance = {
             key: value
             for key, value in (candidate.ai_signal_json or {}).items()
-            if key in {"scout_query"}
+            if key == "scout_query" or key.startswith("reference_manual_")
         }
         candidate.ai_signal_json = {
             **provenance,

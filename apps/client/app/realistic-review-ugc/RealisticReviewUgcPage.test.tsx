@@ -32,6 +32,7 @@ describe("Realistic Review UGC route", () => {
     expect(candidateGalleryTab("import_failed")).toBe("drive");
     expect(candidateGalleryTab("analysis_queued")).toBe("processing");
     expect(candidateGalleryTab("analyzing")).toBe("processing");
+    expect(candidateGalleryTab("needs_review")).toBe("processing");
 
     expect(candidateMatchesGalleryTab("import_queued", "approved")).toBe(true);
     expect(candidateMatchesGalleryTab("importing", "approved")).toBe(true);
@@ -40,6 +41,7 @@ describe("Realistic Review UGC route", () => {
     expect(candidateMatchesGalleryTab("drive_ready", "drive")).toBe(true);
     expect(candidateMatchesGalleryTab("analysis_failed", "rejected")).toBe(false);
     expect(candidateMatchesGalleryTab("analysis_failed", "processing")).toBe(true);
+    expect(candidateMatchesGalleryTab("needs_review", "processing")).toBe(true);
   });
 
   it("uses a smartphone-first real-person Pinterest preset", () => {
@@ -108,6 +110,15 @@ describe("Realistic Review UGC route", () => {
       phone_authenticity_score: 0.95,
       artistic_editorial_risk: 0.05,
       ai_manual_label: "ai",
+    }));
+    expect(candidatePhonePriority({
+      ...base,
+      phone_authenticity_score: 0.65,
+      reference_manual_label: "good",
+    })).toBeGreaterThan(candidatePhonePriority({
+      ...base,
+      phone_authenticity_score: 0.95,
+      reference_manual_label: "bad",
     }));
   });
 

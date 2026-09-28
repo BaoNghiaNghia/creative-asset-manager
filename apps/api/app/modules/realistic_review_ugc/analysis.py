@@ -17,6 +17,7 @@ AI_STRONG_CUE_THRESHOLD = 0.60
 AI_CONFIRMATION_SYNTHETIC_THRESHOLD = 0.60
 AI_MIN_CONFIRMATION_CONFIDENCE = 0.55
 AI_CALIBRATION_MIN_PER_CLASS = 5
+REFERENCE_PREFERENCE_MIN_PER_CLASS = 3
 AUTO_APPROVE_MIN_FINAL_SCORE = 0.72
 AUTO_APPROVE_MIN_PHONE_AUTHENTICITY = 0.60
 AUTO_APPROVE_MAX_AI_RISK = 0.20
@@ -94,6 +95,23 @@ class AiRiskAssessment:
     confirmed: bool
     signal_json: dict[str, Any]
     calibration_applied: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReferencePreferenceModel:
+    good_count: int = 0
+    bad_count: int = 0
+    good_centroid: dict[str, float] | None = None
+    bad_centroid: dict[str, float] | None = None
+
+    @property
+    def active(self) -> bool:
+        return (
+            self.good_count >= REFERENCE_PREFERENCE_MIN_PER_CLASS
+            and self.bad_count >= REFERENCE_PREFERENCE_MIN_PER_CLASS
+            and bool(self.good_centroid)
+            and bool(self.bad_centroid)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +194,95 @@ def build_ai_risk_calibration(
         real_mean=(sum(real) / len(real)) if real else None,
         ai_mean=(sum(ai) / len(ai)) if ai else None,
     )
+
+
+REFERENCE_PREFERENCE_FEATURES = (
+    "phone_authenticity",
+    "mobile_ugc",
+    "product_fit",
+    "quality",
+    "non_artistic",
+    "low_ai_risk",
+)
+
+
+def reference_preference_features(
+    *,
+    phone_authenticity_score: float | None,
+    mobile_ugc_score: float | None,
+    product_fit_score: float | None,
+    quality_score: float | None,
+    artistic_editorial_risk: float | None,
+    ai_risk_score: float | None,
+) -> dict[str, float]:
+    def value(raw: float | None, fallback: float = 0.5) -> float:
+        return _bounded(fallback if raw is None else raw)
+
+    return {
+        "phone_authenticity": value(phone_authenticity_score),
+        "mobile_ugc": value(mobile_ugc_score),
+        "product_fit": value(product_fit_score),
+        "quality": value(quality_score),
+        "non_artistic": 1.0 - value(artistic_editorial_risk),
+        "low_ai_risk": 1.0 - value(ai_risk_score),
+    }
+
+
+def build_reference_preference_model(
+    rows: Iterable[tuple[str, dict[str, Any] | None]],
+) -> ReferencePreferenceModel:
+    buckets: dict[str, list[dict[str, float]]] = {"ref_good": [], "ref_bad": []}
+    for label, payload in rows:
+        if label not in buckets or not isinstance(payload, dict):
+            continue
+        if payload.get("reference_preference_trainable") is False:
+            continue
+        features = payload.get("reference_preference_features", payload)
+        if not isinstance(features, dict):
+            continue
+        normalized: dict[str, float] = {}
+        for key in REFERENCE_PREFERENCE_FEATURES:
+            raw = features.get(key)
+            if isinstance(raw, (int, float)):
+                normalized[key] = _bounded(float(raw))
+        if len(normalized) == len(REFERENCE_PREFERENCE_FEATURES):
+            buckets[label].append(normalized)
+
+    def centroid(items: list[dict[str, float]]) -> dict[str, float] | None:
+        if not items:
+            return None
+        return {
+            key: sum(item[key] for item in items) / len(items)
+            for key in REFERENCE_PREFERENCE_FEATURES
+        }
+
+    return ReferencePreferenceModel(
+        good_count=len(buckets["ref_good"]),
+        bad_count=len(buckets["ref_bad"]),
+        good_centroid=centroid(buckets["ref_good"]),
+        bad_centroid=centroid(buckets["ref_bad"]),
+    )
+
+
+def reference_preference_adjustment(
+    features: dict[str, float],
+    model: ReferencePreferenceModel,
+) -> float:
+    if not model.active:
+        return 0.0
+    assert model.good_centroid is not None
+    assert model.bad_centroid is not None
+
+    def similarity(centroid: dict[str, float]) -> float:
+        squared = [
+            (features[key] - centroid[key]) ** 2
+            for key in REFERENCE_PREFERENCE_FEATURES
+        ]
+        distance = (sum(squared) / len(squared)) ** 0.5
+        return _bounded(1.0 - distance)
+
+    delta = similarity(model.good_centroid) - similarity(model.bad_centroid)
+    return round(max(-0.12, min(0.12, delta * 0.18)), 4)
 
 
 def calibrate_ai_risk(raw_score: float, calibration: AiRiskCalibration) -> tuple[float, bool]:
@@ -295,6 +402,7 @@ def evaluate_reference(
     ai_detector_confidence: float | None = None,
     ai_risk_confirmed: bool | None = None,
     manual_ai_label: str | None = None,
+    reference_preference_score: float = 0.0,
 ) -> ReferenceDecision:
     ai_risk = (
         document.ai_risk_score
@@ -308,6 +416,7 @@ def evaluate_reference(
         + 0.10 * document.quality_score
         + 0.15 * (1.0 - ai_risk)
         + 0.10 * (1.0 - document.artistic_editorial_risk)
+        + max(-0.12, min(0.12, reference_preference_score))
     ), 4)
 
     if document.people_count < 1:

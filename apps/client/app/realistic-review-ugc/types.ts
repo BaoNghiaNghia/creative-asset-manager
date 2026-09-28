@@ -97,6 +97,7 @@ export type CandidateStatus =
   | "analysis_queued"
   | "analyzing"
   | "approved"
+  | "needs_review"
   | "analysis_failed"
   | "rejected_no_person"
   | "rejected_head_ratio"
@@ -113,6 +114,7 @@ export type CandidateStatus =
   | "rejected_duplicate";
 
 export type AiManualLabel = "real" | "ai" | "unsure";
+export type ReferenceManualLabel = "good" | "bad";
 
 export type AiFeedbackCalibration = {
   active: boolean;
@@ -150,6 +152,10 @@ export type Candidate = {
   ai_manual_note?: string | null;
   ai_manual_reviewed_by_user_id?: string | null;
   ai_manual_reviewed_at?: string | null;
+  reference_manual_label?: ReferenceManualLabel | null;
+  reference_manual_note?: string | null;
+  reference_manual_reviewed_by_user_id?: string | null;
+  reference_manual_reviewed_at?: string | null;
   product_fit_score: number | null;
   final_score: number | null;
   reject_reason: string | null;

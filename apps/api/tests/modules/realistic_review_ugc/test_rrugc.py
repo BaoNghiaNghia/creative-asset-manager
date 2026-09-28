@@ -40,8 +40,11 @@ from app.modules.realistic_review_ugc.analysis import (
     ReferenceFilterPolicy,
     assess_ai_risk,
     build_ai_risk_calibration,
+    build_reference_preference_model,
     calibrate_ai_risk,
     evaluate_reference,
+    reference_preference_adjustment,
+    reference_preference_features,
 )
 from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
@@ -66,7 +69,10 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.review import RrugcReviewService
-from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
+from app.modules.realistic_review_ugc.scout_automation import (
+    RrugcAutoScoutService,
+    adaptive_search_queries,
+)
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
 from app.modules.realistic_review_ugc.delivery_automation import (
@@ -706,6 +712,138 @@ def test_candidate_ai_feedback_api_persists_human_label(api, database):
         assert rows[0].label == "ai"
         assert rows[0].ai_risk_raw_score == pytest.approx(0.38)
         assert rows[0].created_by_user_id == "user-a"
+
+
+def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="manual reference feedback",
+            query="phone selfie reference",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/616161/",
+                image_url="https://i.pinimg.com/736x/6/1/6.jpg",
+                alt_text="casual phone portrait",
+            )],
+            source_query="phone selfie reference",
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "approved"
+        candidate.phone_authenticity_score = 0.91
+        candidate.mobile_ugc_score = 0.88
+        candidate.product_fit_score = 0.84
+        candidate.quality_score = 0.82
+        candidate.artistic_editorial_risk = 0.08
+        candidate.ai_risk_score = 0.04
+        candidate.ai_signal_json = {
+            "scout_query": "phone selfie reference",
+            "diversity": {
+                "scene_type": "home",
+                "framing_type": "selfie",
+                "camera_angle": "eye_level",
+                "pose_type": "casual",
+            },
+        }
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    marked_good = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "good"},
+    )
+    assert marked_good.status_code == 200
+    good_payload = marked_good.json()
+    assert good_payload["candidate"]["reference_manual_label"] == "good"
+    assert good_payload["learning"]["good_count"] == 1
+    assert good_payload["learning"]["bad_count"] == 0
+    assert good_payload["learning"]["active"] is False
+
+    marked_bad = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "bad", "note": "Too polished for a useful reference."},
+    )
+    assert marked_bad.status_code == 200
+    bad_payload = marked_bad.json()
+    assert bad_payload["candidate"]["reference_manual_label"] == "bad"
+    assert bad_payload["learning"]["good_count"] == 0
+    assert bad_payload["learning"]["bad_count"] == 1
+
+    cleared = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "clear"},
+    )
+    assert cleared.status_code == 200
+    clear_payload = cleared.json()
+    assert clear_payload["candidate"]["reference_manual_label"] is None
+    assert clear_payload["learning"]["good_count"] == 0
+    assert clear_payload["learning"]["bad_count"] == 0
+
+    with database() as session:
+        feedback = list(session.scalars(
+            select(RrugcAiFeedbackModel)
+            .where(RrugcAiFeedbackModel.candidate_id == candidate_id)
+            .order_by(RrugcAiFeedbackModel.created_at.asc())
+        ))
+        assert [row.label for row in feedback] == ["ref_good", "ref_bad", "ref_clear"]
+        assert feedback[0].signal_json["reference_preference_trainable"] is True
+        assert feedback[0].signal_json["scout_query"] == "phone selfie reference"
+        assert feedback[0].created_by_user_id == "user-a"
+        assert RrugcRepository(session).reference_feedback_training_rows("tenant-a") == []
+
+
+def test_reference_preference_model_learns_human_selection_direction():
+    good = reference_preference_features(
+        phone_authenticity_score=0.92,
+        mobile_ugc_score=0.90,
+        product_fit_score=0.84,
+        quality_score=0.82,
+        artistic_editorial_risk=0.08,
+        ai_risk_score=0.04,
+    )
+    bad = reference_preference_features(
+        phone_authenticity_score=0.30,
+        mobile_ugc_score=0.28,
+        product_fit_score=0.45,
+        quality_score=0.65,
+        artistic_editorial_risk=0.86,
+        ai_risk_score=0.22,
+    )
+    model = build_reference_preference_model(
+        [("ref_good", {"reference_preference_features": good}) for _ in range(3)]
+        + [("ref_bad", {"reference_preference_features": bad}) for _ in range(3)]
+    )
+    assert model.active is True
+    assert model.good_count == 3
+    assert model.bad_count == 3
+    assert reference_preference_adjustment(good, model) > 0
+    assert reference_preference_adjustment(bad, model) < 0
+
+
+def test_adaptive_keyword_ranking_prefers_human_approved_reference_yield(monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.random",
+        lambda: 0.9,
+    )
+    outcomes = (
+        [("phone selfie", "approved", "good") for _ in range(6)]
+        + [("editorial portrait", "approved", "bad") for _ in range(6)]
+    )
+    ranked = adaptive_search_queries(
+        ["editorial portrait", "phone selfie"],
+        [],
+        outcomes,
+    )
+    assert ranked[0] == "phone selfie"
 
 
 def reference_document(**overrides) -> ReferenceAnalysisDocument:

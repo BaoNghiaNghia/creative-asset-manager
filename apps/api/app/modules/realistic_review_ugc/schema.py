@@ -23,11 +23,13 @@ ProductReferenceView = Literal[
     "material_closeup",
 ]
 AiManualLabel = Literal["real", "ai", "unsure"]
+ReferenceManualLabel = Literal["good", "bad"]
 CandidateStatus = Literal[
     "discovered",
     "analysis_queued",
     "analyzing",
     "approved",
+    "needs_review",
     "analysis_failed",
     "rejected_no_person",
     "rejected_head_ratio",
@@ -679,6 +681,10 @@ class CandidateResponse(BaseModel):
     ai_manual_note: str | None = None
     ai_manual_reviewed_by_user_id: str | None = None
     ai_manual_reviewed_at: datetime | None = None
+    reference_manual_label: ReferenceManualLabel | None = None
+    reference_manual_note: str | None = None
+    reference_manual_reviewed_by_user_id: str | None = None
+    reference_manual_reviewed_at: datetime | None = None
     product_fit_score: float | None
     final_score: float | None
     reject_reason: str | None
@@ -715,6 +721,22 @@ class AiFeedbackCalibrationResponse(BaseModel):
 class CandidateAiFeedbackResponse(BaseModel):
     candidate: CandidateResponse
     calibration: AiFeedbackCalibrationResponse
+
+
+class CandidateReferenceFeedbackRequest(BaseModel):
+    label: Literal["good", "bad", "clear"]
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ReferencePreferenceLearningResponse(BaseModel):
+    active: bool
+    good_count: int
+    bad_count: int
+
+
+class CandidateReferenceFeedbackResponse(BaseModel):
+    candidate: CandidateResponse
+    learning: ReferencePreferenceLearningResponse
 
 
 class CandidateBatchResponse(BaseModel):

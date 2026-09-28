@@ -27,6 +27,7 @@ from app.infrastructure.downloader.secure_image import (
     UnsafeUrlError,
 )
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.realistic_review_ugc.analysis import reference_preference_features
 from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcCampaignModel,
@@ -535,6 +536,82 @@ class RrugcService:
             # the human "real" label authoritative for authenticity while
             # still enforcing head/quality/UGC/product-fit requirements.
             self.enqueue_analysis(candidate, increment_revision=True)
+
+        self.session.commit()
+        self.session.refresh(candidate)
+        return candidate
+
+    def mark_candidate_reference_label(
+        self,
+        candidate: RrugcCandidateModel,
+        *,
+        label: str,
+        note: str | None,
+        user_id: str,
+    ) -> RrugcCandidateModel:
+        if label not in {"good", "bad", "clear"}:
+            raise RrugcError(
+                "invalid_reference_feedback_label",
+                "Reference feedback label must be good, bad, or clear.",
+                status_code=422,
+            )
+        now = datetime.now(timezone.utc)
+        clean_note = (note or "").strip() or None
+        if clean_note is not None:
+            clean_note = clean_note[:1000]
+
+        features = reference_preference_features(
+            phone_authenticity_score=candidate.phone_authenticity_score,
+            mobile_ugc_score=candidate.mobile_ugc_score,
+            product_fit_score=candidate.product_fit_score,
+            quality_score=candidate.quality_score,
+            artistic_editorial_risk=candidate.artistic_editorial_risk,
+            ai_risk_score=candidate.ai_risk_score,
+        )
+        signal = dict(candidate.ai_signal_json or {})
+        ledger_label = {
+            "good": "ref_good",
+            "bad": "ref_bad",
+            "clear": "ref_clear",
+        }[label]
+        self.repository.add_ai_feedback(
+            RrugcAiFeedbackModel(
+                tenant_id=candidate.tenant_id,
+                campaign_id=candidate.campaign_id,
+                candidate_id=candidate.id,
+                label=ledger_label,
+                note=clean_note,
+                ai_risk_raw_score=candidate.ai_risk_raw_score,
+                ai_risk_score=candidate.ai_risk_score,
+                detector_confidence=candidate.ai_detector_confidence,
+                analyzer_version=candidate.analyzer_version,
+                signal_json={
+                    "reference_preference_features": features,
+                    "reference_preference_trainable": candidate.analyzed_at is not None,
+                    "visual_fingerprints": signal.get("visual_fingerprints", []),
+                    "diversity": signal.get("diversity"),
+                    "scout_query": signal.get("scout_query"),
+                },
+                created_by_user_id=user_id,
+                created_at=now,
+            )
+        )
+
+        for key in (
+            "reference_manual_label",
+            "reference_manual_note",
+            "reference_manual_reviewed_by_user_id",
+            "reference_manual_reviewed_at",
+        ):
+            signal.pop(key, None)
+        if label != "clear":
+            signal.update({
+                "reference_manual_label": label,
+                "reference_manual_note": clean_note,
+                "reference_manual_reviewed_by_user_id": user_id,
+                "reference_manual_reviewed_at": now.isoformat(),
+            })
+        candidate.ai_signal_json = signal
 
         self.session.commit()
         self.session.refresh(candidate)

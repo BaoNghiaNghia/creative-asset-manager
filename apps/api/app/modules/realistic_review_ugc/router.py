@@ -15,7 +15,10 @@ from app.domain.providers.contracts import OpenStoredAssetInput, StorageProvider
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
-from app.modules.realistic_review_ugc.analysis import build_ai_risk_calibration
+from app.modules.realistic_review_ugc.analysis import (
+    build_ai_risk_calibration,
+    build_reference_preference_model,
+)
 from app.modules.realistic_review_ugc.generation import (
     RrugcGenerationFoundation,
     binding_is_generation_ready,
@@ -56,6 +59,9 @@ from app.modules.realistic_review_ugc.schema import (
     CandidateAiFeedbackRequest,
     CandidateAiFeedbackResponse,
     AiFeedbackCalibrationResponse,
+    CandidateReferenceFeedbackRequest,
+    CandidateReferenceFeedbackResponse,
+    ReferencePreferenceLearningResponse,
     GenerationAttemptCreateRequest,
     GenerationAttemptCreatedResponse,
     GenerationAttemptResponse,
@@ -155,6 +161,7 @@ def _error(exc: RrugcError) -> HTTPException:
 
 
 def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
+    signal = row.ai_signal_json if isinstance(row.ai_signal_json, dict) else {}
     return CandidateResponse.model_validate({
         "id": row.id,
         "campaign_id": row.campaign_id,
@@ -183,6 +190,10 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "ai_manual_note": row.ai_manual_note,
         "ai_manual_reviewed_by_user_id": row.ai_manual_reviewed_by_user_id,
         "ai_manual_reviewed_at": row.ai_manual_reviewed_at,
+        "reference_manual_label": signal.get("reference_manual_label"),
+        "reference_manual_note": signal.get("reference_manual_note"),
+        "reference_manual_reviewed_by_user_id": signal.get("reference_manual_reviewed_by_user_id"),
+        "reference_manual_reviewed_at": signal.get("reference_manual_reviewed_at"),
         "product_fit_score": row.product_fit_score,
         "final_score": row.final_score,
         "reject_reason": row.reject_reason,
@@ -1813,6 +1824,46 @@ def mark_candidate_ai_feedback(
             ai_count=calibration.ai_count,
             real_mean=calibration.real_mean,
             ai_mean=calibration.ai_mean,
+        ),
+    )
+
+
+@router.post(
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+    response_model=CandidateReferenceFeedbackResponse,
+)
+def mark_candidate_reference_feedback(
+    campaign_id: str,
+    candidate_id: str,
+    body: CandidateReferenceFeedbackRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    candidate = repository.get_candidate(
+        principal.active_tenant_id, campaign_id, candidate_id
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        row = RrugcService(session).mark_candidate_reference_label(
+            candidate,
+            label=body.label,
+            note=body.note,
+            user_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    learning = build_reference_preference_model(
+        repository.reference_feedback_training_rows(principal.active_tenant_id)
+    )
+    return CandidateReferenceFeedbackResponse(
+        candidate=_candidate(row),
+        learning=ReferencePreferenceLearningResponse(
+            active=learning.active,
+            good_count=learning.good_count,
+            bad_count=learning.bad_count,
         ),
     )
 

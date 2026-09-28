@@ -9,6 +9,7 @@ import {
   deleteCampaign,
   importCandidate,
   markCandidateAiFeedback,
+  markCandidateReferenceFeedback,
   listCampaigns,
   listCandidates,
   updateCampaign,
@@ -18,7 +19,7 @@ import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
-import type { AiManualLabel, Campaign, Candidate, CandidateStatus } from "./types";
+import type { AiManualLabel, Campaign, Candidate, CandidateStatus, ReferenceManualLabel } from "./types";
 import "./ui-overhaul.css";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
@@ -29,6 +30,7 @@ const statusLabel: Record<CandidateStatus, string> = {
   analysis_queued: "Analysis queued",
   analyzing: "Analyzing",
   approved: "Approved",
+  needs_review: "Needs review",
   analysis_failed: "Analysis failed",
   rejected_no_person: "No person",
   rejected_head_ratio: "Head ratio rejected",
@@ -60,6 +62,7 @@ const analyzingStatuses = new Set<CandidateStatus>([
   "discovered",
   "analysis_queued",
   "analyzing",
+  "needs_review",
 ]);
 
 const driveStatuses = new Set<CandidateStatus>([
@@ -95,7 +98,8 @@ export function candidatePhonePriority(candidate: Candidate): number {
   const fit = candidate.product_fit_score ?? 0;
   const quality = candidate.quality_score ?? 0;
   const aiRisk = candidate.ai_risk_score ?? 0;
-  const manual = candidate.ai_manual_label === "real" ? 0.18 : candidate.ai_manual_label === "ai" ? -1 : 0;
+  const authenticityManual = candidate.ai_manual_label === "real" ? 0.18 : candidate.ai_manual_label === "ai" ? -1 : 0;
+  const referenceManual = candidate.reference_manual_label === "good" ? 0.45 : candidate.reference_manual_label === "bad" ? -0.45 : 0;
   return (
     0.35 * phone
     + 0.20 * ugc
@@ -103,7 +107,8 @@ export function candidatePhonePriority(candidate: Candidate): number {
     + 0.10 * fit
     + 0.10 * quality
     + 0.10 * (1 - aiRisk)
-    + manual
+    + authenticityManual
+    + referenceManual
   );
 }
 
@@ -448,6 +453,24 @@ export function RealisticReviewUgcPage() {
       await refreshCampaigns();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save AI review.");
+    } finally {
+      setActionId("");
+    }
+  }
+
+  async function markReferenceFeedback(
+    candidate: Candidate,
+    label: ReferenceManualLabel | "clear",
+  ) {
+    if (!selected || actionId) return;
+    setCandidateContextMenu(null);
+    setActionId("ref:" + candidate.id);
+    setError("");
+    try {
+      const result = await markCandidateReferenceFeedback(selected.id, candidate.id, label);
+      setCandidates(rows => rows.map(row => row.id === result.candidate.id ? result.candidate : row));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to save reference review.");
     } finally {
       setActionId("");
     }
@@ -933,11 +956,11 @@ export function RealisticReviewUgcPage() {
               return <article key={candidate.id} className={"rrugc-candidate tone-" + tone} onClick={() => setInspectedCandidateId(candidate.id)}>
                 <div
                   className="rrugc-candidate-media"
-                  title="Right-click image to mark authenticity"
+                  title="Right-click image to review authenticity and reference usability"
                   onContextMenu={event => {
                     event.preventDefault();
                     const menuWidth = 190;
-                    const menuHeight = 154;
+                    const menuHeight = 292;
                     setCandidateContextMenu({
                       candidateId: candidate.id,
                       x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
@@ -959,6 +982,9 @@ export function RealisticReviewUgcPage() {
                   </button>
                   <span className={"rrugc-candidate-status tone-" + tone}>{statusLabel[candidate.status]}</span>
                   {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.final_score)} fit</span>}
+                  {candidate.reference_manual_label && <span className={"rrugc-candidate-ref-label is-" + candidate.reference_manual_label}>
+                    {candidate.reference_manual_label === "good" ? "REF ✓" : "REF ×"}
+                  </span>}
                 </div>
                 <div className="rrugc-candidate-body">
                   <div className="rrugc-candidate-head"><strong>Reference analysis</strong><span>{candidate.analyzed_at ? "Scored" : "Pending"}</span></div>
@@ -990,6 +1016,14 @@ export function RealisticReviewUgcPage() {
               {inspectedCandidate.analysis_summary && <p>{inspectedCandidate.analysis_summary}</p>}
               <div className="rrugc-inspector-metrics rrugc-metrics"><span>Head <b>{percent(inspectedCandidate.primary_head_ratio)}</b></span><span>Smile <b>{percent(inspectedCandidate.smile_score)}</b></span><span>Artistic <b>{percent(inspectedCandidate.artistic_editorial_risk)}</b></span><span>AI risk <b>{percent(inspectedCandidate.ai_risk_score)}</b></span><span>AI confidence <b>{percent(inspectedCandidate.ai_detector_confidence)}</b></span><span>Product fit <b>{percent(inspectedCandidate.product_fit_score)}</b></span></div>
               <div className="rrugc-inspector-review"><small>Quick authenticity review</small><div>{(["real", "ai", "unsure"] as const).map(label => <button key={label} type="button" className={inspectedCandidate.ai_manual_label === label ? "is-active" : ""} disabled={Boolean(actionId)} onClick={() => void markAiFeedback(inspectedCandidate, label)}>{label === "real" ? "Real photo" : label === "ai" ? "AI" : "Unsure"}</button>)}</div></div>
+              <div className="rrugc-inspector-review rrugc-reference-review">
+                <small>Reference usefulness · feeds selection learning</small>
+                <div>
+                  <button type="button" className={inspectedCandidate.reference_manual_label === "good" ? "is-active is-ref-good" : ""} disabled={Boolean(actionId)} onClick={() => void markReferenceFeedback(inspectedCandidate, "good")}>Use as ref</button>
+                  <button type="button" className={inspectedCandidate.reference_manual_label === "bad" ? "is-active is-ref-bad" : ""} disabled={Boolean(actionId)} onClick={() => void markReferenceFeedback(inspectedCandidate, "bad")}>Not suitable</button>
+                  <button type="button" disabled={Boolean(actionId) || !inspectedCandidate.reference_manual_label} onClick={() => void markReferenceFeedback(inspectedCandidate, "clear")}>Clear</button>
+                </div>
+              </div>
               <div className="rrugc-inspector-actions"><a href={inspectedCandidate.pin_url} target="_blank" rel="noreferrer">Open Pinterest</a>{inspectedCandidate.web_url && <a href={inspectedCandidate.web_url} target="_blank" rel="noreferrer">Open Drive</a>}</div>
             </section>
           </aside>}
@@ -997,10 +1031,11 @@ export function RealisticReviewUgcPage() {
             const candidate = candidates.find(row => row.id === candidateContextMenu.candidateId);
             if (!candidate) return null;
             const aiReviewBusy = actionId === "ai:" + candidate.id;
+            const refReviewBusy = actionId === "ref:" + candidate.id;
             return <div
               className="rrugc-candidate-context-menu"
               role="menu"
-              aria-label="Mark image authenticity"
+              aria-label="Review image"
               style={{ left: candidateContextMenu.x, top: candidateContextMenu.y }}
             >
               <div className="rrugc-candidate-context-menu-head">
@@ -1025,7 +1060,37 @@ export function RealisticReviewUgcPage() {
                 <span>{copy}</span>
                 <b>{aiReviewBusy ? "Saving…" : candidate.ai_manual_label === label ? "✓" : ""}</b>
               </button>)}
-              <small>Right-click any image to change this mark.</small>
+              <div className="rrugc-candidate-context-menu-head rrugc-context-menu-section">
+                <strong>Reference use</strong>
+                <span>{candidate.reference_manual_label === "good"
+                  ? "Use as ref"
+                  : candidate.reference_manual_label === "bad" ? "Not suitable" : "Not reviewed"}</span>
+              </div>
+              {([
+                ["good", "Use as reference"],
+                ["bad", "Not suitable as ref"],
+              ] as const).map(([label, copy]) => <button
+                key={"ref-" + label}
+                type="button"
+                role="menuitemradio"
+                aria-checked={candidate.reference_manual_label === label}
+                className={candidate.reference_manual_label === label ? "is-active is-ref-" + label : ""}
+                disabled={Boolean(actionId)}
+                onClick={() => void markReferenceFeedback(candidate, label)}
+              >
+                <span>{copy}</span>
+                <b>{refReviewBusy ? "Saving…" : candidate.reference_manual_label === label ? "✓" : ""}</b>
+              </button>)}
+              <button
+                type="button"
+                role="menuitem"
+                className="rrugc-context-clear"
+                disabled={Boolean(actionId) || !candidate.reference_manual_label}
+                onClick={() => void markReferenceFeedback(candidate, "clear")}
+              >
+                <span>Clear reference mark</span><b />
+              </button>
+              <small>Reference marks teach ranking and keyword selection for this tenant.</small>
             </div>;
           })()}
           {visibleCandidates.length > candidateLimit && <button

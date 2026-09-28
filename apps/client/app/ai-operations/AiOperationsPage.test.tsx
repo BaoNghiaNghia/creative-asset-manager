@@ -523,7 +523,7 @@ describe("Inventory Daily tab", () => {
       expect(markup).toContain(value);
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");
-    expect(markup.match(/aria-haspopup="dialog"/g)).toHaveLength(2);
+    expect(markup.match(/aria-haspopup="dialog"/g)).toHaveLength(3);
     const heading = markup.slice(markup.indexOf("ops-section-heading"), markup.indexOf("ops-kpis"));
     expect(heading).toContain("ops-inventory-quick-actions");
     for (const action of ["Mở Google Sheet đang xử lý", "Mở Daily Inventory", "Cấu hình Inventory", "Làm mới"]) {

@@ -166,6 +166,34 @@ class RrugcRepository:
             for row in latest_by_candidate.values()
         ]
 
+    def reference_feedback_training_rows(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 1000,
+    ) -> list[tuple[str, dict | None]]:
+        rows = list(self.session.scalars(
+            select(RrugcAiFeedbackModel)
+            .where(
+                RrugcAiFeedbackModel.tenant_id == tenant_id,
+                RrugcAiFeedbackModel.label.in_(("ref_good", "ref_bad", "ref_clear")),
+            )
+            .order_by(
+                RrugcAiFeedbackModel.created_at.desc(),
+                RrugcAiFeedbackModel.id.desc(),
+            )
+            .limit(limit)
+        ))
+        latest_by_candidate: dict[str, RrugcAiFeedbackModel] = {}
+        for row in rows:
+            if row.candidate_id not in latest_by_candidate:
+                latest_by_candidate[row.candidate_id] = row
+        return [
+            (row.label, row.signal_json)
+            for row in latest_by_candidate.values()
+            if row.label in {"ref_good", "ref_bad"}
+        ]
+
 
     def list_scout_agents(
         self,
@@ -301,7 +329,7 @@ class RrugcRepository:
 
     def candidate_keyword_outcomes(
         self, tenant_id: str, campaign_id: str
-    ) -> list[tuple[str, str]]:
+    ) -> list[tuple[str, str, str | None]]:
         rows = self.session.execute(
             select(RrugcCandidateModel.status, RrugcCandidateModel.ai_signal_json).where(
                 RrugcCandidateModel.tenant_id == tenant_id,
@@ -309,11 +337,20 @@ class RrugcRepository:
                 RrugcCandidateModel.ai_signal_json.is_not(None),
             )
         ).all()
-        outcomes: list[tuple[str, str]] = []
+        outcomes: list[tuple[str, str, str | None]] = []
         for status, signal in rows:
             query = signal.get("scout_query") if isinstance(signal, dict) else None
+            reference_label = (
+                signal.get("reference_manual_label")
+                if isinstance(signal, dict)
+                else None
+            )
             if isinstance(query, str) and query.strip():
-                outcomes.append((query.strip(), status))
+                outcomes.append((
+                    query.strip(),
+                    status,
+                    reference_label if reference_label in {"good", "bad"} else None,
+                ))
         return outcomes
 
     def claimable_campaigns(
