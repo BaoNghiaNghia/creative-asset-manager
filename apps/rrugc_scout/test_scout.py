@@ -9,6 +9,7 @@ from scout import (
     allowed_pin,
     extract_visible,
     normalize_candidates,
+    wait_for_pin_growth,
 )
 
 

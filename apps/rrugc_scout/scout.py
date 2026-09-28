@@ -17,6 +17,11 @@ import httpx
 
 
 CLIENT_VERSION = "rrugc-scout-v2"
+INITIAL_RESULTS_TIMEOUT_MS = 1_800
+SCROLL_RESULTS_TIMEOUT_MS = 900
+MANUAL_GATE_POLL_MS = 1_500
+SUBMIT_BATCH_SIZE = 50
+HEARTBEAT_INTERVAL_SECONDS = 10
 
 
 def resolve_chrome_executable(explicit: str = "") -> str:
@@ -173,11 +178,58 @@ async def access_gate(page: Any) -> str | None:
     if "/challenge" in current_url or "captcha" in current_url:
         return "challenge"
     detected = await page.evaluate(
-        """() => Boolean(
-          document.querySelector('iframe[src*="captcha" i], [data-test-id*="captcha" i], [id*="captcha" i]')
-        )"""
+        r"""() => {
+          const selectors = [
+            'iframe[src*="captcha" i]',
+            '[data-test-id*="captcha" i]',
+            '[id*="captcha" i]',
+          ];
+          const visible = (node) => {
+            const style = window.getComputedStyle(node);
+            if (
+              style.display === 'none'
+              || style.visibility === 'hidden'
+              || Number(style.opacity || '1') === 0
+            ) return false;
+            const rect = node.getBoundingClientRect();
+            return (
+              rect.width >= 20
+              && rect.height >= 20
+              && rect.bottom > 0
+              && rect.right > 0
+              && rect.top < window.innerHeight
+              && rect.left < window.innerWidth
+            );
+          };
+          return selectors.some((selector) =>
+            Array.from(document.querySelectorAll(selector)).some(visible)
+          );
+        }"""
     )
     return "challenge" if detected else None
+
+
+async def loaded_pin_count(page: Any) -> int:
+    value = await page.evaluate(
+        r"""() => document.querySelectorAll('a[href*="/pin/"] img').length"""
+    )
+    return int(value or 0)
+
+
+async def wait_for_pin_growth(
+    page: Any,
+    *,
+    previous_count: int,
+    timeout_ms: int,
+) -> int:
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    latest = previous_count
+    while time.monotonic() < deadline:
+        latest = await loaded_pin_count(page)
+        if latest > previous_count:
+            return latest
+        await page.wait_for_timeout(150)
+    return latest
 
 
 class CamClient:
@@ -323,7 +375,7 @@ async def wait_for_manual_access(
     )
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        await page.wait_for_timeout(5_000)
+        await page.wait_for_timeout(MANUAL_GATE_POLL_MS)
         gate = await access_gate(page)
         if gate is None:
             await client.heartbeat("busy", run_id=run_id)
@@ -342,8 +394,21 @@ async def scan_auto_run(
     query = quote_plus(str(task["query"]))
     url = "https://www.pinterest.com/search/pins/?q=" + query
     await client.heartbeat("busy", run_id=run_id)
+    last_heartbeat = time.monotonic()
+
+    async def heartbeat_if_due(*, force: bool = False) -> None:
+        nonlocal last_heartbeat
+        now = time.monotonic()
+        if force or now - last_heartbeat >= HEARTBEAT_INTERVAL_SECONDS:
+            await client.heartbeat("busy", run_id=run_id)
+            last_heartbeat = now
+
     await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-    await page.wait_for_timeout(2_500)
+    loaded_count = await wait_for_pin_growth(
+        page,
+        previous_count=0,
+        timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+    )
 
     access_ready = await wait_for_manual_access(
         page,
@@ -365,7 +430,7 @@ async def scan_auto_run(
     progress = int(task.get("progress") or 0)
 
     for batch in range(max_scroll_batches):
-        await client.heartbeat("busy", run_id=run_id)
+        await heartbeat_if_due()
         visible = await extract_visible(page)
         fresh = [
             row
@@ -375,8 +440,8 @@ async def scan_auto_run(
         for row in fresh:
             seen.add((row.pin_url, row.image_url))
 
-        for start in range(0, len(fresh), 25):
-            chunk = fresh[start:start + 25]
+        for start in range(0, len(fresh), SUBMIT_BATCH_SIZE):
+            chunk = fresh[start:start + SUBMIT_BATCH_SIZE]
             if not chunk:
                 continue
             result = await client.submit(run_id, chunk)
@@ -419,8 +484,13 @@ async def scan_auto_run(
                 )
                 return
 
-        await page.mouse.wheel(0, 2600)
-        await page.wait_for_timeout(1_500)
+        before_scroll_count = max(loaded_count, await loaded_pin_count(page))
+        await page.mouse.wheel(0, 2800)
+        loaded_count = await wait_for_pin_growth(
+            page,
+            previous_count=before_scroll_count,
+            timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+        )
 
     await client.complete(run_id, "completed")
 
