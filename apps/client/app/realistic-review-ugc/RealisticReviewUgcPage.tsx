@@ -93,11 +93,17 @@ export function candidatePhonePriority(candidate: Candidate): number {
   const ugc = candidate.mobile_ugc_score ?? 0;
   const artistic = candidate.artistic_editorial_risk ?? Math.max(0, 1 - ugc);
   const fit = candidate.product_fit_score ?? 0;
+  const quality = candidate.quality_score ?? 0;
+  const aiRisk = candidate.ai_risk_score ?? 0;
+  const manual = candidate.ai_manual_label === "real" ? 0.18 : candidate.ai_manual_label === "ai" ? -1 : 0;
   return (
-    0.45 * phone
-    + 0.25 * ugc
+    0.35 * phone
+    + 0.20 * ugc
     + 0.15 * (1 - artistic)
-    + 0.15 * fit
+    + 0.10 * fit
+    + 0.10 * quality
+    + 0.10 * (1 - aiRisk)
+    + manual
   );
 }
 
@@ -232,6 +238,9 @@ export function RealisticReviewUgcPage() {
   const [actionId, setActionId] = useState("");
   const [candidateTab, setCandidateTab] = useState<CandidateGalleryTab>("approved");
   const [candidateLimit, setCandidateLimit] = useState(24);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [candidateSort, setCandidateSort] = useState<"phone" | "fit" | "quality">("phone");
+  const [inspectedCandidateId, setInspectedCandidateId] = useState<string | null>(null);
   const [candidateContextMenu, setCandidateContextMenu] = useState<{
     candidateId: string;
     x: number;
@@ -273,6 +282,7 @@ export function RealisticReviewUgcPage() {
   useEffect(() => {
     setCandidateLimit(24);
     setCandidateContextMenu(null);
+    setInspectedCandidateId(null);
     if (!selectedId) {
       setCandidates([]);
       return;
@@ -312,6 +322,15 @@ export function RealisticReviewUgcPage() {
       window.removeEventListener("keydown", dismissOnKey);
     };
   }, [candidateContextMenu]);
+
+  useEffect(() => {
+    if (!inspectedCandidateId) return;
+    const dismissOnKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInspectedCandidateId(null);
+    };
+    window.addEventListener("keydown", dismissOnKey);
+    return () => window.removeEventListener("keydown", dismissOnKey);
+  }, [inspectedCandidateId]);
 
   async function submit() {
     if (!name.trim() || searchQueries.length === 0 || busy) return;
@@ -519,12 +538,18 @@ export function RealisticReviewUgcPage() {
       }
     });
   }
-  const visibleCandidates = [...candidateGroups[candidateTab]].sort((left, right) => {
-    if (candidateTab === "approved" || candidateTab === "drive") {
+  const candidateSearchNeedle = candidateSearch.trim().toLowerCase();
+  const visibleCandidates = candidateGroups[candidateTab]
+    .filter(candidate => !candidateSearchNeedle || [candidate.alt_text, candidate.analysis_summary, candidate.reject_reason, candidate.status]
+      .some(value => value?.toLowerCase().includes(candidateSearchNeedle)))
+    .sort((left, right) => {
+      if (candidateSort === "fit") return (right.final_score ?? -1) - (left.final_score ?? -1);
+      if (candidateSort === "quality") return (right.quality_score ?? -1) - (left.quality_score ?? -1);
       return candidatePhonePriority(right) - candidatePhonePriority(left);
-    }
-    return 0;
-  });
+    });
+  const inspectedCandidate = inspectedCandidateId
+    ? candidates.find(candidate => candidate.id === inspectedCandidateId) || null
+    : null;
   const candidateEmptyCopy: Record<CandidateGalleryTab, string> = {
     approved: "No references have passed qualification yet.",
     rejected: "No references were rejected by qualification rules.",
@@ -854,7 +879,8 @@ export function RealisticReviewUgcPage() {
               <div><small>REFERENCE QUALIFICATION</small><h3>Pinterest candidates</h3><p>Review approved references, rejected results, and Drive imports separately.</p></div>
               <span>{selected.discovered} found</span>
             </div>
-            <div className="rrugc-candidate-tabs" role="tablist" aria-label="Candidate status">
+            <div className="rrugc-review-toolbar">
+              <div className="rrugc-candidate-tabs" role="tablist" aria-label="Candidate status">
               {([
                 ["approved", "Approved"],
                 ["rejected", "Rejected"],
@@ -884,6 +910,13 @@ export function RealisticReviewUgcPage() {
               >
                 <span>Processing</span><b>{candidateGroups.processing.length}</b>
               </button>}
+              </div>
+              <div className="rrugc-review-tools">
+                <input aria-label="Filter candidates" type="search" placeholder="Filter references…" value={candidateSearch} onChange={event => setCandidateSearch(event.target.value)} />
+                <select aria-label="Sort candidates" value={candidateSort} onChange={event => setCandidateSort(event.target.value as "phone" | "fit" | "quality")}>
+                  <option value="phone">Phone-like first</option><option value="fit">Best fit first</option><option value="quality">Quality first</option>
+                </select>
+              </div>
             </div>
           {candidates.length === 0 ? <p className="rrugc-empty">
             {selected.auto_scout
@@ -897,7 +930,7 @@ export function RealisticReviewUgcPage() {
               const actionBusy = actionId === candidate.id;
               const canRetry = candidate.status === "analysis_failed" || rejectedStatuses.has(candidate.status);
               const canSave = candidate.status === "approved" || candidate.status === "import_failed";
-              return <article key={candidate.id} className={"rrugc-candidate tone-" + tone}>
+              return <article key={candidate.id} className={"rrugc-candidate tone-" + tone} onClick={() => setInspectedCandidateId(candidate.id)}>
                 <div
                   className="rrugc-candidate-media"
                   title="Right-click image to mark authenticity"
@@ -912,7 +945,7 @@ export function RealisticReviewUgcPage() {
                     });
                   }}
                 >
-                  <a href={candidate.pin_url} target="_blank" rel="noreferrer" className="rrugc-image-shell">
+                  <button type="button" className="rrugc-image-shell rrugc-image-preview" aria-label="Inspect reference">
                     <span className="rrugc-image-skeleton" aria-hidden="true" />
                     <img
                       src={candidate.image_url}
@@ -923,40 +956,43 @@ export function RealisticReviewUgcPage() {
                       onLoad={event => event.currentTarget.parentElement?.classList.add("is-loaded")}
                       onError={event => event.currentTarget.parentElement?.classList.add("is-loaded")}
                     />
-                  </a>
+                  </button>
                   <span className={"rrugc-candidate-status tone-" + tone}>{statusLabel[candidate.status]}</span>
                   {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.final_score)} fit</span>}
                 </div>
                 <div className="rrugc-candidate-body">
                   <div className="rrugc-candidate-head"><strong>Reference analysis</strong><span>{candidate.analyzed_at ? "Scored" : "Pending"}</span></div>
                   {candidate.reject_reason && <p className="rrugc-reject-reason">{candidate.reject_reason.replaceAll("_", " ")}</p>}
-                  {candidate.analyzed_at ? <details className="rrugc-candidate-details">
-                    <summary>Analysis details</summary>
-                    {candidate.analysis_summary && <p>{candidate.analysis_summary}</p>}
-                    <div className="rrugc-metrics">
-                      <span>Head <b>{percent(candidate.primary_head_ratio)}</b></span>
-                      <span>Smile <b>{percent(candidate.smile_score)}</b></span>
-                      <span>Phone <b>{percent(candidate.phone_authenticity_score)}</b></span>
-                      <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
-                      <span>Artistic <b>{percent(candidate.artistic_editorial_risk)}</b></span>
-                      <span>Quality <b>{percent(candidate.quality_score)}</b></span>
-                      <span>AI risk <b>{percent(candidate.ai_risk_score)}</b></span>
-                      <span>AI confidence <b>{percent(candidate.ai_detector_confidence)}</b></span>
-                      <span>Fit <b>{percent(candidate.product_fit_score)}</b></span>
-                    </div>
-                  </details> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
+                  {candidate.analyzed_at ? <div className="rrugc-card-signals">
+                    <span>Phone <b>{percent(candidate.phone_authenticity_score)}</b></span>
+                    <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
+                    <span>Quality <b>{percent(candidate.quality_score)}</b></span>
+                  </div> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
                 </div>
                 <footer>
                   {candidate.web_url ? <a href={candidate.web_url} target="_blank" rel="noreferrer">Open in Drive</a>
                     : candidate.status === "import_queued" || candidate.status === "importing" ? <button type="button" disabled>Saving…</button>
                     : analyzingStatuses.has(candidate.status) ? <button type="button" disabled>Analyzing…</button>
-                    : canSave ? <button type="button" disabled={Boolean(actionId)} onClick={() => void importOne(candidate)}>{actionBusy ? "Queueing…" : "Save to Drive"}</button>
-                    : canRetry ? <button type="button" className="rrugc-secondary-action" disabled={Boolean(actionId)} onClick={() => void retryAnalysis(candidate)}>{actionBusy ? "Queueing…" : "Retry analysis"}</button>
+                    : canSave ? <button type="button" disabled={Boolean(actionId)} onClick={event => { event.stopPropagation(); void importOne(candidate); }}>{actionBusy ? "Queueing…" : "Save to Drive"}</button>
+                    : canRetry ? <button type="button" className="rrugc-secondary-action" disabled={Boolean(actionId)} onClick={event => { event.stopPropagation(); void retryAnalysis(candidate); }}>{actionBusy ? "Queueing…" : "Retry analysis"}</button>
                     : null}
                 </footer>
               </article>;
             })}
           </div>}
+          {inspectedCandidate && <aside className="rrugc-inspector" aria-label="Reference inspector">
+            <button type="button" className="rrugc-inspector-backdrop" aria-label="Close inspector" onClick={() => setInspectedCandidateId(null)} />
+            <section>
+              <header><div><small>REFERENCE INSPECTOR</small><strong>{statusLabel[inspectedCandidate.status]}</strong></div><button type="button" aria-label="Close inspector" onClick={() => setInspectedCandidateId(null)}>×</button></header>
+              <div className="rrugc-image-shell rrugc-inspector-image"><span className="rrugc-image-skeleton" aria-hidden="true" /><img src={inspectedCandidate.image_url} alt={inspectedCandidate.alt_text || "Pinterest reference"} decoding="async" referrerPolicy="no-referrer" onLoad={event => event.currentTarget.parentElement?.classList.add("is-loaded")} onError={event => event.currentTarget.parentElement?.classList.add("is-loaded")} /></div>
+              <div className="rrugc-inspector-score"><span>Fit <b>{percent(inspectedCandidate.final_score)}</b></span><span>Phone <b>{percent(inspectedCandidate.phone_authenticity_score)}</b></span><span>UGC <b>{percent(inspectedCandidate.mobile_ugc_score)}</b></span><span>Quality <b>{percent(inspectedCandidate.quality_score)}</b></span></div>
+              {inspectedCandidate.reject_reason && <p className="rrugc-reject-reason">{inspectedCandidate.reject_reason.replaceAll("_", " ")}</p>}
+              {inspectedCandidate.analysis_summary && <p>{inspectedCandidate.analysis_summary}</p>}
+              <div className="rrugc-inspector-metrics rrugc-metrics"><span>Head <b>{percent(inspectedCandidate.primary_head_ratio)}</b></span><span>Smile <b>{percent(inspectedCandidate.smile_score)}</b></span><span>Artistic <b>{percent(inspectedCandidate.artistic_editorial_risk)}</b></span><span>AI risk <b>{percent(inspectedCandidate.ai_risk_score)}</b></span><span>AI confidence <b>{percent(inspectedCandidate.ai_detector_confidence)}</b></span><span>Product fit <b>{percent(inspectedCandidate.product_fit_score)}</b></span></div>
+              <div className="rrugc-inspector-review"><small>Quick authenticity review</small><div>{(["real", "ai", "unsure"] as const).map(label => <button key={label} type="button" className={inspectedCandidate.ai_manual_label === label ? "is-active" : ""} disabled={Boolean(actionId)} onClick={() => void markAiFeedback(inspectedCandidate, label)}>{label === "real" ? "Real photo" : label === "ai" ? "AI" : "Unsure"}</button>)}</div></div>
+              <div className="rrugc-inspector-actions"><a href={inspectedCandidate.pin_url} target="_blank" rel="noreferrer">Open Pinterest</a>{inspectedCandidate.web_url && <a href={inspectedCandidate.web_url} target="_blank" rel="noreferrer">Open Drive</a>}</div>
+            </section>
+          </aside>}
           {candidateContextMenu && (() => {
             const candidate = candidates.find(row => row.id === candidateContextMenu.candidateId);
             if (!candidate) return null;

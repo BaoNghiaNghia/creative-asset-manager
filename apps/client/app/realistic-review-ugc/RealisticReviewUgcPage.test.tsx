@@ -98,6 +98,17 @@ describe("Realistic Review UGC route", () => {
       phone_authenticity_score: 0.35,
       artistic_editorial_risk: 0.8,
     }));
+    expect(candidatePhonePriority({
+      ...base,
+      phone_authenticity_score: 0.8,
+      artistic_editorial_risk: 0.1,
+      ai_manual_label: "real",
+    })).toBeGreaterThan(candidatePhonePriority({
+      ...base,
+      phone_authenticity_score: 0.95,
+      artistic_editorial_risk: 0.05,
+      ai_manual_label: "ai",
+    }));
   });
 
   it("builds a local scout command without changing the API host", () => {
