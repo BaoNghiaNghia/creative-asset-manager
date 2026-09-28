@@ -14,6 +14,7 @@ export function autoScoutCommand(
   baseUrl: string,
   agentId: string,
   token: string,
+  profileDir = "./.rrugc-pinterest-profile",
 ): string {
   const url = baseUrl.replace(/\/$/, "");
   return [
@@ -21,7 +22,17 @@ export function autoScoutCommand(
     "--base-url \"" + url + "\"",
     "--agent-id \"" + agentId + "\"",
     "--token \"" + token + "\"",
-    "--profile-dir \"./.rrugc-pinterest-profile\"",
+    "--profile-dir \"" + profileDir + "\"",
+  ].join(" ");
+}
+
+export function autoScoutBootstrapCommand(
+  profileDir = "./.rrugc-pinterest-profile",
+): string {
+  return [
+    "python apps/rrugc_scout/scout.py",
+    "--profile-dir \"" + profileDir + "\"",
+    "--bootstrap-login",
   ].join(" ");
 }
 
@@ -34,14 +45,24 @@ export function PinterestAutoScoutPanel({
   const [runs, setRuns] = useState<ScoutRun[]>([]);
   const [created, setCreated] = useState<ScoutAgentCreated | null>(null);
   const [name, setName] = useState("Pinterest Auto Scout");
+  const [profileDir, setProfileDir] = useState("./.rrugc-pinterest-profile");
   const [busy, setBusy] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"bootstrap" | "agent" | "">("");
 
+  const bootstrapCommand = useMemo(
+    () => autoScoutBootstrapCommand(profileDir.trim() || "./.rrugc-pinterest-profile"),
+    [profileDir],
+  );
   const command = useMemo(
     () => created
-      ? autoScoutCommand(window.location.origin, created.id, created.agent_token)
+      ? autoScoutCommand(
+          window.location.origin,
+          created.id,
+          created.agent_token,
+          profileDir.trim() || "./.rrugc-pinterest-profile",
+        )
       : "",
-    [created],
+    [created, profileDir],
   );
 
   async function refresh(signal?: AbortSignal) {
@@ -72,7 +93,7 @@ export function PinterestAutoScoutPanel({
   async function pairAgent() {
     if (busy || !name.trim()) return;
     setBusy("create");
-    setCopied(false);
+    setCopied("");
     onError("");
     try {
       const next = await createScoutAgent(name.trim());
@@ -100,10 +121,10 @@ export function PinterestAutoScoutPanel({
     }
   }
 
-  async function copy() {
-    if (!command) return;
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
+  async function copy(value: string, kind: "bootstrap" | "agent") {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopied(kind);
   }
 
   const online = agents.filter(row => row.status !== "offline").length;
@@ -153,6 +174,15 @@ export function PinterestAutoScoutPanel({
               onChange={event => setName(event.target.value)}
             />
           </label>
+          <label>
+            Persistent profile directory
+            <input
+              value={profileDir}
+              maxLength={500}
+              placeholder="D:\\...\\pinterest-profile"
+              onChange={event => setProfileDir(event.target.value)}
+            />
+          </label>
           <button
             type="button"
             className="rrugc-primary"
@@ -174,16 +204,29 @@ export function PinterestAutoScoutPanel({
 
     {created && <div className="rrugc-command rrugc-auto-scout-command">
       <div>
-        <strong>One-time Agent token</strong>
+        <strong>Persistent Pinterest profile</strong>
         <p>
-          Shown only now. Run this on the machine that has Chrome/Chromium and your
-          Pinterest session. Keep the process running; it will claim campaigns automatically.
+          Bootstrap login and Auto Scout must use the exact same profile directory.
+          If you already signed in with this path, skip bootstrap and run the Agent command.
         </p>
       </div>
-      <code>{command}</code>
-      <button type="button" onClick={() => void copy()}>
-        {copied ? "Copied" : "Copy Auto Scout command"}
-      </button>
+      <div className="rrugc-auto-scout-command-block">
+        <span>1. Bootstrap login once</span>
+        <code>{bootstrapCommand}</code>
+        <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
+          {copied === "bootstrap" ? "Copied" : "Copy bootstrap command"}
+        </button>
+      </div>
+      <div className="rrugc-auto-scout-command-block">
+        <span>2. Start Auto Scout</span>
+        <code>{command}</code>
+        <button type="button" onClick={() => void copy(command, "agent")}>
+          {copied === "agent" ? "Copied" : "Copy Auto Scout command"}
+        </button>
+      </div>
+      <small className="rrugc-auto-scout-profile-warning">
+        Do not change --profile-dir between these two commands.
+      </small>
     </div>}
 
     {agents.length > 0 && <div className="rrugc-auto-scout-agents">

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
-import { autoScoutCommand } from "./PinterestAutoScoutPanel";
+import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
 import { scoutCommand } from "./RealisticReviewUgcPage";
 
 describe("Realistic Review UGC route", () => {
@@ -20,17 +20,22 @@ describe("Realistic Review UGC route", () => {
     expect(command).toContain("--profile-dir");
   });
 
-  it("builds one persistent Auto Scout pairing command instead of a campaign command", () => {
+  it("builds bootstrap and Agent commands with the same persistent profile", () => {
+    const profileDir = "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
+    const bootstrap = autoScoutBootstrapCommand(profileDir);
     const command = autoScoutCommand(
       "https://creative.example/",
       "agent-1",
       "agent-secret",
+      profileDir,
     );
+    expect(bootstrap).toContain("--bootstrap-login");
+    expect(bootstrap).toContain("--profile-dir \"" + profileDir + "\"");
     expect(command).toContain("--base-url \"https://creative.example\"");
     expect(command).toContain("--agent-id \"agent-1\"");
     expect(command).not.toContain("--campaign-id");
     expect(command).toContain("--token \"agent-secret\"");
-    expect(command).toContain("--profile-dir");
+    expect(command).toContain("--profile-dir \"" + profileDir + "\"");
   });
 
   it("renders export readiness and catalog counts", () => {

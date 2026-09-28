@@ -127,6 +127,11 @@
 .rrugc-auto-scout-safety strong{font-size:9px}
 .rrugc-auto-scout-command{margin:0;padding:12px;border-color:#d3dff1;background:#f8faff}
 .rrugc-auto-scout-command code{font-size:9px}
+.rrugc-auto-scout-command-block{display:grid;gap:6px;margin-top:8px;padding:9px;border:1px solid #e0e7f2;border-radius:8px;background:#fff}
+.rrugc-auto-scout-command-block>span{color:#506581;font-size:9px;font-weight:800}
+.rrugc-auto-scout-command-block>code{overflow:auto;padding:8px;border-radius:6px;background:#f5f7fb;white-space:nowrap}
+.rrugc-auto-scout-command-block>button{justify-self:start;min-height:30px}
+.rrugc-auto-scout-profile-warning{display:block;margin-top:8px;color:#8a5b3f;font-size:9px;font-weight:700}
 .rrugc-auto-scout-agents{gap:6px}
 .rrugc-auto-scout-agents article{padding:9px 10px;border-color:#e3e8f0;border-radius:9px}
 .rrugc-auto-scout-agents article strong{font-size:11px}
