@@ -17,6 +17,9 @@ AI_STRONG_CUE_THRESHOLD = 0.60
 AI_CONFIRMATION_SYNTHETIC_THRESHOLD = 0.60
 AI_MIN_CONFIRMATION_CONFIDENCE = 0.55
 AI_CALIBRATION_MIN_PER_CLASS = 5
+AUTO_APPROVE_MIN_FINAL_SCORE = 0.72
+AUTO_APPROVE_MIN_PHONE_AUTHENTICITY = 0.60
+AUTO_APPROVE_MAX_AI_RISK = 0.20
 
 
 class ReferenceAnalysisDocument(BaseModel):
@@ -356,6 +359,16 @@ def evaluate_reference(
         return ReferenceDecision("rejected_expression", "SMILE_SCORE_LOW", final_score)
     if document.product_fit_score < policy.min_product_fit_score:
         return ReferenceDecision("rejected_context", "PRODUCT_FIT_LOW", final_score)
+
+    # Passing the hard gates means the image is usable, but only high-confidence
+    # smartphone-like references should flow straight into automation. Borderline
+    # references stay visible for human review instead of being silently accepted.
+    if manual_ai_label != "real" and (
+        final_score < AUTO_APPROVE_MIN_FINAL_SCORE
+        or document.phone_authenticity_score < AUTO_APPROVE_MIN_PHONE_AUTHENTICITY
+        or ai_risk > AUTO_APPROVE_MAX_AI_RISK
+    ):
+        return ReferenceDecision("needs_review", "AUTO_APPROVE_UNCERTAIN", final_score)
     return ReferenceDecision("approved", None, final_score)
 
 

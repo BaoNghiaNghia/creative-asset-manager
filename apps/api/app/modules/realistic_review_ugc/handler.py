@@ -143,6 +143,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 return JobHandlerResult.completed()
             if candidate.status in {
                 "approved",
+                "needs_review",
                 "import_queued",
                 "importing",
                 "drive_ready",

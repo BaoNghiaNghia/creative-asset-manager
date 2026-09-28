@@ -3397,6 +3397,54 @@ def test_rrugc_generation_storage_retry_reuses_staged_provider_result(database, 
         assert persisted.output_remote_file_id == "file-1"
 
 
+def test_reference_borderline_phone_photo_requires_review():
+    decision = evaluate_reference(
+        reference_document(
+            phone_authenticity_score=0.50,
+            mobile_ugc_score=0.65,
+            quality_score=0.70,
+            product_fit_score=0.65,
+            ai_risk_score=0.10,
+            artistic_editorial_risk=0.30,
+        ),
+        ReferenceFilterPolicy(),
+    )
+    assert decision.status == "needs_review"
+    assert decision.reject_reason == "AUTO_APPROVE_UNCERTAIN"
+
+
+def test_reference_high_confidence_phone_photo_auto_approves():
+    decision = evaluate_reference(
+        reference_document(
+            phone_authenticity_score=0.85,
+            mobile_ugc_score=0.85,
+            quality_score=0.80,
+            product_fit_score=0.80,
+            ai_risk_score=0.05,
+            artistic_editorial_risk=0.10,
+        ),
+        ReferenceFilterPolicy(),
+    )
+    assert decision.status == "approved"
+    assert decision.reject_reason is None
+
+
+def test_manual_real_label_bypasses_uncertain_auto_approve_gate():
+    decision = evaluate_reference(
+        reference_document(
+            phone_authenticity_score=0.50,
+            mobile_ugc_score=0.65,
+            quality_score=0.70,
+            product_fit_score=0.65,
+            ai_risk_score=0.10,
+            artistic_editorial_risk=0.30,
+        ),
+        ReferenceFilterPolicy(),
+        manual_ai_label="real",
+    )
+    assert decision.status == "approved"
+
+
 def test_visual_fingerprint_matches_resized_and_cropped_reposts():
     from app.modules.realistic_review_ugc.visual_dedupe import (
         is_visual_near_duplicate,
