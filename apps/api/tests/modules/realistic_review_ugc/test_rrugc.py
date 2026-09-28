@@ -47,6 +47,11 @@ from app.modules.realistic_review_ugc.analysis import (
     reference_preference_features,
 )
 from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
+from app.modules.realistic_review_ugc.keyword_strategy import (
+    build_campaign_search_queries,
+    detect_campaign_keyword_intent,
+    query_is_suppressed_for_reference_search,
+)
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.model import (
@@ -827,6 +832,77 @@ def test_reference_preference_model_learns_human_selection_direction():
     assert model.bad_count == 3
     assert reference_preference_adjustment(good, model) > 0
     assert reference_preference_adjustment(bad, model) < 0
+
+
+def test_hat_keyword_strategy_detects_vietnamese_and_builds_balanced_personas():
+    assert detect_campaign_keyword_intent(
+        name="Người đội mũ",
+        queries=["ảnh người đội mũ tự nhiên"],
+    ) == "hat_people"
+
+    queries = build_campaign_search_queries(
+        name="Người đội mũ",
+        queries=["ảnh người đội mũ tự nhiên"],
+    )
+    assert len(queries) == 10
+    combined = " | ".join(queries)
+    assert "man wearing" in combined
+    assert "woman wearing" in combined
+    assert "couple wearing" in combined
+    assert "family wearing" in combined
+    assert "friends wearing" in combined
+    assert all(not query_is_suppressed_for_reference_search(query) for query in queries)
+
+
+def test_hat_keyword_strategy_suppresses_editorial_and_respects_explicit_persona():
+    queries = build_campaign_search_queries(
+        name="Couple đội mũ",
+        queries=[
+            "couple hats editorial fashion shoot",
+            "couple wearing caps candid phone photo",
+        ],
+    )
+    assert queries
+    assert len(queries) <= 10
+    assert all("couple" in query.casefold() for query in queries)
+    assert not any("editorial" in query.casefold() for query in queries)
+    assert not any("fashion shoot" in query.casefold() for query in queries)
+    assert "couple wearing caps candid phone photo" in queries
+
+
+def test_create_hat_campaign_auto_expands_search_queries(database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Hat people references",
+            query="people wearing hats",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        assert len(campaign.search_queries_json or []) == 10
+        combined = " | ".join(campaign.search_queries_json or [])
+        assert "man wearing" in combined
+        assert "woman wearing" in combined
+        assert "couple wearing" in combined
+        assert "family wearing" in combined
+
+
+def test_hat_keyword_pool_rotates_out_bad_reference_query():
+    baseline = build_campaign_search_queries(
+        name="People wearing hats",
+        queries=["people wearing hats"],
+    )
+    bad_query = baseline[0]
+    refreshed = build_campaign_search_queries(
+        name="People wearing hats",
+        queries=baseline,
+        outcomes=[(bad_query, "approved", "bad") for _ in range(6)],
+    )
+    assert len(refreshed) == 10
+    assert bad_query not in refreshed
+    assert refreshed != baseline
 
 
 def test_adaptive_keyword_ranking_prefers_human_approved_reference_yield(monkeypatch):
@@ -2385,7 +2461,9 @@ def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):
         headers={"Authorization": "Bearer " + token},
     )
     assert task.status_code == 200
-    assert task.json()["query"] == "happy woman casual outdoor"
+    assert task.json()["query"] in payload["search_queries"]
+    assert "woman wearing" in task.json()["query"]
+    assert "hat" in task.json()["query"] or "cap" in task.json()["query"]
 
     denied = api.get(
         "/api/v1/realistic-review-ugc/scout/" + campaign_id + "/task",

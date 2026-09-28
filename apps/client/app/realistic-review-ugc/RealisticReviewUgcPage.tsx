@@ -149,8 +149,8 @@ function SearchQueryEditor({
   return <div className="rrugc-keyword-editor">
     <div className="rrugc-keyword-preset">
       <span>
-        <strong>Real-person lifestyle preset</strong>
-        <small>7 phone/cap searches + 3 casual smartphone searches</small>
+        <strong>Hat people lifestyle preset</strong>
+        <small>Men, women, couples, families, and friends · candid phone style</small>
       </span>
       <button type="button" onClick={() => onChange(referenceLifestyleSearchQueries())}>
         Use preset
@@ -182,7 +182,7 @@ function SearchQueryEditor({
       />
       <button type="button" disabled={!draft.trim() || value.length >= 10} onClick={add}>Add</button>
     </div>
-    <small>{value.length}/10 keywords · Auto Scout searches every keyword in each scan.</small>
+    <small>{value.length}/10 keywords · Hat campaigns auto-refresh this pool from persona coverage and REF ✓ / REF × yield.</small>
   </div>;
 }
 

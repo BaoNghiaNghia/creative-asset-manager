@@ -44,13 +44,14 @@ describe("Realistic Review UGC route", () => {
     expect(candidateMatchesGalleryTab("needs_review", "processing")).toBe(true);
   });
 
-  it("uses a smartphone-first real-person Pinterest preset", () => {
+  it("uses a balanced hat-person lifestyle Pinterest preset", () => {
     const queries = referenceLifestyleSearchQueries();
     expect(queries).toHaveLength(10);
-    expect(queries).toContain("baseball cap selfie iphone natural light");
-    expect(queries).toContain("baseball cap mirror selfie casual outfit");
-    expect(queries).toContain("car selfie baseball cap natural light");
-    expect(queries).toContain("candid phone photo at home");
+    expect(queries).toContain("man wearing baseball cap candid phone photo");
+    expect(queries).toContain("woman wearing bucket hat candid phone photo");
+    expect(queries).toContain("couple wearing hats candid outdoor phone photo");
+    expect(queries).toContain("family wearing hats candid outdoor natural light");
+    expect(queries).toContain("friends wearing hats candid smartphone photo");
   });
 
   it("ranks smartphone-like references above artistic ones", () => {

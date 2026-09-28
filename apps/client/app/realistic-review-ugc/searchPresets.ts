@@ -1,14 +1,14 @@
 export const REFERENCE_LIFESTYLE_SEARCH_QUERIES = [
-  "baseball cap selfie iphone natural light",
-  "baseball cap mirror selfie casual outfit",
-  "woman wearing cap iphone selfie candid",
-  "man wearing cap casual phone photo",
-  "car selfie baseball cap natural light",
-  "coffee shop selfie baseball cap phone photo",
-  "corduroy cap selfie candid smartphone",
-  "casual selfie iphone natural light",
-  "candid phone photo at home",
-  "casual family candid smartphone photo",
+  "man wearing baseball cap candid phone photo",
+  "man wearing hat casual outdoor lifestyle",
+  "woman wearing bucket hat candid phone photo",
+  "woman wearing hat casual lifestyle natural light",
+  "couple wearing hats candid outdoor phone photo",
+  "couple wearing caps casual lifestyle natural light",
+  "family wearing hats candid outdoor natural light",
+  "family wearing caps casual phone photo",
+  "friends wearing hats candid smartphone photo",
+  "friends wearing caps outdoor casual lifestyle",
 ] as const;
 
 export const referenceLifestyleSearchQueries = (): string[] =>

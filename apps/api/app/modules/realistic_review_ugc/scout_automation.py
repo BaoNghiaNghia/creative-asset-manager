@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcScoutAgentModel,
@@ -554,14 +555,31 @@ class RrugcAutoScoutService:
                 stale_run.completed_at = now
                 stale_run.last_heartbeat_at = now
 
+        current_queries = list(selected.search_queries_json or [selected.query])
+        outcomes = self.repository.candidate_keyword_outcomes(
+            agent.tenant_id,
+            selected.id,
+        )
+        refreshed_queries = build_campaign_search_queries(
+            name=selected.name,
+            queries=current_queries,
+            product_snapshot=selected.product_snapshot_json,
+            reject_headwear=selected.reject_headwear,
+            outcomes=outcomes,
+        )
+        if refreshed_queries != current_queries:
+            selected.query = refreshed_queries[0]
+            selected.search_queries_json = refreshed_queries
+            self.session.flush()
+
         ordered_queries = adaptive_search_queries(
-            list(selected.search_queries_json or [selected.query]),
+            refreshed_queries or current_queries,
             self.repository.list_scout_runs(
                 agent.tenant_id,
                 campaign_id=selected.id,
                 limit=KEYWORD_HISTORY_RUNS,
             ),
-            self.repository.candidate_keyword_outcomes(agent.tenant_id, selected.id),
+            outcomes,
         )
         selected_query = ordered_queries[0] if ordered_queries else selected.query
         run = RrugcScoutRunModel(

@@ -28,6 +28,7 @@ from app.infrastructure.downloader.secure_image import (
 )
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.analysis import reference_preference_features
+from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcCampaignModel,
@@ -216,6 +217,11 @@ class RrugcService:
                 "At least one Pinterest search query is required.",
                 status_code=400,
             )
+        queries = build_campaign_search_queries(
+            name=name,
+            queries=queries,
+            reject_headwear=reject_headwear,
+        )
         row = RrugcCampaignModel(
             tenant_id=tenant_id,
             name=name.strip(),
@@ -320,6 +326,17 @@ class RrugcService:
             campaign.auto_scout = auto_scout
             if not auto_scout:
                 campaign.scan_next_at = None
+
+        current_queries = list(campaign.search_queries_json or [campaign.query])
+        refreshed_queries = build_campaign_search_queries(
+            name=campaign.name,
+            queries=current_queries,
+            product_snapshot=campaign.product_snapshot_json,
+            reject_headwear=campaign.reject_headwear,
+        )
+        if refreshed_queries:
+            campaign.query = refreshed_queries[0]
+            campaign.search_queries_json = refreshed_queries
 
         if campaign.auto_scout and campaign.status == "running":
             campaign.scan_next_at = datetime.now(timezone.utc)
