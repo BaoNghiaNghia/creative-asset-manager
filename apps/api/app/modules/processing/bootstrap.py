@@ -61,6 +61,10 @@ from app.modules.realistic_review_ugc.handler import (
 )
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
+from app.modules.realistic_review_ugc.delivery_automation import (
+    RrugcDeliveryMaintenanceJobHandler,
+    RrugcDeliveryMaintenanceScheduler,
+)
 from app.modules.retention.scheduler import RetentionCleanupScheduler
 from app.modules.storage.managed_cleanup_handler import ManagedStorageCleanupJobHandler
 from app.modules.storage.managed_cleanup_scheduler import (
@@ -121,6 +125,11 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
         "DYNAMIC_AI_METADATA_ENABLED",
         "AI_SINGLE_ANALYSIS_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED",
+    ),
+    "rrugc_delivery_maintenance": (
+        "PROCESSING_JOBS_ENABLED",
+        "MANAGED_ASSET_STORAGE_ENABLED",
+        "RRUGC_DELIVERY_AUTOMATION_ENABLED",
     ),
 }
 
@@ -342,6 +351,10 @@ def build_worker_runtime(
                 ("rrugc_candidate_import", RrugcCandidateImportJobHandler(settings)),
                 ("rrugc_generate", RrugcGenerateJobHandler(settings)),
                 ("rrugc_supervisor_qa", RrugcSupervisorQaJobHandler(settings)),
+                (
+                    "rrugc_delivery_maintenance",
+                    RrugcDeliveryMaintenanceJobHandler(settings),
+                ),
             )
         ),
         health=WorkerHealthState(worker_id),
@@ -364,6 +377,7 @@ def run_worker(
     source_sync_scheduler: SourceSyncScheduler | None = None
     creative_pipeline_canary_scheduler: CreativePipelineCanaryScheduler | None = None
     managed_cleanup_scheduler: ManagedStorageCleanupSchedulerRunner | None = None
+    rrugc_delivery_scheduler: RrugcDeliveryMaintenanceScheduler | None = None
     video_cache_cleanup: VideoCacheCleanupRunner | None = None
     visual_backfill_scheduler: VisualSearchBackfillScheduler | None = None
     try:
@@ -407,6 +421,13 @@ def run_worker(
                     session_factory, settings, logger=worker_logger,
                 )
                 managed_cleanup_scheduler.start()
+            if settings.RRUGC_DELIVERY_AUTOMATION_ENABLED:
+                rrugc_delivery_scheduler = RrugcDeliveryMaintenanceScheduler(
+                    session_factory,
+                    settings,
+                    logger=worker_logger,
+                )
+                rrugc_delivery_scheduler.start()
         if (
             runs_video_cache_scheduler(runtime.config.worker_role)
             and settings.R2_VIDEO_CACHE_ENABLED
@@ -475,6 +496,8 @@ def run_worker(
             source_sync_scheduler.stop()
         if managed_cleanup_scheduler is not None:
             managed_cleanup_scheduler.stop()
+        if rrugc_delivery_scheduler is not None:
+            rrugc_delivery_scheduler.stop()
         if video_cache_cleanup is not None:
             video_cache_cleanup.stop()
         if visual_backfill_scheduler is not None:

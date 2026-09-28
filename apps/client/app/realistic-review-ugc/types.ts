@@ -386,8 +386,11 @@ export type DeliveryPackage = {
   export_count: number;
   delivered_count: number;
   failed_count: number;
+  auto_retry_count: number;
   items: DeliveryItem[];
   started_at: string | null;
+  last_retry_at: string | null;
+  next_retry_at: string | null;
   delivered_at: string | null;
   expires_at: string | null;
   expired_at: string | null;
@@ -420,6 +423,41 @@ export type CampaignDeliverySummary = {
 export type DeliveryLifecycleReconcile = {
   scanned: number;
   expired: number;
+};
+
+export type DeliveryEvent = {
+  id: string;
+  campaign_id: string;
+  package_id: string | null;
+  event_type: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type DeliveryOperationsSummary = {
+  automation_enabled: boolean;
+  campaigns_total: number;
+  campaigns_completed: number;
+  destinations_active: number;
+  packages_total: number;
+  packages_delivered: number;
+  packages_partial_failed: number;
+  packages_expired: number;
+  retry_due: number;
+  retry_exhausted: number;
+  items_delivered: number;
+  items_failed: number;
+  latest_delivery_at: string | null;
+  maintenance_interval_seconds: number;
+  auto_retry_max_attempts: number;
+  recent_events: DeliveryEvent[];
+};
+
+export type DeliveryMaintenanceEnqueue = {
+  created: boolean;
+  job_id: string | null;
 };
 
 export type CampaignCreateRequest = {

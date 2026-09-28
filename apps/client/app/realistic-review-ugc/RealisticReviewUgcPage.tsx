@@ -4,6 +4,7 @@ import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { analyzeCandidate, createCampaign, importCandidate, listCampaigns, listCandidates } from "./api";
 import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
+import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import type { Campaign, CampaignCreated, Candidate, CandidateStatus } from "./types";
 
@@ -242,6 +243,7 @@ export function RealisticReviewUgcPage() {
           <article><span>Drive ready</span><strong>{kpis.driveReady}</strong></article>
         </section>
 
+        <DeliveryOperationsPanel onError={setError} />
         <ProductRegistryPanel />
 
         <div className="rrugc-columns">

@@ -30,6 +30,7 @@ class JobType(str, Enum):
     RRUGC_CANDIDATE_IMPORT = "rrugc_candidate_import"
     RRUGC_GENERATE = "rrugc_generate"
     RRUGC_SUPERVISOR_QA = "rrugc_supervisor_qa"
+    RRUGC_DELIVERY_MAINTENANCE = "rrugc_delivery_maintenance"
 
 
 JOB_TYPES = tuple(job_type.value for job_type in JobType)

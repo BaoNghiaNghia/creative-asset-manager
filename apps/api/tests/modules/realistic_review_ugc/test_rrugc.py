@@ -51,6 +51,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcExportModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
+    RrugcDeliveryEventModel,
     RrugcDeliveryItemModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
@@ -60,6 +61,9 @@ from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
+from app.modules.realistic_review_ugc.delivery_automation import (
+    RrugcDeliveryMaintenanceScheduler,
+)
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -114,6 +118,7 @@ def database():
     RrugcExportModel.__table__.create(engine)
     RrugcDeliveryDestinationModel.__table__.create(engine)
     RrugcDeliveryPackageModel.__table__.create(engine)
+    RrugcDeliveryEventModel.__table__.create(engine)
     RrugcDeliveryItemModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
@@ -905,13 +910,19 @@ def test_export_api_single_batch_list_and_summary(api, database):
 
 
 class _FakeDeliveryStorage:
-    def __init__(self, *, fail_first: bool = False):
+    def __init__(
+        self,
+        *,
+        fail_first: bool = False,
+        always_fail: bool = False,
+    ):
         self.calls: list[dict] = []
         self.fail_first = fail_first
+        self.always_fail = always_fail
 
     async def copy_asset_to_folder(self, **kwargs):
         self.calls.append(dict(kwargs))
-        if self.fail_first and len(self.calls) == 1:
+        if self.always_fail or (self.fail_first and len(self.calls) == 1):
             raise StorageProviderError(
                 "temporary delivery failure",
                 code="delivery_temporary",
@@ -927,6 +938,23 @@ class _FakeDeliveryStorage:
             remote_folder_id=kwargs["destination_folder_id"],
             web_url=f"https://drive.google.com/file/d/copy-{item_id}/view",
         )
+
+
+
+
+def _delivery_automation_settings(**overrides):
+    values = {
+        "PROCESSING_JOBS_ENABLED": True,
+        "MANAGED_ASSET_STORAGE_ENABLED": True,
+        "RRUGC_DELIVERY_AUTOMATION_ENABLED": True,
+        "RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS": 300,
+        "RRUGC_DELIVERY_MAINTENANCE_MAX_PACKAGES_PER_RUN": 20,
+        "RRUGC_DELIVERY_AUTO_RETRY_MAX_ATTEMPTS": 3,
+        "RRUGC_DELIVERY_AUTO_RETRY_BASE_SECONDS": 60,
+        "RRUGC_DELIVERY_AUTO_RETRY_MAX_SECONDS": 600,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 def _catalog_one_for_delivery(session, *, key: str):
@@ -1103,6 +1131,195 @@ def test_delivery_lifecycle_marks_expired_without_deleting_catalog_asset(databas
         assert asset is not None
 
 
+
+
+def test_delivery_automation_schedules_due_retry_and_records_events(database):
+    settings = _delivery_automation_settings()
+    with database() as session:
+        campaign, _attempt, _task, _export = _catalog_one_for_delivery(
+            session,
+            key="delivery-auto-retry",
+        )
+        fake = _FakeDeliveryStorage(fail_first=True)
+        service = RrugcDeliveryService(
+            session,
+            storage=fake,
+            settings=settings,
+        )
+        destination = service.create_destination(
+            tenant_id="tenant-a",
+            user_id="operator-a",
+            name="Automated Retry Folder",
+            kind="google_drive_folder",
+            target_ref="drive-folder-auto",
+            retention_days=30,
+        )
+        package = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        assert package.status == "partial_failed"
+        assert package.auto_retry_count == 0
+        assert package.next_retry_at is not None
+
+        package.next_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+        summary = service.operations_summary(tenant_id="tenant-a")
+        assert summary["automation_enabled"] is True
+        assert summary["retry_due"] == 1
+
+    scheduler = RrugcDeliveryMaintenanceScheduler(
+        database,
+        settings,
+        logger=logging.getLogger("test.rrugc.delivery"),
+    )
+    scheduled = scheduler.tick(now=datetime.now(timezone.utc))
+    assert len(scheduled) == 1
+    assert scheduled[0].created is True
+    with database() as session:
+        job = session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_delivery_maintenance",
+                ProcessingJobModel.tenant_id == "tenant-a",
+            )
+        )
+        assert job is not None
+        package = session.scalar(
+            select(RrugcDeliveryPackageModel).where(
+                RrugcDeliveryPackageModel.tenant_id == "tenant-a",
+                RrugcDeliveryPackageModel.campaign_id == campaign.id,
+            )
+        )
+        assert package is not None
+        retried = asyncio.run(
+            RrugcDeliveryService(
+                session,
+                storage=fake,
+                settings=settings,
+            ).retry_package(
+                tenant_id="tenant-a",
+                package_id=package.id,
+                automated_retry=True,
+            )
+        )
+        assert retried.status == "delivered"
+        assert retried.auto_retry_count == 1
+        assert retried.last_retry_at is not None
+        assert retried.next_retry_at is None
+        events = RrugcDeliveryService(
+            session,
+            settings=settings,
+        ).recent_events(tenant_id="tenant-a", limit=20)
+        assert {event.event_type for event in events} >= {
+            "package_partial_failed",
+            "package_delivered",
+        }
+
+
+def test_delivery_automation_exhausts_bounded_retry_budget(database):
+    settings = _delivery_automation_settings(
+        RRUGC_DELIVERY_AUTO_RETRY_MAX_ATTEMPTS=1,
+    )
+    with database() as session:
+        campaign, _attempt, _task, _export = _catalog_one_for_delivery(
+            session,
+            key="delivery-auto-exhaust",
+        )
+        fake = _FakeDeliveryStorage(always_fail=True)
+        service = RrugcDeliveryService(
+            session,
+            storage=fake,
+            settings=settings,
+        )
+        destination = service.create_destination(
+            tenant_id="tenant-a",
+            user_id="operator-a",
+            name="Exhaust Folder",
+            kind="google_drive_folder",
+            target_ref="drive-folder-exhaust",
+            retention_days=7,
+        )
+        package = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        assert package.next_retry_at is not None
+        package.next_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+
+        package = asyncio.run(
+            service.retry_package(
+                tenant_id="tenant-a",
+                package_id=package.id,
+                automated_retry=True,
+            )
+        )
+        assert package.status == "partial_failed"
+        assert package.auto_retry_count == 1
+        assert package.next_retry_at is None
+        summary = service.operations_summary(tenant_id="tenant-a")
+        assert summary["retry_exhausted"] == 1
+        events = service.recent_events(tenant_id="tenant-a", limit=20)
+        assert any(event.event_type == "auto_retry_exhausted" for event in events)
+
+
+def test_delivery_automation_adopts_legacy_partial_package_without_schedule(database):
+    settings = _delivery_automation_settings()
+    with database() as session:
+        campaign, _attempt, _task, _export = _catalog_one_for_delivery(
+            session,
+            key="delivery-auto-legacy",
+        )
+        fake = _FakeDeliveryStorage(always_fail=True)
+        disabled_settings = _delivery_automation_settings(
+            RRUGC_DELIVERY_AUTOMATION_ENABLED=False,
+        )
+        service = RrugcDeliveryService(
+            session,
+            storage=fake,
+            settings=disabled_settings,
+        )
+        destination = service.create_destination(
+            tenant_id="tenant-a",
+            user_id="operator-a",
+            name="Legacy Partial Folder",
+            kind="google_drive_folder",
+            target_ref="drive-folder-legacy",
+            retention_days=7,
+        )
+        package = asyncio.run(
+            service.deliver_campaign(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                destination_id=destination.id,
+                user_id="operator-a",
+            )
+        )
+        assert package.status == "partial_failed"
+        assert package.next_retry_at is None
+        package.updated_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+        session.commit()
+
+        due = RrugcDeliveryService(
+            session,
+            storage=fake,
+            settings=settings,
+        ).due_retry_packages(
+            tenant_id="tenant-a",
+            limit=20,
+            now=datetime.now(timezone.utc),
+        )
+        assert [row.id for row in due] == [package.id]
+
+
 def test_delivery_destination_policy_and_summary_api(api, database):
     with database() as session:
         campaign, _attempt, _task, _export = _catalog_one_for_delivery(
@@ -1153,6 +1370,16 @@ def test_delivery_destination_policy_and_summary_api(api, database):
     )
     assert packages.status_code == 200
     assert packages.json()["total"] == 0
+
+    operations = api.get(
+        "/api/v1/realistic-review-ugc/delivery-operations/summary",
+    )
+    assert operations.status_code == 200
+    operations_payload = operations.json()
+    assert operations_payload["campaigns_total"] == 1
+    assert operations_payload["destinations_active"] == 1
+    assert operations_payload["packages_total"] == 0
+    assert operations_payload["recent_events"] == []
 
 
 def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):

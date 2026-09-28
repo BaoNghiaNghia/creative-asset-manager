@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
@@ -27,6 +27,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcExportModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
+    RrugcDeliveryEventModel,
     RrugcDeliveryItemModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
@@ -68,6 +69,9 @@ from app.modules.realistic_review_ugc.schema import (
     CampaignLifecyclePolicyRequest,
     CampaignDeliverySummaryResponse,
     DeliveryLifecycleReconcileResponse,
+    DeliveryEventResponse,
+    DeliveryOperationsSummaryResponse,
+    DeliveryMaintenanceEnqueueResponse,
     ProductCreateRequest,
     ProductReferenceResponse,
     ProductReferenceView,
@@ -79,6 +83,9 @@ from app.modules.realistic_review_ugc.schema import (
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
+from app.modules.realistic_review_ugc.delivery_automation import (
+    RrugcDeliveryMaintenanceScheduler,
+)
 from app.modules.realistic_review_ugc.supervisor import (
     MAX_GENERATION_ATTEMPTS,
     RrugcSupervisorService,
@@ -501,6 +508,7 @@ def _delivery_package(
         export_count=row.export_count,
         delivered_count=row.delivered_count,
         failed_count=row.failed_count,
+        auto_retry_count=row.auto_retry_count,
         items=[
             _delivery_item(item)
             for item in service.package_items(
@@ -509,11 +517,26 @@ def _delivery_package(
             )
         ],
         started_at=row.started_at,
+        last_retry_at=row.last_retry_at,
+        next_retry_at=row.next_retry_at,
         delivered_at=row.delivered_at,
         expires_at=row.expires_at,
         expired_at=row.expired_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _delivery_event(row: RrugcDeliveryEventModel) -> DeliveryEventResponse:
+    return DeliveryEventResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        package_id=row.package_id,
+        event_type=row.event_type,
+        severity=row.severity,
+        message=row.message,
+        payload=dict(row.payload_json or {}),
+        created_at=row.created_at,
     )
 
 
@@ -1439,6 +1462,63 @@ def reconcile_delivery_lifecycle(
     return DeliveryLifecycleReconcileResponse(
         scanned=result.scanned,
         expired=result.expired,
+    )
+
+
+@router.get(
+    "/delivery-operations/summary",
+    response_model=DeliveryOperationsSummaryResponse,
+)
+def get_delivery_operations_summary(
+    event_limit: int = Query(default=12, ge=1, le=50),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    settings = get_settings()
+    service = RrugcDeliveryService(session, settings=settings)
+    summary = service.operations_summary(
+        tenant_id=principal.active_tenant_id,
+    )
+    events = service.recent_events(
+        tenant_id=principal.active_tenant_id,
+        limit=event_limit,
+    )
+    return DeliveryOperationsSummaryResponse(
+        **summary,
+        recent_events=[_delivery_event(row) for row in events],
+    )
+
+
+@router.post(
+    "/delivery-operations/maintenance",
+    response_model=DeliveryMaintenanceEnqueueResponse,
+)
+def enqueue_delivery_maintenance(
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    settings = get_settings()
+    if not (
+        settings.RRUGC_DELIVERY_AUTOMATION_ENABLED
+        and settings.PROCESSING_JOBS_ENABLED
+        and settings.MANAGED_ASSET_STORAGE_ENABLED
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rrugc_delivery_automation_disabled",
+                "message": "RRUGC delivery automation is disabled.",
+            },
+        )
+    result = RrugcDeliveryMaintenanceScheduler(
+        SessionLocal,
+        settings,
+    ).enqueue_tenant(
+        principal.active_tenant_id,
+        force=True,
+    )
+    return DeliveryMaintenanceEnqueueResponse(
+        created=result.created,
+        job_id=result.job_id,
     )
 
 

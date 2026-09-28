@@ -6,6 +6,8 @@ import type {
   CampaignDeliverySummary,
   DeliveryDestination,
   DeliveryLifecycleReconcile,
+  DeliveryMaintenanceEnqueue,
+  DeliveryOperationsSummary,
   DeliveryPackage,
   DeliveryPackageList,
   Candidate,
@@ -352,6 +354,20 @@ export const getCampaignDeliverySummary = (
 export const reconcileDeliveryLifecycle = (limit = 200) =>
   request<DeliveryLifecycleReconcile>(
     "/api/v1/realistic-review-ugc/delivery-lifecycle/reconcile?limit=" + limit,
+    { method: "POST", body: "{}" },
+  );
+
+export const getDeliveryOperationsSummary = (
+  signal?: AbortSignal,
+) =>
+  request<DeliveryOperationsSummary>(
+    "/api/v1/realistic-review-ugc/delivery-operations/summary",
+    { signal },
+  );
+
+export const runDeliveryMaintenance = () =>
+  request<DeliveryMaintenanceEnqueue>(
+    "/api/v1/realistic-review-ugc/delivery-operations/maintenance",
     { method: "POST", body: "{}" },
   );
 

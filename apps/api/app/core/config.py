@@ -67,6 +67,7 @@ FEATURE_FLAG_NAMES = (
     "VIDEO_CDN_DELIVERY_GLOBAL_ROLLOUT_ENABLED",
     "VIDEO_CDN_DELIVERY_GUARD_ENABLED",
     "R2_VIDEO_PLAYBACK_DERIVED_ENABLED",
+    "RRUGC_DELIVERY_AUTOMATION_ENABLED",
 )
 
 
@@ -454,6 +455,15 @@ class Settings(BaseSettings):
     MANAGED_STORAGE_CLEANUP_OFFPEAK_BATCH_SIZE: int = 300
     MANAGED_STORAGE_CLEANUP_PRESSURE_PERCENT: int = 80
     MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT: int = 95
+    # RRUGC delivery automation stays opt-in. It only retries previously-created
+    # delivery packages and reconciles package lifecycle; it never invents a
+    # destination or auto-exports new catalog assets.
+    RRUGC_DELIVERY_AUTOMATION_ENABLED: bool = False
+    RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS: int = 300
+    RRUGC_DELIVERY_MAINTENANCE_MAX_PACKAGES_PER_RUN: int = 20
+    RRUGC_DELIVERY_AUTO_RETRY_MAX_ATTEMPTS: int = 5
+    RRUGC_DELIVERY_AUTO_RETRY_BASE_SECONDS: int = 300
+    RRUGC_DELIVERY_AUTO_RETRY_MAX_SECONDS: int = 10800
     # Bounded Google Drive staging capacity. Zero disables byte-based admission.
     MANAGED_STORAGE_STAGING_MAX_BYTES: int = 0
     AUTH_SESSION_TTL_SECONDS: int = 30 * 24 * 60 * 60
@@ -1235,6 +1245,19 @@ class Settings(BaseSettings):
             raise ValueError("Managed storage cleanup adaptive limits must be positive")
         if not 1 <= self.MANAGED_STORAGE_CLEANUP_PRESSURE_PERCENT <= self.MANAGED_STORAGE_CLEANUP_CRITICAL_PERCENT <= 100:
             raise ValueError("Managed storage cleanup pressure percentages must be ordered between 1 and 100")
+        rrugc_delivery_values = (
+            self.RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS,
+            self.RRUGC_DELIVERY_MAINTENANCE_MAX_PACKAGES_PER_RUN,
+            self.RRUGC_DELIVERY_AUTO_RETRY_MAX_ATTEMPTS,
+            self.RRUGC_DELIVERY_AUTO_RETRY_BASE_SECONDS,
+            self.RRUGC_DELIVERY_AUTO_RETRY_MAX_SECONDS,
+        )
+        if min(rrugc_delivery_values) <= 0:
+            raise ValueError("RRUGC delivery automation limits must be positive")
+        if self.RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS < 60:
+            raise ValueError("RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS must be at least 60")
+        if self.RRUGC_DELIVERY_AUTO_RETRY_BASE_SECONDS > self.RRUGC_DELIVERY_AUTO_RETRY_MAX_SECONDS:
+            raise ValueError("RRUGC delivery retry base cannot exceed retry maximum")
         if not 0 < self.SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS <= 5:
             raise ValueError("SEARCH_SUGGESTIONS_REQUEST_TIMEOUT_SECONDS must be between 0 and 5")
         if not 0 < self.SEARCH_SUGGESTIONS_QUERY_TIMEOUT_MS <= 5000:

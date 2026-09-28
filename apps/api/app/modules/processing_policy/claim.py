@@ -73,6 +73,7 @@ STAGE_POLICY = {
     # tenant pause/total-cap gate as other pipeline work.
     "creative_pipeline_node": "pipeline_enabled",
     "creative_pipeline_scan": "pipeline_enabled",
+    "rrugc_delivery_maintenance": "pipeline_enabled",
 }
 
 

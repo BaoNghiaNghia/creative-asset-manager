@@ -418,8 +418,11 @@ class DeliveryPackageResponse(BaseModel):
     export_count: int
     delivered_count: int
     failed_count: int
+    auto_retry_count: int
     items: list[DeliveryItemResponse] = Field(default_factory=list)
     started_at: datetime | None = None
+    last_retry_at: datetime | None = None
+    next_retry_at: datetime | None = None
     delivered_at: datetime | None = None
     expires_at: datetime | None = None
     expired_at: datetime | None = None
@@ -457,6 +460,41 @@ class CampaignDeliverySummaryResponse(BaseModel):
 class DeliveryLifecycleReconcileResponse(BaseModel):
     scanned: int
     expired: int
+
+
+class DeliveryEventResponse(BaseModel):
+    id: str
+    campaign_id: str
+    package_id: str | None = None
+    event_type: str
+    severity: Literal["info", "warning", "error"]
+    message: str
+    payload: dict[str, object] | None = None
+    created_at: datetime
+
+
+class DeliveryOperationsSummaryResponse(BaseModel):
+    automation_enabled: bool
+    campaigns_total: int
+    campaigns_completed: int
+    destinations_active: int
+    packages_total: int
+    packages_delivered: int
+    packages_partial_failed: int
+    packages_expired: int
+    retry_due: int
+    retry_exhausted: int
+    items_delivered: int
+    items_failed: int
+    latest_delivery_at: datetime | None = None
+    maintenance_interval_seconds: int
+    auto_retry_max_attempts: int
+    recent_events: list[DeliveryEventResponse] = Field(default_factory=list)
+
+
+class DeliveryMaintenanceEnqueueResponse(BaseModel):
+    created: bool
+    job_id: str | None = None
 
 
 class CandidateSubmission(BaseModel):

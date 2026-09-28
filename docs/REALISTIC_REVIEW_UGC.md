@@ -1620,5 +1620,47 @@ The RRUGC API now supports destination create/list/archive, campaign lifecycle p
 
 The Realistic Review UGC workspace exposes **PHASE 10 · DELIVERY + LIFECYCLE** with destination creation/selection, server-side delivery, campaign auto-completion policy, package outcome counters and retention reconciliation. The UI explicitly states that delivery expiry leaves catalog originals untouched.
 
-A future phase can add channel-specific adapters (for example ad-platform or commerce destinations), scheduled retention reconciliation independent of UI/API activity, delivery webhooks/notifications and richer cross-campaign operations reporting. Those integrations are not part of Phase 10.
+Phase 10 ends with explicit, durable delivery packages and non-destructive lifecycle state.
+
+---
+
+## 43. Implemented automated delivery operations
+
+Phase 11 turns the Phase 10 delivery records into a bounded operational loop without creating new destinations or exporting new assets implicitly:
+
+```text
+existing delivered / partial_failed packages
+  ↓
+RRUGC delivery maintenance scheduler
+  ↓
+durable rrugc_delivery_maintenance job
+  ├─ reconcile retention expiry
+  └─ retry due partial_failed packages
+       ↓
+       bounded exponential backoff
+       ↓
+       delivered OR retry scheduled OR retry exhausted
+  ↓
+durable delivery event feed + cross-campaign operations summary
+```
+
+The scheduler follows the existing processing-worker architecture. It runs only on the operational scheduler lane, creates tenant-scoped durable processing jobs with interval-bucket idempotency, and the job itself remains subject to the normal tenant `pipeline_enabled` processing policy. The feature is gated by `RRUGC_DELIVERY_AUTOMATION_ENABLED`, `PROCESSING_JOBS_ENABLED`, and `MANAGED_ASSET_STORAGE_ENABLED`.
+
+Automatic delivery retries are intentionally narrow. The scheduler only works on already-created `partial_failed` packages. It never creates a destination, never changes the selected destination, never approves a review, and never creates a Phase 9 catalog export. Already-delivered items are skipped, so retry work is limited to the remaining failed items.
+
+Retry state is durable on `rrugc_delivery_packages`:
+
+- `auto_retry_count`
+- `last_retry_at`
+- `next_retry_at`
+
+The default policy uses a five-minute first retry, exponential backoff, a bounded maximum delay, and a finite retry budget. Once the budget is exhausted, `next_retry_at` is cleared and the package remains `partial_failed` for operator attention. Phase 10 packages created before this automation existed are adopted safely: an older partial package with no `next_retry_at` becomes eligible after the base retry delay when automation is enabled.
+
+Lifecycle reconciliation now runs as part of the same maintenance job. Expired packages are marked `expired`, while the catalog AssetModel, managed original and export provenance remain untouched.
+
+Phase 11 also adds `rrugc_delivery_events`, an internal durable operational event feed. Events currently cover successful package delivery, partial failure/retry scheduling, exhausted retries, package expiry and campaign completion. Event writes are idempotent and are surfaced in the Realistic Review UGC workspace rather than sent to an external endpoint.
+
+The new tenant-wide operations summary reports campaign completion, active destinations, delivered/partial/expired packages, retry due/exhausted counts, delivered/failed items, the latest delivery time, scheduler cadence and the recent event feed. The workspace exposes this as **PHASE 11 · DELIVERY OPERATIONS** plus an explicit **Run maintenance now** action that enqueues the same durable maintenance job used by the scheduler.
+
+External webhook delivery is intentionally not simulated in this phase. The repository does not yet have a canonical authenticated webhook dispatcher/retry/signature architecture, so Phase 11 keeps notifications internal and durable. A later phase can add a shared outbound-webhook subsystem and channel-specific delivery adapters (ad platforms, commerce destinations, etc.) on top of these events.
 

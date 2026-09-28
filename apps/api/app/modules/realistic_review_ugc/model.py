@@ -551,6 +551,12 @@ class RrugcDeliveryPackageModel(Base):
             "status",
             "expires_at",
         ),
+        Index(
+            "ix_rrugc_delivery_package_retry_due",
+            "tenant_id",
+            "status",
+            "next_retry_at",
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -564,9 +570,12 @@ class RrugcDeliveryPackageModel(Base):
     export_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     delivered_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    auto_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     manifest_json: Mapped[list | None] = mapped_column(JSON)
     created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -575,6 +584,49 @@ class RrugcDeliveryPackageModel(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class RrugcDeliveryEventModel(Base):
+    __tablename__ = "rrugc_delivery_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_delivery_event_campaign",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["package_id"],
+            ["rrugc_delivery_packages.id"],
+            name="fk_rrugc_delivery_event_package",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_rrugc_delivery_event_key",
+        ),
+        Index(
+            "ix_rrugc_delivery_event_tenant_created",
+            "tenant_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    package_id: Mapped[str | None] = mapped_column(String(36))
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="info")
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
     )
 
 
