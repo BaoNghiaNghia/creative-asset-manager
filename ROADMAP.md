@@ -159,3 +159,8 @@
 - [x] Phase 4E process-local delivery observability and circuit breaker: decision/fallback/probe metrics, bounded latency samples, admin-safe snapshot, debounced signed HEAD health sampling, and automatic provider fallback without mutating the persisted master toggle.
 - [x] Phase 5A production activation hardening: Phase 4E guard is a master-toggle prerequisite, READY preflight is no-redirect, and one read-only activation command combines production/config/DB/quota/canary plus missing-key and READY-object Worker probes. Production runtime remains OFF until an operator explicitly enables it.
 - [x] Phase 5B Platform Admin activation console: frontend schema alignment for Phase 4D/4E, rollout/prerequisite visibility, safe process-local redirect/fallback/probe/latency and circuit state, plus rollback access even if observability is unavailable. No production activation.
+
+
+## Realistic Review UGC
+
+- [x] RRUGC-PINTEREST-AUTO-SCOUT-V2 Persistent tenant Scout Agent pairing, durable campaign leases/scheduling, repeated bounded Pinterest pulls, Pin-level dedupe, automatic analysis/import handoff, login/challenge pause-and-resume, and production UI controls.

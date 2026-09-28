@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import (
@@ -12,6 +12,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
+    RrugcScoutAgentModel,
+    RrugcScoutRunModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
@@ -106,6 +108,168 @@ class RrugcRepository:
             .order_by(RrugcCandidateModel.imported_at.desc())
             .limit(1)
         )
+
+
+
+    def list_scout_agents(
+        self,
+        tenant_id: str,
+        *,
+        include_archived: bool = False,
+        limit: int = 50,
+    ) -> list[RrugcScoutAgentModel]:
+        statement = select(RrugcScoutAgentModel).where(
+            RrugcScoutAgentModel.tenant_id == tenant_id
+        )
+        if not include_archived:
+            statement = statement.where(RrugcScoutAgentModel.active.is_(True))
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcScoutAgentModel.active.desc(),
+                    RrugcScoutAgentModel.last_seen_at.desc().nullslast(),
+                    RrugcScoutAgentModel.created_at.desc(),
+                ).limit(limit)
+            )
+        )
+
+    def get_scout_agent(
+        self,
+        tenant_id: str,
+        agent_id: str,
+    ) -> RrugcScoutAgentModel | None:
+        return self.session.scalar(
+            select(RrugcScoutAgentModel).where(
+                RrugcScoutAgentModel.tenant_id == tenant_id,
+                RrugcScoutAgentModel.id == agent_id,
+            )
+        )
+
+    def get_scout_agent_unscoped(
+        self,
+        agent_id: str,
+    ) -> RrugcScoutAgentModel | None:
+        return self.session.get(RrugcScoutAgentModel, agent_id)
+
+    def lock_scout_agent_unscoped(
+        self,
+        agent_id: str,
+    ) -> RrugcScoutAgentModel | None:
+        return self.session.scalar(
+            select(RrugcScoutAgentModel)
+            .where(RrugcScoutAgentModel.id == agent_id)
+            .with_for_update()
+        )
+
+    def add_scout_agent(
+        self,
+        row: RrugcScoutAgentModel,
+    ) -> RrugcScoutAgentModel:
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get_scout_run(
+        self,
+        tenant_id: str,
+        run_id: str,
+    ) -> RrugcScoutRunModel | None:
+        return self.session.scalar(
+            select(RrugcScoutRunModel).where(
+                RrugcScoutRunModel.tenant_id == tenant_id,
+                RrugcScoutRunModel.id == run_id,
+            )
+        )
+
+    def lock_scout_run(
+        self,
+        tenant_id: str,
+        run_id: str,
+    ) -> RrugcScoutRunModel | None:
+        return self.session.scalar(
+            select(RrugcScoutRunModel)
+            .where(
+                RrugcScoutRunModel.tenant_id == tenant_id,
+                RrugcScoutRunModel.id == run_id,
+            )
+            .with_for_update()
+        )
+
+    def list_scout_runs(
+        self,
+        tenant_id: str,
+        *,
+        campaign_id: str | None = None,
+        agent_id: str | None = None,
+        limit: int = 50,
+    ) -> list[RrugcScoutRunModel]:
+        statement = select(RrugcScoutRunModel).where(
+            RrugcScoutRunModel.tenant_id == tenant_id
+        )
+        if campaign_id is not None:
+            statement = statement.where(
+                RrugcScoutRunModel.campaign_id == campaign_id
+            )
+        if agent_id is not None:
+            statement = statement.where(
+                RrugcScoutRunModel.agent_id == agent_id
+            )
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcScoutRunModel.created_at.desc(),
+                    RrugcScoutRunModel.id.desc(),
+                ).limit(limit)
+            )
+        )
+
+    def claimable_campaigns(
+        self,
+        tenant_id: str,
+        *,
+        now,
+        limit: int = 20,
+    ) -> list[RrugcCampaignModel]:
+        return list(
+            self.session.scalars(
+                select(RrugcCampaignModel)
+                .where(
+                    RrugcCampaignModel.tenant_id == tenant_id,
+                    RrugcCampaignModel.status == "running",
+                    RrugcCampaignModel.auto_scout.is_(True),
+                    or_(
+                        RrugcCampaignModel.scan_next_at.is_(None),
+                        RrugcCampaignModel.scan_next_at <= now,
+                    ),
+                    or_(
+                        RrugcCampaignModel.scan_lease_expires_at.is_(None),
+                        RrugcCampaignModel.scan_lease_expires_at <= now,
+                    ),
+                )
+                .order_by(
+                    RrugcCampaignModel.scan_next_at.asc().nullsfirst(),
+                    RrugcCampaignModel.updated_at.asc(),
+                    RrugcCampaignModel.id.asc(),
+                )
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            )
+        )
+
+    def candidate_by_pin_url(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        pin_url: str,
+    ) -> RrugcCandidateModel | None:
+        return self.session.scalar(
+            select(RrugcCandidateModel).where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id == campaign_id,
+                RrugcCandidateModel.pin_url == pin_url,
+            )
+        )
+
 
     def list_products(
         self, tenant_id: str, *, include_archived: bool = False, limit: int = 200

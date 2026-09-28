@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
-import { analyzeCandidate, createCampaign, importCandidate, listCampaigns, listCandidates } from "./api";
+import {
+  analyzeCandidate,
+  configureCampaignScoutAutomation,
+  createCampaign,
+  importCandidate,
+  listCampaigns,
+  listCandidates,
+} from "./api";
 import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
+import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
-import type { Campaign, CampaignCreated, Candidate, CandidateStatus } from "./types";
+import type { Campaign, Candidate, CandidateStatus } from "./types";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
 const percent = (value: number | null) => value == null ? "—" : Math.round(value * 100) + "%";
@@ -71,12 +79,13 @@ export function RealisticReviewUgcPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [created, setCreated] = useState<CampaignCreated | null>(null);
   const [name, setName] = useState("Pinterest lifestyle references");
   const [query, setQuery] = useState("happy woman casual outdoor candid");
   const [target, setTarget] = useState(100);
   const [scrolls, setScrolls] = useState(6);
   const [autoImport, setAutoImport] = useState(true);
+  const [autoScout, setAutoScout] = useState(true);
+  const [scanIntervalMinutes, setScanIntervalMinutes] = useState(5);
   const [minHeadRatio, setMinHeadRatio] = useState(20);
   const [maxHeadRatio, setMaxHeadRatio] = useState(45);
   const [minSmile, setMinSmile] = useState(65);
@@ -90,13 +99,8 @@ export function RealisticReviewUgcPage() {
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState("");
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
 
   const selected = campaigns.find(item => item.id === selectedId) || null;
-  const command = useMemo(
-    () => created ? scoutCommand(window.location.origin, created.id, created.scout_token) : "",
-    [created],
-  );
 
   async function refreshCampaigns(signal?: AbortSignal) {
     const rows = await listCampaigns(signal);
@@ -150,7 +154,6 @@ export function RealisticReviewUgcPage() {
     }
     setBusy(true);
     setError("");
-    setCopied(false);
     try {
       const next = await createCampaign({
         name: name.trim(),
@@ -158,6 +161,8 @@ export function RealisticReviewUgcPage() {
         target_count: target,
         max_scroll_batches: scrolls,
         auto_import: autoImport,
+        auto_scout: autoScout,
+        scan_interval_seconds: Math.max(60, Math.min(86400, scanIntervalMinutes * 60)),
         min_head_ratio: minHeadRatio / 100,
         max_head_ratio: maxHeadRatio / 100,
         min_smile_score: minSmile / 100,
@@ -169,7 +174,6 @@ export function RealisticReviewUgcPage() {
         require_head_visible: requireHeadVisible,
         reject_headwear: rejectHeadwear,
       });
-      setCreated(next);
       await refreshCampaigns();
       setSelectedId(next.id);
     } catch (reason) {
@@ -179,10 +183,22 @@ export function RealisticReviewUgcPage() {
     }
   }
 
-  async function copyCommand() {
-    if (!command) return;
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
+  async function toggleAutoScout(campaign: Campaign) {
+    if (actionId) return;
+    setActionId("autoscout:" + campaign.id);
+    setError("");
+    try {
+      const updated = await configureCampaignScoutAutomation(
+        campaign.id,
+        !campaign.auto_scout,
+        campaign.scan_interval_seconds,
+      );
+      setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update Auto Scout.");
+    } finally {
+      setActionId("");
+    }
   }
 
   async function retryAnalysis(candidate: Candidate) {
@@ -243,6 +259,7 @@ export function RealisticReviewUgcPage() {
           <article><span>Drive ready</span><strong>{kpis.driveReady}</strong></article>
         </section>
 
+        <PinterestAutoScoutPanel onError={setError} />
         <DeliveryOperationsPanel onError={setError} />
         <ProductRegistryPanel />
 
@@ -276,15 +293,29 @@ export function RealisticReviewUgcPage() {
                 </div>
               </details>
 
+              <div className="rrugc-auto-campaign-controls">
+                <label className="rrugc-check">
+                  <input type="checkbox" checked={autoScout} onChange={event => setAutoScout(event.target.checked)} />
+                  <span>Auto Scout continuously until target is reached</span>
+                </label>
+                <label>
+                  Rescan interval
+                  <div className="rrugc-inline-number">
+                    <input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={scanIntervalMinutes}
+                      disabled={!autoScout}
+                      onChange={event => setScanIntervalMinutes(Math.max(1, Number(event.target.value) || 1))}
+                    />
+                    <small>minutes</small>
+                  </div>
+                </label>
+              </div>
               <label className="rrugc-check"><input type="checkbox" checked={autoImport} onChange={event => setAutoImport(event.target.checked)} /><span>Automatically save only approved references to Managed Google Drive</span></label>
               <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || !query.trim()} onClick={() => void submit()}>{busy ? "Creating…" : "Create campaign"}</button>
             </div>
-
-            {created && <div className="rrugc-command">
-              <div><strong>Scout token created</strong><p>Shown once. Copy this command to the machine that has Chrome/Chromium and your Pinterest login.</p></div>
-              <code>{command}</code>
-              <button type="button" onClick={() => void copyCommand()}>{copied ? "Copied" : "Copy Scout command"}</button>
-            </div>}
           </section>
 
           <section className="rrugc-card">
@@ -296,6 +327,9 @@ export function RealisticReviewUgcPage() {
                 return <button type="button" key={item.id} className={selectedId === item.id ? "active" : ""} onClick={() => setSelectedId(item.id)}>
                   <span><strong>{item.name}</strong><small>{item.query}</small></span>
                   <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status}</span>
+                  <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
+                    {item.auto_scout ? "AUTO" : "MANUAL"}
+                  </span>
                   <span className="rrugc-progress"><i style={{ width: progress + "%" }} /><small>{progressBase}/{item.target_count} target</small></span>
                   <span className="rrugc-campaign-stats"><small>{item.discovered} scanned</small><small>{item.analysis_pending + item.analyzing} pending</small><small>{item.approved} approved</small><small>{item.rejected} rejected</small></span>
                 </button>;
@@ -313,8 +347,30 @@ export function RealisticReviewUgcPage() {
               <span>Approved: <b>{selected.approved}</b></span>
               <span>Rejected: <b>{selected.rejected}</b></span>
               <span>Drive: <b>{selected.drive_ready}</b></span>
+              <span>Auto Scout: <b>{selected.auto_scout ? "On" : "Off"}</b></span>
+              <span>Next scan: <b>{selected.auto_scout ? time(selected.scan_next_at) : "Paused"}</b></span>
+              <span>Runs: <b>{selected.scan_attempt_count}</b></span>
               <span>Last seen: <b>{time(selected.scout_last_seen_at)}</b></span>
             </div>
+          </div>
+          <div className="rrugc-scan-control-strip">
+            <div>
+              <strong>{selected.auto_scout ? "Continuous Pinterest pull enabled" : "Auto Scout paused"}</strong>
+              <small>
+                {selected.scan_last_error_code
+                  ? "Last error: " + selected.scan_last_error_code.replaceAll("_", " ")
+                  : "Rescan every " + Math.round(selected.scan_interval_seconds / 60) + " min until target."}
+              </small>
+            </div>
+            <button
+              type="button"
+              disabled={Boolean(actionId)}
+              onClick={() => void toggleAutoScout(selected)}
+            >
+              {actionId === "autoscout:" + selected.id
+                ? "Updating…"
+                : selected.auto_scout ? "Pause Auto Scout" : "Resume Auto Scout"}
+            </button>
           </div>
           <div className="rrugc-policy-strip">
             <span>Head <b>{Math.round(selected.min_head_ratio * 100)}–{Math.round(selected.max_head_ratio * 100)}%</b></span>
@@ -331,7 +387,11 @@ export function RealisticReviewUgcPage() {
             }}
             onError={setError}
           />
-          {candidates.length === 0 ? <p className="rrugc-empty">Start the Browser Scout command to collect Pinterest candidates.</p> : <div className="rrugc-grid">
+          {candidates.length === 0 ? <p className="rrugc-empty">
+            {selected.auto_scout
+              ? "Waiting for the paired Auto Scout to collect Pinterest candidates."
+              : "Auto Scout is paused for this campaign."}
+          </p> : <div className="rrugc-grid">
             {candidates.map(candidate => {
               const tone = candidateTone(candidate.status);
               const actionBusy = actionId === candidate.id;

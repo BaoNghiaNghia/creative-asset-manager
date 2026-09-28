@@ -25,6 +25,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
+    RrugcScoutAgentModel,
+    RrugcScoutRunModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
     RrugcDeliveryEventModel,
@@ -43,7 +45,9 @@ from app.modules.realistic_review_ugc.schema import (
     CampaignCreateRequest,
     CampaignProductBindRequest,
     CampaignResponse,
+    CampaignScoutAutomationRequest,
     CandidateBatchRequest,
+    AutoScoutCandidateBatchResponse,
     CandidateBatchResponse,
     CandidateResponse,
     GenerationAttemptCreateRequest,
@@ -77,10 +81,21 @@ from app.modules.realistic_review_ugc.schema import (
     ProductReferenceView,
     ProductResponse,
     ProductUpdateRequest,
+    ScoutAgentCreateRequest,
+    ScoutAgentResponse,
+    ScoutAgentCreatedResponse,
+    ScoutAgentHeartbeatRequest,
+    ScoutClaimResponse,
+    ScoutRunCompleteRequest,
+    ScoutRunResponse,
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
+from app.modules.realistic_review_ugc.scout_automation import (
+    RrugcAutoScoutService,
+    effective_agent_status,
+)
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
 from app.modules.realistic_review_ugc.delivery_automation import (
@@ -559,6 +574,15 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
         target_count=row.target_count,
         max_scroll_batches=row.max_scroll_batches,
         auto_import=row.auto_import,
+        auto_scout=row.auto_scout,
+        scan_interval_seconds=row.scan_interval_seconds,
+        scan_next_at=row.scan_next_at,
+        scan_last_started_at=row.scan_last_started_at,
+        scan_last_completed_at=row.scan_last_completed_at,
+        scan_attempt_count=row.scan_attempt_count,
+        scan_empty_streak=row.scan_empty_streak,
+        scan_last_error_code=row.scan_last_error_code,
+        active_scan_run_id=row.scan_lease_run_id,
         min_head_ratio=row.min_head_ratio,
         max_head_ratio=row.max_head_ratio,
         min_smile_score=row.min_smile_score,
@@ -609,19 +633,77 @@ def _require_campaign(
     return row
 
 
+def _bearer_token(authorization: str | None) -> str:
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return ""
+
+
 def _scout_campaign(
     campaign_id: str,
     authorization: str | None,
     session: Session,
 ) -> RrugcCampaignModel:
     row = RrugcRepository(session).get_campaign_unscoped(campaign_id)
-    token = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
+    token = _bearer_token(authorization)
     if row is None or not campaign_token_matches(row, token):
         raise HTTPException(status_code=401, detail="Invalid scout credentials")
     return row
 
+
+def _scout_agent_response(row: RrugcScoutAgentModel) -> ScoutAgentResponse:
+    return ScoutAgentResponse(
+        id=row.id,
+        name=row.name,
+        status=effective_agent_status(row),
+        active=row.active,
+        client_version=row.client_version,
+        machine_label=row.machine_label,
+        last_error_code=row.last_error_code,
+        last_seen_at=row.last_seen_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        archived_at=row.archived_at,
+    )
+
+
+def _scout_run_response(row: RrugcScoutRunModel) -> ScoutRunResponse:
+    return ScoutRunResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        agent_id=row.agent_id,
+        status=row.status,
+        query=row.query,
+        target_count=row.target_count,
+        max_scroll_batches=row.max_scroll_batches,
+        auto_import=row.auto_import,
+        progress_before=row.progress_before,
+        submitted_count=row.submitted_count,
+        created_count=row.created_count,
+        existing_count=row.existing_count,
+        last_error_code=row.last_error_code,
+        last_heartbeat_at=row.last_heartbeat_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _agent_token(
+    service: RrugcAutoScoutService,
+    agent_id: str,
+    authorization: str | None,
+) -> tuple[RrugcScoutAgentModel, str]:
+    token = _bearer_token(authorization)
+    try:
+        row = service.authenticate_agent(
+            agent_id=agent_id,
+            raw_token=token,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return row, token
 
 
 @router.get("/products", response_model=list[ProductResponse])
@@ -888,6 +970,28 @@ def get_campaign(
         repository,
         _require_campaign(repository, principal.active_tenant_id, campaign_id),
     )
+
+
+@router.put(
+    "/campaigns/{campaign_id}/scout-automation",
+    response_model=CampaignResponse,
+)
+def configure_campaign_scout_automation(
+    campaign_id: str,
+    request: CampaignScoutAutomationRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcAutoScoutService(session).configure_campaign(
+            tenant_id=principal.active_tenant_id,
+            campaign_id=campaign_id,
+            auto_scout=request.auto_scout,
+            scan_interval_seconds=request.scan_interval_seconds,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _campaign(RrugcRepository(session), row)
 
 
 @router.put(
@@ -1644,6 +1748,205 @@ def import_candidate(
     except RrugcError as exc:
         raise _error(exc) from exc
     return ImportResponse(candidate=_candidate(row))
+
+
+@router.get(
+    "/scout-agents",
+    response_model=list[ScoutAgentResponse],
+)
+def list_scout_agents(
+    include_archived: bool = Query(default=False),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    service = RrugcAutoScoutService(session)
+    return [
+        _scout_agent_response(row)
+        for row in service.list_agents(
+            tenant_id=principal.active_tenant_id,
+            include_archived=include_archived,
+        )
+    ]
+
+
+@router.post(
+    "/scout-agents",
+    response_model=ScoutAgentCreatedResponse,
+    status_code=201,
+)
+def create_scout_agent(
+    request: ScoutAgentCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, raw_token = RrugcAutoScoutService(session).create_agent(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            name=request.name,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    payload = _scout_agent_response(row).model_dump()
+    return ScoutAgentCreatedResponse(**payload, agent_token=raw_token)
+
+
+@router.delete(
+    "/scout-agents/{agent_id}",
+    response_model=ScoutAgentResponse,
+)
+def archive_scout_agent(
+    agent_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcAutoScoutService(session).archive_agent(
+            tenant_id=principal.active_tenant_id,
+            agent_id=agent_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _scout_agent_response(row)
+
+
+@router.get(
+    "/scout-runs",
+    response_model=list[ScoutRunResponse],
+)
+def list_scout_runs(
+    campaign_id: str | None = Query(default=None, max_length=36),
+    agent_id: str | None = Query(default=None, max_length=36),
+    limit: int = Query(default=50, ge=1, le=200),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    rows = RrugcRepository(session).list_scout_runs(
+        principal.active_tenant_id,
+        campaign_id=campaign_id,
+        agent_id=agent_id,
+        limit=limit,
+    )
+    return [_scout_run_response(row) for row in rows]
+
+
+@router.post(
+    "/scout-agents/{agent_id}/heartbeat",
+    response_model=ScoutAgentResponse,
+)
+def auto_scout_agent_heartbeat(
+    agent_id: str,
+    request: ScoutAgentHeartbeatRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    service = RrugcAutoScoutService(session)
+    token = _bearer_token(authorization)
+    try:
+        row = service.heartbeat(
+            agent_id=agent_id,
+            raw_token=token,
+            status=request.status,
+            client_version=request.client_version,
+            machine_label=request.machine_label,
+            run_id=request.run_id,
+            error_code=request.error_code,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _scout_agent_response(row)
+
+
+@router.post(
+    "/scout-agents/{agent_id}/claim",
+    response_model=ScoutClaimResponse | None,
+)
+def auto_scout_agent_claim(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    x_scout_version: str | None = Header(default=None, alias="X-Scout-Version"),
+    x_scout_machine: str | None = Header(default=None, alias="X-Scout-Machine"),
+    session: Session = Depends(get_db),
+):
+    service = RrugcAutoScoutService(session)
+    token = _bearer_token(authorization)
+    try:
+        claim = service.claim(
+            agent_id=agent_id,
+            raw_token=token,
+            client_version=x_scout_version,
+            machine_label=x_scout_machine,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    if claim is None:
+        return None
+    return ScoutClaimResponse(
+        run=_scout_run_response(claim.run),
+        campaign_id=claim.campaign.id,
+        query=claim.campaign.query,
+        target_count=claim.campaign.target_count,
+        max_scroll_batches=claim.campaign.max_scroll_batches,
+        auto_import=claim.campaign.auto_import,
+        progress=claim.progress,
+    )
+
+
+@router.post(
+    "/scout-agents/{agent_id}/runs/{run_id}/candidates",
+    response_model=AutoScoutCandidateBatchResponse,
+)
+def auto_scout_run_candidates(
+    agent_id: str,
+    run_id: str,
+    request: CandidateBatchRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    service = RrugcAutoScoutService(session)
+    token = _bearer_token(authorization)
+    try:
+        result = service.submit_candidates(
+            agent_id=agent_id,
+            raw_token=token,
+            run_id=run_id,
+            submissions=request.items,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return AutoScoutCandidateBatchResponse(
+        created=result.created,
+        existing=result.existing,
+        progress=result.progress,
+        target_count=result.target_count,
+        campaign_status=result.campaign_status,
+    )
+
+
+@router.post(
+    "/scout-agents/{agent_id}/runs/{run_id}/complete",
+    response_model=ScoutRunResponse,
+)
+def auto_scout_run_complete(
+    agent_id: str,
+    run_id: str,
+    request: ScoutRunCompleteRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    service = RrugcAutoScoutService(session)
+    token = _bearer_token(authorization)
+    try:
+        row = service.complete(
+            agent_id=agent_id,
+            raw_token=token,
+            run_id=run_id,
+            status=request.status,
+            error_code=request.error_code,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return _scout_run_response(row)
 
 
 @router.get("/scout/{campaign_id}/task", response_model=ScoutTaskResponse)

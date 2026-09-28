@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
+import { autoScoutCommand } from "./PinterestAutoScoutPanel";
 import { scoutCommand } from "./RealisticReviewUgcPage";
 
 describe("Realistic Review UGC route", () => {
@@ -16,6 +17,19 @@ describe("Realistic Review UGC route", () => {
     expect(command).toContain("--base-url \"https://creative.example\"");
     expect(command).toContain("--campaign-id \"campaign-1\"");
     expect(command).toContain("--token \"secret-token\"");
+    expect(command).toContain("--profile-dir");
+  });
+
+  it("builds one persistent Auto Scout pairing command instead of a campaign command", () => {
+    const command = autoScoutCommand(
+      "https://creative.example/",
+      "agent-1",
+      "agent-secret",
+    );
+    expect(command).toContain("--base-url \"https://creative.example\"");
+    expect(command).toContain("--agent-id \"agent-1\"");
+    expect(command).not.toContain("--campaign-id");
+    expect(command).toContain("--token \"agent-secret\"");
     expect(command).toContain("--profile-dir");
   });
 

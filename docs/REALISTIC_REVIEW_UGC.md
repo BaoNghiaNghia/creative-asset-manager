@@ -1664,3 +1664,42 @@ The new tenant-wide operations summary reports campaign completion, active desti
 
 External webhook delivery is intentionally not simulated in this phase. The repository does not yet have a canonical authenticated webhook dispatcher/retry/signature architecture, so Phase 11 keeps notifications internal and durable. A later phase can add a shared outbound-webhook subsystem and channel-specific delivery adapters (ad platforms, commerce destinations, etc.) on top of these events.
 
+
+---
+
+## 44. Pinterest Auto Scout v2 — persistent automatic ingestion
+
+Pinterest discovery has been refocused around a persistent **Scout Agent** instead of a one-off command per campaign.
+
+```text
+pair local browser machine once
+  ↓
+persistent authenticated Chrome profile
+  ↓
+Agent polls CAM for due work
+  ↓
+claim one tenant-scoped campaign lease
+  ↓
+bounded Pinterest search + visible Pin extraction
+  ↓
+candidate ingestion → analysis → optional Managed Drive import
+  ↓
+release lease + schedule next scan
+  ↓
+repeat until target
+```
+
+A Scout Agent is tenant-scoped and receives a one-time high-entropy Agent token. Only its SHA-256 digest is stored. The local companion keeps that token and the Pinterest session; CAM never receives Pinterest credentials or cookies.
+
+Campaigns now have durable automatic-scan state: `auto_scout`, scan interval, next scan, active Agent/run lease, last start/completion time, attempt count, empty-result streak and last error. A lease is renewed by Agent heartbeats so two machines cannot actively scan the same campaign. Expired leases become claimable again.
+
+Newly created campaigns default to Auto Scout enabled. Existing campaigns are migrated conservatively with Auto Scout disabled so a deployment never starts unexpected Pinterest work; operators can enable them explicitly from the workspace.
+
+Pinterest Pin identity is canonicalized to the stable `/pin/<id>/` URL and is the discovery deduplication key. Alternate CDN renditions of the same Pin therefore converge on one candidate. The existing content hash remains the second deduplication boundary during import.
+
+Successful scans schedule another bounded scan at the campaign interval until the target is reached. Consecutive scans with no new Pins progressively back off, capped at one hour. Runtime failures and login/challenge states release the campaign lease and requeue later.
+
+The browser safety boundary is unchanged and explicit: the companion does not automate Pinterest login, solve CAPTCHA/challenges, conceal automation or bypass access controls. When Pinterest requires verification, the Agent reports `needs_login`, leaves the persistent browser visible for manual resolution, and resumes automatically after access is restored.
+
+The previous campaign-token endpoints and `--campaign-id` companion mode remain for backwards compatibility and diagnostics. Production usage should pair one Auto Scout v2 Agent and leave it running.
+

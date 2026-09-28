@@ -1,46 +1,51 @@
-# Realistic Review UGC Browser Scout
+# Realistic Review UGC Pinterest Auto Scout
 
-This companion runtime runs on a user-controlled desktop or laptop with Chrome or Chromium. Pinterest profile data and cookies remain local.
+This companion runtime runs on a user-controlled desktop or laptop with Chrome/Chromium. Pinterest cookies and profile data stay on that machine.
 
-## Setup
+## Auto Scout v2 setup
 
-1. Create a Python virtual environment.
-2. Install `apps/rrugc_scout/requirements.txt`.
-3. Install the Playwright Chromium runtime, or pass `--chrome-executable` to use a local Chrome/Chromium binary.
-4. Create a campaign in **Realistic Review UGC** and copy the one-time Scout command.
+1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.
+2. Install Playwright Chromium, or pass `--chrome-executable` for a local Chrome/Chromium binary.
+3. In **Realistic Review UGC → Pinterest Auto Scout**, choose **Pair local Scout**.
+4. Copy the one-time Agent command to the browser machine and keep that process running.
+5. Sign in to Pinterest manually in the persistent browser profile the first time.
 
-The first time, sign in to Pinterest manually using the persistent profile directory. The Scout does not automate login, solve CAPTCHA, hide automation, bypass source controls, or extract credentials.
+The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due.
 
-## Runtime flow
+The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the browser stays open for manual resolution and the Agent resumes automatically when access is restored.
 
-The Scout only discovers visible Pinterest candidates. Analysis and storage happen asynchronously in Creative Asset Manager:
+## Automatic flow
 
 ```text
-Pinterest search
+paired persistent Scout Agent
   ↓
-bounded Scout scroll
+claim next due running campaign
   ↓
-candidate URL/metadata submission
+Pinterest search in local authenticated Chrome profile
   ↓
-rrugc_candidate_analyze worker
+bounded scroll + visible Pin extraction
   ↓
-Gemini visual assessment + deterministic threshold policy
-  ├── rejected_* → retained with reason/metrics
+candidate submission in bounded batches
+  ↓
+rrugc_candidate_analyze
+  ↓
+deterministic reference policy
+  ├── rejected_* → reason/metrics retained
   └── approved
         ↓
-      rrugc_candidate_import (when auto-import is enabled)
+      rrugc_candidate_import (when Auto Import is enabled)
         ↓
       Managed Google Drive
+  ↓
+schedule next scan until campaign target is reached
 ```
 
-Default behavior:
-- opens a normal Pinterest search URL;
-- performs only the campaign's bounded number of scroll batches;
-- extracts visible `/pin/` links and `*.pinimg.com` images;
-- sends candidate metadata to CAM in bounded batches;
-- polls campaign counters so target progress is based on **approved** references, or **Drive-ready** references when auto-import is enabled;
-- never downloads Pinterest images directly to the Scout filesystem for persistence.
+Server-side campaign leases prevent two Scout Agents from running the same campaign simultaneously. The Agent heartbeats extend the lease while a scan is active. A stale lease expires automatically and another Agent can recover the campaign.
 
-The CAM worker layer applies the configured reference filters (head ratio, visible head, headwear, occlusion, smile, quality, UGC style, product fit, and AI-risk signal). Only approved references are eligible for Drive import.
+Auto Scout scans are bounded by each campaign's `max_scroll_batches`. After a successful scan the next scan uses the configured interval. Consecutive scans that find no new Pins back off progressively, capped at one hour. Login/challenge or runtime errors release the lease and schedule a later retry.
 
-The visual analyzer must be configured on the CAM server. The current v1 analyzer uses the existing tenant-aware Gemini metadata provider; deterministic local CV can replace individual measurements later without changing the Scout protocol.
+Pinterest Pin URLs are canonicalized and used as the stable discovery identity, so alternate Pin image CDN renditions do not create duplicate candidates. Content hashing during the existing import path remains the second deduplication layer.
+
+## Legacy one-campaign mode
+
+The previous `--campaign-id` mode remains available for diagnostics and backwards compatibility, but new production usage should pair one Auto Scout Agent with `--agent-id` and leave it running.

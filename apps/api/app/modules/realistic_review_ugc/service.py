@@ -6,7 +6,7 @@ import secrets
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy.exc import IntegrityError
@@ -74,7 +74,8 @@ def validate_pin_url(value: str) -> str:
     parsed = urlsplit(value)
     if not parsed.path.startswith("/pin/"):
         raise RrugcError("invalid_pinterest_pin_url", "Pinterest pin URL is not allowed.")
-    return value
+    path = parsed.path.rstrip("/") + "/"
+    return urlunsplit(("https", "www.pinterest.com", path, "", ""))
 
 
 def validate_image_url(value: str) -> str:
@@ -87,8 +88,11 @@ def token_digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def source_key(pin_url: str, image_url: str) -> str:
-    return hashlib.sha256((pin_url + "\n" + image_url).encode("utf-8")).hexdigest()
+def source_key(pin_url: str, _image_url: str = "") -> str:
+    # Pinterest may expose the same Pin through several CDN rendition URLs.
+    # Pin identity is the stable source identity; content hash still protects
+    # cross-Pin byte duplication during import.
+    return hashlib.sha256(pin_url.encode("utf-8")).hexdigest()
 
 
 def campaign_token_matches(row: RrugcCampaignModel, raw_token: str) -> bool:
@@ -152,6 +156,8 @@ class RrugcService:
         target_count: int,
         max_scroll_batches: int,
         auto_import: bool,
+        auto_scout: bool = True,
+        scan_interval_seconds: int = 300,
         min_head_ratio: float = 0.20,
         max_head_ratio: float = 0.45,
         min_smile_score: float = 0.65,
@@ -171,6 +177,9 @@ class RrugcService:
             target_count=target_count,
             max_scroll_batches=max_scroll_batches,
             auto_import=auto_import,
+            auto_scout=auto_scout,
+            scan_interval_seconds=scan_interval_seconds,
+            scan_next_at=datetime.now(timezone.utc) if auto_scout else None,
             min_head_ratio=min_head_ratio,
             max_head_ratio=max_head_ratio,
             min_smile_score=min_smile_score,
@@ -277,6 +286,12 @@ class RrugcService:
             row = self.repository.candidate_by_source_key(
                 campaign.tenant_id, campaign.id, key
             )
+            if row is None:
+                row = self.repository.candidate_by_pin_url(
+                    campaign.tenant_id,
+                    campaign.id,
+                    pin_url,
+                )
             if row is not None:
                 existing += 1
                 if row.status == "discovered":

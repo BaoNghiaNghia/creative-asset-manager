@@ -123,6 +123,8 @@ class CampaignCreateRequest(BaseModel):
     target_count: int = Field(default=100, ge=1, le=5000)
     max_scroll_batches: int = Field(default=5, ge=1, le=50)
     auto_import: bool = False
+    auto_scout: bool = True
+    scan_interval_seconds: int = Field(default=300, ge=60, le=86400)
     min_head_ratio: float = Field(default=0.20, ge=0.05, le=0.90)
     max_head_ratio: float = Field(default=0.45, ge=0.05, le=0.95)
     min_smile_score: float = Field(default=0.65, ge=0.0, le=1.0)
@@ -148,6 +150,15 @@ class CampaignResponse(BaseModel):
     target_count: int
     max_scroll_batches: int
     auto_import: bool
+    auto_scout: bool
+    scan_interval_seconds: int
+    scan_next_at: datetime | None = None
+    scan_last_started_at: datetime | None = None
+    scan_last_completed_at: datetime | None = None
+    scan_attempt_count: int = 0
+    scan_empty_streak: int = 0
+    scan_last_error_code: str | None = None
+    active_scan_run_id: str | None = None
     min_head_ratio: float
     max_head_ratio: float
     min_smile_score: float
@@ -186,6 +197,77 @@ class CampaignResponse(BaseModel):
 
 class CampaignCreatedResponse(CampaignResponse):
     scout_token: str
+
+
+class CampaignScoutAutomationRequest(BaseModel):
+    auto_scout: bool = True
+    scan_interval_seconds: int = Field(default=300, ge=60, le=86400)
+
+
+class ScoutAgentCreateRequest(BaseModel):
+    name: str = Field(default="Pinterest Auto Scout", min_length=1, max_length=160)
+
+
+class ScoutAgentResponse(BaseModel):
+    id: str
+    name: str
+    status: ScoutStatus
+    active: bool
+    client_version: str | None = None
+    machine_label: str | None = None
+    last_error_code: str | None = None
+    last_seen_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = None
+
+
+class ScoutAgentCreatedResponse(ScoutAgentResponse):
+    agent_token: str
+
+
+class ScoutAgentHeartbeatRequest(BaseModel):
+    status: Literal["ready", "busy", "needs_login", "error"]
+    client_version: str | None = Field(default=None, max_length=64)
+    machine_label: str | None = Field(default=None, max_length=160)
+    run_id: str | None = Field(default=None, max_length=36)
+    error_code: str | None = Field(default=None, max_length=100)
+
+
+class ScoutRunResponse(BaseModel):
+    id: str
+    campaign_id: str
+    agent_id: str
+    status: Literal["claimed", "running", "completed", "needs_login", "failed", "cancelled"]
+    query: str
+    target_count: int
+    max_scroll_batches: int
+    auto_import: bool
+    progress_before: int
+    submitted_count: int
+    created_count: int
+    existing_count: int
+    last_error_code: str | None = None
+    last_heartbeat_at: datetime | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScoutClaimResponse(BaseModel):
+    run: ScoutRunResponse
+    campaign_id: str
+    query: str
+    target_count: int
+    max_scroll_batches: int
+    auto_import: bool
+    progress: int
+
+
+class ScoutRunCompleteRequest(BaseModel):
+    status: Literal["completed", "needs_login", "failed"]
+    error_code: str | None = Field(default=None, max_length=100)
 
 
 class CampaignProductBindRequest(BaseModel):
@@ -549,6 +631,14 @@ class CandidateBatchResponse(BaseModel):
     created: int
     existing: int
     items: list[CandidateResponse]
+
+
+class AutoScoutCandidateBatchResponse(BaseModel):
+    created: int
+    existing: int
+    progress: int
+    target_count: int
+    campaign_status: CampaignStatus
 
 
 class ScoutHeartbeatRequest(BaseModel):

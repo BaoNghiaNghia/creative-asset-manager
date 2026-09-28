@@ -49,6 +49,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
+    RrugcScoutAgentModel,
+    RrugcScoutRunModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
     RrugcDeliveryEventModel,
@@ -59,6 +61,7 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.review import RrugcReviewService
+from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
 from app.modules.realistic_review_ugc.delivery_automation import (
@@ -107,6 +110,8 @@ def database():
     TenantProcessingPolicyModel.__table__.create(engine)
     ProcessingJobModel.__table__.create(engine)
     RrugcCampaignModel.__table__.create(engine)
+    RrugcScoutAgentModel.__table__.create(engine)
+    RrugcScoutRunModel.__table__.create(engine)
     RrugcProductModel.__table__.create(engine)
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
@@ -153,6 +158,253 @@ def test_pinterest_url_allowlist_is_strict():
         validate_image_url("http://i.pinimg.com/a.jpg")
     with pytest.raises(RrugcError):
         validate_image_url("https://example.com/a.jpg")
+
+
+
+
+def test_pinterest_pin_url_is_canonicalized_for_source_identity():
+    assert (
+        validate_pin_url(
+            "https://pinterest.com/pin/123456/?utm_source=test#fragment"
+        )
+        == "https://www.pinterest.com/pin/123456/"
+    )
+
+
+def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Auto Pinterest",
+            query="candid lifestyle portrait",
+            target_count=10,
+            max_scroll_batches=3,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Studio Pinterest Scout",
+        )
+
+        claim = service.claim(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v2",
+            machine_label="studio-pc",
+        )
+        assert claim is not None
+        assert claim.campaign.id == campaign.id
+        assert claim.run.status == "claimed"
+        assert campaign.scan_lease_agent_id == agent.id
+        assert campaign.scan_lease_run_id == claim.run.id
+        assert campaign.scout_status == "busy"
+
+        result = service.submit_candidates(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=claim.run.id,
+            submissions=[
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/12345/?utm_source=a",
+                    image_url="https://i.pinimg.com/236x/a/b/c.jpg",
+                    alt_text="first rendition",
+                ),
+                CandidateSubmission(
+                    pin_url="https://pinterest.com/pin/12345/",
+                    image_url="https://i.pinimg.com/736x/a/b/c.jpg",
+                    alt_text="larger rendition",
+                ),
+            ],
+        )
+        assert result.created == 1
+        assert result.existing == 1
+        candidates = RrugcRepository(session).list_candidates(
+            "tenant-a",
+            campaign.id,
+        )
+        assert len(candidates) == 1
+        assert candidates[0].pin_url == "https://www.pinterest.com/pin/12345/"
+
+        completed = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=claim.run.id,
+            status="completed",
+        )
+        assert completed.status == "completed"
+        session.refresh(campaign)
+        assert campaign.scan_lease_run_id is None
+        assert campaign.scan_lease_agent_id is None
+        assert campaign.scan_next_at is not None
+        assert campaign.scan_empty_streak == 0
+        assert campaign.scout_status == "ready"
+
+
+def test_auto_scout_rejects_wrong_agent_token_and_cross_agent_run(database):
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Protected Auto Scout",
+            query="outdoor candid",
+            target_count=5,
+            max_scroll_batches=2,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=300,
+        )
+        service = RrugcAutoScoutService(session)
+        agent_a, token_a = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Agent A",
+        )
+        agent_b, token_b = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Agent B",
+        )
+
+        with pytest.raises(RrugcError) as wrong_token:
+            service.claim(agent_id=agent_a.id, raw_token="wrong-token")
+        assert wrong_token.value.status_code == 401
+
+        claim = service.claim(agent_id=agent_a.id, raw_token=token_a)
+        assert claim is not None
+        assert claim.campaign.id == campaign.id
+
+        with pytest.raises(RrugcError) as cross_agent:
+            service.submit_candidates(
+                agent_id=agent_b.id,
+                raw_token=token_b,
+                run_id=claim.run.id,
+                submissions=[
+                    CandidateSubmission(
+                        pin_url="https://www.pinterest.com/pin/555/",
+                        image_url="https://i.pinimg.com/736x/5.jpg",
+                    )
+                ],
+            )
+        assert cross_agent.value.status_code == 404
+
+
+def test_auto_scout_needs_login_releases_lease_and_requeues(database):
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Login gate",
+            query="review portrait",
+            target_count=5,
+            max_scroll_batches=2,
+            auto_import=True,
+            auto_scout=True,
+            scan_interval_seconds=300,
+        )
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Login Agent",
+        )
+        claim = service.claim(agent_id=agent.id, raw_token=token)
+        assert claim is not None
+
+        run = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=claim.run.id,
+            status="needs_login",
+            error_code="pinterest_login_required",
+        )
+        assert run.status == "needs_login"
+        session.refresh(campaign)
+        session.refresh(agent)
+        assert campaign.scout_status == "needs_login"
+        assert campaign.scan_lease_run_id is None
+        assert campaign.scan_next_at is not None
+        assert campaign.scan_last_error_code == "pinterest_login_required"
+        assert agent.status == "needs_login"
+
+
+def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database):
+    created = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Desktop Pinterest"},
+    )
+    assert created.status_code == 201
+    payload = created.json()
+    agent_id = payload["id"]
+    token = payload["agent_token"]
+    assert token
+    assert payload["status"] == "offline"
+
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "API auto scout",
+            "query": "natural lifestyle review",
+            "target_count": 10,
+            "max_scroll_batches": 2,
+            "auto_import": True,
+            "auto_scout": True,
+            "scan_interval_seconds": 180,
+        },
+    )
+    assert campaign.status_code == 201
+    campaign_id = campaign.json()["id"]
+
+    claim = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/claim",
+        headers={
+            "Authorization": "Bearer " + token,
+            "X-Scout-Version": "rrugc-scout-v2",
+            "X-Scout-Machine": "desktop-test",
+        },
+    )
+    assert claim.status_code == 200
+    work = claim.json()
+    assert work["campaign_id"] == campaign_id
+    run_id = work["run"]["id"]
+
+    submitted = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/candidates",
+        headers={"Authorization": "Bearer " + token},
+        json={
+            "items": [{
+                "pin_url": "https://www.pinterest.com/pin/9090/",
+                "image_url": "https://i.pinimg.com/736x/9/0/9.jpg",
+                "alt_text": "visible Pinterest candidate",
+            }]
+        },
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["created"] == 1
+
+    finished = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/complete",
+        headers={"Authorization": "Bearer " + token},
+        json={"status": "completed"},
+    )
+    assert finished.status_code == 200
+    assert finished.json()["status"] == "completed"
+
+    paused = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/scout-automation",
+        json={"auto_scout": False, "scan_interval_seconds": 180},
+    )
+    assert paused.status_code == 200
+    assert paused.json()["auto_scout"] is False
+    assert paused.json()["scan_next_at"] is None
+
+    listed = api.get("/api/v1/realistic-review-ugc/scout-agents")
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == agent_id
 
 
 def reference_document(**overrides) -> ReferenceAnalysisDocument:

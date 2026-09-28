@@ -24,6 +24,9 @@ import type {
   ReviewTask,
   ReviewTaskList,
   ReviewTaskTransition,
+  ScoutAgent,
+  ScoutAgentCreated,
+  ScoutRun,
   SupervisorResult,
 } from "./types";
 
@@ -118,6 +121,50 @@ export const createCampaign = (body: CampaignCreateRequest) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+export const configureCampaignScoutAutomation = (
+  campaignId: string,
+  autoScout: boolean,
+  scanIntervalSeconds: number,
+) =>
+  request<Campaign>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId) + "/scout-automation",
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        auto_scout: autoScout,
+        scan_interval_seconds: scanIntervalSeconds,
+      }),
+    },
+  );
+
+export const listScoutAgents = (signal?: AbortSignal) =>
+  request<ScoutAgent[]>("/api/v1/realistic-review-ugc/scout-agents", { signal });
+
+export const createScoutAgent = (name: string) =>
+  request<ScoutAgentCreated>("/api/v1/realistic-review-ugc/scout-agents", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+export const archiveScoutAgent = (agentId: string) =>
+  request<ScoutAgent>(
+    "/api/v1/realistic-review-ugc/scout-agents/" + encodeURIComponent(agentId),
+    { method: "DELETE" },
+  );
+
+export const listScoutRuns = (
+  campaignId?: string,
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "50" });
+  if (campaignId) params.set("campaign_id", campaignId);
+  return request<ScoutRun[]>(
+    "/api/v1/realistic-review-ugc/scout-runs?" + params.toString(),
+    { signal },
+  );
+};
 
 export const bindCampaignProduct = (campaignId: string, productId: string | null) =>
   request<Campaign>(

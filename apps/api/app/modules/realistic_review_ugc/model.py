@@ -36,6 +36,13 @@ class RrugcCampaignModel(Base):
         ),
         Index("ix_rrugc_campaign_tenant_status", "tenant_id", "status", "updated_at"),
         Index("ix_rrugc_campaign_product", "tenant_id", "product_id", "updated_at"),
+        Index(
+            "ix_rrugc_campaign_autoscout_due",
+            "tenant_id",
+            "status",
+            "auto_scout",
+            "scan_next_at",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -45,6 +52,17 @@ class RrugcCampaignModel(Base):
     target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     max_scroll_batches: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    auto_scout: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    scan_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
+    scan_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_lease_agent_id: Mapped[str | None] = mapped_column(String(36))
+    scan_lease_run_id: Mapped[str | None] = mapped_column(String(36))
+    scan_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_last_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scan_empty_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scan_last_error_code: Mapped[str | None] = mapped_column(String(100))
     min_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.20)
     max_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.45)
     min_smile_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.65)
@@ -70,6 +88,99 @@ class RrugcCampaignModel(Base):
     created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class RrugcScoutAgentModel(Base):
+    __tablename__ = "rrugc_scout_agents"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_rrugc_scout_agent_tenant_id"),
+        Index(
+            "ix_rrugc_scout_agent_tenant_active",
+            "tenant_id",
+            "active",
+            "last_seen_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="offline")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    client_version: Mapped[str | None] = mapped_column(String(64))
+    machine_label: Mapped[str | None] = mapped_column(String(160))
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcScoutRunModel(Base):
+    __tablename__ = "rrugc_scout_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_scout_run_campaign",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "agent_id"],
+            ["rrugc_scout_agents.tenant_id", "rrugc_scout_agents.id"],
+            name="fk_rrugc_scout_run_agent",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_rrugc_scout_run_campaign_created",
+            "tenant_id",
+            "campaign_id",
+            "created_at",
+        ),
+        Index(
+            "ix_rrugc_scout_run_agent_status",
+            "tenant_id",
+            "agent_id",
+            "status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    agent_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="claimed")
+    query: Mapped[str] = mapped_column(String(500), nullable=False)
+    target_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_scroll_batches: Mapped[int] = mapped_column(Integer, nullable=False)
+    auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    progress_before: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    submitted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    existing_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
 
 
 class RrugcProductModel(Base):

@@ -5,6 +5,15 @@ export type Campaign = {
   target_count: number;
   max_scroll_batches: number;
   auto_import: boolean;
+  auto_scout: boolean;
+  scan_interval_seconds: number;
+  scan_next_at: string | null;
+  scan_last_started_at: string | null;
+  scan_last_completed_at: string | null;
+  scan_attempt_count: number;
+  scan_empty_streak: number;
+  scan_last_error_code: string | null;
+  active_scan_run_id: string | null;
   min_head_ratio: number;
   max_head_ratio: number;
   min_smile_score: number;
@@ -42,6 +51,45 @@ export type Campaign = {
 };
 
 export type CampaignCreated = Campaign & { scout_token: string };
+
+export type ScoutAgent = {
+  id: string;
+  name: string;
+  status: "offline" | "ready" | "busy" | "needs_login" | "error";
+  active: boolean;
+  client_version: string | null;
+  machine_label: string | null;
+  last_error_code: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type ScoutAgentCreated = ScoutAgent & {
+  agent_token: string;
+};
+
+export type ScoutRun = {
+  id: string;
+  campaign_id: string;
+  agent_id: string;
+  status: "claimed" | "running" | "completed" | "needs_login" | "failed" | "cancelled";
+  query: string;
+  target_count: number;
+  max_scroll_batches: number;
+  auto_import: boolean;
+  progress_before: number;
+  submitted_count: number;
+  created_count: number;
+  existing_count: number;
+  last_error_code: string | null;
+  last_heartbeat_at: string | null;
+  started_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type CandidateStatus =
   | "discovered"
@@ -466,6 +514,8 @@ export type CampaignCreateRequest = {
   target_count: number;
   max_scroll_batches: number;
   auto_import: boolean;
+  auto_scout: boolean;
+  scan_interval_seconds: number;
   min_head_ratio: number;
   max_head_ratio: number;
   min_smile_score: number;

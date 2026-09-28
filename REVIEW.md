@@ -2694,3 +2694,16 @@ npm run typecheck -- --pretty false (passed).
 - Runtime status and observability are deliberately loaded independently. If process-local observability is unavailable, the persisted runtime state remains visible and the global Disable action remains available for rollback.
 - Phase 5B does not deploy the Worker, change DNS, write production secrets, enable the persisted runtime gate, mutate R2, or change source-provider data.
 - No migration or external dependency is added.
+
+
+## RRUGC Pinterest Auto Scout v2 review
+
+- Replaced the production discovery UX from one Scout command per campaign with a one-time tenant-scoped local Scout Agent pairing.
+- Added Alembic revision `0103_rrugc_pinterest_autoscout` for Scout Agents, durable Scout runs and per-campaign scan schedule/lease telemetry.
+- Agent bearer secrets are returned once and only SHA-256 digests are stored server-side.
+- Campaign claiming is tenant-scoped, bounded, due-time aware and protected by a renewable campaign lease; stale leases can be recovered by another Agent. Existing campaigns migrate with Auto Scout disabled, while newly created campaigns default to enabled.
+- Pinterest Pin URLs are canonicalized and deduplicated by stable Pin identity; the existing import content hash still protects byte-level duplicates.
+- The companion keeps one persistent Chrome profile alive, claims due campaigns automatically, extracts only visible Pinterest Pins/images, submits bounded batches and reuses the existing analysis/import workers.
+- Pinterest login/CAPTCHA/challenge solving is never automated. A challenge changes Agent/campaign state to `needs_login`, leaves the local browser open for manual resolution and resumes only after normal access returns.
+- Legacy per-campaign Scout endpoints remain available for compatibility, but the UI now promotes Auto Scout v2 and one-time pairing.
+- Rollback: stop paired Scout companions, disable Auto Scout on campaigns, then downgrade `0103_rrugc_pinterest_autoscout` to `0102_rrugc_delivery_automation`. Existing candidate and Managed Drive assets are unaffected.
