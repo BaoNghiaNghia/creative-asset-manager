@@ -576,25 +576,64 @@ export function RealisticReviewUgcPage() {
               }}>×</button>
             </header>
             <div className="rrugc-campaign-editor-body">
-              <label>Campaign name<input value={editDraft.name} maxLength={200} onChange={event => setEditDraft(current => current ? { ...current, name: event.target.value } : current)} /></label>
-              <label>
-                Pinterest search keywords
+              <section className="rrugc-editor-section">
+                <div className="rrugc-editor-section-heading">
+                  <div><small>BASIC</small><strong>Campaign setup</strong></div>
+                  <span>Core settings</span>
+                </div>
+                <label className="rrugc-editor-field">
+                  <span>Campaign name</span>
+                  <input value={editDraft.name} maxLength={200} onChange={event => setEditDraft(current => current ? { ...current, name: event.target.value } : current)} />
+                </label>
+                <div className="rrugc-editor-number-grid">
+                  <label className="rrugc-editor-field">
+                    <span>Target approved</span>
+                    <input type="number" min={1} max={5000} value={editDraft.target} onChange={event => setEditDraft(current => current ? { ...current, target: Number(event.target.value) } : current)} />
+                    <small>images</small>
+                  </label>
+                  <label className="rrugc-editor-field">
+                    <span>Scrolls / keyword</span>
+                    <input type="number" min={1} max={50} value={editDraft.scrolls} onChange={event => setEditDraft(current => current ? { ...current, scrolls: Number(event.target.value) } : current)} />
+                    <small>batches</small>
+                  </label>
+                  <label className="rrugc-editor-field">
+                    <span>Rescan every</span>
+                    <input type="number" min={1} max={1440} disabled={!editDraft.autoScout} value={editDraft.scanIntervalMinutes} onChange={event => setEditDraft(current => current ? { ...current, scanIntervalMinutes: Math.max(1, Number(event.target.value) || 1) } : current)} />
+                    <small>minutes</small>
+                  </label>
+                </div>
+              </section>
+
+              <section className="rrugc-editor-section">
+                <div className="rrugc-editor-section-heading">
+                  <div><small>DISCOVERY</small><strong>Pinterest search keywords</strong></div>
+                  <span>{editDraft.searchQueries.length}/10</span>
+                </div>
                 <SearchQueryEditor
                   value={editDraft.searchQueries}
                   onChange={searchQueries => setEditDraft(current => current ? { ...current, searchQueries } : current)}
                 />
-              </label>
-              <div className="rrugc-form-row">
-                <label>Target approved<input type="number" min={1} max={5000} value={editDraft.target} onChange={event => setEditDraft(current => current ? { ...current, target: Number(event.target.value) } : current)} /></label>
-                <label>Scrolls / keyword<input type="number" min={1} max={50} value={editDraft.scrolls} onChange={event => setEditDraft(current => current ? { ...current, scrolls: Number(event.target.value) } : current)} /></label>
-              </div>
-              <div className="rrugc-editor-automation">
-                <label className="rrugc-check"><input type="checkbox" checked={editDraft.autoScout} onChange={event => setEditDraft(current => current ? { ...current, autoScout: event.target.checked } : current)} /><span>Auto Scout enabled</span></label>
-                <label>Rescan every<input type="number" min={1} max={1440} disabled={!editDraft.autoScout} value={editDraft.scanIntervalMinutes} onChange={event => setEditDraft(current => current ? { ...current, scanIntervalMinutes: Math.max(1, Number(event.target.value) || 1) } : current)} /><small>minutes</small></label>
-                <label className="rrugc-check"><input type="checkbox" checked={editDraft.autoImport} onChange={event => setEditDraft(current => current ? { ...current, autoImport: event.target.checked } : current)} /><span>Auto-save approved to Drive</span></label>
-              </div>
-              <details className="rrugc-filter-panel">
-                <summary><span><strong>Qualification rules</strong><small>Keep advanced QA thresholds out of the main form</small></span><b>Advanced</b></summary>
+              </section>
+
+              <section className="rrugc-editor-section">
+                <div className="rrugc-editor-section-heading">
+                  <div><small>AUTOMATION</small><strong>Scout & delivery</strong></div>
+                  <span>{editDraft.autoScout ? "Running" : "Paused"}</span>
+                </div>
+                <div className="rrugc-editor-toggle-grid">
+                  <label className="rrugc-editor-toggle">
+                    <input type="checkbox" checked={editDraft.autoScout} onChange={event => setEditDraft(current => current ? { ...current, autoScout: event.target.checked } : current)} />
+                    <span><strong>Auto Scout</strong><small>Keep scanning until the campaign target is reached.</small></span>
+                  </label>
+                  <label className="rrugc-editor-toggle">
+                    <input type="checkbox" checked={editDraft.autoImport} onChange={event => setEditDraft(current => current ? { ...current, autoImport: event.target.checked } : current)} />
+                    <span><strong>Save approved to Drive</strong><small>Automatically persist approved references to Managed Drive.</small></span>
+                  </label>
+                </div>
+              </section>
+
+              <details className="rrugc-filter-panel rrugc-editor-advanced">
+                <summary><span><strong>Qualification rules</strong><small>Head visibility, smile, quality, UGC style, AI risk, and product fit</small></span><b>Advanced</b></summary>
                 <div className="rrugc-filter-grid">
                   <label>Head min<input type="number" min={5} max={90} value={editDraft.minHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, minHeadRatio: Number(event.target.value) } : current)} /></label>
                   <label>Head max<input type="number" min={5} max={95} value={editDraft.maxHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, maxHeadRatio: Number(event.target.value) } : current)} /></label>
