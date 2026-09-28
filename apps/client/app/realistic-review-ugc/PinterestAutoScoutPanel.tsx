@@ -127,45 +127,50 @@ export function PinterestAutoScoutPanel({
       </span>
     </div>
 
-    <div className="rrugc-auto-scout-grid">
-      <div className="rrugc-auto-scout-pair">
-        <div className="rrugc-auto-scout-pair-copy">
-          <strong>Connect a browser machine</strong>
-          <small>One pairing per machine. Pinterest session data never leaves that browser.</small>
+    <div className="rrugc-auto-scout-status rrugc-auto-scout-status-primary">
+      <span><small>Paired</small><b>{agents.length}</b></span>
+      <span><small>Online</small><b>{online}</b></span>
+      <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
+      <span><small>Last</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
+    </div>
+
+    <details className="rrugc-compact-disclosure" open={created ? true : undefined}>
+      <summary>
+        <span><strong>Scout setup & diagnostics</strong><small>Pairing, local-session safety, agent list, and last run</small></span>
+        <b>{agents.length ? agents.length + " paired" : "Setup"}</b>
+      </summary>
+      <div className="rrugc-auto-scout-grid">
+        <div className="rrugc-auto-scout-pair">
+          <div className="rrugc-auto-scout-pair-copy">
+            <strong>Connect a browser machine</strong>
+            <small>One pairing per machine. Pinterest session data never leaves that browser.</small>
+          </div>
+          <label>
+            Agent name
+            <input
+              value={name}
+              maxLength={160}
+              onChange={event => setName(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="rrugc-primary"
+            disabled={Boolean(busy) || !name.trim()}
+            onClick={() => void pairAgent()}
+          >
+            {busy === "create" ? "Pairing…" : "Pair local Scout"}
+          </button>
         </div>
-        <label>
-          Agent name
-          <input
-            value={name}
-            maxLength={160}
-            onChange={event => setName(event.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          className="rrugc-primary"
-          disabled={Boolean(busy) || !name.trim()}
-          onClick={() => void pairAgent()}
-        >
-          {busy === "create" ? "Pairing…" : "Pair local Scout"}
-        </button>
       </div>
 
-      <div className="rrugc-auto-scout-status">
-        <span><small>Paired</small><b>{agents.length}</b></span>
-        <span><small>Online</small><b>{online}</b></span>
-        <span><small>Current task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
-        <span><small>Last result</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
+      <div className="rrugc-auto-scout-safety">
+        <strong>Local session boundary</strong>
+        <span>
+          Login and Pinterest challenges stay manual. Auto Scout pauses safely,
+          keeps the browser open, and resumes after normal access returns.
+        </span>
       </div>
-    </div>
-
-    <div className="rrugc-auto-scout-safety">
-      <strong>Local session boundary</strong>
-      <span>
-        Login and Pinterest challenges stay manual. Auto Scout pauses safely,
-        keeps the browser open, and resumes after normal access returns.
-      </span>
-    </div>
 
     {created && <div className="rrugc-command rrugc-auto-scout-command">
       <div>
@@ -213,5 +218,6 @@ export function PinterestAutoScoutPanel({
       <span><small>Existing</small><b>{lastRun.existing_count}</b></span>
       <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
     </div>}
+    </details>
   </section>;
 }

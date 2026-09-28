@@ -204,15 +204,11 @@ export function ProductRegistryPanel() {
     }
   }
 
-  return <section className="rrugc-card rrugc-product-registry">
-    <div className="rrugc-section-heading">
-      <div>
-        <small>PRODUCT GROUNDING</small>
-        <h2>Product reference library</h2>
-        <p>Keep SKU geometry and reference views in one source of truth for consistent downstream generation.</p>
-      </div>
-      <span className="rrugc-safe-badge">{products.length} active SKU{products.length === 1 ? "" : "s"}</span>
-    </div>
+  return <details className="rrugc-card rrugc-product-registry rrugc-compact-section">
+    <summary className="rrugc-compact-section-summary">
+      <span><small>PRODUCT GROUNDING</small><strong>Product reference library</strong></span>
+      <b>{products.length} SKU{products.length === 1 ? "" : "s"} · Manage</b>
+    </summary>
 
     {error && <div className="rrugc-error" role="alert">{error}</div>}
 
@@ -315,5 +311,5 @@ export function ProductRegistryPanel() {
         </div>
       </details>}
     </div>}
-  </section>;
+  </details>;
 }

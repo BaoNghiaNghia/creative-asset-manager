@@ -56,7 +56,11 @@ export function CampaignExportPanel({
   busy: boolean;
   onExport: () => void;
 }) {
-  return <section className="rrugc-export-panel" aria-label="Export and catalog">
+  return <details className="rrugc-export-panel rrugc-compact-disclosure" aria-label="Export and catalog">
+    <summary>
+      <span><strong>Catalog</strong><small>Approved outputs and export readiness</small></span>
+      <b>{summary?.export_ready ?? 0} ready</b>
+    </summary>
     <div className="rrugc-generation-heading">
       <div>
         <small>CATALOG</small>
@@ -80,7 +84,7 @@ export function CampaignExportPanel({
       <span><small>Export ready</small><b>{summary?.export_ready ?? 0}</b></span>
       <span><small>Cataloged</small><b>{summary?.exported ?? 0}</b></span>
     </div>
-  </section>;
+  </details>;
 }
 
 export function CampaignDeliveryPanel({
@@ -124,7 +128,11 @@ export function CampaignDeliveryPanel({
 }) {
   const selected = destinations.find(row => row.id === selectedDestinationId) || null;
   const latest = packages[0] || null;
-  return <section className="rrugc-delivery-panel" aria-label="Delivery and lifecycle">
+  return <details className="rrugc-delivery-panel rrugc-compact-disclosure" aria-label="Delivery and lifecycle">
+    <summary>
+      <span><strong>Delivery</strong><small>Destination, lifecycle, and package history</small></span>
+      <b>{summary?.cataloged ?? 0} cataloged{summary?.packages_partial_failed ? " · " + summary.packages_partial_failed + " retry" : ""}</b>
+    </summary>
     <div className="rrugc-generation-heading">
       <div>
         <small>DELIVERY</small>
@@ -236,7 +244,7 @@ export function CampaignDeliveryPanel({
       {" · "}{latest.delivered_count}/{latest.export_count} delivered
       {latest.failed_count ? " · " + latest.failed_count + " retry needed" : ""}
     </p>}
-  </section>;
+  </details>;
 }
 
 export function CampaignGenerationPanel({
@@ -597,11 +605,9 @@ export function CampaignGenerationPanel({
       </button>
     </div>
 
-    {campaign.product_id ? <div className="rrugc-generation-binding">
+    {campaign.product_id ? <div className="rrugc-generation-binding rrugc-generation-binding-compact">
       <span><small>Bound SKU</small><b>{campaign.product_sku || "—"}</b></span>
-      <span><small>Geometry rev</small><b>{campaign.product_revision ?? "—"}</b></span>
-      <span><small>Reference views</small><b>{campaign.product_reference_count}</b></span>
-      <span><small>Generation ready</small><b>{campaign.generation_ready ? "Yes" : "No"}</b></span>
+      <span><small>Generation</small><b>{campaign.generation_ready ? "Ready" : "Not ready"}</b></span>
       {campaign.product_binding_stale && <span className="stale"><small>Snapshot</small><b>Refresh required</b></span>}
     </div> : <p className="rrugc-generation-note">
       Bind an active SKU before preparing a generation attempt.
@@ -632,11 +638,11 @@ export function CampaignGenerationPanel({
       </button>
     </div>
 
-    <div className="rrugc-generation-attempts">
-      <div className="rrugc-generation-attempt-title">
-        <span>Recent generation attempts</span>
+    <details className="rrugc-generation-attempts rrugc-compact-disclosure">
+      <summary>
+        <span><strong>Generation attempts</strong><small>Outputs, Supervisor QA, retries, and provenance</small></span>
         <b>{attempts.length}</b>
-      </div>
+      </summary>
       {attempts.length === 0 ? <p>No generation attempt prepared yet.</p> :
         attempts.slice(0, 8).map(attempt => {
           const qa = supervisorByAttempt.get(attempt.id);
@@ -713,7 +719,7 @@ export function CampaignGenerationPanel({
             </div>}
           </article>;
         })}
-    </div>
+    </details>
     <CampaignExportPanel
       summary={exportSummary}
       busy={busy === "export"}

@@ -99,6 +99,7 @@ export function RealisticReviewUgcPage() {
   const [requireHeadVisible, setRequireHeadVisible] = useState(true);
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState("");
+  const [candidateLimit, setCandidateLimit] = useState(24);
   const [error, setError] = useState("");
 
   const selected = campaigns.find(item => item.id === selectedId) || null;
@@ -130,6 +131,7 @@ export function RealisticReviewUgcPage() {
   }, []);
 
   useEffect(() => {
+    setCandidateLimit(24);
     if (!selectedId) {
       setCandidates([]);
       return;
@@ -248,7 +250,7 @@ export function RealisticReviewUgcPage() {
       <WorkspacePageHeader
         className="rrugc-header"
         route="realistic-review-ugc"
-        description="Pinterest discovery, reference QA, product grounding, generation, review, catalog, and delivery in one production workspace."
+        description="Scout references, ground the product, generate, review, and deliver."
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Auto pipeline</span>}
         actions={<WorkspaceBackToAssets />}
       />
@@ -257,18 +259,11 @@ export function RealisticReviewUgcPage() {
 
         <section className="rrugc-overview" aria-label="Realistic Review UGC overview">
           <div className="rrugc-kpis">
-            <article><span>Campaigns</span><strong>{kpis.workflows}</strong><small>Total workflows</small></article>
-            <article><span>Active</span><strong>{kpis.running}</strong><small>Running now</small></article>
-            <article><span>Approved refs</span><strong>{kpis.approved}</strong><small>Passed reference QA</small></article>
-            <article><span>Drive ready</span><strong>{kpis.driveReady}</strong><small>Durable references</small></article>
+            <article><span>Campaigns</span><strong>{kpis.workflows}</strong></article>
+            <article><span>Active</span><strong>{kpis.running}</strong></article>
+            <article><span>Approved refs</span><strong>{kpis.approved}</strong></article>
+            <article><span>Drive ready</span><strong>{kpis.driveReady}</strong></article>
           </div>
-          <nav className="rrugc-workflow-rail" aria-label="Realistic Review UGC workflow">
-            <a href="#rrugc-scout"><b>01</b><span><strong>Scout</strong><small>Pinterest source</small></span></a>
-            <a href="#rrugc-campaigns"><b>02</b><span><strong>Qualify</strong><small>Reference QA</small></span></a>
-            <a href="#rrugc-product"><b>03</b><span><strong>Ground</strong><small>Product truth</small></span></a>
-            <a href="#rrugc-production"><b>04</b><span><strong>Produce</strong><small>Generate + review</small></span></a>
-            <a href="#rrugc-operations"><b>05</b><span><strong>Deliver</strong><small>Catalog + lifecycle</small></span></a>
-          </nav>
         </section>
 
         <div id="rrugc-scout" className="rrugc-anchor-section">
@@ -276,15 +271,11 @@ export function RealisticReviewUgcPage() {
         </div>
 
         <div id="rrugc-campaigns" className="rrugc-columns rrugc-campaign-workspace">
-          <section className="rrugc-card rrugc-create-campaign">
-            <div className="rrugc-section-heading">
-              <div>
-                <small>NEW REFERENCE CAMPAIGN</small>
-                <h2>Define what Auto Scout should find</h2>
-                <p>Set the Pinterest intent, target volume, and qualification rules. The paired Scout handles repeated collection in the background.</p>
-              </div>
-              <span className="rrugc-safe-badge">Local Pinterest session</span>
-            </div>
+          <details className="rrugc-card rrugc-create-campaign rrugc-compact-section">
+            <summary className="rrugc-compact-section-summary">
+              <span><small>NEW CAMPAIGN</small><strong>Define what Auto Scout should find</strong></span>
+              <b>＋ New campaign</b>
+            </summary>
             <div className="rrugc-form">
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
               <label>Search query<input value={query} maxLength={500} onChange={event => setQuery(event.target.value)} /></label>
@@ -340,7 +331,7 @@ export function RealisticReviewUgcPage() {
                 <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || !query.trim()} onClick={() => void submit()}>{busy ? "Creating…" : "Create & start campaign"}</button>
               </div>
             </div>
-          </section>
+          </details>
 
           <section className="rrugc-card rrugc-campaign-browser">
             <div className="rrugc-section-heading">
@@ -380,16 +371,11 @@ export function RealisticReviewUgcPage() {
         {selected && <section id="rrugc-production" className="rrugc-card rrugc-live rrugc-anchor-section">
           <div className="rrugc-section-heading rrugc-live-heading">
             <div><small>ACTIVE CAMPAIGN</small><h2>{selected.name}</h2><p>{selected.query}</p></div>
-            <div className="rrugc-live-meta">
-              <span>Scout: <b>{selected.scout_status}</b></span>
-              <span>Pending: <b>{selected.analysis_pending + selected.analyzing}</b></span>
-              <span>Approved: <b>{selected.approved}</b></span>
-              <span>Rejected: <b>{selected.rejected}</b></span>
-              <span>Drive: <b>{selected.drive_ready}</b></span>
-              <span>Auto Scout: <b>{selected.auto_scout ? "On" : "Off"}</b></span>
-              <span>Next scan: <b>{selected.auto_scout ? time(selected.scan_next_at) : "Paused"}</b></span>
-              <span>Runs: <b>{selected.scan_attempt_count}</b></span>
-              <span>Last seen: <b>{time(selected.scout_last_seen_at)}</b></span>
+            <div className="rrugc-live-meta rrugc-live-meta-primary">
+              <span>Pending <b>{selected.analysis_pending + selected.analyzing}</b></span>
+              <span>Approved <b>{selected.approved}</b></span>
+              <span>Drive <b>{selected.drive_ready}</b></span>
+              <span>Scout <b>{selected.auto_scout ? "On" : "Off"}</b></span>
             </div>
           </div>
           <div className="rrugc-scan-control-strip">
@@ -411,13 +397,22 @@ export function RealisticReviewUgcPage() {
                 : selected.auto_scout ? "Pause Auto Scout" : "Resume Auto Scout"}
             </button>
           </div>
-          <div className="rrugc-policy-strip">
-            <span>Head <b>{Math.round(selected.min_head_ratio * 100)}–{Math.round(selected.max_head_ratio * 100)}%</b></span>
-            <span>Smile <b>≥ {Math.round(selected.min_smile_score * 100)}%</b></span>
-            <span>Occlusion <b>≤ {Math.round(selected.max_head_occlusion * 100)}%</b></span>
-            <span>AI risk <b>≤ {Math.round(selected.max_ai_risk_score * 100)}%</b></span>
-            <span>{selected.reject_headwear ? "No existing headwear" : "Headwear allowed"}</span>
-          </div>
+          <details className="rrugc-inline-disclosure">
+            <summary>Scan details & filters</summary>
+            <div className="rrugc-live-meta rrugc-live-meta-secondary">
+              <span>Status <b>{selected.scout_status}</b></span>
+              <span>Next scan <b>{selected.auto_scout ? time(selected.scan_next_at) : "Paused"}</b></span>
+              <span>Runs <b>{selected.scan_attempt_count}</b></span>
+              <span>Last seen <b>{time(selected.scout_last_seen_at)}</b></span>
+            </div>
+            <div className="rrugc-policy-strip">
+              <span>Head <b>{Math.round(selected.min_head_ratio * 100)}–{Math.round(selected.max_head_ratio * 100)}%</b></span>
+              <span>Smile <b>≥ {Math.round(selected.min_smile_score * 100)}%</b></span>
+              <span>Occlusion <b>≤ {Math.round(selected.max_head_occlusion * 100)}%</b></span>
+              <span>AI risk <b>≤ {Math.round(selected.max_ai_risk_score * 100)}%</b></span>
+              <span>{selected.reject_headwear ? "No existing headwear" : "Headwear allowed"}</span>
+            </div>
+          </details>
           <section className="rrugc-reference-workspace" aria-label="Reference qualification">
             <div className="rrugc-subsection-heading">
               <div><small>REFERENCE QUALIFICATION</small><h3>Pinterest candidates</h3><p>Review what Auto Scout found and how each image scored before using it as a durable person reference.</p></div>
@@ -428,7 +423,7 @@ export function RealisticReviewUgcPage() {
               ? "Waiting for the paired Auto Scout to collect Pinterest candidates."
               : "Auto Scout is paused for this campaign."}
           </p> : <div className="rrugc-grid">
-            {candidates.map(candidate => {
+            {candidates.slice(0, candidateLimit).map(candidate => {
               const tone = candidateTone(candidate.status);
               const actionBusy = actionId === candidate.id;
               const canRetry = candidate.status === "analysis_failed" || rejectedStatuses.has(candidate.status);
@@ -441,17 +436,19 @@ export function RealisticReviewUgcPage() {
                 </div>
                 <div className="rrugc-candidate-body">
                   <div className="rrugc-candidate-head"><strong>Reference analysis</strong><span>{candidate.analyzed_at ? "Scored" : "Pending"}</span></div>
-                  {candidate.analysis_summary && <p>{candidate.analysis_summary}</p>}
                   {candidate.reject_reason && <p className="rrugc-reject-reason">{candidate.reject_reason.replaceAll("_", " ")}</p>}
-                  {candidate.analyzed_at && <div className="rrugc-metrics">
-                    <span>Head <b>{percent(candidate.primary_head_ratio)}</b></span>
-                    <span>Smile <b>{percent(candidate.smile_score)}</b></span>
-                    <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
-                    <span>Quality <b>{percent(candidate.quality_score)}</b></span>
-                    <span>AI risk <b>{percent(candidate.ai_risk_score)}</b></span>
-                    <span>Fit <b>{percent(candidate.product_fit_score)}</b></span>
-                  </div>}
-                  {!candidate.analyzed_at && <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
+                  {candidate.analyzed_at ? <details className="rrugc-candidate-details">
+                    <summary>Analysis details</summary>
+                    {candidate.analysis_summary && <p>{candidate.analysis_summary}</p>}
+                    <div className="rrugc-metrics">
+                      <span>Head <b>{percent(candidate.primary_head_ratio)}</b></span>
+                      <span>Smile <b>{percent(candidate.smile_score)}</b></span>
+                      <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
+                      <span>Quality <b>{percent(candidate.quality_score)}</b></span>
+                      <span>AI risk <b>{percent(candidate.ai_risk_score)}</b></span>
+                      <span>Fit <b>{percent(candidate.product_fit_score)}</b></span>
+                    </div>
+                  </details> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
                 </div>
                 <footer>
                   {candidate.web_url ? <a href={candidate.web_url} target="_blank" rel="noreferrer">Open in Drive</a>
@@ -464,6 +461,13 @@ export function RealisticReviewUgcPage() {
               </article>;
             })}
           </div>}
+          {candidates.length > candidateLimit && <button
+            type="button"
+            className="rrugc-show-more"
+            onClick={() => setCandidateLimit(limit => limit + 24)}
+          >
+            Show 24 more · {candidates.length - candidateLimit} remaining
+          </button>}
           </section>
           <CampaignGenerationPanel
             campaign={selected}

@@ -23,7 +23,11 @@ export function DeliveryOperationsView({
   onRun: () => void;
 }) {
   const automation = summary?.automation_enabled ?? false;
-  return <section className="rrugc-card rrugc-operations-panel" aria-label="Delivery operations">
+  return <details className="rrugc-card rrugc-operations-panel rrugc-compact-section" aria-label="Delivery operations">
+    <summary className="rrugc-compact-section-summary">
+      <span><small>DELIVERY OPERATIONS</small><strong>Automation & retries</strong></span>
+      <b>{summary?.retry_due ? summary.retry_due + " retry due" : automation ? "Healthy" : "Automation off"}</b>
+    </summary>
     <div className="rrugc-section-heading rrugc-operations-heading">
       <div>
         <small>DELIVERY OPERATIONS</small>
@@ -89,7 +93,7 @@ export function DeliveryOperationsView({
           </article>
         )}
     </div>
-  </section>;
+  </details>;
 }
 
 export function DeliveryOperationsPanel({
