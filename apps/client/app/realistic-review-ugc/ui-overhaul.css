@@ -331,6 +331,14 @@
 .rrugc-subsection-heading h3{margin:3px 0 0;color:#344b6d;font-size:13px}
 .rrugc-subsection-heading p{max-width:700px;margin:4px 0 0;color:#7b899d;font-size:9px;line-height:1.45}
 .rrugc-subsection-heading>span{flex:0 0 auto;padding:4px 7px;border-radius:999px;background:#f0f3f8;color:#66758a;font-size:8px;font-weight:800}
+.rrugc-candidate-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:2px 0 4px;border-bottom:1px solid #e7ecf4;scrollbar-width:none}
+.rrugc-candidate-tabs::-webkit-scrollbar{display:none}
+.rrugc-candidate-tabs button{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-height:31px;padding:0 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:#75849a;font-size:9px;font-weight:800;cursor:pointer}
+.rrugc-candidate-tabs button:hover{background:#f5f7fb;color:#506888}
+.rrugc-candidate-tabs button b{min-width:19px;padding:2px 5px;border-radius:999px;background:#eef2f7;color:#718096;font-size:8px;text-align:center}
+.rrugc-candidate-tabs button.is-active{border-color:#cbd9f5;background:#edf3ff;color:#315cae;box-shadow:0 1px 2px rgba(43,78,135,.05)}
+.rrugc-candidate-tabs button.is-active b{background:#dce8ff;color:#315cae}
+.rrugc-tab-empty{margin-top:4px}
 .rrugc-product-create{overflow:hidden;padding:0!important}
 .rrugc-product-create>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 13px;cursor:pointer;list-style:none}
 .rrugc-product-create>summary::-webkit-details-marker{display:none}

@@ -4,7 +4,7 @@ import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
 import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
-import { RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
+import { candidateGalleryTab, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
 
 describe("Realistic Review UGC route", () => {
@@ -19,6 +19,19 @@ describe("Realistic Review UGC route", () => {
     expect(markup).toContain("＋ Add campaign");
     expect(markup).toContain("Add, edit, delete, and select campaigns from one place.");
     expect(markup).not.toContain("Define what Auto Scout should find");
+  });
+
+  it("groups Pinterest candidates into Approved, Rejected, Drive, and Processing tabs", () => {
+    expect(candidateGalleryTab("approved")).toBe("approved");
+    expect(candidateGalleryTab("rejected_quality")).toBe("rejected");
+    expect(candidateGalleryTab("rejected_duplicate")).toBe("rejected");
+    expect(candidateGalleryTab("analysis_failed")).toBe("rejected");
+    expect(candidateGalleryTab("import_queued")).toBe("drive");
+    expect(candidateGalleryTab("importing")).toBe("drive");
+    expect(candidateGalleryTab("drive_ready")).toBe("drive");
+    expect(candidateGalleryTab("import_failed")).toBe("drive");
+    expect(candidateGalleryTab("analysis_queued")).toBe("processing");
+    expect(candidateGalleryTab("analyzing")).toBe("processing");
   });
 
   it("uses a balanced real-person lifestyle Pinterest preset", () => {

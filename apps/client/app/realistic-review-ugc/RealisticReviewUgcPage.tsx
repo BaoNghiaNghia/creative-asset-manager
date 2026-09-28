@@ -61,6 +61,26 @@ const analyzingStatuses = new Set<CandidateStatus>([
   "analyzing",
 ]);
 
+const driveStatuses = new Set<CandidateStatus>([
+  "import_queued",
+  "importing",
+  "drive_ready",
+  "import_failed",
+]);
+
+export type CandidateGalleryTab = "approved" | "rejected" | "drive" | "processing";
+
+export function candidateGalleryTab(status: CandidateStatus): CandidateGalleryTab {
+  if (driveStatuses.has(status)) return "drive";
+  if (status === "approved") return "approved";
+  if (
+    rejectedStatuses.has(status)
+    || status === "rejected_duplicate"
+    || status === "analysis_failed"
+  ) return "rejected";
+  return "processing";
+}
+
 function candidateTone(status: CandidateStatus): string {
   if (status === "drive_ready" || status === "approved") return "positive";
   if (rejectedStatuses.has(status) || status === "analysis_failed" || status === "import_failed") return "negative";
@@ -183,6 +203,7 @@ export function RealisticReviewUgcPage() {
   const [requireHeadVisible, setRequireHeadVisible] = useState(true);
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState("");
+  const [candidateTab, setCandidateTab] = useState<CandidateGalleryTab>("approved");
   const [candidateLimit, setCandidateLimit] = useState(24);
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState<CampaignEditDraft | null>(null);
@@ -411,6 +432,23 @@ export function RealisticReviewUgcPage() {
     running: campaigns.filter(item => item.status === "running").length,
     approved: campaigns.reduce((sum, item) => sum + item.approved, 0),
     driveReady: campaigns.reduce((sum, item) => sum + item.drive_ready, 0),
+  };
+
+  const candidateGroups: Record<CandidateGalleryTab, Candidate[]> = {
+    approved: [],
+    rejected: [],
+    drive: [],
+    processing: [],
+  };
+  for (const candidate of candidates) {
+    candidateGroups[candidateGalleryTab(candidate.status)].push(candidate);
+  }
+  const visibleCandidates = candidateGroups[candidateTab];
+  const candidateEmptyCopy: Record<CandidateGalleryTab, string> = {
+    approved: "No approved references yet.",
+    rejected: "No rejected references in this campaign.",
+    drive: "No references are queued, saving, or ready in Drive yet.",
+    processing: "No references are currently being analyzed.",
   };
 
   return <main className="rrugc-shell">
@@ -732,15 +770,48 @@ export function RealisticReviewUgcPage() {
           </details>
           <section className="rrugc-reference-workspace" aria-label="Reference qualification">
             <div className="rrugc-subsection-heading">
-              <div><small>REFERENCE QUALIFICATION</small><h3>Pinterest candidates</h3><p>Review what Auto Scout found and how each image scored before using it as a durable person reference.</p></div>
+              <div><small>REFERENCE QUALIFICATION</small><h3>Pinterest candidates</h3><p>Review approved references, rejected results, and Drive imports separately.</p></div>
               <span>{candidates.length} found</span>
+            </div>
+            <div className="rrugc-candidate-tabs" role="tablist" aria-label="Candidate status">
+              {([
+                ["approved", "Approved"],
+                ["rejected", "Rejected"],
+                ["drive", "Drive"],
+              ] as const).map(([tab, label]) => <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={candidateTab === tab}
+                className={candidateTab === tab ? "is-active" : ""}
+                onClick={() => {
+                  setCandidateTab(tab);
+                  setCandidateLimit(24);
+                }}
+              >
+                <span>{label}</span><b>{candidateGroups[tab].length}</b>
+              </button>)}
+              {candidateGroups.processing.length > 0 && <button
+                type="button"
+                role="tab"
+                aria-selected={candidateTab === "processing"}
+                className={candidateTab === "processing" ? "is-active" : ""}
+                onClick={() => {
+                  setCandidateTab("processing");
+                  setCandidateLimit(24);
+                }}
+              >
+                <span>Processing</span><b>{candidateGroups.processing.length}</b>
+              </button>}
             </div>
           {candidates.length === 0 ? <p className="rrugc-empty">
             {selected.auto_scout
               ? "Waiting for the paired Auto Scout to collect Pinterest candidates."
               : "Auto Scout is paused for this campaign."}
-          </p> : <div className="rrugc-grid rrugc-masonry-grid">
-            {candidates.slice(0, candidateLimit).map(candidate => {
+          </p> : visibleCandidates.length === 0 ? <p className="rrugc-empty rrugc-tab-empty">
+            {candidateEmptyCopy[candidateTab]}
+          </p> : <div className="rrugc-grid rrugc-masonry-grid" role="tabpanel">
+            {visibleCandidates.slice(0, candidateLimit).map(candidate => {
               const tone = candidateTone(candidate.status);
               const actionBusy = actionId === candidate.id;
               const canRetry = candidate.status === "analysis_failed" || rejectedStatuses.has(candidate.status);
@@ -778,12 +849,12 @@ export function RealisticReviewUgcPage() {
               </article>;
             })}
           </div>}
-          {candidates.length > candidateLimit && <button
+          {visibleCandidates.length > candidateLimit && <button
             type="button"
             className="rrugc-show-more"
             onClick={() => setCandidateLimit(limit => limit + 24)}
           >
-            Show 24 more · {candidates.length - candidateLimit} remaining
+            Show 24 more · {visibleCandidates.length - candidateLimit} remaining
           </button>}
           </section>
           <CampaignGenerationPanel
