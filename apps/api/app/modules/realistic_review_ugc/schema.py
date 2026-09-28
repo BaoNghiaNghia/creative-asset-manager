@@ -150,13 +150,13 @@ class CampaignCreateRequest(BaseModel):
     auto_import: bool = False
     auto_scout: bool = True
     scan_interval_seconds: int = Field(default=300, ge=60, le=86400)
-    min_head_ratio: float = Field(default=0.20, ge=0.05, le=0.90)
-    max_head_ratio: float = Field(default=0.45, ge=0.05, le=0.95)
-    min_smile_score: float = Field(default=0.65, ge=0.0, le=1.0)
-    max_head_occlusion: float = Field(default=0.25, ge=0.0, le=1.0)
+    min_head_ratio: float = Field(default=0.10, ge=0.05, le=0.90)
+    max_head_ratio: float = Field(default=0.70, ge=0.05, le=0.95)
+    min_smile_score: float = Field(default=0.00, ge=0.0, le=1.0)
+    max_head_occlusion: float = Field(default=0.65, ge=0.0, le=1.0)
     max_ai_risk_score: float = Field(default=0.15, ge=0.0, le=1.0)
     min_quality_score: float = Field(default=0.60, ge=0.0, le=1.0)
-    min_ugc_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    min_ugc_score: float = Field(default=0.55, ge=0.0, le=1.0)
     min_product_fit_score: float = Field(default=0.55, ge=0.0, le=1.0)
     require_head_visible: bool = True
     reject_headwear: bool = False

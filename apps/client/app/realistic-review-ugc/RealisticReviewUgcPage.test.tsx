@@ -45,9 +45,9 @@ describe("Realistic Review UGC route", () => {
   it("uses a balanced real-person lifestyle Pinterest preset", () => {
     const queries = referenceLifestyleSearchQueries();
     expect(queries).toHaveLength(10);
-    expect(queries).toContain("authentic candid lifestyle portrait");
-    expect(queries).toContain("casual family candid lifestyle photo");
-    expect(queries).toContain("embroidered baseball cap casual selfie");
+    expect(queries).toContain("baseball cap selfie candid natural light");
+    expect(queries).toContain("casual woman baseball cap selfie");
+    expect(queries).toContain("authentic candid lifestyle portrait natural light");
     expect(queries).toContain("corduroy cap casual lifestyle portrait");
   });
 

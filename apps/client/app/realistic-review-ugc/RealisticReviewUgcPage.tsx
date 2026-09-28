@@ -126,7 +126,7 @@ function SearchQueryEditor({
     <div className="rrugc-keyword-preset">
       <span>
         <strong>Real-person lifestyle preset</strong>
-        <small>8 people-first searches + 2 optional hat searches</small>
+        <small>7 cap-first searches + 3 broad lifestyle searches</small>
       </span>
       <button type="button" onClick={() => onChange(referenceLifestyleSearchQueries())}>
         Use preset
@@ -205,13 +205,13 @@ export function RealisticReviewUgcPage() {
   const [autoImport, setAutoImport] = useState(true);
   const [autoScout, setAutoScout] = useState(true);
   const [scanIntervalMinutes, setScanIntervalMinutes] = useState(5);
-  const [minHeadRatio, setMinHeadRatio] = useState(20);
-  const [maxHeadRatio, setMaxHeadRatio] = useState(45);
-  const [minSmile, setMinSmile] = useState(65);
-  const [maxOcclusion, setMaxOcclusion] = useState(25);
+  const [minHeadRatio, setMinHeadRatio] = useState(10);
+  const [maxHeadRatio, setMaxHeadRatio] = useState(70);
+  const [minSmile, setMinSmile] = useState(0);
+  const [maxOcclusion, setMaxOcclusion] = useState(65);
   const [maxAiRisk, setMaxAiRisk] = useState(15);
   const [minQuality, setMinQuality] = useState(60);
-  const [minUgc, setMinUgc] = useState(65);
+  const [minUgc, setMinUgc] = useState(55);
   const [minProductFit, setMinProductFit] = useState(55);
   const [rejectHeadwear, setRejectHeadwear] = useState(false);
   const [requireHeadVisible, setRequireHeadVisible] = useState(true);
@@ -581,13 +581,13 @@ export function RealisticReviewUgcPage() {
 
               <details className="rrugc-filter-panel">
                 <summary>
-                  <span><strong>Qualification rules</strong><small>Quality-first real photos: AI risk ≤ 15%, quality ≥ 60%, UGC ≥ 65%</small></span>
+                  <span><strong>Qualification rules</strong><small>Cap-friendly candid photos: AI risk ≤ 15%, head 10–70%, neutral expressions allowed</small></span>
                   <b>Real photo gate</b>
                 </summary>
                 <div className="rrugc-filter-grid">
                   <label>Head size min<input type="number" min={5} max={90} value={minHeadRatio} onChange={event => setMinHeadRatio(Number(event.target.value))} /><small>% of image height</small></label>
                   <label>Head size max<input type="number" min={5} max={95} value={maxHeadRatio} onChange={event => setMaxHeadRatio(Number(event.target.value))} /><small>% of image height</small></label>
-                  <label>Smile min<input type="number" min={0} max={100} value={minSmile} onChange={event => setMinSmile(Number(event.target.value))} /><small>score ≥</small></label>
+                  <label>Smile min (optional)<input type="number" min={0} max={100} value={minSmile} onChange={event => setMinSmile(Number(event.target.value))} /><small>score ≥</small></label>
                   <label>Head occlusion max<input type="number" min={0} max={100} value={maxOcclusion} onChange={event => setMaxOcclusion(Number(event.target.value))} /><small>score ≤</small></label>
                   <label>AI risk max<input type="number" min={0} max={100} value={maxAiRisk} onChange={event => setMaxAiRisk(Number(event.target.value))} /><small>risk ≤</small></label>
                   <label>Quality min<input type="number" min={0} max={100} value={minQuality} onChange={event => setMinQuality(Number(event.target.value))} /><small>score ≥</small></label>
@@ -744,11 +744,11 @@ export function RealisticReviewUgcPage() {
               </section>
 
               <details className="rrugc-filter-panel rrugc-editor-advanced">
-                <summary><span><strong>Qualification rules</strong><small>Real-photo gate plus head visibility, smile, quality, UGC style, and product fit</small></span><b>Quality-first</b></summary>
+                <summary><span><strong>Qualification rules</strong><small>Cap-friendly gate: broad head size, neutral expressions, existing caps allowed, real-photo quality preserved</small></span><b>Quality-first</b></summary>
                 <div className="rrugc-filter-grid">
                   <label>Head min<input type="number" min={5} max={90} value={editDraft.minHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, minHeadRatio: Number(event.target.value) } : current)} /></label>
                   <label>Head max<input type="number" min={5} max={95} value={editDraft.maxHeadRatio} onChange={event => setEditDraft(current => current ? { ...current, maxHeadRatio: Number(event.target.value) } : current)} /></label>
-                  <label>Smile min<input type="number" min={0} max={100} value={editDraft.minSmile} onChange={event => setEditDraft(current => current ? { ...current, minSmile: Number(event.target.value) } : current)} /></label>
+                  <label>Smile min (optional)<input type="number" min={0} max={100} value={editDraft.minSmile} onChange={event => setEditDraft(current => current ? { ...current, minSmile: Number(event.target.value) } : current)} /></label>
                   <label>Occlusion max<input type="number" min={0} max={100} value={editDraft.maxOcclusion} onChange={event => setEditDraft(current => current ? { ...current, maxOcclusion: Number(event.target.value) } : current)} /></label>
                   <label>AI risk max<input type="number" min={0} max={100} value={editDraft.maxAiRisk} onChange={event => setEditDraft(current => current ? { ...current, maxAiRisk: Number(event.target.value) } : current)} /></label>
                   <label>Quality min<input type="number" min={0} max={100} value={editDraft.minQuality} onChange={event => setEditDraft(current => current ? { ...current, minQuality: Number(event.target.value) } : current)} /></label>

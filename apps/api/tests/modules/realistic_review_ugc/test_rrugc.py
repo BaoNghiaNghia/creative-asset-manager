@@ -733,6 +733,56 @@ def test_reference_policy_approves_good_hat_reference():
     assert decision.final_score > 0.75
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {
+            "primary_head_ratio": 0.65,
+            "smile_score": 0.0,
+            "existing_headwear": True,
+            "head_occlusion": 0.25,
+            "mobile_ugc_score": 0.95,
+            "quality_score": 0.85,
+            "product_fit_score": 0.90,
+        },
+        {
+            "primary_head_ratio": 0.42,
+            "smile_score": 0.0,
+            "existing_headwear": True,
+            "head_occlusion": 0.45,
+            "mobile_ugc_score": 0.95,
+            "quality_score": 0.82,
+            "product_fit_score": 0.75,
+        },
+        {
+            "primary_head_ratio": 0.28,
+            "smile_score": 0.0,
+            "existing_headwear": True,
+            "head_occlusion": 0.40,
+            "mobile_ugc_score": 0.75,
+            "quality_score": 0.85,
+            "product_fit_score": 0.60,
+        },
+        {
+            "primary_head_ratio": 0.13,
+            "smile_score": 0.10,
+            "existing_headwear": True,
+            "head_occlusion": 0.55,
+            "mobile_ugc_score": 0.90,
+            "quality_score": 0.75,
+            "product_fit_score": 0.60,
+        },
+    ],
+)
+def test_reference_policy_accepts_cap_friendly_candid_examples(overrides):
+    decision = evaluate_reference(
+        reference_document(**overrides),
+        ReferenceFilterPolicy(),
+    )
+    assert decision.status == "approved"
+    assert decision.reject_reason is None
+
+
 def test_reference_policy_allows_existing_headwear_by_default():
     decision = evaluate_reference(
         reference_document(existing_headwear=True),
@@ -755,11 +805,10 @@ def test_reference_policy_can_still_reject_existing_headwear():
     ("overrides", "status", "reason"),
     [
         ({"people_count": 0, "primary_head_ratio": None}, "rejected_no_person", "NO_PERSON"),
-        ({"primary_head_ratio": 0.12}, "rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE"),
-        ({"head_occlusion": 0.55}, "rejected_head_occlusion", "HEAD_OCCLUSION"),
-        ({"smile_score": 0.20}, "rejected_expression", "SMILE_SCORE_LOW"),
+        ({"primary_head_ratio": 0.08}, "rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE"),
+        ({"head_occlusion": 0.75}, "rejected_head_occlusion", "HEAD_OCCLUSION"),
         ({"quality_score": 0.59}, "rejected_quality", "QUALITY_SCORE_LOW"),
-        ({"mobile_ugc_score": 0.64}, "rejected_context", "UGC_SCORE_LOW"),
+        ({"mobile_ugc_score": 0.54}, "rejected_context", "UGC_SCORE_LOW"),
         ({"ai_risk_score": 0.16}, "rejected_ai_risk", "AI_RISK_HIGH"),
     ],
 )

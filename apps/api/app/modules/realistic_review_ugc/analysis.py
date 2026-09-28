@@ -8,10 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v4-authenticity-ensemble"
+ANALYZER_VERSION = "rrugc-reference-v5-cap-friendly-candid"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
-QUALITY_FIRST_MIN_UGC = 0.65
+QUALITY_FIRST_MIN_UGC = 0.55
 AI_CONFIRMATION_TRIGGER = 0.30
 AI_STRONG_CUE_THRESHOLD = 0.60
 AI_CONFIRMATION_SYNTHETIC_THRESHOLD = 0.60
@@ -89,13 +89,13 @@ class AiRiskAssessment:
 
 @dataclass(frozen=True, slots=True)
 class ReferenceFilterPolicy:
-    min_head_ratio: float = 0.20
-    max_head_ratio: float = 0.45
-    min_smile_score: float = 0.65
-    max_head_occlusion: float = 0.25
+    min_head_ratio: float = 0.10
+    max_head_ratio: float = 0.70
+    min_smile_score: float = 0.00
+    max_head_occlusion: float = 0.65
     max_ai_risk_score: float = QUALITY_FIRST_MAX_AI_RISK
-    min_quality_score: float = QUALITY_FIRST_MIN_QUALITY
-    min_ugc_score: float = QUALITY_FIRST_MIN_UGC
+    min_quality_score: float = 0.60
+    min_ugc_score: float = 0.55
     min_product_fit_score: float = 0.55
     require_head_visible: bool = True
     reject_headwear: bool = False
@@ -348,11 +348,16 @@ def analysis_prompt() -> str:
 You are evaluating a Pinterest lifestyle reference for a quality-first real-photo workflow.
 Return exactly one JSON object and no prose.
 
-The workflow wants authentic camera photographs of real scenes. Synthetic-image detection is
-uncertain, so do not call an image AI-generated from a vague polished look alone. Score separate
-visible evidence categories independently. Compression, portrait-mode blur, HDR, beauty filters,
-phone sharpening, JPEG artifacts, shallow depth of field, and professional lighting can all occur
-in real photographs and are NOT sufficient evidence by themselves.
+The workflow wants authentic camera photographs of real scenes, especially casual lifestyle,
+selfie, outdoor, home, cafe, car, and candid portraits that remain useful when a cap is already
+present. A person may be smiling or neutral, looking at camera or away, sitting, drinking, or
+looking down. Do not reject a useful real photo merely because it is not a smiling portrait.
+
+Synthetic-image detection is uncertain, so do not call an image AI-generated from a vague polished
+look alone. Score separate visible evidence categories independently. Compression, portrait-mode
+blur, HDR, beauty filters, phone sharpening, JPEG artifacts, shallow depth of field, and
+professional lighting can all occur in real photographs and are NOT sufficient evidence by
+themselves.
 
 Do not identify the person and do not infer protected or demographic attributes.
 Only evaluate visible composition and image suitability.
@@ -360,10 +365,10 @@ Only evaluate visible composition and image suitability.
 Definitions:
 - people_count: number of visibly present people.
 - primary_head_ratio: height of the primary visible head bounding region divided by full image height, in 0..1. Use null when there is no usable visible head.
-- smile_score: 0..1 strength of a clearly positive/smiling visible expression.
-- head_visible: true only if the primary head is sufficiently visible for adding or replacing a hat.
-- existing_headwear: true when the primary person is already wearing any hat/cap/helmet/head covering.
-- head_occlusion: 0..1 fraction/severity of the primary head obscured by crops, objects, hands, other people, heavy hair coverage, or frame edges.
+- smile_score: 0..1 strength of a clearly positive/smiling visible expression. Treat this as descriptive only: a neutral, serious, looking-down, sipping, or candid expression can still be an excellent reference.
+- head_visible: true when the primary head/hat region is sufficiently readable to preserve or naturally replace headwear. Existing caps are valid references. A cap brim partly covering the forehead or eyes does not make head_visible false when the overall head pose and hat placement remain understandable.
+- existing_headwear: true when the primary person is already wearing any hat/cap/helmet/head covering. Existing casual caps are useful positive examples for this workflow, not a defect by themselves.
+- head_occlusion: 0..1 severity of external obstruction that prevents understanding the head pose or hat placement. Do NOT count the subject's own normal cap/cap brim as occlusion merely because it covers hair, forehead, or part of the eyes. Count hands, crops, other people, objects, or extreme pose only when they materially block the usable head/hat region.
 - mobile_ugc_score: 0..1 likelihood the composition feels like a casual, candid, handheld/smartphone-style real-life photo rather than a polished studio/ad pose.
 - quality_score: 0..1 technical usefulness: adequate resolution impression, focus, lighting, and visible facial/head details.
 - ai_risk_score: overall 0..1 synthetic-image suspicion before the separate evidence categories below.
@@ -374,7 +379,7 @@ Definitions:
 - ai_lighting_reflection_risk: physically inconsistent shadows, highlights, mirrors, reflections, or light direction.
 - ai_background_consistency_risk: duplicated people/objects, melted details, impossible depth, bokeh, or background transitions.
 - ai_detector_confidence: 0..1 confidence that the visible evidence is sufficient to judge authenticity. Use LOW confidence when resolution/crop/compression hides evidence.
-- product_fit_score: 0..1 suitability for adding a hat to a bare head or naturally replacing existing headwear while preserving the person, pose, background, camera and lighting.
+- product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement.
 - summary: concise factual explanation of the visible composition and main suitability issue, max 2 sentences.
 
 Required JSON keys:
