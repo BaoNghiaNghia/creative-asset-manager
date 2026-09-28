@@ -127,6 +127,9 @@
 .rrugc-auto-scout-safety strong{font-size:9px}
 .rrugc-auto-scout-command{margin:0;padding:12px;border-color:#d3dff1;background:#f8faff}
 .rrugc-auto-scout-command code{font-size:9px}
+.rrugc-auto-scout-profile-field{display:grid;gap:5px;margin-top:9px;color:#506581;font-size:9px;font-weight:800}
+.rrugc-auto-scout-profile-field input{width:100%;min-height:34px}
+.rrugc-auto-scout-profile-field small{color:#8390a3;font-size:8px;font-weight:600}
 .rrugc-auto-scout-command-block{display:grid;gap:6px;margin-top:8px;padding:9px;border:1px solid #e0e7f2;border-radius:8px;background:#fff}
 .rrugc-auto-scout-command-block>span{color:#506581;font-size:9px;font-weight:800}
 .rrugc-auto-scout-command-block>code{overflow:auto;padding:8px;border-radius:6px;background:#f5f7fb;white-space:nowrap}

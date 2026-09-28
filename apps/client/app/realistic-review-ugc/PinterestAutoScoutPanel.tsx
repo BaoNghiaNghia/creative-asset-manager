@@ -10,6 +10,9 @@ import type { ScoutAgent, ScoutAgentCreated, ScoutRun } from "./types";
 const time = (value: string | null) =>
   value ? new Date(value).toLocaleString() : "Never";
 
+const DEFAULT_PROFILE_DIR =
+  "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
+
 export function autoScoutCommand(
   baseUrl: string,
   agentId: string,
@@ -45,7 +48,7 @@ export function PinterestAutoScoutPanel({
   const [runs, setRuns] = useState<ScoutRun[]>([]);
   const [created, setCreated] = useState<ScoutAgentCreated | null>(null);
   const [name, setName] = useState("Pinterest Auto Scout");
-  const [profileDir, setProfileDir] = useState("./.rrugc-pinterest-profile");
+  const [profileDir, setProfileDir] = useState(DEFAULT_PROFILE_DIR);
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState<"bootstrap" | "agent" | "">("");
 
@@ -75,6 +78,9 @@ export function PinterestAutoScoutPanel({
   }
 
   useEffect(() => {
+    const savedProfileDir = window.localStorage.getItem("rrugc:pinterest-profile-dir");
+    if (savedProfileDir?.trim()) setProfileDir(savedProfileDir.trim());
+
     const controller = new AbortController();
     void refresh(controller.signal).catch(reason => {
       if (!controller.signal.aborted) {
@@ -174,15 +180,6 @@ export function PinterestAutoScoutPanel({
               onChange={event => setName(event.target.value)}
             />
           </label>
-          <label>
-            Persistent profile directory
-            <input
-              value={profileDir}
-              maxLength={500}
-              placeholder="D:\\...\\pinterest-profile"
-              onChange={event => setProfileDir(event.target.value)}
-            />
-          </label>
           <button
             type="button"
             className="rrugc-primary"
@@ -204,12 +201,26 @@ export function PinterestAutoScoutPanel({
 
     {created && <div className="rrugc-command rrugc-auto-scout-command">
       <div>
-        <strong>Persistent Pinterest profile</strong>
+        <strong>One-time Agent token</strong>
         <p>
-          Bootstrap login and Auto Scout must use the exact same profile directory.
-          If you already signed in with this path, skip bootstrap and run the Agent command.
+          Use the same persistent Chrome profile that already contains your Pinterest login.
+          The token is shown only for this pairing.
         </p>
       </div>
+      <label className="rrugc-auto-scout-profile-field">
+        Persistent profile directory
+        <input
+          value={profileDir}
+          maxLength={500}
+          placeholder={DEFAULT_PROFILE_DIR}
+          onChange={event => {
+            const next = event.target.value;
+            setProfileDir(next);
+            window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
+          }}
+        />
+        <small>Both commands below always use this exact path.</small>
+      </label>
       <div className="rrugc-auto-scout-command-block">
         <span>1. Bootstrap login once</span>
         <code>{bootstrapCommand}</code>
@@ -225,7 +236,7 @@ export function PinterestAutoScoutPanel({
         </button>
       </div>
       <small className="rrugc-auto-scout-profile-warning">
-        Do not change --profile-dir between these two commands.
+        Keep this directory unchanged. Auto Scout will reuse the Pinterest session already saved there.
       </small>
     </div>}
 
