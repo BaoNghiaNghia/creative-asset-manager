@@ -251,6 +251,61 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         assert campaign.scout_status == "ready"
 
 
+def test_auto_scout_empty_runs_keep_configured_scan_interval(database):
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Steady scan cadence",
+            query="candid lifestyle photo",
+            target_count=100,
+            max_scroll_batches=2,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=180,
+        )
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Steady Scout",
+        )
+
+        first = service.claim(agent_id=agent.id, raw_token=token)
+        assert first is not None
+        first_run = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=first.run.id,
+            status="completed",
+        )
+        session.refresh(campaign)
+        assert campaign.scan_empty_streak == 1
+        assert campaign.scan_next_at is not None
+        first_delay = (
+            campaign.scan_next_at - first_run.completed_at
+        ).total_seconds()
+        assert 175 <= first_delay <= 185
+
+        campaign.scan_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+        second = service.claim(agent_id=agent.id, raw_token=token)
+        assert second is not None
+        second_run = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=second.run.id,
+            status="completed",
+        )
+        session.refresh(campaign)
+        assert campaign.scan_empty_streak == 2
+        assert campaign.scan_next_at is not None
+        second_delay = (
+            campaign.scan_next_at - second_run.completed_at
+        ).total_seconds()
+        assert 175 <= second_delay <= 185
+
+
 def test_auto_scout_quality_pipeline_caps_to_target(database):
     with database() as session:
         campaign, _legacy_token = RrugcService(session).create_campaign(
@@ -527,7 +582,7 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert claim.status_code == 200
     work = claim.json()
     assert work["campaign_id"] == campaign_id
-    assert work["search_queries"] == campaign_payload["search_queries"]
+    assert sorted(work["search_queries"]) == sorted(campaign_payload["search_queries"])
     assert work["pipeline_count"] == 0
     run_id = work["run"]["id"]
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import random
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
@@ -1989,11 +1990,15 @@ def auto_scout_agent_claim(
         raise _error(exc) from exc
     if claim is None:
         return None
+    search_queries = list(
+        claim.campaign.search_queries_json or [claim.campaign.query]
+    )
+    random.shuffle(search_queries)
     return ScoutClaimResponse(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,
         query=claim.campaign.query,
-        search_queries=list(claim.campaign.search_queries_json or [claim.campaign.query]),
+        search_queries=search_queries,
         target_count=claim.campaign.target_count,
         max_scroll_batches=claim.campaign.max_scroll_batches,
         auto_import=claim.campaign.auto_import,

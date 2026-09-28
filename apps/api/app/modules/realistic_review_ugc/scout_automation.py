@@ -25,7 +25,6 @@ from app.modules.realistic_review_ugc.service import (
 SCOUT_AGENT_VERSION = "rrugc-scout-v3"
 SCOUT_LEASE_SECONDS = 15 * 60
 SCOUT_OFFLINE_SECONDS = 45
-SCOUT_MAX_IDLE_SECONDS = 60 * 60
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -679,11 +678,7 @@ class RrugcAutoScoutService:
                 elif status == "failed":
                     delay = max(120, campaign.scan_interval_seconds)
                 else:
-                    multiplier = 2 ** min(int(campaign.scan_empty_streak or 0), 3)
-                    delay = min(
-                        SCOUT_MAX_IDLE_SECONDS,
-                        campaign.scan_interval_seconds * multiplier,
-                    )
+                    delay = max(60, int(campaign.scan_interval_seconds or 300))
                 campaign.scan_next_at = now + timedelta(seconds=delay)
             else:
                 campaign.scan_next_at = None

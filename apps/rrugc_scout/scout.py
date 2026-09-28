@@ -18,7 +18,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v5"
+CLIENT_VERSION = "rrugc-scout-v6"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 INITIAL_RESULTS_TIMEOUT_MS = 6_000
 SCROLL_RESULTS_TIMEOUT_MS = 3_500
@@ -543,6 +543,13 @@ async def scan_auto_run(
             search_queries.append(value)
     if not search_queries:
         search_queries = [str(task["query"])]
+    random.shuffle(search_queries)
+    print(
+        "campaign="
+        + str(task["campaign_id"])
+        + " randomized_keywords="
+        + " | ".join(search_queries)
+    )
 
     await client.heartbeat("busy", run_id=run_id)
     last_heartbeat = time.monotonic()
@@ -565,6 +572,7 @@ async def scan_auto_run(
         remaining_pipeline_budget,
     )
     submitted_this_run = 0
+    created_this_run = 0
     if run_candidate_cap <= 0:
         await client.complete(run_id, "completed")
         return
@@ -660,7 +668,7 @@ async def scan_auto_run(
                 )
 
             for start in range(0, len(fresh), pace.submit_batch_size):
-                remaining_run_budget = run_candidate_cap - submitted_this_run
+                remaining_run_budget = run_candidate_cap - created_this_run
                 if remaining_run_budget <= 0:
                     await client.complete(run_id, "completed")
                     return
@@ -671,6 +679,7 @@ async def scan_auto_run(
                     continue
                 result = await client.submit(run_id, chunk)
                 submitted_this_run += len(chunk)
+                created_this_run += int(result.get("created") or 0)
                 progress = int(result.get("progress") or 0)
                 pipeline_count = int(result.get("pipeline_count") or progress)
                 print(
@@ -690,6 +699,10 @@ async def scan_auto_run(
                     + str(result.get("created") or 0)
                     + " existing="
                     + str(result.get("existing") or 0)
+                    + " new_this_run="
+                    + str(created_this_run)
+                    + "/"
+                    + str(run_candidate_cap)
                     + " target_progress="
                     + str(progress)
                     + "/"
@@ -703,7 +716,7 @@ async def scan_auto_run(
                     result.get("campaign_status") != "running"
                     or progress >= target
                     or pipeline_count >= target
-                    or submitted_this_run >= run_candidate_cap
+                    or created_this_run >= run_candidate_cap
                 ):
                     await client.complete(run_id, "completed")
                     return

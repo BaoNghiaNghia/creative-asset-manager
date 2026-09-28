@@ -111,7 +111,8 @@ def test_access_gate_detects_login_and_challenge_without_solving_them():
     assert asyncio.run(access_gate(CaptchaPage())) == "challenge"
 
 
-def test_auto_scout_scans_every_campaign_keyword():
+def test_auto_scout_scans_every_campaign_keyword_in_randomized_order(monkeypatch):
+    monkeypatch.setattr("scout.random.shuffle", lambda rows: rows.reverse())
     class FakeMouse:
         def __init__(self, page):
             self.page = page
@@ -188,10 +189,95 @@ def test_auto_scout_scans_every_campaign_keyword():
     ))
 
     assert len(page.visited) == 2
-    assert "first+keyword" in page.visited[0]
-    assert "second+keyword" in page.visited[1]
+    assert "second+keyword" in page.visited[0]
+    assert "first+keyword" in page.visited[1]
     assert len(client.submitted) == 2
     assert client.completed == ["run-1:completed"]
+
+
+def test_existing_candidates_do_not_exhaust_new_candidate_cap(monkeypatch):
+    monkeypatch.setattr("scout.random.shuffle", lambda rows: None)
+
+    class FakeMouse:
+        async def wheel(self, _x, _y):
+            return None
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+            self.visited: list[str] = []
+            self.mouse = FakeMouse()
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            self.visited.append(url)
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "querySelectorAll('a[href*=\"/pin/\"] img')" in script:
+                return 24
+            if "const out = []" in script:
+                if "first+keyword" in self.url:
+                    return [{
+                        "pin_url": f"https://www.pinterest.com/pin/existing-{index}/",
+                        "image_url": f"https://i.pinimg.com/736x/existing-{index}.jpg",
+                        "alt_text": "existing",
+                    } for index in range(24)]
+                return [{
+                    "pin_url": "https://www.pinterest.com/pin/new-second/",
+                    "image_url": "https://i.pinimg.com/736x/new-second.jpg",
+                    "alt_text": "new",
+                }]
+            return False
+
+    class FakeClient:
+        def __init__(self):
+            self.completed: list[str] = []
+
+        async def heartbeat(self, *_args, **_kwargs):
+            return {}
+
+        async def submit(self, _run_id, rows):
+            existing = all("existing-" in row.pin_url for row in rows)
+            return {
+                "created": 0 if existing else len(rows),
+                "existing": len(rows) if existing else 0,
+                "progress": 0,
+                "pipeline_count": 0,
+                "target_count": 100,
+                "campaign_status": "running",
+            }
+
+        async def complete(self, run_id, status, **_kwargs):
+            self.completed.append(run_id + ":" + status)
+            return {}
+
+    page = FakePage()
+    client = FakeClient()
+    asyncio.run(scan_auto_run(
+        page,
+        client,
+        {
+            "run": {"id": "run-duplicates"},
+            "campaign_id": "campaign-duplicates",
+            "query": "first keyword",
+            "search_queries": ["first keyword", "second keyword"],
+            "target_count": 100,
+            "max_scroll_batches": 1,
+            "progress": 0,
+            "pipeline_count": 0,
+        },
+        login_wait_seconds=60,
+    ))
+
+    assert len(page.visited) == 2
+    assert "first+keyword" in page.visited[0]
+    assert "second+keyword" in page.visited[1]
+    assert client.completed == ["run-duplicates:completed"]
 
 
 def test_careful_pace_uses_gradual_scrolls_and_longer_waits():
@@ -245,7 +331,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v5"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v6"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})
