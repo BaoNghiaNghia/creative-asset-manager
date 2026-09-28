@@ -4,12 +4,20 @@ import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
 import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
-import { scoutCommand } from "./RealisticReviewUgcPage";
+import { RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 
 describe("Realistic Review UGC route", () => {
   it("routes the dedicated top-level workspace", () => {
     expect(routeForPath("/realistic-review-ugc")).toBe("realistic-review-ugc");
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
+  });
+
+  it("renders one campaign management card with an add action", () => {
+    const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
+    expect(markup).toContain("Campaigns");
+    expect(markup).toContain("＋ Add campaign");
+    expect(markup).toContain("Add, edit, delete, and select campaigns from one place.");
+    expect(markup).not.toContain("Define what Auto Scout should find");
   });
 
   it("builds a local scout command without changing the API host", () => {

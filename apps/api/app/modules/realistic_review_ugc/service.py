@@ -299,6 +299,17 @@ class RrugcService:
         self.session.refresh(campaign)
         return campaign
 
+    def archive_campaign(self, campaign: RrugcCampaignModel) -> RrugcCampaignModel:
+        campaign.status = "archived"
+        campaign.auto_scout = False
+        campaign.scan_next_at = None
+        campaign.scan_lease_agent_id = None
+        campaign.scan_lease_run_id = None
+        campaign.scan_lease_expires_at = None
+        self.session.commit()
+        self.session.refresh(campaign)
+        return campaign
+
     def _analysis_job_key(self, candidate: RrugcCandidateModel) -> str:
         return f"rrugc-analyze:{candidate.id}:{candidate.analysis_revision}"
 

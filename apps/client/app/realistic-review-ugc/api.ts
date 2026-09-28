@@ -132,6 +132,12 @@ export const updateCampaign = (campaignId: string, body: CampaignUpdateRequest) 
     },
   );
 
+export const deleteCampaign = (campaignId: string) =>
+  request<void>(
+    "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId),
+    { method: "DELETE" },
+  );
+
 export const configureCampaignScoutAutomation = (
   campaignId: string,
   autoScout: boolean,

@@ -87,14 +87,29 @@
 .rrugc-primary{min-height:38px;padding:9px 13px;border-radius:8px;background:var(--rrugc-blue);font-size:11px;box-shadow:0 2px 5px rgba(53,95,212,.16);transition:background .15s ease,transform .15s ease,box-shadow .15s ease}
 .rrugc-primary:hover:not(:disabled){background:#2f56c1;box-shadow:0 4px 10px rgba(53,95,212,.2);transform:translateY(-1px)}
 
-.rrugc-campaign-browser .rrugc-section-heading{padding-bottom:2px}
+.rrugc-campaign-manager{padding:20px}
+.rrugc-campaign-browser .rrugc-section-heading{align-items:center;padding-bottom:2px}
+.rrugc-campaign-heading-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.rrugc-campaign-heading-actions .rrugc-count-badge{display:grid;place-items:center;min-width:28px;min-height:28px;box-sizing:border-box;border-radius:999px;background:#eef3ff;color:#496ab2;font-weight:800}
+.rrugc-campaign-add{min-height:34px;padding:7px 11px;border:1px solid #cbd8ea;border-radius:8px;background:#fff;color:#3f5f9e;font-size:10px;font-weight:800;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease}
+.rrugc-campaign-add:hover,.rrugc-campaign-add.is-open{border-color:#9db5e2;background:#f2f6ff;color:#2f58ad}
+.rrugc-create-campaign-panel{margin-top:16px;padding:16px;border:1px solid #dbe4f1;border-radius:11px;background:#f9fbfe}
+.rrugc-create-campaign-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #e3e9f2}
+.rrugc-create-campaign-heading>div{display:grid;gap:3px}
+.rrugc-create-campaign-heading small{color:#5976bc;font-size:8px;font-weight:900;letter-spacing:.1em}
+.rrugc-create-campaign-heading strong{color:#314760;font-size:12px}
+.rrugc-create-campaign-heading>button{display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid #d4deeb;border-radius:7px;background:#fff;color:#718096;font-size:17px;cursor:pointer}
 .rrugc-campaign-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px}
-.rrugc-campaign-list>article{position:relative;min-width:0;border:1px solid #e0e6ef;border-radius:11px;background:#fff;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}
+.rrugc-campaign-list>article{position:relative;display:grid;min-width:0;overflow:hidden;border:1px solid #e0e6ef;border-radius:11px;background:#fff;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}
 .rrugc-campaign-list>article:hover{border-color:#b7c9ec;background:#fbfcff}
 .rrugc-campaign-list>article.active{border-color:#8eaceb;background:#f7f9ff;box-shadow:0 0 0 2px rgba(70,106,198,.08)}
-.rrugc-campaign-select{display:block;width:100%;padding:12px 48px 12px 12px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
-.rrugc-campaign-edit{position:absolute;right:10px;bottom:10px;min-height:26px;padding:4px 8px;border:1px solid #d3dce9;border-radius:7px;background:#fff;color:#5d708d;font-size:8px;font-weight:800;cursor:pointer}
-.rrugc-campaign-edit:hover{border-color:#9db3dc;background:#f4f7fd;color:#365ca9}
+.rrugc-campaign-select{display:block;width:100%;padding:12px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.rrugc-campaign-actions{display:flex;justify-content:flex-end;gap:6px;padding:8px 10px;border-top:1px solid #edf0f5;background:rgba(250,252,255,.82)}
+.rrugc-campaign-actions button{min-height:28px;padding:5px 9px;border:1px solid #d3dce9;border-radius:7px;background:#fff;color:#5d708d;font-size:8px;font-weight:800;cursor:pointer}
+.rrugc-campaign-actions button:hover:not(:disabled){border-color:#9db3dc;background:#f4f7fd;color:#365ca9}
+.rrugc-campaign-actions button:disabled{cursor:not-allowed;opacity:.55}
+.rrugc-campaign-actions .rrugc-campaign-delete{border-color:#eccdca;color:#a14d46}
+.rrugc-campaign-actions .rrugc-campaign-delete:hover:not(:disabled){border-color:#dfaaa5;background:#fff5f4;color:#943c35}
 .rrugc-campaign-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .rrugc-campaign-card-copy{display:grid;min-width:0;gap:3px}
 .rrugc-campaign-card-copy strong{font-size:12px}
@@ -383,6 +398,10 @@
   .rrugc-kpis article{min-height:66px;padding:11px}
   .rrugc-kpis strong{font-size:21px}
   .rrugc-workflow-rail{padding:0 10px 10px}
+  .rrugc-campaign-browser .rrugc-section-heading{align-items:stretch}
+  .rrugc-campaign-heading-actions{justify-content:space-between}
+  .rrugc-campaign-add{flex:1}
+  .rrugc-create-campaign-panel{padding:12px}
   .rrugc-form-row,.rrugc-auto-campaign-controls{grid-template-columns:1fr}
   .rrugc-editor-automation{grid-template-columns:1fr}
   .rrugc-campaign-editor-backdrop{padding:8px}

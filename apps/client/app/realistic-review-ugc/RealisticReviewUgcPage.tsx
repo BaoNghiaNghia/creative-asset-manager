@@ -6,6 +6,7 @@ import {
   analyzeCandidate,
   configureCampaignScoutAutomation,
   createCampaign,
+  deleteCampaign,
   importCandidate,
   listCampaigns,
   listCandidates,
@@ -152,6 +153,7 @@ export function RealisticReviewUgcPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("Pinterest lifestyle references");
   const [searchQueries, setSearchQueries] = useState<string[]>(["happy woman casual outdoor candid"]);
   const [target, setTarget] = useState(100);
@@ -255,10 +257,29 @@ export function RealisticReviewUgcPage() {
       });
       await refreshCampaigns();
       setSelectedId(next.id);
+      setCreateOpen(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to create campaign.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function removeCampaign(campaign: Campaign) {
+    if (actionId) return;
+    const confirmed = window.confirm(
+      `Delete campaign "${campaign.name}"? It will be removed from the campaign list and Auto Scout will stop. Existing campaign history is preserved.`,
+    );
+    if (!confirmed) return;
+    setActionId("delete:" + campaign.id);
+    setError("");
+    try {
+      await deleteCampaign(campaign.id);
+      await refreshCampaigns();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to delete campaign.");
+    } finally {
+      setActionId("");
     }
   }
 
@@ -411,12 +432,31 @@ export function RealisticReviewUgcPage() {
           <PinterestAutoScoutPanel onError={setError} />
         </div>
 
-        <div id="rrugc-campaigns" className="rrugc-columns rrugc-campaign-workspace">
-          <details className="rrugc-card rrugc-create-campaign rrugc-compact-section">
-            <summary className="rrugc-compact-section-summary">
-              <span><small>NEW CAMPAIGN</small><strong>Define what Auto Scout should find</strong></span>
-              <b>＋ New campaign</b>
-            </summary>
+        <section id="rrugc-campaigns" className="rrugc-card rrugc-campaign-browser rrugc-campaign-manager">
+          <div className="rrugc-section-heading">
+            <div>
+              <small>REFERENCE CAMPAIGNS</small>
+              <h2>Campaigns</h2>
+              <p>Add, edit, delete, and select campaigns from one place.</p>
+            </div>
+            <div className="rrugc-campaign-heading-actions">
+              <span className="rrugc-count-badge">{campaigns.length}</span>
+              <button
+                type="button"
+                className={createOpen ? "rrugc-campaign-add is-open" : "rrugc-campaign-add"}
+                onClick={() => setCreateOpen(value => !value)}
+                aria-expanded={createOpen}
+              >
+                {createOpen ? "Close" : "＋ Add campaign"}
+              </button>
+            </div>
+          </div>
+
+          {createOpen && <div className="rrugc-create-campaign-panel">
+            <div className="rrugc-create-campaign-heading">
+              <div><small>NEW CAMPAIGN</small><strong>Define what Auto Scout should find</strong></div>
+              <button type="button" onClick={() => setCreateOpen(false)} aria-label="Close new campaign form">×</button>
+            </div>
             <div className="rrugc-form">
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
               <label>
@@ -475,52 +515,51 @@ export function RealisticReviewUgcPage() {
                 <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || searchQueries.length === 0} onClick={() => void submit()}>{busy ? "Creating…" : "Create & start campaign"}</button>
               </div>
             </div>
-          </details>
+          </div>}
 
-          <section className="rrugc-card rrugc-campaign-browser">
-            <div className="rrugc-section-heading">
-              <div><small>REFERENCE CAMPAIGNS</small><h2>Campaign queue</h2><p>Select a campaign to inspect live discovery, QA, production, and delivery.</p></div>
-              <span className="rrugc-count-badge">{campaigns.length}</span>
-            </div>
-            {campaigns.length === 0 ? <p className="rrugc-empty">No campaign yet.</p> : <div className="rrugc-campaign-list">
-              {campaigns.map(item => {
-                const progressBase = item.auto_import ? item.drive_ready : item.approved;
-                const progress = Math.min(100, Math.round((progressBase / item.target_count) * 100));
-                const keywords = item.search_queries?.length ? item.search_queries : [item.query];
-                return <article key={item.id} className={selectedId === item.id ? "active" : ""}>
-                  <button type="button" className="rrugc-campaign-select" onClick={() => setSelectedId(item.id)}>
-                    <div className="rrugc-campaign-card-head">
-                      <span className="rrugc-campaign-card-copy"><strong>{item.name}</strong></span>
-                      <span className="rrugc-campaign-card-badges">
-                        <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status.replaceAll("_", " ")}</span>
-                        <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
-                          {item.auto_scout ? "Auto" : "Paused"}
-                        </span>
+          {campaigns.length === 0 ? <p className="rrugc-empty">No campaign yet. Add a campaign to start scouting Pinterest references.</p> : <div className="rrugc-campaign-list">
+            {campaigns.map(item => {
+              const progressBase = item.auto_import ? item.drive_ready : item.approved;
+              const progress = Math.min(100, Math.round((progressBase / item.target_count) * 100));
+              const keywords = item.search_queries?.length ? item.search_queries : [item.query];
+              const deleting = actionId === "delete:" + item.id;
+              return <article key={item.id} className={selectedId === item.id ? "active" : ""}>
+                <button type="button" className="rrugc-campaign-select" onClick={() => setSelectedId(item.id)}>
+                  <div className="rrugc-campaign-card-head">
+                    <span className="rrugc-campaign-card-copy"><strong>{item.name}</strong></span>
+                    <span className="rrugc-campaign-card-badges">
+                      <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status.replaceAll("_", " ")}</span>
+                      <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
+                        {item.auto_scout ? "Auto" : "Paused"}
                       </span>
-                    </div>
-                    <span className="rrugc-campaign-keywords">
-                      {keywords.slice(0, 3).map(keyword => <small key={keyword}>{keyword}</small>)}
-                      {keywords.length > 3 && <small>+{keywords.length - 3}</small>}
                     </span>
-                    <div className="rrugc-campaign-progress-row">
-                      <span className="rrugc-progress"><i style={{ width: progress + "%" }} /></span>
-                      <strong>{progress}%</strong>
-                      <small>{progressBase}/{item.target_count}</small>
-                    </div>
-                    <span className="rrugc-campaign-stats"><small><b>{item.discovered}</b> scanned</small><small><b>{item.analysis_pending + item.analyzing}</b> pending</small><small><b>{item.approved}</b> approved</small><small><b>{item.rejected}</b> rejected</small></span>
-                  </button>
+                  </div>
+                  <span className="rrugc-campaign-keywords">
+                    {keywords.slice(0, 3).map(keyword => <small key={keyword}>{keyword}</small>)}
+                    {keywords.length > 3 && <small>+{keywords.length - 3}</small>}
+                  </span>
+                  <div className="rrugc-campaign-progress-row">
+                    <span className="rrugc-progress"><i style={{ width: progress + "%" }} /></span>
+                    <strong>{progress}%</strong>
+                    <small>{progressBase}/{item.target_count}</small>
+                  </div>
+                  <span className="rrugc-campaign-stats"><small><b>{item.discovered}</b> scanned</small><small><b>{item.analysis_pending + item.analyzing}</b> pending</small><small><b>{item.approved}</b> approved</small><small><b>{item.rejected}</b> rejected</small></span>
+                </button>
+                <footer className="rrugc-campaign-actions">
+                  <button type="button" disabled={Boolean(actionId)} onClick={() => openCampaignEditor(item)}>Edit</button>
                   <button
                     type="button"
-                    className="rrugc-campaign-edit"
-                    onClick={() => openCampaignEditor(item)}
+                    className="rrugc-campaign-delete"
+                    disabled={Boolean(actionId)}
+                    onClick={() => void removeCampaign(item)}
                   >
-                    Edit
+                    {deleting ? "Deleting…" : "Delete"}
                   </button>
-                </article>;
-              })}
-            </div>}
-          </section>
-        </div>
+                </footer>
+              </article>;
+            })}
+          </div>}
+        </section>
 
         {editingId && editDraft && <div className="rrugc-campaign-editor-backdrop" role="presentation" onMouseDown={() => {
           if (!savingEdit) {

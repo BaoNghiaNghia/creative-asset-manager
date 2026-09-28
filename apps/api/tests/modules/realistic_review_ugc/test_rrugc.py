@@ -1668,6 +1668,44 @@ def test_delivery_destination_policy_and_summary_api(api, database):
     assert operations_payload["recent_events"] == []
 
 
+def test_campaign_delete_archives_and_hides_from_list(api, database):
+    created = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Disposable campaign",
+            "query": "casual portrait",
+            "target_count": 10,
+            "max_scroll_batches": 2,
+            "auto_import": False,
+            "auto_scout": True,
+        },
+    )
+    assert created.status_code == 201
+    campaign_id = created.json()["id"]
+    scout_token = created.json()["scout_token"]
+
+    deleted = api.delete(
+        "/api/v1/realistic-review-ugc/campaigns/" + campaign_id
+    )
+    assert deleted.status_code == 204
+    assert deleted.content == b""
+
+    listed = api.get("/api/v1/realistic-review-ugc/campaigns")
+    assert listed.status_code == 200
+    assert all(item["id"] != campaign_id for item in listed.json())
+
+    scout_after_delete = api.get(
+        "/api/v1/realistic-review-ugc/scout/" + campaign_id + "/task",
+        headers={"Authorization": "Bearer " + scout_token},
+    )
+    assert scout_after_delete.status_code == 410
+
+    with database() as session:
+        archived = session.get(RrugcCampaignModel, campaign_id)
+        assert archived is not None
+        assert archived.status == "archived"
+
+
 def test_campaign_api_scout_auth_and_idempotent_candidates(api, database):
     created = api.post(
         "/api/v1/realistic-review-ugc/campaigns",

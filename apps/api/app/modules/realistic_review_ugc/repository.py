@@ -26,7 +26,10 @@ class RrugcRepository:
     def list_campaigns(self, tenant_id: str, limit: int = 50) -> list[RrugcCampaignModel]:
         return list(self.session.scalars(
             select(RrugcCampaignModel)
-            .where(RrugcCampaignModel.tenant_id == tenant_id)
+            .where(
+                RrugcCampaignModel.tenant_id == tenant_id,
+                RrugcCampaignModel.status != "archived",
+            )
             .order_by(RrugcCampaignModel.updated_at.desc(), RrugcCampaignModel.id.desc())
             .limit(limit)
         ))

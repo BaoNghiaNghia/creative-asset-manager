@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -650,6 +650,8 @@ def _scout_campaign(
     token = _bearer_token(authorization)
     if row is None or not campaign_token_matches(row, token):
         raise HTTPException(status_code=401, detail="Invalid scout credentials")
+    if row.status == "archived":
+        raise HTTPException(status_code=410, detail="Campaign is archived")
     return row
 
 
@@ -991,6 +993,18 @@ def update_campaign(
     except RrugcError as exc:
         raise _error(exc) from exc
     return _campaign(repository, row)
+
+
+@router.delete("/campaigns/{campaign_id}", status_code=204)
+def archive_campaign(
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    RrugcService(session).archive_campaign(campaign)
+    return Response(status_code=204)
 
 
 @router.put(
