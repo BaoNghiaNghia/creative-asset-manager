@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import random
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,42 @@ from app.modules.realistic_review_ugc.service import (
 SCOUT_AGENT_VERSION = "rrugc-scout-v3"
 SCOUT_LEASE_SECONDS = 15 * 60
 SCOUT_OFFLINE_SECONDS = 45
+KEYWORD_HISTORY_RUNS = 100
+KEYWORD_EXPLORATION_RATE = 0.20
+
+
+def adaptive_search_queries(
+    queries: list[str],
+    runs: list[RrugcScoutRunModel],
+) -> list[str]:
+    """Rank keywords by unique discovery yield while retaining exploration."""
+    clean = list(dict.fromkeys(query.strip() for query in queries if query.strip()))
+    if len(clean) < 2:
+        return clean
+
+    stats = {query: [0, 0, 0] for query in clean}
+    for run in runs:
+        if run.query not in stats or run.status != "completed":
+            continue
+        row = stats[run.query]
+        row[0] += 1
+        row[1] += int(run.submitted_count or 0)
+        row[2] += int(run.created_count or 0)
+
+    if random.random() < KEYWORD_EXPLORATION_RATE:
+        random.shuffle(clean)
+        return clean
+
+    jitter = {query: random.random() * 0.05 for query in clean}
+
+    def score(query: str) -> float:
+        run_count, submitted, created = stats[query]
+        yield_score = (created + 1.0) / (submitted + 2.0)
+        confidence = min(1.0, run_count / 5.0)
+        novelty = 1.0 / (1.0 + run_count)
+        return yield_score * (0.65 + 0.35 * confidence) + 0.20 * novelty + jitter[query]
+
+    return sorted(clean, key=score, reverse=True)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -484,12 +521,21 @@ class RrugcAutoScoutService:
                 stale_run.completed_at = now
                 stale_run.last_heartbeat_at = now
 
+        ordered_queries = adaptive_search_queries(
+            list(selected.search_queries_json or [selected.query]),
+            self.repository.list_scout_runs(
+                agent.tenant_id,
+                campaign_id=selected.id,
+                limit=KEYWORD_HISTORY_RUNS,
+            ),
+        )
+        selected_query = ordered_queries[0] if ordered_queries else selected.query
         run = RrugcScoutRunModel(
             tenant_id=agent.tenant_id,
             campaign_id=selected.id,
             agent_id=agent.id,
             status="claimed",
-            query=selected.query,
+            query=selected_query,
             target_count=selected.target_count,
             max_scroll_batches=selected.max_scroll_batches,
             auto_import=selected.auto_import,

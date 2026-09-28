@@ -1995,7 +1995,11 @@ def auto_scout_agent_claim(
     search_queries = list(
         claim.campaign.search_queries_json or [claim.campaign.query]
     )
+    selected_query = claim.run.query
     random.shuffle(search_queries)
+    if selected_query in search_queries:
+        search_queries.remove(selected_query)
+        search_queries.insert(0, selected_query)
     return ScoutClaimResponse(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,
