@@ -690,7 +690,7 @@ export function RealisticReviewUgcPage() {
             {selected.auto_scout
               ? "Waiting for the paired Auto Scout to collect Pinterest candidates."
               : "Auto Scout is paused for this campaign."}
-          </p> : <div className="rrugc-grid">
+          </p> : <div className="rrugc-grid rrugc-masonry-grid">
             {candidates.slice(0, candidateLimit).map(candidate => {
               const tone = candidateTone(candidate.status);
               const actionBusy = actionId === candidate.id;
