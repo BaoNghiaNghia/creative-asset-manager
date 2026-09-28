@@ -348,7 +348,13 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.ai_risk_raw_score = ai_assessment.raw_score
         candidate.ai_detector_confidence = ai_assessment.detector_confidence
         candidate.ai_risk_confirmed = ai_assessment.confirmed
+        provenance = {
+            key: value
+            for key, value in (candidate.ai_signal_json or {}).items()
+            if key in {"scout_query"}
+        }
         candidate.ai_signal_json = {
+            **provenance,
             **(ai_assessment.signal_json or {}),
             "visual_fingerprints": fingerprints,
             "diversity_signature": diversity_signature,

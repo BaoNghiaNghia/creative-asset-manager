@@ -299,6 +299,23 @@ class RrugcRepository:
             )
         )
 
+    def candidate_keyword_outcomes(
+        self, tenant_id: str, campaign_id: str
+    ) -> list[tuple[str, str]]:
+        rows = self.session.execute(
+            select(RrugcCandidateModel.status, RrugcCandidateModel.ai_signal_json).where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id == campaign_id,
+                RrugcCandidateModel.ai_signal_json.is_not(None),
+            )
+        ).all()
+        outcomes: list[tuple[str, str]] = []
+        for status, signal in rows:
+            query = signal.get("scout_query") if isinstance(signal, dict) else None
+            if isinstance(query, str) and query.strip():
+                outcomes.append((query.strip(), status))
+        return outcomes
+
     def claimable_campaigns(
         self,
         tenant_id: str,

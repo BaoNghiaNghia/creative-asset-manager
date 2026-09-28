@@ -416,6 +416,7 @@ class RrugcService:
         *,
         campaign: RrugcCampaignModel,
         submissions: list[CandidateSubmission],
+        source_query: str | None = None,
     ) -> tuple[list[RrugcCandidateModel], int, int]:
         rows: list[RrugcCandidateModel] = []
         created = 0
@@ -448,6 +449,7 @@ class RrugcService:
                 pin_url=pin_url,
                 image_url=image_url,
                 alt_text=(item.alt_text or "").strip() or None,
+                ai_signal_json={"scout_query": source_query} if source_query else None,
                 status="analysis_queued",
                 analysis_revision=1,
             )

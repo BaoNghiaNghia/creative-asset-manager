@@ -33,8 +33,9 @@ KEYWORD_EXPLORATION_RATE = 0.20
 def adaptive_search_queries(
     queries: list[str],
     runs: list[RrugcScoutRunModel],
+    outcomes: list[tuple[str, str]] | None = None,
 ) -> list[str]:
-    """Rank keywords by unique discovery yield while retaining exploration."""
+    """Rank keywords by downstream approved yield while retaining exploration."""
     clean = list(dict.fromkeys(query.strip() for query in queries if query.strip()))
     if len(clean) < 2:
         return clean
@@ -48,6 +49,15 @@ def adaptive_search_queries(
         row[1] += int(run.submitted_count or 0)
         row[2] += int(run.created_count or 0)
 
+    outcome_stats = {query: [0, 0] for query in clean}
+    useful_statuses = {"approved", "import_queued", "importing", "drive_ready"}
+    for query, status in outcomes or []:
+        if query not in outcome_stats:
+            continue
+        outcome_stats[query][1] += 1
+        if status in useful_statuses:
+            outcome_stats[query][0] += 1
+
     if random.random() < KEYWORD_EXPLORATION_RATE:
         random.shuffle(clean)
         return clean
@@ -56,10 +66,22 @@ def adaptive_search_queries(
 
     def score(query: str) -> float:
         run_count, submitted, created = stats[query]
-        yield_score = (created + 1.0) / (submitted + 2.0)
-        confidence = min(1.0, run_count / 5.0)
+        discovery_yield = (created + 1.0) / (submitted + 2.0)
+        approved, evaluated = outcome_stats[query]
+        approved_yield = (approved + 1.0) / (evaluated + 2.0)
+        approval_confidence = min(1.0, evaluated / 8.0)
+        run_confidence = min(1.0, run_count / 5.0)
         novelty = 1.0 / (1.0 + run_count)
-        return yield_score * (0.65 + 0.35 * confidence) + 0.20 * novelty + jitter[query]
+        duplicate_rate = max(0.0, (submitted - created) / submitted) if submitted else (0.5 if run_count else 0.0)
+        quality_weight = 0.35 + 0.45 * approval_confidence
+        discovery_weight = 0.40 - 0.20 * approval_confidence
+        return (
+            approved_yield * quality_weight
+            + discovery_yield * discovery_weight * (0.65 + 0.35 * run_confidence)
+            + 0.20 * novelty
+            - 0.15 * duplicate_rate
+            + jitter[query]
+        )
 
     return sorted(clean, key=score, reverse=True)
 
@@ -528,6 +550,7 @@ class RrugcAutoScoutService:
                 campaign_id=selected.id,
                 limit=KEYWORD_HISTORY_RUNS,
             ),
+            self.repository.candidate_keyword_outcomes(agent.tenant_id, selected.id),
         )
         selected_query = ordered_queries[0] if ordered_queries else selected.query
         run = RrugcScoutRunModel(
@@ -641,6 +664,7 @@ class RrugcAutoScoutService:
             _rows, created, existing = RrugcService(self.session).ingest_candidates(
                 campaign=campaign,
                 submissions=accepted_submissions,
+                source_query=run.query,
             )
         else:
             created = 0
