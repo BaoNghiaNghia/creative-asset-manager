@@ -91,7 +91,7 @@ class AiRiskAssessment:
 
 @dataclass(frozen=True, slots=True)
 class ReferenceFilterPolicy:
-    min_head_ratio: float = 0.10
+    min_head_ratio: float = 0.18
     max_head_ratio: float = 0.70
     min_smile_score: float = 0.00
     max_head_occlusion: float = 0.65
@@ -395,7 +395,7 @@ Definitions:
 - ai_lighting_reflection_risk: physically inconsistent shadows, highlights, mirrors, reflections, or light direction.
 - ai_background_consistency_risk: duplicated people/objects, melted details, impossible depth, bokeh, or background transitions.
 - ai_detector_confidence: 0..1 confidence that the visible evidence is sufficient to judge authenticity. Use LOW confidence when resolution/crop/compression hides evidence.
-- product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement.
+- product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement. Wide full-body/lifestyle frames where the primary head is too small to retain useful headwear detail should score lower even if the scene is otherwise attractive.
 - summary: concise factual explanation of the visible composition and main suitability issue, max 2 sentences.
 
 Required JSON keys:

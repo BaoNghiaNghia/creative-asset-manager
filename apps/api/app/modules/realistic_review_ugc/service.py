@@ -189,7 +189,7 @@ class RrugcService:
         search_queries: list[str] | None = None,
         auto_scout: bool = True,
         scan_interval_seconds: int = 300,
-        min_head_ratio: float = 0.10,
+        min_head_ratio: float = 0.18,
         max_head_ratio: float = 0.70,
         min_smile_score: float = 0.00,
         max_head_occlusion: float = 0.65,

@@ -764,7 +764,7 @@ def test_reference_policy_approves_good_hat_reference():
             "product_fit_score": 0.60,
         },
         {
-            "primary_head_ratio": 0.13,
+            "primary_head_ratio": 0.20,
             "smile_score": 0.10,
             "existing_headwear": True,
             "head_occlusion": 0.55,
@@ -845,7 +845,7 @@ def test_reference_policy_can_still_reject_existing_headwear():
     ("overrides", "status", "reason"),
     [
         ({"people_count": 0, "primary_head_ratio": None}, "rejected_no_person", "NO_PERSON"),
-        ({"primary_head_ratio": 0.08}, "rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE"),
+        ({"primary_head_ratio": 0.12}, "rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE"),
         ({"head_occlusion": 0.75}, "rejected_head_occlusion", "HEAD_OCCLUSION"),
         ({"quality_score": 0.59}, "rejected_quality", "QUALITY_SCORE_LOW"),
         ({"mobile_ugc_score": 0.54}, "rejected_context", "UGC_SCORE_LOW"),

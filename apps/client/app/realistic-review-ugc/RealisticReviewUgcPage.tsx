@@ -218,7 +218,7 @@ export function RealisticReviewUgcPage() {
   const [autoImport, setAutoImport] = useState(true);
   const [autoScout, setAutoScout] = useState(true);
   const [scanIntervalMinutes, setScanIntervalMinutes] = useState(5);
-  const [minHeadRatio, setMinHeadRatio] = useState(10);
+  const [minHeadRatio, setMinHeadRatio] = useState(18);
   const [maxHeadRatio, setMaxHeadRatio] = useState(70);
   const [minSmile, setMinSmile] = useState(0);
   const [maxOcclusion, setMaxOcclusion] = useState(65);
@@ -599,7 +599,7 @@ export function RealisticReviewUgcPage() {
 
               <details className="rrugc-filter-panel">
                 <summary>
-                  <span><strong>Qualification rules</strong><small>Cap-friendly candid photos: AI risk ≤ 15%, head 10–70%, neutral expressions allowed</small></span>
+                  <span><strong>Qualification rules</strong><small>Cap-friendly candid photos: AI risk ≤ 15%, head 18–70%, neutral expressions allowed</small></span>
                   <b>Real photo gate</b>
                 </summary>
                 <div className="rrugc-filter-grid">

@@ -150,7 +150,7 @@ class CampaignCreateRequest(BaseModel):
     auto_import: bool = False
     auto_scout: bool = True
     scan_interval_seconds: int = Field(default=300, ge=60, le=86400)
-    min_head_ratio: float = Field(default=0.10, ge=0.05, le=0.90)
+    min_head_ratio: float = Field(default=0.18, ge=0.05, le=0.90)
     max_head_ratio: float = Field(default=0.70, ge=0.05, le=0.95)
     min_smile_score: float = Field(default=0.00, ge=0.0, le=1.0)
     max_head_occlusion: float = Field(default=0.65, ge=0.0, le=1.0)

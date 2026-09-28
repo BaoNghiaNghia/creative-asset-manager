@@ -64,7 +64,7 @@ class RrugcCampaignModel(Base):
     scan_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scan_empty_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scan_last_error_code: Mapped[str | None] = mapped_column(String(100))
-    min_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.10)
+    min_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.18)
     max_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.70)
     min_smile_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.00)
     max_head_occlusion: Mapped[float] = mapped_column(Float, nullable=False, default=0.65)
