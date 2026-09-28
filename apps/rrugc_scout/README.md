@@ -2,7 +2,7 @@
 
 This companion runtime runs on a user-controlled desktop or laptop with Chrome/Chromium. Pinterest cookies and profile data stay on that machine.
 
-## Auto Scout v3 quality-first setup
+## Auto Scout v5 quality-first setup
 
 1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.
 2. Install Playwright Chromium, or pass `--chrome-executable` for a local Chrome/Chromium binary.
@@ -26,7 +26,9 @@ Auto Scout now prefers an installed Google Chrome automatically when available. 
 --chrome-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 ```
 
-The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due. Auto Scout v3 is quality-first: it enriches generic searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once the server already has enough viable work in the analysis/import pipeline.
+The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due. Auto Scout v5 is quality-first: it enriches generic searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once the server already has enough viable work in the analysis/import pipeline.
+
+Auto Scout v5 also defaults to `--pace careful`. This deliberately slows the browsing loop so results have more time to load and be inspected: 4.5–7 seconds of dwell after opening a keyword, 1.4–2.6 seconds before each visible-result inspection, gradual 420–700 px scroll steps with pauses, batches of 3 candidates, and 3.5–6 second pauses between keywords. Use `--pace balanced` when a shorter scan is preferred.
 
 The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the browser stays open for manual resolution and the Agent resumes automatically when access is restored.
 

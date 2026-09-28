@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import random
 import re
 import shutil
 import socket
@@ -17,16 +18,53 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v4"
+CLIENT_VERSION = "rrugc-scout-v5"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
-INITIAL_RESULTS_TIMEOUT_MS = 3_000
-SCROLL_RESULTS_TIMEOUT_MS = 1_800
+INITIAL_RESULTS_TIMEOUT_MS = 6_000
+SCROLL_RESULTS_TIMEOUT_MS = 3_500
 MANUAL_GATE_POLL_MS = 1_500
-SUBMIT_BATCH_SIZE = 6
-SUBMIT_PAUSE_MS = 650
 QUALITY_FIRST_RUN_CANDIDATE_CAP = 24
 QUALITY_QUERY_SUFFIX = "authentic candid lifestyle photo real people"
 HEARTBEAT_INTERVAL_SECONDS = 10
+
+
+@dataclass(frozen=True, slots=True)
+class ScoutPace:
+    name: str
+    initial_dwell_ms: tuple[int, int]
+    inspect_dwell_ms: tuple[int, int]
+    submit_batch_size: int
+    submit_pause_ms: tuple[int, int]
+    scroll_step_px: tuple[int, int]
+    scroll_steps_per_batch: tuple[int, int]
+    scroll_step_pause_ms: tuple[int, int]
+    keyword_pause_ms: tuple[int, int]
+
+
+SCOUT_PACES = {
+    "balanced": ScoutPace(
+        name="balanced",
+        initial_dwell_ms=(2_500, 4_000),
+        inspect_dwell_ms=(900, 1_600),
+        submit_batch_size=4,
+        submit_pause_ms=(900, 1_600),
+        scroll_step_px=(650, 950),
+        scroll_steps_per_batch=(2, 3),
+        scroll_step_pause_ms=(450, 850),
+        keyword_pause_ms=(1_800, 3_000),
+    ),
+    "careful": ScoutPace(
+        name="careful",
+        initial_dwell_ms=(4_500, 7_000),
+        inspect_dwell_ms=(1_400, 2_600),
+        submit_batch_size=3,
+        submit_pause_ms=(1_500, 2_800),
+        scroll_step_px=(420, 700),
+        scroll_steps_per_batch=(3, 5),
+        scroll_step_pause_ms=(650, 1_150),
+        keyword_pause_ms=(3_500, 6_000),
+    ),
+}
 
 SYNTHETIC_METADATA_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
@@ -462,13 +500,37 @@ async def wait_for_manual_access(
     return False
 
 
+def random_ms(bounds: tuple[int, int]) -> int:
+    low, high = bounds
+    return random.randint(low, high)
+
+
+async def paced_wait(page: Any, bounds: tuple[int, int]) -> int:
+    duration = random_ms(bounds)
+    await page.wait_for_timeout(duration)
+    return duration
+
+
+async def paced_scroll(page: Any, pace: ScoutPace) -> int:
+    steps = random.randint(*pace.scroll_steps_per_batch)
+    total = 0
+    for _ in range(steps):
+        amount = random.randint(*pace.scroll_step_px)
+        total += amount
+        await page.mouse.wheel(0, amount)
+        await paced_wait(page, pace.scroll_step_pause_ms)
+    return total
+
+
 async def scan_auto_run(
     page: Any,
     client: AutoScoutClient,
     task: dict[str, Any],
     *,
     login_wait_seconds: int,
+    pace_name: str = "careful",
 ) -> None:
+    pace = SCOUT_PACES.get(pace_name, SCOUT_PACES["careful"])
     run_id = str(task["run"]["id"])
     raw_queries = task.get("search_queries") or [task["query"]]
     search_queries: list[str] = []
@@ -518,6 +580,7 @@ async def scan_auto_run(
             previous_count=0,
             timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
         )
+        initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
 
         access_ready = await wait_for_manual_access(
             page,
@@ -544,10 +607,15 @@ async def scan_auto_run(
             + raw_query
             + " pinterest_query="
             + search_query
+            + " pace="
+            + pace.name
+            + " initial_dwell_ms="
+            + str(initial_dwell)
         )
 
         for batch in range(max_scroll_batches):
             await heartbeat_if_due()
+            inspect_dwell = await paced_wait(page, pace.inspect_dwell_ms)
             visible = await extract_visible(page)
             unseen = [
                 row
@@ -557,6 +625,26 @@ async def scan_auto_run(
             for row in unseen:
                 seen.add((row.pin_url, row.image_url))
             fresh, metadata_filtered = quality_prefilter(unseen)
+            print(
+                "campaign="
+                + str(task["campaign_id"])
+                + " keyword="
+                + str(query_index + 1)
+                + "/"
+                + str(len(search_queries))
+                + " batch="
+                + str(batch + 1)
+                + "/"
+                + str(max_scroll_batches)
+                + " inspect_dwell_ms="
+                + str(inspect_dwell)
+                + " visible="
+                + str(len(visible))
+                + " unseen="
+                + str(len(unseen))
+                + " quality_candidates="
+                + str(len(fresh))
+            )
             if metadata_filtered:
                 print(
                     "campaign="
@@ -571,12 +659,14 @@ async def scan_auto_run(
                     + str(metadata_filtered)
                 )
 
-            for start in range(0, len(fresh), SUBMIT_BATCH_SIZE):
+            for start in range(0, len(fresh), pace.submit_batch_size):
                 remaining_run_budget = run_candidate_cap - submitted_this_run
                 if remaining_run_budget <= 0:
                     await client.complete(run_id, "completed")
                     return
-                chunk = fresh[start:start + min(SUBMIT_BATCH_SIZE, remaining_run_budget)]
+                chunk = fresh[
+                    start:start + min(pace.submit_batch_size, remaining_run_budget)
+                ]
                 if not chunk:
                     continue
                 result = await client.submit(run_id, chunk)
@@ -617,7 +707,13 @@ async def scan_auto_run(
                 ):
                     await client.complete(run_id, "completed")
                     return
-                await page.wait_for_timeout(SUBMIT_PAUSE_MS)
+                submit_pause = await paced_wait(page, pace.submit_pause_ms)
+                print(
+                    "campaign="
+                    + str(task["campaign_id"])
+                    + " submit_pause_ms="
+                    + str(submit_pause)
+                )
 
             gate = await access_gate(page)
             if gate is not None:
@@ -635,12 +731,39 @@ async def scan_auto_run(
                     )
                     return
 
-            before_scroll_count = max(loaded_count, await loaded_pin_count(page))
-            await page.mouse.wheel(0, 1800)
-            loaded_count = await wait_for_pin_growth(
-                page,
-                previous_count=before_scroll_count,
-                timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+            if batch + 1 < max_scroll_batches:
+                before_scroll_count = max(
+                    loaded_count,
+                    await loaded_pin_count(page),
+                )
+                scrolled_px = await paced_scroll(page, pace)
+                loaded_count = await wait_for_pin_growth(
+                    page,
+                    previous_count=before_scroll_count,
+                    timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+                )
+                print(
+                    "campaign="
+                    + str(task["campaign_id"])
+                    + " keyword="
+                    + str(query_index + 1)
+                    + "/"
+                    + str(len(search_queries))
+                    + " batch="
+                    + str(batch + 1)
+                    + " gradual_scroll_px="
+                    + str(scrolled_px)
+                    + " loaded_pins="
+                    + str(loaded_count)
+                )
+
+        if query_index + 1 < len(search_queries):
+            keyword_pause = await paced_wait(page, pace.keyword_pause_ms)
+            print(
+                "campaign="
+                + str(task["campaign_id"])
+                + " next_keyword_pause_ms="
+                + str(keyword_pause)
             )
 
     await client.complete(run_id, "completed")
@@ -658,7 +781,7 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
         await client.heartbeat("needs_login")
         raise RuntimeError(
             "Pinterest requires manual login/challenge resolution for this persistent profile. "
-            "Use Auto Scout v3 for automatic resume after manual resolution."
+            "Use Auto Scout v5 for automatic resume after manual resolution."
         )
 
     seen: set[tuple[str, str]] = set()
@@ -807,6 +930,8 @@ async def run_agent(args: argparse.Namespace) -> None:
             + args.agent_id
             + " machine="
             + machine_label
+            + " pace="
+            + args.pace
         )
         while True:
             try:
@@ -836,6 +961,7 @@ async def run_agent(args: argparse.Namespace) -> None:
                         client,
                         task,
                         login_wait_seconds=args.login_wait_seconds,
+                        pace_name=args.pace,
                     )
                 except httpx.HTTPStatusError as exc:
                     status = exc.response.status_code
@@ -929,7 +1055,7 @@ def parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument(
         "--agent-id",
-        help="Auto Scout v3 agent ID. Runs quality-first and claims campaigns automatically.",
+        help="Auto Scout agent ID. Runs quality-first and claims campaigns automatically.",
     )
     mode.add_argument(
         "--campaign-id",
@@ -948,6 +1074,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--machine-label", default="")
+    parser.add_argument(
+        "--pace",
+        choices=tuple(SCOUT_PACES),
+        default="careful",
+        help=(
+            "Browser pacing profile. 'careful' is the default and uses longer "
+            "dwell times, smaller gradual scrolls, smaller submit batches, and "
+            "longer pauses between keywords."
+        ),
+    )
     parser.add_argument(
         "--poll-interval-seconds",
         type=int,

@@ -4,12 +4,14 @@ import httpx
 
 from scout import (
     AutoScoutClient,
+    SCOUT_PACES,
     access_gate,
     allowed_image,
     allowed_pin,
     extract_visible,
     idle_diagnostic_message,
     normalize_candidates,
+    paced_scroll,
     quality_prefilter,
     quality_search_query,
     scan_auto_run,
@@ -192,6 +194,35 @@ def test_auto_scout_scans_every_campaign_keyword():
     assert client.completed == ["run-1:completed"]
 
 
+def test_careful_pace_uses_gradual_scrolls_and_longer_waits():
+    class FakeMouse:
+        def __init__(self):
+            self.wheels: list[int] = []
+
+        async def wheel(self, _x, y):
+            self.wheels.append(y)
+
+    class FakePage:
+        def __init__(self):
+            self.mouse = FakeMouse()
+            self.waits: list[int] = []
+
+        async def wait_for_timeout(self, milliseconds):
+            self.waits.append(milliseconds)
+
+    page = FakePage()
+    pace = SCOUT_PACES["careful"]
+    total = asyncio.run(paced_scroll(page, pace))
+
+    assert 3 <= len(page.mouse.wheels) <= 5
+    assert all(420 <= value <= 700 for value in page.mouse.wheels)
+    assert all(650 <= value <= 1150 for value in page.waits)
+    assert total == sum(page.mouse.wheels)
+    assert pace.submit_batch_size == 3
+    assert pace.initial_dwell_ms == (4500, 7000)
+    assert pace.keyword_pause_ms == (3500, 6000)
+
+
 def test_idle_diagnostic_message_explains_pipeline_backpressure():
     message = idle_diagnostic_message({
         "campaigns": [{
@@ -214,7 +245,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v4"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v5"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})
