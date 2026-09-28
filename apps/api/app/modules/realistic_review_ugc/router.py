@@ -171,6 +171,8 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "existing_headwear": row.existing_headwear,
         "head_occlusion": row.head_occlusion,
         "mobile_ugc_score": row.mobile_ugc_score,
+        "phone_authenticity_score": row.phone_authenticity_score,
+        "artistic_editorial_risk": row.artistic_editorial_risk,
         "quality_score": row.quality_score,
         "ai_risk_score": row.ai_risk_score,
         "ai_risk_raw_score": row.ai_risk_raw_score,

@@ -4,7 +4,7 @@ import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
 import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
-import { candidateGalleryTab, candidateMatchesGalleryTab, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
+import { candidateGalleryTab, candidateMatchesGalleryTab, candidatePhonePriority, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
 
 describe("Realistic Review UGC route", () => {
@@ -42,13 +42,62 @@ describe("Realistic Review UGC route", () => {
     expect(candidateMatchesGalleryTab("analysis_failed", "processing")).toBe(true);
   });
 
-  it("uses a balanced real-person lifestyle Pinterest preset", () => {
+  it("uses a smartphone-first real-person Pinterest preset", () => {
     const queries = referenceLifestyleSearchQueries();
     expect(queries).toHaveLength(10);
-    expect(queries).toContain("baseball cap selfie candid natural light");
-    expect(queries).toContain("casual woman baseball cap selfie");
-    expect(queries).toContain("authentic candid lifestyle portrait natural light");
-    expect(queries).toContain("corduroy cap casual lifestyle portrait");
+    expect(queries).toContain("baseball cap selfie iphone natural light");
+    expect(queries).toContain("baseball cap mirror selfie casual outfit");
+    expect(queries).toContain("car selfie baseball cap natural light");
+    expect(queries).toContain("candid phone photo at home");
+  });
+
+  it("ranks smartphone-like references above artistic ones", () => {
+    const base = {
+      id: "candidate",
+      campaign_id: "campaign",
+      pin_url: "https://www.pinterest.com/pin/1/",
+      image_url: "https://i.pinimg.com/736x/1.jpg",
+      alt_text: null,
+      status: "approved" as const,
+      analysis_revision: 1,
+      import_revision: 0,
+      people_count: 1,
+      primary_head_ratio: 0.35,
+      smile_score: 0.2,
+      head_visible: true,
+      existing_headwear: true,
+      head_occlusion: 0.1,
+      mobile_ugc_score: 0.8,
+      quality_score: 0.8,
+      ai_risk_score: 0.05,
+      product_fit_score: 0.8,
+      final_score: 0.8,
+      reject_reason: null,
+      analyzer_provider: null,
+      analyzer_model: null,
+      analyzer_version: null,
+      analysis_summary: null,
+      analyzed_at: null,
+      content_hash: null,
+      width: null,
+      height: null,
+      size_bytes: null,
+      remote_file_id: null,
+      remote_folder_id: null,
+      web_url: null,
+      last_error_code: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    expect(candidatePhonePriority({
+      ...base,
+      phone_authenticity_score: 0.9,
+      artistic_editorial_risk: 0.1,
+    })).toBeGreaterThan(candidatePhonePriority({
+      ...base,
+      phone_authenticity_score: 0.35,
+      artistic_editorial_risk: 0.8,
+    }));
   });
 
   it("builds a local scout command without changing the API host", () => {

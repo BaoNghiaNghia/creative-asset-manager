@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v5-cap-friendly-candid"
+ANALYZER_VERSION = "rrugc-reference-v6-smartphone-authentic"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -29,6 +29,8 @@ class ReferenceAnalysisDocument(BaseModel):
     existing_headwear: bool
     head_occlusion: float = Field(ge=0.0, le=1.0)
     mobile_ugc_score: float = Field(ge=0.0, le=1.0)
+    phone_authenticity_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    artistic_editorial_risk: float = Field(default=0.0, ge=0.0, le=1.0)
     quality_score: float = Field(ge=0.0, le=1.0)
     ai_risk_score: float = Field(ge=0.0, le=1.0)
     ai_anatomy_risk: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -97,6 +99,8 @@ class ReferenceFilterPolicy:
     min_quality_score: float = 0.60
     min_ugc_score: float = 0.55
     min_product_fit_score: float = 0.55
+    min_phone_authenticity_score: float = 0.45
+    max_artistic_editorial_risk: float = 0.70
     require_head_visible: bool = True
     reject_headwear: bool = False
 
@@ -291,11 +295,12 @@ def evaluate_reference(
         else _bounded(effective_ai_risk_score)
     )
     final_score = round(_bounded(
-        0.15 * document.smile_score
-        + 0.25 * document.mobile_ugc_score
-        + 0.20 * document.quality_score
-        + 0.20 * document.product_fit_score
-        + 0.20 * (1.0 - ai_risk)
+        0.30 * document.phone_authenticity_score
+        + 0.20 * document.mobile_ugc_score
+        + 0.15 * document.product_fit_score
+        + 0.10 * document.quality_score
+        + 0.15 * (1.0 - ai_risk)
+        + 0.10 * (1.0 - document.artistic_editorial_risk)
     ), 4)
 
     if document.people_count < 1:
@@ -334,6 +339,13 @@ def evaluate_reference(
 
     if document.quality_score < policy.min_quality_score:
         return ReferenceDecision("rejected_quality", "QUALITY_SCORE_LOW", final_score)
+    if (
+        document.phone_authenticity_score < policy.min_phone_authenticity_score
+        and document.artistic_editorial_risk > 0.55
+    ):
+        return ReferenceDecision("rejected_context", "PHONE_AUTHENTICITY_LOW", final_score)
+    if document.artistic_editorial_risk > policy.max_artistic_editorial_risk:
+        return ReferenceDecision("rejected_context", "ARTISTIC_EDITORIAL_HIGH", final_score)
     if document.mobile_ugc_score < policy.min_ugc_score:
         return ReferenceDecision("rejected_context", "UGC_SCORE_LOW", final_score)
     if document.smile_score < policy.min_smile_score:
@@ -348,10 +360,12 @@ def analysis_prompt() -> str:
 You are evaluating a Pinterest lifestyle reference for a quality-first real-photo workflow.
 Return exactly one JSON object and no prose.
 
-The workflow wants authentic camera photographs of real scenes, especially casual lifestyle,
-selfie, outdoor, home, cafe, car, and candid portraits that remain useful when a cap is already
-present. A person may be smiling or neutral, looking at camera or away, sitting, drinking, or
-looking down. Do not reject a useful real photo merely because it is not a smiling portrait.
+The workflow strongly prefers authentic smartphone-style personal photos over artistic/editorial
+photography: ordinary selfies, mirror selfies, car selfies, cafe/home/outdoor snapshots, family
+moments, and casual candid images with natural ambient light and imperfect everyday framing.
+A person may be smiling or neutral, looking at camera or away, sitting, drinking, or looking down.
+Do not reward studio polish, cinematic lighting, fashion/editorial posing, heavy art direction, or
+professional portrait aesthetics just because they look technically beautiful.
 
 Synthetic-image detection is uncertain, so do not call an image AI-generated from a vague polished
 look alone. Score separate visible evidence categories independently. Compression, portrait-mode
@@ -369,8 +383,10 @@ Definitions:
 - head_visible: true when the primary head/hat region is sufficiently readable to preserve or naturally replace headwear. Existing caps are valid references. A cap brim partly covering the forehead or eyes does not make head_visible false when the overall head pose and hat placement remain understandable.
 - existing_headwear: true when the primary person is already wearing any hat/cap/helmet/head covering. Existing casual caps are useful positive examples for this workflow, not a defect by themselves.
 - head_occlusion: 0..1 severity of external obstruction that prevents understanding the head pose or hat placement. Do NOT count the subject's own normal cap/cap brim as occlusion merely because it covers hair, forehead, or part of the eyes. Count hands, crops, other people, objects, or extreme pose only when they materially block the usable head/hat region.
-- mobile_ugc_score: 0..1 likelihood the composition feels like a casual, candid, handheld/smartphone-style real-life photo rather than a polished studio/ad pose.
-- quality_score: 0..1 technical usefulness: adequate resolution impression, focus, lighting, and visible facial/head details.
+- mobile_ugc_score: 0..1 likelihood the composition feels casual, candid, everyday and UGC-like rather than a planned advertising/editorial shoot.
+- phone_authenticity_score: 0..1 likelihood the image visually behaves like an ordinary smartphone/personal photo. Raise the score for front-camera or arm-length selfie perspective, mirror selfie framing, casual car/home/cafe/outdoor snapshots, natural ambient light, imperfect or slightly off-center framing, ordinary background clutter, typical phone HDR/sharpening/noise, and spontaneous social-photo composition. This is a style score, not EXIF/device identification.
+- artistic_editorial_risk: 0..1 likelihood the image is too intentionally art-directed for this workflow. Raise it for studio/fashion/editorial posing, cinematic or dramatic lighting design, elaborate set styling, highly controlled professional portrait composition, strong campaign-like color grading, conspicuous lens/bokeh aesthetics, or magazine/branding-shoot presentation. Do NOT raise it merely because a real phone photo is attractive, sharp, well lit, or uses portrait mode.
+- quality_score: 0..1 technical usefulness: enough resolution, focus, lighting, and visible facial/head details. Do not reward artistic polish by itself.
 - ai_risk_score: overall 0..1 synthetic-image suspicion before the separate evidence categories below.
 - ai_anatomy_risk: malformed or internally inconsistent hands, fingers, teeth, ears, eyes, limbs, or body joins.
 - ai_text_symbol_risk: malformed, semantically unstable, fused, duplicated, or impossible text/logos/symbols.
@@ -384,7 +400,8 @@ Definitions:
 
 Required JSON keys:
 people_count, primary_head_ratio, smile_score, head_visible, existing_headwear,
-head_occlusion, mobile_ugc_score, quality_score, ai_risk_score,
+head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_risk,
+quality_score, ai_risk_score,
 ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
 ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
 product_fit_score, summary.

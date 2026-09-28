@@ -300,6 +300,8 @@ class RrugcCandidateModel(Base):
     existing_headwear: Mapped[bool | None] = mapped_column(Boolean)
     head_occlusion: Mapped[float | None] = mapped_column(Float)
     mobile_ugc_score: Mapped[float | None] = mapped_column(Float)
+    phone_authenticity_score: Mapped[float | None] = mapped_column(Float)
+    artistic_editorial_risk: Mapped[float | None] = mapped_column(Float)
     quality_score: Mapped[float | None] = mapped_column(Float)
     ai_risk_score: Mapped[float | None] = mapped_column(Float)
     ai_risk_raw_score: Mapped[float | None] = mapped_column(Float)

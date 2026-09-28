@@ -88,6 +88,19 @@ export function candidateMatchesGalleryTab(
   return analyzingStatuses.has(status) || status === "analysis_failed";
 }
 
+export function candidatePhonePriority(candidate: Candidate): number {
+  const phone = candidate.phone_authenticity_score ?? candidate.mobile_ugc_score ?? 0;
+  const ugc = candidate.mobile_ugc_score ?? 0;
+  const artistic = candidate.artistic_editorial_risk ?? Math.max(0, 1 - ugc);
+  const fit = candidate.product_fit_score ?? 0;
+  return (
+    0.45 * phone
+    + 0.25 * ugc
+    + 0.15 * (1 - artistic)
+    + 0.15 * fit
+  );
+}
+
 export function candidateGalleryTab(status: CandidateStatus): CandidateGalleryTab {
   if (driveStatuses.has(status)) return "drive";
   if (status === "approved") return "approved";
@@ -126,7 +139,7 @@ function SearchQueryEditor({
     <div className="rrugc-keyword-preset">
       <span>
         <strong>Real-person lifestyle preset</strong>
-        <small>7 cap-first searches + 3 broad lifestyle searches</small>
+        <small>7 phone/cap searches + 3 casual smartphone searches</small>
       </span>
       <button type="button" onClick={() => onChange(referenceLifestyleSearchQueries())}>
         Use preset
@@ -506,7 +519,12 @@ export function RealisticReviewUgcPage() {
       }
     });
   }
-  const visibleCandidates = candidateGroups[candidateTab];
+  const visibleCandidates = [...candidateGroups[candidateTab]].sort((left, right) => {
+    if (candidateTab === "approved" || candidateTab === "drive") {
+      return candidatePhonePriority(right) - candidatePhonePriority(left);
+    }
+    return 0;
+  });
   const candidateEmptyCopy: Record<CandidateGalleryTab, string> = {
     approved: "No references have passed qualification yet.",
     rejected: "No references were rejected by qualification rules.",
@@ -907,7 +925,9 @@ export function RealisticReviewUgcPage() {
                     <div className="rrugc-metrics">
                       <span>Head <b>{percent(candidate.primary_head_ratio)}</b></span>
                       <span>Smile <b>{percent(candidate.smile_score)}</b></span>
+                      <span>Phone <b>{percent(candidate.phone_authenticity_score)}</b></span>
                       <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
+                      <span>Artistic <b>{percent(candidate.artistic_editorial_risk)}</b></span>
                       <span>Quality <b>{percent(candidate.quality_score)}</b></span>
                       <span>AI risk <b>{percent(candidate.ai_risk_score)}</b></span>
                       <span>AI confidence <b>{percent(candidate.ai_detector_confidence)}</b></span>

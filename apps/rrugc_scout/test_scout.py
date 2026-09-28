@@ -29,7 +29,7 @@ def test_url_allowlists():
 
 
 def test_quality_first_query_and_metadata_prefilter():
-    assert quality_search_query("cap man") == "cap man authentic candid lifestyle photo real people"
+    assert quality_search_query("cap man") == "cap man authentic smartphone candid photo real people"
     assert quality_search_query("cap man candid photo") == "cap man candid photo"
 
     rows = normalize_candidates([
@@ -331,7 +331,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v6"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v7"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

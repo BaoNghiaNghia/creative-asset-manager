@@ -18,13 +18,13 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v6"
+CLIENT_VERSION = "rrugc-scout-v7"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 INITIAL_RESULTS_TIMEOUT_MS = 6_000
 SCROLL_RESULTS_TIMEOUT_MS = 3_500
 MANUAL_GATE_POLL_MS = 1_500
 QUALITY_FIRST_RUN_CANDIDATE_CAP = 24
-QUALITY_QUERY_SUFFIX = "authentic candid lifestyle photo real people"
+QUALITY_QUERY_SUFFIX = "authentic smartphone candid photo real people"
 HEARTBEAT_INTERVAL_SECONDS = 10
 
 

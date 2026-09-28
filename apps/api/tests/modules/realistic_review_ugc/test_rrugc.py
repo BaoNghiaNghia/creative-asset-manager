@@ -783,6 +783,46 @@ def test_reference_policy_accepts_cap_friendly_candid_examples(overrides):
     assert decision.reject_reason is None
 
 
+def test_reference_policy_prefers_smartphone_style_over_editorial_polish():
+    phone_photo = reference_document(
+        mobile_ugc_score=0.88,
+        phone_authenticity_score=0.92,
+        artistic_editorial_risk=0.08,
+        quality_score=0.72,
+        product_fit_score=0.82,
+    )
+    editorial_photo = reference_document(
+        mobile_ugc_score=0.80,
+        phone_authenticity_score=0.30,
+        artistic_editorial_risk=0.84,
+        quality_score=0.95,
+        product_fit_score=0.82,
+    )
+
+    phone_decision = evaluate_reference(phone_photo, ReferenceFilterPolicy())
+    editorial_decision = evaluate_reference(editorial_photo, ReferenceFilterPolicy())
+
+    assert phone_decision.status == "approved"
+    assert editorial_decision.status == "rejected_context"
+    assert editorial_decision.reject_reason == "PHONE_AUTHENTICITY_LOW"
+    assert phone_decision.final_score > editorial_decision.final_score
+
+
+def test_reference_policy_rejects_strong_editorial_risk_even_when_phone_score_is_moderate():
+    decision = evaluate_reference(
+        reference_document(
+            mobile_ugc_score=0.75,
+            phone_authenticity_score=0.55,
+            artistic_editorial_risk=0.82,
+            quality_score=0.90,
+            product_fit_score=0.80,
+        ),
+        ReferenceFilterPolicy(),
+    )
+    assert decision.status == "rejected_context"
+    assert decision.reject_reason == "ARTISTIC_EDITORIAL_HIGH"
+
+
 def test_reference_policy_allows_existing_headwear_by_default():
     decision = evaluate_reference(
         reference_document(existing_headwear=True),

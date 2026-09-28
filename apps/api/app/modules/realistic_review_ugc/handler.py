@@ -282,6 +282,8 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.existing_headwear = document.existing_headwear
         candidate.head_occlusion = document.head_occlusion
         candidate.mobile_ugc_score = document.mobile_ugc_score
+        candidate.phone_authenticity_score = document.phone_authenticity_score
+        candidate.artistic_editorial_risk = document.artistic_editorial_risk
         candidate.quality_score = document.quality_score
         candidate.ai_risk_score = ai_assessment.calibrated_score
         candidate.ai_risk_raw_score = ai_assessment.raw_score

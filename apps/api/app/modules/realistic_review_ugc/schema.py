@@ -667,6 +667,8 @@ class CandidateResponse(BaseModel):
     existing_headwear: bool | None
     head_occlusion: float | None
     mobile_ugc_score: float | None
+    phone_authenticity_score: float | None = None
+    artistic_editorial_risk: float | None = None
     quality_score: float | None
     ai_risk_score: float | None
     ai_risk_raw_score: float | None = None

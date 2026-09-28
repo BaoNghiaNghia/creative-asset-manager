@@ -138,6 +138,8 @@ export type Candidate = {
   existing_headwear: boolean | null;
   head_occlusion: number | null;
   mobile_ugc_score: number | null;
+  phone_authenticity_score?: number | null;
+  artistic_editorial_risk?: number | null;
   quality_score: number | null;
   ai_risk_score: number | null;
   ai_risk_raw_score?: number | null;
