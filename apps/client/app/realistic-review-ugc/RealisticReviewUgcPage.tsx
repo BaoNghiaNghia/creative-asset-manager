@@ -219,6 +219,11 @@ export function RealisticReviewUgcPage() {
   const [actionId, setActionId] = useState("");
   const [candidateTab, setCandidateTab] = useState<CandidateGalleryTab>("approved");
   const [candidateLimit, setCandidateLimit] = useState(24);
+  const [candidateContextMenu, setCandidateContextMenu] = useState<{
+    candidateId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState<CampaignEditDraft | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -254,6 +259,7 @@ export function RealisticReviewUgcPage() {
 
   useEffect(() => {
     setCandidateLimit(24);
+    setCandidateContextMenu(null);
     if (!selectedId) {
       setCandidates([]);
       return;
@@ -270,6 +276,29 @@ export function RealisticReviewUgcPage() {
       window.clearInterval(timer);
     };
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!candidateContextMenu) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".rrugc-candidate-context-menu")) return;
+      setCandidateContextMenu(null);
+    };
+    const dismissOnScroll = () => setCandidateContextMenu(null);
+    const dismissOnKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCandidateContextMenu(null);
+    };
+    window.addEventListener("pointerdown", dismiss);
+    window.addEventListener("scroll", dismissOnScroll, true);
+    window.addEventListener("resize", dismissOnScroll);
+    window.addEventListener("keydown", dismissOnKey);
+    return () => {
+      window.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("scroll", dismissOnScroll, true);
+      window.removeEventListener("resize", dismissOnScroll);
+      window.removeEventListener("keydown", dismissOnKey);
+    };
+  }, [candidateContextMenu]);
 
   async function submit() {
     if (!name.trim() || searchQueries.length === 0 || busy) return;
@@ -378,6 +407,7 @@ export function RealisticReviewUgcPage() {
 
   async function markAiFeedback(candidate: Candidate, label: AiManualLabel) {
     if (!selected || actionId) return;
+    setCandidateContextMenu(null);
     setActionId("ai:" + candidate.id);
     setError("");
     try {
@@ -847,11 +877,23 @@ export function RealisticReviewUgcPage() {
             {visibleCandidates.slice(0, candidateLimit).map(candidate => {
               const tone = candidateTone(candidate.status);
               const actionBusy = actionId === candidate.id;
-              const aiReviewBusy = actionId === "ai:" + candidate.id;
               const canRetry = candidate.status === "analysis_failed" || rejectedStatuses.has(candidate.status);
               const canSave = candidate.status === "approved" || candidate.status === "import_failed";
               return <article key={candidate.id} className={"rrugc-candidate tone-" + tone}>
-                <div className="rrugc-candidate-media">
+                <div
+                  className="rrugc-candidate-media"
+                  title="Right-click image to mark authenticity"
+                  onContextMenu={event => {
+                    event.preventDefault();
+                    const menuWidth = 190;
+                    const menuHeight = 154;
+                    setCandidateContextMenu({
+                      candidateId: candidate.id,
+                      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+                      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+                    });
+                  }}
+                >
                   <a href={candidate.pin_url} target="_blank" rel="noreferrer"><img src={candidate.image_url} alt={candidate.alt_text || "Pinterest reference candidate"} loading="lazy" referrerPolicy="no-referrer" /></a>
                   <span className={"rrugc-candidate-status tone-" + tone}>{statusLabel[candidate.status]}</span>
                   {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.final_score)} fit</span>}
@@ -872,34 +914,6 @@ export function RealisticReviewUgcPage() {
                       <span>Fit <b>{percent(candidate.product_fit_score)}</b></span>
                     </div>
                   </details> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
-                  <div className="rrugc-ai-review">
-                    <div className="rrugc-ai-review-head">
-                      <span>Human authenticity review</span>
-                      {candidate.ai_manual_label
-                        ? <b className={"is-" + candidate.ai_manual_label}>
-                          {candidate.ai_manual_label === "real" ? "Marked real" : candidate.ai_manual_label === "ai" ? "Marked AI" : "Unsure"}
-                        </b>
-                        : candidate.ai_risk_confirmed
-                          ? <b className="is-ai">AI signals confirmed</b>
-                          : <b>Not reviewed</b>}
-                    </div>
-                    <div className="rrugc-ai-review-actions" role="group" aria-label="Mark image authenticity">
-                      {([
-                        ["real", "Real photo"],
-                        ["ai", "AI"],
-                        ["unsure", "Unsure"],
-                      ] as const).map(([label, copy]) => <button
-                        key={label}
-                        type="button"
-                        className={candidate.ai_manual_label === label ? "is-active is-" + label : ""}
-                        aria-pressed={candidate.ai_manual_label === label}
-                        disabled={Boolean(actionId)}
-                        onClick={() => void markAiFeedback(candidate, label)}
-                      >
-                        {aiReviewBusy ? "Saving…" : copy}
-                      </button>)}
-                    </div>
-                  </div>
                 </div>
                 <footer>
                   {candidate.web_url ? <a href={candidate.web_url} target="_blank" rel="noreferrer">Open in Drive</a>
@@ -912,6 +926,41 @@ export function RealisticReviewUgcPage() {
               </article>;
             })}
           </div>}
+          {candidateContextMenu && (() => {
+            const candidate = candidates.find(row => row.id === candidateContextMenu.candidateId);
+            if (!candidate) return null;
+            const aiReviewBusy = actionId === "ai:" + candidate.id;
+            return <div
+              className="rrugc-candidate-context-menu"
+              role="menu"
+              aria-label="Mark image authenticity"
+              style={{ left: candidateContextMenu.x, top: candidateContextMenu.y }}
+            >
+              <div className="rrugc-candidate-context-menu-head">
+                <strong>Authenticity</strong>
+                <span>{candidate.ai_manual_label
+                  ? candidate.ai_manual_label === "real" ? "Real photo" : candidate.ai_manual_label === "ai" ? "AI" : "Unsure"
+                  : candidate.ai_risk_confirmed ? "AI signals" : "Not reviewed"}</span>
+              </div>
+              {([
+                ["real", "Real photo"],
+                ["ai", "Mark as AI"],
+                ["unsure", "Unsure"],
+              ] as const).map(([label, copy]) => <button
+                key={label}
+                type="button"
+                role="menuitemradio"
+                aria-checked={candidate.ai_manual_label === label}
+                className={candidate.ai_manual_label === label ? "is-active is-" + label : ""}
+                disabled={Boolean(actionId)}
+                onClick={() => void markAiFeedback(candidate, label)}
+              >
+                <span>{copy}</span>
+                <b>{aiReviewBusy ? "Saving…" : candidate.ai_manual_label === label ? "✓" : ""}</b>
+              </button>)}
+              <small>Right-click any image to change this mark.</small>
+            </div>;
+          })()}
           {visibleCandidates.length > candidateLimit && <button
             type="button"
             className="rrugc-show-more"
