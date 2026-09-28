@@ -69,16 +69,29 @@ const driveStatuses = new Set<CandidateStatus>([
   "import_failed",
 ]);
 
+const analysisApprovedStatuses = new Set<CandidateStatus>([
+  "approved",
+  ...driveStatuses,
+]);
+
 export type CandidateGalleryTab = "approved" | "rejected" | "drive" | "processing";
+
+export function candidateMatchesGalleryTab(
+  status: CandidateStatus,
+  tab: CandidateGalleryTab,
+): boolean {
+  if (tab === "approved") return analysisApprovedStatuses.has(status);
+  if (tab === "drive") return driveStatuses.has(status);
+  if (tab === "rejected") {
+    return rejectedStatuses.has(status) || status === "rejected_duplicate";
+  }
+  return analyzingStatuses.has(status) || status === "analysis_failed";
+}
 
 export function candidateGalleryTab(status: CandidateStatus): CandidateGalleryTab {
   if (driveStatuses.has(status)) return "drive";
   if (status === "approved") return "approved";
-  if (
-    rejectedStatuses.has(status)
-    || status === "rejected_duplicate"
-    || status === "analysis_failed"
-  ) return "rejected";
+  if (rejectedStatuses.has(status) || status === "rejected_duplicate") return "rejected";
   return "processing";
 }
 
@@ -457,14 +470,18 @@ export function RealisticReviewUgcPage() {
     processing: [],
   };
   for (const candidate of candidates) {
-    candidateGroups[candidateGalleryTab(candidate.status)].push(candidate);
+    (Object.keys(candidateGroups) as CandidateGalleryTab[]).forEach(tab => {
+      if (candidateMatchesGalleryTab(candidate.status, tab)) {
+        candidateGroups[tab].push(candidate);
+      }
+    });
   }
   const visibleCandidates = candidateGroups[candidateTab];
   const candidateEmptyCopy: Record<CandidateGalleryTab, string> = {
-    approved: "No approved references yet.",
-    rejected: "No rejected references in this campaign.",
-    drive: "No references are queued, saving, or ready in Drive yet.",
-    processing: "No references are currently being analyzed.",
+    approved: "No references have passed qualification yet.",
+    rejected: "No references were rejected by qualification rules.",
+    drive: "No references are queued, saving, ready, or failed in Drive yet.",
+    processing: "No references are waiting for analysis, analyzing, or waiting for retry.",
   };
 
   return <main className="rrugc-shell">

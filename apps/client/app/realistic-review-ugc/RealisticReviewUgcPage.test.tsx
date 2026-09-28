@@ -4,7 +4,7 @@ import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
 import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
-import { candidateGalleryTab, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
+import { candidateGalleryTab, candidateMatchesGalleryTab, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
 
 describe("Realistic Review UGC route", () => {
@@ -21,17 +21,25 @@ describe("Realistic Review UGC route", () => {
     expect(markup).not.toContain("Define what Auto Scout should find");
   });
 
-  it("groups Pinterest candidates into Approved, Rejected, Drive, and Processing tabs", () => {
+  it("keeps qualification status independent from Drive lifecycle", () => {
     expect(candidateGalleryTab("approved")).toBe("approved");
     expect(candidateGalleryTab("rejected_quality")).toBe("rejected");
     expect(candidateGalleryTab("rejected_duplicate")).toBe("rejected");
-    expect(candidateGalleryTab("analysis_failed")).toBe("rejected");
+    expect(candidateGalleryTab("analysis_failed")).toBe("processing");
     expect(candidateGalleryTab("import_queued")).toBe("drive");
     expect(candidateGalleryTab("importing")).toBe("drive");
     expect(candidateGalleryTab("drive_ready")).toBe("drive");
     expect(candidateGalleryTab("import_failed")).toBe("drive");
     expect(candidateGalleryTab("analysis_queued")).toBe("processing");
     expect(candidateGalleryTab("analyzing")).toBe("processing");
+
+    expect(candidateMatchesGalleryTab("import_queued", "approved")).toBe(true);
+    expect(candidateMatchesGalleryTab("importing", "approved")).toBe(true);
+    expect(candidateMatchesGalleryTab("drive_ready", "approved")).toBe(true);
+    expect(candidateMatchesGalleryTab("import_failed", "approved")).toBe(true);
+    expect(candidateMatchesGalleryTab("drive_ready", "drive")).toBe(true);
+    expect(candidateMatchesGalleryTab("analysis_failed", "rejected")).toBe(false);
+    expect(candidateMatchesGalleryTab("analysis_failed", "processing")).toBe(true);
   });
 
   it("uses a balanced real-person lifestyle Pinterest preset", () => {

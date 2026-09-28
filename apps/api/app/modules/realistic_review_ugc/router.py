@@ -132,7 +132,7 @@ ANALYSIS_APPROVED_STATUSES = {
     "import_queued",
     "importing",
     "drive_ready",
-    "rejected_duplicate",
+    "import_failed",
 }
 ANALYSIS_REJECTED_STATUSES = {
     "rejected_no_person",

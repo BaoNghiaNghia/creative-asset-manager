@@ -1988,6 +1988,45 @@ def test_delivery_destination_policy_and_summary_api(api, database):
     assert operations_payload["recent_events"] == []
 
 
+def test_campaign_approved_count_survives_drive_lifecycle(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="qualification count",
+            query="candid lifestyle photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=True,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[
+                CandidateSubmission(
+                    pin_url=f"https://www.pinterest.com/pin/approved-count-{index}/",
+                    image_url=f"https://i.pinimg.com/736x/approved-count-{index}.jpg",
+                    alt_text="candid portrait",
+                )
+                for index in range(4)
+            ],
+        )
+        assert created == 4
+        for candidate, status in zip(
+            rows,
+            ("import_queued", "drive_ready", "import_failed", "rejected_duplicate"),
+            strict=True,
+        ):
+            candidate.status = status
+        session.commit()
+        campaign_id = campaign.id
+
+    listed = api.get("/api/v1/realistic-review-ugc/campaigns")
+    assert listed.status_code == 200
+    payload = next(item for item in listed.json() if item["id"] == campaign_id)
+    assert payload["approved"] == 3
+    assert payload["drive_ready"] == 1
+
+
 def test_campaign_delete_archives_and_hides_from_list(api, database):
     created = api.post(
         "/api/v1/realistic-review-ugc/campaigns",
