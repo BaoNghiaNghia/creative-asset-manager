@@ -229,19 +229,47 @@ class RrugcCandidateAnalyzeJobHandler:
                 if candidate.analysis_revision != revision:
                     return JobHandlerResult.completed()
 
+                existing_signals = repository.visual_fingerprint_rows(
+                    context.job.tenant_id, campaign_id, candidate_id
+                )
                 existing_fingerprints = [
                     fingerprint
-                    for signal in repository.visual_fingerprint_rows(
-                        context.job.tenant_id, campaign_id, candidate_id
-                    )
+                    for signal in existing_signals
                     for fingerprint in signal.get("visual_fingerprints", [])
                     if isinstance(fingerprint, str)
                 ]
                 near_duplicate = decision.approved and is_visual_near_duplicate(
                     fingerprints, existing_fingerprints
                 )
-                status = "rejected_duplicate" if near_duplicate else decision.status
-                reject_reason = "visual_near_duplicate" if near_duplicate else decision.reject_reason
+                diversity_signature = self._diversity_signature(document)
+                similar_compositions = (
+                    sum(
+                        signal.get("diversity_signature") == diversity_signature
+                        for signal in existing_signals
+                    )
+                    if diversity_signature
+                    else 0
+                )
+                diversity_redundant = (
+                    decision.approved
+                    and not near_duplicate
+                    and diversity_signature is not None
+                    and similar_compositions >= 3
+                )
+                status = (
+                    "rejected_duplicate"
+                    if near_duplicate
+                    else "rejected_context"
+                    if diversity_redundant
+                    else decision.status
+                )
+                reject_reason = (
+                    "visual_near_duplicate"
+                    if near_duplicate
+                    else "DIVERSITY_REDUNDANT"
+                    if diversity_redundant
+                    else decision.reject_reason
+                )
                 self._apply_document(
                     candidate,
                     document,
@@ -257,9 +285,15 @@ class RrugcCandidateAnalyzeJobHandler:
                     image.size_bytes,
                     image.image_format,
                     fingerprints,
+                    diversity_signature,
                 )
                 service = RrugcService(session)
-                if decision.approved and not near_duplicate and campaign.auto_import:
+                if (
+                    decision.approved
+                    and not near_duplicate
+                    and not diversity_redundant
+                    and campaign.auto_import
+                ):
                     service.enqueue_import(candidate)
                 service.refresh_campaign_completion(campaign)
                 session.commit()
@@ -293,6 +327,7 @@ class RrugcCandidateAnalyzeJobHandler:
         size_bytes: int,
         image_format: str,
         fingerprints: list[str],
+        diversity_signature: str | None,
     ) -> None:
         candidate.status = status
         candidate.people_count = document.people_count
@@ -312,6 +347,13 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.ai_signal_json = {
             **(ai_assessment.signal_json or {}),
             "visual_fingerprints": fingerprints,
+            "diversity_signature": diversity_signature,
+            "diversity": {
+                "scene_type": document.scene_type,
+                "framing_type": document.framing_type,
+                "camera_angle": document.camera_angle,
+                "pose_type": document.pose_type,
+            },
         }
         candidate.product_fit_score = document.product_fit_score
         candidate.final_score = final_score
@@ -327,6 +369,21 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.height = height
         candidate.size_bytes = size_bytes
         candidate.image_format = image_format
+
+    @staticmethod
+    def _diversity_signature(document: ReferenceAnalysisDocument) -> str | None:
+        values = (
+            document.scene_type,
+            document.framing_type,
+            document.camera_angle,
+            document.pose_type,
+        )
+        normalized = [
+            str(value).strip().lower().replace(" ", "_") for value in values
+        ]
+        if any(not value or value in {"unknown", "other"} for value in normalized):
+            return None
+        return "|".join(normalized)
 
     @staticmethod
     def _mark_error(context: JobHandlerContext, code: str, *, terminal: bool) -> None:

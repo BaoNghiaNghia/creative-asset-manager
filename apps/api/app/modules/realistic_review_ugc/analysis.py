@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v6-smartphone-authentic"
+ANALYZER_VERSION = "rrugc-reference-v7-diversity-aware"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -41,6 +41,10 @@ class ReferenceAnalysisDocument(BaseModel):
     ai_background_consistency_risk: float = Field(default=0.0, ge=0.0, le=1.0)
     ai_detector_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     product_fit_score: float = Field(ge=0.0, le=1.0)
+    scene_type: str = Field(default="unknown", max_length=40)
+    framing_type: str = Field(default="unknown", max_length=40)
+    camera_angle: str = Field(default="unknown", max_length=40)
+    pose_type: str = Field(default="unknown", max_length=40)
     summary: str = Field(min_length=1, max_length=500)
 
 
@@ -396,6 +400,10 @@ Definitions:
 - ai_background_consistency_risk: duplicated people/objects, melted details, impossible depth, bokeh, or background transitions.
 - ai_detector_confidence: 0..1 confidence that the visible evidence is sufficient to judge authenticity. Use LOW confidence when resolution/crop/compression hides evidence.
 - product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement. Wide full-body/lifestyle frames where the primary head is too small to retain useful headwear detail should score lower even if the scene is otherwise attractive.
+- scene_type: short lowercase setting category: home, car, cafe, outdoor, street, mirror, studio, event, workplace, or other.
+- framing_type: short lowercase framing category: selfie_close, portrait_close, half_body, full_body, group, mirror_selfie, or other.
+- camera_angle: short lowercase angle category: eye_level, high_angle, low_angle, side_angle, mirror, or other.
+- pose_type: short lowercase pose category: selfie, seated, standing, walking, candid_activity, looking_away, group, or other.
 - summary: concise factual explanation of the visible composition and main suitability issue, max 2 sentences.
 
 Required JSON keys:
@@ -404,7 +412,7 @@ head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_r
 quality_score, ai_risk_score,
 ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
 ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
-product_fit_score, summary.
+product_fit_score, scene_type, framing_type, camera_angle, pose_type, summary.
 """.strip()
 
 
