@@ -438,7 +438,7 @@ export const runDeliveryMaintenance = () =>
 
 
 export const listCandidates = (campaignId: string, signal?: AbortSignal) =>
-  request<Candidate[]>("/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates?limit=120", { signal });
+  request<Candidate[]>("/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates?limit=500", { signal });
 
 export const analyzeCandidate = (campaignId: string, candidateId: string) =>
   request<{ candidate: Candidate }>(

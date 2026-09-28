@@ -852,7 +852,7 @@ export function RealisticReviewUgcPage() {
           <section className="rrugc-reference-workspace" aria-label="Reference qualification">
             <div className="rrugc-subsection-heading">
               <div><small>REFERENCE QUALIFICATION</small><h3>Pinterest candidates</h3><p>Review approved references, rejected results, and Drive imports separately.</p></div>
-              <span>{candidates.length} found</span>
+              <span>{selected.discovered} found</span>
             </div>
             <div className="rrugc-candidate-tabs" role="tablist" aria-label="Candidate status">
               {([
