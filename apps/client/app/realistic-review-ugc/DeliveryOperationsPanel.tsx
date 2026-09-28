@@ -26,11 +26,11 @@ export function DeliveryOperationsView({
   return <section className="rrugc-card rrugc-operations-panel" aria-label="Delivery operations">
     <div className="rrugc-section-heading rrugc-operations-heading">
       <div>
-        <small>PHASE 11 · DELIVERY OPERATIONS</small>
-        <h2>Automated retries + lifecycle</h2>
+        <small>DELIVERY OPERATIONS</small>
+        <h2>Automation & retries</h2>
         <p>
-          Scheduled maintenance retries existing partial deliveries with bounded
-          backoff, reconciles retention, and records an internal operational event feed.
+          Scheduled maintenance retries partial deliveries, reconciles retention,
+          and keeps the operational event feed current.
         </p>
       </div>
       <div className="rrugc-operations-actions">

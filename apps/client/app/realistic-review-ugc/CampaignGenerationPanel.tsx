@@ -59,9 +59,9 @@ export function CampaignExportPanel({
   return <section className="rrugc-export-panel" aria-label="Export and catalog">
     <div className="rrugc-generation-heading">
       <div>
-        <small>PHASE 9 · EXPORT + CATALOG</small>
-        <strong>Approved output registry</strong>
-        <p>Register approved Managed Drive outputs in the canonical asset catalog without copying or re-uploading the file.</p>
+        <small>CATALOG</small>
+        <strong>Approved outputs</strong>
+        <p>Register approved Managed Drive outputs in the canonical asset catalog without duplicating the file.</p>
       </div>
       <button
         type="button"
@@ -127,9 +127,9 @@ export function CampaignDeliveryPanel({
   return <section className="rrugc-delivery-panel" aria-label="Delivery and lifecycle">
     <div className="rrugc-generation-heading">
       <div>
-        <small>PHASE 10 · DELIVERY + LIFECYCLE</small>
-        <strong>Destination delivery and campaign completion</strong>
-        <p>Copy cataloged assets server-side into an explicit Drive destination, track every delivery, and keep canonical catalog originals untouched by delivery retention.</p>
+        <small>DELIVERY</small>
+        <strong>Campaign delivery</strong>
+        <p>Send cataloged assets to an explicit Drive destination, track delivery state, and keep canonical originals untouched.</p>
       </div>
       <button
         type="button"
@@ -557,9 +557,9 @@ export function CampaignGenerationPanel({
   return <section className="rrugc-generation-foundation">
     <div className="rrugc-generation-heading">
       <div>
-        <small>PHASE 6–7 · WORKER + SUPERVISOR</small>
-        <strong>Reference-conditioned generation + deterministic QA</strong>
-        <p>Freeze person/SKU provenance, run the multi-reference edit, then score the stored output with structured Supervisor QA before any correction is prepared.</p>
+        <small>PRODUCTION</small>
+        <strong>Generate & validate</strong>
+        <p>Lock person and product provenance, generate from durable references, then validate the stored output with Supervisor QA.</p>
       </div>
       <span className={capability?.available ? "rrugc-safe-badge" : "rrugc-safe-badge unavailable"}>
         {capability == null
@@ -634,7 +634,7 @@ export function CampaignGenerationPanel({
 
     <div className="rrugc-generation-attempts">
       <div className="rrugc-generation-attempt-title">
-        <span>Generation attempts</span>
+        <span>Recent generation attempts</span>
         <b>{attempts.length}</b>
       </div>
       {attempts.length === 0 ? <p>No generation attempt prepared yet.</p> :

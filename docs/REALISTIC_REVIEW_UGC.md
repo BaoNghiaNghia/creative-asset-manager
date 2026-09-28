@@ -1703,3 +1703,33 @@ The browser safety boundary is unchanged and explicit: the companion does not au
 
 The previous campaign-token endpoints and `--campaign-id` companion mode remain for backwards compatibility and diagnostics. Production usage should pair one Auto Scout v2 Agent and leave it running.
 
+---
+
+## 45. RRUGC production workspace UI
+
+The Realistic Review UGC page is organized by operator intent rather than implementation phase numbers. The primary visual order is:
+
+```text
+overview
+  ↓
+Pinterest Auto Scout
+  ↓
+campaign definition + campaign queue
+  ↓
+product grounding
+  ↓
+active campaign reference qualification
+  ↓
+generation + Supervisor QA + catalog + campaign delivery
+  ↓
+delivery operations
+```
+
+The overview combines production KPIs with a five-step workflow rail so operators can jump directly to Scout, Qualify, Ground, Produce, or Deliver. Pinterest Agent health, browser-machine pairing, campaign scan state, and recent Scout activity are grouped in the source section instead of being mixed with campaign configuration.
+
+Campaign creation keeps the frequent controls visible while advanced qualification thresholds are collapsed under **Qualification rules**. Campaign cards prioritize name, Scout/Auto status, target progress, and the four reference funnel counts. Product creation is collapsed after a product exists, while the selected product/reference matrix remains available for grounding work.
+
+Within an active campaign, reference candidates are presented before generation. Candidate cards use the Pinterest image as the dominant surface, overlay the current qualification state and fit score, and keep detailed metrics/actions below the image. Generation, Supervisor QA, catalog registration, and destination delivery remain in the same campaign context after the reference set.
+
+The UI uses a scoped RRUGC stylesheet so typography, spacing, cards, form controls, focus states, status pills, and responsive breakpoints can evolve without changing the shared Asset Explorer or other workspace routes. Desktop keeps a wide production canvas; tablet collapses major work areas to one column; mobile reduces KPI/status grids and candidate cards while preserving all actions.
+

@@ -207,9 +207,9 @@ export function ProductRegistryPanel() {
   return <section className="rrugc-card rrugc-product-registry">
     <div className="rrugc-section-heading">
       <div>
-        <small>B3 · PRODUCT REFERENCE REGISTRY</small>
-        <h2>Hat SKU geometry + reference views</h2>
-        <p>Versioned product truth for downstream generation workers. Duplicate image bytes reuse the same Managed Drive object.</p>
+        <small>PRODUCT GROUNDING</small>
+        <h2>Product reference library</h2>
+        <p>Keep SKU geometry and reference views in one source of truth for consistent downstream generation.</p>
       </div>
       <span className="rrugc-safe-badge">{products.length} active SKU{products.length === 1 ? "" : "s"}</span>
     </div>
@@ -217,8 +217,8 @@ export function ProductRegistryPanel() {
     {error && <div className="rrugc-error" role="alert">{error}</div>}
 
     <div className="rrugc-product-layout">
-      <div className="rrugc-product-create">
-        <h3>Create hat SKU</h3>
+      <details className="rrugc-product-create" open={products.length === 0}>
+        <summary><span><strong>Add product SKU</strong><small>Create a new product truth record only when needed.</small></span><b>New SKU</b></summary>
         <div className="rrugc-product-form-grid">
           <label>SKU<input value={sku} onChange={event => setSku(event.target.value)} placeholder="CAP-001" /></label>
           <label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="Forest Green Cap" /></label>
@@ -235,10 +235,10 @@ export function ProductRegistryPanel() {
         <button type="button" className="rrugc-primary" disabled={!sku.trim() || !name.trim() || Boolean(busy)} onClick={() => void submitProduct()}>
           {busy === "create" ? "Creating…" : "Create product"}
         </button>
-      </div>
+      </details>
 
       <div className="rrugc-product-list">
-        <h3>Products</h3>
+        <h3>Product library</h3>
         {products.length === 0 ? <p className="rrugc-empty">No product SKU yet.</p> : products.map(product =>
           <button type="button" key={product.id} className={product.id === selectedId ? "active" : ""} onClick={() => setSelectedId(product.id)}>
             <span><strong>{product.sku}</strong><small>{product.name}</small></span>

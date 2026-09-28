@@ -113,30 +113,26 @@ export function PinterestAutoScoutPanel({
   return <section className="rrugc-card rrugc-auto-scout-panel" aria-label="Pinterest Auto Scout">
     <div className="rrugc-section-heading rrugc-auto-scout-heading">
       <div>
-        <small>AUTO INGEST · PINTEREST</small>
-        <h2>Pinterest Auto Scout</h2>
+        <small>PINTEREST SOURCE</small>
+        <h2>Auto Scout</h2>
         <p>
-          Pair one persistent local Chrome agent once. Running campaigns are then
-          claimed automatically, rescanned on schedule, analyzed, and approved images
-          flow into Managed Google Drive when Auto Import is enabled.
+          Pair a browser machine once. Auto Scout then picks up due campaigns,
+          collects visible Pinterest references, and hands them to the existing QA
+          and Drive pipeline automatically.
         </p>
       </div>
       <span className={"rrugc-auto-scout-health " + (online ? "is-online" : "is-offline")}>
-        {online ? online + " agent online" : "No agent online"}
-      </span>
-    </div>
-
-    <div className="rrugc-auto-scout-safety">
-      <strong>Authenticated browser stays local.</strong>
-      <span>
-        The agent never automates Pinterest login or CAPTCHA/challenge solving. If
-        Pinterest asks for verification, the browser remains open for manual
-        completion and resumes automatically afterward.
+        <i aria-hidden="true" />
+        {online ? online + " online" : "Agent offline"}
       </span>
     </div>
 
     <div className="rrugc-auto-scout-grid">
       <div className="rrugc-auto-scout-pair">
+        <div className="rrugc-auto-scout-pair-copy">
+          <strong>Connect a browser machine</strong>
+          <small>One pairing per machine. Pinterest session data never leaves that browser.</small>
+        </div>
         <label>
           Agent name
           <input
@@ -153,18 +149,22 @@ export function PinterestAutoScoutPanel({
         >
           {busy === "create" ? "Pairing…" : "Pair local Scout"}
         </button>
-        <p>
-          This is a one-time pairing per browser machine. You do not need a new
-          command for every campaign.
-        </p>
       </div>
 
       <div className="rrugc-auto-scout-status">
-        <span><small>Agents</small><b>{agents.length}</b></span>
+        <span><small>Paired</small><b>{agents.length}</b></span>
         <span><small>Online</small><b>{online}</b></span>
-        <span><small>Active run</small><b>{activeRun ? "Yes" : "No"}</b></span>
-        <span><small>Last run</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
+        <span><small>Current task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
+        <span><small>Last result</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
       </div>
+    </div>
+
+    <div className="rrugc-auto-scout-safety">
+      <strong>Local session boundary</strong>
+      <span>
+        Login and Pinterest challenges stay manual. Auto Scout pauses safely,
+        keeps the browser open, and resumes after normal access returns.
+      </span>
     </div>
 
     {created && <div className="rrugc-command rrugc-auto-scout-command">

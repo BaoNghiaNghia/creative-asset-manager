@@ -33,7 +33,7 @@ describe("Realistic Review UGC route", () => {
     expect(command).toContain("--profile-dir");
   });
 
-  it("renders Phase 9 export readiness and catalog counts", () => {
+  it("renders export readiness and catalog counts", () => {
     const markup = renderToStaticMarkup(
       <CampaignExportPanel
         summary={{
@@ -48,7 +48,7 @@ describe("Realistic Review UGC route", () => {
         onExport={() => undefined}
       />,
     );
-    expect(markup).toContain("PHASE 9 · EXPORT + CATALOG");
+    expect(markup).toContain("CATALOG");
     expect(markup).toContain("Export ready (3)");
     expect(markup).toContain("Cataloged");
     expect(markup).toContain(">1<");
@@ -63,7 +63,7 @@ describe("Realistic Review UGC route", () => {
   });
 
 
-  it("renders Phase 10 delivery status and destination controls", () => {
+  it("renders delivery status and destination controls", () => {
     const markup = renderToStaticMarkup(
       <CampaignDeliveryPanel
         summary={{
@@ -128,7 +128,7 @@ describe("Realistic Review UGC route", () => {
         onReconcile={() => undefined}
       />,
     );
-    expect(markup).toContain("PHASE 10 · DELIVERY + LIFECYCLE");
+    expect(markup).toContain("Campaign delivery");
     expect(markup).toContain("Deliver cataloged (4)");
     expect(markup).toContain("Paid Social Finals");
     expect(markup).toContain("retry needed");
@@ -137,7 +137,7 @@ describe("Realistic Review UGC route", () => {
 
 
 
-  it("renders Phase 11 delivery operations and internal events", () => {
+  it("renders delivery operations and internal events", () => {
     const markup = renderToStaticMarkup(
       <DeliveryOperationsView
         summary={{
@@ -171,14 +171,14 @@ describe("Realistic Review UGC route", () => {
         onRun={() => undefined}
       />,
     );
-    expect(markup).toContain("PHASE 11 · DELIVERY OPERATIONS");
+    expect(markup).toContain("DELIVERY OPERATIONS");
     expect(markup).toContain("Automation on · every 5m");
     expect(markup).toContain("Run maintenance now");
     expect(markup).toContain("package partial failed");
     expect(markup).toContain("Retry exhausted");
   });
 
-  it("disables Phase 11 manual maintenance when automation is off", () => {
+  it("disables manual maintenance when automation is off", () => {
     const markup = renderToStaticMarkup(
       <DeliveryOperationsView summary={null} busy={false} onRun={() => undefined} />,
     );

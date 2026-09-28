@@ -15,6 +15,7 @@ import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import type { Campaign, Candidate, CandidateStatus } from "./types";
+import "./ui-overhaul.css";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
 const percent = (value: number | null) => value == null ? "—" : Math.round(value * 100) + "%";
@@ -247,26 +248,43 @@ export function RealisticReviewUgcPage() {
       <WorkspacePageHeader
         className="rrugc-header"
         route="realistic-review-ugc"
+        description="Pinterest discovery, reference QA, product grounding, generation, review, catalog, and delivery in one production workspace."
+        titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Auto pipeline</span>}
         actions={<WorkspaceBackToAssets />}
       />
       <div className="rrugc-page-body">
         {error && <div className="rrugc-error" role="alert">{error}</div>}
 
-        <section className="rrugc-kpis" aria-label="Realistic Review UGC overview">
-          <article><span>Campaigns</span><strong>{kpis.workflows}</strong></article>
-          <article><span>Active</span><strong>{kpis.running}</strong></article>
-          <article><span>Approved</span><strong>{kpis.approved}</strong></article>
-          <article><span>Drive ready</span><strong>{kpis.driveReady}</strong></article>
+        <section className="rrugc-overview" aria-label="Realistic Review UGC overview">
+          <div className="rrugc-kpis">
+            <article><span>Campaigns</span><strong>{kpis.workflows}</strong><small>Total workflows</small></article>
+            <article><span>Active</span><strong>{kpis.running}</strong><small>Running now</small></article>
+            <article><span>Approved refs</span><strong>{kpis.approved}</strong><small>Passed reference QA</small></article>
+            <article><span>Drive ready</span><strong>{kpis.driveReady}</strong><small>Durable references</small></article>
+          </div>
+          <nav className="rrugc-workflow-rail" aria-label="Realistic Review UGC workflow">
+            <a href="#rrugc-scout"><b>01</b><span><strong>Scout</strong><small>Pinterest source</small></span></a>
+            <a href="#rrugc-campaigns"><b>02</b><span><strong>Qualify</strong><small>Reference QA</small></span></a>
+            <a href="#rrugc-product"><b>03</b><span><strong>Ground</strong><small>Product truth</small></span></a>
+            <a href="#rrugc-production"><b>04</b><span><strong>Produce</strong><small>Generate + review</small></span></a>
+            <a href="#rrugc-operations"><b>05</b><span><strong>Deliver</strong><small>Catalog + lifecycle</small></span></a>
+          </nav>
         </section>
 
-        <PinterestAutoScoutPanel onError={setError} />
-        <DeliveryOperationsPanel onError={setError} />
-        <ProductRegistryPanel />
+        <div id="rrugc-scout" className="rrugc-anchor-section">
+          <PinterestAutoScoutPanel onError={setError} />
+        </div>
 
-        <div className="rrugc-columns">
-          <section className="rrugc-card">
-            <div className="rrugc-section-heading"><div><small>NEW CAMPAIGN</small><h2>Pinterest Browser Scout</h2></div><span className="rrugc-safe-badge">Local session</span></div>
-            <p className="rrugc-muted">Pinterest cookies stay on the Scout machine. Every candidate is analyzed first; only references that pass your filters can be saved to Managed Google Drive.</p>
+        <div id="rrugc-campaigns" className="rrugc-columns rrugc-campaign-workspace">
+          <section className="rrugc-card rrugc-create-campaign">
+            <div className="rrugc-section-heading">
+              <div>
+                <small>NEW REFERENCE CAMPAIGN</small>
+                <h2>Define what Auto Scout should find</h2>
+                <p>Set the Pinterest intent, target volume, and qualification rules. The paired Scout handles repeated collection in the background.</p>
+              </div>
+              <span className="rrugc-safe-badge">Local Pinterest session</span>
+            </div>
             <div className="rrugc-form">
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
               <label>Search query<input value={query} maxLength={500} onChange={event => setQuery(event.target.value)} /></label>
@@ -275,8 +293,11 @@ export function RealisticReviewUgcPage() {
                 <label>Scroll batches<input type="number" min={1} max={50} value={scrolls} onChange={event => setScrolls(Number(event.target.value))} /></label>
               </div>
 
-              <details className="rrugc-filter-panel" open>
-                <summary>Reference filters <span>Hat preset</span></summary>
+              <details className="rrugc-filter-panel">
+                <summary>
+                  <span><strong>Qualification rules</strong><small>Head visibility, expression, quality, UGC style, AI risk</small></span>
+                  <b>Hat preset</b>
+                </summary>
                 <div className="rrugc-filter-grid">
                   <label>Head size min<input type="number" min={5} max={90} value={minHeadRatio} onChange={event => setMinHeadRatio(Number(event.target.value))} /><small>% of image height</small></label>
                   <label>Head size max<input type="number" min={5} max={95} value={maxHeadRatio} onChange={event => setMaxHeadRatio(Number(event.target.value))} /><small>% of image height</small></label>
@@ -314,33 +335,51 @@ export function RealisticReviewUgcPage() {
                 </label>
               </div>
               <label className="rrugc-check"><input type="checkbox" checked={autoImport} onChange={event => setAutoImport(event.target.checked)} /><span>Automatically save only approved references to Managed Google Drive</span></label>
-              <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || !query.trim()} onClick={() => void submit()}>{busy ? "Creating…" : "Create campaign"}</button>
+              <div className="rrugc-form-submit">
+                <span>New campaigns start immediately when Auto Scout is enabled and a paired Agent is online.</span>
+                <button type="button" className="rrugc-primary" disabled={busy || !name.trim() || !query.trim()} onClick={() => void submit()}>{busy ? "Creating…" : "Create & start campaign"}</button>
+              </div>
             </div>
           </section>
 
-          <section className="rrugc-card">
-            <div className="rrugc-section-heading"><div><small>CAMPAIGNS</small><h2>Running work</h2></div><span>{campaigns.length}</span></div>
+          <section className="rrugc-card rrugc-campaign-browser">
+            <div className="rrugc-section-heading">
+              <div><small>REFERENCE CAMPAIGNS</small><h2>Campaign queue</h2><p>Select a campaign to inspect live discovery, QA, production, and delivery.</p></div>
+              <span className="rrugc-count-badge">{campaigns.length}</span>
+            </div>
             {campaigns.length === 0 ? <p className="rrugc-empty">No campaign yet.</p> : <div className="rrugc-campaign-list">
               {campaigns.map(item => {
                 const progressBase = item.auto_import ? item.drive_ready : item.approved;
                 const progress = Math.min(100, Math.round((progressBase / item.target_count) * 100));
                 return <button type="button" key={item.id} className={selectedId === item.id ? "active" : ""} onClick={() => setSelectedId(item.id)}>
-                  <span><strong>{item.name}</strong><small>{item.query}</small></span>
-                  <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status}</span>
-                  <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
-                    {item.auto_scout ? "AUTO" : "MANUAL"}
-                  </span>
-                  <span className="rrugc-progress"><i style={{ width: progress + "%" }} /><small>{progressBase}/{item.target_count} target</small></span>
-                  <span className="rrugc-campaign-stats"><small>{item.discovered} scanned</small><small>{item.analysis_pending + item.analyzing} pending</small><small>{item.approved} approved</small><small>{item.rejected} rejected</small></span>
+                  <div className="rrugc-campaign-card-head">
+                    <span className="rrugc-campaign-card-copy"><strong>{item.name}</strong><small>{item.query}</small></span>
+                    <span className="rrugc-campaign-card-badges">
+                      <span className={"rrugc-agent status-" + item.scout_status}>{item.scout_status.replaceAll("_", " ")}</span>
+                      <span className={"rrugc-auto-mode " + (item.auto_scout ? "is-on" : "is-off")}>
+                        {item.auto_scout ? "Auto" : "Paused"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="rrugc-campaign-progress-row">
+                    <span className="rrugc-progress"><i style={{ width: progress + "%" }} /></span>
+                    <strong>{progress}%</strong>
+                    <small>{progressBase}/{item.target_count}</small>
+                  </div>
+                  <span className="rrugc-campaign-stats"><small><b>{item.discovered}</b> scanned</small><small><b>{item.analysis_pending + item.analyzing}</b> pending</small><small><b>{item.approved}</b> approved</small><small><b>{item.rejected}</b> rejected</small></span>
                 </button>;
               })}
             </div>}
           </section>
         </div>
 
-        {selected && <section className="rrugc-card rrugc-live">
-          <div className="rrugc-section-heading">
-            <div><small>LIVE SCAN + ANALYSIS</small><h2>{selected.name}</h2><p>{selected.query}</p></div>
+        <div id="rrugc-product" className="rrugc-anchor-section rrugc-secondary-workspace">
+          <ProductRegistryPanel />
+        </div>
+
+        {selected && <section id="rrugc-production" className="rrugc-card rrugc-live rrugc-anchor-section">
+          <div className="rrugc-section-heading rrugc-live-heading">
+            <div><small>ACTIVE CAMPAIGN</small><h2>{selected.name}</h2><p>{selected.query}</p></div>
             <div className="rrugc-live-meta">
               <span>Scout: <b>{selected.scout_status}</b></span>
               <span>Pending: <b>{selected.analysis_pending + selected.analyzing}</b></span>
@@ -379,14 +418,11 @@ export function RealisticReviewUgcPage() {
             <span>AI risk <b>≤ {Math.round(selected.max_ai_risk_score * 100)}%</b></span>
             <span>{selected.reject_headwear ? "No existing headwear" : "Headwear allowed"}</span>
           </div>
-          <CampaignGenerationPanel
-            campaign={selected}
-            candidates={candidates}
-            onCampaignChanged={updated => {
-              setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
-            }}
-            onError={setError}
-          />
+          <section className="rrugc-reference-workspace" aria-label="Reference qualification">
+            <div className="rrugc-subsection-heading">
+              <div><small>REFERENCE QUALIFICATION</small><h3>Pinterest candidates</h3><p>Review what Auto Scout found and how each image scored before using it as a durable person reference.</p></div>
+              <span>{candidates.length} found</span>
+            </div>
           {candidates.length === 0 ? <p className="rrugc-empty">
             {selected.auto_scout
               ? "Waiting for the paired Auto Scout to collect Pinterest candidates."
@@ -398,9 +434,13 @@ export function RealisticReviewUgcPage() {
               const canRetry = candidate.status === "analysis_failed" || rejectedStatuses.has(candidate.status);
               const canSave = candidate.status === "approved" || candidate.status === "import_failed";
               return <article key={candidate.id} className={"rrugc-candidate tone-" + tone}>
-                <a href={candidate.pin_url} target="_blank" rel="noreferrer"><img src={candidate.image_url} alt={candidate.alt_text || "Pinterest reference candidate"} loading="lazy" referrerPolicy="no-referrer" /></a>
+                <div className="rrugc-candidate-media">
+                  <a href={candidate.pin_url} target="_blank" rel="noreferrer"><img src={candidate.image_url} alt={candidate.alt_text || "Pinterest reference candidate"} loading="lazy" referrerPolicy="no-referrer" /></a>
+                  <span className={"rrugc-candidate-status tone-" + tone}>{statusLabel[candidate.status]}</span>
+                  {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.final_score)} fit</span>}
+                </div>
                 <div className="rrugc-candidate-body">
-                  <div className="rrugc-candidate-head"><strong>{statusLabel[candidate.status]}</strong>{candidate.final_score != null && <span>{percent(candidate.final_score)} fit</span>}</div>
+                  <div className="rrugc-candidate-head"><strong>Reference analysis</strong><span>{candidate.analyzed_at ? "Scored" : "Pending"}</span></div>
                   {candidate.analysis_summary && <p>{candidate.analysis_summary}</p>}
                   {candidate.reject_reason && <p className="rrugc-reject-reason">{candidate.reject_reason.replaceAll("_", " ")}</p>}
                   {candidate.analyzed_at && <div className="rrugc-metrics">
@@ -424,7 +464,20 @@ export function RealisticReviewUgcPage() {
               </article>;
             })}
           </div>}
+          </section>
+          <CampaignGenerationPanel
+            campaign={selected}
+            candidates={candidates}
+            onCampaignChanged={updated => {
+              setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
+            }}
+            onError={setError}
+          />
         </section>}
+
+        <div id="rrugc-operations" className="rrugc-anchor-section rrugc-secondary-workspace">
+          <DeliveryOperationsPanel onError={setError} />
+        </div>
       </div>
     </section>
   </main>;
