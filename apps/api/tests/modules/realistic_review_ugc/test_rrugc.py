@@ -35,8 +35,12 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.image_generation.providers import GeneratedImageResult
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.analysis import (
+    AiAuthenticityConfirmationDocument,
     ReferenceAnalysisDocument,
     ReferenceFilterPolicy,
+    assess_ai_risk,
+    build_ai_risk_calibration,
+    calibrate_ai_risk,
     evaluate_reference,
 )
 from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
@@ -45,6 +49,7 @@ from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQ
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
@@ -115,6 +120,7 @@ def database():
     RrugcProductModel.__table__.create(engine)
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
+    RrugcAiFeedbackModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
     RrugcReviewTaskModel.__table__.create(engine)
@@ -584,6 +590,62 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert listed.json()[0]["id"] == agent_id
 
 
+def test_candidate_ai_feedback_api_persists_human_label(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="manual authenticity feedback",
+            query="candid lifestyle photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/515151/",
+                image_url="https://i.pinimg.com/736x/5/1/5.jpg",
+                alt_text="candid person outdoors",
+            )],
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "approved"
+        candidate.ai_risk_score = 0.42
+        candidate.ai_risk_raw_score = 0.38
+        candidate.ai_detector_confidence = 0.81
+        candidate.ai_signal_json = {"strong_evidence_count": 1}
+        candidate.analyzer_version = "test-analyzer"
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    marked = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/ai-feedback",
+        json={"label": "ai", "note": "Visible geometry inconsistency."},
+    )
+    assert marked.status_code == 200
+    payload = marked.json()
+    assert payload["candidate"]["ai_manual_label"] == "ai"
+    assert payload["candidate"]["status"] == "rejected_ai_risk"
+    assert payload["candidate"]["reject_reason"] == "MANUAL_AI_LABEL"
+    assert payload["calibration"]["ai_count"] == 1
+    assert payload["calibration"]["active"] is False
+
+    with database() as session:
+        rows = list(session.scalars(
+            select(RrugcAiFeedbackModel).where(
+                RrugcAiFeedbackModel.candidate_id == candidate_id
+            )
+        ))
+        assert len(rows) == 1
+        assert rows[0].label == "ai"
+        assert rows[0].ai_risk_raw_score == pytest.approx(0.38)
+        assert rows[0].created_by_user_id == "user-a"
+
+
 def reference_document(**overrides) -> ReferenceAnalysisDocument:
     values = {
         "people_count": 1,
@@ -645,6 +707,103 @@ def test_reference_policy_rejects_failed_constraints(overrides, status, reason):
     assert decision.reject_reason == reason
 
 
+def test_ai_risk_requires_corroborated_evidence_in_ensemble_mode():
+    document = reference_document(
+        ai_risk_score=0.92,
+        ai_detector_confidence=0.45,
+        ai_anatomy_risk=0.10,
+        ai_text_symbol_risk=0.05,
+        ai_geometry_risk=0.08,
+        ai_texture_risk=0.12,
+        ai_lighting_reflection_risk=0.08,
+        ai_background_consistency_risk=0.06,
+    )
+    assessment = assess_ai_risk(document)
+    decision = evaluate_reference(
+        document,
+        ReferenceFilterPolicy(),
+        effective_ai_risk_score=assessment.calibrated_score,
+        ai_evidence_count=assessment.strong_evidence_count,
+        ai_detector_confidence=assessment.detector_confidence,
+        ai_risk_confirmed=assessment.confirmed,
+    )
+    assert assessment.strong_evidence_count == 0
+    assert decision.status == "approved"
+
+
+def test_ai_risk_second_pass_can_confirm_synthetic_image():
+    document = reference_document(
+        ai_risk_score=0.72,
+        ai_detector_confidence=0.82,
+        ai_anatomy_risk=0.78,
+        ai_geometry_risk=0.71,
+        ai_texture_risk=0.66,
+    )
+    confirmation = AiAuthenticityConfirmationDocument(
+        camera_photo_probability=0.08,
+        synthetic_probability=0.92,
+        confidence=0.91,
+        anatomy_risk=0.86,
+        text_symbol_risk=0.44,
+        geometry_risk=0.82,
+        texture_risk=0.76,
+        lighting_reflection_risk=0.64,
+        background_consistency_risk=0.70,
+        evidence=["Malformed fingers", "Inconsistent background geometry"],
+        summary="Multiple independent synthetic inconsistencies are visible.",
+    )
+    assessment = assess_ai_risk(document, confirmation=confirmation)
+    decision = evaluate_reference(
+        document,
+        ReferenceFilterPolicy(),
+        effective_ai_risk_score=assessment.calibrated_score,
+        ai_evidence_count=assessment.strong_evidence_count,
+        ai_detector_confidence=assessment.detector_confidence,
+        ai_risk_confirmed=assessment.confirmed,
+    )
+    assert assessment.confirmed is True
+    assert assessment.strong_evidence_count >= 1
+    assert decision.status == "rejected_ai_risk"
+    assert decision.reject_reason == "AI_RISK_CONFIRMED"
+
+
+def test_ai_risk_calibration_activates_after_human_feedback():
+    calibration = build_ai_risk_calibration(
+        [("real", value) for value in (0.08, 0.10, 0.12, 0.09, 0.11)]
+        + [("ai", value) for value in (0.72, 0.76, 0.80, 0.78, 0.74)]
+    )
+    calibrated_real, real_applied = calibrate_ai_risk(0.10, calibration)
+    calibrated_ai, ai_applied = calibrate_ai_risk(0.76, calibration)
+    assert calibration.active is True
+    assert real_applied is True
+    assert ai_applied is True
+    assert calibrated_real <= 0.10
+    assert calibrated_ai >= 0.90
+
+
+def test_manual_ai_label_overrides_authenticity_only():
+    document = reference_document(ai_risk_score=0.95)
+    real_decision = evaluate_reference(
+        document,
+        ReferenceFilterPolicy(),
+        effective_ai_risk_score=0.95,
+        ai_evidence_count=3,
+        ai_detector_confidence=0.95,
+        ai_risk_confirmed=True,
+        manual_ai_label="real",
+    )
+    ai_decision = evaluate_reference(
+        document,
+        ReferenceFilterPolicy(),
+        effective_ai_risk_score=0.01,
+        ai_evidence_count=0,
+        ai_detector_confidence=0.10,
+        ai_risk_confirmed=False,
+        manual_ai_label="ai",
+    )
+    assert real_decision.status == "approved"
+    assert ai_decision.status == "rejected_ai_risk"
+    assert ai_decision.reject_reason == "MANUAL_AI_LABEL"
 
 
 

@@ -28,6 +28,7 @@ from app.infrastructure.downloader.secure_image import (
 )
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.model import (
+    RrugcAiFeedbackModel,
     RrugcCampaignModel,
     RrugcCandidateModel,
 )
@@ -478,6 +479,61 @@ class RrugcService:
                 status_code=409,
             )
         self.enqueue_analysis(candidate, increment_revision=True)
+        self.session.commit()
+        self.session.refresh(candidate)
+        return candidate
+
+    def mark_candidate_ai_label(
+        self,
+        candidate: RrugcCandidateModel,
+        *,
+        label: str,
+        note: str | None,
+        user_id: str,
+    ) -> RrugcCandidateModel:
+        if label not in {"real", "ai", "unsure"}:
+            raise RrugcError(
+                "invalid_ai_feedback_label",
+                "AI feedback label must be real, ai, or unsure.",
+                status_code=422,
+            )
+        now = datetime.now(timezone.utc)
+        clean_note = (note or "").strip() or None
+        if clean_note is not None:
+            clean_note = clean_note[:1000]
+
+        self.repository.add_ai_feedback(
+            RrugcAiFeedbackModel(
+                tenant_id=candidate.tenant_id,
+                campaign_id=candidate.campaign_id,
+                candidate_id=candidate.id,
+                label=label,
+                note=clean_note,
+                ai_risk_raw_score=candidate.ai_risk_raw_score,
+                ai_risk_score=candidate.ai_risk_score,
+                detector_confidence=candidate.ai_detector_confidence,
+                analyzer_version=candidate.analyzer_version,
+                signal_json=candidate.ai_signal_json,
+                created_by_user_id=user_id,
+                created_at=now,
+            )
+        )
+        candidate.ai_manual_label = label
+        candidate.ai_manual_note = clean_note
+        candidate.ai_manual_reviewed_by_user_id = user_id
+        candidate.ai_manual_reviewed_at = now
+
+        locked = candidate.status in {"drive_ready", "importing", "import_queued"}
+        if not locked and label == "ai":
+            candidate.status = "rejected_ai_risk"
+            candidate.reject_reason = "MANUAL_AI_LABEL"
+            candidate.last_error_code = None
+        elif not locked and label == "real" and candidate.status == "rejected_ai_risk":
+            # Re-run the complete qualification policy. The analyzer will keep
+            # the human "real" label authoritative for authenticity while
+            # still enforcing head/quality/UGC/product-fit requirements.
+            self.enqueue_analysis(candidate, increment_revision=True)
+
         self.session.commit()
         self.session.refresh(candidate)
         return candidate

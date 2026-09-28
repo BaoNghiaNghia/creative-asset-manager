@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
@@ -112,6 +113,40 @@ class RrugcRepository:
             .limit(1)
         )
 
+    def add_ai_feedback(
+        self,
+        row: RrugcAiFeedbackModel,
+    ) -> RrugcAiFeedbackModel:
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def ai_feedback_training_rows(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 500,
+    ) -> list[tuple[str, float | None]]:
+        rows = list(self.session.scalars(
+            select(RrugcAiFeedbackModel)
+            .where(
+                RrugcAiFeedbackModel.tenant_id == tenant_id,
+                RrugcAiFeedbackModel.label.in_(("real", "ai")),
+            )
+            .order_by(
+                RrugcAiFeedbackModel.created_at.desc(),
+                RrugcAiFeedbackModel.id.desc(),
+            )
+            .limit(limit)
+        ))
+        latest_by_candidate: dict[str, RrugcAiFeedbackModel] = {}
+        for row in rows:
+            if row.candidate_id not in latest_by_candidate:
+                latest_by_candidate[row.candidate_id] = row
+        return [
+            (row.label, row.ai_risk_raw_score)
+            for row in latest_by_candidate.values()
+        ]
 
 
     def list_scout_agents(

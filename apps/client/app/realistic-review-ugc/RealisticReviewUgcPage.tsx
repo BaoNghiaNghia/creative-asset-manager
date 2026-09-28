@@ -8,6 +8,7 @@ import {
   createCampaign,
   deleteCampaign,
   importCandidate,
+  markCandidateAiFeedback,
   listCampaigns,
   listCandidates,
   updateCampaign,
@@ -17,11 +18,11 @@ import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
-import type { Campaign, Candidate, CandidateStatus } from "./types";
+import type { AiManualLabel, Campaign, Candidate, CandidateStatus } from "./types";
 import "./ui-overhaul.css";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
-const percent = (value: number | null) => value == null ? "—" : Math.round(value * 100) + "%";
+const percent = (value: number | null | undefined) => value == null ? "—" : Math.round(value * 100) + "%";
 
 const statusLabel: Record<CandidateStatus, string> = {
   discovered: "Discovered",
@@ -357,6 +358,21 @@ export function RealisticReviewUgcPage() {
       await refreshCampaigns();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to queue this image for Drive.");
+    } finally {
+      setActionId("");
+    }
+  }
+
+  async function markAiFeedback(candidate: Candidate, label: AiManualLabel) {
+    if (!selected || actionId) return;
+    setActionId("ai:" + candidate.id);
+    setError("");
+    try {
+      const result = await markCandidateAiFeedback(selected.id, candidate.id, label);
+      setCandidates(rows => rows.map(row => row.id === result.candidate.id ? result.candidate : row));
+      await refreshCampaigns();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to save AI review.");
     } finally {
       setActionId("");
     }
@@ -814,6 +830,7 @@ export function RealisticReviewUgcPage() {
             {visibleCandidates.slice(0, candidateLimit).map(candidate => {
               const tone = candidateTone(candidate.status);
               const actionBusy = actionId === candidate.id;
+              const aiReviewBusy = actionId === "ai:" + candidate.id;
               const canRetry = candidate.status === "analysis_failed" || rejectedStatuses.has(candidate.status);
               const canSave = candidate.status === "approved" || candidate.status === "import_failed";
               return <article key={candidate.id} className={"rrugc-candidate tone-" + tone}>
@@ -834,9 +851,38 @@ export function RealisticReviewUgcPage() {
                       <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
                       <span>Quality <b>{percent(candidate.quality_score)}</b></span>
                       <span>AI risk <b>{percent(candidate.ai_risk_score)}</b></span>
+                      <span>AI confidence <b>{percent(candidate.ai_detector_confidence)}</b></span>
                       <span>Fit <b>{percent(candidate.product_fit_score)}</b></span>
                     </div>
                   </details> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
+                  <div className="rrugc-ai-review">
+                    <div className="rrugc-ai-review-head">
+                      <span>Human authenticity review</span>
+                      {candidate.ai_manual_label
+                        ? <b className={"is-" + candidate.ai_manual_label}>
+                          {candidate.ai_manual_label === "real" ? "Marked real" : candidate.ai_manual_label === "ai" ? "Marked AI" : "Unsure"}
+                        </b>
+                        : candidate.ai_risk_confirmed
+                          ? <b className="is-ai">AI signals confirmed</b>
+                          : <b>Not reviewed</b>}
+                    </div>
+                    <div className="rrugc-ai-review-actions" role="group" aria-label="Mark image authenticity">
+                      {([
+                        ["real", "Real photo"],
+                        ["ai", "AI"],
+                        ["unsure", "Unsure"],
+                      ] as const).map(([label, copy]) => <button
+                        key={label}
+                        type="button"
+                        className={candidate.ai_manual_label === label ? "is-active is-" + label : ""}
+                        aria-pressed={candidate.ai_manual_label === label}
+                        disabled={Boolean(actionId)}
+                        onClick={() => void markAiFeedback(candidate, label)}
+                      >
+                        {aiReviewBusy ? "Saving…" : copy}
+                      </button>)}
+                    </div>
+                  </div>
                 </div>
                 <footer>
                   {candidate.web_url ? <a href={candidate.web_url} target="_blank" rel="noreferrer">Open in Drive</a>

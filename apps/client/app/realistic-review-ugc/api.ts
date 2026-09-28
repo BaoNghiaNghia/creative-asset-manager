@@ -12,6 +12,8 @@ import type {
   DeliveryPackage,
   DeliveryPackageList,
   Candidate,
+  AiFeedbackCalibration,
+  AiManualLabel,
   GenerationAttempt,
   GenerationCapability,
   BatchExportResult,
@@ -442,6 +444,24 @@ export const analyzeCandidate = (campaignId: string, candidateId: string) =>
   request<{ candidate: Candidate }>(
     "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/candidates/" + encodeURIComponent(candidateId) + "/analyze",
     { method: "POST", body: "{}" },
+  );
+
+export const markCandidateAiFeedback = (
+  campaignId: string,
+  candidateId: string,
+  label: AiManualLabel,
+  note?: string,
+) =>
+  request<{ candidate: Candidate; calibration: AiFeedbackCalibration }>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId)
+      + "/candidates/"
+      + encodeURIComponent(candidateId)
+      + "/ai-feedback",
+    {
+      method: "POST",
+      body: JSON.stringify({ label, note: note || null }),
+    },
   );
 
 export const importCandidate = (campaignId: string, candidateId: string) =>

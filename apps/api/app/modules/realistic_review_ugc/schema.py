@@ -22,6 +22,7 @@ ProductReferenceView = Literal[
     "embroidery_closeup",
     "material_closeup",
 ]
+AiManualLabel = Literal["real", "ai", "unsure"]
 CandidateStatus = Literal[
     "discovered",
     "analysis_queued",
@@ -668,6 +669,14 @@ class CandidateResponse(BaseModel):
     mobile_ugc_score: float | None
     quality_score: float | None
     ai_risk_score: float | None
+    ai_risk_raw_score: float | None = None
+    ai_detector_confidence: float | None = None
+    ai_risk_confirmed: bool | None = None
+    ai_signal_json: dict | None = None
+    ai_manual_label: AiManualLabel | None = None
+    ai_manual_note: str | None = None
+    ai_manual_reviewed_by_user_id: str | None = None
+    ai_manual_reviewed_at: datetime | None = None
     product_fit_score: float | None
     final_score: float | None
     reject_reason: str | None
@@ -686,6 +695,24 @@ class CandidateResponse(BaseModel):
     last_error_code: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CandidateAiFeedbackRequest(BaseModel):
+    label: AiManualLabel
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AiFeedbackCalibrationResponse(BaseModel):
+    active: bool
+    real_count: int
+    ai_count: int
+    real_mean: float | None = None
+    ai_mean: float | None = None
+
+
+class CandidateAiFeedbackResponse(BaseModel):
+    candidate: CandidateResponse
+    calibration: AiFeedbackCalibrationResponse
 
 
 class CandidateBatchResponse(BaseModel):

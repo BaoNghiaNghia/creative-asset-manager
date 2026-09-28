@@ -24,8 +24,12 @@ from app.modules.realistic_review_ugc.analysis import (
     ANALYZER_VERSION,
     ReferenceAnalysisDocument,
     analyze_reference_image,
+    assess_ai_risk,
+    build_ai_risk_calibration,
+    confirm_ai_authenticity,
     evaluate_reference,
     policy_from_campaign,
+    should_confirm_ai_risk,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.service import (
@@ -154,6 +158,10 @@ class RrugcCandidateAnalyzeJobHandler:
             session.commit()
             image_url = candidate.image_url
             policy = policy_from_campaign(campaign)
+            manual_ai_label = candidate.ai_manual_label
+            calibration = build_ai_risk_calibration(
+                repository.ai_feedback_training_rows(context.job.tenant_id)
+            )
 
         registry = context.dependencies.ai_provider_registry
         if registry is None:
@@ -164,16 +172,43 @@ class RrugcCandidateAnalyzeJobHandler:
             if context.is_cancelled:
                 return JobHandlerResult.cancelled()
             image_bytes = image.path.read_bytes()
+            image_mime_type = _image_mime(image.image_format)
             document, provider_name, model = await analyze_reference_image(
                 provider=provider,
                 tenant_id=context.job.tenant_id,
                 candidate_id=candidate_id,
                 image_bytes=image_bytes,
-                image_mime_type=_image_mime(image.image_format),
+                image_mime_type=image_mime_type,
                 width=image.width,
                 height=image.height,
             )
-            decision = evaluate_reference(document, policy)
+            confirmation = None
+            if manual_ai_label not in {"real", "ai"} and should_confirm_ai_risk(
+                document, policy
+            ):
+                confirmation = await confirm_ai_authenticity(
+                    provider=provider,
+                    tenant_id=context.job.tenant_id,
+                    candidate_id=candidate_id,
+                    image_bytes=image_bytes,
+                    image_mime_type=image_mime_type,
+                    width=image.width,
+                    height=image.height,
+                )
+            ai_assessment = assess_ai_risk(
+                document,
+                confirmation=confirmation,
+                calibration=calibration,
+            )
+            decision = evaluate_reference(
+                document,
+                policy,
+                effective_ai_risk_score=ai_assessment.calibrated_score,
+                ai_evidence_count=ai_assessment.strong_evidence_count,
+                ai_detector_confidence=ai_assessment.detector_confidence,
+                ai_risk_confirmed=ai_assessment.confirmed,
+                manual_ai_label=manual_ai_label,
+            )
 
             with context.dependencies.session_factory() as session:
                 repository = RrugcRepository(session)
@@ -192,6 +227,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 self._apply_document(
                     candidate,
                     document,
+                    ai_assessment,
                     decision.status,
                     decision.reject_reason,
                     decision.final_score,
@@ -226,6 +262,7 @@ class RrugcCandidateAnalyzeJobHandler:
     def _apply_document(
         candidate,
         document: ReferenceAnalysisDocument,
+        ai_assessment,
         status: str,
         reject_reason: str | None,
         final_score: float,
@@ -246,7 +283,11 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.head_occlusion = document.head_occlusion
         candidate.mobile_ugc_score = document.mobile_ugc_score
         candidate.quality_score = document.quality_score
-        candidate.ai_risk_score = document.ai_risk_score
+        candidate.ai_risk_score = ai_assessment.calibrated_score
+        candidate.ai_risk_raw_score = ai_assessment.raw_score
+        candidate.ai_detector_confidence = ai_assessment.detector_confidence
+        candidate.ai_risk_confirmed = ai_assessment.confirmed
+        candidate.ai_signal_json = ai_assessment.signal_json
         candidate.product_fit_score = document.product_fit_score
         candidate.final_score = final_score
         candidate.reject_reason = reject_reason

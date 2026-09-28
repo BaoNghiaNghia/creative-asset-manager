@@ -14,6 +14,7 @@ from app.domain.providers.contracts import OpenStoredAssetInput, StorageProvider
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
+from app.modules.realistic_review_ugc.analysis import build_ai_risk_calibration
 from app.modules.realistic_review_ugc.generation import (
     RrugcGenerationFoundation,
     binding_is_generation_ready,
@@ -51,6 +52,9 @@ from app.modules.realistic_review_ugc.schema import (
     AutoScoutCandidateBatchResponse,
     CandidateBatchResponse,
     CandidateResponse,
+    CandidateAiFeedbackRequest,
+    CandidateAiFeedbackResponse,
+    AiFeedbackCalibrationResponse,
     GenerationAttemptCreateRequest,
     GenerationAttemptCreatedResponse,
     GenerationAttemptResponse,
@@ -168,6 +172,14 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "mobile_ugc_score": row.mobile_ugc_score,
         "quality_score": row.quality_score,
         "ai_risk_score": row.ai_risk_score,
+        "ai_risk_raw_score": row.ai_risk_raw_score,
+        "ai_detector_confidence": row.ai_detector_confidence,
+        "ai_risk_confirmed": row.ai_risk_confirmed,
+        "ai_signal_json": row.ai_signal_json,
+        "ai_manual_label": row.ai_manual_label,
+        "ai_manual_note": row.ai_manual_note,
+        "ai_manual_reviewed_by_user_id": row.ai_manual_reviewed_by_user_id,
+        "ai_manual_reviewed_at": row.ai_manual_reviewed_at,
         "product_fit_score": row.product_fit_score,
         "final_score": row.final_score,
         "reject_reason": row.reject_reason,
@@ -1758,6 +1770,48 @@ def analyze_candidate(
     except RrugcError as exc:
         raise _error(exc) from exc
     return AnalyzeResponse(candidate=_candidate(row))
+
+
+@router.post(
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/ai-feedback",
+    response_model=CandidateAiFeedbackResponse,
+)
+def mark_candidate_ai_feedback(
+    campaign_id: str,
+    candidate_id: str,
+    body: CandidateAiFeedbackRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    candidate = repository.get_candidate(
+        principal.active_tenant_id, campaign_id, candidate_id
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        row = RrugcService(session).mark_candidate_ai_label(
+            candidate,
+            label=body.label,
+            note=body.note,
+            user_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    calibration = build_ai_risk_calibration(
+        repository.ai_feedback_training_rows(principal.active_tenant_id)
+    )
+    return CandidateAiFeedbackResponse(
+        candidate=_candidate(row),
+        calibration=AiFeedbackCalibrationResponse(
+            active=calibration.active,
+            real_count=calibration.real_count,
+            ai_count=calibration.ai_count,
+            real_mean=calibration.real_mean,
+            ai_mean=calibration.ai_mean,
+        ),
+    )
 
 
 @router.post(

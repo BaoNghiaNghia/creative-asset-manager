@@ -302,6 +302,14 @@ class RrugcCandidateModel(Base):
     mobile_ugc_score: Mapped[float | None] = mapped_column(Float)
     quality_score: Mapped[float | None] = mapped_column(Float)
     ai_risk_score: Mapped[float | None] = mapped_column(Float)
+    ai_risk_raw_score: Mapped[float | None] = mapped_column(Float)
+    ai_detector_confidence: Mapped[float | None] = mapped_column(Float)
+    ai_risk_confirmed: Mapped[bool | None] = mapped_column(Boolean)
+    ai_signal_json: Mapped[dict | None] = mapped_column(JSON)
+    ai_manual_label: Mapped[str | None] = mapped_column(String(16))
+    ai_manual_note: Mapped[str | None] = mapped_column(Text)
+    ai_manual_reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    ai_manual_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     product_fit_score: Mapped[float | None] = mapped_column(Float)
     final_score: Mapped[float | None] = mapped_column(Float)
     reject_reason: Mapped[str | None] = mapped_column(String(64))
@@ -322,6 +330,40 @@ class RrugcCandidateModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcAiFeedbackModel(Base):
+    __tablename__ = "rrugc_ai_feedback"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "candidate_id"],
+            ["rrugc_candidates.tenant_id", "rrugc_candidates.id"],
+            name="fk_rrugc_ai_feedback_candidate",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_rrugc_ai_feedback_tenant_label_created",
+            "tenant_id", "label", "created_at",
+        ),
+        Index(
+            "ix_rrugc_ai_feedback_candidate_created",
+            "tenant_id", "candidate_id", "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    label: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    ai_risk_raw_score: Mapped[float | None] = mapped_column(Float)
+    ai_risk_score: Mapped[float | None] = mapped_column(Float)
+    detector_confidence: Mapped[float | None] = mapped_column(Float)
+    analyzer_version: Mapped[str | None] = mapped_column(String(64))
+    signal_json: Mapped[dict | None] = mapped_column(JSON)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class RrugcGenerationAttemptModel(Base):

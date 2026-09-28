@@ -112,6 +112,16 @@ export type CandidateStatus =
   | "import_failed"
   | "rejected_duplicate";
 
+export type AiManualLabel = "real" | "ai" | "unsure";
+
+export type AiFeedbackCalibration = {
+  active: boolean;
+  real_count: number;
+  ai_count: number;
+  real_mean: number | null;
+  ai_mean: number | null;
+};
+
 export type Candidate = {
   id: string;
   campaign_id: string;
@@ -130,6 +140,14 @@ export type Candidate = {
   mobile_ugc_score: number | null;
   quality_score: number | null;
   ai_risk_score: number | null;
+  ai_risk_raw_score?: number | null;
+  ai_detector_confidence?: number | null;
+  ai_risk_confirmed?: boolean | null;
+  ai_signal_json?: Record<string, unknown> | null;
+  ai_manual_label?: AiManualLabel | null;
+  ai_manual_note?: string | null;
+  ai_manual_reviewed_by_user_id?: string | null;
+  ai_manual_reviewed_at?: string | null;
   product_fit_score: number | null;
   final_score: number | null;
   reject_reason: string | null;
