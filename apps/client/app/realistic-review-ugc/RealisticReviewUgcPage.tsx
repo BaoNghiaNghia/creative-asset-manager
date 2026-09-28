@@ -912,7 +912,18 @@ export function RealisticReviewUgcPage() {
                     });
                   }}
                 >
-                  <a href={candidate.pin_url} target="_blank" rel="noreferrer"><img src={candidate.image_url} alt={candidate.alt_text || "Pinterest reference candidate"} loading="lazy" referrerPolicy="no-referrer" /></a>
+                  <a href={candidate.pin_url} target="_blank" rel="noreferrer" className="rrugc-image-shell">
+                    <span className="rrugc-image-skeleton" aria-hidden="true" />
+                    <img
+                      src={candidate.image_url}
+                      alt={candidate.alt_text || "Pinterest reference candidate"}
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      onLoad={event => event.currentTarget.parentElement?.classList.add("is-loaded")}
+                      onError={event => event.currentTarget.parentElement?.classList.add("is-loaded")}
+                    />
+                  </a>
                   <span className={"rrugc-candidate-status tone-" + tone}>{statusLabel[candidate.status]}</span>
                   {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.final_score)} fit</span>}
                 </div>

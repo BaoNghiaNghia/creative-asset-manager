@@ -287,7 +287,18 @@ export function ProductRegistryPanel() {
           return <article key={view} className={reference ? "has-reference" : ""}>
             <header><strong>{viewLabel(view)}</strong>{reference && <span>v{reference.version}</span>}</header>
             {reference ? <>
-              <img className="rrugc-product-reference-preview" src={referenceImageUrl(selected.id, reference.id)} alt={viewLabel(view) + " product reference"} loading="lazy" />
+              <div className="rrugc-image-shell rrugc-product-reference-shell">
+                <span className="rrugc-image-skeleton" aria-hidden="true" />
+                <img
+                  className="rrugc-product-reference-preview"
+                  src={referenceImageUrl(selected.id, reference.id)}
+                  alt={viewLabel(view) + " product reference"}
+                  loading="lazy"
+                  decoding="async"
+                  onLoad={event => event.currentTarget.parentElement?.classList.add("is-loaded")}
+                  onError={event => event.currentTarget.parentElement?.classList.add("is-loaded")}
+                />
+              </div>
               <p>{reference.width}×{reference.height} · {reference.image_format}</p>
               <p title={reference.content_hash}>hash {shortHash(reference.content_hash)}</p>
               {reference.reused_storage && <small className="rrugc-reused-badge">Drive object reused</small>}
