@@ -17,7 +17,8 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v3"
+CLIENT_VERSION = "rrugc-scout-v4"
+IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 INITIAL_RESULTS_TIMEOUT_MS = 3_000
 SCROLL_RESULTS_TIMEOUT_MS = 1_800
 MANUAL_GATE_POLL_MS = 1_500
@@ -396,6 +397,13 @@ class AutoScoutClient:
         payload = response.json()
         return payload or None
 
+    async def diagnostics(self) -> dict[str, Any]:
+        response = await self.client.get(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/diagnostics"
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def submit(
         self,
         run_id: str,
@@ -743,6 +751,41 @@ async def run_legacy(args: argparse.Namespace) -> None:
         await client.close()
 
 
+def idle_diagnostic_message(payload: dict[str, Any]) -> str:
+    campaigns = payload.get("campaigns")
+    if not isinstance(campaigns, list) or not campaigns:
+        return "Scout idle: no campaigns are available for this agent."
+
+    campaign = campaigns[0]
+    reason = str(campaign.get("reason") or "waiting")
+    reason_labels = {
+        "pipeline_full": "pipeline is full; waiting for analysis/import workers",
+        "target_reached": "target has been reached",
+        "scheduled_later": "next scan is scheduled later",
+        "campaign_leased": "campaign is currently leased by another run",
+        "auto_scout_disabled": "Auto Scout is disabled for this campaign",
+        "campaign_not_running": "campaign is not running",
+        "claimable": "campaign is claimable; retrying claim",
+    }
+    name = str(campaign.get("name") or campaign.get("campaign_id") or "campaign")
+    target = int(campaign.get("target_count") or 0)
+    progress = int(campaign.get("progress") or 0)
+    pipeline = int(campaign.get("pipeline_count") or 0)
+    counts = campaign.get("counts") if isinstance(campaign.get("counts"), dict) else {}
+    active_counts = ", ".join(
+        f"{key}={value}"
+        for key, value in counts.items()
+        if isinstance(value, int) and value > 0
+    )
+    message = (
+        f"Scout idle: {name} — {reason_labels.get(reason, reason)}. "
+        f"progress={progress}/{target} pipeline={pipeline}/{target}"
+    )
+    if active_counts:
+        message += " [" + active_counts + "]"
+    return message
+
+
 async def run_agent(args: argparse.Namespace) -> None:
     machine_label = args.machine_label or socket.gethostname()
     client = AutoScoutClient(
@@ -754,6 +797,7 @@ async def run_agent(args: argparse.Namespace) -> None:
     playwright = None
     context = None
     idle_failures = 0
+    last_idle_diagnostic_at = 0.0
     try:
         playwright, context = await launch_context(args)
         page = context.pages[0] if context.pages else await context.new_page()
@@ -771,6 +815,19 @@ async def run_agent(args: argparse.Namespace) -> None:
                 if task is None:
                     if args.once:
                         return
+                    now = time.monotonic()
+                    if (
+                        now - last_idle_diagnostic_at
+                        >= IDLE_DIAGNOSTIC_INTERVAL_SECONDS
+                    ):
+                        try:
+                            print(idle_diagnostic_message(await client.diagnostics()))
+                        except Exception as exc:
+                            print(
+                                "Scout idle: no campaign claimed; diagnostics unavailable: "
+                                + exc.__class__.__name__
+                            )
+                        last_idle_diagnostic_at = now
                     await asyncio.sleep(args.poll_interval_seconds)
                     continue
                 try:

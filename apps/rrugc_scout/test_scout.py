@@ -8,6 +8,7 @@ from scout import (
     allowed_image,
     allowed_pin,
     extract_visible,
+    idle_diagnostic_message,
     normalize_candidates,
     quality_prefilter,
     quality_search_query,
@@ -26,7 +27,7 @@ def test_url_allowlists():
 
 
 def test_quality_first_query_and_metadata_prefilter():
-    assert quality_search_query("cap man") == "cap man candid lifestyle photo"
+    assert quality_search_query("cap man") == "cap man authentic candid lifestyle photo real people"
     assert quality_search_query("cap man candid photo") == "cap man candid photo"
 
     rows = normalize_candidates([
@@ -191,13 +192,29 @@ def test_auto_scout_scans_every_campaign_keyword():
     assert client.completed == ["run-1:completed"]
 
 
+def test_idle_diagnostic_message_explains_pipeline_backpressure():
+    message = idle_diagnostic_message({
+        "campaigns": [{
+            "name": "Lifestyle",
+            "reason": "pipeline_full",
+            "target_count": 100,
+            "progress": 3,
+            "pipeline_count": 100,
+            "counts": {"analysis_queued": 96, "analyzing": 1, "approved": 3},
+        }],
+    })
+    assert "pipeline is full" in message
+    assert "progress=3/100" in message
+    assert "analysis_queued=96" in message
+
+
 def test_auto_scout_client_uses_agent_scoped_endpoints():
     requests: list[tuple[str, str]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v3"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v4"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})
@@ -217,6 +234,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
         )
         try:
             assert await client.claim() is None
+            assert await client.diagnostics() == {"status": "ready"}
             await client.heartbeat("ready")
         finally:
             await client.close()
@@ -224,5 +242,6 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     asyncio.run(scenario())
     assert requests == [
         ("POST", "/api/v1/realistic-review-ugc/scout-agents/agent-1/claim"),
+        ("GET", "/api/v1/realistic-review-ugc/scout-agents/agent-1/diagnostics"),
         ("POST", "/api/v1/realistic-review-ugc/scout-agents/agent-1/heartbeat"),
     ]
