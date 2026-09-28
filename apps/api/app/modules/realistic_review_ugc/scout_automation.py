@@ -92,6 +92,54 @@ class RrugcAutoScoutService:
         self.session = session
         self.repository = RrugcRepository(session)
 
+    def _release_agent_runtime(
+        self,
+        row: RrugcScoutAgentModel,
+        *,
+        now: datetime,
+        error_code: str,
+    ) -> None:
+        self.session.execute(
+            update(RrugcScoutRunModel)
+            .where(
+                RrugcScoutRunModel.tenant_id == row.tenant_id,
+                RrugcScoutRunModel.agent_id == row.id,
+                RrugcScoutRunModel.status.in_(("claimed", "running")),
+            )
+            .values(
+                status="cancelled",
+                last_error_code=error_code,
+                completed_at=now,
+                last_heartbeat_at=now,
+            )
+        )
+        self.session.execute(
+            update(RrugcCampaignModel)
+            .where(
+                RrugcCampaignModel.tenant_id == row.tenant_id,
+                RrugcCampaignModel.scan_lease_agent_id == row.id,
+            )
+            .values(
+                scan_lease_agent_id=None,
+                scan_lease_run_id=None,
+                scan_lease_expires_at=None,
+                scan_next_at=now,
+                scout_status="offline",
+            )
+        )
+
+    def _archive_agent_row(
+        self,
+        row: RrugcScoutAgentModel,
+        *,
+        now: datetime,
+        error_code: str,
+    ) -> None:
+        self._release_agent_runtime(row, now=now, error_code=error_code)
+        row.active = False
+        row.status = "offline"
+        row.archived_at = now
+
     def create_agent(
         self,
         *,
@@ -105,16 +153,44 @@ class RrugcAutoScoutService:
                 "rrugc_scout_agent_name_required",
                 "Scout agent name is required.",
             )
+
+        now = datetime.now(timezone.utc)
+        active_rows = self.repository.lock_active_scout_agents(tenant_id)
+        row = active_rows[0] if active_rows else None
+        for duplicate in active_rows[1:]:
+            self._archive_agent_row(
+                duplicate,
+                now=now,
+                error_code="scout_agent_superseded",
+            )
+
         raw_token = secrets.token_urlsafe(32)
-        row = RrugcScoutAgentModel(
-            tenant_id=tenant_id,
-            name=clean_name,
-            token_hash=token_digest(raw_token),
-            status="offline",
-            active=True,
-            created_by_user_id=user_id,
-        )
-        self.repository.add_scout_agent(row)
+        if row is None:
+            row = RrugcScoutAgentModel(
+                tenant_id=tenant_id,
+                name=clean_name,
+                token_hash=token_digest(raw_token),
+                status="offline",
+                active=True,
+                created_by_user_id=user_id,
+            )
+            self.repository.add_scout_agent(row)
+        else:
+            self._release_agent_runtime(
+                row,
+                now=now,
+                error_code="scout_pairing_reset",
+            )
+            row.name = clean_name
+            row.token_hash = token_digest(raw_token)
+            row.status = "offline"
+            row.last_seen_at = None
+            row.client_version = None
+            row.machine_label = None
+            row.last_error_code = None
+            row.active = True
+            row.archived_at = None
+
         self.session.commit()
         self.session.refresh(row)
         return row, raw_token
@@ -125,10 +201,13 @@ class RrugcAutoScoutService:
         tenant_id: str,
         include_archived: bool = False,
     ) -> list[RrugcScoutAgentModel]:
-        return self.repository.list_scout_agents(
+        rows = self.repository.list_scout_agents(
             tenant_id,
             include_archived=include_archived,
         )
+        if include_archived:
+            return rows
+        return rows[:1]
 
     def authenticate_agent(
         self,
@@ -166,36 +245,10 @@ class RrugcAutoScoutService:
         if not row.active:
             return row
         now = datetime.now(timezone.utc)
-        row.active = False
-        row.status = "offline"
-        row.archived_at = now
-        self.session.execute(
-            update(RrugcScoutRunModel)
-            .where(
-                RrugcScoutRunModel.tenant_id == tenant_id,
-                RrugcScoutRunModel.agent_id == agent_id,
-                RrugcScoutRunModel.status.in_(("claimed", "running")),
-            )
-            .values(
-                status="cancelled",
-                last_error_code="scout_agent_archived",
-                completed_at=now,
-                last_heartbeat_at=now,
-            )
-        )
-        self.session.execute(
-            update(RrugcCampaignModel)
-            .where(
-                RrugcCampaignModel.tenant_id == tenant_id,
-                RrugcCampaignModel.scan_lease_agent_id == agent_id,
-            )
-            .values(
-                scan_lease_agent_id=None,
-                scan_lease_run_id=None,
-                scan_lease_expires_at=None,
-                scan_next_at=now,
-                scout_status="offline",
-            )
+        self._archive_agent_row(
+            row,
+            now=now,
+            error_code="scout_agent_archived",
         )
         self.session.commit()
         self.session.refresh(row)

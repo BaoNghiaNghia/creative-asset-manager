@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  archiveScoutAgent,
   createScoutAgent,
   listScoutAgents,
   listScoutRuns,
@@ -52,6 +51,9 @@ export function PinterestAutoScoutPanel({
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState<"bootstrap" | "agent" | "">("");
 
+  const scout = agents[0] || null;
+  const isOnline = Boolean(scout && scout.status !== "offline");
+
   const bootstrapCommand = useMemo(
     () => autoScoutBootstrapCommand(profileDir.trim() || "./.rrugc-pinterest-profile"),
     [profileDir],
@@ -73,7 +75,7 @@ export function PinterestAutoScoutPanel({
       listScoutAgents(signal),
       listScoutRuns(undefined, signal),
     ]);
-    setAgents(agentRows);
+    setAgents(agentRows.slice(0, 1));
     setRuns(runRows);
   }
 
@@ -98,7 +100,7 @@ export function PinterestAutoScoutPanel({
 
   async function pairAgent() {
     if (busy || !name.trim()) return;
-    setBusy("create");
+    setBusy("pair");
     setCopied("");
     onError("");
     try {
@@ -112,28 +114,12 @@ export function PinterestAutoScoutPanel({
     }
   }
 
-  async function archive(agentId: string) {
-    if (busy) return;
-    setBusy(agentId);
-    onError("");
-    try {
-      await archiveScoutAgent(agentId);
-      if (created?.id === agentId) setCreated(null);
-      await refresh();
-    } catch (reason) {
-      onError(reason instanceof Error ? reason.message : "Unable to archive Scout Agent.");
-    } finally {
-      setBusy("");
-    }
-  }
-
   async function copy(value: string, kind: "bootstrap" | "agent") {
     if (!value) return;
     await navigator.clipboard.writeText(value);
     setCopied(kind);
   }
 
-  const online = agents.filter(row => row.status !== "offline").length;
   const activeRun = runs.find(row => row.status === "claimed" || row.status === "running");
   const lastRun = runs[0] || null;
 
@@ -143,32 +129,36 @@ export function PinterestAutoScoutPanel({
         <small>PINTEREST SOURCE</small>
         <h2>Auto Scout</h2>
         <p>
-          Pair a browser machine once. Auto Scout then picks up due campaigns,
+          One workspace uses one persistent Scout browser. It picks up due campaigns,
           collects visible Pinterest references, and hands them to the existing QA
           and Drive pipeline automatically.
         </p>
       </div>
-      <span className={"rrugc-auto-scout-health " + (online ? "is-online" : "is-offline")}>
+      <span className={"rrugc-auto-scout-health " + (isOnline ? "is-online" : "is-offline")}>
         <i aria-hidden="true" />
-        {online ? online + " online" : "Agent offline"}
+        {isOnline ? "Scout online" : "Scout offline"}
       </span>
     </div>
 
     <div className="rrugc-auto-scout-status rrugc-auto-scout-status-primary">
-      <span><small>Paired</small><b>{agents.length}</b></span>
-      <span><small>Online</small><b>{online}</b></span>
+      <span><small>Browser</small><b>{scout ? "Paired" : "Not paired"}</b></span>
+      <span><small>Connection</small><b>{scout?.status?.replaceAll("_", " ") || "Offline"}</b></span>
       <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
       <span><small>Last</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
     </div>
 
     <details className="rrugc-compact-disclosure" open={created ? true : undefined}>
       <summary>
-        <span><strong>Scout setup & diagnostics</strong><small>Pairing, local-session safety, agent list, and last run</small></span>
-        <b>{agents.length ? agents.length + " paired" : "Setup"}</b>
+        <span>
+          <strong>Scout setup & diagnostics</strong>
+          <small>Single-browser pairing, local-session safety, and last run</small>
+        </span>
+        <b>{scout ? "1 Scout" : "Setup"}</b>
       </summary>
+
       <div className="rrugc-scout-setup-row">
         <label>
-          <span>Agent name</span>
+          <span>Scout name</span>
           <input
             value={name}
             maxLength={160}
@@ -181,86 +171,73 @@ export function PinterestAutoScoutPanel({
           disabled={Boolean(busy) || !name.trim()}
           onClick={() => void pairAgent()}
         >
-          {busy === "create" ? "Pairing…" : "Pair local Scout"}
+          {busy === "pair"
+            ? "Pairing…"
+            : scout
+              ? "Reset Scout pairing"
+              : "Pair local Scout"}
         </button>
       </div>
+
       <small className="rrugc-scout-safety-note">
-        Pinterest login/challenges stay manual in the local Chrome profile.
+        Only one Scout browser is allowed per workspace. Pairing again rotates the token
+        for this same Scout instead of creating another agent. Pinterest login/challenges
+        stay manual in the local Chrome profile.
       </small>
 
-    {created && <div className="rrugc-command rrugc-auto-scout-command rrugc-token-compact">
-      <div className="rrugc-token-compact-head">
-        <div>
-          <strong>One-time Agent token</strong>
-          <small>Use the Chrome profile that already contains your Pinterest login.</small>
+      {created && <div className="rrugc-command rrugc-auto-scout-command rrugc-token-compact">
+        <div className="rrugc-token-compact-head">
+          <div>
+            <strong>One-time Scout token</strong>
+            <small>Restart the local Scout with this command after resetting the pairing.</small>
+          </div>
+          <span>Token refreshed</span>
         </div>
-        <span>New pairing</span>
-      </div>
-      <label className="rrugc-auto-scout-profile-field">
-        <span>Persistent profile directory</span>
-        <input
-          value={profileDir}
-          maxLength={500}
-          placeholder={DEFAULT_PROFILE_DIR}
-          onChange={event => {
-            const next = event.target.value;
-            setProfileDir(next);
-            window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
-          }}
-        />
-      </label>
-      <div className="rrugc-token-actions">
-        <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
-          {copied === "bootstrap" ? "Copied login command" : "Copy login command"}
-        </button>
-        <button type="button" className="rrugc-primary" onClick={() => void copy(command, "agent")}>
-          {copied === "agent" ? "Copied Auto Scout" : "Copy Auto Scout command"}
-        </button>
-      </div>
-      <details className="rrugc-command-preview">
-        <summary>View commands</summary>
-        <div><small>Bootstrap login</small><code>{bootstrapCommand}</code></div>
-        <div><small>Auto Scout</small><code>{command}</code></div>
-      </details>
-    </div>}
+        <label className="rrugc-auto-scout-profile-field">
+          <span>Persistent profile directory</span>
+          <input
+            value={profileDir}
+            maxLength={500}
+            placeholder={DEFAULT_PROFILE_DIR}
+            onChange={event => {
+              const next = event.target.value;
+              setProfileDir(next);
+              window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
+            }}
+          />
+        </label>
+        <div className="rrugc-token-actions">
+          <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
+            {copied === "bootstrap" ? "Copied login command" : "Copy login command"}
+          </button>
+          <button type="button" className="rrugc-primary" onClick={() => void copy(command, "agent")}>
+            {copied === "agent" ? "Copied Auto Scout" : "Copy Auto Scout command"}
+          </button>
+        </div>
+        <details className="rrugc-command-preview">
+          <summary>View commands</summary>
+          <div><small>Bootstrap login</small><code>{bootstrapCommand}</code></div>
+          <div><small>Auto Scout</small><code>{command}</code></div>
+        </details>
+      </div>}
 
-    {agents.length > 0 && <details className="rrugc-agent-disclosure">
-      <summary>
-        <span><strong>Paired agents</strong><small>{online} online · {agents.length - online} offline</small></span>
-        <b>{agents.length}</b>
-      </summary>
-      <div className="rrugc-auto-scout-agents">
-        {agents.map(agent =>
-          <article key={agent.id}>
-            <span className={"rrugc-agent status-" + agent.status}>{agent.status}</span>
-            <div>
-              <strong>{agent.name}</strong>
-              <small>
-                {agent.machine_label || "Not connected"}
-                {" · "}{time(agent.last_seen_at)}
-              </small>
-              {agent.last_error_code && <small className="rrugc-auto-scout-error">
-                {agent.last_error_code.replaceAll("_", " ")}
-              </small>}
-            </div>
-            <button
-              type="button"
-              disabled={Boolean(busy)}
-              onClick={() => void archive(agent.id)}
-            >
-              {busy === agent.id ? "…" : "Archive"}
-            </button>
-          </article>
-        )}
-      </div>
-    </details>}
+      {scout && <div className="rrugc-last-run-compact">
+        <span><small>Scout</small><b>{scout.name}</b></span>
+        <span><small>Machine</small><b>{scout.machine_label || "Not connected"}</b></span>
+        <span><small>Status</small><b>{scout.status.replaceAll("_", " ")}</b></span>
+        <span><small>Last seen</small><b>{time(scout.last_seen_at)}</b></span>
+      </div>}
 
-    {lastRun && <div className="rrugc-last-run-compact">
-      <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
-      <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
-      <span><small>New</small><b>{lastRun.created_count}</b></span>
-      <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
-    </div>}
+      {scout?.last_error_code && <small className="rrugc-auto-scout-error">
+        {scout.last_error_code.replaceAll("_", " ")}
+      </small>}
+
+      {lastRun && <div className="rrugc-last-run-compact">
+        <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
+        <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
+        <span><small>New</small><b>{lastRun.created_count}</b></span>
+        <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
+      </div>}
     </details>
   </section>;
 }

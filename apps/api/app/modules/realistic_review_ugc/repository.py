@@ -136,6 +136,26 @@ class RrugcRepository:
             )
         )
 
+    def lock_active_scout_agents(
+        self,
+        tenant_id: str,
+    ) -> list[RrugcScoutAgentModel]:
+        return list(
+            self.session.scalars(
+                select(RrugcScoutAgentModel)
+                .where(
+                    RrugcScoutAgentModel.tenant_id == tenant_id,
+                    RrugcScoutAgentModel.active.is_(True),
+                )
+                .order_by(
+                    RrugcScoutAgentModel.last_seen_at.desc().nullslast(),
+                    RrugcScoutAgentModel.created_at.desc(),
+                    RrugcScoutAgentModel.id.desc(),
+                )
+                .with_for_update()
+            )
+        )
+
     def get_scout_agent(
         self,
         tenant_id: str,

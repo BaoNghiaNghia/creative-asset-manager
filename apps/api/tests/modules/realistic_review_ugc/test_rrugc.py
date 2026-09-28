@@ -313,6 +313,55 @@ def test_auto_scout_quality_pipeline_caps_to_target(database):
         assert service.claim(agent_id=agent.id, raw_token=token) is None
 
 
+def test_auto_scout_pairing_collapses_legacy_duplicate_agents(database):
+    with database() as session:
+        older = RrugcScoutAgentModel(
+            tenant_id="tenant-a",
+            name="Older Scout",
+            token_hash="a" * 64,
+            status="offline",
+            active=True,
+            created_by_user_id="user-a",
+        )
+        newer = RrugcScoutAgentModel(
+            tenant_id="tenant-a",
+            name="Newer Scout",
+            token_hash="b" * 64,
+            status="ready",
+            active=True,
+            client_version="rrugc-scout-v2",
+            machine_label="legacy-machine",
+            last_seen_at=datetime.now(timezone.utc),
+            created_by_user_id="user-a",
+        )
+        session.add_all([older, newer])
+        session.commit()
+
+        paired, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Pinterest Auto Scout",
+        )
+
+        assert token
+        assert paired.id == newer.id
+        assert paired.name == "Pinterest Auto Scout"
+        assert paired.status == "offline"
+        assert paired.machine_label is None
+        assert paired.client_version is None
+        assert paired.last_seen_at is None
+
+        rows = RrugcRepository(session).list_scout_agents(
+            "tenant-a",
+            include_archived=True,
+        )
+        active = [row for row in rows if row.active]
+        archived = [row for row in rows if not row.active]
+        assert [row.id for row in active] == [newer.id]
+        assert [row.id for row in archived] == [older.id]
+        assert archived[0].archived_at is not None
+
+
 def test_auto_scout_rejects_wrong_agent_token_and_cross_agent_run(database):
     with database() as session:
         campaign, _legacy_token = RrugcService(session).create_campaign(
@@ -333,8 +382,8 @@ def test_auto_scout_rejects_wrong_agent_token_and_cross_agent_run(database):
             name="Agent A",
         )
         agent_b, token_b = service.create_agent(
-            tenant_id="tenant-a",
-            user_id="user-a",
+            tenant_id="tenant-b",
+            user_id="user-b",
             name="Agent B",
         )
 
@@ -411,6 +460,29 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     token = payload["agent_token"]
     assert token
     assert payload["status"] == "offline"
+
+    old_token = token
+    repaired = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Desktop Pinterest Reset"},
+    )
+    assert repaired.status_code == 201
+    repaired_payload = repaired.json()
+    assert repaired_payload["id"] == agent_id
+    assert repaired_payload["agent_token"] != token
+    token = repaired_payload["agent_token"]
+
+    stale_claim = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/claim",
+        headers={"Authorization": "Bearer " + old_token},
+    )
+    assert stale_claim.status_code == 401
+
+    listed_after_reset = api.get("/api/v1/realistic-review-ugc/scout-agents")
+    assert listed_after_reset.status_code == 200
+    assert len(listed_after_reset.json()) == 1
+    assert listed_after_reset.json()[0]["id"] == agent_id
+    assert listed_after_reset.json()[0]["name"] == "Desktop Pinterest Reset"
 
     campaign = api.post(
         "/api/v1/realistic-review-ugc/campaigns",
