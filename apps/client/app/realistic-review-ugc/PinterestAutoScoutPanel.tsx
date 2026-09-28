@@ -166,49 +166,38 @@ export function PinterestAutoScoutPanel({
         <span><strong>Scout setup & diagnostics</strong><small>Pairing, local-session safety, agent list, and last run</small></span>
         <b>{agents.length ? agents.length + " paired" : "Setup"}</b>
       </summary>
-      <div className="rrugc-auto-scout-grid">
-        <div className="rrugc-auto-scout-pair">
-          <div className="rrugc-auto-scout-pair-copy">
-            <strong>Connect a browser machine</strong>
-            <small>One pairing per machine. Pinterest session data never leaves that browser.</small>
-          </div>
-          <label>
-            Agent name
-            <input
-              value={name}
-              maxLength={160}
-              onChange={event => setName(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="rrugc-primary"
-            disabled={Boolean(busy) || !name.trim()}
-            onClick={() => void pairAgent()}
-          >
-            {busy === "create" ? "Pairing…" : "Pair local Scout"}
-          </button>
+      <div className="rrugc-scout-setup-row">
+        <label>
+          <span>Agent name</span>
+          <input
+            value={name}
+            maxLength={160}
+            onChange={event => setName(event.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className="rrugc-primary"
+          disabled={Boolean(busy) || !name.trim()}
+          onClick={() => void pairAgent()}
+        >
+          {busy === "create" ? "Pairing…" : "Pair local Scout"}
+        </button>
+      </div>
+      <small className="rrugc-scout-safety-note">
+        Pinterest login/challenges stay manual in the local Chrome profile.
+      </small>
+
+    {created && <div className="rrugc-command rrugc-auto-scout-command rrugc-token-compact">
+      <div className="rrugc-token-compact-head">
+        <div>
+          <strong>One-time Agent token</strong>
+          <small>Use the Chrome profile that already contains your Pinterest login.</small>
         </div>
-      </div>
-
-      <div className="rrugc-auto-scout-safety">
-        <strong>Local session boundary</strong>
-        <span>
-          Login and Pinterest challenges stay manual. Auto Scout pauses safely,
-          keeps the browser open, and resumes after normal access returns.
-        </span>
-      </div>
-
-    {created && <div className="rrugc-command rrugc-auto-scout-command">
-      <div>
-        <strong>One-time Agent token</strong>
-        <p>
-          Use the same persistent Chrome profile that already contains your Pinterest login.
-          The token is shown only for this pairing.
-        </p>
+        <span>New pairing</span>
       </div>
       <label className="rrugc-auto-scout-profile-field">
-        Persistent profile directory
+        <span>Persistent profile directory</span>
         <input
           value={profileDir}
           maxLength={500}
@@ -219,57 +208,57 @@ export function PinterestAutoScoutPanel({
             window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
           }}
         />
-        <small>Both commands below always use this exact path.</small>
       </label>
-      <div className="rrugc-auto-scout-command-block">
-        <span>1. Bootstrap login once</span>
-        <code>{bootstrapCommand}</code>
+      <div className="rrugc-token-actions">
         <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
-          {copied === "bootstrap" ? "Copied" : "Copy bootstrap command"}
+          {copied === "bootstrap" ? "Copied login command" : "Copy login command"}
+        </button>
+        <button type="button" className="rrugc-primary" onClick={() => void copy(command, "agent")}>
+          {copied === "agent" ? "Copied Auto Scout" : "Copy Auto Scout command"}
         </button>
       </div>
-      <div className="rrugc-auto-scout-command-block">
-        <span>2. Start Auto Scout</span>
-        <code>{command}</code>
-        <button type="button" onClick={() => void copy(command, "agent")}>
-          {copied === "agent" ? "Copied" : "Copy Auto Scout command"}
-        </button>
+      <details className="rrugc-command-preview">
+        <summary>View commands</summary>
+        <div><small>Bootstrap login</small><code>{bootstrapCommand}</code></div>
+        <div><small>Auto Scout</small><code>{command}</code></div>
+      </details>
+    </div>}
+
+    {agents.length > 0 && <details className="rrugc-agent-disclosure">
+      <summary>
+        <span><strong>Paired agents</strong><small>{online} online · {agents.length - online} offline</small></span>
+        <b>{agents.length}</b>
+      </summary>
+      <div className="rrugc-auto-scout-agents">
+        {agents.map(agent =>
+          <article key={agent.id}>
+            <span className={"rrugc-agent status-" + agent.status}>{agent.status}</span>
+            <div>
+              <strong>{agent.name}</strong>
+              <small>
+                {agent.machine_label || "Not connected"}
+                {" · "}{time(agent.last_seen_at)}
+              </small>
+              {agent.last_error_code && <small className="rrugc-auto-scout-error">
+                {agent.last_error_code.replaceAll("_", " ")}
+              </small>}
+            </div>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void archive(agent.id)}
+            >
+              {busy === agent.id ? "…" : "Archive"}
+            </button>
+          </article>
+        )}
       </div>
-      <small className="rrugc-auto-scout-profile-warning">
-        Keep this directory unchanged. Auto Scout will reuse the Pinterest session already saved there.
-      </small>
-    </div>}
+    </details>}
 
-    {agents.length > 0 && <div className="rrugc-auto-scout-agents">
-      {agents.map(agent =>
-        <article key={agent.id}>
-          <span className={"rrugc-agent status-" + agent.status}>{agent.status}</span>
-          <div>
-            <strong>{agent.name}</strong>
-            <small>
-              {agent.machine_label || "Machine not connected yet"}
-              {" · last seen "}{time(agent.last_seen_at)}
-            </small>
-            {agent.last_error_code && <small className="rrugc-auto-scout-error">
-              {agent.last_error_code.replaceAll("_", " ")}
-            </small>}
-          </div>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void archive(agent.id)}
-          >
-            {busy === agent.id ? "Archiving…" : "Archive"}
-          </button>
-        </article>
-      )}
-    </div>}
-
-    {lastRun && <div className="rrugc-auto-scout-last-run">
+    {lastRun && <div className="rrugc-last-run-compact">
       <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
       <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
-      <span><small>New Pins</small><b>{lastRun.created_count}</b></span>
-      <span><small>Existing</small><b>{lastRun.existing_count}</b></span>
+      <span><small>New</small><b>{lastRun.created_count}</b></span>
       <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
     </div>}
     </details>
