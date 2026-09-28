@@ -158,7 +158,7 @@ class CampaignCreateRequest(BaseModel):
     min_ugc_score: float = Field(default=0.65, ge=0.0, le=1.0)
     min_product_fit_score: float = Field(default=0.55, ge=0.0, le=1.0)
     require_head_visible: bool = True
-    reject_headwear: bool = True
+    reject_headwear: bool = False
 
     @model_validator(mode="after")
     def validate_campaign(self):

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v2-quality-first"
+ANALYZER_VERSION = "rrugc-reference-v3-headwear-optional"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.65
@@ -41,7 +41,7 @@ class ReferenceFilterPolicy:
     min_ugc_score: float = QUALITY_FIRST_MIN_UGC
     min_product_fit_score: float = 0.55
     require_head_visible: bool = True
-    reject_headwear: bool = True
+    reject_headwear: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,13 +112,13 @@ Definitions:
 - people_count: number of visibly present people.
 - primary_head_ratio: height of the primary visible head bounding region divided by full image height, in 0..1. Use null when there is no usable visible head.
 - smile_score: 0..1 strength of a clearly positive/smiling visible expression.
-- head_visible: true only if the primary head is sufficiently visible for placing a hat.
-- existing_headwear: true when the primary person is already wearing any hat/cap/helmet/head covering that blocks hat placement.
+- head_visible: true only if the primary head is sufficiently visible for adding or replacing a hat.
+- existing_headwear: true when the primary person is already wearing any hat/cap/helmet/head covering. Existing headwear is allowed unless the campaign explicitly rejects it.
 - head_occlusion: 0..1 fraction/severity of the primary head obscured by crops, objects, hands, other people, heavy hair coverage, or frame edges.
 - mobile_ugc_score: 0..1 likelihood the composition feels like a casual, candid, handheld/smartphone-style real-life photo rather than a polished studio/ad pose.
 - quality_score: 0..1 technical usefulness: adequate resolution impression, focus, lighting, and visible facial/head details.
 - ai_risk_score: 0..1 visual-risk estimate that the image may be synthetic rather than a camera photograph. Raise this score for photorealistic AI/render cues such as inconsistent hands/fingers/teeth, malformed accessories or text, impossible reflections/geometry, repeated textures, waxy or over-smoothed skin, implausible hair/background transitions, unnatural bokeh, or lighting/material inconsistencies. When uncertain between a real photograph and a synthetic image, use a conservative higher risk score. This is a risk signal, not proof.
-- product_fit_score: 0..1 suitability for adding a hat while preserving the person, pose, background, camera and lighting.
+- product_fit_score: 0..1 suitability for adding a hat to a bare head or naturally replacing existing headwear while preserving the person, pose, background, camera and lighting.
 - summary: concise factual explanation of the visible composition and main suitability issue, max 2 sentences.
 
 Required JSON keys:

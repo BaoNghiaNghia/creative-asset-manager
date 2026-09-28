@@ -129,6 +129,12 @@
 
 
 .rrugc-keyword-editor{display:grid;gap:7px;padding:9px;border:1px solid #dbe3ee;border-radius:9px;background:#fbfcfe}
+.rrugc-keyword-preset{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 8px;border:1px solid #dfe7f3;border-radius:8px;background:#fff}
+.rrugc-keyword-preset>span{display:grid;gap:1px;min-width:0}
+.rrugc-keyword-preset strong{color:#3f5579;font-size:9px}
+.rrugc-keyword-preset small{color:#8d99aa;font-size:8px;font-weight:500}
+.rrugc-keyword-preset button{flex:0 0 auto;min-height:28px;padding:0 9px;border:1px solid #cbd8eb;border-radius:7px;background:#f5f8ff;color:#4d6ca8;font-size:8px;font-weight:800;cursor:pointer}
+.rrugc-keyword-preset button:hover{background:#edf3ff}
 .rrugc-keyword-chips{display:flex;flex-wrap:wrap;gap:5px;min-height:24px}
 .rrugc-keyword-chips>span{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:4px 5px 4px 8px;border-radius:999px;background:#eaf1ff;color:#4868a7;font-size:9px;font-weight:700}
 .rrugc-keyword-chips>span button{display:grid;place-items:center;width:17px;height:17px;padding:0;border:0;border-radius:50%;background:rgba(62,91,155,.1);color:#5770a4;font-size:12px;line-height:1;cursor:pointer}

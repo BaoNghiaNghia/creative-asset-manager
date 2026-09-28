@@ -609,12 +609,29 @@ def test_reference_policy_approves_good_hat_reference():
     assert decision.final_score > 0.75
 
 
+def test_reference_policy_allows_existing_headwear_by_default():
+    decision = evaluate_reference(
+        reference_document(existing_headwear=True),
+        ReferenceFilterPolicy(),
+    )
+    assert decision.status == "approved"
+    assert decision.reject_reason is None
+
+
+def test_reference_policy_can_still_reject_existing_headwear():
+    decision = evaluate_reference(
+        reference_document(existing_headwear=True),
+        ReferenceFilterPolicy(reject_headwear=True),
+    )
+    assert decision.status == "rejected_existing_headwear"
+    assert decision.reject_reason == "EXISTING_HEADWEAR"
+
+
 @pytest.mark.parametrize(
     ("overrides", "status", "reason"),
     [
         ({"people_count": 0, "primary_head_ratio": None}, "rejected_no_person", "NO_PERSON"),
         ({"primary_head_ratio": 0.12}, "rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE"),
-        ({"existing_headwear": True}, "rejected_existing_headwear", "EXISTING_HEADWEAR"),
         ({"head_occlusion": 0.55}, "rejected_head_occlusion", "HEAD_OCCLUSION"),
         ({"smile_score": 0.20}, "rejected_expression", "SMILE_SCORE_LOW"),
         ({"quality_score": 0.59}, "rejected_quality", "QUALITY_SCORE_LOW"),

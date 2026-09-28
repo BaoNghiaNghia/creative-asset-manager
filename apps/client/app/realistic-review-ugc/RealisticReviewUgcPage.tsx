@@ -16,6 +16,7 @@ import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
+import { referenceLifestyleSearchQueries } from "./searchPresets";
 import type { Campaign, Candidate, CandidateStatus } from "./types";
 import "./ui-overhaul.css";
 
@@ -88,6 +89,15 @@ function SearchQueryEditor({
   }
 
   return <div className="rrugc-keyword-editor">
+    <div className="rrugc-keyword-preset">
+      <span>
+        <strong>Real-person lifestyle preset</strong>
+        <small>8 people-first searches + 2 optional hat searches</small>
+      </span>
+      <button type="button" onClick={() => onChange(referenceLifestyleSearchQueries())}>
+        Use preset
+      </button>
+    </div>
     <div className="rrugc-keyword-chips">
       {value.map((keyword, index) => <span key={keyword + index}>
         {keyword}
@@ -103,7 +113,7 @@ function SearchQueryEditor({
       <input
         value={draft}
         maxLength={500}
-        placeholder={value.length ? "Add another search keyword…" : "happy woman casual outdoor candid"}
+        placeholder={value.length ? "Add another search keyword…" : "authentic candid lifestyle portrait"}
         onChange={event => setDraft(event.target.value)}
         onKeyDown={event => {
           if (event.key === "Enter") {
@@ -155,7 +165,7 @@ export function RealisticReviewUgcPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("Pinterest lifestyle references");
-  const [searchQueries, setSearchQueries] = useState<string[]>(["happy woman casual outdoor candid"]);
+  const [searchQueries, setSearchQueries] = useState<string[]>(() => referenceLifestyleSearchQueries());
   const [target, setTarget] = useState(100);
   const [scrolls, setScrolls] = useState(6);
   const [autoImport, setAutoImport] = useState(true);
@@ -169,7 +179,7 @@ export function RealisticReviewUgcPage() {
   const [minQuality, setMinQuality] = useState(60);
   const [minUgc, setMinUgc] = useState(65);
   const [minProductFit, setMinProductFit] = useState(55);
-  const [rejectHeadwear, setRejectHeadwear] = useState(true);
+  const [rejectHeadwear, setRejectHeadwear] = useState(false);
   const [requireHeadVisible, setRequireHeadVisible] = useState(true);
   const [busy, setBusy] = useState(false);
   const [actionId, setActionId] = useState("");

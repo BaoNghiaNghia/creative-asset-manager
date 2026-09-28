@@ -197,7 +197,7 @@ class RrugcService:
         min_ugc_score: float = 0.65,
         min_product_fit_score: float = 0.55,
         require_head_visible: bool = True,
-        reject_headwear: bool = True,
+        reject_headwear: bool = False,
     ) -> tuple[RrugcCampaignModel, str]:
         raw_token = secrets.token_urlsafe(32)
         queries: list[str] = []

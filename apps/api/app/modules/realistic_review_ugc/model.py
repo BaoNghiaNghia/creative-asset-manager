@@ -73,7 +73,7 @@ class RrugcCampaignModel(Base):
     min_ugc_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.65)
     min_product_fit_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.55)
     require_head_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    reject_headwear: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reject_headwear: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     product_id: Mapped[str | None] = mapped_column(String(36))
     product_revision: Mapped[int | None] = mapped_column(Integer)
     product_snapshot_json: Mapped[dict | None] = mapped_column(JSON)

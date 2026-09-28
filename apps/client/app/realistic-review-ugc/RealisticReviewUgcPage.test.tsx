@@ -5,6 +5,7 @@ import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGeneration
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
 import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
 import { RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
+import { referenceLifestyleSearchQueries } from "./searchPresets";
 
 describe("Realistic Review UGC route", () => {
   it("routes the dedicated top-level workspace", () => {
@@ -18,6 +19,15 @@ describe("Realistic Review UGC route", () => {
     expect(markup).toContain("＋ Add campaign");
     expect(markup).toContain("Add, edit, delete, and select campaigns from one place.");
     expect(markup).not.toContain("Define what Auto Scout should find");
+  });
+
+  it("uses a balanced real-person lifestyle Pinterest preset", () => {
+    const queries = referenceLifestyleSearchQueries();
+    expect(queries).toHaveLength(10);
+    expect(queries).toContain("authentic candid lifestyle portrait");
+    expect(queries).toContain("casual family candid lifestyle photo");
+    expect(queries).toContain("embroidered baseball cap casual selfie");
+    expect(queries).toContain("corduroy cap casual lifestyle portrait");
   });
 
   it("builds a local scout command without changing the API host", () => {
