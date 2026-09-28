@@ -335,6 +335,73 @@ class RrugcAutoScoutService:
         self.session.refresh(agent)
         return agent
 
+    def diagnostics(
+        self,
+        *,
+        agent_id: str,
+        raw_token: str,
+    ) -> dict:
+        agent = self.authenticate_agent(
+            agent_id=agent_id,
+            raw_token=raw_token,
+        )
+        now = datetime.now(timezone.utc)
+        campaigns = self.repository.list_campaigns(agent.tenant_id, limit=50)
+        rows: list[dict] = []
+        for campaign in campaigns:
+            counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
+            progress = (
+                counts.get("drive_ready", 0)
+                if campaign.auto_import
+                else counts.get("approved", 0)
+            )
+            pipeline_count = quality_pipeline_count(
+                counts,
+                auto_import=campaign.auto_import,
+            )
+            if campaign.status != "running":
+                reason = "campaign_not_running"
+            elif not campaign.auto_scout:
+                reason = "auto_scout_disabled"
+            elif (
+                campaign.scan_lease_expires_at is not None
+                and _as_utc(campaign.scan_lease_expires_at) > now
+            ):
+                reason = "campaign_leased"
+            elif progress >= campaign.target_count:
+                reason = "target_reached"
+            elif pipeline_count >= campaign.target_count:
+                reason = "pipeline_full"
+            elif (
+                campaign.scan_next_at is not None
+                and _as_utc(campaign.scan_next_at) > now
+            ):
+                reason = "scheduled_later"
+            else:
+                reason = "claimable"
+            rows.append({
+                "campaign_id": campaign.id,
+                "name": campaign.name,
+                "status": campaign.status,
+                "auto_scout": bool(campaign.auto_scout),
+                "reason": reason,
+                "target_count": int(campaign.target_count),
+                "progress": int(progress),
+                "pipeline_count": int(pipeline_count),
+                "scan_next_at": campaign.scan_next_at.isoformat() if campaign.scan_next_at else None,
+                "scan_lease_expires_at": (
+                    campaign.scan_lease_expires_at.isoformat()
+                    if campaign.scan_lease_expires_at
+                    else None
+                ),
+                "counts": counts,
+            })
+        return {
+            "agent_id": agent.id,
+            "campaigns": rows,
+            "claimable": sum(1 for row in rows if row["reason"] == "claimable"),
+        }
+
     def claim(
         self,
         *,

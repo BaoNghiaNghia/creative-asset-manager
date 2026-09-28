@@ -1892,6 +1892,25 @@ def auto_scout_agent_heartbeat(
     return _scout_agent_response(row)
 
 
+@router.get(
+    "/scout-agents/{agent_id}/diagnostics",
+)
+def auto_scout_agent_diagnostics(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    service = RrugcAutoScoutService(session)
+    token = _bearer_token(authorization)
+    try:
+        return service.diagnostics(
+            agent_id=agent_id,
+            raw_token=token,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+
+
 @router.post(
     "/scout-agents/{agent_id}/claim",
     response_model=ScoutClaimResponse | None,
