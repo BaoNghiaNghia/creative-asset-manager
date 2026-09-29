@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld("camDesktop", Object.freeze({
   nativeDrag: Object.freeze({
     prepare: (items: DesktopNativeDragAsset[]) => ipcRenderer.invoke("desktop:native-drag:prepare", items),
     start: (ticket: string) => ipcRenderer.send("desktop:native-drag:start-prepared", ticket),
+    isInternalDrop: (files: FileList) => {
+      const paths = acceptedPaths(files);
+      if (!paths.length) return Promise.resolve(false);
+      return ipcRenderer.invoke("desktop:native-drag:is-internal-drop", paths);
+    },
   }),
   ingestion: Object.freeze({
     acceptDrop: (files: FileList, destination: Destination) => ipcRenderer.invoke("desktop:ingestion:drop", localPathsOrThrow(files), destination),

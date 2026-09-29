@@ -11,7 +11,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -118,6 +118,12 @@ function appOrigin(value: string): string {
   const url = new URL(value);
   if (!["https:", "http:"].includes(url.protocol)) throw new Error("native_drag_invalid_origin");
   return url.origin;
+}
+
+export function pathWithinDirectory(candidate: string, directory: string): boolean {
+  const relativePath = relative(resolve(directory), resolve(candidate));
+  return relativePath === ""
+    || (relativePath !== ".." && !relativePath.startsWith(".." + sep) && !isAbsolute(relativePath));
 }
 
 function safeFilename(input: string): string {
@@ -558,8 +564,17 @@ export class NativeDragService {
   }
 }
 
+export function nativeDragStartFiles(files: readonly string[]): { file: string; files?: string[] } {
+  const uniqueFiles = [...new Set(files.filter(Boolean))];
+  if (!uniqueFiles.length) throw new Error("native_drag_no_files");
+  if (uniqueFiles.length === 1) return { file: uniqueFiles[0] };
+  return { file: uniqueFiles[0], files: uniqueFiles };
+}
+
 export const nativeDragInternals = {
   assetEndpoint,
   cacheIdentity,
+  nativeDragStartFiles,
+  pathWithinDirectory,
   safeFilename,
 };

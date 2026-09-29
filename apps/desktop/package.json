@@ -1,7 +1,7 @@
 {
   "name": "@cam/desktop",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
@@ -17,6 +17,7 @@
     "@types/node": "22.10.2",
     "electron": "34.0.2",
     "electron-builder": "26.0.12",
+    "electron-updater": "6.6.2",
     "electron-vite": "3.0.0",
     "typescript": "5.7.3",
     "vitest": "2.1.9"
@@ -31,6 +32,11 @@
       "out/**"
     ],
     "asar": true,
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US",
+      "vi"
+    ],
     "publish": [
       {
         "provider": "generic",
@@ -65,8 +71,5 @@
     }
   },
   "main": "out/main/index.js",
-  "description": "Creative Asset Manager Windows desktop application",
-  "dependencies": {
-    "electron-updater": "6.6.2"
-  }
+  "description": "Creative Asset Manager Windows desktop application"
 }

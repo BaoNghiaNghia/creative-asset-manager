@@ -12,7 +12,7 @@ import {
 import { findOAuthDeepLink } from "./protocol";
 import { IngestionService, type Destination } from "./ingestion";
 import { createUploadTransport } from "./uploadTransport";
-import { NativeDragService, type NativeDragAssetRequest } from "./nativeDrag";
+import { NativeDragService, nativeDragStartFiles, pathWithinDirectory, type NativeDragAssetRequest } from "./nativeDrag";
 import { createNativeDragTicketStore } from "./nativeDragTickets";
 import { registerDesktopUpdater } from "./updater";
 
@@ -46,13 +46,17 @@ function service(): IngestionService {
   return ingestion;
 }
 
+function nativeDragCacheRoot(): string {
+  return join(app.getPath("temp"), "creative-asset-manager", "drag-cache");
+}
+
 function nativeDragService(): NativeDragService {
   if (!mainWindow) throw new Error("Desktop native drag is unavailable.");
   if (!nativeDrag) {
     nativeDrag = new NativeDragService(
       mainWindow.webContents.session,
       () => mainWindow?.webContents.getURL() || "",
-      join(app.getPath("temp"), "creative-asset-manager", "drag-cache"),
+      nativeDragCacheRoot(),
     );
   }
   return nativeDrag;
@@ -78,15 +82,23 @@ async function dragIcon(iconPath?: string) {
 }
 
 function registerNativeDragIpc(): void {
+  ipcMain.handle("desktop:native-drag:is-internal-drop", (event, value: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return false;
+    if (!Array.isArray(value) || value.length < 1 || value.length > 100) return false;
+    if (!value.every(path => typeof path === "string" && path.length > 0 && path.length < 32768)) return false;
+    const root = nativeDragCacheRoot();
+    return value.some(path => pathWithinDirectory(path, root));
+  });
   ipcMain.handle("desktop:native-drag:prepare", async (event, value: unknown) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) {
       throw new Error("Unsupported native drag request.");
     }
     const prepared = await nativeDragService().prepare(nativeDragItems(value));
-    if (!prepared.files.length) throw new Error("No original files are available for drag.");
+    const dragFiles = nativeDragStartFiles(prepared.files);
+    const uniqueFiles = dragFiles.files || [dragFiles.file];
     const issued = nativeDragTickets.issue({
       senderId: event.sender.id,
-      files: prepared.files,
+      files: uniqueFiles,
       icon: await dragIcon(prepared.iconPath),
     });
     return {
@@ -105,8 +117,7 @@ function registerNativeDragIpc(): void {
     const prepared = nativeDragTickets.take(value, event.sender.id);
     if (!prepared || !prepared.files.length || prepared.files.some(path => !existsSync(path))) return;
     event.sender.startDrag({
-      file: prepared.files[0],
-      files: prepared.files,
+      ...nativeDragStartFiles(prepared.files),
       icon: prepared.icon,
     });
   });

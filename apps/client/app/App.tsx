@@ -642,10 +642,20 @@ export default function App() {
       setShortcutNotice({ tone: "error", message: "Connect Google Drive before uploading files." });
       return;
     }
-    // File drops use the same renderer uploader as the file picker so a
-    // visible queued/uploading state is created synchronously. Native desktop
-    // ingestion remains reserved for recursive folder uploads.
-    void explorer.uploadFiles(Array.from(droppedFiles));
+    // Native drag-out re-enters Electron as an OS-backed File payload and can
+    // lose CAM's custom drag MIME type. Ask the desktop bridge whether these
+    // files came from CAM's own drag cache before treating them as new uploads.
+    const files = Array.from(droppedFiles);
+    const nativeDrag = window.camDesktop?.nativeDrag;
+    if (nativeDrag?.isInternalDrop) {
+      void nativeDrag.isInternalDrop(droppedFiles)
+        .then(internal => {
+          if (!internal) void explorer.uploadFiles(files);
+        })
+        .catch(() => void explorer.uploadFiles(files));
+      return;
+    }
+    void explorer.uploadFiles(files);
   }
   function preventInternalFileDrag(event: DragEvent<HTMLElement>) {
     event.preventDefault();

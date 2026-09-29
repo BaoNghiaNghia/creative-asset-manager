@@ -3,7 +3,9 @@ import { autoUpdater } from "electron-updater";
 import type { DesktopUpdateState } from "../shared/types";
 
 const DEFAULT_UPDATE_URL = "https://creative-assets.ddns.net/desktop-updates/windows/";
-const STARTUP_CHECK_DELAY_MS = 4_000;
+const STARTUP_CHECK_DELAY_MS = 750;
+const PERIODIC_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const MIN_BACKGROUND_CHECK_GAP_MS = 5 * 60 * 1000;
 
 let state: DesktopUpdateState = {
   status: "idle",
@@ -11,6 +13,9 @@ let state: DesktopUpdateState = {
 };
 let handlersRegistered = false;
 let updaterConfigured = false;
+let updateCheck: Promise<void> | undefined;
+let lastBackgroundCheckAt = 0;
+let periodicCheckTimer: ReturnType<typeof setInterval> | undefined;
 
 function errorMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error || "Update failed");
@@ -29,17 +34,33 @@ export function desktopUpdateSnapshot(): DesktopUpdateState {
   return { ...state };
 }
 
+async function runUpdateCheck(
+  getWindow: () => BrowserWindow | undefined,
+  options: { force?: boolean } = {},
+): Promise<void> {
+  if (!app.isPackaged || !updaterConfigured) return;
+  if (!options.force && Date.now() - lastBackgroundCheckAt < MIN_BACKGROUND_CHECK_GAP_MS) return;
+  if (updateCheck) return updateCheck;
+  lastBackgroundCheckAt = Date.now();
+
+  updateCheck = (async () => {
+    try {
+      publish(getWindow(), { status: "checking", message: undefined });
+      await autoUpdater.checkForUpdates();
+    } catch (error) {
+      publish(getWindow(), { status: "error", message: errorMessage(error) });
+    } finally {
+      updateCheck = undefined;
+    }
+  })();
+  return updateCheck;
+}
+
 export function registerDesktopUpdater(getWindow: () => BrowserWindow | undefined): void {
   if (!handlersRegistered) {
     ipcMain.handle("desktop:update:get-state", () => desktopUpdateSnapshot());
     ipcMain.handle("desktop:update:check", async () => {
-      if (!app.isPackaged || !updaterConfigured) return desktopUpdateSnapshot();
-      try {
-        publish(getWindow(), { status: "checking", message: undefined });
-        await autoUpdater.checkForUpdates();
-      } catch (error) {
-        publish(getWindow(), { status: "error", message: errorMessage(error) });
-      }
+      await runUpdateCheck(getWindow, { force: true });
       return desktopUpdateSnapshot();
     });
     ipcMain.handle("desktop:update:install", () => {
@@ -107,10 +128,15 @@ export function registerDesktopUpdater(getWindow: () => BrowserWindow | undefine
     publish(getWindow(), { status: "error", message: errorMessage(error) });
   });
 
-  setTimeout(() => {
-    publish(getWindow(), { status: "checking", message: undefined });
-    void autoUpdater.checkForUpdates().catch(error => {
-      publish(getWindow(), { status: "error", message: errorMessage(error) });
-    });
+  const startupTimer = setTimeout(() => {
+    void runUpdateCheck(getWindow);
   }, STARTUP_CHECK_DELAY_MS);
+  startupTimer.unref?.();
+
+  if (!periodicCheckTimer) {
+    periodicCheckTimer = setInterval(() => {
+      void runUpdateCheck(getWindow);
+    }, PERIODIC_CHECK_INTERVAL_MS);
+    periodicCheckTimer.unref?.();
+  }
 }

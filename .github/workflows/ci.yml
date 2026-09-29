@@ -365,10 +365,20 @@ jobs:
         run: npm test
       - name: Build unsigned Windows installer
         run: npm run package:win
-      - name: Upload unsigned Windows installer
+      - name: Enforce desktop installed-size budget
+        shell: pwsh
+        run: |
+          $bytes = (Get-ChildItem -Path "release/win-unpacked" -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          $megabytes = [math]::Round($bytes / 1MB, 1)
+          Write-Host "Windows unpacked size: $megabytes MB"
+          if ($bytes -gt 250MB) { throw "Desktop package exceeded the 250 MB installed-size budget." }
+      - name: Upload Windows update feed
         uses: actions/upload-artifact@v4
         with:
-          name: creative-asset-manager-windows-unsigned
-          path: apps/desktop/release/Creative Asset Manager Setup *.exe
+          name: creative-asset-manager-windows-update
+          path: |
+            apps/desktop/release/latest.yml
+            apps/desktop/release/Creative Asset Manager Setup *.exe
+            apps/desktop/release/Creative Asset Manager Setup *.exe.blockmap
           if-no-files-found: error
           retention-days: 14

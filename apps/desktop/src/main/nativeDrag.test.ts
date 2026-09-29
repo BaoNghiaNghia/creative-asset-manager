@@ -367,6 +367,30 @@ describe("NativeDragService", () => {
     expect(nativeDragInternals.safeFilename("CON.jpg")).toBe("_CON.jpg");
   });
 
+  it("detects files materialized inside the native drag cache without matching sibling directories", () => {
+    const root = join("tmp", "creative-asset-manager", "drag-cache");
+    expect(nativeDragInternals.pathWithinDirectory(join(root, "abc", "photo.jpg"), root)).toBe(true);
+    expect(nativeDragInternals.pathWithinDirectory(root, root)).toBe(true);
+    expect(nativeDragInternals.pathWithinDirectory(join("tmp", "creative-asset-manager", "drag-cache-copy", "photo.jpg"), root)).toBe(false);
+    expect(nativeDragInternals.pathWithinDirectory(join("tmp", "uploads", "photo.jpg"), root)).toBe(false);
+  });
+
+  it("uses one native drag representation for a single file and deduplicates repeated paths", () => {
+    expect(nativeDragInternals.nativeDragStartFiles(["C:\\tmp\\photo.jpg", "C:\\tmp\\photo.jpg"]))
+      .toEqual({ file: "C:\\tmp\\photo.jpg" });
+  });
+
+  it("keeps a deduplicated files list for genuine multi-file native drag", () => {
+    expect(nativeDragInternals.nativeDragStartFiles([
+      "C:\\tmp\\photo.jpg",
+      "C:\\tmp\\clip.mp4",
+      "C:\\tmp\\photo.jpg",
+    ])).toEqual({
+      file: "C:\\tmp\\photo.jpg",
+      files: ["C:\\tmp\\photo.jpg", "C:\\tmp\\clip.mp4"],
+    });
+  });
+
   it("uses both version hints and app origin in the cache identity", () => {
     const original = nativeDragInternals.cacheIdentity(item, "https://cam.example.com");
     const changedVersion = nativeDragInternals.cacheIdentity({

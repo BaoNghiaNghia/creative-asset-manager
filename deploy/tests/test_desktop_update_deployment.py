@@ -7,12 +7,16 @@ DESKTOP_PACKAGE = ROOT / "apps" / "desktop" / "package.json"
 UPDATER = ROOT / "apps" / "desktop" / "src" / "main" / "updater.ts"
 NGINX = ROOT / "infrastructure" / "nginx" / "creative-asset-manager.conf"
 PUBLISH = ROOT / "scripts" / "publish-cam-desktop-update.sh"
+CI = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 class DesktopUpdateDeploymentTests(unittest.TestCase):
     def test_desktop_package_has_generic_https_update_feed(self) -> None:
         package = json.loads(DESKTOP_PACKAGE.read_text())
-        self.assertEqual(package["dependencies"]["electron-updater"], "6.6.2")
+        self.assertEqual(package["devDependencies"]["electron-updater"], "6.6.2")
+        self.assertNotIn("dependencies", package)
+        self.assertEqual(package["build"]["compression"], "maximum")
+        self.assertEqual(package["build"]["electronLanguages"], ["en-US", "vi"])
         publish = package["build"]["publish"]
         self.assertEqual(publish[0]["provider"], "generic")
         self.assertEqual(
@@ -26,7 +30,16 @@ class DesktopUpdateDeploymentTests(unittest.TestCase):
         self.assertIn("autoUpdater.autoDownload = true", source)
         self.assertIn("autoUpdater.autoInstallOnAppQuit = true", source)
         self.assertIn("autoUpdater.checkForUpdates()", source)
+        self.assertIn("PERIODIC_CHECK_INTERVAL_MS", source)
+        self.assertIn("setInterval", source)
         self.assertIn("autoUpdater.quitAndInstall(true, true)", source)
+
+    def test_windows_ci_preserves_complete_update_feed_artifact(self) -> None:
+        source = CI.read_text()
+        self.assertIn("apps/desktop/release/latest.yml", source)
+        self.assertIn("apps/desktop/release/Creative Asset Manager Setup *.exe", source)
+        self.assertIn("apps/desktop/release/Creative Asset Manager Setup *.exe.blockmap", source)
+        self.assertIn("Desktop package exceeded the 250 MB installed-size budget.", source)
 
     def test_nginx_serves_update_feed_from_dedicated_root(self) -> None:
         config = NGINX.read_text()

@@ -74,6 +74,7 @@ interface Window {
         expiresAt: number;
       }>;
       start: (ticket: string) => void;
+      isInternalDrop: (files: FileList) => Promise<boolean>;
     };
     ingestion: {
       acceptDrop: (
