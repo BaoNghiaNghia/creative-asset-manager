@@ -285,6 +285,13 @@ def test_upstream_401_and_403_are_not_cached():
 # Cache hardening regressions
 # ---------------------------------------------------------------------------
 
+def test_thumbnail_negative_cache_uses_short_retry_window_for_new_video_posters():
+    import app.modules.explorer.cache as explorer_cache
+
+    assert explorer_cache.THUMBNAIL_NEGATIVE_TTL_SECONDS == 8
+    assert explorer_cache.thumbnail_negative_cache.ttl_seconds == 8
+
+
 def test_thumbnail_negative_cache_hit_does_not_refresh_ttl():
     """Reading a negative-cache entry must not extend its original TTL."""
     import app.modules.explorer.cache as explorer_cache

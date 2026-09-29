@@ -72,8 +72,10 @@ thumbnail_cache = AsyncSingleFlightTTLCache(
         size_of=lambda value: len(value.content),
     )
 )
+THUMBNAIL_NEGATIVE_TTL_SECONDS = 8
+
 thumbnail_negative_cache: BoundedTTLCache[ThumbnailKey, bool] = BoundedTTLCache(
-    max_entries=4096, ttl_seconds=60
+    max_entries=4096, ttl_seconds=THUMBNAIL_NEGATIVE_TTL_SECONDS
 )
 
 

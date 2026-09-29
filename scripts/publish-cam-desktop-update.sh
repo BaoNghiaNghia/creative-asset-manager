@@ -79,6 +79,7 @@ fi
 ln -s -- "$TARGET" "$ROOT/current.new"
 mv -Tf -- "$ROOT/current.new" "$ROOT/current"
 
+ARTIFACT_URL="${ARTIFACT// /%20}"
 curl --fail --silent --show-error --max-time 20 "$PUBLIC_URL/latest.yml" >/dev/null
-curl --fail --silent --show-error --location --max-time 30 --range 0-1023 "$PUBLIC_URL/$ARTIFACT" >/dev/null
+curl --fail --silent --show-error --location --max-time 30 --range 0-1023 "$PUBLIC_URL/$ARTIFACT_URL" >/dev/null
 printf 'Desktop update %s activated: %s\n' "$VERSION" "$ARTIFACT"

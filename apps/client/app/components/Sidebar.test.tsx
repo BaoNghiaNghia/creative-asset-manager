@@ -49,6 +49,8 @@ describe("Sidebar multi-source accounts", () => {
     expect(markup).toContain("(two@example.com)");
     expect(markup).toContain("+ Add personal OneDrive");
     expect(markup).toContain("+ Add work/school OneDrive");
+    expect(markup).toContain('class="sidebar-scroll"');
+    expect(markup).toContain('class="sidebar-resizer"');
     expect(markup).toContain('title="Right-click for source actions"');
     expect(markup).not.toContain(">Open</button>");
     expect(markup).not.toContain(">Sync</button>");

@@ -83,7 +83,14 @@ export type CandidateGalleryTab = "approved" | "rejected" | "drive" | "processin
 export function candidateMatchesGalleryTab(
   status: CandidateStatus,
   tab: CandidateGalleryTab,
+  referenceManualLabel?: ReferenceManualLabel | null,
 ): boolean {
+  // Human REF approval is the final qualification state. This fallback also
+  // keeps legacy records that were demoted by an older background-analysis
+  // worker out of Rejected while the data-repair migration catches them up.
+  if (referenceManualLabel === "good" && !driveStatuses.has(status)) {
+    return tab === "approved";
+  }
   if (tab === "approved") return analysisApprovedStatuses.has(status);
   if (tab === "drive") return driveStatuses.has(status);
   if (tab === "rejected") {
@@ -588,7 +595,7 @@ export function RealisticReviewUgcPage() {
   };
   for (const candidate of candidates) {
     (Object.keys(candidateGroups) as CandidateGalleryTab[]).forEach(tab => {
-      if (candidateMatchesGalleryTab(candidate.status, tab)) {
+      if (candidateMatchesGalleryTab(candidate.status, tab, candidate.reference_manual_label)) {
         candidateGroups[tab].push(candidate);
       }
     });

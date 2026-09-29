@@ -1366,7 +1366,7 @@ async def thumbnail(
         )
     except (GoogleDriveThumbnailUnavailable, OneDriveThumbnailUnavailable) as exc:
         # Cache only a fresh upstream "thumbnail unavailable" result.
-        # A cache hit must not extend its own 60-second negative TTL.
+        # A cache hit must not extend its own short negative TTL.
         if cache_key is not None and not negative_cache_hit:
             thumbnail_negative_cache.put(cache_key, True)
         if fallback == "video":

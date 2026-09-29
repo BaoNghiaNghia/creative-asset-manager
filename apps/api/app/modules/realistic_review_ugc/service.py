@@ -52,7 +52,9 @@ REFERENCE_MANUAL_OVERRIDE_STATUSES = {
     "rejected_existing_headwear",
     "rejected_head_occlusion",
     "rejected_quality",
+    "rejected_ai_risk",
     "rejected_context",
+    "rejected_duplicate",
     "needs_review",
 }
 
@@ -62,10 +64,12 @@ def reference_manual_good_can_override(
     *,
     manual_ai_label: str | None,
 ) -> bool:
-    return (
-        manual_ai_label != "ai"
-        and status in REFERENCE_MANUAL_OVERRIDE_STATUSES
-    )
+    # A deliberate human "Use as ref" decision is the final qualification
+    # signal. Keep AI/duplicate evidence for learning and audit, but do not let
+    # those automated signals move a manually accepted reference back to
+    # Rejected.
+    del manual_ai_label
+    return status in REFERENCE_MANUAL_OVERRIDE_STATUSES
 
 
 SYNTHETIC_SOURCE_PATTERNS = tuple(
@@ -725,40 +729,32 @@ class RrugcService:
                 "reference_manual_reviewed_at": now.isoformat(),
             })
 
-        locked = candidate.status in {"drive_ready", "importing", "import_queued"}
+        locked = candidate.status in {"drive_ready", "importing", "import_queued", "import_failed"}
 
         if label == "good" and not locked:
-            hard_blocked = (
-                candidate.ai_manual_label == "ai"
-                or candidate.status in {"rejected_ai_risk", "rejected_duplicate"}
+            prior_status = candidate.status
+            prior_reject_reason = candidate.reject_reason
+            needs_analysis = (
+                candidate.analyzed_at is None
+                or candidate.status == "analysis_failed"
             )
-            if hard_blocked:
-                signal.pop("reference_manual_pending_approval", None)
-                signal.pop("reference_manual_approval_override", None)
-                candidate.ai_signal_json = signal
-            else:
-                prior_status = candidate.status
-                prior_reject_reason = candidate.reject_reason
-                needs_analysis = (
-                    candidate.analyzed_at is None
-                    or candidate.status == "analysis_failed"
-                )
-                signal["reference_manual_approval_override"] = True
-                signal["reference_manual_auto_status"] = prior_status
-                signal["reference_manual_auto_reject_reason"] = prior_reject_reason
-                signal["reference_manual_pending_analysis"] = needs_analysis
-                signal.pop("reference_manual_pending_approval", None)
-                candidate.ai_signal_json = signal
-                if needs_analysis:
-                    # Manual REF approval is authoritative for qualification.
-                    # Keep enrichment running in the background without making
-                    # Gemini availability a prerequisite for Approved.
-                    self.enqueue_analysis(candidate, increment_revision=True)
-                candidate.status = "approved"
-                candidate.reject_reason = None
-                candidate.last_error_code = None
-                if campaign is not None and campaign.auto_import:
-                    self.enqueue_import(candidate)
+            signal["reference_manual_approval_override"] = True
+            signal["reference_manual_auto_status"] = prior_status
+            signal["reference_manual_auto_reject_reason"] = prior_reject_reason
+            signal["reference_manual_pending_analysis"] = needs_analysis
+            signal.pop("reference_manual_pending_approval", None)
+            candidate.ai_signal_json = signal
+            if needs_analysis:
+                # Human REF approval is authoritative for qualification. Keep
+                # enrichment running in the background, but never make Gemini
+                # or an earlier AI/duplicate verdict a prerequisite for
+                # Approved.
+                self.enqueue_analysis(candidate, increment_revision=True)
+            candidate.status = "approved"
+            candidate.reject_reason = None
+            candidate.last_error_code = None
+            if campaign is not None and campaign.auto_import:
+                self.enqueue_import(candidate)
         elif label == "bad" and not locked:
             signal.pop("reference_manual_pending_approval", None)
             signal.pop("reference_manual_pending_analysis", None)

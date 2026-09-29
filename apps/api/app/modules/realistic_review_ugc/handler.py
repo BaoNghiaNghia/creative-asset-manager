@@ -40,7 +40,6 @@ from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
     build_reference_downloader,
-    reference_manual_good_can_override,
 )
 from app.modules.realistic_review_ugc.visual_dedupe import (
     is_visual_near_duplicate,
@@ -57,6 +56,38 @@ def _image_mime(image_format: str) -> str:
         "TIFF": "image/tiff",
         "BMP": "image/bmp",
     }.get(image_format.upper(), "application/octet-stream")
+
+
+def reference_qualification_resolution(
+    *,
+    manual_reference_good: bool,
+    near_duplicate: bool,
+    diversity_redundant: bool,
+    decision_status: str,
+    decision_reject_reason: str | None,
+) -> tuple[str, str | None, str, str | None]:
+    automatic_status = (
+        "rejected_duplicate"
+        if near_duplicate
+        else "rejected_context"
+        if diversity_redundant
+        else decision_status
+    )
+    automatic_reject_reason = (
+        "visual_near_duplicate"
+        if near_duplicate
+        else "DIVERSITY_REDUNDANT"
+        if diversity_redundant
+        else decision_reject_reason
+    )
+    if manual_reference_good:
+        return "approved", None, automatic_status, automatic_reject_reason
+    return (
+        automatic_status,
+        automatic_reject_reason,
+        automatic_status,
+        automatic_reject_reason,
+    )
 
 
 class RrugcCandidateAnalyzeJobHandler:
@@ -151,11 +182,8 @@ class RrugcCandidateAnalyzeJobHandler:
                 if isinstance(candidate.ai_signal_json, dict)
                 else {}
             )
-            manual_reference_good = (
-                signal.get("reference_manual_label") == "good"
-                and candidate.ai_manual_label != "ai"
-            )
-            if candidate.status in {"import_queued", "importing", "drive_ready"}:
+            manual_reference_good = signal.get("reference_manual_label") == "good"
+            if candidate.status in {"import_queued", "importing", "drive_ready", "import_failed"}:
                 return JobHandlerResult.completed()
             if candidate.status in {
                 "approved",
@@ -283,13 +311,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 manual_reference_good = (
                     signal.get("reference_manual_label") == "good"
                 )
-                manual_reference_override = (
-                    manual_reference_good
-                    and reference_manual_good_can_override(
-                        decision.status,
-                        manual_ai_label=candidate.ai_manual_label,
-                    )
-                )
+                manual_reference_override = manual_reference_good
                 eligible_for_approval = decision.approved or manual_reference_override
 
                 existing_fingerprints = repository.visual_fingerprint_rows(
@@ -317,23 +339,17 @@ class RrugcCandidateAnalyzeJobHandler:
                     and diversity_signature is not None
                     and similar_compositions >= 3
                 )
-                status = (
-                    "rejected_duplicate"
-                    if near_duplicate
-                    else "rejected_context"
-                    if diversity_redundant
-                    else "approved"
-                    if manual_reference_override
-                    else decision.status
-                )
-                reject_reason = (
-                    "visual_near_duplicate"
-                    if near_duplicate
-                    else "DIVERSITY_REDUNDANT"
-                    if diversity_redundant
-                    else None
-                    if manual_reference_override
-                    else decision.reject_reason
+                (
+                    status,
+                    reject_reason,
+                    automatic_status,
+                    automatic_reject_reason,
+                ) = reference_qualification_resolution(
+                    manual_reference_good=manual_reference_good,
+                    near_duplicate=near_duplicate,
+                    diversity_redundant=diversity_redundant,
+                    decision_status=decision.status,
+                    decision_reject_reason=decision.reject_reason,
                 )
                 self._apply_document(
                     candidate,
@@ -360,10 +376,10 @@ class RrugcCandidateAnalyzeJobHandler:
                     "reference_manual_pending_analysis": False,
                     "reference_manual_approval_override": manual_reference_override,
                     "reference_manual_auto_status": (
-                        decision.status if manual_reference_override else None
+                        automatic_status if manual_reference_good else None
                     ),
                     "reference_manual_auto_reject_reason": (
-                        decision.reject_reason if manual_reference_override else None
+                        automatic_reject_reason if manual_reference_good else None
                     ),
                     "reference_preference_model": {
                         "active": reference_preference_model.active,
@@ -494,16 +510,12 @@ class RrugcCandidateAnalyzeJobHandler:
                 if isinstance(candidate.ai_signal_json, dict)
                 else {}
             )
-            manual_reference_good = (
-                signal.get("reference_manual_label") == "good"
-                and candidate.ai_manual_label != "ai"
-            )
+            manual_reference_good = signal.get("reference_manual_label") == "good"
             if manual_reference_good and candidate.status not in {
-                "rejected_ai_risk",
-                "rejected_duplicate",
                 "import_queued",
                 "importing",
                 "drive_ready",
+                "import_failed",
             }:
                 # Gemini enrichment failures must not undo a human REF approval.
                 candidate.status = "approved"

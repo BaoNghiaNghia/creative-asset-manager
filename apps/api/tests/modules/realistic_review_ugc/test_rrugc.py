@@ -46,7 +46,10 @@ from app.modules.realistic_review_ugc.analysis import (
     reference_preference_adjustment,
     reference_preference_features,
 )
-from app.modules.realistic_review_ugc.handler import RrugcCandidateAnalyzeJobHandler
+from app.modules.realistic_review_ugc.handler import (
+    RrugcCandidateAnalyzeJobHandler,
+    reference_qualification_resolution,
+)
 from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
     detect_campaign_keyword_intent,
@@ -1348,7 +1351,7 @@ def test_reference_good_stays_approved_when_background_analysis_fails(api, datab
         assert candidate.ai_signal_json["reference_manual_pending_analysis"] is True
 
 
-def test_reference_good_promotes_soft_rejection_but_not_ai_rejection(api, database):
+def test_reference_good_is_authoritative_for_soft_and_ai_rejections(api, database):
     with database() as session:
         service = RrugcService(session)
         campaign, _ = service.create_campaign(
@@ -1415,18 +1418,20 @@ def test_reference_good_promotes_soft_rejection_but_not_ai_rejection(api, databa
     )
     assert hard_response.status_code == 200
     hard_payload = hard_response.json()["candidate"]
-    assert hard_payload["status"] == "rejected_ai_risk"
-    assert hard_payload["reject_reason"] == "AI_RISK_CONFIRMED"
+    assert hard_payload["status"] == "approved"
+    assert hard_payload["reject_reason"] is None
 
     with database() as session:
         soft = RrugcRepository(session).get_candidate("tenant-a", campaign_id, soft_id)
         hard = RrugcRepository(session).get_candidate("tenant-a", campaign_id, hard_id)
         assert soft.ai_signal_json["reference_manual_approval_override"] is True
         assert soft.ai_signal_json["reference_manual_auto_status"] == "rejected_context"
-        assert hard.ai_signal_json.get("reference_manual_approval_override") is not True
+        assert hard.ai_signal_json["reference_manual_approval_override"] is True
+        assert hard.ai_signal_json["reference_manual_auto_status"] == "rejected_ai_risk"
+        assert hard.ai_signal_json["reference_manual_auto_reject_reason"] == "AI_RISK_CONFIRMED"
 
 
-def test_reference_good_override_policy_keeps_ai_and_duplicate_hard():
+def test_reference_good_override_policy_treats_human_ref_as_authoritative():
     assert reference_manual_good_can_override(
         "rejected_context",
         manual_ai_label=None,
@@ -1438,15 +1443,45 @@ def test_reference_good_override_policy_keeps_ai_and_duplicate_hard():
     assert reference_manual_good_can_override(
         "rejected_ai_risk",
         manual_ai_label=None,
-    ) is False
+    ) is True
     assert reference_manual_good_can_override(
         "rejected_duplicate",
         manual_ai_label=None,
-    ) is False
+    ) is True
     assert reference_manual_good_can_override(
         "rejected_context",
         manual_ai_label="ai",
-    ) is False
+    ) is True
+
+
+def test_reference_good_wins_over_background_duplicate_and_diversity_rejection():
+    duplicate = reference_qualification_resolution(
+        manual_reference_good=True,
+        near_duplicate=True,
+        diversity_redundant=False,
+        decision_status="approved",
+        decision_reject_reason=None,
+    )
+    assert duplicate == (
+        "approved",
+        None,
+        "rejected_duplicate",
+        "visual_near_duplicate",
+    )
+
+    diversity = reference_qualification_resolution(
+        manual_reference_good=True,
+        near_duplicate=False,
+        diversity_redundant=True,
+        decision_status="approved",
+        decision_reject_reason=None,
+    )
+    assert diversity == (
+        "approved",
+        None,
+        "rejected_context",
+        "DIVERSITY_REDUNDANT",
+    )
 
 
 def test_reference_learning_scope_isolates_hat_feedback(database):

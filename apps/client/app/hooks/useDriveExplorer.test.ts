@@ -5,6 +5,7 @@ import {
   apiErrorMessage,
   appendUniqueFolderPage,
   clearSavedExplorerLocation,
+  formatUploadEta,
   folderIdFromPath,
   folderPath,
   folderRouteFromPath,
@@ -54,6 +55,16 @@ describe("oauthMessageFor", () => {
   });
 });
 
+
+describe("formatUploadEta", () => {
+  it("formats short and long upload estimates without fake precision", () => {
+    expect(formatUploadEta(null)).toBeNull();
+    expect(formatUploadEta(5)).toBe("A few seconds left");
+    expect(formatUploadEta(42)).toBe("42 sec left");
+    expect(formatUploadEta(61)).toBe("About 2 min left");
+    expect(formatUploadEta(3660)).toBe("About 1 hr 1 min left");
+  });
+});
 
 describe("uploadErrorMessage", () => {
   it("keeps the safe API upload failure detail", () => {

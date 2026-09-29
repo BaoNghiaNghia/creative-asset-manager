@@ -136,7 +136,74 @@ function savedLocation(
 }
 
 export type UploadState = "queued" | "uploading" | "completed" | "failed";
-export type UploadItem = { id: string; name: string; status: UploadState; error?: string };
+export type UploadItem = {
+  id: string;
+  name: string;
+  status: UploadState;
+  sizeBytes: number;
+  bytesUploaded: number;
+  progress: number;
+  speedBps?: number;
+  etaSeconds?: number | null;
+  error?: string;
+};
+
+export function formatUploadEta(seconds: number | null | undefined): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 10) return "A few seconds left";
+  if (seconds < 60) return `${Math.ceil(seconds)} sec left`;
+  if (seconds < 3600) return `About ${Math.ceil(seconds / 60)} min left`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.ceil((seconds % 3600) / 60);
+  return minutes > 0 ? `About ${hours} hr ${minutes} min left` : `About ${hours} hr left`;
+}
+
+type UploadProgressSnapshot = {
+  loaded: number;
+  total: number;
+  progress: number;
+  speedBps?: number;
+  etaSeconds?: number | null;
+};
+
+function uploadFileRequest(
+  url: string,
+  file: File,
+  onProgress: (progress: UploadProgressSnapshot) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const startedAt = performance.now();
+    request.open("POST", url);
+    request.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    request.upload.onprogress = event => {
+      const total = event.lengthComputable && event.total > 0 ? event.total : file.size;
+      const loaded = Math.min(event.loaded, total || file.size);
+      const elapsedSeconds = Math.max(0, (performance.now() - startedAt) / 1000);
+      const speedBps = elapsedSeconds >= 0.25 && loaded > 0 ? loaded / elapsedSeconds : undefined;
+      const remaining = Math.max(0, (total || file.size) - loaded);
+      onProgress({
+        loaded,
+        total: total || file.size,
+        progress: total > 0 ? Math.min(100, loaded / total * 100) : 0,
+        speedBps,
+        etaSeconds: speedBps && remaining > 0 ? remaining / speedBps : null,
+      });
+    };
+    request.onerror = () => reject(Error("Upload failed. Check your connection and try again."));
+    request.onabort = () => reject(Error("Upload cancelled."));
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) {
+        resolve();
+        return;
+      }
+      let payload: unknown = null;
+      try { payload = request.responseText ? JSON.parse(request.responseText) : null; } catch { /* safe fallback below */ }
+      reject(Error(uploadErrorMessage(payload)));
+    };
+    request.send(file);
+  });
+}
 
 export function apiErrorMessage(payload: unknown, fallback: string): string {
   if (typeof payload === "string" && payload.trim()) return payload;
@@ -851,34 +918,43 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       id: String(Date.now()) + "-" + index,
       name: file.name,
       status: "queued",
+      sizeBytes: file.size,
+      bytesUploaded: 0,
+      progress: 0,
+      etaSeconds: null,
     }));
     setUploads(current => [...current, ...queued]);
     for (let index = 0; index < queued.length; index += 1) {
       const entry = queued[index];
       const file = files[index];
       setUploads(current => current.map(item => item.id === entry.id
-        ? { ...item, status: "uploading", error: undefined }
+        ? { ...item, status: "uploading", bytesUploaded: 0, progress: 0, speedBps: undefined, etaSeconds: null, error: undefined }
         : item));
       try {
-        const response = await fetch(
-          "/api/explorer/upload?parent_id=" + encodeURIComponent(parentId)
-            + "&provider=" + encodeURIComponent(provider)
-            + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : "")
-            + "&filename=" + encodeURIComponent(file.name)
-            + "&mime_type=" + encodeURIComponent(file.type || "application/octet-stream"),
-          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
-        );
-        if (!response.ok) {
-          const payload: unknown = await response.json().catch(() => null);
-          throw Error(uploadErrorMessage(payload));
-        }
+        const url = "/api/explorer/upload?parent_id=" + encodeURIComponent(parentId)
+          + "&provider=" + encodeURIComponent(provider)
+          + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : "")
+          + "&filename=" + encodeURIComponent(file.name)
+          + "&mime_type=" + encodeURIComponent(file.type || "application/octet-stream");
+        await uploadFileRequest(url, file, snapshot => {
+          setUploads(current => current.map(item => item.id === entry.id
+            ? {
+                ...item,
+                bytesUploaded: snapshot.loaded,
+                sizeBytes: snapshot.total || file.size,
+                progress: snapshot.progress,
+                speedBps: snapshot.speedBps ?? item.speedBps,
+                etaSeconds: snapshot.etaSeconds,
+              }
+            : item));
+        });
         setUploads(current => current.map(item => item.id === entry.id
-          ? { ...item, status: "completed" }
+          ? { ...item, status: "completed", bytesUploaded: file.size, progress: 100, etaSeconds: null }
           : item));
       } catch (reason) {
         const error = reason instanceof Error ? reason.message : "Upload failed. Try again.";
         setUploads(current => current.map(item => item.id === entry.id
-          ? { ...item, status: "failed", error }
+          ? { ...item, status: "failed", etaSeconds: null, error }
           : item));
       }
     }

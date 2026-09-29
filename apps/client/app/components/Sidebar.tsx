@@ -147,6 +147,7 @@ export function Sidebar({
   }, [sourceContextMenu]);
 
   return <aside className="sidebar">
+    <div className="sidebar-scroll">
     <button className="sidebar-collapse" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">
       <SidebarIcon open />
     </button>
@@ -263,6 +264,7 @@ export function Sidebar({
     <p>TAGS</p>
     {tags.map(tag => <button className="tag" key={tag.id}><i style={{ background: tag.color }} />{tag.name}</button>)}
     {auth.authenticated && <div className="connected-user"><span className="status-dot" /> Connected to {provider === "onedrive" ? "OneDrive" : provider === "sharepoint" ? "SharePoint" : "Google Drive"}</div>}
+    </div>
     <div className="sidebar-resizer" onPointerDown={onResizeStart} role="separator" aria-label="Resize sidebar" aria-orientation="vertical" />
   </aside>;
 }

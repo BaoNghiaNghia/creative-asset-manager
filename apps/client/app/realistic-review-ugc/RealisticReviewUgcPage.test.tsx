@@ -49,6 +49,11 @@ describe("Realistic Review UGC route", () => {
     expect(candidateMatchesGalleryTab("analysis_failed", "rejected")).toBe(false);
     expect(candidateMatchesGalleryTab("analysis_failed", "processing")).toBe(true);
     expect(candidateMatchesGalleryTab("needs_review", "processing")).toBe(true);
+
+    expect(candidateMatchesGalleryTab("rejected_context", "approved", "good")).toBe(true);
+    expect(candidateMatchesGalleryTab("rejected_context", "rejected", "good")).toBe(false);
+    expect(candidateMatchesGalleryTab("rejected_ai_risk", "approved", "good")).toBe(true);
+    expect(candidateMatchesGalleryTab("rejected_duplicate", "approved", "good")).toBe(true);
   });
 
   it("uses a balanced hat-person lifestyle Pinterest preset", () => {

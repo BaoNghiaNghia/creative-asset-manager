@@ -14,8 +14,11 @@ import {
   INITIAL_HIGH_PRIORITY_THUMBNAILS,
   SEARCH_RESULT_SKELETON_COUNT,
   shouldLoadAssetThumbnail,
+  shouldRetryVideoThumbnail,
   thumbnailFetchPriority,
+  thumbnailRetryUrl,
   THUMBNAIL_CONCURRENCY_LIMIT,
+  VIDEO_THUMBNAIL_RETRY_DELAYS_MS,
 } from "./AssetGrid";
 import { isAvifAsset } from "../utils/fileType";
 
@@ -36,6 +39,21 @@ describe("AssetGrid thumbnail loading", () => {
   it("does not try to load a missing thumbnail", () => {
     expect(shouldLoadAssetThumbnail(true, undefined)).toBe(false);
     expect(shouldLoadAssetThumbnail(true, "")).toBe(false);
+  });
+
+  it("retries thumbnails only for recently uploaded videos with bounded backoff", () => {
+    const now = Date.parse("2026-09-29T10:00:00Z");
+    const recentVideo = { kind: "video" as const, modified_at: "2026-09-29T09:59:30Z" };
+    expect(VIDEO_THUMBNAIL_RETRY_DELAYS_MS).toEqual([10_000, 15_000, 25_000, 40_000]);
+    expect(shouldRetryVideoThumbnail(recentVideo, 0, now)).toBe(true);
+    expect(shouldRetryVideoThumbnail(recentVideo, VIDEO_THUMBNAIL_RETRY_DELAYS_MS.length, now)).toBe(false);
+    expect(shouldRetryVideoThumbnail({ kind: "video", modified_at: "2026-09-29T09:40:00Z" }, 0, now)).toBe(false);
+    expect(shouldRetryVideoThumbnail({ kind: "image", modified_at: recentVideo.modified_at }, 0, now)).toBe(false);
+  });
+
+  it("cache-busts only retry thumbnail requests", () => {
+    expect(thumbnailRetryUrl("/api/explorer/thumbnail/a?provider=google-drive", 0)).toBe("/api/explorer/thumbnail/a?provider=google-drive");
+    expect(thumbnailRetryUrl("/api/explorer/thumbnail/a?provider=google-drive", 2)).toBe("/api/explorer/thumbnail/a?provider=google-drive&thumbnail_retry=2");
   });
 
   it("always overlays a centered play control on video cards", () => {

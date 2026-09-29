@@ -24,10 +24,14 @@ describe("upload progress panel", () => {
     expect(appSource).not.toContain("if (!chooseDesktopFiles())");
   });
 
-  it("shows the file upload state and server error text in the progress panel", () => {
+  it("shows real byte progress, ETA, completion and server errors", () => {
     expect(appSource).toContain('upload.error || "Upload failed"');
+    expect(appSource).toContain("formatUploadEta(upload.etaSeconds)");
+    expect(appSource).toContain("strokeDashoffset={100 - upload.progress}");
+    expect(appSource).toContain('`Uploading · ${Math.round(upload.progress)}%');
     expect(globalStyles).toContain(
-      ".upload-panel:not(.desktop-ingestion-panel) .upload-row{grid-template-columns:22px minmax(0,1fr) minmax(72px,160px) 22px}",
+      ".upload-panel:not(.desktop-ingestion-panel) .upload-row{grid-template-columns:22px minmax(0,1fr) minmax(132px,220px) 24px}",
     );
+    expect(globalStyles).toContain(".upload-progress-value{stroke:#2f63c9;stroke-linecap:round");
   });
 });

@@ -153,10 +153,13 @@ button,a{-webkit-tap-highlight-color:transparent}
     display:flex!important;
     width:min(320px,86vw);
     height:auto;
+    padding:0;
+    overflow:visible;
     transform:translateX(0);
     transition:transform .2s ease,opacity .18s ease;
     box-shadow:18px 0 45px rgb(18 34 62 / 20%);
   }
+  .product-shell .sidebar-scroll{padding:18px;scrollbar-gutter:stable}
   .product-shell.sidebar-collapsed .sidebar{transform:translateX(-104%);opacity:0;pointer-events:none}
   .product-shell .sidebar-resizer{display:none}
   .product-shell .sidebar-restore{

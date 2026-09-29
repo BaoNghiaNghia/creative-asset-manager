@@ -24,7 +24,7 @@ import { MediaViewer } from "./components/MediaViewer";
 import { FolderNoteDrawer } from "./components/FolderNoteDrawer";
 import { Sidebar } from "./components/Sidebar";
 import { WorkspacePageHeader } from "./components/WorkspacePageHeader";
-import { useDriveExplorer } from "./hooks/useDriveExplorer";
+import { formatUploadEta, useDriveExplorer } from "./hooks/useDriveExplorer";
 import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import { assetPreviewUrl, explorerAssetUrl } from "./utils/mediaUrls";
 import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
@@ -607,6 +607,16 @@ export default function App() {
   }, [explorer.searchV3.active, explorer.searchV3.hasMore, explorer.searchV3.loading, explorer.searchV3.loadingMore, explorer.searchV3.items.length, paginationResetKey, explorer.searchV3.loadMore]);
   const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
   const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
+  const activeUpload = explorer.uploads.find(upload => upload.status === "uploading");
+  const remainingUploadBytes = explorer.uploads.reduce((total, upload) => {
+    if (upload.status !== "queued" && upload.status !== "uploading") return total;
+    return total + Math.max(0, upload.sizeBytes - upload.bytesUploaded);
+  }, 0);
+  const uploadEta = formatUploadEta(
+    activeUpload?.speedBps && remainingUploadBytes > 0
+      ? remainingUploadBytes / activeUpload.speedBps
+      : null,
+  );
 
   function chooseUploadFiles() {
     // Use the renderer file picker for individual files. It creates an
@@ -1358,16 +1368,31 @@ export default function App() {
     </aside>}
     {explorer.uploads.length > 0 && <aside className="upload-panel" aria-label="Upload progress" aria-live="polite">
       <header>
-        <div><b>{activeUploadCount ? `Uploading ${activeUploadCount} file${activeUploadCount === 1 ? "" : "s"}` : failedUploadCount ? "Uploads need attention" : "Uploads complete"}</b><small>{explorer.uploads.length} file{explorer.uploads.length === 1 ? "" : "s"} in this upload</small></div>
+        <div>
+          <b>{activeUploadCount ? `Uploading ${activeUploadCount} file${activeUploadCount === 1 ? "" : "s"}` : failedUploadCount ? "Uploads need attention" : "Uploads complete"}</b>
+          <small>{explorer.uploads.length} file{explorer.uploads.length === 1 ? "" : "s"} in this upload{activeUploadCount && uploadEta ? ` · ${uploadEta}` : ""}</small>
+        </div>
         <button onClick={() => explorer.clearUploads?.()} aria-label="Close upload progress">×</button>
       </header>
       <div className="upload-list" role="list">
-        {explorer.uploads.map(upload => <div className={"upload-row upload-" + upload.status} key={upload.id} role="listitem">
-          <span className="upload-file-icon" aria-hidden="true"></span>
-          <span className="upload-file-name" title={upload.name}>{upload.name}</span>
-          <small title={upload.error || upload.status}>{upload.status === "failed" ? upload.error || "Upload failed" : upload.status === "completed" ? "Uploaded" : upload.status === "queued" ? "Queued" : "Uploading"}</small>
-          <span className="upload-status-icon" aria-label={upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : "Uploading..."}>{upload.status === "failed" ? "!" : ""}</span>
-        </div>)}
+        {explorer.uploads.map(upload => {
+          const rowEta = formatUploadEta(upload.etaSeconds);
+          const uploadingCopy = upload.progress >= 100
+            ? "Finalizing…"
+            : `Uploading · ${Math.round(upload.progress)}%${rowEta ? ` · ${rowEta}` : ""}`;
+          return <div className={"upload-row upload-" + upload.status} key={upload.id} role="listitem">
+            <span className="upload-file-icon" aria-hidden="true"></span>
+            <span className="upload-file-name" title={upload.name}>{upload.name}</span>
+            <small title={upload.error || upload.status}>{upload.status === "failed" ? upload.error || "Upload failed" : upload.status === "completed" ? "Uploaded" : upload.status === "queued" ? "Queued" : uploadingCopy}</small>
+            <span className="upload-status-icon" aria-label={upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : upload.status === "queued" ? "Queued" : `${Math.round(upload.progress)}% uploaded`}>
+              {(upload.status === "queued" || upload.status === "uploading") && <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle className="upload-progress-track" cx="12" cy="12" r="9" pathLength="100" />
+                <circle className="upload-progress-value" cx="12" cy="12" r="9" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - upload.progress} />
+              </svg>}
+              {upload.status === "failed" ? "!" : ""}
+            </span>
+          </div>;
+        })}
       </div>
     </aside>}
     {confirm && createPortal(<div

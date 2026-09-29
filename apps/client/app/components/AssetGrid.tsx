@@ -9,6 +9,25 @@ import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
 export const INITIAL_HIGH_PRIORITY_THUMBNAILS = 6;
+export const VIDEO_THUMBNAIL_RETRY_DELAYS_MS = [10_000, 15_000, 25_000, 40_000] as const;
+export const VIDEO_THUMBNAIL_RECENT_WINDOW_MS = 10 * 60 * 1000;
+
+export function shouldRetryVideoThumbnail(
+  item: Pick<Asset, "kind" | "modified_at">,
+  retryAttempt: number,
+  now = Date.now(),
+): boolean {
+  if (item.kind !== "video" || retryAttempt >= VIDEO_THUMBNAIL_RETRY_DELAYS_MS.length || !item.modified_at) return false;
+  const modifiedAt = Date.parse(item.modified_at);
+  if (!Number.isFinite(modifiedAt)) return false;
+  const age = now - modifiedAt;
+  return age >= -60_000 && age <= VIDEO_THUMBNAIL_RECENT_WINDOW_MS;
+}
+
+export function thumbnailRetryUrl(url: string, retryAttempt: number): string {
+  if (retryAttempt <= 0) return url;
+  return url + (url.includes("?") ? "&" : "?") + "thumbnail_retry=" + retryAttempt;
+}
 
 export function thumbnailFetchPriority(index: number): "high" | "auto" {
   return index < INITIAL_HIGH_PRIORITY_THUMBNAILS ? "high" : "auto";
@@ -74,22 +93,31 @@ export function shouldLoadAssetThumbnail(inViewport: boolean, thumbnailUrl?: str
 function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "high" | "auto" }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
+  const [thumbnailRetryAttempt, setThumbnailRetryAttempt] = useState(0);
   const [inViewport, setInViewport] = useState(false);
   const [grantedThumbnailUrl, setGrantedThumbnailUrl] = useState<string | null>(null);
   const previewRef = useRef<HTMLSpanElement>(null);
   const queueTicket = useRef<ThumbnailQueueTicket | null>(null);
+  const thumbnailRetryTimer = useRef<number | undefined>(undefined);
   const avif = isAvifAsset(item);
   const mediaUrl = assetPreviewUrl(item);
   const thumbnailSourceUrl = avif ? mediaUrl : item.thumbnail_url;
-  const previewUrl = thumbnailSourceUrl;
+  const previewUrl = thumbnailSourceUrl ? thumbnailRetryUrl(thumbnailSourceUrl, thumbnailRetryAttempt) : thumbnailSourceUrl;
   const canShowThumbnail = (item.kind === "image" || item.kind === "video")
     && Boolean(thumbnailSourceUrl)
     && !thumbnailFailed;
 
   useEffect(() => {
+    window.clearTimeout(thumbnailRetryTimer.current);
+    thumbnailRetryTimer.current = undefined;
     setThumbnailFailed(false);
     setThumbnailLoaded(false);
+    setThumbnailRetryAttempt(0);
     setGrantedThumbnailUrl(null);
+    return () => {
+      window.clearTimeout(thumbnailRetryTimer.current);
+      thumbnailRetryTimer.current = undefined;
+    };
   }, [item.id, item.thumbnail_url]);
 
   useEffect(() => {
@@ -111,15 +139,15 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   }, [canShowThumbnail]);
 
   useEffect(() => {
-    if (!shouldLoadAssetThumbnail(inViewport, thumbnailSourceUrl) || !thumbnailSourceUrl) return;
-    const url = thumbnailSourceUrl;
+    if (!shouldLoadAssetThumbnail(inViewport, previewUrl) || !previewUrl || thumbnailFailed) return;
+    const url = previewUrl;
     const ticket = thumbnailLoadQueue.acquire(() => setGrantedThumbnailUrl(url));
     queueTicket.current = ticket;
     return () => {
       ticket.cancel();
       if (queueTicket.current === ticket) queueTicket.current = null;
     };
-  }, [inViewport, item.id, thumbnailSourceUrl]);
+  }, [inViewport, item.id, previewUrl, thumbnailFailed]);
 
   function finishThumbnail() {
     queueTicket.current?.release();
@@ -148,6 +176,19 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
       }}
       onError={() => {
         finishThumbnail();
+        setThumbnailLoaded(false);
+        if (shouldRetryVideoThumbnail(item, thumbnailRetryAttempt)) {
+          window.clearTimeout(thumbnailRetryTimer.current);
+          setThumbnailFailed(true);
+          const delay = VIDEO_THUMBNAIL_RETRY_DELAYS_MS[thumbnailRetryAttempt];
+          thumbnailRetryTimer.current = window.setTimeout(() => {
+            thumbnailRetryTimer.current = undefined;
+            setGrantedThumbnailUrl(null);
+            setThumbnailRetryAttempt(current => current + 1);
+            setThumbnailFailed(false);
+          }, delay);
+          return;
+        }
         setThumbnailFailed(true);
       }}
     />}

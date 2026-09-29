@@ -35,9 +35,11 @@ export function useResizableSidebar() {
 
     window.addEventListener("pointermove", resize);
     window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
     return () => {
       window.removeEventListener("pointermove", resize);
       window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
     };
   }, []);
 
@@ -52,7 +54,9 @@ export function useResizableSidebar() {
   }, []);
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
     event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     resizing.current = true;
     document.body.classList.add("resizing-sidebar");
   }
