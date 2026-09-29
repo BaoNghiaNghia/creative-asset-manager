@@ -40,6 +40,7 @@ from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
     build_reference_downloader,
+    reference_manual_good_can_override,
 )
 from app.modules.realistic_review_ugc.visual_dedupe import (
     is_visual_near_duplicate,
@@ -261,11 +262,28 @@ class RrugcCandidateAnalyzeJobHandler:
                 if candidate.analysis_revision != revision:
                     return JobHandlerResult.completed()
 
+                signal = (
+                    candidate.ai_signal_json
+                    if isinstance(candidate.ai_signal_json, dict)
+                    else {}
+                )
+                manual_reference_good = (
+                    signal.get("reference_manual_label") == "good"
+                )
+                manual_reference_override = (
+                    manual_reference_good
+                    and reference_manual_good_can_override(
+                        decision.status,
+                        manual_ai_label=candidate.ai_manual_label,
+                    )
+                )
+                eligible_for_approval = decision.approved or manual_reference_override
+
                 existing_fingerprints = repository.visual_fingerprint_rows(
                     context.job.tenant_id,
                     candidate_id,
                 )
-                near_duplicate = decision.approved and is_visual_near_duplicate(
+                near_duplicate = eligible_for_approval and is_visual_near_duplicate(
                     fingerprints,
                     existing_fingerprints,
                 )
@@ -281,7 +299,7 @@ class RrugcCandidateAnalyzeJobHandler:
                     else 0
                 )
                 diversity_redundant = (
-                    decision.approved
+                    eligible_for_approval
                     and not near_duplicate
                     and diversity_signature is not None
                     and similar_compositions >= 3
@@ -291,6 +309,8 @@ class RrugcCandidateAnalyzeJobHandler:
                     if near_duplicate
                     else "rejected_context"
                     if diversity_redundant
+                    else "approved"
+                    if manual_reference_override
                     else decision.status
                 )
                 reject_reason = (
@@ -298,6 +318,8 @@ class RrugcCandidateAnalyzeJobHandler:
                     if near_duplicate
                     else "DIVERSITY_REDUNDANT"
                     if diversity_redundant
+                    else None
+                    if manual_reference_override
                     else decision.reject_reason
                 )
                 self._apply_document(
@@ -321,6 +343,14 @@ class RrugcCandidateAnalyzeJobHandler:
                 candidate.ai_signal_json = {
                     **(candidate.ai_signal_json or {}),
                     "reference_preference_adjustment": preference_adjustment,
+                    "reference_manual_pending_approval": False,
+                    "reference_manual_approval_override": manual_reference_override,
+                    "reference_manual_auto_status": (
+                        decision.status if manual_reference_override else None
+                    ),
+                    "reference_manual_auto_reject_reason": (
+                        decision.reject_reason if manual_reference_override else None
+                    ),
                     "reference_preference_model": {
                         "active": reference_preference_model.active,
                         "good_count": reference_preference_model.good_count,
@@ -331,9 +361,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 }
                 service = RrugcService(session)
                 if (
-                    decision.approved
-                    and not near_duplicate
-                    and not diversity_redundant
+                    status == "approved"
                     and campaign.auto_import
                 ):
                     service.enqueue_import(candidate)

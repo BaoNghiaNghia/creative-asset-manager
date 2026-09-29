@@ -45,6 +45,29 @@ PIN_HOSTS = ("pinterest.com",)
 IMAGE_HOSTS = ("pinimg.com",)
 ANALYZE_JOB_TYPE = "rrugc_candidate_analyze"
 IMPORT_JOB_TYPE = "rrugc_candidate_import"
+REFERENCE_MANUAL_OVERRIDE_STATUSES = {
+    "rejected_no_person",
+    "rejected_head_ratio",
+    "rejected_expression",
+    "rejected_existing_headwear",
+    "rejected_head_occlusion",
+    "rejected_quality",
+    "rejected_context",
+    "needs_review",
+}
+
+
+def reference_manual_good_can_override(
+    status: str,
+    *,
+    manual_ai_label: str | None,
+) -> bool:
+    return (
+        manual_ai_label != "ai"
+        and status in REFERENCE_MANUAL_OVERRIDE_STATUSES
+    )
+
+
 SYNTHETIC_SOURCE_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -701,8 +724,60 @@ class RrugcService:
                 "reference_manual_reviewed_by_user_id": user_id,
                 "reference_manual_reviewed_at": now.isoformat(),
             })
-        candidate.ai_signal_json = signal
 
+        locked = candidate.status in {"drive_ready", "importing", "import_queued"}
+
+        if label == "good" and not locked:
+            if candidate.analyzed_at is None or candidate.status == "analysis_failed":
+                signal["reference_manual_pending_approval"] = True
+                candidate.ai_signal_json = signal
+                self.enqueue_analysis(candidate, increment_revision=True)
+            elif reference_manual_good_can_override(
+                candidate.status,
+                manual_ai_label=candidate.ai_manual_label,
+            ):
+                signal["reference_manual_approval_override"] = True
+                signal["reference_manual_auto_status"] = candidate.status
+                signal["reference_manual_auto_reject_reason"] = candidate.reject_reason
+                signal.pop("reference_manual_pending_approval", None)
+                candidate.status = "approved"
+                candidate.reject_reason = None
+                candidate.last_error_code = None
+                candidate.ai_signal_json = signal
+                if campaign is not None and campaign.auto_import:
+                    self.enqueue_import(candidate)
+            else:
+                signal.pop("reference_manual_pending_approval", None)
+                candidate.ai_signal_json = signal
+        elif label == "bad" and not locked:
+            signal.pop("reference_manual_pending_approval", None)
+            signal.pop("reference_manual_approval_override", None)
+            signal.pop("reference_manual_auto_status", None)
+            signal.pop("reference_manual_auto_reject_reason", None)
+            candidate.ai_signal_json = signal
+            candidate.status = "rejected_context"
+            candidate.reject_reason = "MANUAL_REFERENCE_BAD"
+            candidate.last_error_code = None
+        elif label == "clear" and not locked:
+            had_override = bool(signal.pop("reference_manual_approval_override", None))
+            had_pending = bool(signal.pop("reference_manual_pending_approval", None))
+            signal.pop("reference_manual_auto_status", None)
+            signal.pop("reference_manual_auto_reject_reason", None)
+            candidate.ai_signal_json = signal
+            if (
+                had_override
+                or had_pending
+                or (
+                    candidate.status == "rejected_context"
+                    and candidate.reject_reason == "MANUAL_REFERENCE_BAD"
+                )
+            ):
+                self.enqueue_analysis(candidate, increment_revision=True)
+        else:
+            candidate.ai_signal_json = signal
+
+        if campaign is not None:
+            self.refresh_campaign_completion(campaign)
         self.session.commit()
         self.session.refresh(candidate)
         return candidate

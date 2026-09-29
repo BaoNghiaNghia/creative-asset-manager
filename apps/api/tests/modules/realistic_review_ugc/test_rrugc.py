@@ -97,6 +97,7 @@ from app.modules.realistic_review_ugc.schema import CandidateSubmission, Product
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
+    reference_manual_good_can_override,
     validate_image_url,
     validate_pin_url,
 )
@@ -1194,6 +1195,165 @@ def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, data
         assert feedback[0].signal_json["learning_intent"] == f"campaign:{campaign_id}"
         assert feedback[0].created_by_user_id == "user-a"
         assert RrugcRepository(session).reference_feedback_training_rows("tenant-a") == []
+
+
+def test_reference_good_requeues_failed_analysis(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="failed ref recovery",
+            query="woman wearing cap candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/ref-failed-requeue/",
+                image_url="https://i.pinimg.com/736x/ref-failed-requeue.jpg",
+            )],
+            source_query=campaign.query,
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "analysis_failed"
+        candidate.last_error_code = "provider_timeout"
+        candidate.analyzed_at = None
+        original_revision = candidate.analysis_revision
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "good"},
+    )
+    assert response.status_code == 200
+    payload = response.json()["candidate"]
+    assert payload["reference_manual_label"] == "good"
+    assert payload["status"] == "analysis_queued"
+
+    with database() as session:
+        candidate = RrugcRepository(session).get_candidate(
+            "tenant-a", campaign_id, candidate_id
+        )
+        assert candidate is not None
+        assert candidate.analysis_revision == original_revision + 1
+        assert candidate.last_error_code is None
+        assert candidate.ai_signal_json["reference_manual_pending_approval"] is True
+        jobs = list(session.scalars(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                ProcessingJobModel.entity_id == candidate_id,
+            )
+        ))
+        assert any(
+            job.payload_json.get("analysis_revision") == candidate.analysis_revision
+            for job in jobs
+        )
+
+
+def test_reference_good_promotes_soft_rejection_but_not_ai_rejection(api, database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="manual ref approval",
+            query="woman wearing cap candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = service.ingest_candidates(
+            campaign=campaign,
+            submissions=[
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/ref-soft-reject/",
+                    image_url="https://i.pinimg.com/736x/ref-soft-reject.jpg",
+                ),
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/ref-ai-reject/",
+                    image_url="https://i.pinimg.com/736x/ref-ai-reject.jpg",
+                ),
+            ],
+            source_query=campaign.query,
+        )
+        assert created == 2
+        soft, hard = rows
+        now = datetime.now(timezone.utc)
+
+        soft.status = "rejected_context"
+        soft.reject_reason = "UGC_SCORE_LOW"
+        soft.analyzed_at = now
+        soft.phone_authenticity_score = 0.8
+        soft.mobile_ugc_score = 0.5
+        soft.quality_score = 0.8
+        soft.product_fit_score = 0.8
+        soft.ai_risk_score = 0.05
+
+        hard.status = "rejected_ai_risk"
+        hard.reject_reason = "AI_RISK_CONFIRMED"
+        hard.analyzed_at = now
+        hard.phone_authenticity_score = 0.8
+        hard.mobile_ugc_score = 0.8
+        hard.quality_score = 0.8
+        hard.product_fit_score = 0.8
+        hard.ai_risk_score = 0.95
+        session.commit()
+        campaign_id = campaign.id
+        soft_id = soft.id
+        hard_id = hard.id
+
+    soft_response = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{soft_id}/reference-feedback",
+        json={"label": "good"},
+    )
+    assert soft_response.status_code == 200
+    soft_payload = soft_response.json()["candidate"]
+    assert soft_payload["status"] == "approved"
+    assert soft_payload["reject_reason"] is None
+
+    hard_response = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{hard_id}/reference-feedback",
+        json={"label": "good"},
+    )
+    assert hard_response.status_code == 200
+    hard_payload = hard_response.json()["candidate"]
+    assert hard_payload["status"] == "rejected_ai_risk"
+    assert hard_payload["reject_reason"] == "AI_RISK_CONFIRMED"
+
+    with database() as session:
+        soft = RrugcRepository(session).get_candidate("tenant-a", campaign_id, soft_id)
+        hard = RrugcRepository(session).get_candidate("tenant-a", campaign_id, hard_id)
+        assert soft.ai_signal_json["reference_manual_approval_override"] is True
+        assert soft.ai_signal_json["reference_manual_auto_status"] == "rejected_context"
+        assert hard.ai_signal_json.get("reference_manual_approval_override") is not True
+
+
+def test_reference_good_override_policy_keeps_ai_and_duplicate_hard():
+    assert reference_manual_good_can_override(
+        "rejected_context",
+        manual_ai_label=None,
+    ) is True
+    assert reference_manual_good_can_override(
+        "rejected_quality",
+        manual_ai_label="real",
+    ) is True
+    assert reference_manual_good_can_override(
+        "rejected_ai_risk",
+        manual_ai_label=None,
+    ) is False
+    assert reference_manual_good_can_override(
+        "rejected_duplicate",
+        manual_ai_label=None,
+    ) is False
+    assert reference_manual_good_can_override(
+        "rejected_context",
+        manual_ai_label="ai",
+    ) is False
 
 
 def test_reference_learning_scope_isolates_hat_feedback(database):
