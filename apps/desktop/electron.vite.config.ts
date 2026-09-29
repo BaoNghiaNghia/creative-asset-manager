@@ -6,7 +6,16 @@ const rootDirectory = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   main: {},
-  preload: {},
+  preload: {
+    build: {
+      rollupOptions: {
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].cjs",
+        },
+      },
+    },
+  },
   renderer: {
     build: {
       rollupOptions: {

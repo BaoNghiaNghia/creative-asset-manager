@@ -84,7 +84,7 @@ def _authorization_url(handoff, browser_binding: str) -> str:
         return url
     if handoff.intent == "application_login" and handoff.provider == "google":
         flow = google_auth.oauth_flow(require_drive_scope=False)
-        url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true")
+        url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="select_account")
         google_auth.remember_state(state, getattr(flow, "code_verifier", None), browser_binding, redirect_intent=desktop_intent(handoff.id))
         return url
     return microsoft_auth.authorization_url(browser_binding, desktop_intent(handoff.id) if handoff.intent == "application_login" else handoff.intent + ":" + handoff.id)

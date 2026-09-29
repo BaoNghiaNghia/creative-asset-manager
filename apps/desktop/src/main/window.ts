@@ -23,7 +23,7 @@ export function createMainWindow(): BrowserWindow {
     backgroundColor: "#f5f7fb",
     title: "Creative Asset Manager",
     webPreferences: {
-      preload: join(currentDirectory, "../preload/index.mjs"),
+      preload: join(currentDirectory, "../preload/index.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { app, shell, type BrowserWindow } from "electron";
+import { app, type BrowserWindow } from "electron";
+import { openOAuthUrl } from "./browserLauncher";
 import { resolveDesktopUrl } from "./navigation";
 
 const PROVIDERS = new Set(["google", "microsoft"]);
@@ -66,7 +67,7 @@ export async function beginDesktopOAuth(
   if (typeof body.launch_url !== "string" || !isExpectedLaunchUrl(body.launch_url, camUrl)) {
     throw new Error("Invalid desktop OAuth launch URL.");
   }
-  await shell.openExternal(body.launch_url);
+  await openOAuthUrl(body.launch_url);
 }
 
 export async function redeemDesktopOAuth(
