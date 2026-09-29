@@ -13,7 +13,13 @@ async function responseError(response: Response): Promise<never> {
   throw new Error(`http_${response.status}`);
 }
 export function createUploadTransport(session: Session, pageUrl: () => string): UploadTransport {
-  const request = (input: string, init: RequestInit) => session.fetch(input, init);
+  // Main-process uploads must explicitly reuse the authenticated Electron
+  // session. Chromium also owns transfer framing, so do not set the restricted
+  // Content-Length header manually for streamed request bodies.
+  const request = (input: string, init: RequestInit) => session.fetch(input, {
+    ...init,
+    credentials: "include",
+  });
   return {
     async preflight(hashes) {
       const response = await request(new URL("/api/explorer/upload/dedupe-preflight", appOrigin(pageUrl())).toString(), {
@@ -37,7 +43,7 @@ export function createUploadTransport(session: Session, pageUrl: () => string): 
       try {
         const response = await request(url.toString(), {
           method: "POST",
-          headers: { "content-type": item.mimeType, "content-length": String(item.size) },
+          headers: { "content-type": item.mimeType },
           body: Readable.toWeb(source) as unknown as BodyInit,
           signal,
           duplex: "half",
