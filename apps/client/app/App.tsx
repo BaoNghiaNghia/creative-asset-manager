@@ -319,6 +319,20 @@ export default function App() {
   const resultContainerRef = useRef<HTMLElement | null>(null);
   const autoAppendAttemptsRef = useRef(0);
   const autoAppendKeyRef = useRef("");
+  useEffect(() => {
+    if (!window.camDesktop?.isDesktop) return;
+    const preventNativeFileNavigation = (event: globalThis.DragEvent) => {
+      const transfer = event.dataTransfer;
+      if (!transfer || !isExternalFileDrag(transfer, true)) return;
+      event.preventDefault();
+    };
+    window.addEventListener("dragover", preventNativeFileNavigation, true);
+    window.addEventListener("drop", preventNativeFileNavigation, true);
+    return () => {
+      window.removeEventListener("dragover", preventNativeFileNavigation, true);
+      window.removeEventListener("drop", preventNativeFileNavigation, true);
+    };
+  }, []);
   const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV3.suggestions);
   const showSuggestions = imageSearchEnabled && !suggestionsDismissed
     && explorer.searchV3.active
@@ -613,9 +627,17 @@ export default function App() {
   function startDesktopFileIngestion(files: FileList): boolean {
     const desktop = window.camDesktop?.ingestion;
     if (!desktop || explorer.provider !== "google-drive" || !files.length) return false;
+    const browserFiles = Array.from(files);
     void desktop.acceptDrop(files, desktopIngestionDestination())
       .then(setDesktopIngestion)
-      .catch(reportDesktopIngestionStartFailure);
+      .catch(error => {
+        const code = error instanceof Error ? error.message : "";
+        if (code.includes("desktop_ingestion_no_local_paths")) {
+          void explorer.uploadFiles(browserFiles);
+          return;
+        }
+        reportDesktopIngestionStartFailure(error);
+      });
     return true;
   }
   function chooseDesktopFiles(): boolean {
@@ -627,27 +649,32 @@ export default function App() {
     return true;
   }
   function handleFileDragEnter(event: DragEvent<HTMLElement>) {
-    if (!dragContainsFiles(event.dataTransfer)) return;
-    event.preventDefault();
     if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
+    event.preventDefault();
     dragDepthRef.current += 1;
     setIsDraggingFiles(true);
   }
   function handleFileDragLeave(event: DragEvent<HTMLElement>) {
-    if (!dragContainsFiles(event.dataTransfer)) return;
-    event.preventDefault();
     if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
+    event.preventDefault();
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setIsDraggingFiles(false);
   }
   function handleFileDrop(event: DragEvent<HTMLElement>) {
-    if (!dragContainsFiles(event.dataTransfer)) return;
+    if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
     event.preventDefault();
+    event.stopPropagation();
     dragDepthRef.current = 0;
     setIsDraggingFiles(false);
-    if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
     const droppedFiles = event.dataTransfer.files;
-    if (!droppedFiles.length || !explorer.auth.authenticated) return;
+    if (!droppedFiles.length) {
+      setShortcutNotice({ tone: "error", message: "Windows did not provide the dropped files. Try Upload files instead." });
+      return;
+    }
+    if (!explorer.auth.authenticated) {
+      setShortcutNotice({ tone: "error", message: "Connect Google Drive before uploading files." });
+      return;
+    }
     if (startDesktopFileIngestion(droppedFiles)) return;
     void explorer.uploadFiles(Array.from(droppedFiles));
   }
@@ -819,6 +846,14 @@ export default function App() {
   return <main
     className={["shell", window.camDesktop?.isDesktop ? "desktop-shell" : "", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
+    onDragEnter={handleFileDragEnter}
+    onDragOver={event => {
+      if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    }}
+    onDragLeave={handleFileDragLeave}
+    onDrop={handleFileDrop}
   >
     <Sidebar
       provider={explorer.provider}
@@ -863,14 +898,6 @@ export default function App() {
       ref={resultContainerRef}
       className={isDraggingFiles ? "explorer-content explorer-drop-active" : "explorer-content"}
       onDragStart={preventInternalFileDrag}
-      onDragEnter={handleFileDragEnter}
-      onDragOver={event => {
-        if (!dragContainsFiles(event.dataTransfer)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop)) ? "copy" : "none";
-      }}
-      onDragLeave={handleFileDragLeave}
-      onDrop={handleFileDrop}
     >
       {isDraggingFiles && explorer.auth.authenticated && <div className="explorer-drop-overlay" role="status" aria-live="polite">
         <div><b>Drop files to upload</b><span>Files will be added to {explorer.path.at(-1)?.name || "My Drive"}.</span></div>
