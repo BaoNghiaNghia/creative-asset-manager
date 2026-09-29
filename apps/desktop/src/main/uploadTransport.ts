@@ -9,7 +9,20 @@ function appOrigin(value: string): string {
   return url.origin;
 }
 async function responseError(response: Response): Promise<never> {
-  if (response.status === 429 || response.status >= 500) throw new Error(`http_${response.status}`);
+  if (response.status === 401) throw new Error("auth_required");
+  if (response.status === 413) throw new Error("file_too_large");
+  if (response.status === 422) throw new Error("invalid_destination");
+  if (response.status === 403) {
+    const payload = await response.clone().json().catch(() => undefined) as
+      | { detail?: string | { code?: string; message?: string } }
+      | undefined;
+    const detail = payload?.detail;
+    const message = typeof detail === "string" ? detail : detail?.message || "";
+    if (/write access|read\/write|reconnect.*drive/i.test(message)) {
+      throw new Error("drive_write_required");
+    }
+    throw new Error("permission_denied");
+  }
   throw new Error(`http_${response.status}`);
 }
 export function createUploadTransport(session: Session, pageUrl: () => string): UploadTransport {

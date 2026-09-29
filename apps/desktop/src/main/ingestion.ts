@@ -59,7 +59,10 @@ function supportedMime(filename: string): string | undefined {
   return EXTENSIONS[path.extname(filename).toLowerCase()];
 }
 function safeError(error: unknown): string {
-  if (error instanceof Error && /^(?:network|http_[0-9]{3}|file_changed|cancelled|unsupported)$/i.test(error.message)) return error.message;
+  if (
+    error instanceof Error
+    && /^(?:network|http_[0-9]{3}|file_changed|cancelled|unsupported|auth_required|drive_write_required|permission_denied|file_too_large|invalid_destination|prepare_failed)$/i.test(error.message)
+  ) return error.message;
   return "upload_failed";
 }
 
@@ -78,14 +81,38 @@ export class IngestionService {
     const job: InternalJob = { destination, status: "scanning", roots: roots.length, items: [], running: false };
     this.jobs.set(jobId, job);
     this.signal(jobId);
-    for (const input of roots) await this.scanRoot(jobId, input);
-    await this.hashAndPreflight(jobId);
-    if (job.status !== "cancelled") {
-      job.status = "ready";
-      this.signal(jobId);
-      void this.pump(jobId);
-    }
+
+    // Return the job immediately so the renderer can show upload status as soon
+    // as the user chooses or drops files. Scanning, hashing and uploads continue
+    // in the background and publish progress events through onChanged.
+    void this.prepare(jobId, roots);
     return this.snapshot(jobId);
+  }
+
+  private async prepare(jobId: string, roots: readonly string[]): Promise<void> {
+    const job = this.require(jobId);
+    try {
+      for (const input of roots) {
+        if (job.status === "cancelled") return;
+        await this.scanRoot(jobId, input);
+      }
+      await this.hashAndPreflight(jobId);
+      if (job.status !== "cancelled") {
+        job.status = "ready";
+        this.signal(jobId);
+        void this.pump(jobId);
+      }
+    } catch {
+      if (job.status === "cancelled") return;
+      for (const item of job.items) {
+        if (["scanning", "hashing", "ready"].includes(item.status)) {
+          item.status = "failed";
+          item.errorCode = item.errorCode || "prepare_failed";
+        }
+      }
+      job.status = "failed";
+      this.signal(jobId);
+    }
   }
 
   snapshot(jobId: string): IngestionJobView {
@@ -164,8 +191,15 @@ export class IngestionService {
     }
     const ready = job.items.filter(item => item.status === "ready" && item.sha256);
     for (let start = 0; start < ready.length; start += 500) {
-      const duplicateHashes = await this.transport.preflight(ready.slice(start, start + 500).map(item => item.sha256!));
-      for (const item of ready.slice(start, start + 500)) if (item.sha256 && duplicateHashes.has(item.sha256)) item.status = "duplicate";
+      const batch = ready.slice(start, start + 500);
+      try {
+        const duplicateHashes = await this.transport.preflight(batch.map(item => item.sha256!));
+        for (const item of batch) if (item.sha256 && duplicateHashes.has(item.sha256)) item.status = "duplicate";
+      } catch {
+        // Duplicate preflight is an optimization, not a prerequisite for upload.
+        // If the API check is temporarily unavailable, continue and let the
+        // upload endpoint/provider handle the file instead of aborting the job.
+      }
       this.signal(jobId);
     }
   }
