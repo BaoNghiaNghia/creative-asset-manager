@@ -295,10 +295,10 @@ export function nativeOriginalDragMode(
   hasDesktop: boolean,
   hasPreparedTicket: boolean,
   canStartItems: boolean,
-): "prepared" | "direct" | "web" {
+): "prepared" | "direct" | "deferred" | "web" {
   if (!hasDesktop) return "web";
   if (hasPreparedTicket) return "prepared";
-  return canStartItems ? "direct" : "web";
+  return canStartItems ? "direct" : "deferred";
 }
 
 const MAX_NATIVE_PREWARM_FILES = 3;
@@ -680,10 +680,20 @@ export function AssetGrid({
         return;
       }
 
-      // Older desktop builds do not expose direct native fallback. Keep their
-      // prewarm running and retain the legacy browser payload below until the
-      // user updates the shell.
-      void prepareNativeOriginalDrag(dragItems);
+      if (mode === "deferred") {
+        // Compatibility path for desktop 0.1.9 and earlier ticket-based shells:
+        // cancel Chromium's URL drag, finish materializing the real file, then
+        // start the native OS drag with the ticket that prepare() issued.
+        event.preventDefault();
+        void prepareNativeOriginalDrag(dragItems).then(() => {
+          pruneNativeDragTickets();
+          const prepared = nativeDragTickets.current.get(key);
+          if (!prepared || prepared.expiresAt <= Date.now()) return;
+          nativeDragTickets.current.delete(key);
+          desktop.start(prepared.ticket);
+        });
+        return;
+      }
     }
 
     const payload = originalAssetDragPayload(dragItems, window.location.origin);

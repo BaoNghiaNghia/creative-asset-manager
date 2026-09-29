@@ -289,7 +289,7 @@ describe("AssetGrid native drag strategy", () => {
   it("prefers a prepared ticket, falls back to direct native start, and only uses web drag without desktop support", () => {
     expect(nativeOriginalDragMode(true, true, true)).toBe("prepared");
     expect(nativeOriginalDragMode(true, false, true)).toBe("direct");
-    expect(nativeOriginalDragMode(true, false, false)).toBe("web");
+    expect(nativeOriginalDragMode(true, false, false)).toBe("deferred");
     expect(nativeOriginalDragMode(false, false, true)).toBe("web");
   });
 });
