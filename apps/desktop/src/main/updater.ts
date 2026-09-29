@@ -1,9 +1,12 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { autoUpdater } from "electron-updater";
 import type { DesktopUpdateState } from "../shared/types";
+import { isDesktopRendererReady } from "./window";
 
 const DEFAULT_UPDATE_URL = "https://creative-assets.ddns.net/desktop-updates/windows/";
-const STARTUP_CHECK_DELAY_MS = 750;
+const POST_RENDERER_CHECK_DELAY_MS = 3_000;
+const RENDERER_READY_WAIT_MS = 30_000;
+const RENDERER_READY_POLL_MS = 250;
 const PERIODIC_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const MIN_BACKGROUND_CHECK_GAP_MS = 5 * 60 * 1000;
 
@@ -34,11 +37,24 @@ export function desktopUpdateSnapshot(): DesktopUpdateState {
   return { ...state };
 }
 
+async function waitForRendererReady(
+  getWindow: () => BrowserWindow | undefined,
+  timeoutMs = RENDERER_READY_WAIT_MS,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isDesktopRendererReady(getWindow())) return true;
+    await new Promise(resolve => setTimeout(resolve, RENDERER_READY_POLL_MS));
+  }
+  return false;
+}
+
 async function runUpdateCheck(
   getWindow: () => BrowserWindow | undefined,
   options: { force?: boolean } = {},
 ): Promise<void> {
   if (!app.isPackaged || !updaterConfigured) return;
+  if (!options.force && !(await isDesktopRendererReady(getWindow()))) return;
   if (!options.force && Date.now() - lastBackgroundCheckAt < MIN_BACKGROUND_CHECK_GAP_MS) return;
   if (updateCheck) return updateCheck;
   lastBackgroundCheckAt = Date.now();
@@ -128,10 +144,16 @@ export function registerDesktopUpdater(getWindow: () => BrowserWindow | undefine
     publish(getWindow(), { status: "error", message: errorMessage(error) });
   });
 
-  const startupTimer = setTimeout(() => {
-    void runUpdateCheck(getWindow);
-  }, STARTUP_CHECK_DELAY_MS);
-  startupTimer.unref?.();
+  // Do not compete with DNS/TLS, React boot, cache recovery or media
+  // initialization. The updater starts only after the production renderer has
+  // explicitly confirmed that React committed successfully.
+  void waitForRendererReady(getWindow).then(ready => {
+    if (!ready) return;
+    const startupTimer = setTimeout(() => {
+      void runUpdateCheck(getWindow);
+    }, POST_RENDERER_CHECK_DELAY_MS);
+    startupTimer.unref?.();
+  });
 
   if (!periodicCheckTimer) {
     periodicCheckTimer = setInterval(() => {

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { AppRoute } from "./AppRoute";
 import "../styles/global.css";
@@ -9,4 +9,20 @@ import "../styles/public-review.css";
 import "../styles/review-board.css";
 import "../styles/workspace-page-header.css";
 import "../styles/responsive-platform.css";
-createRoot(document.getElementById("root")!).render(<React.StrictMode><AppRoute /></React.StrictMode>);
+
+function AppBoot() {
+  useEffect(() => {
+    document.documentElement.dataset.camReady = "1";
+    return () => {
+      delete document.documentElement.dataset.camReady;
+    };
+  }, []);
+
+  return <AppRoute />;
+}
+
+createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <AppBoot />
+  </React.StrictMode>,
+);
