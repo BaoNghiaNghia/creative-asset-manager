@@ -7,6 +7,7 @@ import {
   ReviewBoardPage,
   ReviewIssueInspector,
   ReviewIssueRow,
+  groupBoardIssuesByAsset,
 } from "./ReviewBoardPage";
 import {
   ReviewBoardModeSwitch,
@@ -129,6 +130,25 @@ describe("Review Board boundary", () => {
 });
 
 describe("Review Board workspace", () => {
+  it("groups multiple feedback issues under the same video asset", () => {
+    const grouped = groupBoardIssuesByAsset([
+      issue,
+      {
+        ...issue,
+        id: "issue-2",
+        status: "resolved",
+        annotation_preview: "Second note on the same video.",
+        reply_count: 1,
+        updated_at: "2026-09-22T12:00:00Z",
+      },
+    ]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.filename).toBe("Timeline 20.mp4");
+    expect(grouped[0]?.issues).toHaveLength(2);
+    expect(grouped[0]?.openCount).toBe(1);
+    expect(grouped[0]?.replyCount).toBe(3);
+  });
+
   it("renders inbox rows with clear status, comment, reviewer and pinned metadata", () => {
     const markup = renderToStaticMarkup(
       <ReviewIssueRow issue={issue} selected onSelect={() => undefined} />,

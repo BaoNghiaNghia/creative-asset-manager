@@ -31,7 +31,7 @@ const initialFilters: BoardFilters = {
   created_to: "",
   sort: "newest",
   page: 1,
-  page_size: 25,
+  page_size: 100,
 };
 
 const emptyStats: BoardStats = {
@@ -63,6 +63,46 @@ const compactTime = (value: string) => {
 };
 
 const inputDate = (value: string) => (value ? value.slice(0, 10) : "");
+
+type BoardAssetIssueGroup = {
+  key: string;
+  filename: string;
+  mediaType: string | null;
+  shares: string[];
+  issues: BoardIssue[];
+  openCount: number;
+  replyCount: number;
+  updatedAt: string;
+};
+
+export function groupBoardIssuesByAsset(issues: BoardIssue[]): BoardAssetIssueGroup[] {
+  const groups = new Map<string, BoardAssetIssueGroup>();
+  for (const issue of issues) {
+    const key = issue.asset.asset_id || issue.asset.source_asset_id || issue.id;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.issues.push(issue);
+      existing.openCount += issue.status === "open" ? 1 : 0;
+      existing.replyCount += issue.reply_count;
+      if (!existing.shares.includes(issue.share.name)) existing.shares.push(issue.share.name);
+      if (new Date(issue.updated_at).valueOf() > new Date(existing.updatedAt).valueOf()) {
+        existing.updatedAt = issue.updated_at;
+      }
+      continue;
+    }
+    groups.set(key, {
+      key,
+      filename: issue.asset.filename || "Untitled video",
+      mediaType: issue.asset.media_type,
+      shares: [issue.share.name],
+      issues: [issue],
+      openCount: issue.status === "open" ? 1 : 0,
+      replyCount: issue.reply_count,
+      updatedAt: issue.updated_at,
+    });
+  }
+  return Array.from(groups.values());
+}
 
 function ReviewBoardIcon({
   name,
@@ -105,30 +145,36 @@ export function ReviewIssueRow({
   issue,
   selected,
   onSelect,
+  grouped = false,
 }: {
   issue: BoardIssue;
   selected: boolean;
   onSelect: () => void;
+  grouped?: boolean;
 }) {
   const pinned = issue.anchor_x !== null && issue.anchor_y !== null;
   return (
     <button
       type="button"
-      className={selected ? "review-board-row selected" : "review-board-row"}
+      className={[
+        "review-board-row",
+        grouped ? "grouped" : "",
+        selected ? "selected" : "",
+      ].filter(Boolean).join(" ")}
       onClick={onSelect}
       aria-pressed={selected}
     >
       <IssueStatus status={issue.status} compact />
       <span className="review-board-row-copy">
         <span className="review-board-row-title">
-          <strong title={issue.asset.filename || undefined}>
-            {issue.asset.filename || "Untitled asset"}
+          <strong title={grouped ? issue.reviewer.display_name : issue.asset.filename || undefined}>
+            {grouped ? issue.reviewer.display_name : issue.asset.filename || "Untitled asset"}
           </strong>
           <time dateTime={issue.updated_at}>{compactTime(issue.updated_at)}</time>
         </span>
         <span className="review-board-row-preview">{issue.annotation_preview || "No comment text."}</span>
         <span className="review-board-row-meta">
-          <span>{issue.reviewer.display_name}</span>
+          {!grouped && <span>{issue.reviewer.display_name}</span>}
           <span>{issue.share.name}</span>
           <span className="review-board-row-replies">
             <ReviewBoardIcon name="comment" />
@@ -143,6 +189,68 @@ export function ReviewIssueRow({
         </span>
       </span>
     </button>
+  );
+}
+
+export function ReviewAssetIssueGroup({
+  group,
+  expanded,
+  selectedId,
+  onToggle,
+  onSelect,
+}: {
+  group: BoardAssetIssueGroup;
+  expanded: boolean;
+  selectedId: string | null;
+  onToggle: () => void;
+  onSelect: (issueId: string) => void;
+}) {
+  const selected = group.issues.some((issue) => issue.id === selectedId);
+  return (
+    <section className={selected ? "review-board-asset-group selected" : "review-board-asset-group"}>
+      <button
+        type="button"
+        className="review-board-asset-group-header"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <span className="review-board-asset-group-icon">
+          <ReviewBoardIcon name="preview" />
+        </span>
+        <span className="review-board-asset-group-copy">
+          <strong title={group.filename}>{group.filename}</strong>
+          <span>
+            {group.mediaType || "Shared video"}
+            {group.shares.length > 1
+              ? ` · ${group.shares.length} shares`
+              : group.shares[0]
+                ? ` · ${group.shares[0]}`
+                : ""}
+          </span>
+        </span>
+        <span className="review-board-asset-group-stats">
+          <strong>{group.issues.length}</strong>
+          <small>{group.issues.length === 1 ? "issue" : "issues"}</small>
+          <span>{group.openCount} open</span>
+        </span>
+        <span className={expanded ? "review-board-asset-group-chevron open" : "review-board-asset-group-chevron"}>
+          ›
+        </span>
+      </button>
+      {expanded && (
+        <div className="review-board-asset-group-issues">
+          {group.issues.map((issue) => (
+            <ReviewIssueRow
+              key={issue.id}
+              issue={issue}
+              grouped
+              selected={selectedId === issue.id}
+              onSelect={() => onSelect(issue.id)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -338,6 +446,7 @@ export function ReviewBoardPage() {
   const [page, setPage] = useState<BoardPage | null>(null);
   const [stats, setStats] = useState<BoardStats | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedAssets, setExpandedAssets] = useState<Set<string>>(() => new Set());
   const [detail, setDetail] = useState<BoardIssueDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -460,6 +569,24 @@ export function ReviewBoardPage() {
   const resultEnd = page
     ? Math.min(page.page * page.page_size, page.total)
     : 0;
+  const issueGroups = useMemo(
+    () => groupBoardIssuesByAsset(page?.items || []),
+    [page?.items],
+  );
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const selectedGroup = issueGroups.find((group) =>
+      group.issues.some((issue) => issue.id === selectedId),
+    );
+    if (!selectedGroup) return;
+    setExpandedAssets((current) => {
+      if (current.has(selectedGroup.key)) return current;
+      const next = new Set(current);
+      next.add(selectedGroup.key);
+      return next;
+    });
+  }, [issueGroups, selectedId]);
 
   const secondarySummary = useMemo(
     () =>
@@ -667,9 +794,11 @@ export function ReviewBoardPage() {
           <section className="review-board-inbox" aria-label="Review issues">
             <header>
               <div>
-                <small>ISSUE INBOX</small>
+                <small>VIDEO FEEDBACK</small>
                 <strong>
-                  {page?.total.toLocaleString() || "0"} {page?.total === 1 ? "issue" : "issues"}
+                  {issueGroups.length.toLocaleString()} {issueGroups.length === 1 ? "video" : "videos"} shown
+                  {" · "}
+                  {page?.total.toLocaleString() || "0"} {page?.total === 1 ? "issue" : "issues"} total
                 </strong>
               </div>
               {loading && <span className="review-board-inline-loading">Updating…</span>}
@@ -697,14 +826,29 @@ export function ReviewBoardPage() {
                   </p>
                 </div>
               ) : (
-                page.items.map((issue) => (
-                  <ReviewIssueRow
-                    key={issue.id}
-                    issue={issue}
-                    selected={selectedId === issue.id}
-                    onSelect={() => setSelectedId(issue.id)}
-                  />
-                ))
+                issueGroups.map((group) => {
+                  const expanded = expandedAssets.has(group.key);
+                  return (
+                    <ReviewAssetIssueGroup
+                      key={group.key}
+                      group={group}
+                      expanded={expanded}
+                      selectedId={selectedId}
+                      onToggle={() => {
+                        setExpandedAssets((current) => {
+                          const next = new Set(current);
+                          if (next.has(group.key)) next.delete(group.key);
+                          else next.add(group.key);
+                          return next;
+                        });
+                        if (!expanded && !group.issues.some((issue) => issue.id === selectedId)) {
+                          setSelectedId(group.issues[0]?.id || null);
+                        }
+                      }}
+                      onSelect={setSelectedId}
+                    />
+                  );
+                })
               )}
             </div>
 
