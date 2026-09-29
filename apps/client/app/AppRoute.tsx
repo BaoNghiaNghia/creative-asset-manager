@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import App from "./App";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
+import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
+import type { WorkspaceRoute } from "./components/WorkspaceNavigation";
 
 const AccessManagementPage = lazy(() => import("./access-management/AccessManagementPage").then(module => ({ default: module.AccessManagementPage })));
 const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").then(module => ({ default: module.AiOperationsPage })));
@@ -28,8 +30,20 @@ export function routeForPath(pathname: string): ApplicationRoute {
   return pathname === "/ai-operations" || pathname.startsWith("/ai-operations/") ? "ai-operations" : "explorer";
 }
 
+export function workspaceRouteForApplicationRoute(route: ApplicationRoute): WorkspaceRoute | null {
+  if (route === "public-review" || route === "privacy" || route === "terms") return null;
+  if (route === "ai-operations" || route === "inventory") return "operations";
+  if (route === "job-queue") return "queue";
+  if (route === "video-generation") return "generation";
+  if (route === "realistic-review-ugc") return "realistic-review-ugc";
+  if (route === "review-board") return "review-board";
+  if (route === "access-management") return "access";
+  return "assets";
+}
+
 export function AppRoute() {
   const route = routeForPath(window.location.pathname);
+  const workspaceRoute = workspaceRouteForApplicationRoute(route);
   const page = route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />
@@ -38,5 +52,5 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <><Suspense fallback={<main className="state" aria-busy="true">Loading application...</main>}>{page}</Suspense><DesktopUpdateNotice /></>;
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}<Suspense fallback={<main className="state" aria-busy="true">Loading application...</main>}>{page}</Suspense><DesktopUpdateNotice /></>;
 }

@@ -3,6 +3,11 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 const MIN_WIDTH = 232;
 const MAX_WIDTH = 480;
 const DEFAULT_WIDTH = 272;
+const COMPACT_QUERY = "(max-width: 1024px)";
+
+function compactViewport(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(COMPACT_QUERY).matches;
+}
 
 export function useResizableSidebar() {
   const [width, setWidth] = useState(() => {
@@ -10,7 +15,7 @@ export function useResizableSidebar() {
     return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
   });
   const [collapsed, setCollapsed] = useState(
-    () => window.localStorage.getItem("cam-sidebar-collapsed") === "true",
+    () => compactViewport() || window.localStorage.getItem("cam-sidebar-collapsed") === "true",
   );
   const resizing = useRef(false);
 
@@ -34,6 +39,16 @@ export function useResizableSidebar() {
       window.removeEventListener("pointermove", resize);
       window.removeEventListener("pointerup", stop);
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(COMPACT_QUERY);
+    const handleCompactChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setCollapsed(true);
+    };
+    media.addEventListener?.("change", handleCompactChange);
+    return () => media.removeEventListener?.("change", handleCompactChange);
   }, []);
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {

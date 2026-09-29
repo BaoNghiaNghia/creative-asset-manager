@@ -844,7 +844,7 @@ export default function App() {
   </>;
 
   return <main
-    className={["shell", window.camDesktop?.isDesktop ? "desktop-shell" : "", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
+    className={["shell", "product-shell", window.camDesktop?.isDesktop ? "desktop-shell" : "", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
     onDragEnter={handleFileDragEnter}
     onDragOver={event => {
@@ -884,6 +884,12 @@ export default function App() {
       onResizeStart={sidebar.startResize}
       applicationAuthenticated={explorer.applicationAuthenticated === true}
     />
+    {!sidebar.collapsed && <button
+      type="button"
+      className="sidebar-mobile-scrim"
+      aria-label="Close navigation"
+      onClick={sidebar.collapse}
+    />}
 
     {sidebar.collapsed && <button
       className="sidebar-restore"

@@ -1,0 +1,27 @@
+import { describe, expect, it } from "vitest";
+import { routeForPath, workspaceRouteForApplicationRoute } from "./AppRoute";
+
+describe("responsive workspace routing", () => {
+  it("maps internal application routes to the shared workspace navigation", () => {
+    expect(workspaceRouteForApplicationRoute("explorer")).toBe("assets");
+    expect(workspaceRouteForApplicationRoute("ai-operations")).toBe("operations");
+    expect(workspaceRouteForApplicationRoute("inventory")).toBe("operations");
+    expect(workspaceRouteForApplicationRoute("job-queue")).toBe("queue");
+    expect(workspaceRouteForApplicationRoute("video-generation")).toBe("generation");
+    expect(workspaceRouteForApplicationRoute("realistic-review-ugc")).toBe("realistic-review-ugc");
+    expect(workspaceRouteForApplicationRoute("review-board")).toBe("review-board");
+    expect(workspaceRouteForApplicationRoute("access-management")).toBe("access");
+  });
+
+  it("does not show workspace navigation on public or legal routes", () => {
+    expect(workspaceRouteForApplicationRoute("public-review")).toBeNull();
+    expect(workspaceRouteForApplicationRoute("privacy")).toBeNull();
+    expect(workspaceRouteForApplicationRoute("terms")).toBeNull();
+  });
+
+  it("keeps route parsing compatible with responsive navigation", () => {
+    expect(routeForPath("/")).toBe("explorer");
+    expect(routeForPath("/ai-operations")).toBe("ai-operations");
+    expect(routeForPath("/settings/access")).toBe("access-management");
+  });
+});
