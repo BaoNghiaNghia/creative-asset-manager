@@ -24,7 +24,7 @@ if grep -Fq "$MARKER" "$CONFIG"; then
   exit 0
 fi
 
-BACKUP="${CONFIG}.desktop-update.bak"
+BACKUP="$(mktemp /tmp/cam-nginx-desktop-update.XXXXXX)"
 cp -a -- "$CONFIG" "$BACKUP"
 python3 - "$CONFIG" "$BLOCK" <<'PY'
 from pathlib import Path
