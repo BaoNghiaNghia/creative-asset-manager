@@ -20,19 +20,19 @@ const sources: Array<{
   {
     provider: "google-drive",
     name: "Google Drive",
-    description: "Browse My Drive folders, creative files and shared assets.",
+    description: "Access My Drive and shared files.",
     login: "/api/auth/google/login",
   },
   {
     provider: "onedrive",
     name: "OneDrive",
-    description: "Browse My Files and folders from the connected OneDrive.",
+    description: "Access files from your OneDrive.",
     login: "/api/auth/microsoft/connect-onedrive",
   },
   {
     provider: "sharepoint",
     name: "SharePoint",
-    description: "Browse SharePoint sites, document libraries and team assets.",
+    description: "Access SharePoint sites and libraries.",
     login: "/api/auth/microsoft/connect-sharepoint",
   },
 ];
@@ -63,7 +63,7 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
 
     <span className="onboarding-kicker">GET STARTED</span>
     <h1>Connect your creative library</h1>
-    <p>Bring your cloud assets into one workspace to browse, search, review, and upload without leaving Creative Asset Manager.</p>
+    <p>Connect a source to start browsing and uploading assets.</p>
 
     <div className="source-cards">
       {sources.map(source => {
