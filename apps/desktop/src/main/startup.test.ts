@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +30,7 @@ describe("desktop startup recovery", () => {
     const root = await mkdtemp(join(tmpdir(), "cam-startup-"));
     roots.push(root);
     await mkdir(join(root, "GPUCache"), { recursive: true });
+    await writeFile(join(root, "Cookies"), "keep-session", "utf8");
 
     const clearHttpCache = vi.fn(async () => undefined);
     const clearCodeCaches = vi.fn(async () => undefined);
@@ -46,6 +47,7 @@ describe("desktop startup recovery", () => {
     expect(clearHttpCache).toHaveBeenCalledTimes(1);
     expect(clearCodeCaches).toHaveBeenCalledTimes(1);
     expect((await readFile(join(root, ".cam-desktop-version"), "utf8")).trim()).toBe("0.1.8");
+    expect(await readFile(join(root, "Cookies"), "utf8")).toBe("keep-session");
 
     const second = await prepareTransientCachesOnVersionChange({
       userDataPath: root,
