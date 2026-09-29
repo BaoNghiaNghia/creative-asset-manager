@@ -320,6 +320,34 @@ export function isAdditiveSelectionClick(event: Pick<MouseEvent, "ctrlKey" | "me
   return event.ctrlKey || event.metaKey;
 }
 
+export function explorerSelectionForClick(
+  orderedIds: readonly string[],
+  current: ReadonlySet<string>,
+  clickedId: string,
+  anchorId: string | null,
+  event: Pick<MouseEvent, "ctrlKey" | "metaKey" | "shiftKey">,
+): { selected: Set<string>; anchorId: string } {
+  const additive = event.ctrlKey || event.metaKey;
+  const clickedIndex = orderedIds.indexOf(clickedId);
+  const anchorIndex = anchorId ? orderedIds.indexOf(anchorId) : -1;
+
+  if (event.shiftKey && clickedIndex >= 0 && anchorIndex >= 0) {
+    const start = Math.min(clickedIndex, anchorIndex);
+    const end = Math.max(clickedIndex, anchorIndex);
+    const next = additive ? new Set(current) : new Set<string>();
+    orderedIds.slice(start, end + 1).forEach(id => next.add(id));
+    return { selected: next, anchorId: anchorId! };
+  }
+
+  if (additive) {
+    const next = new Set(current);
+    next.has(clickedId) ? next.delete(clickedId) : next.add(clickedId);
+    return { selected: next, anchorId: clickedId };
+  }
+
+  return { selected: new Set([clickedId]), anchorId: clickedId };
+}
+
 export const SEARCH_RESULT_SKELETON_COUNT = 18;
 
 export function AssetGridSkeleton({ count = SEARCH_RESULT_SKELETON_COUNT }: { count?: number }) {
@@ -411,12 +439,19 @@ export function AssetGrid({
   }
 
   const gridRef = useRef<HTMLDivElement>(null);
+  const selectionAnchorRef = useRef<string | null>(null);
   const marqueeRef = useRef<{ pointerId: number; baseline: Set<string>; selection: SelectionRectangle; moved: boolean } | null>(null);
   const nativeDragPrewarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nativeDragTickets = useRef(new Map<string, { ticket: string; expiresAt: number }>());
   const nativeDragPreparing = useRef(new Map<string, Promise<void>>());
   const [marquee, setMarquee] = useState<SelectionRectangle | null>(null);
   const [shareMenu, setShareMenu] = useState<FolderShareMenuState | null>(null);
+
+  useEffect(() => {
+    if (selectionAnchorRef.current && !items.some(item => item.id === selectionAnchorRef.current)) {
+      selectionAnchorRef.current = null;
+    }
+  }, [items]);
 
   useEffect(() => {
     if (!shareMenu) return;
@@ -525,7 +560,10 @@ export function AssetGrid({
     if (!active || active.pointerId !== event.pointerId) return;
     marqueeRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (!active.moved && event.target === event.currentTarget && !event.ctrlKey && !event.metaKey) onReplaceSelection([]);
+    if (!active.moved && event.target === event.currentTarget && !event.ctrlKey && !event.metaKey) {
+      selectionAnchorRef.current = null;
+      onReplaceSelection([]);
+    }
     setMarquee(null);
   }
 
@@ -670,13 +708,24 @@ export function AssetGrid({
       onPointerCancel={cancelNativeOriginalPrewarm}
       onDragStart={event => dragOriginalFiles(event, item)}
       onClick={event => {
-        if (isAdditiveSelectionClick(event)) {
-          onToggle(item.id);
-          return;
-        }
+        const next = explorerSelectionForClick(
+          items.map(candidate => candidate.id),
+          selected,
+          item.id,
+          selectionAnchorRef.current,
+          event,
+        );
+        selectionAnchorRef.current = next.anchorId;
+        onReplaceSelection(next.selected);
         onFocus(item);
       }}
-      onContextMenu={event => onContextMenu(item, event)}
+      onContextMenu={event => {
+        if (!selected.has(item.id)) {
+          selectionAnchorRef.current = item.id;
+          onReplaceSelection([item.id]);
+        }
+        onContextMenu(item, event);
+      }}
       onPointerEnter={() => {
         if (item.kind === "folder") onPrefetch(item.id);
         else scheduleNativeOriginalPrewarm(item);
@@ -688,7 +737,7 @@ export function AssetGrid({
     >
       {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }} aria-label={"Find similar images to " + item.name} title="Find similar images"><VisualSearchIcon /></button>}
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>
-      <button className="check" onClick={event => { event.stopPropagation(); onToggle(item.id); }}>{selected.has(item.id) ? "✓" : ""}</button>
+      <button className="check" onClick={event => { event.stopPropagation(); selectionAnchorRef.current = item.id; onToggle(item.id); }}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
         <AssetPreview item={item} fetchPriority={thumbnailFetchPriority(index)} />
         {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}

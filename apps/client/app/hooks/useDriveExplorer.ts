@@ -983,7 +983,18 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     await refreshCurrentFolder();
   }
 
-  async function deleteItem(itemId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "?provider=" + encodeURIComponent(provider) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "DELETE" }); if (!response.ok) throw Error("Unable to delete file"); await refreshCurrentFolder(); }
+  async function deleteItems(itemIds: string[]) {
+    const uniqueIds = [...new Set(itemIds.filter(Boolean))];
+    if (!uniqueIds.length) return;
+    const suffix = "?provider=" + encodeURIComponent(provider)
+      + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : "");
+    const results = await Promise.all(uniqueIds.map(itemId =>
+      fetch("/api/explorer/items/" + encodeURIComponent(itemId) + suffix, { method: "DELETE" }),
+    ));
+    await refreshCurrentFolder();
+    if (results.some(response => !response.ok)) throw Error("Unable to delete all selected items");
+  }
+  async function deleteItem(itemId: string) { await deleteItems([itemId]); }
   async function renameItem(itemId: string, requestedName: string) {
     const name = requestedName.trim();
     if (!name) throw Error("File or folder name cannot be empty.");
@@ -1417,6 +1428,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     rateAsset,
     applyRating,
     clearSelection: () => setSelected(new Set()),
-    uploads, uploadFiles, createFolder, createTextFile, deleteItem, renameItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
+    uploads, uploadFiles, createFolder, createTextFile, deleteItem, deleteItems, renameItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };
 }

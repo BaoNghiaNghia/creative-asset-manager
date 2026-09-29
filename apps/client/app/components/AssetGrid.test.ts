@@ -10,6 +10,7 @@ import {
   nativeOriginalDragKey,
   nativeOriginalPrewarmItems,
   isAdditiveSelectionClick,
+  explorerSelectionForClick,
   createThumbnailLoadQueue,
   INITIAL_HIGH_PRIORITY_THUMBNAILS,
   SEARCH_RESULT_SKELETON_COUNT,
@@ -283,10 +284,47 @@ describe("AssetGrid marquee selection and drag-out", () => {
   });
 });
 
-describe("AssetGrid additive selection", () => {
+describe("AssetGrid Explorer-style selection", () => {
+  const ids = ["a", "b", "c", "d", "e"];
+
   it("uses Ctrl+click on Windows and Cmd+click on macOS to toggle an item", () => {
     expect(isAdditiveSelectionClick({ ctrlKey: true, metaKey: false })).toBe(true);
     expect(isAdditiveSelectionClick({ ctrlKey: false, metaKey: true })).toBe(true);
     expect(isAdditiveSelectionClick({ ctrlKey: false, metaKey: false })).toBe(false);
+  });
+
+  it("plain click replaces the selection with exactly one item", () => {
+    const result = explorerSelectionForClick(ids, new Set(["a", "c"]), "d", "c", {
+      ctrlKey: false, metaKey: false, shiftKey: false,
+    });
+    expect([...result.selected]).toEqual(["d"]);
+    expect(result.anchorId).toBe("d");
+  });
+
+  it("Ctrl click toggles one item without clearing the rest", () => {
+    const added = explorerSelectionForClick(ids, new Set(["a"]), "c", "a", {
+      ctrlKey: true, metaKey: false, shiftKey: false,
+    });
+    expect([...added.selected]).toEqual(["a", "c"]);
+
+    const removed = explorerSelectionForClick(ids, added.selected, "a", "c", {
+      ctrlKey: true, metaKey: false, shiftKey: false,
+    });
+    expect([...removed.selected]).toEqual(["c"]);
+  });
+
+  it("Shift click selects the contiguous range from the anchor", () => {
+    const result = explorerSelectionForClick(ids, new Set(["b"]), "e", "b", {
+      ctrlKey: false, metaKey: false, shiftKey: true,
+    });
+    expect([...result.selected]).toEqual(["b", "c", "d", "e"]);
+    expect(result.anchorId).toBe("b");
+  });
+
+  it("Ctrl+Shift adds a range to the existing selection", () => {
+    const result = explorerSelectionForClick(ids, new Set(["a"]), "e", "c", {
+      ctrlKey: true, metaKey: false, shiftKey: true,
+    });
+    expect([...result.selected]).toEqual(["a", "c", "d", "e"]);
   });
 });

@@ -271,3 +271,12 @@ describe("rename mutation", () => {
     expect(driveExplorerSource).toContain("await refreshCurrentFolder()");
   });
 });
+
+describe("bulk delete mutation", () => {
+  it("deletes the selected ids in one mutation flow and refreshes only after the batch", () => {
+    expect(driveExplorerSource).toContain("async function deleteItems(itemIds: string[])");
+    expect(driveExplorerSource).toContain("Promise.all(uniqueIds.map(itemId =>");
+    expect(driveExplorerSource).toContain('fetch("/api/explorer/items/" + encodeURIComponent(itemId) + suffix, { method: "DELETE" })');
+    expect(driveExplorerSource).toContain("async function deleteItem(itemId: string) { await deleteItems([itemId]); }");
+  });
+});

@@ -475,6 +475,17 @@ export default function App() {
     function handleExplorerShortcuts(event: globalThis.KeyboardEvent) {
       if (targetAcceptsTextInput(event.target) || confirm) return;
       const command = event.ctrlKey || event.metaKey;
+      if (command && event.key.toLowerCase() === "a") {
+        if (!explorer.visibleItems.length) return;
+        event.preventDefault();
+        explorer.replaceSelection(explorer.visibleItems.map(item => item.id));
+        return;
+      }
+      if (event.key === "Escape" && explorer.selected.size) {
+        event.preventDefault();
+        explorer.clearSelection();
+        return;
+      }
       if (command && event.key.toLowerCase() === "c") {
         if (!selectedVisibleItems().length) return;
         event.preventDefault(); storeClipboard("copy"); return;
@@ -513,10 +524,10 @@ export default function App() {
           message: "Delete " + selectedItems.length + " selected item" + (selectedItems.length === 1 ? "" : "s") + " from Google Drive?",
           run: () => {
             setConfirm(null);
-            void Promise.all(selectedItems.map(item => explorer.deleteItem(item.id))).then(() => {
+            void explorer.deleteItems(selectedItems.map(item => item.id)).then(() => {
               explorer.clearSelection();
-              setShortcutNotice({ tone: "success", message: "Deleted " + selectedItems.length + " item" + (selectedItems.length === 1 ? "" : "s") + "." });
-            }).catch(() => setShortcutNotice({ tone: "error", message: "Could not delete all selected items. Check your Drive permissions." }));
+              setShortcutNotice({ tone: "success", message: "Moved " + selectedItems.length + " item" + (selectedItems.length === 1 ? "" : "s") + " to trash." });
+            }).catch(() => setShortcutNotice({ tone: "error", message: "Could not move all selected items to trash. Check your Drive permissions." }));
           },
         });
       }
@@ -804,16 +815,40 @@ export default function App() {
       }));
   }
 
-  function deleteContextItem(item: Asset) {
+  function selectedExplorerItems() {
+    return explorer.visibleItems.filter(candidate => explorer.selected.has(candidate.id));
+  }
+
+  function confirmDeleteItems(items: Asset[]) {
+    if (!items.length) return;
+    const count = items.length;
     setConfirm({
-      message: "Move this item to Google Drive trash?",
+      message: count === 1
+        ? "Move this item to Google Drive trash?"
+        : "Move " + count + " selected items to Google Drive trash?",
       run: () => {
         setConfirm(null);
-        void explorer.deleteItem(item.id)
-          .then(() => setShortcutNotice({ tone: "success", message: "Item moved to trash." }))
-          .catch(() => setShortcutNotice({ tone: "error", message: "Could not move this item to trash." }));
+        void explorer.deleteItems(items.map(candidate => candidate.id))
+          .then(() => {
+            explorer.clearSelection();
+            setShortcutNotice({
+              tone: "success",
+              message: "Moved " + count + " item" + (count === 1 ? "" : "s") + " to trash.",
+            });
+          })
+          .catch(() => setShortcutNotice({
+            tone: "error",
+            message: count === 1
+              ? "Could not move this item to trash."
+              : "Could not move all selected items to trash.",
+          }));
       },
     });
+  }
+
+  function deleteContextItem(item: Asset) {
+    const selectedItems = selectedExplorerItems();
+    confirmDeleteItems(explorer.selected.has(item.id) && selectedItems.length ? selectedItems : [item]);
   }
 
   const videoResults = <>
@@ -1277,6 +1312,12 @@ export default function App() {
               disabled={explorer.loading}
               title="Refresh this folder to load newly imported assets"
             >Refresh assets</button>
+            {explorer.provider === "google-drive" && !explorer.pureViewer && <button
+              type="button"
+              className="bulk-delete"
+              onClick={() => confirmDeleteItems(selectedExplorerItems())}
+              title="Move selected items to Google Drive trash (Delete)"
+            >Delete</button>}
             <span className="bulk-divider" />
             <div className="bulk-group">
               <small>Visibility</small>

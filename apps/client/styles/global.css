@@ -773,6 +773,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   transform:scale(1.12);
 }
 .asset-rating button:focus-visible{outline:2px solid #4f7ff0;outline-offset:1px}
+.grid article{user-select:none}
 
 .bulk{
   left:50%;
@@ -789,6 +790,12 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .bulk-group button{cursor:pointer;white-space:nowrap;font-size:11px}
 .bulk-group button:hover{background:#3b4657}
 .bulk-rating button{min-width:30px;padding:7px 6px;color:#ffd166}
+.bulk-delete{
+  border-color:#7a3f45!important;
+  background:#5a2d32!important;
+  color:#ffd8dc!important;
+}
+.bulk-delete:hover{background:#74383f!important}
 .bulk-close{
   width:30px;
   height:30px;
