@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import App from "./App";
+import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 
 const AccessManagementPage = lazy(() => import("./access-management/AccessManagementPage").then(module => ({ default: module.AccessManagementPage })));
 const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").then(module => ({ default: module.AiOperationsPage })));
@@ -37,5 +38,5 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <Suspense fallback={<main className="state" aria-busy="true">Loading application...</main>}>{page}</Suspense>;
+  return <><Suspense fallback={<main className="state" aria-busy="true">Loading application...</main>}>{page}</Suspense><DesktopUpdateNotice /></>;
 }

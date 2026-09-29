@@ -14,6 +14,7 @@ import { IngestionService, type Destination } from "./ingestion";
 import { createUploadTransport } from "./uploadTransport";
 import { NativeDragService, type NativeDragAssetRequest } from "./nativeDrag";
 import { createNativeDragTicketStore } from "./nativeDragTickets";
+import { registerDesktopUpdater } from "./updater";
 
 let mainWindow: BrowserWindow | undefined;
 let ingestion: IngestionService | undefined;
@@ -162,6 +163,7 @@ else {
     mainWindow = createMainWindow();
     registerIngestionIpc();
     registerNativeDragIpc();
+    registerDesktopUpdater(() => mainWindow);
     ipcMain.handle("desktop:oauth:begin", async (_event, request: unknown) => {
       if (!mainWindow || !request || typeof request !== "object") throw new Error("Desktop sign-in is unavailable.");
       const oauthRequest = request as { provider?: "google" | "microsoft"; intent?: "google_drive_connect" | "onedrive_connect" | "onedrive_personal_connect" | "onedrive_work_connect"; externalSourceId?: string };

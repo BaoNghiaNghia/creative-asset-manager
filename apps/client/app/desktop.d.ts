@@ -39,6 +39,14 @@ interface DesktopNativeDragStats {
   downloadedBytes: number;
 }
 
+interface DesktopUpdateState {
+  status: "disabled" | "idle" | "checking" | "available" | "downloading" | "ready" | "up-to-date" | "error";
+  currentVersion: string;
+  availableVersion?: string;
+  percent?: number;
+  message?: string;
+}
+
 interface Window {
   camDesktop?: {
     isDesktop: true;
@@ -53,6 +61,12 @@ interface Window {
       externalSourceId?: string;
     }) => Promise<void>;
     onAuthComplete: (callback: () => void) => () => void;
+    updates?: {
+      getState: () => Promise<DesktopUpdateState>;
+      check: () => Promise<DesktopUpdateState>;
+      restartAndInstall: () => Promise<boolean>;
+      onState: (callback: (state: DesktopUpdateState) => void) => () => void;
+    };
     nativeDrag: {
       prepare: (items: DesktopNativeDragAsset[]) => Promise<DesktopNativeDragStats & {
         ready: true;

@@ -1,7 +1,7 @@
 {
   "name": "@cam/desktop",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
@@ -31,6 +31,12 @@
       "out/**"
     ],
     "asar": true,
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://creative-assets.ddns.net/desktop-updates/windows/"
+      }
+    ],
     "protocols": [
       {
         "name": "Creative Asset Manager",
@@ -59,5 +65,8 @@
     }
   },
   "main": "out/main/index.js",
-  "description": "Creative Asset Manager Windows desktop application"
+  "description": "Creative Asset Manager Windows desktop application",
+  "dependencies": {
+    "electron-updater": "6.6.2"
+  }
 }

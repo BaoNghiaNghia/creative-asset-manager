@@ -56,6 +56,24 @@ export interface DesktopNativeDragStats {
   downloadedBytes: number;
 }
 
+export type DesktopUpdateStatus =
+  | "disabled"
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "up-to-date"
+  | "error";
+
+export interface DesktopUpdateState {
+  status: DesktopUpdateStatus;
+  currentVersion: string;
+  availableVersion?: string;
+  percent?: number;
+  message?: string;
+}
+
 export interface CamDesktopApi {
   isDesktop: true;
   platform: string;
@@ -69,6 +87,12 @@ export interface CamDesktopApi {
     externalSourceId?: string;
   }): Promise<void>;
   onAuthComplete(callback: () => void): () => void;
+  updates?: {
+    getState(): Promise<DesktopUpdateState>;
+    check(): Promise<DesktopUpdateState>;
+    restartAndInstall(): Promise<boolean>;
+    onState(callback: (state: DesktopUpdateState) => void): () => void;
+  };
   nativeDrag: {
     prepare(items: DesktopNativeDragAsset[]): Promise<DesktopNativeDragStats & {
       ready: true;
