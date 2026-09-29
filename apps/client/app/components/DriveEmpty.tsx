@@ -1,5 +1,7 @@
 import type { OAuthErrorState, Provider, ProviderSessions } from "../types";
-import { DriveIcon, SharePointIcon } from "./Icons";
+import { SharePointIcon } from "./Icons";
+import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
+import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 
 type Props = {
   oauthError: OAuthErrorState;
@@ -59,16 +61,20 @@ export function DriveEmpty({ oauthError, activeProvider, authByProvider, onSelec
       {oauthError.requestId && <small>Request ID: {oauthError.requestId}</small>}
     </div>}
 
-    <span className="onboarding-kicker">CREATIVE ASSET SOURCES</span>
-    <h1>Connect a cloud source</h1>
-    <p>Choose where your assets live. You can connect both sources and switch between them anytime.</p>
+    <span className="onboarding-kicker">GET STARTED</span>
+    <h1>Connect your creative library</h1>
+    <p>Bring your cloud assets into one workspace to browse, search, review, and upload without leaving Creative Asset Manager.</p>
 
     <div className="source-cards">
       {sources.map(source => {
         const connected = authByProvider[source.provider].authenticated;
         return <article className="source-card" key={source.provider}>
           <span className={"source-card-icon " + source.provider}>
-            {source.provider === "sharepoint" ? <SharePointIcon /> : <DriveIcon />}
+            {source.provider === "google-drive"
+              ? <img className="source-card-logo" src={googleDrivePlatformLogo} alt="" aria-hidden="true" />
+              : source.provider === "onedrive"
+                ? <img className="source-card-logo" src={oneDrivePlatformLogo} alt="" aria-hidden="true" />
+                : <SharePointIcon />}
           </span>
           <div>
             <strong>{source.name}</strong>

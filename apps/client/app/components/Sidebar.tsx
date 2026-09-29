@@ -152,7 +152,7 @@ export function Sidebar({
     </button>
     <div className="brand">
       <b><BrandIcon /></b>
-      <span><strong>Creative assets</strong><small>{auth.user?.email || "Google Drive · SharePoint"}</small></span>
+      <span><strong>Creative Asset Manager</strong><small>{auth.user?.email || "Workspace · Asset library"}</small></span>
     </div>
     <WorkspaceNavigation active="assets" showOperations={canViewAiOperations} />
     <p>SOURCES</p>

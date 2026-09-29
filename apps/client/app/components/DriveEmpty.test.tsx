@@ -20,6 +20,8 @@ describe("public Google sign-in", () => {
       />,
     );
 
+    expect(markup).toContain("Connect your creative library");
+    expect(markup).toContain("source-card-logo");
     expect(markup).toContain("Sign in with Google");
     expect(markup).not.toContain("/api/auth/google/connect-drive");
   });

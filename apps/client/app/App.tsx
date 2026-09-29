@@ -817,7 +817,7 @@ export default function App() {
   </>;
 
   return <main
-    className={["shell", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
+    className={["shell", window.camDesktop?.isDesktop ? "desktop-shell" : "", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
   >
     <Sidebar
@@ -867,7 +867,7 @@ export default function App() {
       onDragOver={event => {
         if (!dragContainsFiles(event.dataTransfer)) return;
         event.preventDefault();
-        event.dataTransfer.dropEffect = isExternalFileDrag(event.dataTransfer) ? "copy" : "none";
+        event.dataTransfer.dropEffect = isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop)) ? "copy" : "none";
       }}
       onDragLeave={handleFileDragLeave}
       onDrop={handleFileDrop}

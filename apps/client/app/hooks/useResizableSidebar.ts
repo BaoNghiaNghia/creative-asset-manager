@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
-const MIN_WIDTH = 220;
+const MIN_WIDTH = 232;
 const MAX_WIDTH = 480;
-const DEFAULT_WIDTH = 256;
+const DEFAULT_WIDTH = 272;
 
 export function useResizableSidebar() {
   const [width, setWidth] = useState(() => {

@@ -19,6 +19,9 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 1100,
     minHeight: 700,
     show: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#f5f7fb",
+    title: "Creative Asset Manager",
     webPreferences: {
       preload: join(currentDirectory, "../preload/index.mjs"),
       nodeIntegration: false,
@@ -29,6 +32,11 @@ export function createMainWindow(): BrowserWindow {
       allowRunningInsecureContent: false,
     },
   });
+
+  // Keep reliable native Windows controls, but remove Electron's application
+  // menu so the shell reads as a focused desktop product.
+  window.setMenuBarVisibility(false);
+  window.removeMenu();
 
   const session = window.webContents.session;
   session.setPermissionRequestHandler((_contents, _permission, callback) => {
