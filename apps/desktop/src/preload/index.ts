@@ -9,6 +9,14 @@ function acceptedPaths(files: FileList): string[] {
   }
   return paths;
 }
+
+function localPathsOrThrow(files: FileList): string[] {
+  const paths = acceptedPaths(files);
+  if (!files.length || paths.length !== files.length) {
+    throw new Error("desktop_ingestion_no_local_paths");
+  }
+  return paths;
+}
 contextBridge.exposeInMainWorld("camDesktop", Object.freeze({
   isDesktop: true as const,
   platform: process.platform,
@@ -19,7 +27,8 @@ contextBridge.exposeInMainWorld("camDesktop", Object.freeze({
     start: (ticket: string) => ipcRenderer.send("desktop:native-drag:start-prepared", ticket),
   }),
   ingestion: Object.freeze({
-    acceptDrop: (files: FileList, destination: Destination) => ipcRenderer.invoke("desktop:ingestion:drop", acceptedPaths(files), destination),
+    acceptDrop: (files: FileList, destination: Destination) => ipcRenderer.invoke("desktop:ingestion:drop", localPathsOrThrow(files), destination),
+    chooseFiles: (destination: Destination) => ipcRenderer.invoke("desktop:ingestion:choose-files", destination),
     chooseFolders: (destination: Destination) => ipcRenderer.invoke("desktop:ingestion:choose-folders", destination),
     snapshot: (jobId: string) => ipcRenderer.invoke("desktop:ingestion:snapshot", jobId),
     pause: (jobId: string) => ipcRenderer.invoke("desktop:ingestion:pause", jobId),

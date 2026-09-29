@@ -1,7 +1,7 @@
 import { isPreviewableAsset } from "./utils/fileType";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
+import { ASSET_DRAG_OUT_MIME, AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { FolderReviewLinkActions, reviewShareIdForFolder } from "./components/FolderReviewLinkActions";
 import { VideoSearchResults } from "./components/VideoSearchResults";
 import { VideoSearchPlayer } from "./components/VideoSearchPlayer";
@@ -55,14 +55,17 @@ export function dragContainsFiles(dataTransfer: Pick<DataTransfer, "types">): bo
   return Array.from(dataTransfer.types).includes("Files");
 }
 
-export function isExternalFileDrag(dataTransfer: FileDragTransfer): boolean {
+export function isExternalFileDrag(dataTransfer: FileDragTransfer, desktop = false): boolean {
   const types = Array.from(dataTransfer.types);
-  if (!types.includes("Files")) return false;
-  // Native drags from cards/images can expose a synthetic File together with
-  // browser-origin payloads. OS file drags do not carry these HTML/URL types.
-  if (types.includes("text/html") || types.includes("text/uri-list")) return false;
+  if (!types.includes("Files") || types.includes(ASSET_DRAG_OUT_MIME)) return false;
   const items = Array.from(dataTransfer.items || []);
-  return items.length === 0 || items.some(item => item.kind === "file");
+  const hasFile = items.length === 0 || items.some(item => item.kind === "file");
+  if (!hasFile) return false;
+  // Electron/Windows can attach URI/HTML flavors to a genuine Explorer file
+  // drag. The desktop shell has a dedicated internal-drag MIME marker, so once
+  // that marker is excluded it is safe to accept the OS-backed File payload.
+  if (desktop) return true;
+  return !types.includes("text/html") && !types.includes("text/uri-list");
 }
 
 type DesktopIngestionJob = {
@@ -276,6 +279,13 @@ export default function App() {
   const [folderNoteSummary, setFolderNoteSummary] = useState("");
   const [folderNoteAvailable, setFolderNoteAvailable] = useState(false);
   useEffect(() => window.camDesktop?.ingestion.onProgress(setDesktopIngestion), []);
+  const refreshedDesktopJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!desktopIngestion || desktopIngestion.status !== "completed") return;
+    if (refreshedDesktopJobRef.current === desktopIngestion.id) return;
+    refreshedDesktopJobRef.current = desktopIngestion.id;
+    void explorer.refreshCurrentFolder();
+  }, [desktopIngestion?.id, desktopIngestion?.status]);
 
   function reportReviewLinkLoadFailure(error: unknown) {
     const diagnostic = error instanceof ManagementApiError
@@ -584,17 +594,49 @@ export default function App() {
   const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
   const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
 
+  function desktopIngestionDestination() {
+    return {
+      parentId: explorer.path.at(-1)?.id || "root",
+      provider: "google-drive" as const,
+      externalSourceId: explorer.activeExternalSourceId || undefined,
+    };
+  }
+  function reportDesktopIngestionStartFailure(error: unknown) {
+    const code = error instanceof Error ? error.message : "";
+    setShortcutNotice({
+      tone: "error",
+      message: code.includes("desktop_ingestion_no_local_paths")
+        ? "Windows could not expose the selected local file paths. Restart or update the desktop app, then try again."
+        : "Desktop ingestion could not start. Please try again.",
+    });
+  }
+  function startDesktopFileIngestion(files: FileList): boolean {
+    const desktop = window.camDesktop?.ingestion;
+    if (!desktop || explorer.provider !== "google-drive" || !files.length) return false;
+    void desktop.acceptDrop(files, desktopIngestionDestination())
+      .then(setDesktopIngestion)
+      .catch(reportDesktopIngestionStartFailure);
+    return true;
+  }
+  function chooseDesktopFiles(): boolean {
+    const desktop = window.camDesktop?.ingestion;
+    if (!desktop || explorer.provider !== "google-drive" || typeof desktop.chooseFiles !== "function") return false;
+    void desktop.chooseFiles(desktopIngestionDestination())
+      .then(job => { if (job) setDesktopIngestion(job); })
+      .catch(reportDesktopIngestionStartFailure);
+    return true;
+  }
   function handleFileDragEnter(event: DragEvent<HTMLElement>) {
     if (!dragContainsFiles(event.dataTransfer)) return;
     event.preventDefault();
-    if (!isExternalFileDrag(event.dataTransfer)) return;
+    if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
     dragDepthRef.current += 1;
     setIsDraggingFiles(true);
   }
   function handleFileDragLeave(event: DragEvent<HTMLElement>) {
     if (!dragContainsFiles(event.dataTransfer)) return;
     event.preventDefault();
-    if (!isExternalFileDrag(event.dataTransfer)) return;
+    if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setIsDraggingFiles(false);
   }
@@ -603,17 +645,11 @@ export default function App() {
     event.preventDefault();
     dragDepthRef.current = 0;
     setIsDraggingFiles(false);
-    if (!isExternalFileDrag(event.dataTransfer)) return;
-    const files = Array.from(event.dataTransfer.files);
-    if (!files.length || !explorer.auth.authenticated) return;
-    if (window.camDesktop?.ingestion && explorer.provider === "google-drive") {
-      const parentId = explorer.path.at(-1)?.id || "root";
-      void window.camDesktop.ingestion.acceptDrop(event.dataTransfer.files, {
-        parentId, provider: "google-drive", externalSourceId: explorer.activeExternalSourceId || undefined,
-      }).then(setDesktopIngestion).catch(() => setShortcutNotice({ tone: "error", message: "Desktop ingestion could not start." }));
-      return;
-    }
-    void explorer.uploadFiles(files);
+    if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
+    const droppedFiles = event.dataTransfer.files;
+    if (!droppedFiles.length || !explorer.auth.authenticated) return;
+    if (startDesktopFileIngestion(droppedFiles)) return;
+    void explorer.uploadFiles(Array.from(droppedFiles));
   }
   function preventInternalFileDrag(event: DragEvent<HTMLElement>) {
     event.preventDefault();
@@ -977,7 +1013,7 @@ export default function App() {
               <div className="explorer-new-menu-divider" role="separator" />
             </>}
             {window.camDesktop?.ingestion && explorer.provider === "google-drive" && <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const parentId = explorer.path.at(-1)?.id || "root"; void window.camDesktop?.ingestion.chooseFolders({ parentId, provider: "google-drive", externalSourceId: explorer.activeExternalSourceId || undefined }).then(job => { if (job) setDesktopIngestion(job); }); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>Add folder</b><small>Choose local folders</small></span></button>}
-            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); uploadInputRef.current?.click(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); if (!chooseDesktopFiles()) uploadInputRef.current?.click(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
           </div>}
           <input ref={uploadInputRef} hidden type="file" multiple onChange={event => {
             const files = Array.from(event.target.files || []);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SEARCH_MEDIA_MODE, parseSearchMediaMode, searchIncludesImages, searchIncludesVideos, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag } from "./App";
+import { ASSET_DRAG_OUT_MIME } from "./components/AssetGrid";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
 import type { Asset } from "./types";
@@ -31,6 +32,15 @@ describe("External file drag detection", () => {
 
   it("allows the Files-only drag-enter shape before item metadata is exposed", () => {
     expect(isExternalFileDrag(dragTransfer(["Files"]))).toBe(true);
+  });
+
+  it("accepts Windows Explorer file drags with URI flavors inside the desktop shell", () => {
+    expect(isExternalFileDrag(dragTransfer(["Files", "text/uri-list"], ["file"]), true)).toBe(true);
+    expect(isExternalFileDrag(dragTransfer(["Files", "text/html"], ["file"]), true)).toBe(true);
+  });
+
+  it("still rejects CAM internal drag-out payloads inside the desktop shell", () => {
+    expect(isExternalFileDrag(dragTransfer(["Files", ASSET_DRAG_OUT_MIME], ["file"]), true)).toBe(false);
   });
 });
 

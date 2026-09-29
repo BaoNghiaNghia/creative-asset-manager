@@ -86,6 +86,11 @@ export interface CamDesktopApi {
         externalSourceId?: string;
       },
     ): Promise<DesktopIngestionJob>;
+    chooseFiles?(destination: {
+      parentId: string;
+      provider: "google-drive";
+      externalSourceId?: string;
+    }): Promise<DesktopIngestionJob | undefined>;
     chooseFolders(destination: {
       parentId: string;
       provider: "google-drive";

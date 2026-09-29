@@ -124,6 +124,13 @@ function registerIngestionIpc(): void {
     if (!paths.every(value => typeof value === "string" && value.length > 0 && value.length < 32768)) throw new Error("Unsupported desktop ingestion request.");
     return service().ingestRoots(paths as string[], target);
   });
+  ipcMain.handle("desktop:ingestion:choose-files", async (_event, destination: unknown) => {
+    const target = validDestination(destination);
+    if (!target || !mainWindow) throw new Error("Unsupported desktop ingestion request.");
+    const choice = await dialog.showOpenDialog(mainWindow, { properties: ["openFile", "multiSelections"] });
+    if (choice.canceled || !choice.filePaths.length) return undefined;
+    return service().ingestRoots(choice.filePaths, target);
+  });
   ipcMain.handle("desktop:ingestion:choose-folders", async (_event, destination: unknown) => {
     const target = validDestination(destination);
     if (!target || !mainWindow) throw new Error("Unsupported desktop ingestion request.");
