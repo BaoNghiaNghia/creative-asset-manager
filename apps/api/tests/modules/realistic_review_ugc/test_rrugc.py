@@ -1197,7 +1197,7 @@ def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, data
         assert RrugcRepository(session).reference_feedback_training_rows("tenant-a") == []
 
 
-def test_reference_good_requeues_failed_analysis(api, database):
+def test_reference_good_approves_immediately_and_requeues_failed_analysis(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(
             tenant_id="tenant-a",
@@ -1233,7 +1233,7 @@ def test_reference_good_requeues_failed_analysis(api, database):
     assert response.status_code == 200
     payload = response.json()["candidate"]
     assert payload["reference_manual_label"] == "good"
-    assert payload["status"] == "analysis_queued"
+    assert payload["status"] == "approved"
 
     with database() as session:
         candidate = RrugcRepository(session).get_candidate(
@@ -1241,8 +1241,10 @@ def test_reference_good_requeues_failed_analysis(api, database):
         )
         assert candidate is not None
         assert candidate.analysis_revision == original_revision + 1
+        assert candidate.status == "approved"
         assert candidate.last_error_code is None
-        assert candidate.ai_signal_json["reference_manual_pending_approval"] is True
+        assert candidate.ai_signal_json["reference_manual_pending_analysis"] is True
+        assert candidate.ai_signal_json["reference_manual_approval_override"] is True
         jobs = list(session.scalars(
             select(ProcessingJobModel).where(
                 ProcessingJobModel.job_type == "rrugc_candidate_analyze",
@@ -1253,6 +1255,97 @@ def test_reference_good_requeues_failed_analysis(api, database):
             job.payload_json.get("analysis_revision") == candidate.analysis_revision
             for job in jobs
         )
+
+
+def test_reference_good_stays_approved_when_background_analysis_fails(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="manual ref background failure",
+            query="woman wearing cap candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/ref-background-fail/",
+                image_url="https://i.pinimg.com/736x/ref-background-fail.jpg",
+            )],
+            source_query=campaign.query,
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "analysis_failed"
+        candidate.analyzed_at = None
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "good"},
+    )
+    assert response.status_code == 200
+    assert response.json()["candidate"]["status"] == "approved"
+
+    with database() as session:
+        candidate = RrugcRepository(session).get_candidate(
+            "tenant-a", campaign_id, candidate_id
+        )
+        assert candidate is not None
+        revision = candidate.analysis_revision
+        job = session.scalar(
+            select(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                ProcessingJobModel.entity_id == candidate_id,
+            )
+            .order_by(ProcessingJobModel.created_at.desc())
+        )
+        assert job is not None
+        claimed = ClaimedJob(
+            id=job.id,
+            tenant_id=job.tenant_id,
+            job_type=job.job_type,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+            payload=job.payload_json,
+            attempt_count=job.attempt_count,
+            lease_owner="test-worker",
+            provider_key=job.provider_key,
+        )
+
+    context = JobHandlerContext(
+        job=claimed,
+        dependencies=WorkerDependencies(
+            session_factory=database,
+            storage_provider=FakeStorage(),
+        ),
+        shutdown_requested=Event(),
+        cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("rrugc-ref-fail-test"), {}),
+    )
+    RrugcCandidateAnalyzeJobHandler._mark_error(
+        context,
+        "gemini_model_pool_temporarily_unavailable",
+        terminal=False,
+    )
+
+    with database() as session:
+        candidate = RrugcRepository(session).get_candidate(
+            "tenant-a", campaign_id, candidate_id
+        )
+        assert candidate is not None
+        assert candidate.analysis_revision == revision
+        assert candidate.status == "approved"
+        assert (
+            candidate.last_error_code
+            == "gemini_model_pool_temporarily_unavailable"
+        )
+        assert candidate.ai_signal_json["reference_manual_pending_analysis"] is True
 
 
 def test_reference_good_promotes_soft_rejection_but_not_ai_rejection(api, database):

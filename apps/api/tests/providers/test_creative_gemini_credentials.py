@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import asyncio
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -146,6 +147,37 @@ class CreativeGeminiCredentialTest(unittest.TestCase):
             preferred_credential_provider="gemini_backup_1",
         )))
         self.assertEqual(calls, ["backup-key-1234"])
+
+    def test_failover_uses_first_active_backup_even_when_slot_one_is_missing(self):
+        calls = []
+
+        class FakeProvider:
+            provider_name = "gemini"; supports_single = True; supports_batch = True
+            def __init__(self, key, **kwargs): self.key = key; self.default_model = kwargs["model"]
+            async def analyze_single(self, input):
+                calls.append(self.key)
+                return AiMetadataAnalysisResult(metadata={}, provider="gemini")
+
+        with self.sessions() as session:
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(self.settings)
+            ).replace("tenant-a", secret="backup-two-key-5678", provider="gemini_backup_2")
+            session.commit()
+
+        provider = RuntimeCreativeGeminiProvider(
+            self.settings, self.sessions,
+            provider_factory=lambda key, **kwargs: FakeProvider(key, **kwargs),
+        )
+        with patch(
+            "app.providers.ai.creative_gemini.backup_is_active",
+            return_value=True,
+        ):
+            asyncio.run(provider.analyze_single(AiMetadataAnalysisInput(
+                tenant_id="tenant-a", asset_id="asset", prompt="x",
+                image_bytes=b"jpeg", image_mime_type="image/jpeg",
+                metadata_profile="general", metadata_profile_version="1",
+            )))
+        self.assertEqual(calls, ["backup-two-key-5678"])
 
     def test_missing_everything_is_explicitly_unavailable(self):
         with self.assertRaises(CreativeCredentialError) as context:

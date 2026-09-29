@@ -146,12 +146,20 @@ class RrugcCandidateAnalyzeJobHandler:
                 )
             if candidate.analysis_revision != revision:
                 return JobHandlerResult.completed()
+            signal = (
+                candidate.ai_signal_json
+                if isinstance(candidate.ai_signal_json, dict)
+                else {}
+            )
+            manual_reference_good = (
+                signal.get("reference_manual_label") == "good"
+                and candidate.ai_manual_label != "ai"
+            )
+            if candidate.status in {"import_queued", "importing", "drive_ready"}:
+                return JobHandlerResult.completed()
             if candidate.status in {
                 "approved",
                 "needs_review",
-                "import_queued",
-                "importing",
-                "drive_ready",
                 "rejected_duplicate",
                 "rejected_no_person",
                 "rejected_head_ratio",
@@ -163,7 +171,12 @@ class RrugcCandidateAnalyzeJobHandler:
                 "rejected_context",
             } and candidate.analyzed_at is not None:
                 return JobHandlerResult.completed()
-            candidate.status = "analyzing"
+            if manual_reference_good:
+                # Human REF qualification stays Approved while Gemini enriches
+                # scores/metadata in the background.
+                candidate.status = "approved"
+            else:
+                candidate.status = "analyzing"
             candidate.last_error_code = None
             session.commit()
             image_url = candidate.image_url
@@ -344,6 +357,7 @@ class RrugcCandidateAnalyzeJobHandler:
                     **(candidate.ai_signal_json or {}),
                     "reference_preference_adjustment": preference_adjustment,
                     "reference_manual_pending_approval": False,
+                    "reference_manual_pending_analysis": False,
                     "reference_manual_approval_override": manual_reference_override,
                     "reference_manual_auto_status": (
                         decision.status if manual_reference_override else None
@@ -475,11 +489,30 @@ class RrugcCandidateAnalyzeJobHandler:
             )
             if candidate is None or candidate.analysis_revision != revision:
                 return
-            # Keep the durable UI state truthful even when the Processing Job
-            # will retry automatically. A later attempt moves this back to
-            # "analyzing"; exhausted retries therefore never leave a candidate
-            # looking permanently queued.
-            candidate.status = "analysis_failed"
+            signal = (
+                candidate.ai_signal_json
+                if isinstance(candidate.ai_signal_json, dict)
+                else {}
+            )
+            manual_reference_good = (
+                signal.get("reference_manual_label") == "good"
+                and candidate.ai_manual_label != "ai"
+            )
+            if manual_reference_good and candidate.status not in {
+                "rejected_ai_risk",
+                "rejected_duplicate",
+                "import_queued",
+                "importing",
+                "drive_ready",
+            }:
+                # Gemini enrichment failures must not undo a human REF approval.
+                candidate.status = "approved"
+                signal["reference_manual_pending_analysis"] = True
+                candidate.ai_signal_json = signal
+            else:
+                # Keep the durable UI state truthful even when the Processing
+                # Job will retry automatically.
+                candidate.status = "analysis_failed"
             candidate.last_error_code = code[:100]
             session.commit()
 

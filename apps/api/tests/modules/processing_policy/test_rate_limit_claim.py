@@ -182,6 +182,24 @@ class RateLimitedClaimTest(unittest.TestCase):
                 )
             )
 
+    def test_gemini_pool_unavailable_backlog_activates_failover(self):
+        self.settings.GEMINI_FAILOVER_DEFERRED_THRESHOLD = 2
+        job_ids = [self._analysis_job("pool-one"), self._analysis_job("pool-two")]
+        with self.sessions.begin() as session:
+            for job_id in job_ids:
+                job = session.get(ProcessingJobModel, job_id)
+                job.last_error_code = "gemini_model_pool_temporarily_unavailable"
+                job.next_attempt_at = NOW
+
+        from app.modules.ai_operations.gemini_failover import backup_is_active
+
+        with self.sessions() as session:
+            self.assertTrue(
+                backup_is_active(
+                    session, self.settings, "tenant", now=NOW + timedelta(seconds=1)
+                )
+            )
+
     def test_active_gemini_failover_reserves_backup_rate_limit_bucket(self):
         job_id = self._analysis_job("backup-slot")
 

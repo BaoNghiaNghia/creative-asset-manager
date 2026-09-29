@@ -728,29 +728,40 @@ class RrugcService:
         locked = candidate.status in {"drive_ready", "importing", "import_queued"}
 
         if label == "good" and not locked:
-            if candidate.analyzed_at is None or candidate.status == "analysis_failed":
-                signal["reference_manual_pending_approval"] = True
-                candidate.ai_signal_json = signal
-                self.enqueue_analysis(candidate, increment_revision=True)
-            elif reference_manual_good_can_override(
-                candidate.status,
-                manual_ai_label=candidate.ai_manual_label,
-            ):
-                signal["reference_manual_approval_override"] = True
-                signal["reference_manual_auto_status"] = candidate.status
-                signal["reference_manual_auto_reject_reason"] = candidate.reject_reason
+            hard_blocked = (
+                candidate.ai_manual_label == "ai"
+                or candidate.status in {"rejected_ai_risk", "rejected_duplicate"}
+            )
+            if hard_blocked:
                 signal.pop("reference_manual_pending_approval", None)
+                signal.pop("reference_manual_approval_override", None)
+                candidate.ai_signal_json = signal
+            else:
+                prior_status = candidate.status
+                prior_reject_reason = candidate.reject_reason
+                needs_analysis = (
+                    candidate.analyzed_at is None
+                    or candidate.status == "analysis_failed"
+                )
+                signal["reference_manual_approval_override"] = True
+                signal["reference_manual_auto_status"] = prior_status
+                signal["reference_manual_auto_reject_reason"] = prior_reject_reason
+                signal["reference_manual_pending_analysis"] = needs_analysis
+                signal.pop("reference_manual_pending_approval", None)
+                candidate.ai_signal_json = signal
+                if needs_analysis:
+                    # Manual REF approval is authoritative for qualification.
+                    # Keep enrichment running in the background without making
+                    # Gemini availability a prerequisite for Approved.
+                    self.enqueue_analysis(candidate, increment_revision=True)
                 candidate.status = "approved"
                 candidate.reject_reason = None
                 candidate.last_error_code = None
-                candidate.ai_signal_json = signal
                 if campaign is not None and campaign.auto_import:
                     self.enqueue_import(candidate)
-            else:
-                signal.pop("reference_manual_pending_approval", None)
-                candidate.ai_signal_json = signal
         elif label == "bad" and not locked:
             signal.pop("reference_manual_pending_approval", None)
+            signal.pop("reference_manual_pending_analysis", None)
             signal.pop("reference_manual_approval_override", None)
             signal.pop("reference_manual_auto_status", None)
             signal.pop("reference_manual_auto_reject_reason", None)
@@ -761,12 +772,14 @@ class RrugcService:
         elif label == "clear" and not locked:
             had_override = bool(signal.pop("reference_manual_approval_override", None))
             had_pending = bool(signal.pop("reference_manual_pending_approval", None))
+            had_pending_analysis = bool(signal.pop("reference_manual_pending_analysis", None))
             signal.pop("reference_manual_auto_status", None)
             signal.pop("reference_manual_auto_reject_reason", None)
             candidate.ai_signal_json = signal
             if (
                 had_override
                 or had_pending
+                or had_pending_analysis
                 or (
                     candidate.status == "rejected_context"
                     and candidate.reject_reason == "MANUAL_REFERENCE_BAD"

@@ -16,6 +16,7 @@ from app.domain.providers.contracts import AiBatchResult, AiBatchResultsInput, A
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 from app.modules.ai_operations.gemini_failover import backup_is_active
 from app.modules.ai_operations.credentials import (
+    CreativeAiCredentialRepository,
     CreativeCredentialError,
     CreativeGeminiCredential,
     CreativeGeminiCredentialResolver,
@@ -76,7 +77,18 @@ class RuntimeCreativeGeminiProvider:
         try:
             with self.session_factory() as session:
                 use_backup = backup_is_active(session, self.settings, tenant_id)
-            selected_provider = preferred_provider if preferred_provider == "gemini" or (preferred_provider is not None and preferred_provider.startswith("gemini_backup_")) else ("gemini_backup_1" if use_backup else "gemini")
+                active_backups = CreativeAiCredentialRepository(
+                    session, None
+                ).list_active_backup_providers(tenant_id)
+            if preferred_provider == "gemini" or (
+                preferred_provider is not None
+                and preferred_provider.startswith("gemini_backup_")
+            ):
+                selected_provider = preferred_provider
+            elif use_backup and active_backups:
+                selected_provider = active_backups[0]
+            else:
+                selected_provider = "gemini"
             try:
                 credential = self._resolver.resolve(tenant_id, provider=selected_provider)
             except CreativeCredentialError:

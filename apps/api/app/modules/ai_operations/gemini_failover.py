@@ -13,6 +13,7 @@ from app.modules.processing.model import ProcessingJobModel
 DEFERRED_CODES = (
     "video_gemini_quota_deferred", "video_gemini_rate_limited",
     "gemini_quota_deferred", "gemini_image_quota_deferred",
+    "gemini_model_pool_temporarily_unavailable",
     "ai_model_rate_limited", "ai_provider_rate_limited",
 )
 
