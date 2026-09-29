@@ -303,6 +303,7 @@ button,a{-webkit-tap-highlight-color:transparent}
    Small phone: <=420 */
 
 @media(min-width:1600px){
+  .rrugc-campaign-list{grid-template-columns:repeat(4,minmax(0,1fr))}
   .ops-content,.access-content{padding-inline:40px}
   .rrugc-page-body{padding-inline:40px!important}
   .video-generation-page-body{padding-inline:40px!important}
