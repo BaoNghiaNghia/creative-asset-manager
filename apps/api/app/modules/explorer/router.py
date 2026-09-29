@@ -596,6 +596,7 @@ async def children(
     external_source_id: str | None = Query(None),
     page_token: str | None = Query(None),
     page_size: int = Query(100, ge=1, le=200),
+    include_location: bool = Query(True),
 ):
     try:
         token, account_id, tenant_id, resolved_source_id = await _source_context(
@@ -621,6 +622,7 @@ async def children(
             viewer_parent_authorized=parent_id != "root",
             page_token=page_token,
             page_size=page_size,
+            include_location=include_location,
         )
     except HTTPException:
         raise

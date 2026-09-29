@@ -14,6 +14,7 @@ import {
   parseSavedExplorerLocation,
   savedLocationIsAuthorized,
   uploadErrorMessage,
+  withFolderLocation,
 } from "./useDriveExplorer";
 
 describe("folder route helpers", () => {
@@ -174,6 +175,15 @@ describe("saved explorer location clearing", () => {
 
 
 describe("groupMetadataRequests", () => {
+  it("skips folders because folder cards do not need asset metadata", () => {
+    expect(groupMetadataRequests([
+      { id: "folder-1", provider: "google-drive", kind: "folder", external_source_id: "source-1" },
+      { id: "image-1", provider: "google-drive", kind: "image", external_source_id: "source-1" },
+    ] as Asset[])).toEqual([
+      { provider: "google-drive", externalSourceId: "source-1", itemIds: ["image-1"] },
+    ]);
+  });
+
   it("keeps global search metadata scoped to each result source", () => {
     const groups = groupMetadataRequests([
       { id: "google-item", provider: "google-drive", external_source_id: "google-source" },
@@ -188,6 +198,24 @@ describe("groupMetadataRequests", () => {
   });
 });
 
+describe("withFolderLocation", () => {
+  it("reconstructs browse breadcrumbs locally so the fast listing can skip source-wide location work", () => {
+    const path = [
+      { id: "root-a", name: "Assets", kind: "folder" },
+      { id: "folder-a", name: "Campaign", kind: "folder" },
+    ] as Asset[];
+    const [item] = withFolderLocation([
+      { id: "child-a", name: "Photo.jpg", kind: "image", provider: "google-drive" },
+    ] as Asset[], path);
+    expect(item.location_breadcrumb).toEqual([
+      { id: "root-a", name: "Assets" },
+      { id: "folder-a", name: "Campaign" },
+    ]);
+    expect(item.location_status).toBe("resolved");
+    expect(item.location_unavailable).toBe(false);
+  });
+});
+
 describe("appendUniqueFolderPage", () => {
   it("appends the next normal-browse page without duplicating assets", () => {
     const existing = [{ id: "one" }, { id: "two" }] as never[];
@@ -198,6 +226,14 @@ describe("appendUniqueFolderPage", () => {
   });
 });
 
+
+describe("fast folder browsing", () => {
+  it("requests lightweight folder listings and keeps navigation prefetch claimable", () => {
+    expect(driveExplorerSource).toContain('include_location: "false"');
+    expect(driveExplorerSource).toContain("prefetchFolderNow");
+    expect(driveExplorerSource).toContain("activeFolderPrefetch.current = null");
+  });
+});
 
 describe("breadcrumb sidebar hydration", () => {
   it("loads complete folder lists for every expanded breadcrumb level", () => {

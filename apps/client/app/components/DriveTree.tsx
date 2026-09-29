@@ -21,6 +21,7 @@ type Props = {
   onOpen: (id: string, ancestors: Asset[]) => void;
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
+  onPrefetchNow?: (id: string) => void;
   onCancelPrefetch: () => void;
   reviewLinkShareIds?: ReadonlyMap<string, string>;
   activeExternalSourceId?: string | null;
@@ -39,6 +40,7 @@ export function DriveTreeNode({
   onOpen,
   onToggle,
   onPrefetch,
+  onPrefetchNow,
   onCancelPrefetch,
   reviewLinkShareIds,
   activeExternalSourceId,
@@ -58,11 +60,7 @@ export function DriveTreeNode({
     : null;
 
   return <div className="tree-node">
-    <div
-      className={"tree-row " + rowState}
-      onPointerEnter={() => onPrefetch(node.id)}
-      onPointerLeave={onCancelPrefetch}
-    >
+    <div className={"tree-row " + rowState}>
       {canExpand ? <button
         className={"tree-toggle " + (isLoading ? "loading" : "")}
         onClick={() => onToggle(node)}
@@ -71,7 +69,14 @@ export function DriveTreeNode({
       >
         {isLoading ? <span className="tree-loading" /> : <ChevronIcon expanded={isExpanded} />}
       </button> : <span className="tree-toggle-placeholder" aria-hidden="true" />}
-      <button className="tree-label" title={node.name} onClick={() => onOpen(node.id, ancestors)}>
+      <button
+        className="tree-label"
+        title={node.name}
+        onPointerEnter={() => onPrefetch(node.id)}
+        onPointerLeave={onCancelPrefetch}
+        onPointerDown={() => onPrefetchNow?.(node.id)}
+        onClick={() => onOpen(node.id, ancestors)}
+      >
         <SourceFolderIcon name={node.name} />
         <span>{node.name}</span>
       </button>
@@ -97,6 +102,7 @@ export function DriveTreeNode({
           onOpen={onOpen}
           onToggle={onToggle}
           onPrefetch={onPrefetch}
+          onPrefetchNow={onPrefetchNow}
           onCancelPrefetch={onCancelPrefetch}
           reviewLinkShareIds={reviewLinkShareIds}
           activeExternalSourceId={activeExternalSourceId}

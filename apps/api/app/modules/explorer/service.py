@@ -159,6 +159,7 @@ class ExplorerService:
         viewer_parent_authorized: bool = False,
         page_token: str | None = None,
         page_size: int = 100,
+        include_location: bool = True,
     ) -> FolderListing:
         if access_token:
             async def load_provider_page():
@@ -220,7 +221,10 @@ class ExplorerService:
             provider,
             external_source_id,
         )
-        self._attach_breadcrumbs(children, parent, tenant_id, external_source_id, self.viewer_access)
+        if include_location:
+            self._attach_breadcrumbs(
+                children, parent, tenant_id, external_source_id, self.viewer_access,
+            )
         if self.viewer_access is not None and self.viewer_access.restricted and not viewer_parent_authorized:
             # Root exposes only the explicitly assigned folders. A verified
             # descendant folder passes viewer_parent_authorized=True so every
@@ -253,14 +257,32 @@ class ExplorerService:
         viewer_parent_authorized: bool = False,
     ) -> list[AssetNode]:
         if access_token:
-            async with self.provider_factory(provider, access_token) as client:
-                folders = await client.list_children(parent_id, folders_only=True)
-                if self.viewer_access and self.viewer_access.restricted and not viewer_parent_authorized:
-                    folders = [folder for folder in folders if self.viewer_access.allows(
-                        item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
-                    )]
-                self._assign_external_source(folders, external_source_id)
-                return folders
+            async def load_provider_folders():
+                async with self.provider_factory(provider, access_token) as client:
+                    loaded = await client.list_children(parent_id, folders_only=True)
+                return tuple(folder.model_copy(deep=True) for folder in loaded)
+
+            if provider == "google-drive" and tenant_id and external_source_id:
+                snapshot = await drive_listing_cache.get_or_load(
+                    (
+                        tenant_id,
+                        external_source_id,
+                        parent_id,
+                        "",
+                        0,
+                        "folders",
+                    ),
+                    load_provider_folders,
+                )
+            else:
+                snapshot = await load_provider_folders()
+            folders = [folder.model_copy(deep=True) for folder in snapshot]
+            if self.viewer_access and self.viewer_access.restricted and not viewer_parent_authorized:
+                folders = [folder for folder in folders if self.viewer_access.allows(
+                    item_id=folder.id, parent_id=parent_id, ancestor_ids=folder.ancestor_ids,
+                )]
+            self._assign_external_source(folders, external_source_id)
+            return folders
         if provider == "sharepoint":
             raise PermissionError("Connect SharePoint to browse folders.")
         folders = [item for item in MOCK if item.parent_id == parent_id and item.kind == "folder"]

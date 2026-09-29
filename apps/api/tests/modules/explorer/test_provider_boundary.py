@@ -15,6 +15,7 @@ class FakeExplorerProvider:
         self.parent = parent
         self.children = children
         self.page_calls = 0
+        self.folder_calls = 0
 
     async def __aenter__(self):
         return self
@@ -30,6 +31,8 @@ class FakeExplorerProvider:
         self, parent_id: str, *, folders_only: bool = False
     ) -> list[AssetNode]:
         if folders_only:
+            self.folder_calls += 1
+            await asyncio.sleep(0)
             return [item for item in self.children if item.kind == "folder"]
         return self.children
 
@@ -141,6 +144,61 @@ class ExplorerProviderBoundaryTest(unittest.IsolatedAsyncioTestCase):
                 external_source_id="source-a",
             )
         self.assertEqual(provider.page_calls, 2)
+
+    async def test_tree_folder_listing_cache_and_singleflight_are_source_scoped(self) -> None:
+        parent = AssetNode(
+            id="root", name="My Drive", kind="folder",
+            mime_type="application/vnd.google-apps.folder",
+        )
+        folder = AssetNode(
+            id="folder-1", name="Campaign", kind="folder",
+            mime_type="application/vnd.google-apps.folder", parent_id="root",
+        )
+        provider = FakeExplorerProvider(parent, [folder])
+        service = ExplorerService(lambda _provider, _token: provider)
+
+        first, second = await asyncio.gather(
+            service.list_folders(
+                "root", "token", tenant_id="tenant-a",
+                external_source_id="source-a",
+            ),
+            service.list_folders(
+                "root", "token", tenant_id="tenant-a",
+                external_source_id="source-a",
+            ),
+        )
+        third = await service.list_folders(
+            "root", "token", tenant_id="tenant-a",
+            external_source_id="source-a",
+        )
+
+        self.assertEqual(provider.folder_calls, 1)
+        self.assertEqual(first[0].id, second[0].id)
+        self.assertEqual(third[0].id, "folder-1")
+
+    async def test_fast_interactive_listing_can_skip_location_enrichment(self) -> None:
+        parent = AssetNode(
+            id="root", name="My Drive", kind="folder",
+            mime_type="application/vnd.google-apps.folder",
+        )
+        child = AssetNode(
+            id="file-1", name="asset.png", kind="image",
+            mime_type="image/png", parent_id="root",
+        )
+        provider = FakeExplorerProvider(parent, [child])
+        service = ExplorerService(lambda _provider, _token: provider)
+
+        with patch.object(service, "_attach_breadcrumbs") as attach, patch(
+            "app.modules.explorer.service.schedule_metadata_index"
+        ) as schedule:
+            schedule.side_effect = lambda coroutine: coroutine.close()
+            listing = await service.list_folder(
+                "root", "token", "account-1", "google-drive",
+                include_location=False,
+            )
+
+        self.assertEqual(listing.children[0].id, "file-1")
+        attach.assert_not_called()
 
     async def test_interactive_listing_returns_only_requested_page(self) -> None:
         parent = AssetNode(id="root", name="My Drive", kind="folder", mime_type="application/vnd.google-apps.folder")

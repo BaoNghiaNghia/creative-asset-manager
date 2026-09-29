@@ -804,6 +804,7 @@ export default function App() {
       onOpen={explorer.openFolder}
       onToggle={explorer.toggleTree}
       onPrefetch={explorer.scheduleFolderPrefetch}
+      onPrefetchNow={explorer.prefetchFolderNow}
       onCancelPrefetch={explorer.cancelFolderPrefetch}
       reviewLinkShareIds={canManageReviewLinks ? reviewLinkShareIds : undefined}
       onCopyReviewLink={copyCurrentReviewLink}
@@ -1148,6 +1149,7 @@ export default function App() {
             onToggle={explorer.toggleSelection}
             onReplaceSelection={explorer.replaceSelection}
             onPrefetch={explorer.scheduleFolderPrefetch}
+            onPrefetchNow={explorer.prefetchFolderNow}
             onCancelPrefetch={explorer.cancelFolderPrefetch}
             onPreview={setPreviewItem}
             onRate={explorer.rateAsset}

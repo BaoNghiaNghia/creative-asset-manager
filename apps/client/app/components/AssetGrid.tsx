@@ -303,6 +303,7 @@ type Props = {
   onToggle: (id: string) => void;
   onReplaceSelection: (ids: Iterable<string>) => void;
   onPrefetch: (id: string) => void;
+  onPrefetchNow?: (id: string) => void;
   onCancelPrefetch: () => void;
   onPreview: (item: Asset) => void;
   onRate: (item: Asset, rating: number | null) => void;
@@ -332,6 +333,7 @@ export function AssetGrid({
   onToggle,
   onReplaceSelection,
   onPrefetch,
+  onPrefetchNow,
   onCancelPrefetch,
   onPreview,
   onRate,
@@ -620,7 +622,8 @@ export function AssetGrid({
       title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
       onPointerDown={() => {
         cancelNativeOriginalPrewarm();
-        if (item.kind !== "folder") void prepareNativeOriginalDrag(dragItemsFor(item));
+        if (item.kind === "folder") onPrefetchNow?.(item.id);
+        else void prepareNativeOriginalDrag(dragItemsFor(item));
       }}
       onPointerUp={cancelNativeOriginalPrewarm}
       onPointerCancel={cancelNativeOriginalPrewarm}

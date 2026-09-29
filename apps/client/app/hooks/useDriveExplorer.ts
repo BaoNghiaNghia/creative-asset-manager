@@ -175,6 +175,19 @@ export function appendUniqueFolderPage(current: Asset[], incoming: Asset[]): Ass
   return appended.length ? [...current, ...appended] : current;
 }
 
+export function withFolderLocation(items: Asset[], path: Asset[]): Asset[] {
+  if (!path.length) return items;
+  const location = path.map(({ id, name }) => ({ id, name }));
+  return items.map(item => item.location_breadcrumb?.length
+    ? item
+    : {
+      ...item,
+      location_breadcrumb: location,
+      location_unavailable: false,
+      location_status: "resolved" as const,
+    });
+}
+
 export type MetadataRequestGroup = {
   provider: Provider;
   externalSourceId?: string;
@@ -184,6 +197,7 @@ export type MetadataRequestGroup = {
 export function groupMetadataRequests(items: Asset[]): MetadataRequestGroup[] {
   const groups = new Map<string, MetadataRequestGroup>();
   for (const item of items) {
+    if (item.kind === "folder") continue;
     const provider = item.provider;
     const externalSourceId = item.external_source_id || undefined;
     const key = provider + "\u0000" + (externalSourceId || "");
@@ -255,6 +269,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const treeFolderCache = useRef(new Map<string, Asset[]>());
   const treeFolderRequests = useRef(new Map<string, Promise<Asset[]>>());
   const prefetchTimer = useRef<number | undefined>(undefined);
+  const activeFolderPrefetch = useRef<{ key: string; controller: AbortController } | null>(null);
   const openSequence = useRef(0);
   const paginationSequence = useRef(0);
   const loadedPageTokens = useRef(new Set<string>());
@@ -325,6 +340,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         parent_id: id,
         provider: source,
         page_size: "100",
+        include_location: "false",
       });
       if (pageToken) params.set("page_token", pageToken);
       if (externalSourceId) params.set("external_source_id", externalSourceId);
@@ -422,9 +438,34 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     }
   }
 
-  function cancelFolderPrefetch() {
+  function cancelFolderPrefetch(keepKey?: string) {
     window.clearTimeout(prefetchTimer.current);
     prefetchTimer.current = undefined;
+    const active = activeFolderPrefetch.current;
+    if (active && active.key !== keepKey) {
+      active.controller.abort();
+      activeFolderPrefetch.current = null;
+    }
+  }
+
+  function prefetchFolderNow(
+    id: string,
+    source: Provider = provider,
+    sourceId: string | null = activeExternalSourceId,
+  ) {
+    const key = folderCacheKey(source, id, sourceId);
+    if (folderCache.current.has(key) || folderRequests.current.has(key)) return;
+    cancelFolderPrefetch(key);
+    const controller = newBrowseController();
+    activeFolderPrefetch.current = { key, controller };
+    void fetchFolder(id, source, undefined, controller.signal, sourceId)
+      .catch(() => undefined)
+      .finally(() => {
+        releaseBrowseController(controller);
+        if (activeFolderPrefetch.current?.controller === controller) {
+          activeFolderPrefetch.current = null;
+        }
+      });
   }
 
   function scheduleFolderPrefetch(id: string) {
@@ -432,28 +473,34 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     if (folderCache.current.has(key) || folderRequests.current.has(key)) return;
     cancelFolderPrefetch();
     prefetchTimer.current = window.setTimeout(() => {
-      const controller = newBrowseController();
-      void fetchFolder(id, provider, undefined, controller.signal)
-        .catch(() => undefined)
-        .finally(() => releaseBrowseController(controller));
-    }, 180);
+      prefetchTimer.current = undefined;
+      prefetchFolderNow(id);
+    }, 260);
   }
 
   async function open(id = rootId(provider), ancestors: Asset[] = [], source: Provider = provider, preserveSelection = false, sourceId: string | null = activeExternalSourceId) {
     const requestSequence = ++openSequence.current;
     const controller = newBrowseController();
     resetFolderPagination();
-    const cached = folderCache.current.has(folderCacheKey(source, id, sourceId));
+    const folderKey = folderCacheKey(source, id, sourceId);
+    const cached = folderCache.current.has(folderKey);
     setLoading(!cached);
     setError("");
     if (!preserveSelection) setSelected(new Set());
-    cancelFolderPrefetch();
+    // Keep a same-folder hover/pointer prefetch alive so navigation joins it
+    // instead of aborting useful work. Once navigation claims that request,
+    // pointer-leave must no longer be allowed to cancel it.
+    cancelFolderPrefetch(folderKey);
+    if (activeFolderPrefetch.current?.key === folderKey) {
+      activeFolderPrefetch.current = null;
+    }
 
     try {
       const folder = await fetchFolder(id, source, undefined, controller.signal, sourceId);
       if (requestSequence !== openSequence.current || controller.signal.aborted) return false;
       const nextPath = [...ancestors, folder.parent];
-      setItems(folder.children);
+      const locatedChildren = withFolderLocation(folder.children, nextPath);
+      setItems(locatedChildren);
       const treeSourceId = folder.parent.external_source_id ?? sourceId ?? null;
       setActiveExternalSourceId(treeSourceId);
       // A breadcrumb navigation reconstructs only the selected path. Load the
@@ -473,7 +520,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       hydrateTreePath(nextPath, source);
       // Tree expansion needs a complete folder listing. Never put an interactive
       // first page into the tree cache, otherwise folders after page one disappear.
-      if (!folder.has_more) cacheFolders(id, folder.children, source, sourceId);
+      if (!folder.has_more) cacheFolders(id, locatedChildren, source, sourceId);
       else treeFolderCache.current.delete(folderCacheKey(source, id, sourceId));
       setExpanded(current => new Set(current).add(id));
       return true;
@@ -517,7 +564,8 @@ export function useDriveExplorer(imageSearchEnabled = true) {
           || pageSequence !== paginationSequence.current
         ) return;
 
-        setItems(current => appendUniqueFolderPage(current, page.children));
+        const locatedPage = withFolderLocation(page.children, path);
+        setItems(current => appendUniqueFolderPage(current, locatedPage));
         setNextPageToken(page.next_page_token || null);
         setHasMore(Boolean(page.has_more && page.next_page_token));
       } catch (reason) {
@@ -1282,6 +1330,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     openFolder,
     toggleTree,
     scheduleFolderPrefetch,
+    prefetchFolderNow,
     activeExternalSourceId,
     activeAssignedRootId,
     cancelFolderPrefetch,

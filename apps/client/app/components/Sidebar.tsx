@@ -28,6 +28,7 @@ type Props = {
   onOpen: (id: string, ancestors: Asset[]) => void;
   onToggle: (node: Asset) => void;
   onPrefetch: (id: string) => void;
+  onPrefetchNow?: (id: string) => void;
   onCancelPrefetch: () => void;
   reviewLinkShareIds?: ReadonlyMap<string, string>;
   onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
@@ -94,7 +95,7 @@ function beginSourceOAuth(provider: Provider, sourceId?: string, accountType?: O
 export function Sidebar({
   provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, tags, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onSelectSource, onDisconnectSource, onSyncSource, onOpen,
-  onToggle, onPrefetch, onCancelPrefetch, reviewLinkShareIds, onCopyReviewLink, onRefreshReviewLink, onCollapse, onResizeStart,
+  onToggle, onPrefetch, onPrefetchNow, onCancelPrefetch, reviewLinkShareIds, onCopyReviewLink, onRefreshReviewLink, onCollapse, onResizeStart,
   applicationAuthenticated = false,
 }: Props) {
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
@@ -186,7 +187,8 @@ export function Sidebar({
                   key={folder.id} node={folder} ancestors={rootAncestors} activeId={activeId}
                   activePathIds={activePathIds} childrenByParent={childrenByParent}
                   expanded={expanded} loadingNodes={loadingNodes} onOpen={onOpen}
-                  onToggle={onToggle} onPrefetch={onPrefetch} onCancelPrefetch={onCancelPrefetch}
+                  onToggle={onToggle} onPrefetch={onPrefetch} onPrefetchNow={onPrefetchNow}
+                  onCancelPrefetch={onCancelPrefetch}
                   reviewLinkShareIds={reviewLinkShareIds} activeExternalSourceId={connected.id}
                   onCopyReviewLink={onCopyReviewLink} onRefreshReviewLink={onRefreshReviewLink}
                 />)}
