@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-CONFIG="\${CAM_NGINX_CONFIG:-/etc/nginx/sites-enabled/creative-asset-manager.conf}"
+CONFIG="${CAM_NGINX_CONFIG:-/etc/nginx/sites-enabled/creative-asset-manager.conf}"
 MARKER="location ^~ /desktop-updates/windows/"
 BLOCK='    # Electron auto-update feed. Versioned installers and metadata are
     # published atomically under the current symlink by the desktop release script.
@@ -24,7 +24,7 @@ if grep -Fq "$MARKER" "$CONFIG"; then
   exit 0
 fi
 
-BACKUP="\${CONFIG}.desktop-update.bak"
+BACKUP="${CONFIG}.desktop-update.bak"
 cp -a -- "$CONFIG" "$BACKUP"
 python3 - "$CONFIG" "$BLOCK" <<'PY'
 from pathlib import Path

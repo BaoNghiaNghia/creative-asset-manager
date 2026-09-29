@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT="\${CAM_DESKTOP_UPDATE_ROOT:-/var/www/creative-asset-manager-desktop-updates/windows}"
-PUBLIC_URL="\${CAM_DESKTOP_UPDATE_PUBLIC_URL:-https://creative-assets.ddns.net/desktop-updates/windows}"
+ROOT="${CAM_DESKTOP_UPDATE_ROOT:-/var/www/creative-asset-manager-desktop-updates/windows}"
+PUBLIC_URL="${CAM_DESKTOP_UPDATE_PUBLIC_URL:-https://creative-assets.ddns.net/desktop-updates/windows}"
 SOURCE=""
 ROLLBACK=false
 
@@ -22,7 +22,7 @@ require() { command -v "$1" >/dev/null 2>&1 || die "Required command is unavaila
 
 while (($#)); do
   case "$1" in
-    --source) SOURCE="\${2:?missing source directory}"; shift 2 ;;
+    --source) SOURCE="${2:?missing source directory}"; shift 2 ;;
     --rollback) ROLLBACK=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1" ;;
@@ -63,7 +63,7 @@ if [[ -e "$TARGET" ]]; then
   diff -q "$SOURCE/latest.yml" "$TARGET/latest.yml" >/dev/null || die "Existing release metadata differs for version $VERSION."
   diff -q "$SOURCE/$ARTIFACT" "$TARGET/$ARTIFACT" >/dev/null || die "Existing installer differs for version $VERSION."
 else
-  STAGE="$ROOT/releases/.\${VERSION}.new.$$"
+  STAGE="$ROOT/releases/.${VERSION}.new.$$"
   install -d -o root -g root -m 0755 "$STAGE"
   rsync -a --chmod=D755,F644 -- "$SOURCE/$ARTIFACT" "$SOURCE/$ARTIFACT.blockmap" "$STAGE/"
   install -o root -g root -m 0644 "$SOURCE/latest.yml" "$STAGE/latest.yml"
