@@ -39,6 +39,9 @@ class GoogleDriveSourceAdapter(BaseSourceAdapter):
     async def upload_file(self, parent_id: str, filename: str, mime_type: str, content: bytes):
         return await self.client.upload_file(parent_id, filename, mime_type, content)
 
+    async def upload_file_stream(self, parent_id: str, filename: str, mime_type: str, content):
+        return await self.client.upload_file_stream(parent_id, filename, mime_type, content)
+
     async def create_folder(self, parent_id: str, name: str):
         return await self.client.create_folder(parent_id, name)
 

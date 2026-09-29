@@ -87,6 +87,39 @@ class SourceAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(downloaded, encoded_bytes)
         self.assertTrue(closed)
 
+    async def test_google_adapter_delegates_stream_upload(self) -> None:
+        node = AssetNode(
+            id="google-upload-1",
+            name="creative.png",
+            kind="image",
+            mime_type="image/png",
+            size=4,
+        )
+
+        class UploadClient(FakeCloudClient):
+            async def upload_file_stream(self, parent_id, filename, mime_type, content):
+                uploaded = b"".join([chunk async for chunk in content])
+                self.assertion = (parent_id, filename, mime_type, uploaded)
+                return self.node
+
+        fake = UploadClient("token", node)
+        adapter = GoogleDriveSourceAdapter("token", client_factory=lambda _: fake)
+
+        async def chunks():
+            yield b"ab"
+            yield b"cd"
+
+        async with adapter:
+            uploaded_node = await adapter.upload_file_stream(
+                "folder-1", "creative.png", "image/png", chunks()
+            )
+
+        self.assertIs(uploaded_node, node)
+        self.assertEqual(
+            fake.assertion,
+            ("folder-1", "creative.png", "image/png", b"abcd"),
+        )
+
     async def test_google_adapter_maps_existing_node_to_candidate(self) -> None:
         node = AssetNode(
             id="google-file-1",
