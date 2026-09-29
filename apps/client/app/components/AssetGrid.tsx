@@ -291,6 +291,16 @@ export function nativeOriginalDragKey(items: DesktopNativeDragAsset[]): string {
   ]));
 }
 
+export function nativeOriginalDragMode(
+  hasDesktop: boolean,
+  hasPreparedTicket: boolean,
+  canStartItems: boolean,
+): "prepared" | "direct" | "web" {
+  if (!hasDesktop) return "web";
+  if (hasPreparedTicket) return "prepared";
+  return canStartItems ? "direct" : "web";
+}
+
 const MAX_NATIVE_PREWARM_FILES = 3;
 const MAX_NATIVE_PREWARM_BYTES = 256 * 1024 * 1024;
 
@@ -651,12 +661,28 @@ export function AssetGrid({
       const key = nativeOriginalDragKey(descriptors);
       pruneNativeDragTickets();
       const ready = nativeDragTickets.current.get(key);
-      if (ready && ready.expiresAt > Date.now()) {
+      const readyNow = Boolean(ready && ready.expiresAt > Date.now());
+      const mode = nativeOriginalDragMode(true, readyNow, typeof desktop.startItems === "function");
+
+      if (mode === "prepared" && ready) {
         event.preventDefault();
         nativeDragTickets.current.delete(key);
         desktop.start(ready.ticket);
         return;
       }
+
+      if (mode === "direct" && desktop.startItems) {
+        // Native Windows applications expect real filesystem paths. If the
+        // pointer/hover prewarm has not completed yet, keep this as a native
+        // drag and let the desktop shell finish materializing the originals.
+        event.preventDefault();
+        void desktop.startItems(descriptors).catch(() => undefined);
+        return;
+      }
+
+      // Older desktop builds do not expose direct native fallback. Keep their
+      // prewarm running and retain the legacy browser payload below until the
+      // user updates the shell.
       void prepareNativeOriginalDrag(dragItems);
     }
 

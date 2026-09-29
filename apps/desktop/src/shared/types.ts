@@ -100,6 +100,7 @@ export interface CamDesktopApi {
       expiresAt: number;
     }>;
     start(ticket: string): void;
+    startItems(items: DesktopNativeDragAsset[]): Promise<DesktopNativeDragStats & { started: true }>;
     isInternalDrop(files: FileList): Promise<boolean>;
   };
   ingestion: {

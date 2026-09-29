@@ -8,6 +8,7 @@ import {
   originalAssetDragPayload,
   nativeOriginalDragItems,
   nativeOriginalDragKey,
+  nativeOriginalDragMode,
   nativeOriginalPrewarmItems,
   isAdditiveSelectionClick,
   explorerSelectionForClick,
@@ -281,6 +282,15 @@ describe("AssetGrid marquee selection and drag-out", () => {
     }));
     expect(markup).toContain('data-asset-id="file-1" draggable="true"');
     expect(markup).toContain('data-asset-id="folder-1" draggable="false"');
+  });
+});
+
+describe("AssetGrid native drag strategy", () => {
+  it("prefers a prepared ticket, falls back to direct native start, and only uses web drag without desktop support", () => {
+    expect(nativeOriginalDragMode(true, true, true)).toBe("prepared");
+    expect(nativeOriginalDragMode(true, false, true)).toBe("direct");
+    expect(nativeOriginalDragMode(true, false, false)).toBe("web");
+    expect(nativeOriginalDragMode(false, false, true)).toBe("web");
   });
 });
 

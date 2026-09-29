@@ -112,6 +112,29 @@ function registerNativeDragIpc(): void {
       downloadedBytes: prepared.downloadedBytes,
     };
   });
+  ipcMain.handle("desktop:native-drag:start-items", async (event, value: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error("Unsupported native drag request.");
+    }
+    // A user can begin dragging before pointer/hover prewarm has completed.
+    // Materialize the same original request here and begin the native OS drag
+    // once it is ready instead of falling back to browser DownloadURL data,
+    // which Explorer and most native Windows applications cannot consume.
+    const prepared = await nativeDragService().prepare(nativeDragItems(value));
+    if (!prepared.files.length) throw new Error("No original files are available for drag.");
+    event.sender.startDrag({
+      ...nativeDragStartFiles(prepared.files),
+      icon: await dragIcon(prepared.iconPath),
+    });
+    return {
+      started: true,
+      count: prepared.files.length,
+      cacheHits: prepared.cacheHits,
+      cacheMisses: prepared.cacheMisses,
+      totalBytes: prepared.totalBytes,
+      downloadedBytes: prepared.downloadedBytes,
+    };
+  });
   ipcMain.on("desktop:native-drag:start-prepared", (event, value: unknown) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || typeof value !== "string") return;
     const prepared = nativeDragTickets.take(value, event.sender.id);
