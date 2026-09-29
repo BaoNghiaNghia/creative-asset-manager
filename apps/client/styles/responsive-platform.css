@@ -24,6 +24,27 @@ button,a{-webkit-tap-highlight-color:transparent}
 .responsive-workspace-nav{display:none}
 .sidebar-mobile-scrim{display:none}
 
+/* Asset Explorer keeps the established light desktop appearance from the
+   reference UI: neutral sidebar, original brand mark, and a white canvas. */
+.product-shell{
+  background:#fff;
+  color:#1f2933;
+}
+.product-shell .explorer-content,
+.product-shell .explorer-workspace-header,
+.product-shell .grid{
+  background:#fff;
+}
+.product-shell .brand>b{
+  background:transparent;
+  color:inherit;
+  box-shadow:none;
+}
+.product-shell .brand-logo{
+  width:34px;
+  height:34px;
+}
+
 /* Harmonize the other workspace routes with the same native-app surface. */
 .ops-shell,.access-shell,.review-board-shell,.video-generation-shell,.rrugc-shell{background:var(--cam-bg)!important;color:var(--cam-text)}
 .ops-sidebar,.access-sidebar{
