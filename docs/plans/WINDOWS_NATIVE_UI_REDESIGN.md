@@ -85,5 +85,5 @@ Make the Creative Asset Manager Windows app feel like a purpose-built desktop pr
 - [x] Client typecheck.
 - [x] Desktop tests.
 - [x] Desktop typecheck/build.
-- [ ] Production frontend build.
-- [ ] Windows installer rebuild before distributing the menu-bar change.
+- [x] Production frontend build.
+- [x] Windows installer rebuild before distributing the menu-bar change.
