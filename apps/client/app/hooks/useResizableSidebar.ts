@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
-const MIN_WIDTH = 232;
+const MIN_WIDTH = 220;
 const MAX_WIDTH = 480;
-const DEFAULT_WIDTH = 272;
+const DEFAULT_WIDTH = 256;
 const COMPACT_QUERY = "(max-width: 1024px)";
 
 function compactViewport(): boolean {
