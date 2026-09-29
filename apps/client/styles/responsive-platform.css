@@ -310,7 +310,6 @@ button,a{-webkit-tap-highlight-color:transparent}
 }
 
 @media(min-width:1280px) and (max-width:1599px){
-  .rrugc-campaign-list{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
 @media(min-width:1025px) and (max-width:1279px){
@@ -318,7 +317,6 @@ button,a{-webkit-tap-highlight-color:transparent}
   .rrugc-page-body,.video-generation-page-body{padding-inline:24px!important}
   .ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ops-charts{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .rrugc-campaign-list{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rrugc-workflow-rail{grid-template-columns:repeat(5,minmax(150px,1fr));overflow-x:auto}
   .rrugc-auto-scout-status{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -338,7 +336,6 @@ button,a{-webkit-tap-highlight-color:transparent}
   .ops-charts{grid-template-columns:1fr}
   .ops-provider-grid,.ops-config-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rrugc-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .rrugc-campaign-list{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rrugc-workflow-rail{display:flex;overflow-x:auto;padding-bottom:14px;scroll-snap-type:x proximity;scrollbar-width:none}
   .rrugc-workflow-rail::-webkit-scrollbar{display:none}
   .rrugc-workflow-rail a{min-width:170px;flex:0 0 170px;scroll-snap-align:start;border-right:1px solid #e4e9f1;border-radius:10px!important}
@@ -350,7 +347,6 @@ button,a{-webkit-tap-highlight-color:transparent}
 @media(min-width:900px) and (max-width:1024px) and (orientation:landscape){
   .product-shell .source-cards{grid-template-columns:repeat(3,minmax(0,1fr))}
   .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr))}
-  .rrugc-campaign-list{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
 /* On phones the workspace nav becomes an app-style bottom rail. */
