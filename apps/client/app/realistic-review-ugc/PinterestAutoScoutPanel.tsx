@@ -12,6 +12,13 @@ const time = (value: string | null) =>
 const DEFAULT_PROFILE_DIR =
   "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
 
+export const MIN_SCOUT_CLIENT_VERSION = 8;
+
+export function scoutClientIsCurrent(value: string | null | undefined): boolean {
+  const match = /^rrugc-scout-v(\d+)$/.exec((value || "").trim());
+  return Boolean(match && Number(match[1]) >= MIN_SCOUT_CLIENT_VERSION);
+}
+
 export function autoScoutCommand(
   baseUrl: string,
   agentId: string,
@@ -53,6 +60,7 @@ export function PinterestAutoScoutPanel({
 
   const scout = agents[0] || null;
   const isOnline = Boolean(scout && scout.status !== "offline");
+  const clientCurrent = Boolean(scout && scoutClientIsCurrent(scout.client_version));
 
   const bootstrapCommand = useMemo(
     () => autoScoutBootstrapCommand(profileDir.trim() || "./.rrugc-pinterest-profile"),
@@ -136,6 +144,14 @@ export function PinterestAutoScoutPanel({
   const recentFailures = recentRuns.filter(row => row.status === "failed" || row.status === "cancelled").length;
   const health = !isOnline
     ? { tone: "is-offline", label: "Scout offline", detail: "Start or reconnect the local Scout." }
+    : !clientCurrent
+      ? {
+          tone: "is-warning",
+          label: "Scout update recommended",
+          detail: "This Scout is " + (scout?.client_version || "an unknown version")
+            + ". Update the local client to rrugc-scout-v" + MIN_SCOUT_CLIENT_VERSION
+            + "+ to keep source attribution, ranked keywords, and per-keyword quotas active.",
+        }
     : isStalled
       ? { tone: "is-warning", label: "Scan stalled", detail: "No run heartbeat for more than 2 minutes. The lease watchdog will release it automatically." }
       : scout?.status === "needs_login"
@@ -165,7 +181,7 @@ export function PinterestAutoScoutPanel({
       <span><small>Browser</small><b>{scout ? "Paired" : "Not paired"}</b></span>
       <span><small>Connection</small><b>{scout?.status?.replaceAll("_", " ") || "Offline"}</b></span>
       <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
-      <span><small>Last</small><b>{lastRun?.status?.replaceAll("_", " ") || "—"}</b></span>
+      <span><small>Client</small><b>{scout?.client_version || "—"}</b></span>
     </div>
 
     <div className="rrugc-pipeline-health" role="status">

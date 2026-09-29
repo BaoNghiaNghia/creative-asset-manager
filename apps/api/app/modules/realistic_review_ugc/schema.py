@@ -204,11 +204,29 @@ class CampaignUpdateRequest(BaseModel):
         return self
 
 
+class KeywordHealthResponse(BaseModel):
+    query: str
+    state: str = "explore"
+    protected: bool = False
+    scans: int = 0
+    found: int = 0
+    new: int = 0
+    duplicate: int = 0
+    approved: int = 0
+    ref_good: int = 0
+    ref_bad: int = 0
+    approved_yield: float = 0.0
+    reference_yield: float = 0.0
+    duplicate_rate: float = 0.0
+
+
 class CampaignResponse(BaseModel):
     id: str
     name: str
     query: str
     search_queries: list[str] = Field(default_factory=list)
+    search_query_anchors: list[str] = Field(default_factory=list)
+    keyword_health: list[KeywordHealthResponse] = Field(default_factory=list)
     target_count: int
     max_scroll_batches: int
     auto_import: bool
@@ -219,6 +237,7 @@ class CampaignResponse(BaseModel):
     scan_last_completed_at: datetime | None = None
     scan_attempt_count: int = 0
     scan_empty_streak: int = 0
+    scan_failure_streak: int = 0
     scan_last_error_code: str | None = None
     active_scan_run_id: str | None = None
     min_head_ratio: float
@@ -651,6 +670,7 @@ class CandidateSubmission(BaseModel):
 
 class CandidateBatchRequest(BaseModel):
     items: list[CandidateSubmission] = Field(min_length=1, max_length=50)
+    source_query: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 class CandidateResponse(BaseModel):

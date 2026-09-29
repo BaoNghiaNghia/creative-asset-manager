@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections import Counter
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcVisualFingerprintModel,
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
@@ -78,21 +79,88 @@ class RrugcRepository:
 
     def visual_fingerprint_rows(
         self, tenant_id: str, exclude_id: str, *, campaign_id: str | None = None
-    ) -> list[dict]:
+    ) -> list[str]:
         filters = [
-            RrugcCandidateModel.tenant_id == tenant_id,
-            RrugcCandidateModel.id != exclude_id,
+            RrugcVisualFingerprintModel.tenant_id == tenant_id,
+            RrugcVisualFingerprintModel.candidate_id != exclude_id,
             RrugcCandidateModel.status.in_(
                 ("approved", "import_queued", "importing", "drive_ready")
             ),
-            RrugcCandidateModel.ai_signal_json.is_not(None),
         ]
         if campaign_id is not None:
-            filters.append(RrugcCandidateModel.campaign_id == campaign_id)
-        rows = self.session.execute(
-            select(RrugcCandidateModel.ai_signal_json).where(*filters)
-        ).all()
-        return [value for (value,) in rows if isinstance(value, dict)]
+            filters.append(RrugcVisualFingerprintModel.campaign_id == campaign_id)
+        return list(self.session.scalars(
+            select(RrugcVisualFingerprintModel.fingerprint)
+            .join(
+                RrugcCandidateModel,
+                (
+                    RrugcCandidateModel.tenant_id
+                    == RrugcVisualFingerprintModel.tenant_id
+                )
+                & (
+                    RrugcCandidateModel.id
+                    == RrugcVisualFingerprintModel.candidate_id
+                ),
+            )
+            .where(*filters)
+        ))
+
+    def replace_visual_fingerprints(
+        self,
+        candidate: RrugcCandidateModel,
+        fingerprints: list[str],
+    ) -> None:
+        self.session.execute(
+            delete(RrugcVisualFingerprintModel).where(
+                RrugcVisualFingerprintModel.tenant_id == candidate.tenant_id,
+                RrugcVisualFingerprintModel.candidate_id == candidate.id,
+            )
+        )
+        eligible = candidate.status in {
+            "approved",
+            "import_queued",
+            "importing",
+            "drive_ready",
+        }
+        clean = (
+            list(dict.fromkeys(
+                value.strip()
+                for value in fingerprints
+                if isinstance(value, str) and value.strip()
+            ))
+            if eligible
+            else []
+        )
+        self.session.add_all([
+            RrugcVisualFingerprintModel(
+                tenant_id=candidate.tenant_id,
+                campaign_id=candidate.campaign_id,
+                candidate_id=candidate.id,
+                fingerprint=value,
+            )
+            for value in clean
+        ])
+
+    def campaign_diversity_signature_count(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        exclude_id: str,
+        diversity_signature: str,
+    ) -> int:
+        return int(self.session.scalar(
+            select(func.count())
+            .select_from(RrugcCandidateModel)
+            .where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id == campaign_id,
+                RrugcCandidateModel.id != exclude_id,
+                RrugcCandidateModel.status.in_(
+                    ("approved", "import_queued", "importing", "drive_ready")
+                ),
+                RrugcCandidateModel.diversity_signature == diversity_signature,
+            )
+        ) or 0)
 
     def get_candidate(
         self, tenant_id: str, campaign_id: str, candidate_id: str
@@ -114,6 +182,29 @@ class RrugcRepository:
                 RrugcCandidateModel.campaign_id == campaign_id,
                 RrugcCandidateModel.source_key == source_key,
             )
+        )
+
+    def analyzed_candidate_by_source_key_tenant(
+        self,
+        tenant_id: str,
+        source_key: str,
+        *,
+        exclude_campaign_id: str | None = None,
+    ) -> RrugcCandidateModel | None:
+        statement = select(RrugcCandidateModel).where(
+            RrugcCandidateModel.tenant_id == tenant_id,
+            RrugcCandidateModel.source_key == source_key,
+            RrugcCandidateModel.analyzed_at.is_not(None),
+        )
+        if exclude_campaign_id is not None:
+            statement = statement.where(
+                RrugcCandidateModel.campaign_id != exclude_campaign_id
+            )
+        return self.session.scalar(
+            statement.order_by(
+                RrugcCandidateModel.analyzed_at.desc(),
+                RrugcCandidateModel.created_at.desc(),
+            ).limit(1)
         )
 
     def drive_candidate_by_hash(
@@ -170,6 +261,8 @@ class RrugcRepository:
         self,
         tenant_id: str,
         *,
+        intent: str | None = None,
+        legacy_campaign_id: str | None = None,
         limit: int = 1000,
     ) -> list[tuple[str, dict | None]]:
         rows = list(self.session.scalars(
@@ -188,11 +281,23 @@ class RrugcRepository:
         for row in rows:
             if row.candidate_id not in latest_by_candidate:
                 latest_by_candidate[row.candidate_id] = row
-        return [
-            (row.label, row.signal_json)
-            for row in latest_by_candidate.values()
-            if row.label in {"ref_good", "ref_bad"}
-        ]
+        result: list[tuple[str, dict | None]] = []
+        for row in latest_by_candidate.values():
+            if row.label not in {"ref_good", "ref_bad"}:
+                continue
+            payload = row.signal_json if isinstance(row.signal_json, dict) else None
+            if intent is not None:
+                row_intent = payload.get("learning_intent") if payload else None
+                same_intent = row_intent == intent
+                same_legacy_campaign = (
+                    row_intent is None
+                    and legacy_campaign_id is not None
+                    and row.campaign_id == legacy_campaign_id
+                )
+                if not same_intent and not same_legacy_campaign:
+                    continue
+            result.append((row.label, payload))
+        return result
 
 
     def list_scout_agents(
@@ -328,14 +433,27 @@ class RrugcRepository:
         )
 
     def candidate_keyword_outcomes(
-        self, tenant_id: str, campaign_id: str
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        limit: int = 2000,
     ) -> list[tuple[str, str, str | None]]:
         rows = self.session.execute(
-            select(RrugcCandidateModel.status, RrugcCandidateModel.ai_signal_json).where(
+            select(
+                RrugcCandidateModel.status,
+                RrugcCandidateModel.ai_signal_json,
+            )
+            .where(
                 RrugcCandidateModel.tenant_id == tenant_id,
                 RrugcCandidateModel.campaign_id == campaign_id,
                 RrugcCandidateModel.ai_signal_json.is_not(None),
             )
+            .order_by(
+                RrugcCandidateModel.created_at.desc(),
+                RrugcCandidateModel.id.desc(),
+            )
+            .limit(max(1, int(limit)))
         ).all()
         outcomes: list[tuple[str, str, str | None]] = []
         for status, signal in rows:

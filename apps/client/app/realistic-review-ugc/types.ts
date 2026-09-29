@@ -1,8 +1,26 @@
+export type KeywordHealth = {
+  query: string;
+  state: "protected" | "healthy" | "explore" | "suppressed";
+  protected: boolean;
+  scans: number;
+  found: number;
+  new: number;
+  duplicate: number;
+  approved: number;
+  ref_good: number;
+  ref_bad: number;
+  approved_yield: number;
+  reference_yield: number;
+  duplicate_rate: number;
+};
+
 export type Campaign = {
   id: string;
   name: string;
   query: string;
   search_queries: string[];
+  search_query_anchors: string[];
+  keyword_health: KeywordHealth[];
   target_count: number;
   max_scroll_batches: number;
   auto_import: boolean;
@@ -13,6 +31,7 @@ export type Campaign = {
   scan_last_completed_at: string | null;
   scan_attempt_count: number;
   scan_empty_streak: number;
+  scan_failure_streak: number;
   scan_last_error_code: string | null;
   active_scan_run_id: string | null;
   min_head_ratio: number;

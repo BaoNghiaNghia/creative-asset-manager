@@ -34,6 +34,7 @@ from app.modules.realistic_review_ugc.analysis import (
     policy_from_campaign,
     should_confirm_ai_risk,
 )
+from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
@@ -170,9 +171,20 @@ class RrugcCandidateAnalyzeJobHandler:
             calibration = build_ai_risk_calibration(
                 repository.ai_feedback_training_rows(context.job.tenant_id)
             )
-            reference_preference_model = build_reference_preference_model(
-                repository.reference_feedback_training_rows(context.job.tenant_id)
+            learning_intent = campaign_learning_intent(
+                campaign_id=campaign.id,
+                name=campaign.name,
+                queries=list(campaign.search_queries_json or [campaign.query]),
+                product_snapshot=campaign.product_snapshot_json,
             )
+            reference_preference_model = build_reference_preference_model(
+                repository.reference_feedback_training_rows(
+                    context.job.tenant_id,
+                    intent=learning_intent,
+                    legacy_campaign_id=campaign.id,
+                )
+            )
+            reference_preference_scope = "intent"
 
         registry = context.dependencies.ai_provider_registry
         if registry is None:
@@ -249,26 +261,21 @@ class RrugcCandidateAnalyzeJobHandler:
                 if candidate.analysis_revision != revision:
                     return JobHandlerResult.completed()
 
-                tenant_signals = repository.visual_fingerprint_rows(
-                    context.job.tenant_id, candidate_id
+                existing_fingerprints = repository.visual_fingerprint_rows(
+                    context.job.tenant_id,
+                    candidate_id,
                 )
-                campaign_signals = repository.visual_fingerprint_rows(
-                    context.job.tenant_id, candidate_id, campaign_id=campaign_id
-                )
-                existing_fingerprints = [
-                    fingerprint
-                    for signal in tenant_signals
-                    for fingerprint in signal.get("visual_fingerprints", [])
-                    if isinstance(fingerprint, str)
-                ]
                 near_duplicate = decision.approved and is_visual_near_duplicate(
-                    fingerprints, existing_fingerprints
+                    fingerprints,
+                    existing_fingerprints,
                 )
                 diversity_signature = self._diversity_signature(document)
                 similar_compositions = (
-                    sum(
-                        signal.get("diversity_signature") == diversity_signature
-                        for signal in campaign_signals
+                    repository.campaign_diversity_signature_count(
+                        context.job.tenant_id,
+                        campaign_id,
+                        candidate_id,
+                        diversity_signature,
                     )
                     if diversity_signature
                     else 0
@@ -310,6 +317,7 @@ class RrugcCandidateAnalyzeJobHandler:
                     fingerprints,
                     diversity_signature,
                 )
+                repository.replace_visual_fingerprints(candidate, fingerprints)
                 candidate.ai_signal_json = {
                     **(candidate.ai_signal_json or {}),
                     "reference_preference_adjustment": preference_adjustment,
@@ -317,6 +325,8 @@ class RrugcCandidateAnalyzeJobHandler:
                         "active": reference_preference_model.active,
                         "good_count": reference_preference_model.good_count,
                         "bad_count": reference_preference_model.bad_count,
+                        "learning_intent": learning_intent,
+                        "scope": reference_preference_scope,
                     },
                 }
                 service = RrugcService(session)
@@ -381,6 +391,7 @@ class RrugcCandidateAnalyzeJobHandler:
             for key, value in (candidate.ai_signal_json or {}).items()
             if key == "scout_query" or key.startswith("reference_manual_")
         }
+        candidate.diversity_signature = diversity_signature
         candidate.ai_signal_json = {
             **provenance,
             **(ai_assessment.signal_json or {}),

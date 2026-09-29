@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-import random
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
@@ -19,6 +18,7 @@ from app.modules.realistic_review_ugc.analysis import (
     build_ai_risk_calibration,
     build_reference_preference_model,
 )
+from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
 from app.modules.realistic_review_ugc.generation import (
     RrugcGenerationFoundation,
     binding_is_generation_ready,
@@ -107,6 +107,7 @@ from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
     RrugcAutoScoutService,
     effective_agent_status,
+    keyword_health_rows,
 )
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
@@ -582,7 +583,12 @@ def _delivery_event(row: RrugcDeliveryEventModel) -> DeliveryEventResponse:
     )
 
 
-def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignResponse:
+def _campaign(
+    repository: RrugcRepository,
+    row: RrugcCampaignModel,
+    *,
+    include_keyword_health: bool = False,
+) -> CampaignResponse:
     counts = repository.campaign_counts(row.tenant_id, row.id)
     approved = _count_sum(counts, ANALYSIS_APPROVED_STATUSES)
     rejected = _count_sum(counts, ANALYSIS_REJECTED_STATUSES)
@@ -594,11 +600,36 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
         if item.get("view_type")
     })
     binding_stale = RrugcGenerationFoundation(repository.session).binding_is_stale(row)
+    search_queries = list(row.search_queries_json or [row.query])
+    search_query_anchors = list(
+        row.search_query_anchors_json
+        or [row.query]
+    )
+    keyword_health = (
+        keyword_health_rows(
+            search_queries,
+            repository.list_scout_runs(
+                row.tenant_id,
+                campaign_id=row.id,
+                limit=100,
+            ),
+            repository.candidate_keyword_outcomes(
+                row.tenant_id,
+                row.id,
+                limit=2000,
+            ),
+            protected_queries=search_query_anchors,
+        )
+        if include_keyword_health
+        else []
+    )
     return CampaignResponse(
         id=row.id,
         name=row.name,
         query=row.query,
-        search_queries=list(row.search_queries_json or [row.query]),
+        search_queries=search_queries,
+        search_query_anchors=search_query_anchors,
+        keyword_health=keyword_health,
         target_count=row.target_count,
         max_scroll_batches=row.max_scroll_batches,
         auto_import=row.auto_import,
@@ -609,6 +640,7 @@ def _campaign(repository: RrugcRepository, row: RrugcCampaignModel) -> CampaignR
         scan_last_completed_at=row.scan_last_completed_at,
         scan_attempt_count=row.scan_attempt_count,
         scan_empty_streak=row.scan_empty_streak,
+        scan_failure_streak=row.scan_failure_streak,
         scan_last_error_code=row.scan_last_error_code,
         active_scan_run_id=row.scan_lease_run_id,
         min_head_ratio=row.min_head_ratio,
@@ -999,6 +1031,7 @@ def get_campaign(
     return _campaign(
         repository,
         _require_campaign(repository, principal.active_tenant_id, campaign_id),
+        include_keyword_health=True,
     )
 
 
@@ -1840,7 +1873,11 @@ def mark_candidate_reference_feedback(
     principal: CurrentPrincipal = Depends(RUN),
 ):
     repository = RrugcRepository(session)
-    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
     candidate = repository.get_candidate(
         principal.active_tenant_id, campaign_id, candidate_id
     )
@@ -1855,8 +1892,18 @@ def mark_candidate_reference_feedback(
         )
     except RrugcError as exc:
         raise _error(exc) from exc
+    learning_intent = campaign_learning_intent(
+        campaign_id=campaign.id,
+        name=campaign.name,
+        queries=list(campaign.search_queries_json or [campaign.query]),
+        product_snapshot=campaign.product_snapshot_json,
+    )
     learning = build_reference_preference_model(
-        repository.reference_feedback_training_rows(principal.active_tenant_id)
+        repository.reference_feedback_training_rows(
+            principal.active_tenant_id,
+            intent=learning_intent,
+            legacy_campaign_id=campaign.id,
+        )
     )
     return CandidateReferenceFeedbackResponse(
         candidate=_candidate(row),
@@ -2043,14 +2090,7 @@ def auto_scout_agent_claim(
         raise _error(exc) from exc
     if claim is None:
         return None
-    search_queries = list(
-        claim.campaign.search_queries_json or [claim.campaign.query]
-    )
-    selected_query = claim.run.query
-    random.shuffle(search_queries)
-    if selected_query in search_queries:
-        search_queries.remove(selected_query)
-        search_queries.insert(0, selected_query)
+    search_queries = list(claim.search_queries)
     return ScoutClaimResponse(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,
@@ -2083,6 +2123,7 @@ def auto_scout_run_candidates(
             raw_token=token,
             run_id=run_id,
             submissions=request.items,
+            source_query=request.source_query,
         )
     except RrugcError as exc:
         raise _error(exc) from exc

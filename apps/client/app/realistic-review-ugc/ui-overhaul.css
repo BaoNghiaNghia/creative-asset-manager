@@ -525,3 +525,15 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-live-meta{grid-template-columns:1fr 1fr}
   .rrugc-auto-scout-last-run{grid-template-columns:1fr 1fr}
 }
+
+.rrugc-keyword-health-panel{margin-top:7px}
+.rrugc-keyword-health{display:grid;gap:5px;margin-top:8px}
+.rrugc-keyword-health-row{display:grid;grid-template-columns:minmax(180px,2fr) minmax(54px,.65fr) repeat(8,minmax(58px,.7fr));gap:5px;align-items:center;padding:6px 7px;border:1px solid #e1e8f2;border-radius:7px;background:#fff}
+.rrugc-keyword-health-row strong{overflow:hidden;color:#33445f;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-keyword-health-row span{color:#77869d;font-size:8px;white-space:nowrap}
+.rrugc-keyword-health-row b{color:#3a4e6c;font-size:9px}
+.rrugc-keyword-state{text-transform:capitalize;font-weight:700}
+.rrugc-keyword-state.is-healthy{color:#26734d}
+.rrugc-keyword-state.is-suppressed{color:#a04444}
+.rrugc-keyword-state.is-protected{color:#3a5c8c}
+@media(max-width:1180px){.rrugc-keyword-health-row{grid-template-columns:minmax(160px,1.5fr) repeat(4,minmax(58px,1fr))}.rrugc-keyword-health-row span:nth-of-type(n+5){display:none}}

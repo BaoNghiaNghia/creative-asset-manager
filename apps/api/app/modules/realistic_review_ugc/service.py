@@ -28,7 +28,10 @@ from app.infrastructure.downloader.secure_image import (
 )
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.analysis import reference_preference_features
-from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
+from app.modules.realistic_review_ugc.keyword_strategy import (
+    build_campaign_search_queries,
+    campaign_learning_intent,
+)
 from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcCampaignModel,
@@ -217,9 +220,11 @@ class RrugcService:
                 "At least one Pinterest search query is required.",
                 status_code=400,
             )
+        anchors = list(queries)
         queries = build_campaign_search_queries(
             name=name,
-            queries=queries,
+            queries=anchors,
+            protected_queries=anchors,
             reject_headwear=reject_headwear,
         )
         row = RrugcCampaignModel(
@@ -227,6 +232,7 @@ class RrugcService:
             name=name.strip(),
             query=queries[0],
             search_queries_json=queries,
+            search_query_anchors_json=anchors,
             target_count=target_count,
             max_scroll_batches=max_scroll_batches,
             auto_import=auto_import,
@@ -294,6 +300,7 @@ class RrugcService:
                 )
             campaign.query = queries[0]
             campaign.search_queries_json = queries
+            campaign.search_query_anchors_json = list(queries)
 
         for field, value in {
             "target_count": target_count,
@@ -327,10 +334,15 @@ class RrugcService:
             if not auto_scout:
                 campaign.scan_next_at = None
 
-        current_queries = list(campaign.search_queries_json or [campaign.query])
+        anchor_queries = list(
+            campaign.search_query_anchors_json
+            or campaign.search_queries_json
+            or [campaign.query]
+        )
         refreshed_queries = build_campaign_search_queries(
             name=campaign.name,
-            queries=current_queries,
+            queries=anchor_queries,
+            protected_queries=anchor_queries,
             product_snapshot=campaign.product_snapshot_json,
             reject_headwear=campaign.reject_headwear,
         )
@@ -460,6 +472,48 @@ class RrugcService:
                     self.enqueue_analysis(row)
                 rows.append(row)
                 continue
+
+            tenant_duplicate = self.repository.analyzed_candidate_by_source_key_tenant(
+                campaign.tenant_id,
+                key,
+                exclude_campaign_id=campaign.id,
+            )
+            if tenant_duplicate is not None:
+                duplicate_signal = {
+                    "duplicate_exact_candidate_id": tenant_duplicate.id,
+                    "duplicate_exact_campaign_id": tenant_duplicate.campaign_id,
+                    "duplicate_exact_source_key": key,
+                }
+                if source_query:
+                    duplicate_signal["scout_query"] = source_query
+                row = RrugcCandidateModel(
+                    tenant_id=campaign.tenant_id,
+                    campaign_id=campaign.id,
+                    source_key=key,
+                    pin_url=pin_url,
+                    image_url=image_url,
+                    alt_text=(item.alt_text or "").strip() or None,
+                    ai_signal_json=duplicate_signal,
+                    status="rejected_duplicate",
+                    analysis_revision=1,
+                    reject_reason="EXACT_SOURCE_DUPLICATE",
+                )
+                try:
+                    with self.session.begin_nested():
+                        self.session.add(row)
+                        self.session.flush()
+                except IntegrityError:
+                    row = self.repository.candidate_by_source_key(
+                        campaign.tenant_id,
+                        campaign.id,
+                        key,
+                    )
+                    if row is None:
+                        raise
+                existing += 1
+                rows.append(row)
+                continue
+
             row = RrugcCandidateModel(
                 tenant_id=campaign.tenant_id,
                 campaign_id=campaign.id,
@@ -586,6 +640,24 @@ class RrugcService:
             ai_risk_score=candidate.ai_risk_score,
         )
         signal = dict(candidate.ai_signal_json or {})
+        campaign = self.repository.get_campaign(
+            candidate.tenant_id,
+            candidate.campaign_id,
+        )
+        learning_intent = campaign_learning_intent(
+            campaign_id=candidate.campaign_id,
+            name=campaign.name if campaign is not None else "",
+            queries=(
+                list(campaign.search_queries_json or [campaign.query])
+                if campaign is not None
+                else [signal.get("scout_query") or ""]
+            ),
+            product_snapshot=(
+                campaign.product_snapshot_json
+                if campaign is not None
+                else None
+            ),
+        )
         ledger_label = {
             "good": "ref_good",
             "bad": "ref_bad",
@@ -608,6 +680,7 @@ class RrugcService:
                     "visual_fingerprints": signal.get("visual_fingerprints", []),
                     "diversity": signal.get("diversity"),
                     "scout_query": signal.get("scout_query"),
+                    "learning_intent": learning_intent,
                 },
                 created_by_user_id=user_id,
                 created_at=now,

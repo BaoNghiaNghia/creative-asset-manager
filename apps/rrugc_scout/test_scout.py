@@ -10,6 +10,7 @@ from scout import (
     allowed_pin,
     extract_visible,
     idle_diagnostic_message,
+    keyword_candidate_budgets,
     normalize_candidates,
     paced_scroll,
     quality_prefilter,
@@ -111,8 +112,7 @@ def test_access_gate_detects_login_and_challenge_without_solving_them():
     assert asyncio.run(access_gate(CaptchaPage())) == "challenge"
 
 
-def test_auto_scout_scans_every_campaign_keyword_in_randomized_order(monkeypatch):
-    monkeypatch.setattr("scout.random.shuffle", lambda rows: rows.reverse())
+def test_auto_scout_preserves_ranked_keyword_order_and_source_attribution():
     class FakeMouse:
         def __init__(self, page):
             self.page = page
@@ -152,13 +152,15 @@ def test_auto_scout_scans_every_campaign_keyword_in_randomized_order(monkeypatch
     class FakeClient:
         def __init__(self):
             self.submitted: list[str] = []
+            self.source_queries: list[str | None] = []
             self.completed: list[str] = []
 
         async def heartbeat(self, *_args, **_kwargs):
             return {}
 
-        async def submit(self, _run_id, rows):
+        async def submit(self, _run_id, rows, *, source_query=None):
             self.submitted.extend(row.pin_url for row in rows)
+            self.source_queries.append(source_query)
             return {
                 "created": len(rows),
                 "existing": 0,
@@ -189,9 +191,10 @@ def test_auto_scout_scans_every_campaign_keyword_in_randomized_order(monkeypatch
     ))
 
     assert len(page.visited) == 2
-    assert "second+keyword" in page.visited[0]
-    assert "first+keyword" in page.visited[1]
+    assert "first+keyword" in page.visited[0]
+    assert "second+keyword" in page.visited[1]
     assert len(client.submitted) == 2
+    assert client.source_queries == ["first keyword", "second keyword"]
     assert client.completed == ["run-1:completed"]
 
 
@@ -241,7 +244,8 @@ def test_existing_candidates_do_not_exhaust_new_candidate_cap(monkeypatch):
         async def heartbeat(self, *_args, **_kwargs):
             return {}
 
-        async def submit(self, _run_id, rows):
+        async def submit(self, _run_id, rows, *, source_query=None):
+            assert source_query in {"first keyword", "second keyword"}
             existing = all("existing-" in row.pin_url for row in rows)
             return {
                 "created": 0 if existing else len(rows),
@@ -278,6 +282,12 @@ def test_existing_candidates_do_not_exhaust_new_candidate_cap(monkeypatch):
     assert "first+keyword" in page.visited[0]
     assert "second+keyword" in page.visited[1]
     assert client.completed == ["run-duplicates:completed"]
+
+
+def test_keyword_candidate_budgets_cap_keywords_and_share_capacity():
+    assert keyword_candidate_budgets(24, 10) == [5, 5, 5, 5, 4]
+    assert keyword_candidate_budgets(3, 10) == [1, 1, 1]
+    assert keyword_candidate_budgets(0, 5) == []
 
 
 def test_careful_pace_uses_gradual_scrolls_and_longer_waits():
@@ -331,7 +341,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v7"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v8"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

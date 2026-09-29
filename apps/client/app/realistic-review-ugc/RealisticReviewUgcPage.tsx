@@ -10,6 +10,7 @@ import {
   importCandidate,
   markCandidateAiFeedback,
   markCandidateReferenceFeedback,
+  getCampaign,
   listCampaigns,
   listCandidates,
   updateCampaign,
@@ -260,13 +261,27 @@ export function RealisticReviewUgcPage() {
 
   async function refreshCampaigns(signal?: AbortSignal) {
     const rows = await listCampaigns(signal);
-    setCampaigns(rows);
+    setCampaigns(current => rows.map(row => {
+      const existing = current.find(item => item.id === row.id);
+      const sameKeywords = existing
+        && existing.search_queries.join("\u0000") === row.search_queries.join("\u0000")
+        && (existing.search_query_anchors || []).join("\u0000")
+          === (row.search_query_anchors || []).join("\u0000");
+      return sameKeywords && existing?.keyword_health?.length
+        ? { ...row, keyword_health: existing.keyword_health }
+        : row;
+    }));
     setSelectedId(current => current && rows.some(row => row.id === current) ? current : rows[0]?.id || "");
   }
 
   async function refreshCandidates(campaignId: string, signal?: AbortSignal) {
     const rows = await listCandidates(campaignId, signal);
     setCandidates(rows);
+  }
+
+  async function refreshSelectedCampaign(campaignId: string, signal?: AbortSignal) {
+    const row = await getCampaign(campaignId, signal);
+    setCampaigns(current => current.map(item => item.id === row.id ? row : item));
   }
 
   useEffect(() => {
@@ -283,6 +298,19 @@ export function RealisticReviewUgcPage() {
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const controller = new AbortController();
+    void refreshSelectedCampaign(selectedId, controller.signal).catch(() => undefined);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refreshSelectedCampaign(selectedId).catch(() => undefined);
+    }, 10000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [selectedId]);
 
   useEffect(() => {
     setCandidateLimit(24);
@@ -480,7 +508,11 @@ export function RealisticReviewUgcPage() {
     setEditingId(campaign.id);
     setEditDraft({
       name: campaign.name,
-      searchQueries: campaign.search_queries?.length ? campaign.search_queries : [campaign.query],
+      searchQueries: campaign.search_query_anchors?.length
+        ? campaign.search_query_anchors
+        : campaign.search_queries?.length
+          ? campaign.search_queries
+          : [campaign.query],
       target: campaign.target_count,
       scrolls: campaign.max_scroll_batches,
       autoImport: campaign.auto_import,
@@ -868,7 +900,10 @@ export function RealisticReviewUgcPage() {
               <small>
                 {selected.scan_last_error_code
                   ? "Last error: " + selected.scan_last_error_code.replaceAll("_", " ")
-                  : "Rescan every " + Math.round(selected.scan_interval_seconds / 60) + " min until target."}
+                    + " · retry streak " + selected.scan_failure_streak
+                  : selected.scan_empty_streak > 0
+                    ? "No new refs for " + selected.scan_empty_streak + " scan(s) · adaptive backoff active."
+                    : "Rescan every " + Math.round(selected.scan_interval_seconds / 60) + " min until target."}
               </small>
             </div>
             <button
@@ -881,6 +916,28 @@ export function RealisticReviewUgcPage() {
                 : selected.auto_scout ? "Pause Auto Scout" : "Resume Auto Scout"}
             </button>
           </div>
+          <details className="rrugc-inline-disclosure rrugc-keyword-health-panel">
+            <summary>Keyword health</summary>
+            <div className="rrugc-keyword-health">
+              {(selected.keyword_health || []).map(row => (
+                <div className="rrugc-keyword-health-row" key={row.query}>
+                  <strong title={row.query}>{row.query}</strong>
+                  <span className={"rrugc-keyword-state is-" + row.state}>
+                    {row.state === "protected" ? "Anchor" : row.state}
+                  </span>
+                  <span>Found <b>{row.found}</b></span>
+                  <span>New <b>{row.new}</b></span>
+                  <span>Dup <b>{row.duplicate}</b></span>
+                  <span>Approved <b>{row.approved}</b></span>
+                  <span>REF ✓ <b>{row.ref_good}</b></span>
+                  <span>REF × <b>{row.ref_bad}</b></span>
+                  <span>Yield <b>{Math.round(row.approved_yield * 100)}%</b></span>
+                  <span>REF yield <b>{Math.round(row.reference_yield * 100)}%</b></span>
+                </div>
+              ))}
+              {!selected.keyword_health?.length && <small>No keyword history yet.</small>}
+            </div>
+          </details>
           <details className="rrugc-inline-disclosure">
             <summary>Scan details & filters</summary>
             <div className="rrugc-live-meta rrugc-live-meta-secondary">

@@ -18,12 +18,13 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v7"
+CLIENT_VERSION = "rrugc-scout-v8"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 INITIAL_RESULTS_TIMEOUT_MS = 6_000
 SCROLL_RESULTS_TIMEOUT_MS = 3_500
 MANUAL_GATE_POLL_MS = 1_500
 QUALITY_FIRST_RUN_CANDIDATE_CAP = 24
+MAX_KEYWORDS_PER_RUN = 5
 QUALITY_QUERY_SUFFIX = "authentic smartphone candid photo real people"
 HEARTBEAT_INTERVAL_SECONDS = 10
 
@@ -446,10 +447,15 @@ class AutoScoutClient:
         self,
         run_id: str,
         rows: list[Candidate],
+        *,
+        source_query: str | None = None,
     ) -> dict[str, Any]:
         response = await self.client.post(
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/runs/{run_id}/candidates",
-            json={"items": [row.as_json() for row in rows]},
+            json={
+                "items": [row.as_json() for row in rows],
+                "source_query": source_query,
+            },
         )
         response.raise_for_status()
         return response.json()
@@ -522,6 +528,21 @@ async def paced_scroll(page: Any, pace: ScoutPace) -> int:
     return total
 
 
+def keyword_candidate_budgets(total_cap: int, query_count: int) -> list[int]:
+    active_queries = min(
+        max(0, int(query_count)),
+        max(0, int(total_cap)),
+        MAX_KEYWORDS_PER_RUN,
+    )
+    if active_queries <= 0:
+        return []
+    base, remainder = divmod(int(total_cap), active_queries)
+    return [
+        base + (1 if index < remainder else 0)
+        for index in range(active_queries)
+    ]
+
+
 async def scan_auto_run(
     page: Any,
     client: AutoScoutClient,
@@ -543,13 +564,6 @@ async def scan_auto_run(
             search_queries.append(value)
     if not search_queries:
         search_queries = [str(task["query"])]
-    random.shuffle(search_queries)
-    print(
-        "campaign="
-        + str(task["campaign_id"])
-        + " randomized_keywords="
-        + " | ".join(search_queries)
-    )
 
     await client.heartbeat("busy", run_id=run_id)
     last_heartbeat = time.monotonic()
@@ -571,13 +585,31 @@ async def scan_auto_run(
         QUALITY_FIRST_RUN_CANDIDATE_CAP,
         remaining_pipeline_budget,
     )
-    submitted_this_run = 0
     created_this_run = 0
     if run_candidate_cap <= 0:
         await client.complete(run_id, "completed")
         return
 
+    search_queries = search_queries[
+        :min(len(search_queries), MAX_KEYWORDS_PER_RUN, run_candidate_cap)
+    ]
+    keyword_budgets = keyword_candidate_budgets(
+        run_candidate_cap,
+        len(search_queries),
+    )
+    print(
+        "campaign="
+        + str(task["campaign_id"])
+        + " ranked_keywords="
+        + " | ".join(
+            f"{query} (cap={keyword_budgets[index]})"
+            for index, query in enumerate(search_queries)
+        )
+    )
+
     for query_index, raw_query in enumerate(search_queries):
+        keyword_candidate_cap = keyword_budgets[query_index]
+        created_for_keyword = 0
         search_query = quality_search_query(raw_query)
         query = quote_plus(search_query)
         url = "https://www.pinterest.com/search/pins/?q=" + query
@@ -667,19 +699,33 @@ async def scan_auto_run(
                     + str(metadata_filtered)
                 )
 
+            keyword_budget_reached = False
             for start in range(0, len(fresh), pace.submit_batch_size):
                 remaining_run_budget = run_candidate_cap - created_this_run
+                remaining_keyword_budget = keyword_candidate_cap - created_for_keyword
                 if remaining_run_budget <= 0:
                     await client.complete(run_id, "completed")
                     return
+                if remaining_keyword_budget <= 0:
+                    keyword_budget_reached = True
+                    break
                 chunk = fresh[
-                    start:start + min(pace.submit_batch_size, remaining_run_budget)
+                    start:start + min(
+                        pace.submit_batch_size,
+                        remaining_run_budget,
+                        remaining_keyword_budget,
+                    )
                 ]
                 if not chunk:
                     continue
-                result = await client.submit(run_id, chunk)
-                submitted_this_run += len(chunk)
-                created_this_run += int(result.get("created") or 0)
+                result = await client.submit(
+                    run_id,
+                    chunk,
+                    source_query=raw_query,
+                )
+                created_now = int(result.get("created") or 0)
+                created_this_run += created_now
+                created_for_keyword += created_now
                 progress = int(result.get("progress") or 0)
                 pipeline_count = int(result.get("pipeline_count") or progress)
                 print(
@@ -727,6 +773,9 @@ async def scan_auto_run(
                     + " submit_pause_ms="
                     + str(submit_pause)
                 )
+
+            if keyword_budget_reached or created_for_keyword >= keyword_candidate_cap:
+                break
 
             gate = await access_gate(page)
             if gate is not None:

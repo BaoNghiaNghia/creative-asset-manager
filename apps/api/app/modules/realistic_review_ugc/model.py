@@ -50,6 +50,7 @@ class RrugcCampaignModel(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     query: Mapped[str] = mapped_column(String(500), nullable=False)
     search_queries_json: Mapped[list | None] = mapped_column(JSON)
+    search_query_anchors_json: Mapped[list | None] = mapped_column(JSON)
     target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     max_scroll_batches: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -63,6 +64,7 @@ class RrugcCampaignModel(Base):
     scan_last_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scan_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scan_empty_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scan_failure_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scan_last_error_code: Mapped[str | None] = mapped_column(String(100))
     min_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.18)
     max_head_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.70)
@@ -170,6 +172,7 @@ class RrugcScoutRunModel(Base):
     submitted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     existing_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    keyword_stats_json: Mapped[dict | None] = mapped_column(JSON)
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime] = mapped_column(
@@ -281,6 +284,18 @@ class RrugcCandidateModel(Base):
             "ix_rrugc_candidate_content_hash",
             "tenant_id", "content_hash",
         ),
+        Index(
+            "ix_rrugc_candidate_tenant_source_key",
+            "tenant_id", "source_key",
+        ),
+        Index(
+            "ix_rrugc_candidate_campaign_created",
+            "tenant_id", "campaign_id", "created_at",
+        ),
+        Index(
+            "ix_rrugc_candidate_campaign_diversity",
+            "tenant_id", "campaign_id", "diversity_signature", "status",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -308,6 +323,7 @@ class RrugcCandidateModel(Base):
     ai_detector_confidence: Mapped[float | None] = mapped_column(Float)
     ai_risk_confirmed: Mapped[bool | None] = mapped_column(Boolean)
     ai_signal_json: Mapped[dict | None] = mapped_column(JSON)
+    diversity_signature: Mapped[str | None] = mapped_column(String(255))
     ai_manual_label: Mapped[str | None] = mapped_column(String(16))
     ai_manual_note: Mapped[str | None] = mapped_column(Text)
     ai_manual_reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
@@ -332,6 +348,39 @@ class RrugcCandidateModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcVisualFingerprintModel(Base):
+    __tablename__ = "rrugc_visual_fingerprints"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "candidate_id"],
+            ["rrugc_candidates.tenant_id", "rrugc_candidates.id"],
+            name="fk_rrugc_visual_fingerprint_candidate",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id", "candidate_id", "fingerprint",
+            name="uq_rrugc_visual_fingerprint_candidate",
+        ),
+        Index(
+            "ix_rrugc_visual_fingerprint_tenant",
+            "tenant_id", "fingerprint",
+        ),
+        Index(
+            "ix_rrugc_visual_fingerprint_campaign",
+            "tenant_id", "campaign_id", "candidate_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
 
 class RrugcAiFeedbackModel(Base):

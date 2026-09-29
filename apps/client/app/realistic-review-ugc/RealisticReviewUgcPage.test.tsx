@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
-import { autoScoutBootstrapCommand, autoScoutCommand } from "./PinterestAutoScoutPanel";
+import { autoScoutBootstrapCommand, autoScoutCommand, scoutClientIsCurrent } from "./PinterestAutoScoutPanel";
 import { candidateGalleryTab, candidateMatchesGalleryTab, candidatePhonePriority, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
 
@@ -19,6 +19,13 @@ describe("Realistic Review UGC route", () => {
     expect(markup).toContain("＋ Add campaign");
     expect(markup).toContain("Add, edit, delete, and select campaigns from one place.");
     expect(markup).not.toContain("Define what Auto Scout should find");
+  });
+
+  it("detects outdated local Scout clients without blocking future versions", () => {
+    expect(scoutClientIsCurrent("rrugc-scout-v7")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v8")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v9")).toBe(true);
+    expect(scoutClientIsCurrent(null)).toBe(false);
   });
 
   it("keeps qualification status independent from Drive lifecycle", () => {

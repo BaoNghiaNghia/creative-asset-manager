@@ -24,26 +24,174 @@ from app.modules.realistic_review_ugc.service import (
 )
 
 
-SCOUT_AGENT_VERSION = "rrugc-scout-v3"
+SCOUT_AGENT_VERSION = "rrugc-scout-v8"
 SCOUT_LEASE_SECONDS = 15 * 60
 SCOUT_OFFLINE_SECONDS = 45
 KEYWORD_HISTORY_RUNS = 100
+KEYWORD_OUTCOME_HISTORY = 2000
 KEYWORD_EXPLORATION_RATE = 0.20
+KEYWORD_SUPPRESSION_MIN_EVALUATED = 6
+KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS = 3
+KEYWORD_SUPPRESSION_MIN_RUNS = 4
+KEYWORD_SUPPRESSION_MIN_SUBMITTED = 12
+SCOUT_BACKOFF_JITTER = 0.10
+SCOUT_EMPTY_BACKOFF_MAX_MULTIPLIER = 3.0
+SCOUT_LOGIN_BACKOFF_CAP_SECONDS = 30 * 60
+SCOUT_FAILURE_BACKOFF_CAP_SECONDS = 60 * 60
+
+
+def _jittered_delay(seconds: float) -> int:
+    factor = random.uniform(
+        1.0 - SCOUT_BACKOFF_JITTER,
+        1.0 + SCOUT_BACKOFF_JITTER,
+    )
+    return max(60, int(round(seconds * factor)))
+
+
+def scout_retry_delay_seconds(
+    *,
+    status: str,
+    error_code: str | None,
+    scan_interval_seconds: int,
+    empty_streak: int,
+    failure_streak: int,
+    created_count: int,
+) -> int:
+    base = max(60, int(scan_interval_seconds or 300))
+    if status == "completed":
+        if created_count > 0:
+            return base
+        multiplier = min(
+            SCOUT_EMPTY_BACKOFF_MAX_MULTIPLIER,
+            1.0 + 0.5 * max(1, int(empty_streak)),
+        )
+        return _jittered_delay(base * multiplier)
+
+    failure_step = max(0, min(int(failure_streak) - 1, 4))
+    normalized_error = (error_code or "").casefold()
+
+    if status == "needs_login":
+        raw = max(300, base * 2) * (2 ** min(failure_step, 2))
+        return _jittered_delay(min(raw, SCOUT_LOGIN_BACKOFF_CAP_SECONDS))
+
+    is_rate_limited = "429" in normalized_error or "rate" in normalized_error
+    if is_rate_limited:
+        raw = max(300, base * 2) * (2 ** failure_step)
+        return _jittered_delay(min(raw, SCOUT_FAILURE_BACKOFF_CAP_SECONDS))
+
+    is_transient = any(
+        marker in normalized_error
+        for marker in (
+            "timeout",
+            "network",
+            "http_5",
+            "scan_failed",
+            "runtime_error",
+        )
+    )
+    failure_base = max(120, base) if is_transient else max(300, base)
+    raw = failure_base * (2 ** failure_step)
+    cap = (
+        SCOUT_FAILURE_BACKOFF_CAP_SECONDS
+        if is_transient
+        else SCOUT_LOGIN_BACKOFF_CAP_SECONDS
+    )
+    return _jittered_delay(min(raw, cap))
+
+
+def keyword_lifecycle_state(
+    *,
+    protected: bool,
+    run_count: int,
+    submitted: int,
+    created: int,
+    approved: int,
+    evaluated: int,
+    ref_good: int,
+    ref_bad: int,
+) -> str:
+    if protected:
+        return "protected"
+
+    approved_yield = approved / evaluated if evaluated else 0.0
+    reference_reviews = ref_good + ref_bad
+    reference_yield = (
+        ref_good / reference_reviews
+        if reference_reviews
+        else 0.0
+    )
+    duplicate_rate = (
+        max(0.0, (submitted - created) / submitted)
+        if submitted
+        else 0.0
+    )
+
+    enough_bad_reference_evidence = (
+        reference_reviews >= KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS
+        and reference_yield <= 0.25
+    )
+    enough_bad_approval_evidence = (
+        evaluated >= KEYWORD_SUPPRESSION_MIN_EVALUATED
+        and approved_yield <= 0.15
+    )
+    enough_duplicate_evidence = (
+        run_count >= KEYWORD_SUPPRESSION_MIN_RUNS
+        and submitted >= KEYWORD_SUPPRESSION_MIN_SUBMITTED
+        and duplicate_rate >= 0.80
+    )
+    if (
+        enough_bad_reference_evidence
+        or enough_bad_approval_evidence
+        or enough_duplicate_evidence
+    ):
+        return "suppressed"
+
+    healthy_reference_signal = (
+        reference_reviews >= KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS
+        and reference_yield >= 0.67
+    )
+    healthy_approval_signal = evaluated >= 6 and approved_yield >= 0.45
+    if healthy_reference_signal or healthy_approval_signal:
+        return "healthy"
+    return "explore"
 
 
 def adaptive_search_queries(
     queries: list[str],
     runs: list[RrugcScoutRunModel],
     outcomes: list[tuple[str, str] | tuple[str, str, str | None]] | None = None,
+    *,
+    protected_queries: list[str] | None = None,
 ) -> list[str]:
     """Rank keywords by downstream approved and human reference yield."""
     clean = list(dict.fromkeys(query.strip() for query in queries if query.strip()))
+    protected_keys = {
+        query.strip().casefold()
+        for query in (protected_queries or [])
+        if query.strip()
+    }
     if len(clean) < 2:
         return clean
 
     stats = {query: [0, 0, 0] for query in clean}
     for run in runs:
-        if run.query not in stats or run.status != "completed":
+        if run.status != "completed":
+            continue
+        keyword_stats = (
+            run.keyword_stats_json
+            if isinstance(run.keyword_stats_json, dict)
+            else None
+        )
+        if keyword_stats:
+            for query, payload in keyword_stats.items():
+                if query not in stats or not isinstance(payload, dict):
+                    continue
+                row = stats[query]
+                row[0] += 1
+                row[1] += int(payload.get("submitted") or 0)
+                row[2] += int(payload.get("created") or 0)
+            continue
+        if run.query not in stats:
             continue
         row = stats[run.query]
         row[0] += 1
@@ -65,9 +213,32 @@ def adaptive_search_queries(
         elif reference_label == "bad":
             outcome_stats[query][3] += 1
 
+    lifecycle = {}
+    for query in clean:
+        run_count, submitted, created = stats[query]
+        approved, evaluated, ref_good, ref_bad = outcome_stats[query]
+        lifecycle[query] = keyword_lifecycle_state(
+            protected=query.casefold() in protected_keys,
+            run_count=run_count,
+            submitted=submitted,
+            created=created,
+            approved=approved,
+            evaluated=evaluated,
+            ref_good=ref_good,
+            ref_bad=ref_bad,
+        )
+
     if random.random() < KEYWORD_EXPLORATION_RATE:
-        random.shuffle(clean)
-        return clean
+        exploratory = [
+            query for query in clean
+            if lifecycle[query] in {"explore", "suppressed"}
+        ]
+        steady = [query for query in clean if query not in exploratory]
+        random.shuffle(exploratory)
+        random.shuffle(steady)
+        if exploratory:
+            return [exploratory[0], *steady, *exploratory[1:]]
+        return steady
 
     jitter = {query: random.random() * 0.05 for query in clean}
 
@@ -86,16 +257,151 @@ def adaptive_search_queries(
         quality_weight = 0.35 + 0.45 * approval_confidence
         discovery_weight = 0.40 - 0.20 * approval_confidence
         human_reference_signal = (reference_yield - 0.5) * reference_confidence
+        lifecycle_bonus = {
+            # Protected means "never suppress", not "always prioritize".
+            # A broad manual anchor should not crowd out a more specific
+            # generated query until human/approval evidence proves it better.
+            "protected": -0.08,
+            "healthy": 0.18,
+            "explore": 0.00,
+            "suppressed": -1.00,
+        }[lifecycle[query]]
         return (
             approved_yield * quality_weight
             + discovery_yield * discovery_weight * (0.65 + 0.35 * run_confidence)
             + 0.35 * human_reference_signal
             + 0.20 * novelty
             - 0.15 * duplicate_rate
+            + lifecycle_bonus
             + jitter[query]
         )
 
-    return sorted(clean, key=score, reverse=True)
+    ranked = sorted(
+        clean,
+        key=lambda query: (
+            lifecycle[query] != "suppressed",
+            score(query),
+        ),
+        reverse=True,
+    )
+    active = [
+        query for query in ranked
+        if lifecycle[query] != "suppressed"
+    ]
+    return active or ranked[:1]
+
+
+def keyword_health_rows(
+    queries: list[str],
+    runs: list[RrugcScoutRunModel],
+    outcomes: list[tuple[str, str] | tuple[str, str, str | None]] | None = None,
+    *,
+    protected_queries: list[str] | None = None,
+) -> list[dict[str, int | float | str | bool]]:
+    clean = list(dict.fromkeys(query.strip() for query in queries if query.strip()))
+    protected_keys = {
+        query.strip().casefold()
+        for query in (protected_queries or [])
+        if query.strip()
+    }
+    health: dict[str, dict[str, int | float | str]] = {
+        query: {
+            "query": query,
+            "state": "explore",
+            "protected": query.casefold() in protected_keys,
+            "scans": 0,
+            "found": 0,
+            "new": 0,
+            "duplicate": 0,
+            "approved": 0,
+            "ref_good": 0,
+            "ref_bad": 0,
+            "approved_yield": 0.0,
+            "reference_yield": 0.0,
+            "duplicate_rate": 0.0,
+        }
+        for query in clean
+    }
+
+    for run in runs:
+        stats = run.keyword_stats_json if isinstance(run.keyword_stats_json, dict) else None
+        if stats:
+            for query, payload in stats.items():
+                if query not in health or not isinstance(payload, dict):
+                    continue
+                row = health[query]
+                row["scans"] = int(row["scans"]) + 1
+                row["found"] = int(row["found"]) + int(payload.get("submitted") or 0)
+                row["new"] = int(row["new"]) + int(payload.get("created") or 0)
+                row["duplicate"] = int(row["duplicate"]) + int(payload.get("existing") or 0)
+        elif run.query in health:
+            row = health[run.query]
+            row["scans"] = int(row["scans"]) + 1
+            row["found"] = int(row["found"]) + int(run.submitted_count or 0)
+            row["new"] = int(row["new"]) + int(run.created_count or 0)
+            row["duplicate"] = int(row["duplicate"]) + int(run.existing_count or 0)
+
+    evaluated: dict[str, int] = {query: 0 for query in clean}
+    useful_statuses = {"approved", "import_queued", "importing", "drive_ready"}
+    for outcome in outcomes or []:
+        query, status = outcome[0], outcome[1]
+        label = outcome[2] if len(outcome) > 2 else None
+        if query not in health:
+            continue
+        evaluated[query] += 1
+        row = health[query]
+        if status in useful_statuses:
+            row["approved"] = int(row["approved"]) + 1
+        if label == "good":
+            row["ref_good"] = int(row["ref_good"]) + 1
+        elif label == "bad":
+            row["ref_bad"] = int(row["ref_bad"]) + 1
+
+    for query, row in health.items():
+        evaluated_count = evaluated[query]
+        approved = int(row["approved"])
+        ref_good = int(row["ref_good"])
+        ref_bad = int(row["ref_bad"])
+        ref_total = ref_good + ref_bad
+        row["approved_yield"] = round(
+            approved / evaluated_count if evaluated_count else 0.0,
+            4,
+        )
+        row["reference_yield"] = round(
+            ref_good / ref_total if ref_total else 0.0,
+            4,
+        )
+        found = int(row["found"])
+        duplicate = int(row["duplicate"])
+        row["duplicate_rate"] = round(
+            duplicate / found if found else 0.0,
+            4,
+        )
+        row["state"] = keyword_lifecycle_state(
+            protected=bool(row["protected"]),
+            run_count=int(row["scans"]),
+            submitted=found,
+            created=int(row["new"]),
+            approved=approved,
+            evaluated=evaluated_count,
+            ref_good=ref_good,
+            ref_bad=ref_bad,
+        )
+
+    state_order = {
+        "protected": 0,
+        "healthy": 1,
+        "explore": 2,
+        "suppressed": 3,
+    }
+    return sorted(
+        (health[query] for query in clean),
+        key=lambda row: (
+            state_order.get(str(row["state"]), 9),
+            -float(row["approved_yield"]),
+            str(row["query"]),
+        ),
+    )
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -121,6 +427,7 @@ class ScoutClaim:
     campaign: RrugcCampaignModel
     progress: int
     pipeline_count: int
+    search_queries: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,23 +799,6 @@ class RrugcAutoScoutService:
         agent.machine_label = (machine_label or "").strip()[:160] or agent.machine_label
         agent.last_error_code = None
 
-        # Older releases exponentially backed off campaigns after empty scans.
-        # Collapse any legacy over-backoff immediately so an online Scout can
-        # resume at the configured cadence instead of remaining idle for up to an hour.
-        for campaign in self.repository.list_campaigns(agent.tenant_id, limit=200):
-            if (
-                campaign.status == "running"
-                and campaign.auto_scout
-                and int(campaign.scan_empty_streak or 0) > 0
-                and campaign.scan_next_at is not None
-                and campaign.scan_last_completed_at is not None
-            ):
-                expected_next = _as_utc(campaign.scan_last_completed_at) + timedelta(
-                    seconds=max(60, int(campaign.scan_interval_seconds or 300))
-                )
-                if _as_utc(campaign.scan_next_at) > expected_next + timedelta(seconds=5):
-                    campaign.scan_next_at = now
-
         campaigns = self.repository.claimable_campaigns(
             agent.tenant_id,
             now=now,
@@ -556,13 +846,19 @@ class RrugcAutoScoutService:
                 stale_run.last_heartbeat_at = now
 
         current_queries = list(selected.search_queries_json or [selected.query])
+        anchor_queries = list(
+            selected.search_query_anchors_json
+            or [selected.query]
+        )
         outcomes = self.repository.candidate_keyword_outcomes(
             agent.tenant_id,
             selected.id,
+            limit=KEYWORD_OUTCOME_HISTORY,
         )
         refreshed_queries = build_campaign_search_queries(
             name=selected.name,
-            queries=current_queries,
+            queries=anchor_queries,
+            protected_queries=anchor_queries,
             product_snapshot=selected.product_snapshot_json,
             reject_headwear=selected.reject_headwear,
             outcomes=outcomes,
@@ -580,6 +876,7 @@ class RrugcAutoScoutService:
                 limit=KEYWORD_HISTORY_RUNS,
             ),
             outcomes,
+            protected_queries=anchor_queries,
         )
         selected_query = ordered_queries[0] if ordered_queries else selected.query
         run = RrugcScoutRunModel(
@@ -615,6 +912,7 @@ class RrugcAutoScoutService:
             campaign=selected,
             progress=progress,
             pipeline_count=pipeline_count,
+            search_queries=tuple(ordered_queries),
         )
 
     def submit_candidates(
@@ -624,6 +922,7 @@ class RrugcAutoScoutService:
         raw_token: str,
         run_id: str,
         submissions: list[CandidateSubmission],
+        source_query: str | None = None,
     ) -> ScoutSubmitResult:
         agent = self.authenticate_agent(
             agent_id=agent_id,
@@ -689,19 +988,37 @@ class RrugcAutoScoutService:
             int(campaign.target_count) - pipeline_before,
         )
         accepted_submissions = submissions[:remaining_pipeline_budget]
+        campaign_queries = {
+            str(query).strip().casefold(): str(query).strip()
+            for query in (campaign.search_queries_json or [campaign.query])
+            if str(query or "").strip()
+        }
+        requested_source_query = str(source_query or "").strip()
+        effective_source_query = campaign_queries.get(
+            requested_source_query.casefold(),
+            run.query,
+        )
         if accepted_submissions:
             _rows, created, existing = RrugcService(self.session).ingest_candidates(
                 campaign=campaign,
                 submissions=accepted_submissions,
-                source_query=run.query,
+                source_query=effective_source_query,
             )
         else:
             created = 0
             existing = 0
         run.status = "running"
-        run.submitted_count += len(accepted_submissions)
+        submitted_now = len(accepted_submissions)
+        run.submitted_count += submitted_now
         run.created_count += created
         run.existing_count += existing
+        keyword_stats = dict(run.keyword_stats_json or {})
+        current_stats = dict(keyword_stats.get(effective_source_query) or {})
+        current_stats["submitted"] = int(current_stats.get("submitted") or 0) + submitted_now
+        current_stats["created"] = int(current_stats.get("created") or 0) + int(created)
+        current_stats["existing"] = int(current_stats.get("existing") or 0) + int(existing)
+        keyword_stats[effective_source_query] = current_stats
+        run.keyword_stats_json = keyword_stats
         run.last_heartbeat_at = now
         campaign.scan_lease_expires_at = now + timedelta(seconds=SCOUT_LEASE_SECONDS)
         campaign.scout_status = "busy"
@@ -777,24 +1094,33 @@ class RrugcAutoScoutService:
             campaign.scan_last_completed_at = now
             campaign.scan_last_error_code = run.last_error_code
             if status == "completed":
+                campaign.scan_failure_streak = 0
                 campaign.scan_empty_streak = (
                     int(campaign.scan_empty_streak or 0) + 1
-                    if run.created_count == 0
+                    if int(run.created_count or 0) == 0
                     else 0
                 )
                 campaign.scout_status = "ready"
-            elif status == "needs_login":
-                campaign.scout_status = "needs_login"
             else:
-                campaign.scout_status = "error"
+                campaign.scan_failure_streak = int(
+                    campaign.scan_failure_streak or 0
+                ) + 1
+                if status == "needs_login":
+                    campaign.scout_status = "needs_login"
+                else:
+                    campaign.scout_status = "error"
 
             if campaign.status == "running" and campaign.auto_scout:
-                if status == "needs_login":
-                    delay = 60
-                elif status == "failed":
-                    delay = max(120, campaign.scan_interval_seconds)
-                else:
-                    delay = max(60, int(campaign.scan_interval_seconds or 300))
+                delay = scout_retry_delay_seconds(
+                    status=status,
+                    error_code=run.last_error_code,
+                    scan_interval_seconds=int(
+                        campaign.scan_interval_seconds or 300
+                    ),
+                    empty_streak=int(campaign.scan_empty_streak or 0),
+                    failure_streak=int(campaign.scan_failure_streak or 0),
+                    created_count=int(run.created_count or 0),
+                )
                 campaign.scan_next_at = now + timedelta(seconds=delay)
             else:
                 campaign.scan_next_at = None

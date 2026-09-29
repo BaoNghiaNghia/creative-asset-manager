@@ -118,6 +118,35 @@ def detect_campaign_keyword_intent(
     return None
 
 
+def campaign_learning_intent(
+    *,
+    campaign_id: str,
+    name: str = "",
+    queries: Iterable[str] = (),
+    product_snapshot: dict[str, Any] | None = None,
+) -> str:
+    detected = detect_campaign_keyword_intent(
+        name=name,
+        queries=queries,
+        product_snapshot=product_snapshot,
+    )
+    if detected:
+        return detected
+
+    if isinstance(product_snapshot, dict):
+        product_hint = (
+            product_snapshot.get("product_type")
+            or product_snapshot.get("name")
+            or product_snapshot.get("sku")
+        )
+        if product_hint:
+            tokens = re.findall(r"\w+", str(product_hint).casefold(), flags=re.UNICODE)
+            if tokens:
+                return "product:" + "-".join(tokens[:4])
+
+    return "campaign:" + str(campaign_id)
+
+
 def _detected_personas(text: str) -> list[str]:
     detected = [
         persona
@@ -229,12 +258,18 @@ def build_campaign_search_queries(
     *,
     name: str = "",
     queries: Iterable[str] = (),
+    protected_queries: Iterable[str] = (),
     product_snapshot: dict[str, Any] | None = None,
     reject_headwear: bool = False,
     outcomes: Iterable[tuple[str, str] | tuple[str, str, str | None]] = (),
     max_queries: int = MAX_CAMPAIGN_SEARCH_QUERIES,
 ) -> list[str]:
     original = [str(query or "").strip() for query in queries if str(query or "").strip()]
+    protected = list(dict.fromkeys(
+        str(query or "").strip()
+        for query in protected_queries
+        if str(query or "").strip()
+    ))
     if reject_headwear:
         return list(dict.fromkeys(original))[:max_queries]
     if detect_campaign_keyword_intent(
@@ -264,17 +299,24 @@ def build_campaign_search_queries(
             if index < len(rows):
                 generated.append(rows[index])
 
+    protected_keys = {query.casefold() for query in protected}
     preserved = [
         query for query in original
-        if _existing_query_is_worth_preserving(query)
+        if query.casefold() not in protected_keys
+        and _existing_query_is_worth_preserving(query)
     ][:2]
 
     candidates: list[str] = []
     seen: set[str] = set()
-    for query in [*preserved, *generated]:
+    for query in [*protected, *preserved, *generated]:
         clean = query.strip()
         key = clean.casefold()
-        if not clean or key in seen or query_is_suppressed_for_reference_search(clean):
+        if not clean or key in seen:
+            continue
+        if (
+            key not in protected_keys
+            and query_is_suppressed_for_reference_search(clean)
+        ):
             continue
         seen.add(key)
         candidates.append(clean)
@@ -288,8 +330,72 @@ def build_campaign_search_queries(
         learned = feedback_scores.get(key)
         if learned is None:
             learned = 0.12
-        manual_bonus = 0.08 if key in preserved_keys else 0.0
-        return learned + manual_bonus, -float(original_order[key])
+        manual_adjustment = (
+            -0.02
+            if key in protected_keys
+            else 0.08
+            if key in preserved_keys
+            else 0.0
+        )
+        return learned + manual_adjustment, -float(original_order[key])
 
     candidates.sort(key=candidate_score, reverse=True)
-    return candidates[:max_queries] or list(dict.fromkeys(original))[:max_queries]
+    selected = candidates[:max_queries]
+    selected_keys = {query.casefold() for query in selected}
+    for protected_query in protected:
+        key = protected_query.casefold()
+        if key in selected_keys:
+            continue
+        replacement_index = next(
+            (
+                index
+                for index in range(len(selected) - 1, -1, -1)
+                if selected[index].casefold() not in protected_keys
+            ),
+            None,
+        )
+        if replacement_index is None:
+            if len(selected) < max_queries:
+                selected.append(protected_query)
+                selected_keys.add(key)
+            continue
+        selected_keys.discard(selected[replacement_index].casefold())
+        selected[replacement_index] = protected_query
+        selected_keys.add(key)
+
+    remaining = [
+        query for query in candidates
+        if query.casefold() not in selected_keys
+        and query.casefold() not in protected_keys
+    ]
+    if selected and remaining:
+        negatively_learned = [
+            query for query in remaining
+            if feedback_scores.get(query.casefold(), 0.0) < 0.0
+        ]
+        unseen = [
+            query for query in remaining
+            if query.casefold() not in feedback_scores
+        ]
+        reserve = (
+            min(
+                negatively_learned,
+                key=lambda query: feedback_scores[query.casefold()],
+            )
+            if negatively_learned
+            else unseen[0]
+            if unseen
+            else remaining[-1]
+        )
+        replacement_index = next(
+            (
+                index
+                for index in range(len(selected) - 1, -1, -1)
+                if selected[index].casefold() not in protected_keys
+            ),
+            None,
+        )
+        if replacement_index is not None:
+            selected[replacement_index] = reserve
+
+    return selected or list(dict.fromkeys(original))[:max_queries]

@@ -57,6 +57,7 @@ from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQ
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcVisualFingerprintModel,
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcSupervisorResultModel,
@@ -77,6 +78,8 @@ from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
     RrugcAutoScoutService,
     adaptive_search_queries,
+    keyword_health_rows,
+    scout_retry_delay_seconds,
 )
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
@@ -131,6 +134,7 @@ def database():
     RrugcProductModel.__table__.create(engine)
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
+    RrugcVisualFingerprintModel.__table__.create(engine)
     RrugcAiFeedbackModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
@@ -195,6 +199,7 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
             user_id="user-a",
             name="Auto Pinterest",
             query="candid lifestyle portrait",
+            search_queries=["candid lifestyle portrait", "casual woman outdoors"],
             target_count=10,
             max_scroll_batches=3,
             auto_import=False,
@@ -225,6 +230,7 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
             agent_id=agent.id,
             raw_token=token,
             run_id=claim.run.id,
+            source_query="casual woman outdoors",
             submissions=[
                 CandidateSubmission(
                     pin_url="https://www.pinterest.com/pin/12345/?utm_source=a",
@@ -246,6 +252,15 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         )
         assert len(candidates) == 1
         assert candidates[0].pin_url == "https://www.pinterest.com/pin/12345/"
+        assert candidates[0].ai_signal_json["scout_query"] == "casual woman outdoors"
+        session.refresh(claim.run)
+        assert claim.run.keyword_stats_json == {
+            "casual woman outdoors": {
+                "submitted": 2,
+                "created": 1,
+                "existing": 1,
+            }
+        }
 
         completed = service.complete(
             agent_id=agent.id,
@@ -261,8 +276,245 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         assert campaign.scan_empty_streak == 0
         assert campaign.scout_status == "ready"
 
+        candidates[0].status = "approved"
+        candidates[0].ai_signal_json = {
+            **(candidates[0].ai_signal_json or {}),
+            "reference_manual_label": "good",
+        }
+        session.flush()
+        health = keyword_health_rows(
+            list(campaign.search_queries_json or [campaign.query]),
+            [completed],
+            RrugcRepository(session).candidate_keyword_outcomes(
+                "tenant-a",
+                campaign.id,
+            ),
+        )
+        by_query = {row["query"]: row for row in health}
+        row = by_query["casual woman outdoors"]
+        assert row["found"] == 2
+        assert row["new"] == 1
+        assert row["duplicate"] == 1
+        assert row["approved"] == 1
+        assert row["ref_good"] == 1
+        assert row["ref_bad"] == 0
+        assert row["approved_yield"] == pytest.approx(1.0)
+        assert row["reference_yield"] == pytest.approx(1.0)
 
-def test_auto_scout_empty_runs_keep_configured_scan_interval(database):
+
+def test_tenant_exact_source_dedupe_skips_repeat_ai_but_not_cross_tenant(database):
+    with database() as session:
+        service = RrugcService(session)
+        first_campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Source owner",
+            query="candid lifestyle",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        first_rows, first_created, first_existing = service.ingest_candidates(
+            campaign=first_campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/exact-tenant-source/",
+                image_url="https://i.pinimg.com/736x/exact-source-a.jpg",
+                alt_text="candid reference",
+            )],
+            source_query="first source query",
+        )
+        assert (first_created, first_existing) == (1, 0)
+        first = first_rows[0]
+        first.status = "approved"
+        first.analyzed_at = datetime.now(timezone.utc)
+        session.commit()
+
+        second_campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Second campaign",
+            query="another lifestyle query",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        duplicate_rows, duplicate_created, duplicate_existing = service.ingest_candidates(
+            campaign=second_campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://pinterest.com/pin/exact-tenant-source/?utm_source=repeat",
+                image_url="https://i.pinimg.com/236x/exact-source-b.jpg",
+                alt_text="same Pinterest pin",
+            )],
+            source_query="second source query",
+        )
+        assert (duplicate_created, duplicate_existing) == (0, 1)
+        duplicate = duplicate_rows[0]
+        assert duplicate.campaign_id == second_campaign.id
+        assert duplicate.status == "rejected_duplicate"
+        assert duplicate.reject_reason == "EXACT_SOURCE_DUPLICATE"
+        assert duplicate.ai_signal_json["duplicate_exact_candidate_id"] == first.id
+        assert duplicate.ai_signal_json["duplicate_exact_campaign_id"] == first_campaign.id
+        assert duplicate.ai_signal_json["scout_query"] == "second source query"
+        assert session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                ProcessingJobModel.entity_id == duplicate.id,
+            )
+        ) is None
+
+        other_tenant_campaign, _ = service.create_campaign(
+            tenant_id="tenant-b",
+            user_id="user-b",
+            name="Other tenant campaign",
+            query="candid lifestyle",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        isolated_rows, isolated_created, isolated_existing = service.ingest_candidates(
+            campaign=other_tenant_campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/exact-tenant-source/",
+                image_url="https://i.pinimg.com/736x/exact-source-c.jpg",
+                alt_text="same pin different tenant",
+            )],
+            source_query="tenant b query",
+        )
+        assert (isolated_created, isolated_existing) == (1, 0)
+        assert isolated_rows[0].status == "analysis_queued"
+        assert session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                ProcessingJobModel.entity_id == isolated_rows[0].id,
+            )
+        ) is not None
+
+
+def test_visual_fingerprint_repository_uses_dedicated_rows(database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Fingerprint campaign",
+            query="candid lifestyle",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _existing = service.ingest_candidates(
+            campaign=campaign,
+            submissions=[
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/fingerprint-a/",
+                    image_url="https://i.pinimg.com/736x/fingerprint-a.jpg",
+                ),
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/fingerprint-b/",
+                    image_url="https://i.pinimg.com/736x/fingerprint-b.jpg",
+                ),
+            ],
+            source_query="fingerprint query",
+        )
+        assert created == 2
+        first, second = rows
+        first.status = "approved"
+        first.analyzed_at = datetime.now(timezone.utc)
+
+        repository = RrugcRepository(session)
+        repository.replace_visual_fingerprints(
+            first,
+            ["aa11", "bb22", "aa11"],
+        )
+        session.flush()
+
+        assert set(repository.visual_fingerprint_rows(
+            "tenant-a",
+            second.id,
+        )) == {"aa11", "bb22"}
+        assert session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                ProcessingJobModel.entity_id == second.id,
+            )
+        ) is not None
+
+        repository.replace_visual_fingerprints(first, ["cc33"])
+        first.diversity_signature = "home|portrait_close|eye_level|standing"
+        session.flush()
+        assert repository.visual_fingerprint_rows(
+            "tenant-a",
+            second.id,
+        ) == ["cc33"]
+        assert repository.campaign_diversity_signature_count(
+            "tenant-a",
+            campaign.id,
+            second.id,
+            "home|portrait_close|eye_level|standing",
+        ) == 1
+        assert len(list(session.scalars(
+            select(RrugcVisualFingerprintModel).where(
+                RrugcVisualFingerprintModel.tenant_id == "tenant-a",
+                RrugcVisualFingerprintModel.candidate_id == first.id,
+            )
+        ))) == 1
+
+        first.status = "rejected_context"
+        session.flush()
+        assert repository.visual_fingerprint_rows(
+            "tenant-a",
+            second.id,
+        ) == []
+        assert repository.campaign_diversity_signature_count(
+            "tenant-a",
+            campaign.id,
+            second.id,
+            "home|portrait_close|eye_level|standing",
+        ) == 0
+
+
+def test_candidate_keyword_outcomes_uses_recent_history_limit(database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Keyword history",
+            query="candid lifestyle",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        created_rows = []
+        for index, query in enumerate(("old query", "middle query", "new query")):
+            rows, _created, _existing = service.ingest_candidates(
+                campaign=campaign,
+                submissions=[CandidateSubmission(
+                    pin_url=f"https://www.pinterest.com/pin/history-{index}/",
+                    image_url=f"https://i.pinimg.com/736x/history-{index}.jpg",
+                )],
+                source_query=query,
+            )
+            row = rows[0]
+            row.status = "approved"
+            row.created_at = base + timedelta(seconds=index)
+            created_rows.append(row)
+        session.flush()
+
+        outcomes = RrugcRepository(session).candidate_keyword_outcomes(
+            "tenant-a",
+            campaign.id,
+            limit=2,
+        )
+        assert [row[0] for row in outcomes] == ["new query", "middle query"]
+
+
+def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.uniform",
+        lambda *_args: 1.0,
+    )
     with database() as session:
         campaign, _legacy_token = RrugcService(session).create_campaign(
             tenant_id="tenant-a",
@@ -292,11 +544,12 @@ def test_auto_scout_empty_runs_keep_configured_scan_interval(database):
         )
         session.refresh(campaign)
         assert campaign.scan_empty_streak == 1
+        assert campaign.scan_failure_streak == 0
         assert campaign.scan_next_at is not None
-        first_delay = (
+        assert (
             campaign.scan_next_at - first_run.completed_at
-        ).total_seconds()
-        assert 175 <= first_delay <= 185
+        ).total_seconds() == 270
+        assert service.claim(agent_id=agent.id, raw_token=token) is None
 
         campaign.scan_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         session.commit()
@@ -310,18 +563,135 @@ def test_auto_scout_empty_runs_keep_configured_scan_interval(database):
         )
         session.refresh(campaign)
         assert campaign.scan_empty_streak == 2
+        assert campaign.scan_failure_streak == 0
         assert campaign.scan_next_at is not None
-        second_delay = (
+        assert (
             campaign.scan_next_at - second_run.completed_at
-        ).total_seconds()
-        assert 175 <= second_delay <= 185
+        ).total_seconds() == 360
 
-        # Simulate a schedule persisted by the old exponential-backoff logic.
-        campaign.scan_next_at = second_run.completed_at + timedelta(seconds=1440)
+
+def test_scout_retry_delay_is_error_class_aware(monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.uniform",
+        lambda *_args: 1.0,
+    )
+    assert scout_retry_delay_seconds(
+        status="completed",
+        error_code=None,
+        scan_interval_seconds=180,
+        empty_streak=0,
+        failure_streak=0,
+        created_count=4,
+    ) == 180
+    assert scout_retry_delay_seconds(
+        status="completed",
+        error_code=None,
+        scan_interval_seconds=180,
+        empty_streak=4,
+        failure_streak=0,
+        created_count=0,
+    ) == 540
+    assert scout_retry_delay_seconds(
+        status="needs_login",
+        error_code="pinterest_access_gate_timeout",
+        scan_interval_seconds=180,
+        empty_streak=0,
+        failure_streak=1,
+        created_count=0,
+    ) == 360
+    assert scout_retry_delay_seconds(
+        status="failed",
+        error_code="cam_http_429",
+        scan_interval_seconds=180,
+        empty_streak=0,
+        failure_streak=2,
+        created_count=0,
+    ) == 720
+    assert scout_retry_delay_seconds(
+        status="failed",
+        error_code="pinterest_scan_failed",
+        scan_interval_seconds=180,
+        empty_streak=0,
+        failure_streak=3,
+        created_count=0,
+    ) == 720
+
+
+def test_auto_scout_failure_streak_grows_then_resets(database, monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.uniform",
+        lambda *_args: 1.0,
+    )
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Backoff campaign",
+            query="candid cap photo",
+            target_count=100,
+            max_scroll_batches=2,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=180,
+        )
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Backoff Scout",
+        )
+
+        first = service.claim(agent_id=agent.id, raw_token=token)
+        assert first is not None
+        first_run = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=first.run.id,
+            status="failed",
+            error_code="cam_http_429",
+        )
+        session.refresh(campaign)
+        assert campaign.scan_failure_streak == 1
+        assert campaign.scout_status == "error"
+        assert (
+            campaign.scan_next_at - first_run.completed_at
+        ).total_seconds() == 360
+
+        campaign.scan_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         session.commit()
-        recovered = service.claim(agent_id=agent.id, raw_token=token)
-        assert recovered is not None
-        assert recovered.campaign.id == campaign.id
+        second = service.claim(agent_id=agent.id, raw_token=token)
+        assert second is not None
+        second_run = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=second.run.id,
+            status="failed",
+            error_code="cam_http_429",
+        )
+        session.refresh(campaign)
+        assert campaign.scan_failure_streak == 2
+        assert (
+            campaign.scan_next_at - second_run.completed_at
+        ).total_seconds() == 720
+
+        campaign.scan_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+        healthy = service.claim(agent_id=agent.id, raw_token=token)
+        assert healthy is not None
+        healthy.run.created_count = 1
+        session.flush()
+        healthy_run = service.complete(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=healthy.run.id,
+            status="completed",
+        )
+        session.refresh(campaign)
+        assert campaign.scan_failure_streak == 0
+        assert campaign.scan_empty_streak == 0
+        assert (
+            campaign.scan_next_at - healthy_run.completed_at
+        ).total_seconds() == 180
 
 
 def test_auto_scout_quality_pipeline_caps_to_target(database):
@@ -612,13 +982,20 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
                 "pin_url": "https://www.pinterest.com/pin/9090/",
                 "image_url": "https://i.pinimg.com/736x/9/0/9.jpg",
                 "alt_text": "visible Pinterest candidate",
-            }]
+            }],
+            "source_query": "casual woman outdoors",
         },
     )
     assert submitted.status_code == 200
     assert submitted.json()["created"] == 1
     assert submitted.json()["progress"] == 0
     assert submitted.json()["pipeline_count"] == 1
+    with database() as session:
+        candidate = RrugcRepository(session).list_candidates(
+            "tenant-a",
+            campaign_id,
+        )[0]
+        assert candidate.ai_signal_json["scout_query"] == "casual woman outdoors"
 
     finished = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/complete",
@@ -627,6 +1004,18 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     )
     assert finished.status_code == 200
     assert finished.json()["status"] == "completed"
+
+    detailed = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}"
+    )
+    assert detailed.status_code == 200
+    health = {
+        row["query"]: row
+        for row in detailed.json()["keyword_health"]
+    }
+    assert health["casual woman outdoors"]["found"] == 1
+    assert health["casual woman outdoors"]["new"] == 1
+    assert health["casual woman outdoors"]["duplicate"] == 0
 
     edited = api.patch(
         f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}",
@@ -802,8 +1191,76 @@ def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, data
         assert [row.label for row in feedback] == ["ref_good", "ref_bad", "ref_clear"]
         assert feedback[0].signal_json["reference_preference_trainable"] is True
         assert feedback[0].signal_json["scout_query"] == "phone selfie reference"
+        assert feedback[0].signal_json["learning_intent"] == f"campaign:{campaign_id}"
         assert feedback[0].created_by_user_id == "user-a"
         assert RrugcRepository(session).reference_feedback_training_rows("tenant-a") == []
+
+
+def test_reference_learning_scope_isolates_hat_feedback(database):
+    with database() as session:
+        service = RrugcService(session)
+        hat_campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="People wearing hats",
+            query="woman wearing hat candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        other_campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Tote references",
+            query="casual tote lifestyle",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+
+        marked = []
+        for campaign, suffix in ((hat_campaign, "hat"), (other_campaign, "tote")):
+            rows, created, _ = service.ingest_candidates(
+                campaign=campaign,
+                submissions=[CandidateSubmission(
+                    pin_url=f"https://www.pinterest.com/pin/scope-{suffix}/",
+                    image_url=f"https://i.pinimg.com/736x/scope-{suffix}.jpg",
+                )],
+                source_query=campaign.query,
+            )
+            assert created == 1
+            candidate = rows[0]
+            candidate.status = "approved"
+            candidate.analyzed_at = datetime.now(timezone.utc)
+            candidate.phone_authenticity_score = 0.9
+            candidate.mobile_ugc_score = 0.9
+            candidate.product_fit_score = 0.8
+            candidate.quality_score = 0.8
+            candidate.artistic_editorial_risk = 0.1
+            candidate.ai_risk_score = 0.05
+            service.mark_candidate_reference_label(
+                candidate,
+                label="good",
+                note=None,
+                user_id="user-a",
+            )
+            marked.append(candidate)
+
+        repository = RrugcRepository(session)
+        all_rows = repository.reference_feedback_training_rows("tenant-a")
+        hat_rows = repository.reference_feedback_training_rows(
+            "tenant-a",
+            intent="hat_people",
+        )
+        other_rows = repository.reference_feedback_training_rows(
+            "tenant-a",
+            intent=f"campaign:{other_campaign.id}",
+        )
+        assert len(all_rows) == 2
+        assert len(hat_rows) == 1
+        assert len(other_rows) == 1
+        assert hat_rows[0][1]["learning_intent"] == "hat_people"
+        assert other_rows[0][1]["learning_intent"] == f"campaign:{other_campaign.id}"
 
 
 def test_reference_preference_model_learns_human_selection_direction():
@@ -881,6 +1338,7 @@ def test_create_hat_campaign_auto_expands_search_queries(database):
             max_scroll_batches=2,
             auto_import=False,
         )
+        assert campaign.search_query_anchors_json == ["people wearing hats"]
         assert len(campaign.search_queries_json or []) == 10
         combined = " | ".join(campaign.search_queries_json or [])
         assert "man wearing" in combined
@@ -889,7 +1347,32 @@ def test_create_hat_campaign_auto_expands_search_queries(database):
         assert "family wearing" in combined
 
 
-def test_hat_keyword_pool_rotates_out_bad_reference_query():
+def test_update_hat_campaign_preserves_manual_anchors_separately(database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Hat people references",
+            query="people wearing hats",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        updated = service.update_campaign(
+            campaign,
+            search_queries=["family wearing hats candid phone photo"],
+        )
+        assert updated.search_query_anchors_json == [
+            "family wearing hats candid phone photo"
+        ]
+        assert "family wearing hats candid phone photo" in (
+            updated.search_queries_json or []
+        )
+        assert len(updated.search_queries_json or []) > 1
+
+
+def test_hat_keyword_pool_keeps_bad_query_as_exploration_reserve():
     baseline = build_campaign_search_queries(
         name="People wearing hats",
         queries=["people wearing hats"],
@@ -901,8 +1384,73 @@ def test_hat_keyword_pool_rotates_out_bad_reference_query():
         outcomes=[(bad_query, "approved", "bad") for _ in range(6)],
     )
     assert len(refreshed) == 10
-    assert bad_query not in refreshed
+    assert bad_query in refreshed
+    assert refreshed[-1] == bad_query
     assert refreshed != baseline
+
+
+def test_hat_keyword_pool_keeps_manual_anchor_even_with_bad_feedback():
+    anchor_query = "people wearing hats"
+    refreshed = build_campaign_search_queries(
+        name="People wearing hats",
+        queries=[anchor_query],
+        protected_queries=[anchor_query],
+        outcomes=[(anchor_query, "approved", "bad") for _ in range(8)],
+    )
+    assert len(refreshed) == 10
+    assert anchor_query in refreshed
+
+
+def test_keyword_lifecycle_suppresses_only_after_enough_reference_evidence():
+    query = "woman wearing bucket hat candid phone photo"
+    insufficient = keyword_health_rows(
+        [query],
+        [],
+        [(query, "rejected_context", "bad") for _ in range(2)],
+    )
+    assert insufficient[0]["state"] == "explore"
+
+    enough = keyword_health_rows(
+        [query],
+        [],
+        [(query, "rejected_context", "bad") for _ in range(3)],
+    )
+    assert enough[0]["state"] == "suppressed"
+
+
+def test_keyword_lifecycle_never_suppresses_manual_anchor():
+    query = "people wearing hats"
+    health = keyword_health_rows(
+        [query],
+        [],
+        [(query, "rejected_context", "bad") for _ in range(8)],
+        protected_queries=[query],
+    )
+    assert health[0]["state"] == "protected"
+    assert health[0]["protected"] is True
+
+
+def test_adaptive_keyword_exploration_retries_suppressed_keyword(monkeypatch):
+    good = "phone selfie"
+    bad = "editorial portrait"
+    outcomes = (
+        [(good, "approved", "good") for _ in range(6)]
+        + [(bad, "rejected_context", "bad") for _ in range(6)]
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.random",
+        lambda: 0.0,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.shuffle",
+        lambda rows: None,
+    )
+    ranked = adaptive_search_queries(
+        [good, bad],
+        [],
+        outcomes,
+    )
+    assert ranked[0] == bad
 
 
 def test_adaptive_keyword_ranking_prefers_human_approved_reference_yield(monkeypatch):
@@ -919,7 +1467,7 @@ def test_adaptive_keyword_ranking_prefers_human_approved_reference_yield(monkeyp
         [],
         outcomes,
     )
-    assert ranked[0] == "phone selfie"
+    assert ranked == ["phone selfie"]
 
 
 def reference_document(**overrides) -> ReferenceAnalysisDocument:
