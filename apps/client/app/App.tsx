@@ -608,45 +608,12 @@ export default function App() {
   const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
   const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
 
-  function desktopIngestionDestination() {
-    return {
-      parentId: explorer.path.at(-1)?.id || "root",
-      provider: "google-drive" as const,
-      externalSourceId: explorer.activeExternalSourceId || undefined,
-    };
-  }
-  function reportDesktopIngestionStartFailure(error: unknown) {
-    const code = error instanceof Error ? error.message : "";
-    setShortcutNotice({
-      tone: "error",
-      message: code.includes("desktop_ingestion_no_local_paths")
-        ? "Windows could not expose the selected local file paths. Restart or update the desktop app, then try again."
-        : "Desktop ingestion could not start. Please try again.",
-    });
-  }
-  function startDesktopFileIngestion(files: FileList): boolean {
-    const desktop = window.camDesktop?.ingestion;
-    if (!desktop || explorer.provider !== "google-drive" || !files.length) return false;
-    const browserFiles = Array.from(files);
-    void desktop.acceptDrop(files, desktopIngestionDestination())
-      .then(setDesktopIngestion)
-      .catch(error => {
-        const code = error instanceof Error ? error.message : "";
-        if (code.includes("desktop_ingestion_no_local_paths")) {
-          void explorer.uploadFiles(browserFiles);
-          return;
-        }
-        reportDesktopIngestionStartFailure(error);
-      });
-    return true;
-  }
-  function chooseDesktopFiles(): boolean {
-    const desktop = window.camDesktop?.ingestion;
-    if (!desktop || explorer.provider !== "google-drive" || typeof desktop.chooseFiles !== "function") return false;
-    void desktop.chooseFiles(desktopIngestionDestination())
-      .then(job => { if (job) setDesktopIngestion(job); })
-      .catch(reportDesktopIngestionStartFailure);
-    return true;
+  function chooseUploadFiles() {
+    // Use the renderer file picker for individual files. It creates an
+    // immediate upload row before the network request and avoids depending on
+    // the native IPC file-picker path. Folder ingestion still uses the native
+    // desktop service because it needs recursive filesystem access.
+    uploadInputRef.current?.click();
   }
   function handleFileDragEnter(event: DragEvent<HTMLElement>) {
     if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
@@ -675,7 +642,9 @@ export default function App() {
       setShortcutNotice({ tone: "error", message: "Connect Google Drive before uploading files." });
       return;
     }
-    if (startDesktopFileIngestion(droppedFiles)) return;
+    // File drops use the same renderer uploader as the file picker so a
+    // visible queued/uploading state is created synchronously. Native desktop
+    // ingestion remains reserved for recursive folder uploads.
     void explorer.uploadFiles(Array.from(droppedFiles));
   }
   function preventInternalFileDrag(event: DragEvent<HTMLElement>) {
@@ -1046,7 +1015,7 @@ export default function App() {
               <div className="explorer-new-menu-divider" role="separator" />
             </>}
             {window.camDesktop?.ingestion && explorer.provider === "google-drive" && <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const parentId = explorer.path.at(-1)?.id || "root"; void window.camDesktop?.ingestion.chooseFolders({ parentId, provider: "google-drive", externalSourceId: explorer.activeExternalSourceId || undefined }).then(job => { if (job) setDesktopIngestion(job); }); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>Add folder</b><small>Choose local folders</small></span></button>}
-            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); if (!chooseDesktopFiles()) uploadInputRef.current?.click(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); chooseUploadFiles(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
           </div>}
           <input ref={uploadInputRef} hidden type="file" multiple onChange={event => {
             const files = Array.from(event.target.files || []);
@@ -1386,6 +1355,7 @@ export default function App() {
         {explorer.uploads.map(upload => <div className={"upload-row upload-" + upload.status} key={upload.id} role="listitem">
           <span className="upload-file-icon" aria-hidden="true"></span>
           <span className="upload-file-name" title={upload.name}>{upload.name}</span>
+          <small title={upload.error || upload.status}>{upload.status === "failed" ? upload.error || "Upload failed" : upload.status === "completed" ? "Uploaded" : upload.status === "queued" ? "Queued" : "Uploading"}</small>
           <span className="upload-status-icon" aria-label={upload.status === "failed" ? upload.error || "Upload failed." : upload.status === "completed" ? "Completed" : "Uploading..."}>{upload.status === "failed" ? "!" : ""}</span>
         </div>)}
       </div>

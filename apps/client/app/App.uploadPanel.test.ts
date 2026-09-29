@@ -16,4 +16,18 @@ describe("upload progress panel", () => {
       ".upload-list .upload-row{min-height:41px;box-sizing:border-box}",
     );
   });
+
+  it("uses the renderer picker and uploader for individual files", () => {
+    expect(appSource).toContain("function chooseUploadFiles()");
+    expect(appSource).toContain("chooseUploadFiles();");
+    expect(appSource).toContain("if (files.length) void explorer.uploadFiles(files);");
+    expect(appSource).not.toContain("if (!chooseDesktopFiles())");
+  });
+
+  it("shows the file upload state and server error text in the progress panel", () => {
+    expect(appSource).toContain('upload.error || "Upload failed"');
+    expect(globalStyles).toContain(
+      ".upload-panel:not(.desktop-ingestion-panel) .upload-row{grid-template-columns:22px minmax(0,1fr) minmax(72px,160px) 22px}",
+    );
+  });
 });
