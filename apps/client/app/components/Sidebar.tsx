@@ -90,6 +90,22 @@ function beginSourceOAuth(provider: Provider, sourceId?: string, accountType?: O
   return true;
 }
 
+export function sourceProviderLoginRoute(provider: Provider, applicationAuthenticated: boolean): string {
+  if (!applicationAuthenticated) {
+    return provider === "google-drive" ? "/api/auth/google/login" : "/api/auth/microsoft/login";
+  }
+  return sourceLogin(provider);
+}
+
+function beginProviderLogin(provider: Provider, applicationAuthenticated: boolean): boolean {
+  if (!window.camDesktop) return false;
+  if (!applicationAuthenticated) {
+    void window.camDesktop.beginOAuth({ provider: provider === "google-drive" ? "google" : "microsoft" });
+    return true;
+  }
+  return beginSourceOAuth(provider);
+}
+
 
 
 export function Sidebar({
@@ -194,11 +210,11 @@ export function Sidebar({
                 />)}
               </div>}
             </div>;
-          }) : <button className="source provider-login" onClick={() => window.location.assign(
-            applicationAuthenticated && source.provider === "google-drive"
-              ? "/api/auth/google/connect-drive"
-              : source.login
-          )}>
+          }) : <button className="source provider-login" onClick={() => {
+            if (!beginProviderLogin(source.provider, applicationAuthenticated)) {
+              window.location.assign(sourceProviderLoginRoute(source.provider, applicationAuthenticated));
+            }
+          }}>
             <SourceIcon provider={source.provider} />
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}

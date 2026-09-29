@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ConnectedSource, ProviderSessions } from "../types";
-import { Sidebar } from "./Sidebar";
+import { Sidebar, sourceProviderLoginRoute } from "./Sidebar";
 import { activeShareFolderIds, type Share } from "../public-review-management/api";
 
 const sessions: ProviderSessions = {
@@ -15,6 +15,20 @@ const source = (id: string, email: string): ConnectedSource => ({
   provider: "microsoft", connection_purpose: "onedrive_source",
   account: { provider_account_id: id + "-account", email },
   metadata: {}, capabilities: { browse: true, sync: true, write: false, reconnect: true, disconnect: true },
+});
+
+describe("Sidebar provider login routing", () => {
+  it("uses application login before source connection", () => {
+    expect(sourceProviderLoginRoute("google-drive", false)).toBe("/api/auth/google/login");
+    expect(sourceProviderLoginRoute("onedrive", false)).toBe("/api/auth/microsoft/login");
+    expect(sourceProviderLoginRoute("sharepoint", false)).toBe("/api/auth/microsoft/login");
+  });
+
+  it("uses source connection routes after application login", () => {
+    expect(sourceProviderLoginRoute("google-drive", true)).toBe("/api/auth/google/connect-drive");
+    expect(sourceProviderLoginRoute("onedrive", true)).toBe("/api/auth/microsoft/connect-onedrive");
+    expect(sourceProviderLoginRoute("sharepoint", true)).toBe("/api/auth/microsoft/connect-sharepoint");
+  });
 });
 
 describe("Sidebar multi-source accounts", () => {
