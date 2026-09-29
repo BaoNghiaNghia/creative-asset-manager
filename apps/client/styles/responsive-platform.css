@@ -397,3 +397,161 @@ button,a{-webkit-tap-highlight-color:transparent}
   .product-shell .preview{height:96px}
   .rrugc-kpis,.rrugc-operations-stats,.rrugc-export-stats{grid-template-columns:1fr!important}
 }
+
+/* Responsive v2 — explicit device matrix.
+   Wide desktop: >=1600
+   Standard desktop: 1280-1599
+   Compact desktop / landscape tablet: 1025-1279
+   Tablet: 681-1024
+   Phone: <=680
+   Small phone: <=420 */
+
+@media(min-width:1600px){
+  .product-shell .explorer-content>header{padding-inline:34px}
+  .product-shell .title,.product-shell nav{padding-inline:28px}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:14px;padding-inline:28px}
+  .product-shell .source-onboarding{margin:22px 30px 30px;padding:42px 38px}
+  .ops-content,.access-content{padding-inline:40px}
+  .rrugc-page-body{padding-inline:40px!important}
+  .video-generation-page-body{padding-inline:40px!important}
+  .review-board-main{padding-inline:32px}
+}
+
+@media(min-width:1280px) and (max-width:1599px){
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
+  .rrugc-campaign-list{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+
+@media(min-width:1025px) and (max-width:1279px){
+  .product-shell:not(.sidebar-collapsed){grid-template-columns:min(var(--sidebar-width,272px),248px) minmax(0,1fr)}
+  .product-shell .sidebar{padding-inline:12px}
+  .product-shell .explorer-workspace-header>.workspace-page-header{padding:18px 24px 16px}
+  .product-shell .explorer-content>header{padding:10px 20px}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px;padding-inline:18px}
+  .product-shell .source-onboarding{margin:14px 18px 22px;padding:28px 24px}
+  .workspace-page-header{padding-inline:26px}
+  .ops-content,.access-content{padding-inline:24px}
+  .rrugc-page-body,.video-generation-page-body{padding-inline:24px!important}
+  .ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ops-charts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-campaign-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-workflow-rail{grid-template-columns:repeat(5,minmax(150px,1fr));overflow-x:auto}
+  .rrugc-auto-scout-status{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(min-width:681px) and (max-width:1024px){
+  body{overscroll-behavior-x:none}
+  .responsive-workspace-nav{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+  .responsive-workspace-nav .workspace-navigation a{min-height:44px}
+  .workspace-page-header{padding-left:max(22px,env(safe-area-inset-left));padding-right:max(22px,env(safe-area-inset-right))}
+  .workspace-page-header-actions{max-width:48%;justify-content:flex-end}
+  .ops-content,.access-content{padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+  .rrugc-page-body,.video-generation-page-body{padding-left:max(20px,env(safe-area-inset-left))!important;padding-right:max(20px,env(safe-area-inset-right))!important}
+  .product-shell .explorer-content>header{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  .product-shell .source-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .ops-kpis,.ops-cost-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ops-charts{grid-template-columns:1fr}
+  .ops-provider-grid,.ops-config-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-campaign-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-workflow-rail{display:flex;overflow-x:auto;padding-bottom:14px;scroll-snap-type:x proximity;scrollbar-width:none}
+  .rrugc-workflow-rail::-webkit-scrollbar{display:none}
+  .rrugc-workflow-rail a{min-width:170px;flex:0 0 170px;scroll-snap-align:start;border-right:1px solid #e4e9f1;border-radius:10px!important}
+  .rrugc-auto-scout-status{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .review-board-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .inventory-settings-summary,.inventory-sheet-status{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(min-width:900px) and (max-width:1024px) and (orientation:landscape){
+  .product-shell .source-cards{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr))}
+  .rrugc-campaign-list{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+
+/* On phones the workspace nav becomes an app-style bottom rail. */
+@media(max-width:680px){
+  body{padding-bottom:env(safe-area-inset-bottom);overscroll-behavior-x:none}
+  .responsive-workspace-nav{
+    position:fixed;z-index:950;top:auto;right:0;bottom:0;left:0;
+    min-height:58px;height:auto;
+    padding:5px max(6px,env(safe-area-inset-right)) max(5px,env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-left));
+    border-top:1px solid var(--cam-border);border-bottom:0;
+    background:rgb(255 255 255 / 97%);box-shadow:0 -8px 28px rgb(22 40 70 / 10%);backdrop-filter:blur(16px)
+  }
+  .responsive-workspace-brand{display:none}
+  .responsive-workspace-nav>.workspace-navigation{width:100%;justify-content:flex-start;gap:3px;scroll-snap-type:x proximity;padding:0 2px}
+  .responsive-workspace-nav .workspace-navigation a{min-width:56px;min-height:48px;flex:1 0 56px;scroll-snap-align:center;border-radius:11px}
+  .responsive-workspace-nav .workspace-navigation a[aria-current=page]{border-color:#d5e1fb;background:#edf3ff;box-shadow:inset 0 0 0 1px #e2eafe}
+  .ops-shell,.access-shell,.review-board-shell,.video-generation-shell,.rrugc-shell,.product-shell{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+  .product-shell .sidebar{top:0;bottom:calc(58px + env(safe-area-inset-bottom));width:min(316px,90vw);padding-top:max(18px,env(safe-area-inset-top))}
+  .sidebar-mobile-scrim{inset:0 0 calc(58px + env(safe-area-inset-bottom))}
+  .product-shell .sidebar-restore{top:max(10px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left))}
+  .product-shell .explorer-workspace-header>.workspace-page-header{padding-left:max(56px,calc(env(safe-area-inset-left) + 52px))}
+  .workspace-page-header{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+  .workspace-page-header-copy{width:100%}
+  .workspace-page-header .workspace-page-header-title-row{gap:7px}
+  .workspace-page-header-actions{width:100%;max-width:none;justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px;scrollbar-width:none}
+  .workspace-page-header-actions::-webkit-scrollbar{display:none}
+  .workspace-page-header-actions>*{flex:0 0 auto}
+  .product-shell .explorer-content>header{position:sticky;z-index:120;top:0;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right));background:rgb(255 255 255 / 96%);backdrop-filter:blur(12px)}
+  .product-shell .search-mode-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}
+  .product-shell .search-mode-tabs::-webkit-scrollbar{display:none}
+  .product-shell .header-sources{scrollbar-width:none}
+  .product-shell .header-sources::-webkit-scrollbar{display:none}
+  .product-shell .grid{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right));padding-bottom:26px}
+  .product-shell .bulk{bottom:calc(72px + env(safe-area-inset-bottom));padding-bottom:10px}
+  .ops-content,.access-content{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  .rrugc-page-body,.video-generation-page-body{padding-left:max(12px,env(safe-area-inset-left))!important;padding-right:max(12px,env(safe-area-inset-right))!important}
+  .ops-tabs,.access-tabs{position:sticky;z-index:110;top:0;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+  .ops-tabs::-webkit-scrollbar,.access-tabs::-webkit-scrollbar{display:none}
+  .ops-tabs button,.access-tabs button{flex:0 0 auto;white-space:nowrap}
+  .ops-provider-grid,.ops-config-grid,.ops-charts{grid-template-columns:1fr!important}
+  .rrugc-workflow-rail{display:flex;overflow-x:auto;gap:7px;padding:0 0 12px;scrollbar-width:none;scroll-snap-type:x mandatory}
+  .rrugc-workflow-rail::-webkit-scrollbar{display:none}
+  .rrugc-workflow-rail a{min-width:154px;flex:0 0 154px;border:1px solid #e4e9f1!important;border-radius:9px!important;scroll-snap-align:start}
+  .rrugc-campaign-list{grid-template-columns:1fr!important}
+  .rrugc-auto-scout-status{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .rrugc-editor-number-grid,.rrugc-editor-toggle-grid{grid-template-columns:1fr!important}
+  .rrugc-campaign-editor{width:100vw;max-height:calc(100dvh - 58px - env(safe-area-inset-bottom));border-radius:16px 16px 0 0}
+  .rrugc-campaign-editor-backdrop{align-items:end;padding:0 0 calc(58px + env(safe-area-inset-bottom))}
+  .rrugc-campaign-editor>footer{align-items:stretch;flex-direction:column}
+  .rrugc-campaign-editor>footer>div{display:grid;grid-template-columns:1fr 1fr}
+  .rrugc-campaign-editor>footer button{min-height:44px!important}
+  .inventory-settings-summary,.inventory-setting-switches,.inventory-settings-form-grid,.inventory-sheet-status,.inventory-prompt-grid{grid-template-columns:1fr!important}
+  .inventory-pipeline-details{bottom:calc(58px + env(safe-area-inset-bottom));height:auto!important}
+}
+
+@media(max-width:420px){
+  .responsive-workspace-nav .workspace-navigation a{min-width:52px;flex-basis:52px}
+  .workspace-page-header h1{font-size:20px}
+  .workspace-page-header .workspace-page-header-description{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+  .workspace-page-chip{max-width:72vw}
+  .product-shell .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .product-shell .preview{height:92px}
+  .product-shell .grid article>div{padding:8px}
+  .product-shell .name{font-size:11px}
+  .product-shell .source-onboarding{margin:8px;padding:16px 12px 18px}
+  .product-shell .source-onboarding>h1{font-size:21px}
+  .product-shell .source-onboarding>p{line-height:1.5}
+  .ops-kpis,.ops-cost-summary,.rrugc-kpis,.rrugc-operations-stats,.rrugc-export-stats{grid-template-columns:1fr!important}
+  .rrugc-card,.video-generation-card,.video-generation-unavailable,.video-generation-state{padding:12px}
+  .review-board-stats{grid-template-columns:1fr 1fr}
+}
+
+@media(max-width:900px) and (max-height:600px) and (orientation:landscape){
+  .responsive-workspace-nav{min-height:52px;padding-top:3px;padding-bottom:max(3px,env(safe-area-inset-bottom))}
+  .responsive-workspace-nav .workspace-navigation a{min-height:42px}
+  .workspace-page-header{padding-top:10px;padding-bottom:10px;gap:7px}
+  .workspace-page-header .workspace-page-header-description{display:none}
+  .product-shell .sidebar{bottom:calc(52px + env(safe-area-inset-bottom))}
+  .sidebar-mobile-scrim{bottom:calc(52px + env(safe-area-inset-bottom))}
+  .product-shell .bulk{bottom:calc(62px + env(safe-area-inset-bottom))}
+  .media-viewer-panel{height:100dvh!important}
+}
+
+@media(pointer:coarse){
+  button,a,input,select,textarea{touch-action:manipulation}
+  .product-shell .workspace-navigation a,.product-shell .provider-login,.workspace-page-back-link,.ops-tabs button,.access-tabs button{min-height:44px}
+  .product-shell .source-card:hover,.product-shell .grid article:hover{transform:none}
+}
