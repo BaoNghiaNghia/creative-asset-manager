@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { buildVideoPlaybackUrl, playbackSeekSeconds } from "../utils/videoPlayback";
+import { buildVideoPlaybackUrl, playbackSeekSeconds, resolveExplorerPlaybackUrl } from "../utils/videoPlayback";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
 import { VideoHoverPreview } from "./VideoHoverPreview";
 
@@ -184,7 +184,6 @@ function VideoSequenceStrip({ item, onOpen, onThumbnailFrame }: { item: VideoSea
   const stripRef = useRef<HTMLDivElement>(null);
   const [inViewport, setInViewport] = useState(false);
   const [frames, setFrames] = useState<string[]>([]);
-  const mediaUrl = buildVideoPlaybackUrl(item);
   const frameKey = [item.best_match.start_ms, ...item.matches.map(match => match.start_ms)].join(":");
 
   useEffect(() => {
@@ -205,20 +204,22 @@ function VideoSequenceStrip({ item, onOpen, onThumbnailFrame }: { item: VideoSea
   useEffect(() => {
     setFrames([]);
     onThumbnailFrame(null);
-    if (!inViewport || !mediaUrl) return;
+    if (!inViewport) return;
     let mounted = true;
     const cancel = sequenceFrameQueue.enqueue(async signal => {
+      const mediaUrl = await resolveExplorerPlaybackUrl(item);
+      if (!mediaUrl || !mounted || signal.aborted) return;
       const captured = await captureVideoSequenceFrames(mediaUrl, [item.best_match.start_ms, ...item.matches.map(match => match.start_ms)], signal);
       if (!mounted || signal.aborted) return;
       onThumbnailFrame(captured[0] || null);
       setFrames(captured.slice(1));
     });
     return () => { mounted = false; cancel(); };
-  }, [frameKey, inViewport, item.analysis_run_id, mediaUrl]);
+  }, [frameKey, inViewport, item.analysis_run_id, item.external_asset_id, item.external_source_id, item.source_type]);
 
   if (!item.matches.length) return null;
 
-  return <div ref={stripRef} className="video-sequence-strip" aria-label={"Matching sequences for " + item.filename} aria-busy={Boolean(mediaUrl) && frames.length !== item.matches.length}>
+  return <div ref={stripRef} className="video-sequence-strip" aria-label={"Matching sequences for " + item.filename} aria-busy={inViewport && frames.length !== item.matches.length}>
     {item.matches.map((match, index) => {
       const timestamp = formatVideoTimestamp(match.start_ms);
       return <button

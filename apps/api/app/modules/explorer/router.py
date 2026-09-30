@@ -4,20 +4,23 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.modules.assets.content_identity import ensure_source_asset_link
 from app.modules.assets.status_service import AssetProcessingStatusService
-from app.modules.assets.model import AssetModel, ExternalSourceModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.explorer.cache import (
     CachedThumbnail,
@@ -46,6 +49,7 @@ from app.modules.explorer.breadcrumb import location_breadcrumb_cache, resolve_b
 from app.modules.explorer.media_types import infer_media_type
 from app.modules.pipeline.mime_types import is_eligible_video_source_asset
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.public_review.video_delivery import PublicVideoDeliveryResolver
 from app.modules.video_search.enqueue import enqueue_video_analysis_job
 from app.modules.explorer.preview import (
     PREVIEW_CACHE_VERSION,
@@ -1511,6 +1515,96 @@ async def media_access(
     if version:
         headers["x-cam-asset-version"] = version
     return Response(status_code=204, headers=headers)
+
+
+@router.get("/media/{item_id}/playback-ticket")
+async def media_playback_ticket(
+    request: Request,
+    item_id: str,
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(ASSETS_READ),
+    external_source_id: str | None = Query(None),
+):
+    """Return a short-lived CDN URL for an authorized Explorer video when available."""
+    _token, tenant_id, resolved_source_id = await _authorized_file_context(
+        request,
+        item_id,
+        provider,
+        session,
+        principal,
+        external_source_id,
+    )
+    query = urlencode({
+        "provider": provider,
+        **({"external_source_id": resolved_source_id} if resolved_source_id else {}),
+    })
+    fallback = f"/api/explorer/media/{quote(item_id, safe='')}?{query}"
+
+    if not resolved_source_id:
+        return JSONResponse(
+            {"url": fallback, "cdn": False, "expires_at": None},
+            headers={"cache-control": "no-store, private"},
+        )
+
+    source = session.scalar(
+        select(SourceAssetModel).where(
+            SourceAssetModel.tenant_id == tenant_id,
+            SourceAssetModel.external_source_id == resolved_source_id,
+            SourceAssetModel.external_asset_id == item_id,
+            SourceAssetModel.deleted_at.is_(None),
+        )
+    )
+    if source is None:
+        return JSONResponse(
+            {"url": fallback, "cdn": False, "expires_at": None},
+            headers={"cache-control": "no-store, private"},
+        )
+    link = session.scalar(
+        select(AssetSourceLinkModel).where(
+            AssetSourceLinkModel.tenant_id == tenant_id,
+            AssetSourceLinkModel.source_asset_id == source.id,
+        )
+    )
+    asset = (
+        session.scalar(
+            select(AssetModel).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.id == link.asset_id,
+            )
+        )
+        if link is not None
+        else None
+    )
+    if (
+        asset is None
+        or not infer_media_type(source.filename, source.mime_type, asset.mime_type).startswith("video/")
+    ):
+        return JSONResponse(
+            {"url": fallback, "cdn": False, "expires_at": None},
+            headers={"cache-control": "no-store, private"},
+        )
+
+    settings = get_settings()
+    ticket_principal = SimpleNamespace(
+        tenant_id=tenant_id,
+        session_expires_at=datetime.now(timezone.utc)
+        + timedelta(seconds=settings.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS + 60),
+        expires_at=None,
+    )
+    ticket = await PublicVideoDeliveryResolver(SessionLocal, settings).resolve(
+        principal=ticket_principal,
+        asset=asset,
+        source=source,
+    )
+    return JSONResponse(
+        {
+            "url": ticket.url if ticket is not None else fallback,
+            "cdn": ticket is not None,
+            "expires_at": ticket.expires_at if ticket is not None else None,
+        },
+        headers={"cache-control": "no-store, private"},
+    )
 
 
 @router.get("/media/{item_id}")

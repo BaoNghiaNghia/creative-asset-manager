@@ -1,9 +1,11 @@
+import json
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
-from app.modules.explorer.router import _asset_version_fingerprint, media_access
+from app.modules.explorer.router import _asset_version_fingerprint, media_access, media_playback_ticket
 
 
 class AssetVersionFingerprintTests(IsolatedAsyncioTestCase):
@@ -81,3 +83,98 @@ class MediaAccessProbeTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 403)
         self.assertEqual(raised.exception.detail["code"], "viewer_folder_scope_denied")
+
+
+class MediaPlaybackTicketTests(IsolatedAsyncioTestCase):
+    async def test_returns_cdn_ticket_for_authorized_linked_video(self):
+        source = SimpleNamespace(
+            id="source-asset-1",
+            tenant_id="tenant-1",
+            filename="clip.mp4",
+            mime_type="video/mp4",
+        )
+        link = SimpleNamespace(asset_id="asset-1")
+        asset = SimpleNamespace(
+            id="asset-1",
+            tenant_id="tenant-1",
+            mime_type="video/mp4",
+            content_hash="a" * 64,
+        )
+        session = MagicMock()
+        session.scalar.side_effect = [source, link, asset]
+        authorize = AsyncMock(return_value=("token", "tenant-1", "drive-source-1"))
+
+        class DeliveryResolver:
+            def __init__(self, *_args):
+                pass
+
+            async def resolve(self, **kwargs):
+                self.resolve_kwargs = kwargs
+                return SimpleNamespace(
+                    url="https://media.example.test/video-cache/tenant-1/clip",
+                    expires_at=2_000_000_000,
+                )
+
+        with (
+            patch("app.modules.explorer.router._authorized_file_context", authorize),
+            patch("app.modules.explorer.router.PublicVideoDeliveryResolver", DeliveryResolver),
+            patch(
+                "app.modules.explorer.router.get_settings",
+                return_value=SimpleNamespace(R2_VIDEO_MEDIA_TICKET_TTL_SECONDS=300),
+            ),
+        ):
+            response = await media_playback_ticket(
+                request=object(),
+                item_id="external-video-1",
+                provider="google-drive",
+                session=session,
+                principal=object(),
+                external_source_id="drive-source-1",
+            )
+
+        payload = json.loads(response.body)
+        self.assertTrue(payload["cdn"])
+        self.assertEqual(payload["url"], "https://media.example.test/video-cache/tenant-1/clip")
+        self.assertEqual(payload["expires_at"], 2_000_000_000)
+        self.assertEqual(response.headers["cache-control"], "no-store, private")
+        authorize.assert_awaited_once()
+
+    async def test_falls_back_to_scoped_explorer_stream_when_asset_is_not_video(self):
+        source = SimpleNamespace(
+            id="source-asset-1",
+            tenant_id="tenant-1",
+            filename="image.jpg",
+            mime_type="image/jpeg",
+        )
+        link = SimpleNamespace(asset_id="asset-1")
+        asset = SimpleNamespace(
+            id="asset-1",
+            tenant_id="tenant-1",
+            mime_type="image/jpeg",
+            content_hash="b" * 64,
+        )
+        session = MagicMock()
+        session.scalar.side_effect = [source, link, asset]
+        authorize = AsyncMock(return_value=("token", "tenant-1", "drive-source-1"))
+
+        with (
+            patch("app.modules.explorer.router._authorized_file_context", authorize),
+            patch("app.modules.explorer.router.PublicVideoDeliveryResolver") as resolver,
+        ):
+            response = await media_playback_ticket(
+                request=object(),
+                item_id="external/image 1",
+                provider="google-drive",
+                session=session,
+                principal=object(),
+                external_source_id="drive-source-1",
+            )
+
+        payload = json.loads(response.body)
+        self.assertFalse(payload["cdn"])
+        self.assertIsNone(payload["expires_at"])
+        self.assertEqual(
+            payload["url"],
+            "/api/explorer/media/external%2Fimage%201?provider=google-drive&external_source_id=drive-source-1",
+        )
+        resolver.assert_not_called()

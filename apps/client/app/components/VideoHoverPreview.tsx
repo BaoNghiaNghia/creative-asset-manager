@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
-import { buildVideoPlaybackUrl, seekVideoAt } from "../utils/videoPlayback";
+import { invalidateExplorerPlaybackTicket, resolveExplorerPlaybackUrl, seekVideoAt } from "../utils/videoPlayback";
 
 type Props = {
   item: VideoSearchItem;
@@ -15,7 +15,8 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [portrait, setPortrait] = useState(false);
-  const mediaUrl = buildVideoPlaybackUrl(item);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const startSeconds = Math.max(0, item.best_match.start_ms / 1000);
   const endSeconds = Math.max(startSeconds, item.best_match.end_ms / 1000);
 
@@ -51,17 +52,46 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
   }, [onClose]);
 
   useEffect(() => {
+    let active = true;
     setFailed(false);
     setLoading(true);
     setPortrait(false);
+    setRetrying(false);
+    setMediaUrl(null);
+    void resolveExplorerPlaybackUrl(item).then(url => {
+      if (active) setMediaUrl(url);
+    });
     const video = videoRef.current;
     return () => {
+      active = false;
       if (!video) return;
       video.pause();
       video.removeAttribute("src");
       video.load();
     };
-  }, [item.analysis_run_id, item.best_match.start_ms]);
+  }, [item.analysis_run_id, item.best_match.start_ms, item.external_asset_id, item.external_source_id, item.source_type]);
+
+  function retryPlayback() {
+    if (retrying) {
+      setLoading(false);
+      setFailed(true);
+      return;
+    }
+    setRetrying(true);
+    invalidateExplorerPlaybackTicket(item);
+    void resolveExplorerPlaybackUrl(item, true).then(url => {
+      if (!url) {
+        setLoading(false);
+        setFailed(true);
+        return;
+      }
+      setMediaUrl(url);
+      setFailed(false);
+    }).catch(() => {
+      setLoading(false);
+      setFailed(true);
+    });
+  }
 
   return <section
     className={(visible ? "video-hover-preview" : "video-hover-preloader") + (portrait ? " video-hover-preview--portrait" : "")}
@@ -72,11 +102,11 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
     onMouseLeave={onMouseLeave}
   >
     <div className="video-hover-preview-stage">
-      {!mediaUrl || failed
+      {failed
         ? <div className="video-hover-preview-error" role="alert">Video preview is unavailable.</div>
-        : <video
+        : mediaUrl ? <video
           ref={videoRef}
-          key={item.analysis_run_id + ":" + item.best_match.start_ms}
+          key={item.analysis_run_id + ":" + item.best_match.start_ms + ":" + mediaUrl}
           src={mediaUrl}
           poster={item.thumbnail_url || undefined}
           muted
@@ -90,10 +120,10 @@ export function VideoHoverPreview({ item, visible, onClose, onMouseEnter, onMous
           onLoadedMetadata={handleLoadedMetadata}
           onCanPlay={() => setLoading(false)}
           onTimeUpdate={loopBestMatch}
-          onError={() => { setLoading(false); setFailed(true); }}
+          onError={retryPlayback}
           data-preview-start-seconds={startSeconds}
           data-preview-end-seconds={endSeconds}
-        />}
+        /> : null}
       {loading && !failed && <div className="video-hover-preview-loading" role="status"><span>Đang tải video…</span></div>}
     </div>
   </section>;

@@ -5,6 +5,7 @@ import { AssetStatusBadge } from "./AssetStatusBadge";
 import { VisualSearchIcon } from "./VisualSearchIcon";
 import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
+import { prefetchExplorerPlaybackTicket } from "../utils/videoPlayback";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -148,6 +149,11 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
       if (queueTicket.current === ticket) queueTicket.current = null;
     };
   }, [inViewport, item.id, previewUrl, thumbnailFailed]);
+
+  useEffect(() => {
+    if (!inViewport || item.kind !== "video") return;
+    void prefetchExplorerPlaybackTicket(item).catch(() => undefined);
+  }, [inViewport, item.id, item.kind, item.provider, item.external_source_id]);
 
   function finishThumbnail() {
     queueTicket.current?.release();
