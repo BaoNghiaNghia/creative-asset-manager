@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
@@ -38,6 +40,11 @@ from app.modules.realistic_review_ugc.model import (
     RrugcDeliveryItemModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
+)
+from app.modules.realistic_review_ugc.product_page_import import (
+    ProductPageImportError,
+    fetch_product_image,
+    fetch_product_page,
 )
 from app.modules.realistic_review_ugc.product_registry import (
     PRODUCT_REFERENCE_MAX_BYTES,
@@ -93,6 +100,9 @@ from app.modules.realistic_review_ugc.schema import (
     ProductReferenceView,
     ProductResponse,
     ProductUpdateRequest,
+    ProductUrlImportItemResponse,
+    ProductUrlImportRequest,
+    ProductUrlImportResponse,
     ScoutAgentCreateRequest,
     ScoutAgentResponse,
     ScoutAgentCreatedResponse,
@@ -256,6 +266,17 @@ def _product(repository: RrugcRepository, row: RrugcProductModel) -> ProductResp
         circumference_mm=row.circumference_mm,
         logo_position=row.logo_position,
         fit_notes=row.fit_notes,
+        source_url=row.source_url,
+        source_host=row.source_host,
+        brand=row.brand,
+        source_description=row.source_description,
+        source_category=row.source_category,
+        source_price_text=row.source_price_text,
+        source_currency=row.source_currency,
+        source_images=list(row.source_images_json or []),
+        source_variants=list(row.source_variants_json or []),
+        source_metadata=dict(row.source_metadata_json or {}),
+        source_fetched_at=row.source_fetched_at,
         revision=row.revision,
         status=row.status,
         reference_count=len(references),
@@ -799,6 +820,119 @@ def create_product(
     except RrugcError as exc:
         raise _error(exc) from exc
     return _product(RrugcRepository(session), row)
+
+
+@router.post("/products/import-urls", response_model=ProductUrlImportResponse)
+async def import_product_urls(
+    request: ProductUrlImportRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    registry = RrugcProductRegistry(session)
+    storage = build_managed_storage_provider(get_settings())
+    storage_available = not isinstance(storage, UnconfiguredAssetStorageProvider)
+    results: list[ProductUrlImportItemResponse] = []
+
+    timeout = httpx.Timeout(20.0, connect=8.0)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/140.0 Safari/537.36 CreativeAssetManager/1.0"
+        ),
+        "Accept": "text/html,application/xhtml+xml,image/avif,image/webp,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        headers=headers,
+        trust_env=False,
+    ) as client:
+        for raw_url in request.urls:
+            try:
+                page = await fetch_product_page(client, raw_url)
+                product, created = registry.upsert_imported_product(
+                    tenant_id=principal.active_tenant_id,
+                    user_id=principal.user_id,
+                    data=page,
+                )
+            except ProductPageImportError as exc:
+                results.append(ProductUrlImportItemResponse(
+                    source_url=raw_url,
+                    status="failed",
+                    error_code=exc.code,
+                    error_message=str(exc),
+                ))
+                continue
+            except RrugcError as exc:
+                results.append(ProductUrlImportItemResponse(
+                    source_url=raw_url,
+                    status="failed",
+                    error_code=exc.code,
+                    error_message=str(exc),
+                ))
+                continue
+
+            primary_reference_imported = False
+            warning: str | None = None
+            if request.import_primary_image and not page.images:
+                warning = "Product details were imported, but no product gallery image was found."
+            elif request.import_primary_image and page.images:
+                if not storage_available:
+                    warning = (
+                        "Product details were imported, but the primary image could not "
+                        "be saved because Managed Drive is unavailable."
+                    )
+                else:
+                    image_errors: list[str] = []
+                    for image_url in page.images[:4]:
+                        try:
+                            content, _content_type = await fetch_product_image(
+                                client, image_url
+                            )
+                            filename = (
+                                urlsplit(image_url).path.rsplit("/", 1)[-1].strip()
+                                or "product-primary"
+                            )
+                            await registry.upload_reference(
+                                tenant_id=principal.active_tenant_id,
+                                user_id=principal.user_id,
+                                product_id=product.id,
+                                view_type="front",
+                                original_filename=filename[:255],
+                                content=content,
+                                storage=storage,
+                            )
+                            primary_reference_imported = True
+                            break
+                        except ProductPageImportError as exc:
+                            image_errors.append(exc.code)
+                        except RrugcError as exc:
+                            image_errors.append(exc.code)
+                    if not primary_reference_imported:
+                        warning = (
+                            "Product details were imported, but no gallery image could "
+                            "be converted into a front reference."
+                        )
+                        if image_errors:
+                            warning += " Last image error: " + image_errors[-1] + "."
+
+            results.append(ProductUrlImportItemResponse(
+                source_url=page.source_url,
+                status="created" if created else "updated",
+                product=_product(repository, product),
+                images_found=len(page.images),
+                primary_reference_imported=primary_reference_imported,
+                warning=warning,
+            ))
+
+    return ProductUrlImportResponse(
+        items=results,
+        created=sum(item.status == "created" for item in results),
+        updated=sum(item.status == "updated" for item in results),
+        failed=sum(item.status == "failed" for item in results),
+    )
 
 
 @router.get("/products/{product_id}", response_model=ProductResponse)

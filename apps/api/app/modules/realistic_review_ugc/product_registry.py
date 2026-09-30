@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.domain.providers.contracts import AssetStorageProvider, StorageProviderError, StoreAssetInput
 from app.modules.realistic_review_ugc.model import RrugcProductModel, RrugcProductReferenceModel
+from app.modules.realistic_review_ugc.product_page_import import (
+    ProductPageData,
+    generated_sku,
+    infer_product_type,
+)
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.schema import ProductCreateRequest, ProductUpdateRequest
 from app.modules.realistic_review_ugc.service import RrugcError
@@ -119,6 +124,122 @@ class RrugcProductRegistry:
             ) from exc
         self.session.refresh(row)
         return row
+
+    def upsert_imported_product(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        data: ProductPageData,
+    ) -> tuple[RrugcProductModel, bool]:
+        row = self.repository.product_by_source_url(tenant_id, data.source_url)
+        requested_sku = data.sku or generated_sku(data.source_url)
+
+        if row is None and data.sku:
+            candidate = self.repository.product_by_sku(tenant_id, data.sku)
+            if candidate is not None and (
+                not candidate.source_url or candidate.source_url == data.source_url
+            ):
+                row = candidate
+
+        inferred_type = infer_product_type(
+            data.name,
+            data.category,
+            data.description,
+        )
+        if row is None:
+            sku = requested_sku
+            existing_sku = self.repository.product_by_sku(tenant_id, sku)
+            if existing_sku is not None:
+                sku = generated_sku(data.source_url)
+            row = RrugcProductModel(
+                tenant_id=tenant_id,
+                sku=sku,
+                name=data.name.strip(),
+                product_type=inferred_type,
+                color=_clean_optional(data.color),
+                material=_clean_optional(data.material),
+                source_url=data.source_url,
+                source_host=data.source_host,
+                brand=_clean_optional(data.brand),
+                source_description=_clean_optional(data.description),
+                source_category=_clean_optional(data.category),
+                source_price_text=_clean_optional(data.price_text),
+                source_currency=_clean_optional(data.currency),
+                source_images_json=list(data.images),
+                source_variants_json=list(data.variants),
+                source_metadata_json=dict(data.metadata),
+                source_fetched_at=datetime.now(timezone.utc),
+                created_by_user_id=user_id,
+                status="active",
+                revision=1,
+            )
+            try:
+                self.session.add(row)
+                self.session.commit()
+            except IntegrityError as exc:
+                self.session.rollback()
+                current = self.repository.product_by_source_url(
+                    tenant_id, data.source_url
+                )
+                if current is None:
+                    raise RrugcError(
+                        "product_import_conflict",
+                        "Product could not be imported because its source or SKU already exists.",
+                        status_code=409,
+                    ) from exc
+                row = current
+            else:
+                self.session.refresh(row)
+                return row, True
+
+        was_archived = row.status == "archived"
+        next_metadata = dict(row.source_metadata_json or {})
+        next_metadata.update(dict(data.metadata))
+        next_values = {
+            "name": data.name.strip(),
+            "product_type": (
+                inferred_type
+                if inferred_type != "product" or row.product_type == "product"
+                else row.product_type
+            ),
+            "color": _clean_optional(data.color) or row.color,
+            "material": _clean_optional(data.material) or row.material,
+            "source_url": data.source_url,
+            "source_host": data.source_host,
+            "brand": _clean_optional(data.brand) or row.brand,
+            "source_description": (
+                _clean_optional(data.description) or row.source_description
+            ),
+            "source_category": _clean_optional(data.category) or row.source_category,
+            "source_price_text": (
+                _clean_optional(data.price_text) or row.source_price_text
+            ),
+            "source_currency": _clean_optional(data.currency) or row.source_currency,
+            "source_images_json": (
+                list(data.images) if data.images else list(row.source_images_json or [])
+            ),
+            "source_variants_json": (
+                list(data.variants)
+                if data.variants
+                else list(row.source_variants_json or [])
+            ),
+            "source_metadata_json": next_metadata,
+        }
+        changed = was_archived or any(
+            getattr(row, field) != value for field, value in next_values.items()
+        )
+        if was_archived:
+            row.status = "active"
+            row.archived_at = None
+        for field, value in next_values.items():
+            setattr(row, field, value)
+        row.source_fetched_at = datetime.now(timezone.utc)
+        if changed:
+            row.revision += 1
+        self.session.commit()
+        self.session.refresh(row)
+        return row, False
 
     def update_product(
         self,

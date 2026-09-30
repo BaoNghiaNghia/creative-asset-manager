@@ -25,6 +25,7 @@ import type {
   ProductReference,
   ProductReferenceView,
   ProductUpdateRequest,
+  ProductUrlImportResult,
   ReviewTask,
   ReviewTaskList,
   ReviewTaskTransition,
@@ -78,6 +79,15 @@ export const updateProduct = (productId: string, body: ProductUpdateRequest) =>
   request<Product>("/api/v1/realistic-review-ugc/products/" + encodeURIComponent(productId), {
     method: "PATCH",
     body: JSON.stringify(body),
+  });
+
+export const importProductUrls = (urls: string[], importPrimaryImage = true) =>
+  request<ProductUrlImportResult>("/api/v1/realistic-review-ugc/products/import-urls", {
+    method: "POST",
+    body: JSON.stringify({
+      urls,
+      import_primary_image: importPrimaryImage,
+    }),
   });
 
 export const archiveProduct = (productId: string) =>

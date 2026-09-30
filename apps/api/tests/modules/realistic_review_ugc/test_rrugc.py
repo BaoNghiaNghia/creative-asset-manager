@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -75,6 +76,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductModel,
     RrugcProductReferenceModel,
 )
+from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.review import RrugcReviewService
@@ -3669,6 +3671,65 @@ def test_product_registry_crud_api(api):
         "/api/v1/realistic-review-ugc/products?include_archived=true"
     )
     assert len(all_rows.json()) == 1
+
+
+def test_product_url_import_api_builds_product_from_page_details(api, monkeypatch):
+    router_module = importlib.import_module(
+        "app.modules.realistic_review_ugc.router"
+    )
+
+    async def fake_fetch_product_page(_client, raw_url: str):
+        return ProductPageData(
+            source_url=raw_url,
+            source_host="shop.example.com",
+            name="Imported Forest Cap",
+            sku="URL-CAP-1",
+            brand="North Studio",
+            description="Casual cotton baseball cap for outdoor phone-photo UGC.",
+            category="Baseball Caps",
+            color="Forest Green",
+            material="Cotton Twill",
+            price_text="29.00",
+            currency="USD",
+            images=[
+                "https://cdn.example.com/front.jpg",
+                "https://cdn.example.com/side.jpg",
+            ],
+            variants=[{"sku": "URL-CAP-1-M", "size": "M"}],
+        )
+
+    monkeypatch.setattr(
+        router_module,
+        "fetch_product_page",
+        fake_fetch_product_page,
+    )
+
+    response = api.post(
+        "/api/v1/realistic-review-ugc/products/import-urls",
+        json={
+            "urls": ["https://shop.example.com/products/forest-cap"],
+            "import_primary_image": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["created"] == 1
+    assert payload["updated"] == 0
+    assert payload["failed"] == 0
+    assert payload["items"][0]["images_found"] == 2
+    product = payload["items"][0]["product"]
+    assert product["sku"] == "URL-CAP-1"
+    assert product["name"] == "Imported Forest Cap"
+    assert product["product_type"] == "hat"
+    assert product["brand"] == "North Studio"
+    assert product["source_category"] == "Baseball Caps"
+    assert product["source_price_text"] == "29.00"
+    assert product["source_currency"] == "USD"
+    assert product["source_images"] == [
+        "https://cdn.example.com/front.jpg",
+        "https://cdn.example.com/side.jpg",
+    ]
+    assert product["source_variants"] == [{"sku": "URL-CAP-1-M", "size": "M"}]
 
 
 def test_product_reference_upload_is_versioned_and_reuses_hash(database):

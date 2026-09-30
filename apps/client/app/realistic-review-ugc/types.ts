@@ -223,6 +223,17 @@ export type Product = {
   circumference_mm: number | null;
   logo_position: string | null;
   fit_notes: string | null;
+  source_url: string | null;
+  source_host: string | null;
+  brand: string | null;
+  source_description: string | null;
+  source_category: string | null;
+  source_price_text: string | null;
+  source_currency: string | null;
+  source_images: string[];
+  source_variants: Array<Record<string, unknown>>;
+  source_metadata: Record<string, unknown>;
+  source_fetched_at: string | null;
   revision: number;
   status: "active" | "archived";
   reference_count: number;
@@ -230,6 +241,24 @@ export type Product = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+};
+
+export type ProductUrlImportItem = {
+  source_url: string;
+  status: "created" | "updated" | "failed";
+  product: Product | null;
+  images_found: number;
+  primary_reference_imported: boolean;
+  warning: string | null;
+  error_code: string | null;
+  error_message: string | null;
+};
+
+export type ProductUrlImportResult = {
+  items: ProductUrlImportItem[];
+  created: number;
+  updated: number;
+  failed: number;
 };
 
 export type ProductReference = {

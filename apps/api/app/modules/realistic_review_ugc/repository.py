@@ -559,6 +559,18 @@ class RrugcRepository:
             )
         )
 
+    def product_by_source_url(
+        self,
+        tenant_id: str,
+        source_url: str,
+    ) -> RrugcProductModel | None:
+        return self.session.scalar(
+            select(RrugcProductModel).where(
+                RrugcProductModel.tenant_id == tenant_id,
+                RrugcProductModel.source_url == source_url,
+            )
+        )
+
     def list_product_references(
         self,
         tenant_id: str,

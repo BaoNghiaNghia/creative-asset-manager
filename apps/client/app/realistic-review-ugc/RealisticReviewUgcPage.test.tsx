@@ -4,6 +4,7 @@ import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
 import { autoScoutBootstrapCommand, autoScoutCommand, scoutClientIsCurrent } from "./PinterestAutoScoutPanel";
+import { ProductRegistryPanel, productUrlsFromText } from "./ProductRegistryPanel";
 import { candidateGalleryTab, candidateMatchesGalleryTab, candidatePhonePriority, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
 
@@ -19,6 +20,17 @@ describe("Realistic Review UGC route", () => {
     expect(markup).toContain("＋ Add campaign");
     expect(markup).toContain("Add, edit, delete, and select campaigns from one place.");
     expect(markup).not.toContain("Define what Auto Scout should find");
+  });
+
+  it("renders URL-first product import and keeps manual entry as fallback", () => {
+    const markup = renderToStaticMarkup(<ProductRegistryPanel />);
+    expect(markup).toContain("Scan product pages");
+    expect(markup).toContain("Scan &amp; import products");
+    expect(markup).toContain("Manual product fallback");
+    expect(productUrlsFromText("https://a.example/p/1\nhttps://b.example/p/2\nhttps://a.example/p/1")).toEqual([
+      "https://a.example/p/1",
+      "https://b.example/p/2",
+    ]);
   });
 
   it("detects outdated local Scout clients without blocking future versions", () => {

@@ -3,6 +3,7 @@ import {
   archiveProduct,
   archiveProductReference,
   createProduct,
+  importProductUrls,
   listProductReferences,
   listProducts,
   updateProduct,
@@ -12,6 +13,7 @@ import type {
   Product,
   ProductCreateRequest,
   ProductReference,
+  ProductUrlImportResult,
   ProductReferenceView,
 } from "./types";
 
@@ -36,10 +38,32 @@ const referenceImageUrl = (productId: string, referenceId: string) =>
   "/api/v1/realistic-review-ugc/products/" + encodeURIComponent(productId)
   + "/references/" + encodeURIComponent(referenceId) + "/image";
 
+export function productUrlsFromText(value: string): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const raw of value.split(/[\n,]+/)) {
+    const url = raw.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+    if (urls.length >= 10) break;
+  }
+  return urls;
+}
+
+function variantSummary(variant: Record<string, unknown>, index: number): string {
+  const parts = ["name", "color", "size", "sku"]
+    .map(key => typeof variant[key] === "string" ? String(variant[key]).trim() : "")
+    .filter(Boolean);
+  return parts.join(" · ") || "Variant " + (index + 1);
+}
+
 export function ProductRegistryPanel() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [references, setReferences] = useState<ProductReference[]>([]);
+  const [productUrls, setProductUrls] = useState("");
+  const [urlImportResult, setUrlImportResult] = useState<ProductUrlImportResult | null>(null);
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [color, setColor] = useState("");
@@ -94,6 +118,26 @@ export function ProductRegistryPanel() {
     });
     return () => controller.abort();
   }, [selectedId]);
+
+  async function scanProductUrls() {
+    const urls = productUrlsFromText(productUrls);
+    if (!urls.length || busy) return;
+    setBusy("url-import");
+    setError("");
+    setUrlImportResult(null);
+    try {
+      const result = await importProductUrls(urls, true);
+      setUrlImportResult(result);
+      await refreshProducts();
+      const first = result.items.find(item => item.product)?.product;
+      if (first) setSelectedId(first.id);
+      if (result.failed === 0) setProductUrls("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to scan product URLs.");
+    } finally {
+      setBusy("");
+    }
+  }
 
   async function submitProduct() {
     if (!sku.trim() || !name.trim() || busy) return;
@@ -212,9 +256,48 @@ export function ProductRegistryPanel() {
 
     {error && <div className="rrugc-error" role="alert">{error}</div>}
 
+    <section className="rrugc-product-url-import" aria-label="Import products from URLs">
+      <div>
+        <small>PRODUCT URL IMPORT</small>
+        <h3>Scan product pages</h3>
+        <p>Paste one product URL per line. The system extracts product details, variants and gallery images, then saves the primary image as the front reference when possible.</p>
+      </div>
+      <textarea
+        rows={3}
+        value={productUrls}
+        onChange={event => setProductUrls(event.target.value)}
+        placeholder={"https://store.example.com/products/product-a\nhttps://store.example.com/products/product-b"}
+        aria-label="Product URLs"
+      />
+      <div className="rrugc-product-url-actions">
+        <span>{productUrlsFromText(productUrls).length}/10 URLs</span>
+        <button
+          type="button"
+          className="rrugc-primary"
+          disabled={!productUrlsFromText(productUrls).length || Boolean(busy)}
+          onClick={() => void scanProductUrls()}
+        >
+          {busy === "url-import" ? "Scanning product pages…" : "Scan & import products"}
+        </button>
+      </div>
+      {urlImportResult && <div className="rrugc-product-import-result">
+        <strong>{urlImportResult.created} created · {urlImportResult.updated} updated · {urlImportResult.failed} failed</strong>
+        {urlImportResult.items.map((item, index) => <div key={item.source_url + index} className={"is-" + item.status}>
+          <span>{item.product?.name || item.source_url}</span>
+          <small>
+            {item.status === "failed"
+              ? item.error_message || item.error_code || "Import failed"
+              : item.images_found + " images found"
+                + (item.primary_reference_imported ? " · front reference saved" : "")
+                + (item.warning ? " · " + item.warning : "")}
+          </small>
+        </div>)}
+      </div>}
+    </section>
+
     <div className="rrugc-product-layout">
       <details className="rrugc-product-create" open={products.length === 0}>
-        <summary><span><strong>Add product SKU</strong><small>Create a new product truth record only when needed.</small></span><b>New SKU</b></summary>
+        <summary><span><strong>Manual product fallback</strong><small>Use only when a product page cannot be scanned.</small></span><b>Manual SKU</b></summary>
         <div className="rrugc-product-form-grid">
           <label>SKU<input value={sku} onChange={event => setSku(event.target.value)} placeholder="CAP-001" /></label>
           <label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="Forest Green Cap" /></label>
@@ -250,6 +333,30 @@ export function ProductRegistryPanel() {
         <div><small>SELECTED PRODUCT</small><h3>{selected.sku} · {selected.name}</h3><p>Geometry revision {selected.revision}</p></div>
         <button type="button" className="rrugc-danger-ghost" disabled={Boolean(busy)} onClick={() => void archiveSelected()}>Archive SKU</button>
       </div>
+
+      {selected.source_url && <section className="rrugc-source-product">
+        <header>
+          <div><small>SOURCE PRODUCT</small><strong>{selected.brand || selected.source_host || "Imported product"}</strong></div>
+          <a href={selected.source_url} target="_blank" rel="noreferrer">Open product page</a>
+        </header>
+        <div className="rrugc-source-product-meta">
+          {selected.source_category && <span>Category <b>{selected.source_category}</b></span>}
+          {(selected.source_price_text || selected.source_currency) && <span>Price <b>{[selected.source_price_text, selected.source_currency].filter(Boolean).join(" ")}</b></span>}
+          <span>Gallery <b>{selected.source_images.length}</b></span>
+          <span>Variants <b>{selected.source_variants.length}</b></span>
+          {selected.source_fetched_at && <span>Scanned <b>{new Date(selected.source_fetched_at).toLocaleString()}</b></span>}
+        </div>
+        {selected.source_description && <p>{selected.source_description}</p>}
+        {selected.source_images.length > 0 && <div className="rrugc-source-gallery">
+          {selected.source_images.slice(0, 10).map((imageUrl, index) => <a key={imageUrl} href={imageUrl} target="_blank" rel="noreferrer" title={"Product image " + (index + 1)}>
+            <img src={imageUrl} alt={"Product source " + (index + 1)} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+          </a>)}
+        </div>}
+        {selected.source_variants.length > 0 && <div className="rrugc-source-variants">
+          {selected.source_variants.slice(0, 8).map((variant, index) => <span key={index}>{variantSummary(variant, index)}</span>)}
+          {selected.source_variants.length > 8 && <small>+{selected.source_variants.length - 8} more variants</small>}
+        </div>}
+      </section>}
 
       <div className="rrugc-product-form-grid rrugc-product-edit-grid">
         <label>Color<input value={selected.color || ""} onChange={event => patchSelected({ color: event.target.value })} /></label>

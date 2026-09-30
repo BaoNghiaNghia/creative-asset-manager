@@ -193,6 +193,12 @@ class RrugcProductModel(Base):
         UniqueConstraint("tenant_id", "sku", name="uq_rrugc_product_tenant_sku"),
         UniqueConstraint("tenant_id", "id", name="uq_rrugc_product_tenant_id"),
         Index("ix_rrugc_product_tenant_status", "tenant_id", "status", "updated_at"),
+        Index(
+            "ix_rrugc_product_tenant_source_url",
+            "tenant_id",
+            "source_url",
+            unique=True,
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -209,6 +215,17 @@ class RrugcProductModel(Base):
     circumference_mm: Mapped[float | None] = mapped_column(Float)
     logo_position: Mapped[str | None] = mapped_column(String(120))
     fit_notes: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    source_host: Mapped[str | None] = mapped_column(String(255))
+    brand: Mapped[str | None] = mapped_column(String(200))
+    source_description: Mapped[str | None] = mapped_column(Text)
+    source_category: Mapped[str | None] = mapped_column(String(200))
+    source_price_text: Mapped[str | None] = mapped_column(String(120))
+    source_currency: Mapped[str | None] = mapped_column(String(16))
+    source_images_json: Mapped[list | None] = mapped_column(JSON)
+    source_variants_json: Mapped[list | None] = mapped_column(JSON)
+    source_metadata_json: Mapped[dict | None] = mapped_column(JSON)
+    source_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)

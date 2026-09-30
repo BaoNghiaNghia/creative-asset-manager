@@ -40,6 +40,16 @@ def product_snapshot(product: RrugcProductModel) -> dict:
         "circumference_mm": product.circumference_mm,
         "logo_position": product.logo_position,
         "fit_notes": product.fit_notes,
+        "source_url": product.source_url,
+        "source_host": product.source_host,
+        "brand": product.brand,
+        "source_description": product.source_description,
+        "source_category": product.source_category,
+        "source_price_text": product.source_price_text,
+        "source_currency": product.source_currency,
+        "source_images": list(product.source_images_json or []),
+        "source_variants": list(product.source_variants_json or []),
+        "source_metadata": dict(product.source_metadata_json or {}),
         "revision": product.revision,
     }
 

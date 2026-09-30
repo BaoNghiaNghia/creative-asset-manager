@@ -113,6 +113,17 @@ class ProductResponse(BaseModel):
     circumference_mm: float | None
     logo_position: str | None
     fit_notes: str | None
+    source_url: str | None = None
+    source_host: str | None = None
+    brand: str | None = None
+    source_description: str | None = None
+    source_category: str | None = None
+    source_price_text: str | None = None
+    source_currency: str | None = None
+    source_images: list[str] = Field(default_factory=list)
+    source_variants: list[dict] = Field(default_factory=list)
+    source_metadata: dict = Field(default_factory=dict)
+    source_fetched_at: datetime | None = None
     revision: int
     status: ProductStatus
     reference_count: int = 0
@@ -120,6 +131,48 @@ class ProductResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+
+
+class ProductUrlImportRequest(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=10)
+    import_primary_image: bool = True
+
+    @model_validator(mode="after")
+    def validate_urls(self):
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in self.urls:
+            value = str(raw or "").strip()
+            if not value:
+                continue
+            if len(value) > 2048:
+                raise ValueError("Each product URL must be 2048 characters or fewer")
+            if value in seen:
+                continue
+            seen.add(value)
+            cleaned.append(value)
+        if not cleaned:
+            raise ValueError("At least one product URL is required")
+        self.urls = cleaned
+        return self
+
+
+class ProductUrlImportItemResponse(BaseModel):
+    source_url: str
+    status: Literal["created", "updated", "failed"]
+    product: ProductResponse | None = None
+    images_found: int = 0
+    primary_reference_imported: bool = False
+    warning: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class ProductUrlImportResponse(BaseModel):
+    items: list[ProductUrlImportItemResponse]
+    created: int
+    updated: int
+    failed: int
 
 
 class ProductReferenceResponse(BaseModel):

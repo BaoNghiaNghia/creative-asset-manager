@@ -95,7 +95,18 @@ def _combined_text(
 ) -> str:
     parts = [name, *queries]
     if isinstance(product_snapshot, dict):
-        for key in ("name", "product_type", "fit_notes", "brim_style", "crown_profile"):
+        for key in (
+            "name",
+            "product_type",
+            "brand",
+            "source_category",
+            "source_description",
+            "color",
+            "material",
+            "fit_notes",
+            "brim_style",
+            "crown_profile",
+        ):
             value = product_snapshot.get(key)
             if value:
                 parts.append(str(value))
