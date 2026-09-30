@@ -1597,11 +1597,11 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-panel-direct .visual-direct-change{position:absolute;z-index:4;top:10px;right:10px;display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:50%;background:rgba(24,29,38,.78);color:#fff;font-size:22px;line-height:1;box-shadow:0 1px 5px rgba(0,0,0,.25)}
 .visual-search-panel-direct .visual-direct-change:hover{background:#fff;color:#263a5b}
 .visual-search-panel-direct .visual-direct-crop{position:absolute;z-index:3;box-sizing:border-box;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 999px rgba(8,11,18,.55);pointer-events:none;touch-action:none}
-.visual-search-panel-direct .visual-direct-handle{position:absolute;width:30px;height:30px;box-sizing:border-box;background:transparent;pointer-events:auto}
-.visual-search-panel-direct .visual-direct-handle.nw{top:-4px;left:-4px;border-top:4px solid #fff;border-left:4px solid #fff;border-radius:12px 0 0}
-.visual-search-panel-direct .visual-direct-handle.ne{top:-4px;right:-4px;border-top:4px solid #fff;border-right:4px solid #fff;border-radius:0 12px 0 0}
-.visual-search-panel-direct .visual-direct-handle.sw{bottom:-4px;left:-4px;border-bottom:4px solid #fff;border-left:4px solid #fff;border-radius:0 0 0 12px}
-.visual-search-panel-direct .visual-direct-handle.se{right:-4px;bottom:-4px;border-right:4px solid #fff;border-bottom:4px solid #fff;border-radius:0 0 12px}
+.visual-search-panel-direct .visual-direct-handle{position:absolute;width:20px;height:20px;box-sizing:border-box;background:transparent;pointer-events:auto}
+.visual-search-panel-direct .visual-direct-handle.nw{top:-2px;left:-2px;border-top:2px solid #fff;border-left:2px solid #fff;border-radius:8px 0 0}
+.visual-search-panel-direct .visual-direct-handle.ne{top:-2px;right:-2px;border-top:2px solid #fff;border-right:2px solid #fff;border-radius:0 8px 0 0}
+.visual-search-panel-direct .visual-direct-handle.sw{bottom:-2px;left:-2px;border-bottom:2px solid #fff;border-left:2px solid #fff;border-radius:0 0 0 8px}
+.visual-search-panel-direct .visual-direct-handle.se{right:-2px;bottom:-2px;border-right:2px solid #fff;border-bottom:2px solid #fff;border-radius:0 0 8px}
 .visual-search-panel-direct .visual-direct-handle.nw,.visual-search-panel-direct .visual-direct-handle.se{cursor:nwse-resize}
 .visual-search-panel-direct .visual-direct-handle.ne,.visual-search-panel-direct .visual-direct-handle.sw{cursor:nesw-resize}
 .visual-search-panel-direct .visual-direct-caption{display:grid;max-width:300px;gap:3px;color:#697991;text-align:center}
@@ -1678,16 +1678,16 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 }
 .visual-search-upload-card--reference .visual-direct-handle {
   position: absolute;
-  width: 30px;
-  height: 30px;
+  width: 20px;
+  height: 20px;
   box-sizing: border-box;
   background: transparent;
   pointer-events: auto;
 }
-.visual-search-upload-card--reference .visual-direct-handle.nw { top: -4px; left: -4px; border-top: 4px solid #fff; border-left: 4px solid #fff; border-radius: 12px 0 0; cursor: nwse-resize; }
-.visual-search-upload-card--reference .visual-direct-handle.ne { top: -4px; right: -4px; border-top: 4px solid #fff; border-right: 4px solid #fff; border-radius: 0 12px 0 0; cursor: nesw-resize; }
-.visual-search-upload-card--reference .visual-direct-handle.sw { bottom: -4px; left: -4px; border-bottom: 4px solid #fff; border-left: 4px solid #fff; border-radius: 0 0 0 12px; cursor: nesw-resize; }
-.visual-search-upload-card--reference .visual-direct-handle.se { right: -4px; bottom: -4px; border-right: 4px solid #fff; border-bottom: 4px solid #fff; border-radius: 0 0 12px; cursor: nwse-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.nw { top: -2px; left: -2px; border-top: 2px solid #fff; border-left: 2px solid #fff; border-radius: 8px 0 0; cursor: nwse-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.ne { top: -2px; right: -2px; border-top: 2px solid #fff; border-right: 2px solid #fff; border-radius: 0 8px 0 0; cursor: nesw-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.sw { bottom: -2px; left: -2px; border-bottom: 2px solid #fff; border-left: 2px solid #fff; border-radius: 0 0 0 8px; cursor: nesw-resize; }
+.visual-search-upload-card--reference .visual-direct-handle.se { right: -2px; bottom: -2px; border-right: 2px solid #fff; border-bottom: 2px solid #fff; border-radius: 0 0 8px; cursor: nwse-resize; }
 
 /* Keep the Visual Search sidebar self-contained inside the workbench grid. */
 .visual-search-workbench > .visual-search-upload-card--reference {

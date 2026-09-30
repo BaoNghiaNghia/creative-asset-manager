@@ -49,6 +49,11 @@ export function searchIncludesVideos(mode: SearchMediaMode): boolean {
   return mode === "all" || mode === "videos";
 }
 
+export function toggleVisualSearchOpen(currentOpen: boolean, clear: () => void): boolean {
+  if (currentOpen) clear();
+  return !currentOpen;
+}
+
 type FileDragTransfer = Pick<DataTransfer, "types" | "items">;
 
 export function dragContainsFiles(dataTransfer: Pick<DataTransfer, "types">): boolean {
@@ -969,7 +974,7 @@ export default function App() {
                 aria-label="Clear search"
                 title="Clear search"
               >{"\u00d7"}</button>}
-              <button type="button" className="visual-search-entry" onClick={() => setVisualSearchOpen(true)} aria-label="Search by image" title="Search by image" aria-expanded={visualSearchOpen}>
+              <button type="button" className="visual-search-entry" onClick={() => setVisualSearchOpen(current => toggleVisualSearchOpen(current, visualSearch.clear))} aria-label={visualSearchOpen ? "Close image search" : "Search by image"} title={visualSearchOpen ? "Close image search" : "Search by image"} aria-expanded={visualSearchOpen} aria-pressed={visualSearchOpen}>
                 <VisualSearchIcon />
               </button>
               {showSearchHistory && <div className="search-history" role="listbox" aria-label="Recent searches">

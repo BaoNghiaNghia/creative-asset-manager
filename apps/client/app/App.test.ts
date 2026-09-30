@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SEARCH_MEDIA_MODE, parseSearchMediaMode, searchIncludesImages, searchIncludesVideos, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag } from "./App";
+import { DEFAULT_SEARCH_MEDIA_MODE, parseSearchMediaMode, searchIncludesImages, searchIncludesVideos, accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, toggleVisualSearchOpen } from "./App";
 import { ASSET_DRAG_OUT_MIME } from "./components/AssetGrid";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
@@ -41,6 +41,17 @@ describe("External file drag detection", () => {
 
   it("still rejects CAM internal drag-out payloads inside the desktop shell", () => {
     expect(isExternalFileDrag(dragTransfer(["Files", ASSET_DRAG_OUT_MIME], ["file"]), true)).toBe(false);
+  });
+});
+
+describe("Visual image search toggle", () => {
+  it("opens without clearing and clears the active visual search when toggled off", () => {
+    let cleared = 0;
+    const clear = () => { cleared += 1; };
+    expect(toggleVisualSearchOpen(false, clear)).toBe(true);
+    expect(cleared).toBe(0);
+    expect(toggleVisualSearchOpen(true, clear)).toBe(false);
+    expect(cleared).toBe(1);
   });
 });
 
