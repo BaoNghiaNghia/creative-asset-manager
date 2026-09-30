@@ -207,6 +207,26 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         self.assertEqual(service._preflight_required_free_space(20), 2020)
         service._ensure_free_space(Path(self.temp.name), 1000)
 
+    def test_short_video_does_not_reserve_the_entire_max_chunk_before_transcode(self):
+        gib = 1024 * 1024 * 1024
+        settings = self.settings(
+            VIDEO_PROXY_MAX_CHUNK_BYTES=1_500_000_000,
+            VIDEO_PROXY_MIN_FREE_DISK_BYTES=8 * gib,
+        )
+        service = self.service(settings=settings, free=9 * gib)
+        chunks = asyncio.run(
+            service.prepare(
+                tenant_id="tenant-a",
+                source_asset_id="asset-a",
+                expected_source_fingerprint=self.fingerprint(),
+            )
+        )
+        self.assertEqual(len(chunks), 1)
+        self.assertLess(
+            service._output_storage_requirement(1.25), 100 * 1024 * 1024
+        )
+        service.cleanup(chunks)
+
     def test_configuration_and_storage_preflight_fail_before_ffmpeg(self):
         factory = FakeProcessFactory()
         with self.assertRaises(VideoProxyConfigurationError):

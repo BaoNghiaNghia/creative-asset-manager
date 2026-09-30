@@ -125,6 +125,7 @@ class VideoProxyPreparationService:
     _TERMINATE_TIMEOUT_SECONDS = 5
     _STORAGE_POLL_SECONDS = 0.25
     _WORKING_RESERVE_BYTES = 64 * 1024 * 1024
+    _OUTPUT_ESTIMATE_OVERHEAD_RATIO = 1.25
 
     def __init__(
         self,
@@ -156,8 +157,13 @@ class VideoProxyPreparationService:
         self.cleanup_stale()
         source_limit = self._max_source_bytes()
         expected_source_size = self._expected_source_size(source_asset, source_limit)
-        output_reserve = self._output_storage_requirement()
-        self._ensure_free_space(root, self._preflight_required_free_space(expected_source_size, output_reserve))
+        bootstrap_reserve = self._storage_safety_reserve()
+        self._ensure_free_space(
+            root,
+            self._preflight_required_free_space(
+                expected_source_size, bootstrap_reserve
+            ),
+        )
         working_directory = Path(tempfile.mkdtemp(prefix="video-proxy-", dir=root))
         source_path = self._source_path(working_directory, source_asset.mime_type)
         process: Any | None = None
@@ -173,7 +179,7 @@ class VideoProxyPreparationService:
                 expected_size=expected_source_size,
                 maximum_size=source_limit,
                 root=root,
-                output_reserve=output_reserve,
+                output_reserve=bootstrap_reserve,
                 size_is_authoritative=source_asset.size_bytes is not None,
             )
             # Establish canonical content identity as soon as the provider bytes
@@ -184,7 +190,9 @@ class VideoProxyPreparationService:
                 source_asset_id=source_asset_id,
                 source_path=source_path,
             )
-            await self._probe_source(source_path)
+            duration_seconds = await self._probe_source(source_path)
+            output_reserve = self._output_storage_requirement(duration_seconds)
+            self._ensure_free_space(root, output_reserve)
             command = self._ffmpeg_command(working_directory, source_path)
             try:
                 process = await self._create_subprocess_exec(
@@ -201,7 +209,13 @@ class VideoProxyPreparationService:
                 )
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr))
             storage_task = asyncio.create_task(
-                self._monitor_storage(process, root, output_reserve, stop_monitor, storage_failed)
+                self._monitor_storage(
+                    process,
+                    root,
+                    self._storage_safety_reserve(),
+                    stop_monitor,
+                    storage_failed,
+                )
             )
             await process.wait()
             if storage_failed.is_set():
@@ -397,11 +411,38 @@ class VideoProxyPreparationService:
             raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_CHUNK_BYTES must be positive")
         return min(maximum, self._WORKING_RESERVE_BYTES)
 
-    def _output_storage_requirement(self) -> int:
+    def _output_storage_requirement(
+        self, duration_seconds: float | None = None
+    ) -> int:
         maximum = int(self._settings.VIDEO_PROXY_MAX_CHUNK_BYTES)
         if maximum <= 0:
             raise VideoProxyConfigurationError("VIDEO_PROXY_MAX_CHUNK_BYTES must be positive")
-        return maximum + self._storage_safety_reserve()
+        safety_reserve = self._storage_safety_reserve()
+        if duration_seconds is None:
+            return maximum + safety_reserve
+        if (
+            not isinstance(duration_seconds, (int, float))
+            or isinstance(duration_seconds, bool)
+            or not math.isfinite(float(duration_seconds))
+            or duration_seconds <= 0
+        ):
+            raise VideoProxyConfigurationError(
+                "video proxy duration must be positive"
+            )
+        video_bitrate = int(self._settings.VIDEO_PROXY_VIDEO_BITRATE_KBPS)
+        audio_bitrate = int(self._settings.VIDEO_PROXY_AUDIO_BITRATE_KBPS)
+        if min(video_bitrate, audio_bitrate) <= 0:
+            raise VideoProxyConfigurationError(
+                "video proxy bitrates must be positive"
+            )
+        estimated_output = math.ceil(
+            float(duration_seconds)
+            * (video_bitrate + audio_bitrate)
+            * 1000
+            / 8
+            * self._OUTPUT_ESTIMATE_OVERHEAD_RATIO
+        )
+        return estimated_output + safety_reserve
 
     def _expected_source_size(self, source: SourceAssetModel, maximum: int) -> int:
         size = source.size_bytes
@@ -499,7 +540,7 @@ class VideoProxyPreparationService:
             except asyncio.TimeoutError:
                 pass
 
-    async def _probe_source(self, path: Path) -> None:
+    async def _probe_source(self, path: Path) -> float:
         """Validate the fully materialized provider download before transcoding."""
         document = await self._ffprobe_document(path, phase="source_probe")
         try:
@@ -520,6 +561,7 @@ class VideoProxyPreparationService:
             raise VideoProxyProcessError(
                 "downloaded source is not a playable video", phase="source_probe"
             )
+        return duration_seconds
 
     async def _probe_chunks(self, directory: Path) -> tuple[PreparedVideoChunk, ...]:
         paths = sorted(directory.glob("chunk_*.mp4"))
