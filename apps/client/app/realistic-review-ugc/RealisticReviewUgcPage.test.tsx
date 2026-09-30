@@ -38,7 +38,8 @@ describe("Realistic Review UGC route", () => {
   it("detects outdated local Scout clients without blocking future versions", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v7")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v8")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v9")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v9")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v10")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 
@@ -185,7 +186,7 @@ describe("Realistic Review UGC route", () => {
     expect(config).toContain("RRUGC_BASE_URL=https://creative.example");
     expect(config).toContain("RRUGC_AGENT_ID=agent-1");
     expect(config).toContain("RRUGC_SCOUT_TOKEN=agent-secret");
-    expect(config).toContain("RRUGC_DETAIL_CONCURRENCY=3");
+    expect(config).toContain("RRUGC_DETAIL_CONCURRENCY=1");
     expect(config).not.toContain("--token");
   });
 

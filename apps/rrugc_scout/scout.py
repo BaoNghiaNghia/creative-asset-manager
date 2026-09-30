@@ -18,17 +18,20 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v9"
+CLIENT_VERSION = "rrugc-scout-v10"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
-PIN_DETAIL_CONCURRENCY = 3
+PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
 PIN_DETAIL_SETTLE_MS = 650
+PIN_DETAIL_NAVIGATION_PAUSE_MS = 2_500
+PIN_ACCESS_GATE_COOLDOWN_SECONDS = 300
+PIN_RATE_LIMIT_COOLDOWN_SECONDS = 300
 PINIMG_RENDITION_SEGMENT = re.compile(r"^(?:originals|[0-9]+x(?:[0-9]+)?(?:_[A-Za-z0-9]+)?)$", re.IGNORECASE)
 INITIAL_RESULTS_TIMEOUT_MS = 6_000
 SCROLL_RESULTS_TIMEOUT_MS = 3_500
 MANUAL_GATE_POLL_MS = 1_500
-QUALITY_FIRST_RUN_CANDIDATE_CAP = 24
-MAX_KEYWORDS_PER_RUN = 5
+QUALITY_FIRST_RUN_CANDIDATE_CAP = 12
+MAX_KEYWORDS_PER_RUN = 4
 QUALITY_QUERY_SUFFIX = "authentic smartphone candid photo real people"
 HEARTBEAT_INTERVAL_SECONDS = 10
 
@@ -151,6 +154,24 @@ def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
     ])
     process.wait()
     print("Bootstrap Chrome closed. The persistent Pinterest session is ready for Auto Scout.")
+
+
+class PinterestAccessGateError(RuntimeError):
+    def __init__(self, gate: str) -> None:
+        self.gate = gate
+        super().__init__("Pinterest access gate: " + gate)
+
+
+class PinterestRateLimitedError(RuntimeError):
+    pass
+
+
+def guard_pinterest_response(response: Any) -> None:
+    status = int(getattr(response, "status", 0) or 0)
+    if status == 429:
+        raise PinterestRateLimitedError("Pinterest returned HTTP 429")
+    if status in {401, 403}:
+        raise PinterestAccessGateError("access_denied")
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,14 +398,16 @@ def choose_pin_detail_candidate(
 
 async def extract_pin_detail_candidate(page: Any, seed: Candidate) -> Candidate:
     """Resolve a discovered Pin through its detail page before submission."""
-    await page.goto(
+    response = await page.goto(
         seed.pin_url,
         wait_until="domcontentloaded",
         timeout=PIN_DETAIL_TIMEOUT_MS,
     )
+    guard_pinterest_response(response)
     await page.wait_for_timeout(PIN_DETAIL_SETTLE_MS)
-    if await access_gate(page) is not None:
-        return seed
+    gate = await access_gate(page)
+    if gate is not None:
+        raise PinterestAccessGateError(gate)
     rows = await page.evaluate(
         r"""() => {
           const out = [];
@@ -488,24 +511,38 @@ async def resolve_pin_details(
     search_page: Any,
     rows: list[Candidate],
     *,
+    detail_page: Any | None = None,
     concurrency: int = PIN_DETAIL_CONCURRENCY,
 ) -> list[Candidate]:
-    """Resolve only the bounded submit batch, with a small number of temporary Pin tabs."""
+    """Resolve Pin details sequentially through one reusable detail tab."""
     if not rows:
         return []
-    context = getattr(search_page, "context", None)
-    new_page = getattr(context, "new_page", None) if context is not None else None
-    if not callable(new_page):
-        return rows
 
-    limit = max(1, min(5, int(concurrency)))
-    semaphore = asyncio.Semaphore(limit)
+    if int(concurrency) != 1:
+        print(
+            "Detail concurrency is forced to 1 in low-footprint mode; "
+            + str(concurrency)
+            + " was requested."
+        )
 
-    async def resolve_one(seed: Candidate) -> Candidate:
-        async with semaphore:
-            detail_page = await new_page()
+    owned_page = False
+    if detail_page is None:
+        context = getattr(search_page, "context", None)
+        new_page = getattr(context, "new_page", None) if context is not None else None
+        if not callable(new_page):
+            return rows
+        detail_page = await new_page()
+        owned_page = True
+
+    resolved: list[Candidate] = []
+    try:
+        for index, seed in enumerate(rows):
             try:
-                return await extract_pin_detail_candidate(detail_page, seed)
+                resolved.append(
+                    await extract_pin_detail_candidate(detail_page, seed)
+                )
+            except (PinterestAccessGateError, PinterestRateLimitedError):
+                raise
             except Exception as exc:
                 print(
                     "Pinterest Pin detail fallback: "
@@ -514,14 +551,18 @@ async def resolve_pin_details(
                     + exc.__class__.__name__
                     + ")"
                 )
-                return seed
-            finally:
-                try:
-                    await detail_page.close()
-                except Exception:
-                    pass
+                resolved.append(seed)
 
-    return list(await asyncio.gather(*(resolve_one(row) for row in rows)))
+            if index + 1 < len(rows):
+                await detail_page.wait_for_timeout(PIN_DETAIL_NAVIGATION_PAUSE_MS)
+    finally:
+        if owned_page:
+            try:
+                await detail_page.close()
+            except Exception:
+                pass
+
+    return resolved
 
 
 async def access_gate(page: Any) -> str | None:
@@ -792,6 +833,7 @@ async def scan_auto_run(
     *,
     login_wait_seconds: int,
     pace_name: str = "careful",
+    detail_page: Any | None = None,
     detail_concurrency: int = PIN_DETAIL_CONCURRENCY,
 ) -> None:
     pace = SCOUT_PACES.get(pace_name, SCOUT_PACES["careful"])
@@ -857,7 +899,8 @@ async def scan_auto_run(
         query = quote_plus(search_query)
         url = "https://www.pinterest.com/search/pins/?q=" + query
         await heartbeat_if_due(force=True)
-        await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        guard_pinterest_response(response)
         loaded_count = await wait_for_pin_growth(
             page,
             previous_count=0,
@@ -865,19 +908,9 @@ async def scan_auto_run(
         )
         initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
 
-        access_ready = await wait_for_manual_access(
-            page,
-            client,
-            run_id=run_id,
-            timeout_seconds=login_wait_seconds,
-        )
-        if not access_ready:
-            await client.complete(
-                run_id,
-                "needs_login",
-                error_code="pinterest_access_gate_timeout",
-            )
-            return
+        gate = await access_gate(page)
+        if gate is not None:
+            raise PinterestAccessGateError(gate)
 
         print(
             "campaign="
@@ -964,7 +997,8 @@ async def scan_auto_run(
                 resolved_chunk = await resolve_pin_details(
                     page,
                     chunk,
-                    concurrency=detail_concurrency,
+                    detail_page=detail_page,
+                    concurrency=1,
                 )
                 upgraded = sum(
                     1
@@ -1098,12 +1132,14 @@ async def scan_page(
     client: CamClient,
     task: dict[str, Any],
     *,
+    detail_page: Any | None = None,
     detail_concurrency: int = PIN_DETAIL_CONCURRENCY,
 ) -> None:
     """Legacy bounded one-shot campaign scan."""
     query = quote_plus(str(task["query"]))
     url = "https://www.pinterest.com/search/pins/?q=" + query
-    await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+    response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+    guard_pinterest_response(response)
     await page.wait_for_timeout(2_500)
 
     gate = await access_gate(page)
@@ -1111,7 +1147,7 @@ async def scan_page(
         await client.heartbeat("needs_login")
         raise RuntimeError(
             "Pinterest requires manual login/challenge resolution for this persistent profile. "
-            "Use Auto Scout v9 for automatic resume after manual resolution."
+            "Use Auto Scout v10 after resolving access manually."
         )
 
     seen_pins: set[str] = set()
@@ -1137,7 +1173,8 @@ async def scan_page(
             resolved_chunk = await resolve_pin_details(
                 page,
                 chunk,
-                concurrency=detail_concurrency,
+                detail_page=detail_page,
+                concurrency=1,
             )
             result = await client.submit(resolved_chunk)
             latest = await client.task()
@@ -1194,11 +1231,18 @@ async def run_legacy(args: argparse.Namespace) -> None:
             return
         playwright, context = await launch_context(args)
         page = context.pages[0] if context.pages else await context.new_page()
+        for stale_page in list(context.pages[1:]):
+            try:
+                await stale_page.close()
+            except Exception:
+                pass
+        detail_page = await context.new_page()
         await scan_page(
             page,
             client,
             task,
-            detail_concurrency=args.detail_concurrency,
+            detail_page=detail_page,
+            detail_concurrency=1,
         )
     except Exception:
         try:
@@ -1264,6 +1308,12 @@ async def run_agent(args: argparse.Namespace) -> None:
     try:
         playwright, context = await launch_context(args)
         page = context.pages[0] if context.pages else await context.new_page()
+        for stale_page in list(context.pages[1:]):
+            try:
+                await stale_page.close()
+            except Exception:
+                pass
+        detail_page = await context.new_page()
         await client.heartbeat("ready")
         print(
             "Pinterest Auto Scout online. agent="
@@ -1272,8 +1322,7 @@ async def run_agent(args: argparse.Namespace) -> None:
             + machine_label
             + " pace="
             + args.pace
-            + " detail_concurrency="
-            + str(args.detail_concurrency)
+            + " detail_mode=single-reused-tab"
         )
         while True:
             try:
@@ -1304,8 +1353,40 @@ async def run_agent(args: argparse.Namespace) -> None:
                         task,
                         login_wait_seconds=args.login_wait_seconds,
                         pace_name=args.pace,
-                        detail_concurrency=args.detail_concurrency,
+                        detail_page=detail_page,
+                        detail_concurrency=1,
                     )
+                except PinterestAccessGateError as exc:
+                    await client.complete(
+                        str(task["run"]["id"]),
+                        "needs_login",
+                        error_code="pinterest_access_gate_" + exc.gate,
+                    )
+                    print(
+                        "Pinterest access gate detected; run stopped for manual resolution. "
+                        + "Scout will pause for "
+                        + str(PIN_ACCESS_GATE_COOLDOWN_SECONDS)
+                        + "s before claiming any new campaign."
+                    )
+                    if args.once:
+                        return
+                    await asyncio.sleep(PIN_ACCESS_GATE_COOLDOWN_SECONDS)
+                    continue
+                except PinterestRateLimitedError:
+                    await client.complete(
+                        str(task["run"]["id"]),
+                        "failed",
+                        error_code="pinterest_rate_limited_429",
+                    )
+                    print(
+                        "Pinterest rate limit detected; pausing Scout for "
+                        + str(PIN_RATE_LIMIT_COOLDOWN_SECONDS)
+                        + "s before any new claim."
+                    )
+                    if args.once:
+                        return
+                    await asyncio.sleep(PIN_RATE_LIMIT_COOLDOWN_SECONDS)
+                    continue
                 except httpx.HTTPStatusError as exc:
                     status = exc.response.status_code
                     if status in {401, 403}:
@@ -1432,8 +1513,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=PIN_DETAIL_CONCURRENCY,
         help=(
-            "Maximum concurrent Pinterest Pin detail pages used to resolve high-resolution "
-            "images before submission. Range: 1-5; default: 3."
+            "Compatibility option. Low-footprint mode always forces one reusable "
+            "Pinterest detail tab, regardless of the supplied value."
         ),
     )
     parser.add_argument(

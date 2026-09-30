@@ -157,7 +157,7 @@ if (-not (Test-Path -LiteralPath $ConfigPath)) {
             "RRUGC_SCOUT_TOKEN=",
             "RRUGC_PROFILE_DIR=",
             "RRUGC_PACE=careful",
-            "RRUGC_DETAIL_CONCURRENCY=3"
+            "RRUGC_DETAIL_CONCURRENCY=1"
         ) -Encoding UTF8
     }
 }
@@ -229,7 +229,8 @@ $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
 $profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
 $machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
 $pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
-$detailConcurrency = Get-ConfigValue $config "RRUGC_DETAIL_CONCURRENCY" "3"
+$detailConcurrency = "1"
+Set-LocalConfigValue $ConfigPath "RRUGC_DETAIL_CONCURRENCY" "1"
 $chromeExecutable = Get-ConfigValue $config "RRUGC_CHROME_EXECUTABLE"
 $configuredPython = Get-ConfigValue $config "RRUGC_PYTHON"
 
@@ -243,8 +244,8 @@ if ($pace -notin @("careful", "balanced")) {
     Fail "RRUGC_PACE must be careful or balanced."
 }
 $detailValue = 0
-if (-not [int]::TryParse($detailConcurrency, [ref]$detailValue) -or $detailValue -lt 1 -or $detailValue -gt 5) {
-    Fail "RRUGC_DETAIL_CONCURRENCY must be an integer from 1 to 5."
+if (-not [int]::TryParse($detailConcurrency, [ref]$detailValue)) {
+    Fail "Unable to configure low-footprint detail mode."
 }
 
 if (-not (Test-Path -LiteralPath $profileDir)) {
@@ -332,7 +333,7 @@ Write-Host ("Source commit       : " + $head) -ForegroundColor Green
 Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
 Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
 Write-Host ("Pace                : " + $pace) -ForegroundColor Green
-Write-Host ("Detail concurrency  : " + $detailValue) -ForegroundColor Green
+Write-Host "Detail mode         : single reusable tab" -ForegroundColor Green
 Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
 Write-Host ""
 

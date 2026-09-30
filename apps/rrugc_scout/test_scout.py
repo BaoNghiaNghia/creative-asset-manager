@@ -156,29 +156,30 @@ def test_pin_detail_selection_prefers_same_asset_highest_rendition():
     assert resolved.alt_text == "search thumbnail"
 
 
-def test_pin_detail_resolver_uses_bounded_concurrency_and_closes_tabs():
+def test_pin_detail_resolver_reuses_one_sequential_detail_tab():
     class FakeContext:
         def __init__(self):
-            self.active = 0
-            self.max_active = 0
+            self.created = 0
             self.closed = 0
 
         async def new_page(self):
-            self.active += 1
-            self.max_active = max(self.max_active, self.active)
+            self.created += 1
             return DetailPage(self)
 
     class DetailPage:
         def __init__(self, context):
             self.context = context
             self.url = ""
+            self.visited: list[str] = []
+            self.waits: list[int] = []
 
         async def goto(self, url, **_kwargs):
             self.url = url
-            await asyncio.sleep(0.01)
+            self.visited.append(url)
+            return None
 
-        async def wait_for_timeout(self, _milliseconds):
-            await asyncio.sleep(0)
+        async def wait_for_timeout(self, milliseconds):
+            self.waits.append(milliseconds)
 
         async def evaluate(self, script):
             if "const selectors" in script:
@@ -192,7 +193,6 @@ def test_pin_detail_resolver_uses_bounded_concurrency_and_closes_tabs():
             }]
 
         async def close(self):
-            self.context.active -= 1
             self.context.closed += 1
 
     class SearchPage:
@@ -207,10 +207,10 @@ def test_pin_detail_resolver_uses_bounded_concurrency_and_closes_tabs():
         )
         for index in range(5)
     ]
-    resolved = asyncio.run(resolve_pin_details(page, rows, concurrency=2))
+    resolved = asyncio.run(resolve_pin_details(page, rows, concurrency=3))
     assert all("/originals/" in row.image_url for row in resolved)
-    assert page.context.max_active == 2
-    assert page.context.closed == 5
+    assert page.context.created == 1
+    assert page.context.closed == 1
 
 
 def test_access_gate_detects_login_and_challenge_without_solving_them():
@@ -403,7 +403,8 @@ def test_existing_candidates_do_not_exhaust_new_candidate_cap(monkeypatch):
 
 
 def test_keyword_candidate_budgets_cap_keywords_and_share_capacity():
-    assert keyword_candidate_budgets(24, 10) == [5, 5, 5, 5, 4]
+    assert keyword_candidate_budgets(24, 10) == [6, 6, 6, 6]
+    assert keyword_candidate_budgets(12, 10) == [3, 3, 3, 3]
     assert keyword_candidate_budgets(3, 10) == [1, 1, 1]
     assert keyword_candidate_budgets(0, 5) == []
 
@@ -459,7 +460,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v9"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v10"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

@@ -17,14 +17,14 @@ On every start the launcher:
 7. loads the Scout token through `RRUGC_SCOUT_TOKEN` so it is not exposed in the Python process command line;
 8. starts Auto Scout with the configured Agent ID.
 
-The first launch creates `scout.local.env` from `scout.local.env.example` and opens it in Notepad. Fill at least:
+The first launch creates `scout.local.env` and prompts once in the terminal for:
 
 ```text
 RRUGC_AGENT_ID=<agent id from Realistic Review UGC>
 RRUGC_SCOUT_TOKEN=<agent token>
 ```
 
-The defaults already use `https://creative-assets.ddns.net`, `<repo>\\pinterest-profile`, `careful` pace, and Pin-detail concurrency `3`.
+The defaults already use `https://creative-assets.ddns.net`, `<repo>\\pinterest-profile`, `careful` pace, and low-footprint detail mode with one reusable detail tab.
 
 After this one-time configuration, the normal workflow is only:
 
@@ -34,7 +34,7 @@ START_SCOUT.bat
 
 Do not commit `scout.local.env`; it is intentionally ignored by Git.
 
-## Auto Scout v9 quality-first setup
+## Auto Scout v10 low-footprint setup
 
 1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.
 2. Install Playwright Chromium, or pass `--chrome-executable` for a local Chrome/Chromium binary.
@@ -58,13 +58,13 @@ Auto Scout now prefers an installed Google Chrome automatically when available. 
 --chrome-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 ```
 
-The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due. Auto Scout v9 is quality-first: it enriches generic searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once the server already has enough viable work in the analysis/import pipeline.
+The pairing is machine-level, not campaign-level. Once the Agent is online, every running campaign with **Auto Scout** enabled can be claimed automatically when its next scan is due. Auto Scout v10 is quality-first and low-footprint: it enriches generic searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once the server already has enough viable work in the analysis/import pipeline.
 
-Search results are now discovery-only. Before a bounded batch is submitted, the Scout resolves each discovered `pin_url` through the Pinterest Pin detail page and selects the best matching `pinimg.com` asset from Open Graph metadata, JSON-LD, close-up images, and `srcset`. It matches the rendition-independent asset path so a high-resolution related Pin cannot replace the discovered Pin. The resolver uses at most 3 concurrent detail tabs by default, closes each temporary tab after resolution, and safely falls back to the search-page image when detail resolution fails or Pinterest presents an access gate. Use `--detail-concurrency 1..5` to tune this bound.
+Search results are now discovery-only. Before a bounded batch is submitted, the Scout resolves each discovered `pin_url` through the Pinterest Pin detail page and selects the best matching `pinimg.com` asset from Open Graph metadata, JSON-LD, close-up images, and `srcset`. It matches the rendition-independent asset path so a high-resolution related Pin cannot replace the discovered Pin. The resolver now keeps exactly one reusable Pin-detail tab beside the search tab and resolves Pins sequentially. It pauses between detail navigations, stops the current run immediately when Pinterest presents a login/challenge gate, and applies a five-minute cooldown when HTTP 429 rate limiting is detected. The legacy `--detail-concurrency` option is retained for command compatibility but production mode always forces a single detail tab.
 
-Auto Scout v9 also defaults to `--pace careful`. This deliberately slows the browsing loop so results have more time to load and be inspected: 4.5–7 seconds of dwell after opening a keyword, 1.4–2.6 seconds before each visible-result inspection, gradual 420–700 px scroll steps with pauses, batches of 3 candidates, and 3.5–6 second pauses between keywords. Use `--pace balanced` when a shorter scan is preferred.
+Auto Scout v10 defaults to `--pace careful`. This deliberately slows the browsing loop so results have more time to load and be inspected: 4.5–7 seconds of dwell after opening a keyword, 1.4–2.6 seconds before each visible-result inspection, gradual 420–700 px scroll steps with pauses, batches of 3 candidates, and 3.5–6 second pauses between keywords. Use `--pace balanced` when a shorter scan is preferred.
 
-The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the browser stays open for manual resolution and the Agent resumes automatically when access is restored.
+The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the current run stops immediately so it can be resolved manually; a later scheduled scan resumes only after normal access is available again.
 
 ## Automatic flow
 
@@ -77,7 +77,7 @@ Pinterest search in local authenticated Chrome profile
   ↓
 bounded scroll + visible Pin discovery
   ↓
-bounded Pin-detail resolver (default concurrency 3)
+one reusable Pin-detail tab (sequential resolver)
   ↓
 select best matching original/high-resolution Pin image
   ↓
