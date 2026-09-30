@@ -6,6 +6,25 @@ export type ProductContextProfile = {
   preferred_scenes: string[];
   avoid: string[];
   notes?: string | null;
+  visual_context?: {
+    status: "not_analyzed" | "ready" | "stale" | string;
+    themes?: string[];
+    scene_hints?: string[];
+    audience_hints?: string[];
+    occasion_hints?: string[];
+    product_cues?: string[];
+    avoid_hints?: string[];
+    confidence?: number;
+    summary?: string | null;
+    references_analyzed?: number;
+    reference_ids?: string[];
+    reference_views?: string[];
+    providers?: string[];
+    models?: string[];
+    binding_fingerprint?: string;
+    analyzed_at?: string | null;
+    version?: string;
+  };
   search_clusters?: {
     direct?: string[];
     adjacent?: string[];
@@ -15,6 +34,8 @@ export type ProductContextProfile = {
     product_name?: string | null;
     product_type?: string | null;
     has_product_snapshot?: boolean;
+    visual_context_status?: string;
+    visual_reference_count?: number;
   };
   version?: string;
 };

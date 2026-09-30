@@ -397,6 +397,7 @@ class RrugcService:
                 campaign_name=campaign.name,
                 queries=anchors,
                 config=campaign.product_context_json,
+                reference_snapshot=campaign.product_reference_snapshot_json,
             )
         history = outcomes
         if history is None and campaign.id:
@@ -455,7 +456,13 @@ class RrugcService:
             if discovery_mode == "keyword":
                 campaign.product_context_json = None
         if product_context is not None:
-            campaign.product_context_json = dict(product_context)
+            next_context = dict(product_context)
+            existing_context = dict(campaign.product_context_json or {})
+            if isinstance(existing_context.get("visual_context"), dict):
+                next_context["visual_context"] = dict(
+                    existing_context["visual_context"]
+                )
+            campaign.product_context_json = next_context
 
         if search_queries is not None:
             queries: list[str] = []

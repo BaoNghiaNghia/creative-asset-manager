@@ -1,6 +1,10 @@
 from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.product_context import (
+    ProductVisualContextDocument,
     derive_product_context_profile,
+    merge_product_visual_context,
+    product_visual_binding_fingerprint,
+    select_product_visual_references,
 )
 from app.modules.realistic_review_ugc.scout_automation import adaptive_search_queries
 
@@ -147,3 +151,180 @@ def test_saved_profile_does_not_promote_detected_themes_to_operator_themes():
     )
     assert "pet_owner" not in refreshed["themes"]
     assert "teacher_school" in refreshed["themes"]
+
+
+def test_visual_context_enriches_profile_when_binding_matches():
+    product = {
+        "id": "product-1",
+        "revision": 3,
+        "name": "Custom embroidered cap",
+        "product_type": "cap",
+    }
+    references = [{
+        "id": "ref-1",
+        "variant_id": None,
+        "view_type": "front",
+        "version": 1,
+        "content_hash": "hash-a",
+        "remote_file_id": "drive-1",
+    }]
+    visual = {
+        "status": "ready",
+        "themes": ["pet_owner"],
+        "scene_hints": ["dog owner park"],
+        "references_analyzed": 1,
+        "binding_fingerprint": product_visual_binding_fingerprint(
+            product,
+            references,
+        ),
+    }
+
+    profile = derive_product_context_profile(
+        product_snapshot=product,
+        reference_snapshot=references,
+        config={
+            "auto_context": True,
+            "visual_context": visual,
+        },
+    )
+
+    assert profile["visual_context"]["status"] == "ready"
+    assert "pet_owner" in profile["themes"]
+    assert any(
+        "dog owner park" in query
+        for query in profile["search_clusters"]["direct"]
+    )
+
+
+def test_visual_context_becomes_stale_and_stops_influencing_profile():
+    product = {
+        "id": "product-1",
+        "revision": 3,
+        "name": "Custom embroidered cap",
+        "product_type": "cap",
+    }
+    original_references = [{
+        "id": "ref-1",
+        "variant_id": None,
+        "view_type": "front",
+        "version": 1,
+        "content_hash": "hash-a",
+        "remote_file_id": "drive-1",
+    }]
+    changed_references = [{
+        **original_references[0],
+        "version": 2,
+        "content_hash": "hash-b",
+    }]
+
+    profile = derive_product_context_profile(
+        product_snapshot=product,
+        reference_snapshot=changed_references,
+        config={
+            "auto_context": True,
+            "visual_context": {
+                "status": "ready",
+                "themes": ["pet_owner"],
+                "scene_hints": ["dog owner park"],
+                "references_analyzed": 1,
+                "binding_fingerprint": product_visual_binding_fingerprint(
+                    product,
+                    original_references,
+                ),
+            },
+        },
+    )
+
+    assert profile["visual_context"]["status"] == "stale"
+    assert "pet_owner" not in profile["themes"]
+    assert not any(
+        "dog owner park" in query
+        for query in profile["search_clusters"]["direct"]
+    )
+
+
+def test_visual_reference_selection_prefers_detail_views_and_spreads_variants():
+    references = [
+        {
+            "id": "front-base",
+            "variant_id": None,
+            "view_type": "front",
+            "remote_file_id": "drive-1",
+        },
+        {
+            "id": "front-red",
+            "variant_id": "red",
+            "view_type": "front",
+            "remote_file_id": "drive-2",
+        },
+        {
+            "id": "front-blue",
+            "variant_id": "blue",
+            "view_type": "front",
+            "remote_file_id": "drive-3",
+        },
+        {
+            "id": "logo",
+            "variant_id": None,
+            "view_type": "logo_closeup",
+            "remote_file_id": "drive-4",
+        },
+        {
+            "id": "embroidery",
+            "variant_id": None,
+            "view_type": "embroidery_closeup",
+            "remote_file_id": "drive-5",
+        },
+    ]
+
+    selected = select_product_visual_references(references, limit=4)
+
+    assert [item["id"] for item in selected[:2]] == ["embroidery", "logo"]
+    assert "front-base" in {item["id"] for item in selected}
+    assert len({item["variant_id"] for item in selected}) >= 2
+
+
+def test_visual_context_merge_uses_confidence_and_keeps_provenance():
+    merged = merge_product_visual_context(
+        [
+            (
+                ProductVisualContextDocument(
+                    themes=["pet_owner"],
+                    scene_hints=["dog owner park"],
+                    audience_hints=["dog owner"],
+                    occasion_hints=["pet gift"],
+                    product_cues=["embroidered dog portrait"],
+                    avoid_hints=[],
+                    confidence=0.9,
+                    summary="Visible dog portrait embroidery supports pet-owner context.",
+                ),
+                {"id": "r1", "view_type": "embroidery_closeup"},
+                "gemini",
+                "gemini-model",
+            ),
+            (
+                ProductVisualContextDocument(
+                    themes=["outdoor"],
+                    scene_hints=["casual outdoor walk"],
+                    audience_hints=[],
+                    occasion_hints=[],
+                    product_cues=["casual cap"],
+                    avoid_hints=["formal studio"],
+                    confidence=0.4,
+                    summary="The cap construction suits casual outdoor use.",
+                ),
+                {"id": "r2", "view_type": "front"},
+                "gemini",
+                "gemini-model",
+            ),
+        ],
+        binding_fingerprint="binding-1",
+        analyzed_at="2026-09-30T00:00:00+00:00",
+    )
+
+    assert merged["status"] == "ready"
+    assert merged["themes"][0] == "pet_owner"
+    assert merged["references_analyzed"] == 2
+    assert merged["reference_ids"] == ["r1", "r2"]
+    assert merged["reference_views"] == ["embroidery_closeup", "front"]
+    assert merged["binding_fingerprint"] == "binding-1"

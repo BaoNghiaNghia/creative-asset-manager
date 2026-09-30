@@ -229,6 +229,14 @@ export const bindCampaignProduct = (
     },
   );
 
+export const analyzeCampaignProductVisualContext = (campaignId: string) =>
+  request<Campaign>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId)
+      + "/product-context/visual-analysis",
+    { method: "POST" },
+  );
+
 export const listGenerationAttempts = (campaignId: string, signal?: AbortSignal) =>
   request<GenerationAttempt[]>(
     "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/generation-attempts",

@@ -4,6 +4,7 @@ import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
   analyzeCandidate,
+  analyzeCampaignProductVisualContext,
   bindCampaignProduct,
   configureCampaignScoutAutomation,
   createCampaign,
@@ -273,6 +274,7 @@ export function RealisticReviewUgcPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [savingProductUrl, setSavingProductUrl] = useState(false);
   const [savingProductVariants, setSavingProductVariants] = useState(false);
+  const [analyzingProductContext, setAnalyzingProductContext] = useState(false);
   const [productImportMessage, setProductImportMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -666,6 +668,50 @@ export function RealisticReviewUgcPage() {
       setError(reason instanceof Error ? reason.message : "Unable to update campaign product colors.");
     } finally {
       setSavingProductVariants(false);
+    }
+  }
+
+  async function analyzeProductVisualContext() {
+    if (
+      !editingCampaign
+      || !editingCampaign.product_id
+      || analyzingProductContext
+    ) return;
+    if (editingCampaign.discovery_mode !== "product_context") {
+      setError("Save Product context mode before analyzing product visuals.");
+      return;
+    }
+
+    setAnalyzingProductContext(true);
+    setError("");
+    setProductImportMessage("");
+    try {
+      const updated = await analyzeCampaignProductVisualContext(
+        editingCampaign.id,
+      );
+      setCampaigns(rows => rows.map(
+        row => row.id === updated.id ? updated : row,
+      ));
+      const visual = updated.product_context?.visual_context;
+      const analyzed = visual?.references_analyzed || 0;
+      setProductImportMessage(
+        "Visual context learned from "
+          + analyzed
+          + " product reference"
+          + (analyzed === 1 ? "" : "s")
+          + (visual?.confidence != null
+            ? " · confidence " + Math.round(visual.confidence * 100) + "%"
+            : "")
+          + ".",
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to analyze product visuals.",
+      );
+    } finally {
+      setAnalyzingProductContext(false);
     }
   }
 
@@ -1080,6 +1126,48 @@ export function RealisticReviewUgcPage() {
                   {(editingCampaign?.product_context?.search_clusters?.direct || []).length > 0 && <small>
                     Direct scenes: {(editingCampaign?.product_context?.search_clusters?.direct || []).slice(0, 3).join(" · ")}
                   </small>}
+                  {(() => {
+                    const visual = editingCampaign?.product_context?.visual_context;
+                    const status = visual?.status || "not_analyzed";
+                    const ready = status === "ready";
+                    const stale = status === "stale";
+                    return <>
+                      <small>
+                        Visual context: {ready
+                          ? "Learned from " + (visual?.references_analyzed || 0) + " ref" + ((visual?.references_analyzed || 0) === 1 ? "" : "s")
+                          : stale
+                            ? "Needs refresh after product/reference changes"
+                            : "Not analyzed yet"}
+                        {ready && visual?.confidence != null
+                          ? " · " + Math.round(visual.confidence * 100) + "% confidence"
+                          : ""}
+                      </small>
+                      {ready && visual?.summary && <small>{visual.summary}</small>}
+                      {ready && (visual?.scene_hints || []).length > 0 && <small>
+                        Visual scenes: {(visual?.scene_hints || []).slice(0, 3).join(" · ")}
+                      </small>}
+                      <button
+                        type="button"
+                        className="rrugc-secondary-action"
+                        disabled={
+                          analyzingProductContext
+                          || !editingCampaign?.product_id
+                          || !editingCampaign.product_reference_count
+                          || editingCampaign.discovery_mode !== "product_context"
+                        }
+                        onClick={() => void analyzeProductVisualContext()}
+                      >
+                        {analyzingProductContext
+                          ? "Analyzing product visuals…"
+                          : stale || ready
+                            ? "Refresh product visuals"
+                            : "Analyze product visuals"}
+                      </button>
+                      {editingCampaign?.discovery_mode !== "product_context" && <small>
+                        Save Product context mode first to enable visual analysis.
+                      </small>}
+                    </>;
+                  })()}
                 </div>}
                 <div className="rrugc-editor-section-heading rrugc-editor-subheading">
                   <div><small>{editDraft.discoveryMode === "product_context" ? "ANCHORS" : "KEYWORDS"}</small><strong>{editDraft.discoveryMode === "product_context" ? "Anchor keywords" : "Search keywords"}</strong></div>

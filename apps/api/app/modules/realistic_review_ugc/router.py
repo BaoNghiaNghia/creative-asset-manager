@@ -12,7 +12,11 @@ from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
-from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError
+from app.domain.providers.contracts import (
+    AiProviderError,
+    OpenStoredAssetInput,
+    StorageProviderError,
+)
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
@@ -41,6 +45,12 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductModel,
     RrugcProductReferenceModel,
     RrugcProductVariantModel,
+)
+from app.modules.realistic_review_ugc.product_context import (
+    analyze_product_visual_reference,
+    merge_product_visual_context,
+    product_visual_binding_fingerprint,
+    select_product_visual_references,
 )
 from app.modules.realistic_review_ugc.product_page_import import (
     ProductPageImportError,
@@ -139,6 +149,7 @@ from app.modules.realistic_review_ugc.service import (
     campaign_token_matches,
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
@@ -1428,6 +1439,177 @@ def bind_campaign_product(
     except RrugcError as exc:
         raise _error(exc) from exc
     return _campaign(repository, row)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/product-context/visual-analysis",
+    response_model=CampaignResponse,
+)
+async def analyze_campaign_product_visual_context(
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    if campaign.discovery_mode != "product_context":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "product_context_mode_required",
+                "message": "Switch this campaign to Product context before analyzing product visuals.",
+            },
+        )
+    if not campaign.product_id or not campaign.product_snapshot_json:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "campaign_product_required",
+                "message": "Bind a product before analyzing product visuals.",
+            },
+        )
+    if RrugcGenerationFoundation(session).binding_is_stale(campaign):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "campaign_product_binding_stale",
+                "message": "Refresh the campaign product binding before analyzing product visuals.",
+            },
+        )
+
+    reference_snapshot = list(campaign.product_reference_snapshot_json or [])
+    selected_references = select_product_visual_references(
+        reference_snapshot,
+        limit=4,
+    )
+    if not selected_references:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "product_visual_references_required",
+                "message": "No managed product reference images are available for visual context analysis.",
+            },
+        )
+
+    settings = get_settings()
+    storage = build_managed_storage_provider(settings)
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+
+    registry = build_ai_provider_registry(
+        settings,
+        session_factory=SessionLocal,
+    )
+    analyses = []
+    failures: list[str] = []
+    try:
+        try:
+            provider = registry.require("gemini")
+        except AiProviderError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": exc.code,
+                    "message": "Gemini visual analysis is unavailable.",
+                },
+            ) from exc
+
+        for snapshot in selected_references:
+            reference_id = str(snapshot.get("id") or "").strip()
+            if not reference_id:
+                continue
+            reference = repository.get_product_reference(
+                principal.active_tenant_id,
+                campaign.product_id,
+                reference_id,
+            )
+            if reference is None or not reference.remote_file_id:
+                failures.append("reference_unavailable")
+                continue
+
+            try:
+                stream = await storage.open_asset(
+                    OpenStoredAssetInput(
+                        tenant_id=principal.active_tenant_id,
+                        asset_id=reference.id,
+                        remote_file_id=reference.remote_file_id,
+                        content_type=reference.content_type,
+                        size_bytes=reference.size_bytes,
+                    )
+                )
+                chunks: list[bytes] = []
+                total = 0
+                try:
+                    async for chunk in stream.body:
+                        total += len(chunk)
+                        if total > PRODUCT_REFERENCE_MAX_BYTES:
+                            raise ValueError("product_reference_too_large")
+                        chunks.append(chunk)
+                finally:
+                    await stream.close()
+
+                document, provider_name, model = await analyze_product_visual_reference(
+                    provider=provider,
+                    tenant_id=principal.active_tenant_id,
+                    reference_id=reference.id,
+                    image_bytes=b"".join(chunks),
+                    image_mime_type=reference.content_type,
+                    width=reference.width,
+                    height=reference.height,
+                    product_snapshot=dict(campaign.product_snapshot_json or {}),
+                    view_type=reference.view_type,
+                )
+                analyses.append(
+                    (document, snapshot, provider_name, model)
+                )
+            except StorageProviderError as exc:
+                failures.append(exc.code)
+            except AiProviderError as exc:
+                failures.append(exc.code)
+            except ValueError:
+                failures.append("visual_analysis_invalid_response")
+    finally:
+        await registry.aclose()
+
+    if not analyses:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "product_visual_analysis_failed",
+                "message": (
+                    "Product visual context could not be analyzed."
+                    + (
+                        " Last failure: " + failures[-1] + "."
+                        if failures
+                        else ""
+                    )
+                ),
+            },
+        )
+
+    visual_context = merge_product_visual_context(
+        analyses,
+        binding_fingerprint=product_visual_binding_fingerprint(
+            dict(campaign.product_snapshot_json or {}),
+            reference_snapshot,
+        ),
+        analyzed_at=datetime.now(timezone.utc).isoformat(),
+    )
+    profile = dict(campaign.product_context_json or {})
+    profile["visual_context"] = visual_context
+    campaign.product_context_json = profile
+    row = RrugcService(session).refresh_campaign_discovery(campaign)
+    return _campaign(repository, row, include_keyword_health=True)
 
 
 @router.get(
