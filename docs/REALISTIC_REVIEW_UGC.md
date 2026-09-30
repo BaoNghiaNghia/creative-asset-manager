@@ -5,6 +5,8 @@
 > **Status:** Approved product concept; implementation may proceed incrementally
 > **Primary first use case:** discover realistic lifestyle people references, generate product-on-person hat imagery, supervise geometry/product fidelity, export approved results to Google Drive, and report daily throughput
 > **Architecture rule:** Workflow orchestration is independent from AI Operations. Existing Asset Explorer, Job Queue, Review Board, PostgreSQL, R2, Google Drive managed storage, visual encoder/SigLIP, auth, and worker conventions must be reused rather than duplicated.
+>
+> **Canonical Pinterest/reference/generation architecture:** Future optimization of Pinterest discovery, Reference Library, Product Context Scout, seed learning, generic skill inputs, and Codex/ImageGen execution must follow [PINTEREST_REFERENCE_DISCOVERY_ARCHITECTURE.md](./PINTEREST_REFERENCE_DISCOVERY_ARCHITECTURE.md). If an older section of this document conflicts with that architecture, the dedicated Pinterest/reference architecture document takes precedence.
 
 ---
 
@@ -1667,7 +1669,9 @@ External webhook delivery is intentionally not simulated in this phase. The repo
 
 ---
 
-## 44. Pinterest Auto Scout v2 — persistent automatic ingestion
+## 44. Pinterest Auto Scout — persistent automatic ingestion
+
+> **Current policy:** The browser/runtime rules in [PINTEREST_REFERENCE_DISCOVERY_ARCHITECTURE.md](./PINTEREST_REFERENCE_DISCOVERY_ARCHITECTURE.md) are authoritative, including the Scout v10 low-footprint two-tab policy, sequential detail resolution, cooldown behavior, generic discovery modes, and the rule that product/context intelligence stays on the server. The material below documents the persistent-agent evolution and compatible data model.
 
 Pinterest discovery has been refocused around a persistent **Scout Agent** instead of a one-off command per campaign.
 
