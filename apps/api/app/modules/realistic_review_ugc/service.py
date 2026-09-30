@@ -5,6 +5,7 @@ import hmac
 import re
 import secrets
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -43,6 +44,9 @@ from app.modules.realistic_review_ugc.schema import CandidateSubmission
 
 PIN_HOSTS = ("pinterest.com",)
 IMAGE_HOSTS = ("pinimg.com",)
+PINIMG_RENDITION_SEGMENT = re.compile(r"^[0-9]+x(?:[0-9]+)?(?:_[A-Za-z0-9]+)?$", re.IGNORECASE)
+MIN_REFERENCE_SHORT_EDGE = 600
+MIN_REFERENCE_PIXELS = 500_000
 ANALYZE_JOB_TYPE = "rrugc_candidate_analyze"
 IMPORT_JOB_TYPE = "rrugc_candidate_import"
 REFERENCE_MANUAL_OVERRIDE_STATUSES = {
@@ -144,6 +148,58 @@ def validate_image_url(value: str) -> str:
     if not _hostname_allowed(value, IMAGE_HOSTS):
         raise RrugcError("invalid_pinterest_image_url", "Pinterest image URL is not allowed.")
     return value
+
+
+def pinterest_original_image_url(value: str) -> str:
+    """Return Pinterest's original rendition URL when the CDN path is recognizable."""
+    validated = validate_image_url(value)
+    parsed = urlsplit(validated)
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return validated
+    first = parts[0]
+    if first.lower() == "originals":
+        return urlunsplit(("https", parsed.netloc, "/" + "/".join(parts), parsed.query, ""))
+    if not PINIMG_RENDITION_SEGMENT.fullmatch(first):
+        return validated
+    path = "/originals/" + "/".join(parts[1:])
+    return urlunsplit(("https", parsed.netloc, path, parsed.query, ""))
+
+
+def reference_resolution_usable(width: int | None, height: int | None) -> bool:
+    if width is None or height is None:
+        return True
+    if width <= 0 or height <= 0:
+        return False
+    return (
+        min(width, height) >= MIN_REFERENCE_SHORT_EDGE
+        and width * height >= MIN_REFERENCE_PIXELS
+    )
+
+
+@asynccontextmanager
+async def download_reference_image(
+    value: str,
+    *,
+    downloader: SecureImageDownloader | None = None,
+):
+    """Prefer the Pinterest original, falling back to the submitted rendition."""
+    active_downloader = downloader or build_reference_downloader()
+    submitted = validate_image_url(value)
+    preferred = pinterest_original_image_url(submitted)
+    urls = list(dict.fromkeys((preferred, submitted)))
+    last_error: Exception | None = None
+    for url in urls:
+        try:
+            async with active_downloader.download(url) as image:
+                yield image
+                return
+        except (SecureDownloadError, httpx.HTTPError) as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    raise SecureDownloadError("reference image download failed")
 
 
 def token_digest(value: str) -> str:
@@ -730,8 +786,23 @@ class RrugcService:
             })
 
         locked = candidate.status in {"drive_ready", "importing", "import_queued", "import_failed"}
+        hard_low_resolution = (
+            candidate.width is not None
+            and candidate.height is not None
+            and not reference_resolution_usable(candidate.width, candidate.height)
+        )
 
-        if label == "good" and not locked:
+        if label == "good" and not locked and hard_low_resolution:
+            signal["reference_manual_approval_override"] = False
+            signal["reference_manual_auto_status"] = "rejected_quality"
+            signal["reference_manual_auto_reject_reason"] = "RESOLUTION_TOO_LOW"
+            signal["reference_manual_pending_analysis"] = False
+            signal.pop("reference_manual_pending_approval", None)
+            candidate.ai_signal_json = signal
+            candidate.status = "rejected_quality"
+            candidate.reject_reason = "RESOLUTION_TOO_LOW"
+            candidate.last_error_code = None
+        elif label == "good" and not locked:
             prior_status = candidate.status
             prior_reject_reason = candidate.reject_reason
             needs_analysis = (
@@ -826,9 +897,37 @@ class RrugcService:
         candidate.status = "importing"
         candidate.last_error_code = None
         self.session.commit()
-        active_downloader = downloader or build_reference_downloader()
         try:
-            async with active_downloader.download(candidate.image_url) as image:
+            async with download_reference_image(
+                candidate.image_url,
+                downloader=downloader,
+            ) as image:
+                candidate.image_url = image.source_url
+                candidate.content_hash = image.content_hash
+                candidate.width = image.width
+                candidate.height = image.height
+                candidate.size_bytes = image.size_bytes
+                candidate.image_format = image.image_format
+                if not reference_resolution_usable(image.width, image.height):
+                    candidate.status = "rejected_quality"
+                    candidate.reject_reason = "RESOLUTION_TOO_LOW"
+                    candidate.quality_score = 0.0
+                    candidate.final_score = 0.0
+                    candidate.last_error_code = None
+                    signal = dict(candidate.ai_signal_json or {})
+                    signal["resolution_gate"] = {
+                        "usable": False,
+                        "width": image.width,
+                        "height": image.height,
+                        "pixels": image.width * image.height,
+                        "min_short_edge": MIN_REFERENCE_SHORT_EDGE,
+                        "min_pixels": MIN_REFERENCE_PIXELS,
+                    }
+                    candidate.ai_signal_json = signal
+                    self.session.commit()
+                    self.session.refresh(candidate)
+                    return candidate
+
                 duplicate = self.repository.drive_candidate_by_hash(
                     candidate.tenant_id, image.content_hash, candidate.id
                 )

@@ -37,9 +37,13 @@ from app.modules.realistic_review_ugc.analysis import (
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.service import (
+    MIN_REFERENCE_PIXELS,
+    MIN_REFERENCE_SHORT_EDGE,
     RrugcError,
     RrugcService,
     build_reference_downloader,
+    download_reference_image,
+    reference_resolution_usable,
 )
 from app.modules.realistic_review_ugc.visual_dedupe import (
     is_visual_near_duplicate,
@@ -230,14 +234,65 @@ class RrugcCandidateAnalyzeJobHandler:
             product_context = dict(campaign.product_snapshot_json or {})
             product_variants = list(product_context.get("variants") or [])
 
-        registry = context.dependencies.ai_provider_registry
-        if registry is None:
-            raise AiProviderUnavailableError("gemini")
-        provider = registry.require("gemini")
         downloader = build_reference_downloader()
-        async with downloader.download(image_url) as image:
+        async with download_reference_image(image_url, downloader=downloader) as image:
             if context.is_cancelled:
                 return JobHandlerResult.cancelled()
+            if not reference_resolution_usable(image.width, image.height):
+                with context.dependencies.session_factory() as session:
+                    repository = RrugcRepository(session)
+                    candidate = repository.get_candidate(
+                        context.job.tenant_id, campaign_id, candidate_id
+                    )
+                    campaign = repository.get_campaign(
+                        context.job.tenant_id, campaign_id
+                    )
+                    if candidate is None or campaign is None:
+                        return JobHandlerResult.non_retryable(
+                            "rrugc_candidate_not_found",
+                            "Reference candidate was not found.",
+                        )
+                    if candidate.analysis_revision != revision:
+                        return JobHandlerResult.completed()
+                    signal = dict(candidate.ai_signal_json or {})
+                    signal["resolution_gate"] = {
+                        "usable": False,
+                        "width": image.width,
+                        "height": image.height,
+                        "pixels": image.width * image.height,
+                        "min_short_edge": MIN_REFERENCE_SHORT_EDGE,
+                        "min_pixels": MIN_REFERENCE_PIXELS,
+                    }
+                    candidate.status = "rejected_quality"
+                    candidate.reject_reason = "RESOLUTION_TOO_LOW"
+                    candidate.image_url = image.source_url
+                    candidate.content_hash = image.content_hash
+                    candidate.width = image.width
+                    candidate.height = image.height
+                    candidate.size_bytes = image.size_bytes
+                    candidate.image_format = image.image_format
+                    candidate.quality_score = 0.0
+                    candidate.final_score = 0.0
+                    candidate.analyzer_provider = "technical_gate"
+                    candidate.analyzer_model = None
+                    candidate.analyzer_version = ANALYZER_VERSION
+                    candidate.analysis_summary = (
+                        f"Source resolution {image.width}x{image.height} is below "
+                        f"the minimum usable reference threshold "
+                        f"({MIN_REFERENCE_SHORT_EDGE}px short edge and "
+                        f"{MIN_REFERENCE_PIXELS} pixels)."
+                    )
+                    candidate.analyzed_at = datetime.now(timezone.utc)
+                    candidate.last_error_code = None
+                    candidate.ai_signal_json = signal
+                    RrugcService(session).refresh_campaign_completion(campaign)
+                    session.commit()
+                return JobHandlerResult.completed()
+
+            registry = context.dependencies.ai_provider_registry
+            if registry is None:
+                raise AiProviderUnavailableError("gemini")
+            provider = registry.require("gemini")
             image_bytes = image.path.read_bytes()
             image_mime_type = _image_mime(image.image_format)
             document, provider_name, model = await analyze_reference_image(
@@ -398,6 +453,7 @@ class RrugcCandidateAnalyzeJobHandler:
                     fingerprints,
                     diversity_signature,
                 )
+                candidate.image_url = image.source_url
                 repository.replace_visual_fingerprints(candidate, fingerprints)
                 candidate.ai_signal_json = {
                     **(candidate.ai_signal_json or {}),

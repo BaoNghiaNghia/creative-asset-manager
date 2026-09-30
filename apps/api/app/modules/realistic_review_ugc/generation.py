@@ -18,7 +18,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductVariantModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
-from app.modules.realistic_review_ugc.service import RrugcError
+from app.modules.realistic_review_ugc.service import RrugcError, reference_resolution_usable
 
 
 DEFAULT_WORKER_SKILL_VERSION = "worker-hat-v1"
@@ -79,6 +79,13 @@ def product_snapshot(
     }
 
 
+
+
+def generation_source_resolution_usable(candidate: RrugcCandidateModel) -> bool:
+    # Legacy rows may not have dimensions; newly imported references always do.
+    if candidate.width is None or candidate.height is None:
+        return True
+    return reference_resolution_usable(candidate.width, candidate.height)
 
 
 def candidate_snapshot(candidate: RrugcCandidateModel) -> dict:
@@ -354,6 +361,12 @@ class RrugcGenerationFoundation:
                 "Save the approved person reference to Managed Drive before preparing generation.",
                 status_code=409,
             )
+        if not generation_source_resolution_usable(candidate):
+            raise RrugcError(
+                "generation_source_resolution_low",
+                "The person reference resolution is too low for generation.",
+                status_code=409,
+            )
         if not campaign.product_id or not campaign.product_snapshot_json:
             raise RrugcError(
                 "campaign_product_required",
@@ -465,6 +478,12 @@ class RrugcGenerationFoundation:
             raise RrugcError(
                 "generation_source_not_durable",
                 "The durable person reference is unavailable.",
+                status_code=409,
+            )
+        if not generation_source_resolution_usable(candidate):
+            raise RrugcError(
+                "generation_source_resolution_low",
+                "The person reference resolution is too low for generation.",
                 status_code=409,
             )
         if not candidate.remote_file_id:

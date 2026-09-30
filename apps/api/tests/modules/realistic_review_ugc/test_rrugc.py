@@ -28,7 +28,7 @@ from app.domain.providers.contracts import (
     StoredAssetReadStream,
 )
 from app.domain.providers.registry import AiProviderRegistry
-from app.infrastructure.downloader.secure_image import DownloadedImage
+from app.infrastructure.downloader.secure_image import DownloadedImage, SecureDownloadError
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import AssetModel
 from app.modules.storage.model import AssetStorageObjectModel
@@ -103,7 +103,10 @@ from app.modules.realistic_review_ugc.schema import CandidateSubmission, Product
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
+    download_reference_image,
+    pinterest_original_image_url,
     reference_manual_good_can_override,
+    reference_resolution_usable,
     validate_image_url,
     validate_pin_url,
 )
@@ -189,6 +192,74 @@ def test_pinterest_url_allowlist_is_strict():
         validate_image_url("https://example.com/a.jpg")
 
 
+
+
+def test_pinterest_original_rendition_is_preferred_when_path_is_known():
+    assert (
+        pinterest_original_image_url(
+            "https://i.pinimg.com/736x/aa/bb/photo.jpg"
+        )
+        == "https://i.pinimg.com/originals/aa/bb/photo.jpg"
+    )
+    assert (
+        pinterest_original_image_url(
+            "https://i.pinimg.com/280x280_RS/aa/bb/photo.jpg"
+        )
+        == "https://i.pinimg.com/originals/aa/bb/photo.jpg"
+    )
+    assert (
+        pinterest_original_image_url(
+            "https://i.pinimg.com/originals/aa/bb/photo.jpg"
+        )
+        == "https://i.pinimg.com/originals/aa/bb/photo.jpg"
+    )
+
+
+def test_reference_resolution_has_hard_minimum():
+    assert reference_resolution_usable(736, 1104) is True
+    assert reference_resolution_usable(800, 700) is True
+    assert reference_resolution_usable(564, 846) is False
+    assert reference_resolution_usable(1200, 300) is False
+
+
+def test_reference_download_prefers_original_then_falls_back():
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "sample.jpg"
+        path.write_bytes(b"fake-jpeg-content")
+
+        class RecordingDownloader:
+            def __init__(self):
+                self.urls: list[str] = []
+
+            @asynccontextmanager
+            async def download(self, url: str):
+                self.urls.append(url)
+                if "/originals/" in url:
+                    raise SecureDownloadError("original unavailable")
+                yield DownloadedImage(
+                    path=path,
+                    content_hash="b" * 64,
+                    size_bytes=path.stat().st_size,
+                    width=800,
+                    height=700,
+                    image_format="JPEG",
+                    source_url=url,
+                )
+
+        downloader = RecordingDownloader()
+
+        async def scenario():
+            async with download_reference_image(
+                "https://i.pinimg.com/736x/aa/bb/photo.jpg",
+                downloader=downloader,
+            ) as image:
+                assert image.source_url.endswith("/736x/aa/bb/photo.jpg")
+
+        asyncio.run(scenario())
+        assert downloader.urls == [
+            "https://i.pinimg.com/originals/aa/bb/photo.jpg",
+            "https://i.pinimg.com/736x/aa/bb/photo.jpg",
+        ]
 
 
 def test_pinterest_pin_url_is_canonicalized_for_source_identity():
@@ -3464,19 +3535,31 @@ def test_import_api_requires_approved_reference_and_queues_job(api, database):
 
 
 class FakeDownloader:
-    def __init__(self, path: Path):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        width: int = 800,
+        height: int = 700,
+        source_url: str = "https://i.pinimg.com/test.jpg",
+    ):
         self.path = path
+        self.width = width
+        self.height = height
+        self.source_url = source_url
+        self.requested_urls: list[str] = []
 
     @asynccontextmanager
-    async def download(self, _url: str):
+    async def download(self, url: str):
+        self.requested_urls.append(url)
         yield DownloadedImage(
             path=self.path,
             content_hash="a" * 64,
             size_bytes=self.path.stat().st_size,
-            width=640,
-            height=480,
+            width=self.width,
+            height=self.height,
             image_format="JPEG",
-            source_url="https://i.pinimg.com/test.jpg",
+            source_url=self.source_url,
         )
 
 
@@ -3553,6 +3636,85 @@ def test_import_candidate_uses_existing_storage_contract(database):
             assert imported.remote_folder_id == "folder-1"
             assert storage.payload == b"fake-jpeg-content"
             assert storage.input.filename.startswith("REF_")
+
+
+def test_import_candidate_rejects_low_resolution_before_storage(database):
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "sample.jpg"
+        path.write_bytes(b"fake-jpeg-content")
+        with database() as session:
+            campaign, _ = RrugcService(session).create_campaign(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                name="low-res import",
+                query="test",
+                target_count=1,
+                max_scroll_batches=1,
+                auto_import=False,
+            )
+            rows, created, existing = RrugcService(session).ingest_candidates(
+                campaign=campaign,
+                submissions=[CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/low-res-import/",
+                    image_url="https://i.pinimg.com/736x/aa/bb/low.jpg",
+                )],
+            )
+            assert (created, existing) == (1, 0)
+            rows[0].status = "approved"
+            session.commit()
+            storage = FakeStorage()
+            imported = asyncio.run(RrugcService(session).import_candidate(
+                candidate=rows[0],
+                storage=storage,
+                downloader=FakeDownloader(
+                    path,
+                    width=564,
+                    height=846,
+                    source_url="https://i.pinimg.com/originals/aa/bb/low.jpg",
+                ),
+            ))
+            assert imported.status == "rejected_quality"
+            assert imported.reject_reason == "RESOLUTION_TOO_LOW"
+            assert imported.width == 564
+            assert imported.height == 846
+            assert storage.calls == 0
+
+
+def test_manual_reference_good_cannot_override_hard_low_resolution(database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="low-res manual ref",
+            query="test",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="c" * 64,
+            pin_url="https://www.pinterest.com/pin/low-res-manual/",
+            image_url="https://i.pinimg.com/originals/aa/bb/low.jpg",
+            status="rejected_quality",
+            reject_reason="RESOLUTION_TOO_LOW",
+            width=564,
+            height=846,
+            analyzed_at=datetime.now(timezone.utc),
+        )
+        session.add(candidate)
+        session.commit()
+        row = RrugcService(session).mark_candidate_reference_label(
+            candidate,
+            label="good",
+            note="composition is useful but file is too small",
+            user_id="user-a",
+        )
+        assert row.status == "rejected_quality"
+        assert row.reject_reason == "RESOLUTION_TOO_LOW"
+        assert row.ai_signal_json["reference_manual_label"] == "good"
+        assert row.ai_signal_json["reference_manual_approval_override"] is False
 
 
 class FakeAnalysisProvider:
