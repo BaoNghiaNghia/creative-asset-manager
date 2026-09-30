@@ -6,6 +6,14 @@
 # Python
 .venv/
 **/.venv/
+.venv-rrugc/
+**/.venv-rrugc/
+
+# Local Pinterest Scout runtime/config
+scout.local.env
+.rrugc-scout-requirements.sha256
+pinterest-profile/
+
 __pycache__/
 **/__pycache__/
 *.py[cod]

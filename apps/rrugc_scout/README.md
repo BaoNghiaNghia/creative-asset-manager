@@ -2,6 +2,38 @@
 
 This companion runtime runs on a user-controlled desktop or laptop with Chrome/Chromium. Pinterest cookies and profile data stay on that machine.
 
+## One-click Windows launcher
+
+For the Windows checkout (for example `D:\\Bot_Tool_Auto_Game\\scan_pinterest`), use the repository-root `START_SCOUT.bat` instead of invoking `scout.py` manually.
+
+On every start the launcher:
+
+1. refuses to overwrite tracked local edits;
+2. fetches `origin/main` and fast-forwards the checkout when a new release exists;
+3. reloads the launcher immediately when the update changed launcher code;
+4. creates/reuses `.venv-rrugc`;
+5. installs `apps/rrugc_scout/requirements.txt` only when its SHA-256 changes;
+6. preserves the Git-ignored `pinterest-profile` and `scout.local.env`;
+7. loads the Scout token through `RRUGC_SCOUT_TOKEN` so it is not exposed in the Python process command line;
+8. starts Auto Scout with the configured Agent ID.
+
+The first launch creates `scout.local.env` from `scout.local.env.example` and opens it in Notepad. Fill at least:
+
+```text
+RRUGC_AGENT_ID=<agent id from Realistic Review UGC>
+RRUGC_SCOUT_TOKEN=<agent token>
+```
+
+The defaults already use `https://creative-assets.ddns.net`, `<repo>\\pinterest-profile`, `careful` pace, and Pin-detail concurrency `3`.
+
+After this one-time configuration, the normal workflow is only:
+
+```text
+START_SCOUT.bat
+```
+
+Do not commit `scout.local.env`; it is intentionally ignored by Git.
+
 ## Auto Scout v9 quality-first setup
 
 1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.

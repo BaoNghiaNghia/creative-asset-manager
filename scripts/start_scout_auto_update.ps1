@@ -1,0 +1,277 @@
+param(
+    [switch]$SkipUpdate
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$ConfigPath = Join-Path $RepoRoot "scout.local.env"
+$ConfigExamplePath = Join-Path $RepoRoot "scout.local.env.example"
+$RequirementsPath = Join-Path $RepoRoot "apps\rrugc_scout\requirements.txt"
+$RequirementsStampPath = Join-Path $RepoRoot ".rrugc-scout-requirements.sha256"
+$ScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\scout.py"
+
+function Write-Step([string]$Message) {
+    Write-Host ""
+    Write-Host ("==> " + $Message) -ForegroundColor Cyan
+}
+
+function Fail([string]$Message) {
+    Write-Host ""
+    Write-Host ("[ERROR] " + $Message) -ForegroundColor Red
+    exit 1
+}
+
+function Read-LocalConfig([string]$Path) {
+    $values = @{}
+    foreach ($rawLine in Get-Content -LiteralPath $Path -Encoding UTF8) {
+        $line = $rawLine.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            continue
+        }
+        $separator = $line.IndexOf("=")
+        if ($separator -lt 1) {
+            continue
+        }
+        $name = $line.Substring(0, $separator).Trim()
+        $value = $line.Substring($separator + 1).Trim()
+        if (
+            $value.Length -ge 2 -and
+            (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+             ($value.StartsWith("'") -and $value.EndsWith("'")))
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        $values[$name] = $value
+    }
+    return $values
+}
+
+function Get-ConfigValue(
+    [hashtable]$Config,
+    [string]$Name,
+    [string]$Default = ""
+) {
+    if ($Config.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace([string]$Config[$Name])) {
+        return [string]$Config[$Name]
+    }
+    return $Default
+}
+
+function Invoke-Git([string[]]$Arguments) {
+    $output = & git @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ("git " + ($Arguments -join " ") + " failed: " + ($output -join [Environment]::NewLine))
+    }
+    return @($output)
+}
+
+Set-Location -LiteralPath $RepoRoot
+
+if (-not (Test-Path -LiteralPath $ConfigPath)) {
+    if (Test-Path -LiteralPath $ConfigExamplePath) {
+        Copy-Item -LiteralPath $ConfigExamplePath -Destination $ConfigPath
+    }
+    Write-Host ""
+    Write-Host "First-time setup created:" -ForegroundColor Yellow
+    Write-Host ("  " + $ConfigPath) -ForegroundColor Yellow
+    Write-Host "Fill RRUGC_AGENT_ID and RRUGC_SCOUT_TOKEN, save the file, then run START_SCOUT.bat again." -ForegroundColor Yellow
+    Start-Process notepad.exe -ArgumentList @($ConfigPath)
+    exit 2
+}
+
+if (-not $SkipUpdate) {
+    Write-Step "Checking Creative Asset Manager updates"
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Fail "Git is not installed or is not available in PATH."
+    }
+
+    $inside = (& git rev-parse --is-inside-work-tree 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $inside.Trim() -ne "true") {
+        Fail ("Not a Git checkout: " + $RepoRoot)
+    }
+
+    $branch = (& git branch --show-current 2>$null).Trim()
+    if ($LASTEXITCODE -ne 0 -or $branch -ne "main") {
+        Fail ("Auto-update requires the local checkout to be on branch main. Current branch: " + $branch)
+    }
+
+    $dirty = @(& git status --porcelain --untracked-files=no)
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Unable to inspect the Git working tree."
+    }
+    if ($dirty.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Tracked local changes were found. Auto-update was stopped to avoid overwriting your work:" -ForegroundColor Yellow
+        $dirty | ForEach-Object { Write-Host ("  " + $_) -ForegroundColor Yellow }
+        Write-Host ""
+        Write-Host "Commit/stash those changes, then run START_SCOUT.bat again." -ForegroundColor Yellow
+        exit 3
+    }
+
+    try {
+        $before = ([string](Invoke-Git @("rev-parse", "HEAD") | Select-Object -First 1)).Trim()
+        Invoke-Git @("fetch", "--quiet", "origin", "main") | Out-Null
+        $remote = ([string](Invoke-Git @("rev-parse", "origin/main") | Select-Object -First 1)).Trim()
+
+        & git merge-base --is-ancestor HEAD origin/main 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Fail "Local branch has diverged from origin/main. Auto-update will not reset or overwrite it."
+        }
+
+        if ($before -ne $remote) {
+            Write-Host ("Updating " + $before.Substring(0, 8) + " -> " + $remote.Substring(0, 8)) -ForegroundColor Green
+            Invoke-Git @("merge", "--ff-only", "origin/main") | Out-Null
+            Write-Host "Source update complete." -ForegroundColor Green
+
+            # Reload the launcher from disk so updates to this script take effect immediately.
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -SkipUpdate
+            exit $LASTEXITCODE
+        }
+
+        Write-Host ("Already up to date: " + $before.Substring(0, 8)) -ForegroundColor Green
+    }
+    catch {
+        Fail ("Auto-update failed. Scout was not started with a partial update. " + $_.Exception.Message)
+    }
+}
+
+$config = Read-LocalConfig $ConfigPath
+$baseUrl = Get-ConfigValue $config "RRUGC_BASE_URL" "https://creative-assets.ddns.net"
+$agentId = Get-ConfigValue $config "RRUGC_AGENT_ID"
+$token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
+$profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
+$machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
+$pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
+$detailConcurrency = Get-ConfigValue $config "RRUGC_DETAIL_CONCURRENCY" "3"
+$chromeExecutable = Get-ConfigValue $config "RRUGC_CHROME_EXECUTABLE"
+$configuredPython = Get-ConfigValue $config "RRUGC_PYTHON"
+
+if ([string]::IsNullOrWhiteSpace($agentId)) {
+    Fail ("RRUGC_AGENT_ID is missing in " + $ConfigPath)
+}
+if ([string]::IsNullOrWhiteSpace($token)) {
+    Fail ("RRUGC_SCOUT_TOKEN is missing in " + $ConfigPath)
+}
+if ($pace -notin @("careful", "balanced")) {
+    Fail "RRUGC_PACE must be careful or balanced."
+}
+$detailValue = 0
+if (-not [int]::TryParse($detailConcurrency, [ref]$detailValue) -or $detailValue -lt 1 -or $detailValue -gt 5) {
+    Fail "RRUGC_DETAIL_CONCURRENCY must be an integer from 1 to 5."
+}
+
+if (-not (Test-Path -LiteralPath $profileDir)) {
+    New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+}
+
+$python = ""
+if (-not [string]::IsNullOrWhiteSpace($configuredPython)) {
+    if (Test-Path -LiteralPath $configuredPython) {
+        $python = (Resolve-Path -LiteralPath $configuredPython).Path
+    }
+    else {
+        $configuredCommand = Get-Command $configuredPython -ErrorAction SilentlyContinue
+        if ($configuredCommand) {
+            $python = $configuredCommand.Source
+        }
+        else {
+            Fail ("RRUGC_PYTHON was configured but could not be found: " + $configuredPython)
+        }
+    }
+}
+else {
+    $venvPython = Join-Path $RepoRoot ".venv-rrugc\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        $python = $venvPython
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($python) -or -not (Test-Path -LiteralPath $python)) {
+    Write-Step "Creating local Scout Python environment"
+    $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+    $systemPython = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        & $pyLauncher.Source -3 -m venv (Join-Path $RepoRoot ".venv-rrugc")
+    }
+    elseif ($systemPython) {
+        & $systemPython.Source -m venv (Join-Path $RepoRoot ".venv-rrugc")
+    }
+    else {
+        Fail "Python 3 was not found. Install Python 3 and run START_SCOUT.bat again."
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Unable to create .venv-rrugc."
+    }
+    $python = Join-Path $RepoRoot ".venv-rrugc\Scripts\python.exe"
+}
+
+if (-not (Test-Path -LiteralPath $python)) {
+    Fail ("Python executable was not found: " + $python)
+}
+
+if (-not (Test-Path -LiteralPath $RequirementsPath)) {
+    Fail ("Scout requirements file is missing: " + $RequirementsPath)
+}
+
+$requirementsHash = (Get-FileHash -LiteralPath $RequirementsPath -Algorithm SHA256).Hash
+$installedHash = ""
+if (Test-Path -LiteralPath $RequirementsStampPath) {
+    $installedHash = (Get-Content -LiteralPath $RequirementsStampPath -Raw).Trim()
+}
+
+if ($requirementsHash -ne $installedHash) {
+    Write-Step "Updating Scout Python dependencies"
+    & $python -m pip install --disable-pip-version-check -r $RequirementsPath
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Dependency installation failed. Scout was not started."
+    }
+    Set-Content -LiteralPath $RequirementsStampPath -Value $requirementsHash -Encoding ASCII
+}
+else {
+    Write-Host "Dependencies are up to date." -ForegroundColor Green
+}
+
+if (-not (Test-Path -LiteralPath $ScoutPath)) {
+    Fail ("Scout entry point is missing: " + $ScoutPath)
+}
+
+$head = (& git rev-parse --short=8 HEAD 2>$null)
+if ($LASTEXITCODE -ne 0) {
+    $head = "unknown"
+}
+
+Write-Step "Starting Pinterest Auto Scout"
+Write-Host ("Source commit       : " + $head) -ForegroundColor Green
+Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
+Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
+Write-Host ("Pace                : " + $pace) -ForegroundColor Green
+Write-Host ("Detail concurrency  : " + $detailValue) -ForegroundColor Green
+Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
+Write-Host ""
+
+$env:RRUGC_SCOUT_TOKEN = $token
+$arguments = @(
+    $ScoutPath,
+    "--base-url", $baseUrl,
+    "--agent-id", $agentId,
+    "--profile-dir", $profileDir,
+    "--pace", $pace,
+    "--detail-concurrency", [string]$detailValue
+)
+if (-not [string]::IsNullOrWhiteSpace($machineLabel)) {
+    $arguments += @("--machine-label", $machineLabel)
+}
+if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+    $arguments += @("--chrome-executable", $chromeExecutable)
+}
+
+try {
+    & $python @arguments
+    exit $LASTEXITCODE
+}
+finally {
+    Remove-Item Env:RRUGC_SCOUT_TOKEN -ErrorAction SilentlyContinue
+}
