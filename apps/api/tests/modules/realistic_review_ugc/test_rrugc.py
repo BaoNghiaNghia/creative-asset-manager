@@ -3731,6 +3731,25 @@ def test_product_url_import_api_builds_product_from_page_details(api, monkeypatc
     ]
     assert product["source_variants"] == [{"sku": "URL-CAP-1-M", "size": "M"}]
 
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Imported product campaign",
+            "query": "candid phone photo",
+            "target_count": 5,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    ).json()
+    bound = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/product",
+        json={"product_id": product["id"]},
+    )
+    assert bound.status_code == 200
+    bound_payload = bound.json()
+    assert bound_payload["product_source_url"] == "https://shop.example.com/products/forest-cap"
+    assert bound_payload["product_brand"] == "North Studio"
+
 
 def test_product_reference_upload_is_versioned_and_reuses_hash(database):
     first_bytes = _png_bytes(value=100)

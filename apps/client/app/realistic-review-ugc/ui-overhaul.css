@@ -184,6 +184,14 @@
 .rrugc-editor-section .rrugc-keyword-chips{min-height:20px}
 .rrugc-editor-section .rrugc-keyword-input input{min-height:32px!important}
 .rrugc-editor-section .rrugc-keyword-input button{min-width:58px;border-radius:7px}
+.rrugc-editor-product-source>p{margin:0;color:#7d8999;font-size:8px;line-height:1.45}
+.rrugc-editor-product-url-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px}
+.rrugc-editor-product-url-row .rrugc-primary{min-height:34px;white-space:nowrap}
+.rrugc-editor-product-bound{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.rrugc-editor-product-bound>span{display:grid;gap:2px;padding:7px 8px;border:1px solid #e1e7ef;border-radius:7px;background:#f8fafc;min-width:0}
+.rrugc-editor-product-bound small{color:#8a96a7;font-size:7px}
+.rrugc-editor-product-bound b{overflow:hidden;color:#405673;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-editor-product-result{padding:7px 8px!important;border:1px solid #cfe3d5;border-radius:7px;background:#f3faf5;color:#457254!important;font-size:8px!important}
 .rrugc-editor-advanced{border-color:#e0e6ef;background:#fff}
 .rrugc-editor-advanced summary{padding:10px 12px}
 .rrugc-editor-advanced[open] summary{background:#fbfcfe}
@@ -597,6 +605,8 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-auto-scout-last-run{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media(max-width:760px){
+  .rrugc-editor-product-url-row{grid-template-columns:1fr}
+  .rrugc-editor-product-bound{grid-template-columns:1fr}
   .rrugc-campaign-list{grid-template-columns:1fr}
   .rrugc-grid.rrugc-masonry-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
   .rrugc-main{padding:18px 12px 36px}

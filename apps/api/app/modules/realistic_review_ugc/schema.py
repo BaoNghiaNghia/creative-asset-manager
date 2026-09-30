@@ -306,6 +306,8 @@ class CampaignResponse(BaseModel):
     product_id: str | None = None
     product_sku: str | None = None
     product_name: str | None = None
+    product_source_url: str | None = None
+    product_brand: str | None = None
     product_revision: int | None = None
     product_reference_count: int = 0
     product_reference_views: list[ProductReferenceView] = Field(default_factory=list)

@@ -4,10 +4,12 @@ import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
   analyzeCandidate,
+  bindCampaignProduct,
   configureCampaignScoutAutomation,
   createCampaign,
   deleteCampaign,
   importCandidate,
+  importProductUrls,
   markCandidateAiFeedback,
   markCandidateReferenceFeedback,
   getCampaign,
@@ -196,6 +198,7 @@ function SearchQueryEditor({
 
 type CampaignEditDraft = {
   name: string;
+  productUrl: string;
   searchQueries: string[];
   target: number;
   scrolls: number;
@@ -262,9 +265,12 @@ export function RealisticReviewUgcPage() {
   const [editingId, setEditingId] = useState("");
   const [editDraft, setEditDraft] = useState<CampaignEditDraft | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [savingProductUrl, setSavingProductUrl] = useState(false);
+  const [productImportMessage, setProductImportMessage] = useState("");
   const [error, setError] = useState("");
 
   const selected = campaigns.find(item => item.id === selectedId) || null;
+  const editingCampaign = campaigns.find(item => item.id === editingId) || null;
 
   async function refreshCampaigns(signal?: AbortSignal) {
     const rows = await listCampaigns(signal);
@@ -513,8 +519,10 @@ export function RealisticReviewUgcPage() {
 
   function openCampaignEditor(campaign: Campaign) {
     setEditingId(campaign.id);
+    setProductImportMessage("");
     setEditDraft({
       name: campaign.name,
+      productUrl: campaign.product_source_url || "",
       searchQueries: campaign.search_query_anchors?.length
         ? campaign.search_query_anchors
         : campaign.search_queries?.length
@@ -536,6 +544,54 @@ export function RealisticReviewUgcPage() {
       requireHeadVisible: campaign.require_head_visible,
       rejectHeadwear: campaign.reject_headwear,
     });
+  }
+
+  async function scanAndBindCampaignProduct() {
+    if (!editingId || !editDraft || savingProductUrl) return;
+    const productUrl = editDraft.productUrl.trim();
+    if (!productUrl) {
+      setError("Paste a product URL before scanning.");
+      return;
+    }
+    if (!productUrl.toLowerCase().startsWith("https://")) {
+      setError("Product URL must use HTTPS.");
+      return;
+    }
+
+    setSavingProductUrl(true);
+    setProductImportMessage("");
+    setError("");
+    try {
+      const result = await importProductUrls([productUrl], true);
+      const item = result.items[0];
+      if (!item || item.status === "failed" || !item.product) {
+        throw new Error(
+          item?.error_message
+            || item?.error_code
+            || "Product page could not be imported.",
+        );
+      }
+      const updated = await bindCampaignProduct(editingId, item.product.id);
+      setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
+      setEditDraft(current => current ? {
+        ...current,
+        productUrl: item.product?.source_url || productUrl,
+      } : current);
+      setProductImportMessage(
+        "Bound "
+          + item.product.name
+          + " · "
+          + item.images_found
+          + " image"
+          + (item.images_found === 1 ? "" : "s")
+          + (item.primary_reference_imported ? " · front reference saved" : "")
+          + (item.warning ? " · " + item.warning : ""),
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to scan and bind product URL.");
+    } finally {
+      setSavingProductUrl(false);
+    }
   }
 
   async function saveCampaignEdit() {
@@ -778,7 +834,7 @@ export function RealisticReviewUgcPage() {
         </section>
 
         {editingId && editDraft && <div className="rrugc-campaign-editor-backdrop" role="presentation" onMouseDown={() => {
-          if (!savingEdit) {
+          if (!savingEdit && !savingProductUrl) {
             setEditingId("");
             setEditDraft(null);
           }
@@ -786,7 +842,7 @@ export function RealisticReviewUgcPage() {
           <section className="rrugc-campaign-editor" role="dialog" aria-modal="true" aria-label="Edit campaign" onMouseDown={event => event.stopPropagation()}>
             <header>
               <div><small>EDIT CAMPAIGN</small><h2>{editDraft.name || "Campaign"}</h2></div>
-              <button type="button" aria-label="Close editor" disabled={savingEdit} onClick={() => {
+              <button type="button" aria-label="Close editor" disabled={savingEdit || savingProductUrl} onClick={() => {
                 setEditingId("");
                 setEditDraft(null);
               }}>×</button>
@@ -818,6 +874,43 @@ export function RealisticReviewUgcPage() {
                     <small>minutes</small>
                   </label>
                 </div>
+              </section>
+
+              <section className="rrugc-editor-section rrugc-editor-product-source">
+                <div className="rrugc-editor-section-heading">
+                  <div><small>PRODUCT SOURCE</small><strong>Scan product page & bind</strong></div>
+                  <span>{editingCampaign?.product_sku || "No SKU"}</span>
+                </div>
+                <p>Paste the product page URL. The system scans title, product details, variants and gallery images, stores the primary image as a front reference when possible, then binds the product to this Pinterest campaign.</p>
+                <div className="rrugc-editor-product-url-row">
+                  <label className="rrugc-editor-field">
+                    <span>Product page URL</span>
+                    <input
+                      type="url"
+                      value={editDraft.productUrl}
+                      placeholder="https://store.example.com/products/product-name"
+                      disabled={savingProductUrl}
+                      onChange={event => {
+                        setProductImportMessage("");
+                        setEditDraft(current => current ? { ...current, productUrl: event.target.value } : current);
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="rrugc-primary"
+                    disabled={savingProductUrl || !editDraft.productUrl.trim()}
+                    onClick={() => void scanAndBindCampaignProduct()}
+                  >
+                    {savingProductUrl ? "Scanning page…" : "Scan & bind"}
+                  </button>
+                </div>
+                {editingCampaign?.product_id && <div className="rrugc-editor-product-bound">
+                  <span><small>Bound product</small><b>{editingCampaign.product_name || "Product"}</b></span>
+                  <span><small>Brand</small><b>{editingCampaign.product_brand || "—"}</b></span>
+                  <span><small>Snapshot</small><b>{editingCampaign.product_binding_stale ? "Refresh needed" : "Current"}</b></span>
+                </div>}
+                {productImportMessage && <p className="rrugc-editor-product-result">{productImportMessage}</p>}
               </section>
 
               <section className="rrugc-editor-section">
@@ -869,11 +962,11 @@ export function RealisticReviewUgcPage() {
             <footer>
               <span>Keyword edits are used on the next Scout scan. Existing candidates are preserved.</span>
               <div>
-                <button type="button" disabled={savingEdit} onClick={() => {
+                <button type="button" disabled={savingEdit || savingProductUrl} onClick={() => {
                   setEditingId("");
                   setEditDraft(null);
                 }}>Cancel</button>
-                <button type="button" className="rrugc-primary" disabled={savingEdit || !editDraft.name.trim() || editDraft.searchQueries.length === 0} onClick={() => void saveCampaignEdit()}>
+                <button type="button" className="rrugc-primary" disabled={savingEdit || savingProductUrl || !editDraft.name.trim() || editDraft.searchQueries.length === 0} onClick={() => void saveCampaignEdit()}>
                   {savingEdit ? "Saving…" : "Save campaign"}
                 </button>
               </div>

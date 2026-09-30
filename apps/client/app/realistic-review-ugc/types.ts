@@ -47,6 +47,8 @@ export type Campaign = {
   product_id: string | null;
   product_sku: string | null;
   product_name: string | null;
+  product_source_url: string | null;
+  product_brand: string | null;
   product_revision: number | null;
   product_reference_count: number;
   product_reference_views: ProductReferenceView[];

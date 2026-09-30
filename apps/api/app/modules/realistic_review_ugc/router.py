@@ -677,6 +677,8 @@ def _campaign(
         product_id=row.product_id,
         product_sku=str(product.get("sku") or "") or None,
         product_name=str(product.get("name") or "") or None,
+        product_source_url=str(product.get("source_url") or "") or None,
+        product_brand=str(product.get("brand") or "") or None,
         product_revision=row.product_revision,
         product_reference_count=len(reference_snapshot),
         product_reference_views=reference_views,
