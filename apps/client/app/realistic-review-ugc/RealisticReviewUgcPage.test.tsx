@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { routeForPath } from "../AppRoute";
 import { CampaignDeliveryPanel, CampaignExportPanel } from "./CampaignGenerationPanel";
 import { DeliveryOperationsView } from "./DeliveryOperationsPanel";
-import { autoScoutBootstrapCommand, autoScoutCommand, scoutClientIsCurrent } from "./PinterestAutoScoutPanel";
+import { autoScoutBootstrapCommand, autoScoutCommand, scoutClientIsCurrent, scoutLocalConfig } from "./PinterestAutoScoutPanel";
 import { ProductRegistryPanel, productUrlsFromText } from "./ProductRegistryPanel";
 import { candidateGalleryTab, candidateMatchesGalleryTab, candidatePhonePriority, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
@@ -35,7 +35,7 @@ describe("Realistic Review UGC route", () => {
 
   it("detects outdated local Scout clients without blocking future versions", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v7")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v8")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v8")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v9")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
@@ -171,6 +171,20 @@ describe("Realistic Review UGC route", () => {
     expect(command).not.toContain("--campaign-id");
     expect(command).toContain("--token \"agent-secret\"");
     expect(command).toContain("--profile-dir \"" + profileDir + "\"");
+  });
+
+  it("builds the one-click Scout local config without exposing a manual command", () => {
+    const config = scoutLocalConfig(
+      "https://creative.example/",
+      "agent-1",
+      "agent-secret",
+      "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile",
+    );
+    expect(config).toContain("RRUGC_BASE_URL=https://creative.example");
+    expect(config).toContain("RRUGC_AGENT_ID=agent-1");
+    expect(config).toContain("RRUGC_SCOUT_TOKEN=agent-secret");
+    expect(config).toContain("RRUGC_DETAIL_CONCURRENCY=3");
+    expect(config).not.toContain("--token");
   });
 
   it("renders export readiness and catalog counts", () => {

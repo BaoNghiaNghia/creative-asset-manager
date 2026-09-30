@@ -12,7 +12,7 @@ const time = (value: string | null) =>
 const DEFAULT_PROFILE_DIR =
   "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
 
-export const MIN_SCOUT_CLIENT_VERSION = 8;
+export const MIN_SCOUT_CLIENT_VERSION = 9;
 
 export function scoutClientIsCurrent(value: string | null | undefined): boolean {
   const match = /^rrugc-scout-v(\d+)$/.exec((value || "").trim());
@@ -45,6 +45,22 @@ export function autoScoutBootstrapCommand(
   ].join(" ");
 }
 
+export function scoutLocalConfig(
+  baseUrl: string,
+  agentId: string,
+  token: string,
+  profileDir = DEFAULT_PROFILE_DIR,
+): string {
+  return [
+    "RRUGC_BASE_URL=" + baseUrl.replace(/\/$/, ""),
+    "RRUGC_AGENT_ID=" + agentId,
+    "RRUGC_SCOUT_TOKEN=" + token,
+    "RRUGC_PROFILE_DIR=" + profileDir,
+    "RRUGC_PACE=careful",
+    "RRUGC_DETAIL_CONCURRENCY=3",
+  ].join("\n");
+}
+
 export function PinterestAutoScoutPanel({
   onError,
 }: {
@@ -56,7 +72,7 @@ export function PinterestAutoScoutPanel({
   const [name, setName] = useState("Pinterest Auto Scout");
   const [profileDir, setProfileDir] = useState(DEFAULT_PROFILE_DIR);
   const [busy, setBusy] = useState("");
-  const [copied, setCopied] = useState<"bootstrap" | "agent" | "">("");
+  const [copied, setCopied] = useState<"config" | "bootstrap" | "agent" | "">("");
 
   const scout = agents[0] || null;
   const isOnline = Boolean(scout && scout.status !== "offline");
@@ -72,7 +88,18 @@ export function PinterestAutoScoutPanel({
           window.location.origin,
           created.id,
           created.agent_token,
-          profileDir.trim() || "./.rrugc-pinterest-profile",
+          profileDir.trim() || DEFAULT_PROFILE_DIR,
+        )
+      : "",
+    [created, profileDir],
+  );
+  const localConfig = useMemo(
+    () => created
+      ? scoutLocalConfig(
+          window.location.origin,
+          created.id,
+          created.agent_token,
+          profileDir.trim() || DEFAULT_PROFILE_DIR,
         )
       : "",
     [created, profileDir],
@@ -107,12 +134,13 @@ export function PinterestAutoScoutPanel({
   }, []);
 
   async function pairAgent() {
-    if (busy || !name.trim()) return;
+    const nextName = scout?.name?.trim() || name.trim();
+    if (busy || !nextName) return;
     setBusy("pair");
     setCopied("");
     onError("");
     try {
-      const next = await createScoutAgent(name.trim());
+      const next = await createScoutAgent(nextName);
       setCreated(next);
       await refresh();
     } catch (reason) {
@@ -122,7 +150,7 @@ export function PinterestAutoScoutPanel({
     }
   }
 
-  async function copy(value: string, kind: "bootstrap" | "agent") {
+  async function copy(value: string, kind: "config" | "bootstrap" | "agent") {
     if (!value) return;
     await navigator.clipboard.writeText(value);
     setCopied(kind);
@@ -143,14 +171,14 @@ export function PinterestAutoScoutPanel({
   const isStalled = Boolean(activeRun && heartbeatAgeMs !== null && heartbeatAgeMs > 120_000);
   const recentFailures = recentRuns.filter(row => row.status === "failed" || row.status === "cancelled").length;
   const health = !isOnline
-    ? { tone: "is-offline", label: "Scout offline", detail: "Start or reconnect the local Scout." }
+    ? { tone: "is-offline", label: "Scout offline", detail: "Run START_SCOUT.bat on the Scout machine; it will update and reconnect automatically." }
     : !clientCurrent
       ? {
           tone: "is-warning",
           label: "Scout update recommended",
           detail: "This Scout is " + (scout?.client_version || "an unknown version")
             + ". Update the local client to rrugc-scout-v" + MIN_SCOUT_CLIENT_VERSION
-            + "+ to keep source attribution, ranked keywords, and per-keyword quotas active.",
+            + "+. Run START_SCOUT.bat to update automatically before the next scan.",
         }
     : isStalled
       ? { tone: "is-warning", label: "Scan stalled", detail: "No run heartbeat for more than 2 minutes. The lease watchdog will release it automatically." }
@@ -197,76 +225,113 @@ export function PinterestAutoScoutPanel({
     <details className="rrugc-compact-disclosure" open={created ? true : undefined}>
       <summary>
         <span>
-          <strong>Scout setup & diagnostics</strong>
-          <small>Single-browser pairing, local-session safety, and last run</small>
+          <strong>Scout connection</strong>
+          <small>One-click launcher, pairing, and diagnostics</small>
         </span>
-        <b>{scout ? "1 Scout" : "Setup"}</b>
+        <b>{scout ? (isOnline ? "Connected" : "Paired") : "Setup"}</b>
       </summary>
 
-      <div className="rrugc-scout-setup-row">
-        <label>
-          <span>Scout name</span>
-          <input
-            value={name}
-            maxLength={160}
-            onChange={event => setName(event.target.value)}
-          />
-        </label>
+      {!scout ? <>
+        <div className="rrugc-scout-setup-row">
+          <label>
+            <span>Scout name</span>
+            <input
+              value={name}
+              maxLength={160}
+              onChange={event => setName(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="rrugc-primary"
+            disabled={Boolean(busy) || !name.trim()}
+            onClick={() => void pairAgent()}
+          >
+            {busy === "pair" ? "Pairing…" : "Pair local Scout"}
+          </button>
+        </div>
+        <small className="rrugc-scout-safety-note">
+          Pair once, then use START_SCOUT.bat on the Scout machine. The launcher updates
+          the client before every start and reuses the persistent Pinterest profile.
+        </small>
+      </> : <div className="rrugc-scout-connected-row">
+        <div>
+          <strong>{scout.name}</strong>
+          <small>
+            Use START_SCOUT.bat for normal starts. Reset pairing only when you need to
+            rotate the local Scout token.
+          </small>
+        </div>
         <button
           type="button"
-          className="rrugc-primary"
-          disabled={Boolean(busy) || !name.trim()}
+          className="rrugc-scout-reset"
+          disabled={Boolean(busy)}
           onClick={() => void pairAgent()}
         >
-          {busy === "pair"
-            ? "Pairing…"
-            : scout
-              ? "Reset Scout pairing"
-              : "Pair local Scout"}
+          {busy === "pair" ? "Resetting…" : "Reset pairing"}
         </button>
-      </div>
+      </div>}
 
-      <small className="rrugc-scout-safety-note">
-        Only one Scout browser is allowed per workspace. Pairing again rotates the token
-        for this same Scout instead of creating another agent. Pinterest login/challenges
-        stay manual in the local Chrome profile.
-      </small>
-
-      {created && <div className="rrugc-command rrugc-auto-scout-command rrugc-token-compact">
+      {created && <div className="rrugc-launcher-setup">
         <div className="rrugc-token-compact-head">
           <div>
-            <strong>One-time Scout token</strong>
-            <small>Restart the local Scout with this command after resetting the pairing.</small>
+            <strong>Pairing refreshed</strong>
+            <small>Update the local config once, then START_SCOUT.bat handles future updates automatically.</small>
           </div>
-          <span>Token refreshed</span>
+          <span>One-time token</span>
         </div>
-        <label className="rrugc-auto-scout-profile-field">
-          <span>Persistent profile directory</span>
-          <input
-            value={profileDir}
-            maxLength={500}
-            placeholder={DEFAULT_PROFILE_DIR}
-            onChange={event => {
-              const next = event.target.value;
-              setProfileDir(next);
-              window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
-            }}
-          />
-        </label>
+        <div className="rrugc-launcher-steps">
+          <span><b>1</b><small>On the Scout PC, pull main once if START_SCOUT.bat is not there yet.</small></span>
+          <span><b>2</b><small>Copy this pairing into scout.local.env.</small></span>
+          <span><b>3</b><small>Run START_SCOUT.bat. No Python command is needed after that.</small></span>
+        </div>
         <div className="rrugc-token-actions">
-          <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
-            {copied === "bootstrap" ? "Copied login command" : "Copy login command"}
-          </button>
-          <button type="button" className="rrugc-primary" onClick={() => void copy(command, "agent")}>
-            {copied === "agent" ? "Copied Auto Scout" : "Copy Auto Scout command"}
+          <button type="button" className="rrugc-primary" onClick={() => void copy(localConfig, "config")}>
+            {copied === "config" ? "Copied scout.local.env" : "Copy scout.local.env"}
           </button>
         </div>
-        <details className="rrugc-command-preview">
-          <summary>View commands</summary>
-          <div><small>Bootstrap login</small><code>{bootstrapCommand}</code></div>
-          <div><small>Auto Scout</small><code>{command}</code></div>
-        </details>
+        <small className="rrugc-launcher-token-note">
+          The token is only shown through this one-time copy action and stays in the Git-ignored local config.
+        </small>
       </div>}
+
+      <details className="rrugc-scout-advanced">
+        <summary>
+          <span>
+            <strong>Advanced manual setup</strong>
+            <small>Login recovery or launcher troubleshooting only</small>
+          </span>
+          <b>Fallback</b>
+        </summary>
+        <div className="rrugc-scout-advanced-body">
+          <label className="rrugc-auto-scout-profile-field">
+            <span>Persistent profile directory</span>
+            <input
+              value={profileDir}
+              maxLength={500}
+              placeholder={DEFAULT_PROFILE_DIR}
+              onChange={event => {
+                const next = event.target.value;
+                setProfileDir(next);
+                window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
+              }}
+            />
+          </label>
+          <div className="rrugc-token-actions">
+            <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
+              {copied === "bootstrap" ? "Copied login command" : "Copy login command"}
+            </button>
+            {created && <button type="button" onClick={() => void copy(command, "agent")}>
+              {copied === "agent" ? "Copied manual Scout command" : "Copy manual Scout command"}
+            </button>}
+          </div>
+          <details className="rrugc-command-preview">
+            <summary>View manual commands</summary>
+            <div><small>Bootstrap login</small><code>{bootstrapCommand}</code></div>
+            {created && <div><small>Auto Scout fallback</small><code>{command}</code></div>}
+          </details>
+        </div>
+      </details>
 
       {scout && <div className="rrugc-last-run-compact">
         <span><small>Scout</small><b>{scout.name}</b></span>
