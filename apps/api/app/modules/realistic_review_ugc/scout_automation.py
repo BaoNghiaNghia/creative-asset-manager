@@ -24,7 +24,7 @@ from app.modules.realistic_review_ugc.service import (
 )
 
 
-SCOUT_AGENT_VERSION = "rrugc-scout-v8"
+SCOUT_AGENT_VERSION = "rrugc-scout-v9"
 SCOUT_LEASE_SECONDS = 15 * 60
 SCOUT_OFFLINE_SECONDS = 45
 KEYWORD_HISTORY_RUNS = 100

@@ -10,7 +10,7 @@ import socket
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
@@ -18,8 +18,12 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v8"
+CLIENT_VERSION = "rrugc-scout-v9"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
+PIN_DETAIL_CONCURRENCY = 3
+PIN_DETAIL_TIMEOUT_MS = 15_000
+PIN_DETAIL_SETTLE_MS = 650
+PINIMG_RENDITION_SEGMENT = re.compile(r"^(?:originals|[0-9]+x(?:[0-9]+)?(?:_[A-Za-z0-9]+)?)$", re.IGNORECASE)
 INITIAL_RESULTS_TIMEOUT_MS = 6_000
 SCROLL_RESULTS_TIMEOUT_MS = 3_500
 MANUAL_GATE_POLL_MS = 1_500
@@ -220,8 +224,8 @@ def quality_prefilter(rows: list[Candidate]) -> tuple[list[Candidate], int]:
 
 
 def normalize_candidates(rows: list[dict[str, Any]]) -> list[Candidate]:
-    seen: set[tuple[str, str]] = set()
-    result: list[Candidate] = []
+    by_pin: dict[str, Candidate] = {}
+    order: list[str] = []
     for row in rows:
         pin_url = str(row.get("pin_url") or "").strip()
         image_url = str(row.get("image_url") or "").strip()
@@ -229,12 +233,21 @@ def normalize_candidates(rows: list[dict[str, Any]]) -> list[Candidate]:
         context_text = str(row.get("context_text") or "").strip()[:1200] or None
         if not allowed_pin(pin_url) or not allowed_image(image_url):
             continue
-        key = (pin_url, image_url)
-        if key in seen:
+        candidate = Candidate(pin_url, image_url, alt_text, context_text)
+        existing = by_pin.get(pin_url)
+        if existing is None:
+            by_pin[pin_url] = candidate
+            order.append(pin_url)
             continue
-        seen.add(key)
-        result.append(Candidate(pin_url, image_url, alt_text, context_text))
-    return result
+        if pinimg_rendition_score(candidate.image_url) > pinimg_rendition_score(
+            existing.image_url
+        ):
+            by_pin[pin_url] = replace(
+                candidate,
+                alt_text=candidate.alt_text or existing.alt_text,
+                context_text=candidate.context_text or existing.context_text,
+            )
+    return [by_pin[pin_url] for pin_url in order]
 
 
 async def extract_visible(page: Any) -> list[Candidate]:
@@ -280,6 +293,235 @@ async def extract_visible(page: Any) -> list[Candidate]:
         }"""
     )
     return normalize_candidates(rows)
+
+
+def pinimg_asset_key(value: str) -> str:
+    """Return the rendition-independent Pinterest CDN path for one image asset."""
+    if not allowed_image(value):
+        return ""
+    parsed = urlsplit(value)
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and PINIMG_RENDITION_SEGMENT.fullmatch(parts[0]):
+        return "/".join(parts[1:])
+    return "/".join(parts)
+
+
+def pinimg_rendition_score(value: str) -> int:
+    """Approximate Pinterest rendition quality without downloading the image."""
+    if not allowed_image(value):
+        return -1
+    parts = [part for part in urlsplit(value).path.split("/") if part]
+    if not parts:
+        return 0
+    rendition = parts[0].lower()
+    if rendition == "originals":
+        return 10_000_000
+    match = re.match(r"^(\d+)x(?:([0-9]+))?", rendition, re.IGNORECASE)
+    if not match:
+        return 0
+    width = int(match.group(1))
+    height = int(match.group(2) or 0)
+    return max(width, height)
+
+
+def choose_pin_detail_candidate(
+    seed: Candidate,
+    rows: list[dict[str, Any]],
+) -> Candidate:
+    """Prefer the Pin-detail image for the discovered Pin without drifting to related Pins."""
+    seed_key = pinimg_asset_key(seed.image_url)
+    source_priority = {
+        "meta": 5,
+        "jsonld": 4,
+        "closeup": 3,
+        "image": 2,
+        "seed": 1,
+    }
+    candidates: list[tuple[tuple[int, int, int, int], str, str | None]] = [
+        (
+            (
+                1,
+                pinimg_rendition_score(seed.image_url),
+                source_priority["seed"],
+                0,
+            ),
+            seed.image_url,
+            seed.alt_text,
+        )
+    ]
+    for row in rows:
+        url = str(row.get("url") or "").strip()
+        if not allowed_image(url):
+            continue
+        source = str(row.get("source") or "image").strip().lower()
+        width = int(row.get("width") or 0)
+        height = int(row.get("height") or 0)
+        same_asset = int(bool(seed_key) and pinimg_asset_key(url) == seed_key)
+        priority = source_priority.get(source, 0)
+        rendition = pinimg_rendition_score(url)
+        area = max(0, width) * max(0, height)
+        candidates.append(
+            (
+                (same_asset, rendition, priority, area),
+                url,
+                str(row.get("alt_text") or "").strip() or None,
+            )
+        )
+    _, image_url, alt_text = max(candidates, key=lambda item: item[0])
+    return replace(
+        seed,
+        image_url=image_url,
+        alt_text=alt_text or seed.alt_text,
+    )
+
+
+async def extract_pin_detail_candidate(page: Any, seed: Candidate) -> Candidate:
+    """Resolve a discovered Pin through its detail page before submission."""
+    await page.goto(
+        seed.pin_url,
+        wait_until="domcontentloaded",
+        timeout=PIN_DETAIL_TIMEOUT_MS,
+    )
+    await page.wait_for_timeout(PIN_DETAIL_SETTLE_MS)
+    if await access_gate(page) is not None:
+        return seed
+    rows = await page.evaluate(
+        r"""() => {
+          const out = [];
+          const push = (url, source, width = 0, height = 0, altText = null) => {
+            if (!url || typeof url !== 'string') return;
+            out.push({
+              url,
+              source,
+              width: Number(width || 0),
+              height: Number(height || 0),
+              alt_text: altText || null,
+            });
+          };
+
+          const metaSelectors = [
+            'meta[property="og:image"]',
+            'meta[property="og:image:secure_url"]',
+            'meta[name="twitter:image"]',
+            'meta[name="twitter:image:src"]',
+            'meta[itemprop="image"]',
+          ];
+          for (const selector of metaSelectors) {
+            for (const node of document.querySelectorAll(selector)) {
+              push(node.getAttribute('content'), 'meta');
+            }
+          }
+
+          const visitJson = (value) => {
+            if (!value) return;
+            if (typeof value === 'string') {
+              if (value.includes('pinimg.com')) push(value, 'jsonld');
+              return;
+            }
+            if (Array.isArray(value)) {
+              for (const child of value) visitJson(child);
+              return;
+            }
+            if (typeof value !== 'object') return;
+            for (const [key, child] of Object.entries(value)) {
+              if (['image', 'contentUrl', 'thumbnailUrl', 'url'].includes(key)) {
+                visitJson(child);
+              } else if (typeof child === 'object') {
+                visitJson(child);
+              }
+            }
+          };
+          for (const node of document.querySelectorAll('script[type="application/ld+json"]')) {
+            try { visitJson(JSON.parse(node.textContent || 'null')); } catch (_) {}
+          }
+
+          const closeupSelectors = [
+            'img[data-test-id="pin-closeup-image"]',
+            '[data-test-id*="closeup" i] img',
+            '[data-test-id*="pin" i] img[src*="pinimg.com"]',
+          ];
+          const seen = new Set();
+          for (const selector of closeupSelectors) {
+            for (const image of document.querySelectorAll(selector)) {
+              if (seen.has(image)) continue;
+              seen.add(image);
+              const srcset = image.getAttribute('srcset') || '';
+              for (const part of srcset.split(',')) {
+                const match = part.trim().match(/^(\S+)\s+(\d+)w$/);
+                if (match) {
+                  push(match[1], 'closeup', Number(match[2]), 0, image.alt || null);
+                }
+              }
+              push(
+                image.currentSrc || image.src,
+                'closeup',
+                image.naturalWidth || image.width || 0,
+                image.naturalHeight || image.height || 0,
+                image.alt || null,
+              );
+            }
+          }
+
+          for (const image of document.querySelectorAll('img[src*="pinimg.com"]')) {
+            const srcset = image.getAttribute('srcset') || '';
+            for (const part of srcset.split(',')) {
+              const match = part.trim().match(/^(\S+)\s+(\d+)w$/);
+              if (match) {
+                push(match[1], 'image', Number(match[2]), 0, image.alt || null);
+              }
+            }
+            push(
+              image.currentSrc || image.src,
+              'image',
+              image.naturalWidth || image.width || 0,
+              image.naturalHeight || image.height || 0,
+              image.alt || null,
+            );
+          }
+          return out;
+        }"""
+    )
+    return choose_pin_detail_candidate(seed, rows if isinstance(rows, list) else [])
+
+
+async def resolve_pin_details(
+    search_page: Any,
+    rows: list[Candidate],
+    *,
+    concurrency: int = PIN_DETAIL_CONCURRENCY,
+) -> list[Candidate]:
+    """Resolve only the bounded submit batch, with a small number of temporary Pin tabs."""
+    if not rows:
+        return []
+    context = getattr(search_page, "context", None)
+    new_page = getattr(context, "new_page", None) if context is not None else None
+    if not callable(new_page):
+        return rows
+
+    limit = max(1, min(5, int(concurrency)))
+    semaphore = asyncio.Semaphore(limit)
+
+    async def resolve_one(seed: Candidate) -> Candidate:
+        async with semaphore:
+            detail_page = await new_page()
+            try:
+                return await extract_pin_detail_candidate(detail_page, seed)
+            except Exception as exc:
+                print(
+                    "Pinterest Pin detail fallback: "
+                    + seed.pin_url
+                    + " ("
+                    + exc.__class__.__name__
+                    + ")"
+                )
+                return seed
+            finally:
+                try:
+                    await detail_page.close()
+                except Exception:
+                    pass
+
+    return list(await asyncio.gather(*(resolve_one(row) for row in rows)))
 
 
 async def access_gate(page: Any) -> str | None:
@@ -550,6 +792,7 @@ async def scan_auto_run(
     *,
     login_wait_seconds: int,
     pace_name: str = "careful",
+    detail_concurrency: int = PIN_DETAIL_CONCURRENCY,
 ) -> None:
     pace = SCOUT_PACES.get(pace_name, SCOUT_PACES["careful"])
     run_id = str(task["run"]["id"])
@@ -575,7 +818,7 @@ async def scan_auto_run(
             await client.heartbeat("busy", run_id=run_id)
             last_heartbeat = now
 
-    seen: set[tuple[str, str]] = set()
+    seen_pins: set[str] = set()
     target = int(task["target_count"])
     max_scroll_batches = int(task["max_scroll_batches"])
     progress = int(task.get("progress") or 0)
@@ -660,10 +903,10 @@ async def scan_auto_run(
             unseen = [
                 row
                 for row in visible
-                if (row.pin_url, row.image_url) not in seen
+                if row.pin_url not in seen_pins
             ]
             for row in unseen:
-                seen.add((row.pin_url, row.image_url))
+                seen_pins.add(row.pin_url)
             fresh, metadata_filtered = quality_prefilter(unseen)
             print(
                 "campaign="
@@ -718,9 +961,28 @@ async def scan_auto_run(
                 ]
                 if not chunk:
                     continue
+                resolved_chunk = await resolve_pin_details(
+                    page,
+                    chunk,
+                    concurrency=detail_concurrency,
+                )
+                upgraded = sum(
+                    1
+                    for before, after in zip(chunk, resolved_chunk)
+                    if before.image_url != after.image_url
+                )
+                if upgraded:
+                    print(
+                        "campaign="
+                        + str(task["campaign_id"])
+                        + " pin_detail_upgraded="
+                        + str(upgraded)
+                        + "/"
+                        + str(len(resolved_chunk))
+                    )
                 result = await client.submit(
                     run_id,
-                    chunk,
+                    resolved_chunk,
                     source_query=raw_query,
                 )
                 created_now = int(result.get("created") or 0)
@@ -740,7 +1002,7 @@ async def scan_auto_run(
                     + "/"
                     + str(max_scroll_batches)
                     + " submitted="
-                    + str(len(chunk))
+                    + str(len(resolved_chunk))
                     + " created="
                     + str(result.get("created") or 0)
                     + " existing="
@@ -831,7 +1093,13 @@ async def scan_auto_run(
     await client.complete(run_id, "completed")
 
 
-async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
+async def scan_page(
+    page: Any,
+    client: CamClient,
+    task: dict[str, Any],
+    *,
+    detail_concurrency: int = PIN_DETAIL_CONCURRENCY,
+) -> None:
     """Legacy bounded one-shot campaign scan."""
     query = quote_plus(str(task["query"]))
     url = "https://www.pinterest.com/search/pins/?q=" + query
@@ -843,10 +1111,10 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
         await client.heartbeat("needs_login")
         raise RuntimeError(
             "Pinterest requires manual login/challenge resolution for this persistent profile. "
-            "Use Auto Scout v5 for automatic resume after manual resolution."
+            "Use Auto Scout v9 for automatic resume after manual resolution."
         )
 
-    seen: set[tuple[str, str]] = set()
+    seen_pins: set[str] = set()
     target = int(task["target_count"])
     max_scroll_batches = int(task["max_scroll_batches"])
     auto_import = bool(task["auto_import"])
@@ -857,16 +1125,21 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
         visible = await extract_visible(page)
         fresh = [
             row for row in visible
-            if (row.pin_url, row.image_url) not in seen
+            if row.pin_url not in seen_pins
         ]
         for row in fresh:
-            seen.add((row.pin_url, row.image_url))
+            seen_pins.add(row.pin_url)
 
         for start in range(0, len(fresh), 25):
             chunk = fresh[start:start + 25]
             if not chunk:
                 continue
-            result = await client.submit(chunk)
+            resolved_chunk = await resolve_pin_details(
+                page,
+                chunk,
+                concurrency=detail_concurrency,
+            )
+            result = await client.submit(resolved_chunk)
             latest = await client.task()
             starting = int(latest["drive_ready"] if auto_import else latest["approved"])
             print(
@@ -875,7 +1148,7 @@ async def scan_page(page: Any, client: CamClient, task: dict[str, Any]) -> None:
                 + "/"
                 + str(max_scroll_batches)
                 + " submitted="
-                + str(len(chunk))
+                + str(len(resolved_chunk))
                 + " created="
                 + str(result.get("created") or 0)
                 + " target_progress="
@@ -921,7 +1194,12 @@ async def run_legacy(args: argparse.Namespace) -> None:
             return
         playwright, context = await launch_context(args)
         page = context.pages[0] if context.pages else await context.new_page()
-        await scan_page(page, client, task)
+        await scan_page(
+            page,
+            client,
+            task,
+            detail_concurrency=args.detail_concurrency,
+        )
     except Exception:
         try:
             await client.heartbeat("error")
@@ -994,6 +1272,8 @@ async def run_agent(args: argparse.Namespace) -> None:
             + machine_label
             + " pace="
             + args.pace
+            + " detail_concurrency="
+            + str(args.detail_concurrency)
         )
         while True:
             try:
@@ -1024,6 +1304,7 @@ async def run_agent(args: argparse.Namespace) -> None:
                         task,
                         login_wait_seconds=args.login_wait_seconds,
                         pace_name=args.pace,
+                        detail_concurrency=args.detail_concurrency,
                     )
                 except httpx.HTTPStatusError as exc:
                     status = exc.response.status_code
@@ -1147,6 +1428,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--detail-concurrency",
+        type=int,
+        default=PIN_DETAIL_CONCURRENCY,
+        help=(
+            "Maximum concurrent Pinterest Pin detail pages used to resolve high-resolution "
+            "images before submission. Range: 1-5; default: 3."
+        ),
+    )
+    parser.add_argument(
         "--poll-interval-seconds",
         type=int,
         default=5,
@@ -1169,6 +1459,8 @@ def parse_args() -> argparse.Namespace:
         help="Not recommended because Pinterest login/challenges must be resolved manually.",
     )
     args = parser.parse_args()
+    if not 1 <= args.detail_concurrency <= 5:
+        parser.error("--detail-concurrency must be between 1 and 5")
     if args.poll_interval_seconds < 2:
         parser.error("--poll-interval-seconds must be at least 2")
     if args.login_wait_seconds < 60:

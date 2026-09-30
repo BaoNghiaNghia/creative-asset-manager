@@ -4,17 +4,22 @@ import httpx
 
 from scout import (
     AutoScoutClient,
+    Candidate,
     SCOUT_PACES,
     access_gate,
     allowed_image,
     allowed_pin,
+    choose_pin_detail_candidate,
     extract_visible,
     idle_diagnostic_message,
     keyword_candidate_budgets,
     normalize_candidates,
     paced_scroll,
+    pinimg_asset_key,
+    pinimg_rendition_score,
     quality_prefilter,
     quality_search_query,
+    resolve_pin_details,
     scan_auto_run,
     wait_for_pin_growth,
 )
@@ -75,6 +80,24 @@ def test_normalize_candidates_filters_and_dedupes():
     assert result[0].alt_text == "one"
 
 
+def test_normalize_candidates_dedupes_pin_and_keeps_best_search_rendition():
+    rows = normalize_candidates([
+        {
+            "pin_url": "https://www.pinterest.com/pin/123/",
+            "image_url": "https://i.pinimg.com/236x/aa/bb/photo.jpg",
+            "alt_text": "small",
+        },
+        {
+            "pin_url": "https://www.pinterest.com/pin/123/",
+            "image_url": "https://i.pinimg.com/736x/aa/bb/photo.jpg",
+            "alt_text": "large",
+        },
+    ])
+    assert len(rows) == 1
+    assert rows[0].image_url == "https://i.pinimg.com/736x/aa/bb/photo.jpg"
+    assert rows[0].alt_text == "large"
+
+
 def test_extract_visible_uses_normalization_contract():
     class FakePage:
         async def evaluate(self, _script):
@@ -93,6 +116,101 @@ def test_extract_visible_uses_normalization_contract():
     rows = asyncio.run(extract_visible(FakePage()))
     assert len(rows) == 1
     assert rows[0].image_url.endswith("/736x/a.jpg")
+
+
+def test_pin_detail_selection_prefers_same_asset_highest_rendition():
+    seed = Candidate(
+        "https://www.pinterest.com/pin/123/",
+        "https://i.pinimg.com/236x/aa/bb/photo.jpg",
+        "search thumbnail",
+    )
+    assert pinimg_asset_key(seed.image_url) == "aa/bb/photo.jpg"
+    assert pinimg_rendition_score(seed.image_url) == 236
+    assert pinimg_rendition_score(
+        "https://i.pinimg.com/originals/aa/bb/photo.jpg"
+    ) > pinimg_rendition_score("https://i.pinimg.com/1200x/aa/bb/photo.jpg")
+
+    resolved = choose_pin_detail_candidate(
+        seed,
+        [
+            {
+                "url": "https://i.pinimg.com/originals/xx/yy/related.jpg",
+                "source": "image",
+                "width": 2000,
+                "height": 2000,
+            },
+            {
+                "url": "https://i.pinimg.com/736x/aa/bb/photo.jpg",
+                "source": "closeup",
+                "width": 736,
+                "height": 981,
+                "alt_text": "detail image",
+            },
+            {
+                "url": "https://i.pinimg.com/originals/aa/bb/photo.jpg",
+                "source": "jsonld",
+            },
+        ],
+    )
+    assert resolved.image_url == "https://i.pinimg.com/originals/aa/bb/photo.jpg"
+    assert resolved.alt_text == "search thumbnail"
+
+
+def test_pin_detail_resolver_uses_bounded_concurrency_and_closes_tabs():
+    class FakeContext:
+        def __init__(self):
+            self.active = 0
+            self.max_active = 0
+            self.closed = 0
+
+        async def new_page(self):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            return DetailPage(self)
+
+    class DetailPage:
+        def __init__(self, context):
+            self.context = context
+            self.url = ""
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            await asyncio.sleep(0.01)
+
+        async def wait_for_timeout(self, _milliseconds):
+            await asyncio.sleep(0)
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            pin_id = self.url.rstrip("/").split("/")[-1]
+            return [{
+                "url": f"https://i.pinimg.com/originals/aa/{pin_id}/photo.jpg",
+                "source": "meta",
+                "width": 1200,
+                "height": 1600,
+            }]
+
+        async def close(self):
+            self.context.active -= 1
+            self.context.closed += 1
+
+    class SearchPage:
+        def __init__(self):
+            self.context = FakeContext()
+
+    page = SearchPage()
+    rows = [
+        Candidate(
+            f"https://www.pinterest.com/pin/{index}/",
+            f"https://i.pinimg.com/236x/aa/{index}/photo.jpg",
+        )
+        for index in range(5)
+    ]
+    resolved = asyncio.run(resolve_pin_details(page, rows, concurrency=2))
+    assert all("/originals/" in row.image_url for row in resolved)
+    assert page.context.max_active == 2
+    assert page.context.closed == 5
 
 
 def test_access_gate_detects_login_and_challenge_without_solving_them():
@@ -341,7 +459,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v8"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v9"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})
