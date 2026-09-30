@@ -72,7 +72,7 @@ export function PinterestAutoScoutPanel({
   const [name, setName] = useState("Pinterest Auto Scout");
   const [profileDir, setProfileDir] = useState(DEFAULT_PROFILE_DIR);
   const [busy, setBusy] = useState("");
-  const [copied, setCopied] = useState<"config" | "bootstrap" | "agent" | "">("");
+  const [copied, setCopied] = useState<"agent-id" | "token" | "bootstrap" | "agent" | "">("");
 
   const scout = agents[0] || null;
   const isOnline = Boolean(scout && scout.status !== "offline");
@@ -85,17 +85,6 @@ export function PinterestAutoScoutPanel({
   const command = useMemo(
     () => created
       ? autoScoutCommand(
-          window.location.origin,
-          created.id,
-          created.agent_token,
-          profileDir.trim() || DEFAULT_PROFILE_DIR,
-        )
-      : "",
-    [created, profileDir],
-  );
-  const localConfig = useMemo(
-    () => created
-      ? scoutLocalConfig(
           window.location.origin,
           created.id,
           created.agent_token,
@@ -150,7 +139,7 @@ export function PinterestAutoScoutPanel({
     }
   }
 
-  async function copy(value: string, kind: "config" | "bootstrap" | "agent") {
+  async function copy(value: string, kind: "agent-id" | "token" | "bootstrap" | "agent") {
     if (!value) return;
     await navigator.clipboard.writeText(value);
     setCopied(kind);
@@ -193,11 +182,7 @@ export function PinterestAutoScoutPanel({
       <div>
         <small>PINTEREST SOURCE</small>
         <h2>Auto Scout</h2>
-        <p>
-          One workspace uses one persistent Scout browser. It picks up due campaigns,
-          collects visible Pinterest references, and hands them to the existing QA
-          and Drive pipeline automatically.
-        </p>
+        <p>Persistent Pinterest browser for campaign discovery and reference collection.</p>
       </div>
       <span className={"rrugc-auto-scout-health " + health.tone} title={health.detail}>
         <i aria-hidden="true" />
@@ -205,101 +190,88 @@ export function PinterestAutoScoutPanel({
       </span>
     </div>
 
-    <div className="rrugc-auto-scout-status rrugc-auto-scout-status-primary">
-      <span><small>Browser</small><b>{scout ? "Paired" : "Not paired"}</b></span>
-      <span><small>Connection</small><b>{scout?.status?.replaceAll("_", " ") || "Offline"}</b></span>
+    <div className="rrugc-scout-overview" role="status">
+      <span><small>Connection</small><b>{isOnline ? "Online" : scout ? "Offline" : "Not paired"}</b></span>
       <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
       <span><small>Client</small><b>{scout?.client_version || "—"}</b></span>
+      <span><small>New refs</small><b>{createdCount}</b></span>
     </div>
 
-    <div className="rrugc-pipeline-health" role="status">
-      <div><small>PIPELINE HEALTH</small><strong>{health.label}</strong><p>{health.detail}</p></div>
-      <div className="rrugc-pipeline-metrics">
-        <span><small>20-run yield</small><b>{yieldRate === null ? "—" : yieldRate + "%"}</b></span>
-        <span><small>Duplicates</small><b>{duplicateRate === null ? "—" : duplicateRate + "%"}</b></span>
-        <span><small>New refs</small><b>{createdCount}</b></span>
-        <span><small>Run failures</small><b>{recentFailures}</b></span>
+    {(health.tone !== "is-online" || activeRun) && <div className={"rrugc-scout-health-note " + health.tone}>
+      <strong>{health.label}</strong>
+      <span>{health.detail}</span>
+      <div>
+        <small>Yield <b>{yieldRate === null ? "—" : yieldRate + "%"}</b></small>
+        <small>Duplicates <b>{duplicateRate === null ? "—" : duplicateRate + "%"}</b></small>
+        <small>Failures <b>{recentFailures}</b></small>
       </div>
-    </div>
+    </div>}
 
-    <details className="rrugc-compact-disclosure" open={created ? true : undefined}>
+    <details className="rrugc-compact-disclosure rrugc-scout-disclosure" open={created ? true : undefined}>
       <summary>
         <span>
-          <strong>Scout connection</strong>
-          <small>One-click launcher, pairing, and diagnostics</small>
+          <strong>Setup & diagnostics</strong>
+          <small>{scout ? (scout.machine_label || "Scout paired") : "Pair the local Scout once"}</small>
         </span>
-        <b>{scout ? (isOnline ? "Connected" : "Paired") : "Setup"}</b>
+        <b>{created ? "Pairing ready" : scout ? "Manage" : "Setup"}</b>
       </summary>
 
-      {!scout ? <>
-        <div className="rrugc-scout-setup-row">
-          <label>
-            <span>Scout name</span>
-            <input
-              value={name}
-              maxLength={160}
-              onChange={event => setName(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="rrugc-primary"
-            disabled={Boolean(busy) || !name.trim()}
-            onClick={() => void pairAgent()}
-          >
-            {busy === "pair" ? "Pairing…" : "Pair local Scout"}
-          </button>
-        </div>
-        <small className="rrugc-scout-safety-note">
-          Pair once, then use START_SCOUT.bat on the Scout machine. The launcher updates
-          the client before every start and reuses the persistent Pinterest profile.
-        </small>
-      </> : <div className="rrugc-scout-connected-row">
+      {!scout ? <div className="rrugc-scout-setup-row">
+        <label>
+          <span>Scout name</span>
+          <input value={name} maxLength={160} onChange={event => setName(event.target.value)} />
+        </label>
+        <button
+          type="button"
+          className="rrugc-primary"
+          disabled={Boolean(busy) || !name.trim()}
+          onClick={() => void pairAgent()}
+        >
+          {busy === "pair" ? "Pairing…" : "Pair Scout"}
+        </button>
+      </div> : <div className="rrugc-scout-connected-row">
         <div>
           <strong>{scout.name}</strong>
           <small>
-            Use START_SCOUT.bat for normal starts. Reset pairing only when you need to
-            rotate the local Scout token.
+            {scout.machine_label || "Not connected"} · Last seen {time(scout.last_seen_at)}
           </small>
         </div>
-        <button
-          type="button"
-          className="rrugc-scout-reset"
-          disabled={Boolean(busy)}
-          onClick={() => void pairAgent()}
-        >
+        <button type="button" className="rrugc-scout-reset" disabled={Boolean(busy)} onClick={() => void pairAgent()}>
           {busy === "pair" ? "Resetting…" : "Reset pairing"}
         </button>
       </div>}
 
-      {created && <div className="rrugc-launcher-setup">
-        <div className="rrugc-token-compact-head">
-          <div>
-            <strong>Pairing refreshed</strong>
-            <small>Update the local config once, then START_SCOUT.bat handles future updates automatically.</small>
-          </div>
-          <span>One-time token</span>
+      {created && <div className="rrugc-pairing-ready">
+        <div>
+          <strong>Pairing ready</strong>
+          <small>Paste these once when START_SCOUT.bat asks for them.</small>
         </div>
-        <div className="rrugc-launcher-steps">
-          <span><b>1</b><small>On the Scout PC, pull main once if START_SCOUT.bat is not there yet.</small></span>
-          <span><b>2</b><small>Copy this pairing into scout.local.env.</small></span>
-          <span><b>3</b><small>Run START_SCOUT.bat. No Python command is needed after that.</small></span>
-        </div>
-        <div className="rrugc-token-actions">
-          <button type="button" className="rrugc-primary" onClick={() => void copy(localConfig, "config")}>
-            {copied === "config" ? "Copied scout.local.env" : "Copy scout.local.env"}
+        <div>
+          <button type="button" onClick={() => void copy(created.id, "agent-id")}>
+            {copied === "agent-id" ? "Agent ID copied" : "Copy Agent ID"}
+          </button>
+          <button type="button" className="rrugc-primary" onClick={() => void copy(created.agent_token, "token")}>
+            {copied === "token" ? "Token copied" : "Copy token"}
           </button>
         </div>
-        <small className="rrugc-launcher-token-note">
-          The token is only shown through this one-time copy action and stays in the Git-ignored local config.
-        </small>
       </div>}
+
+      {lastRun && <div className="rrugc-scout-run-summary">
+        <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
+        <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
+        <span><small>New</small><b>{lastRun.created_count}</b></span>
+        <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
+      </div>}
+
+      {scout?.last_error_code && <small className="rrugc-auto-scout-error">
+        {scout.last_error_code.replaceAll("_", " ")}
+      </small>}
 
       <details className="rrugc-scout-advanced">
         <summary>
           <span>
-            <strong>Advanced manual setup</strong>
-            <small>Login recovery or launcher troubleshooting only</small>
+            <strong>Advanced</strong>
+            <small>Manual login or troubleshooting only</small>
           </span>
           <b>Fallback</b>
         </summary>
@@ -319,37 +291,14 @@ export function PinterestAutoScoutPanel({
           </label>
           <div className="rrugc-token-actions">
             <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
-              {copied === "bootstrap" ? "Copied login command" : "Copy login command"}
+              {copied === "bootstrap" ? "Login command copied" : "Copy login command"}
             </button>
             {created && <button type="button" onClick={() => void copy(command, "agent")}>
-              {copied === "agent" ? "Copied manual Scout command" : "Copy manual Scout command"}
+              {copied === "agent" ? "Manual command copied" : "Copy manual Scout command"}
             </button>}
           </div>
-          <details className="rrugc-command-preview">
-            <summary>View manual commands</summary>
-            <div><small>Bootstrap login</small><code>{bootstrapCommand}</code></div>
-            {created && <div><small>Auto Scout fallback</small><code>{command}</code></div>}
-          </details>
         </div>
       </details>
-
-      {scout && <div className="rrugc-last-run-compact">
-        <span><small>Scout</small><b>{scout.name}</b></span>
-        <span><small>Machine</small><b>{scout.machine_label || "Not connected"}</b></span>
-        <span><small>Status</small><b>{scout.status.replaceAll("_", " ")}</b></span>
-        <span><small>Last seen</small><b>{time(scout.last_seen_at)}</b></span>
-      </div>}
-
-      {scout?.last_error_code && <small className="rrugc-auto-scout-error">
-        {scout.last_error_code.replaceAll("_", " ")}
-      </small>}
-
-      {lastRun && <div className="rrugc-last-run-compact">
-        <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
-        <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
-        <span><small>New</small><b>{lastRun.created_count}</b></span>
-        <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
-      </div>}
     </details>
   </section>;
 }

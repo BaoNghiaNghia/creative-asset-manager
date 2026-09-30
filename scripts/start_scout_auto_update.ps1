@@ -112,10 +112,8 @@ function Complete-FirstRunPairing(
         return
     }
 
-    Write-Step "First-time Scout pairing"
-    Write-Host "The local Scout needs its Agent ID and one-time token once." -ForegroundColor Yellow
-    Write-Host "In Realistic Review UGC > Scout connection, reset/pair the Scout and copy the pairing values." -ForegroundColor Yellow
-    Write-Host "They will be saved only in the Git-ignored scout.local.env file on this machine." -ForegroundColor DarkGray
+    Write-Step "Scout pairing"
+    Write-Host "Copy Agent ID and token from Realistic Review UGC > Auto Scout > Setup & diagnostics." -ForegroundColor Yellow
     Write-Host ""
 
     if ([string]::IsNullOrWhiteSpace($agent)) {
