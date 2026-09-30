@@ -32,6 +32,7 @@ from app.modules.realistic_review_ugc.analysis import (
     reference_preference_adjustment,
     reference_preference_features,
     policy_from_campaign,
+    product_context_matching_active,
     should_confirm_ai_risk,
 )
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
@@ -232,6 +233,31 @@ class RrugcCandidateAnalyzeJobHandler:
             )
             reference_preference_scope = "intent"
             product_context = dict(campaign.product_snapshot_json or {})
+            if (
+                campaign.discovery_mode == "product_context"
+                and isinstance(campaign.product_context_json, dict)
+            ):
+                product_context["discovery_context"] = dict(
+                    campaign.product_context_json
+                )
+            context_matching_required = product_context_matching_active(
+                product_context
+            )
+            discovery_context = (
+                dict(product_context.get("discovery_context"))
+                if isinstance(product_context.get("discovery_context"), dict)
+                else {}
+            )
+            visual_context = (
+                dict(discovery_context.get("visual_context"))
+                if isinstance(discovery_context.get("visual_context"), dict)
+                else {}
+            )
+            context_binding_fingerprint = (
+                str(visual_context.get("binding_fingerprint") or "").strip()
+                if visual_context.get("status") == "ready"
+                else ""
+            ) or None
             product_variants = list(product_context.get("variants") or [])
 
         downloader = build_reference_downloader()
@@ -372,6 +398,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 manual_ai_label=manual_ai_label,
                 reference_preference_score=preference_adjustment,
                 variant_matching_required=bool(product_variants),
+                context_matching_required=context_matching_required,
             )
 
             with context.dependencies.session_factory() as session:
@@ -452,6 +479,8 @@ class RrugcCandidateAnalyzeJobHandler:
                     image.image_format,
                     fingerprints,
                     diversity_signature,
+                    context_matching_required,
+                    context_binding_fingerprint,
                 )
                 candidate.image_url = image.source_url
                 repository.replace_visual_fingerprints(candidate, fingerprints)
@@ -514,6 +543,8 @@ class RrugcCandidateAnalyzeJobHandler:
         image_format: str,
         fingerprints: list[str],
         diversity_signature: str | None,
+        context_matching_required: bool,
+        context_binding_fingerprint: str | None,
     ) -> None:
         candidate.status = status
         candidate.people_count = document.people_count
@@ -533,7 +564,11 @@ class RrugcCandidateAnalyzeJobHandler:
         provenance = {
             key: value
             for key, value in (candidate.ai_signal_json or {}).items()
-            if key == "scout_query" or key.startswith("reference_manual_")
+            if (
+                key == "scout_query"
+                or key.startswith("reference_manual_")
+                or key.startswith("context_manual_")
+            )
         }
         candidate.diversity_signature = diversity_signature
         candidate.ai_signal_json = {
@@ -546,6 +581,12 @@ class RrugcCandidateAnalyzeJobHandler:
                 "framing_type": document.framing_type,
                 "camera_angle": document.camera_angle,
                 "pose_type": document.pose_type,
+            },
+            "context_match": {
+                "active": context_matching_required,
+                "score": document.context_match_score,
+                "evidence": list(document.context_match_evidence),
+                "binding_fingerprint": context_binding_fingerprint,
             },
         }
         candidate.product_fit_score = document.product_fit_score

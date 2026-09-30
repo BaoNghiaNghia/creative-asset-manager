@@ -4915,3 +4915,148 @@ def test_visual_fingerprint_rejects_invalid_bytes_without_crashing():
     from app.modules.realistic_review_ugc.visual_dedupe import visual_fingerprints
 
     assert visual_fingerprints(b"not-an-image") == []
+
+
+def test_product_context_score_soft_ranks_and_holds_clear_mismatch():
+    matching = evaluate_reference(
+        reference_document(
+            context_match_score=0.92,
+            context_match_evidence=["dog visible beside subject in park"],
+        ),
+        ReferenceFilterPolicy(),
+        context_matching_required=True,
+    )
+    mismatch = evaluate_reference(
+        reference_document(
+            context_match_score=0.12,
+            context_match_evidence=["formal indoor event with no pet cues"],
+        ),
+        ReferenceFilterPolicy(),
+        context_matching_required=True,
+    )
+    inactive = evaluate_reference(
+        reference_document(context_match_score=0.12),
+        ReferenceFilterPolicy(),
+        context_matching_required=False,
+    )
+
+    assert matching.status == "approved"
+    assert mismatch.status == "needs_review"
+    assert mismatch.reject_reason == "PRODUCT_CONTEXT_LOW"
+    assert matching.final_score > mismatch.final_score
+    assert inactive.status == "approved"
+
+
+def test_candidate_reanalysis_preserves_manual_context_feedback():
+    candidate = SimpleNamespace(
+        ai_signal_json={
+            "scout_query": "dog owner park",
+            "context_manual_label": "good",
+            "context_manual_note": "Keep this lifestyle context",
+        }
+    )
+    assessment = SimpleNamespace(
+        calibrated_score=0.05,
+        raw_score=0.05,
+        detector_confidence=0.90,
+        confirmed=False,
+        signal_json={},
+    )
+    document = reference_document(
+        context_match_score=0.88,
+        context_match_evidence=["dog visible beside subject"],
+    )
+
+    RrugcCandidateAnalyzeJobHandler._apply_document(
+        candidate,
+        document,
+        assessment,
+        "approved",
+        None,
+        0.90,
+        "gemini",
+        "model",
+        "hash",
+        1200,
+        1200,
+        123456,
+        "JPEG",
+        ["fingerprint"],
+        None,
+        True,
+        "visual-binding-1",
+    )
+
+    assert candidate.ai_signal_json["context_manual_label"] == "good"
+    assert candidate.ai_signal_json["context_manual_note"] == "Keep this lifestyle context"
+    assert candidate.ai_signal_json["context_match"]["active"] is True
+    assert candidate.ai_signal_json["context_match"]["score"] == 0.88
+    assert candidate.ai_signal_json["context_match"]["binding_fingerprint"] == "visual-binding-1"
+    assert candidate.ai_signal_json["context_match"]["evidence"] == [
+        "dog visible beside subject"
+    ]
+
+
+def test_context_reanalysis_backfill_is_bounded_and_skips_current_or_bad_refs():
+    candidates = [
+        SimpleNamespace(
+            id="needs-new-context",
+            status="approved",
+            ai_signal_json={
+                "context_match": {"binding_fingerprint": "old-binding"},
+            },
+        ),
+        SimpleNamespace(
+            id="already-current",
+            status="needs_review",
+            ai_signal_json={
+                "context_match": {"binding_fingerprint": "new-binding"},
+            },
+        ),
+        SimpleNamespace(
+            id="manual-bad",
+            status="rejected_context",
+            ai_signal_json={
+                "reference_manual_label": "bad",
+                "context_match": {"binding_fingerprint": "old-binding"},
+            },
+        ),
+        SimpleNamespace(
+            id="context-review",
+            status="rejected_context",
+            ai_signal_json=None,
+        ),
+        SimpleNamespace(
+            id="quality-fail",
+            status="rejected_quality",
+            ai_signal_json=None,
+        ),
+    ]
+    commits = []
+    queued = []
+    service = RrugcService.__new__(RrugcService)
+    service.session = SimpleNamespace(commit=lambda: commits.append(True))
+    service.repository = SimpleNamespace(
+        context_reanalysis_candidates=lambda *_args, **_kwargs: candidates,
+    )
+    service.enqueue_analysis = lambda candidate, *, increment_revision=False: queued.append(
+        (candidate.id, increment_revision)
+    )
+    campaign = SimpleNamespace(
+        tenant_id="tenant-a",
+        id="campaign-a",
+        discovery_mode="product_context",
+    )
+
+    count = service.enqueue_context_reanalysis(
+        campaign,
+        binding_fingerprint="new-binding",
+        limit=24,
+    )
+
+    assert count == 2
+    assert queued == [
+        ("needs-new-context", True),
+        ("context-review", True),
+    ]
+    assert commits == [True]

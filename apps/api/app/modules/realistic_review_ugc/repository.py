@@ -78,6 +78,29 @@ class RrugcRepository:
             .offset(offset)
         ))
 
+    def context_reanalysis_candidates(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        limit: int = 72,
+    ) -> list[RrugcCandidateModel]:
+        return list(self.session.scalars(
+            select(RrugcCandidateModel)
+            .where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id == campaign_id,
+                RrugcCandidateModel.status.in_(
+                    ("approved", "needs_review", "rejected_context")
+                ),
+            )
+            .order_by(
+                RrugcCandidateModel.created_at.desc(),
+                RrugcCandidateModel.id.desc(),
+            )
+            .limit(max(1, int(limit)))
+        ))
+
     def visual_fingerprint_rows(
         self, tenant_id: str, exclude_id: str, *, campaign_id: str | None = None
     ) -> list[str]:

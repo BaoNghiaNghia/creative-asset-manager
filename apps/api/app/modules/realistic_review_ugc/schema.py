@@ -833,6 +833,9 @@ class CandidateResponse(BaseModel):
     context_manual_reviewed_by_user_id: str | None = None
     context_manual_reviewed_at: datetime | None = None
     product_fit_score: float | None
+    context_match_active: bool = False
+    context_match_score: float | None = None
+    context_match_evidence: list[str] = Field(default_factory=list)
     matched_variant_id: str | None = None
     matched_variant_name: str | None = None
     matched_color: str | None = None

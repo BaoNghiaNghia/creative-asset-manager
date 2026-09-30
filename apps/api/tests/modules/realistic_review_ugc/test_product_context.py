@@ -1,3 +1,7 @@
+from app.modules.realistic_review_ugc.analysis import (
+    analysis_prompt,
+    product_context_matching_active,
+)
 from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.product_context import (
     ProductVisualContextDocument,
@@ -328,3 +332,52 @@ def test_visual_context_merge_uses_confidence_and_keeps_provenance():
     assert merged["reference_ids"] == ["r1", "r2"]
     assert merged["reference_views"] == ["embroidery_closeup", "front"]
     assert merged["binding_fingerprint"] == "binding-1"
+
+def test_analysis_prompt_includes_ready_visual_product_context():
+    product_context = {
+        "name": "Custom dog portrait cap",
+        "product_type": "cap",
+        "discovery_context": {
+            "themes": ["pet_owner"],
+            "search_clusters": {
+                "direct": ["dog owner park candid phone photo"],
+            },
+            "visual_context": {
+                "status": "ready",
+                "scene_hints": ["dog owner park"],
+                "audience_hints": ["dog owner"],
+                "occasion_hints": ["pet gift"],
+                "product_cues": ["embroidered dog portrait"],
+            },
+        },
+    }
+
+    prompt = analysis_prompt(product_context)
+
+    assert product_context_matching_active(product_context) is True
+    assert "PRODUCT CONTEXT TARGETS" in prompt
+    assert "pet_owner" in prompt
+    assert "dog owner park" in prompt
+    assert "context_match_score" in prompt
+
+
+def test_stale_visual_context_is_not_used_for_candidate_context_matching():
+    product_context = {
+        "name": "Custom cap",
+        "product_type": "cap",
+        "discovery_context": {
+            "themes": [],
+            "search_clusters": {"direct": []},
+            "visual_context": {
+                "status": "stale",
+                "scene_hints": ["dog owner park"],
+                "audience_hints": ["dog owner"],
+            },
+        },
+    }
+
+    prompt = analysis_prompt(product_context)
+
+    assert product_context_matching_active(product_context) is False
+    assert "\n\nPRODUCT CONTEXT TARGETS (use only for context_match_score):" not in prompt
+    assert "dog owner park" not in prompt

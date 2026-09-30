@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v8-product-variants"
+ANALYZER_VERSION = "rrugc-reference-v9-product-context"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -45,6 +45,8 @@ class ReferenceAnalysisDocument(BaseModel):
     ai_background_consistency_risk: float = Field(default=0.0, ge=0.0, le=1.0)
     ai_detector_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     product_fit_score: float = Field(ge=0.0, le=1.0)
+    context_match_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    context_match_evidence: list[str] = Field(default_factory=list, max_length=6)
     matched_variant_id: str | None = Field(default=None, max_length=36)
     matched_variant_name: str | None = Field(default=None, max_length=300)
     matched_color: str | None = Field(default=None, max_length=120)
@@ -409,6 +411,7 @@ def evaluate_reference(
     manual_ai_label: str | None = None,
     reference_preference_score: float = 0.0,
     variant_matching_required: bool = False,
+    context_matching_required: bool = False,
 ) -> ReferenceDecision:
     ai_risk = (
         document.ai_risk_score
@@ -435,6 +438,11 @@ def evaluate_reference(
         else:
             variant_priority_adjustment = -0.08
 
+    context_priority_adjustment = (
+        0.20 * (_bounded(document.context_match_score) - 0.50)
+        if context_matching_required
+        else 0.0
+    )
     final_score = round(_bounded(
         0.30 * document.phone_authenticity_score
         + 0.20 * document.mobile_ugc_score
@@ -443,6 +451,7 @@ def evaluate_reference(
         + 0.15 * (1.0 - ai_risk)
         + 0.10 * (1.0 - document.artistic_editorial_risk)
         + variant_priority_adjustment
+        + context_priority_adjustment
         + max(-0.12, min(0.12, reference_preference_score))
     ), 4)
 
@@ -495,6 +504,17 @@ def evaluate_reference(
         return ReferenceDecision("rejected_expression", "SMILE_SCORE_LOW", final_score)
     if document.product_fit_score < policy.min_product_fit_score:
         return ReferenceDecision("rejected_context", "PRODUCT_FIT_LOW", final_score)
+    if (
+        context_matching_required
+        and document.context_match_score < 0.25
+    ):
+        # Context matching is intentionally a soft gate. Ambiguous lifestyle
+        # scenes remain reviewable instead of being discarded automatically.
+        return ReferenceDecision(
+            "needs_review",
+            "PRODUCT_CONTEXT_LOW",
+            final_score,
+        )
     if variant_mismatch:
         # A visually useful candid should not be discarded solely because the
         # current hat color is outside the selected product variants. Keep it
@@ -519,6 +539,135 @@ def evaluate_reference(
     ):
         return ReferenceDecision("needs_review", "AUTO_APPROVE_UNCERTAIN", final_score)
     return ReferenceDecision("approved", None, final_score)
+
+
+
+
+
+def product_context_matching_active(product_context: dict | None) -> bool:
+    product = dict(product_context or {})
+    profile = (
+        dict(product.get("discovery_context"))
+        if isinstance(product.get("discovery_context"), dict)
+        else {}
+    )
+    if not profile:
+        return False
+    if any(str(value or "").strip() for value in profile.get("themes") or []):
+        return True
+    if any(str(value or "").strip() for value in profile.get("preferred_scenes") or []):
+        return True
+    clusters = (
+        dict(profile.get("search_clusters"))
+        if isinstance(profile.get("search_clusters"), dict)
+        else {}
+    )
+    if any(str(value or "").strip() for value in clusters.get("direct") or []):
+        return True
+    visual = (
+        dict(profile.get("visual_context"))
+        if isinstance(profile.get("visual_context"), dict)
+        else {}
+    )
+    return (
+        visual.get("status") == "ready"
+        and any(
+            str(value or "").strip()
+            for key in ("scene_hints", "audience_hints", "occasion_hints")
+            for value in visual.get(key) or []
+        )
+    )
+
+
+def _product_context_prompt_block(product_context: dict | None) -> str:
+    product = dict(product_context or {})
+    profile = (
+        dict(product.get("discovery_context"))
+        if isinstance(product.get("discovery_context"), dict)
+        else {}
+    )
+    if not profile:
+        return ""
+
+    def clean(values: Any, *, limit: int) -> list[str]:
+        rows: list[str] = []
+        seen: set[str] = set()
+        for raw in values or []:
+            value = str(raw or "").strip()
+            key = value.casefold()
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            rows.append(value[:160])
+            if len(rows) >= limit:
+                break
+        return rows
+
+    themes = clean(profile.get("themes"), limit=8)
+    preferred = clean(profile.get("preferred_scenes"), limit=6)
+    avoid = clean(profile.get("avoid"), limit=6)
+    clusters = (
+        dict(profile.get("search_clusters"))
+        if isinstance(profile.get("search_clusters"), dict)
+        else {}
+    )
+    direct = clean(clusters.get("direct"), limit=6)
+
+    visual = (
+        dict(profile.get("visual_context"))
+        if isinstance(profile.get("visual_context"), dict)
+        else {}
+    )
+    visual_ready = visual.get("status") == "ready"
+    visual_scenes = clean(
+        visual.get("scene_hints") if visual_ready else [],
+        limit=6,
+    )
+    audiences = clean(
+        visual.get("audience_hints") if visual_ready else [],
+        limit=5,
+    )
+    occasions = clean(
+        visual.get("occasion_hints") if visual_ready else [],
+        limit=5,
+    )
+    product_cues = clean(
+        visual.get("product_cues") if visual_ready else [],
+        limit=6,
+    )
+    visual_avoid = clean(
+        visual.get("avoid_hints") if visual_ready else [],
+        limit=5,
+    )
+
+    sections: list[str] = []
+    if themes:
+        sections.append("- themes: " + ", ".join(themes))
+    if preferred:
+        sections.append("- preferred scenes: " + " | ".join(preferred))
+    if direct:
+        sections.append("- direct search scenes: " + " | ".join(direct))
+    if visual_scenes:
+        sections.append("- visual scene hints: " + " | ".join(visual_scenes))
+    if audiences:
+        sections.append("- audience/role hints: " + ", ".join(audiences))
+    if occasions:
+        sections.append("- occasion hints: " + ", ".join(occasions))
+    if product_cues:
+        sections.append("- product cues: " + " | ".join(product_cues))
+    combined_avoid = clean([*avoid, *visual_avoid], limit=8)
+    if combined_avoid:
+        sections.append("- avoid/conflict hints: " + " | ".join(combined_avoid))
+    if not sections:
+        return ""
+
+    return (
+        "\n\nPRODUCT CONTEXT TARGETS (use only for context_match_score):\n"
+        + "\n".join(sections)
+        + "\nJudge only visible scene/activity/object cues. Treat ambiguous evidence as neutral "
+          "(about 0.5), not as a mismatch. Do not infer protected traits, identity, occupation, "
+          "family status, or relationships from appearance alone."
+    )
 
 
 def analysis_prompt(product_context: dict | None = None) -> str:
@@ -562,6 +711,8 @@ Definitions:
 - ai_background_consistency_risk: duplicated people/objects, melted details, impossible depth, bokeh, or background transitions.
 - ai_detector_confidence: 0..1 confidence that the visible evidence is sufficient to judge authenticity. Use LOW confidence when resolution/crop/compression hides evidence.
 - product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement. Wide full-body/lifestyle frames where the primary head is too small to retain useful headwear detail should score lower even if the scene is otherwise attractive.
+- context_match_score: 0..1 match between the visible lifestyle scene and the supplied PRODUCT CONTEXT TARGETS. Use 0.5 when context evidence is absent or genuinely ambiguous. Raise only for visible scene/activity/object/relationship cues that support the target. Lower for clear visible conflict. Do not infer protected traits, identity, occupation, family status, or relationships from appearance alone.
+- context_match_evidence: at most 6 short factual visible observations that support the context score. Use [] when no reliable context evidence is visible.
 - matched_variant_id: when existing_headwear is true and a bound product variant is visibly the closest match, return exactly that variant's supplied internal id. Otherwise null. Never invent an id.
 - matched_variant_name: visible closest bound variant name, or null when no confident variant match exists.
 - matched_color: concise visible headwear color/colorway, or null when headwear is absent or unreadable.
@@ -579,7 +730,8 @@ head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_r
 quality_score, ai_risk_score,
 ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
 ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
-product_fit_score, matched_variant_id, matched_variant_name, matched_color,
+product_fit_score, context_match_score, context_match_evidence,
+matched_variant_id, matched_variant_name, matched_color,
 color_match_score, product_shape_score,
 scene_type, framing_type, camera_angle, pose_type, summary.
 """.strip()
@@ -606,8 +758,9 @@ scene_type, framing_type, camera_angle, pose_type, summary.
         if family
         else ""
     )
+    context_block = _product_context_prompt_block(product)
     if not variants:
-        return base + family_block + (
+        return base + family_block + context_block + (
             "\n\nNo product variant catalog is bound. Return matched_variant_id, "
             "matched_variant_name and matched_color as null; use color_match_score=0."
         )
@@ -625,7 +778,7 @@ scene_type, framing_type, camera_angle, pose_type, summary.
             + (" | color=" + color if color else "")
             + (" | size=" + size if size else "")
         )
-    return base + family_block + (
+    return base + family_block + context_block + (
         "\n\nBOUND PRODUCT VARIANT CATALOG (only these internal ids are valid):\n"
         + "\n".join(lines)
         + "\nIf existing headwear is visible, compare it against this catalog. "

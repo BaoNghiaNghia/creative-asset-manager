@@ -724,6 +724,61 @@ class RrugcService:
         self.session.refresh(candidate)
         return candidate
 
+    def enqueue_context_reanalysis(
+        self,
+        campaign: RrugcCampaignModel,
+        *,
+        binding_fingerprint: str,
+        limit: int = 24,
+    ) -> int:
+        fingerprint = str(binding_fingerprint or "").strip()
+        if (
+            not fingerprint
+            or campaign.discovery_mode != "product_context"
+            or limit <= 0
+        ):
+            return 0
+
+        eligible_statuses = {
+            "approved",
+            "needs_review",
+            "rejected_context",
+        }
+        queued = 0
+        rows = self.repository.context_reanalysis_candidates(
+            campaign.tenant_id,
+            campaign.id,
+            limit=max(24, min(240, int(limit) * 3)),
+        )
+        for candidate in rows:
+            if queued >= limit:
+                break
+            if candidate.status not in eligible_statuses:
+                continue
+            signal = (
+                dict(candidate.ai_signal_json)
+                if isinstance(candidate.ai_signal_json, dict)
+                else {}
+            )
+            if signal.get("reference_manual_label") == "bad":
+                continue
+            context_match = (
+                dict(signal.get("context_match"))
+                if isinstance(signal.get("context_match"), dict)
+                else {}
+            )
+            if (
+                str(context_match.get("binding_fingerprint") or "").strip()
+                == fingerprint
+            ):
+                continue
+            self.enqueue_analysis(candidate, increment_revision=True)
+            queued += 1
+
+        if queued:
+            self.session.commit()
+        return queued
+
     def mark_candidate_ai_label(
         self,
         candidate: RrugcCandidateModel,

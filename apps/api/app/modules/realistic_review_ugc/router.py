@@ -189,6 +189,11 @@ def _error(exc: RrugcError) -> HTTPException:
 
 def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
     signal = row.ai_signal_json if isinstance(row.ai_signal_json, dict) else {}
+    context_match = (
+        dict(signal.get("context_match"))
+        if isinstance(signal.get("context_match"), dict)
+        else {}
+    )
     return CandidateResponse.model_validate({
         "id": row.id,
         "campaign_id": row.campaign_id,
@@ -226,6 +231,9 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "context_manual_reviewed_by_user_id": signal.get("context_manual_reviewed_by_user_id"),
         "context_manual_reviewed_at": signal.get("context_manual_reviewed_at"),
         "product_fit_score": row.product_fit_score,
+        "context_match_active": bool(context_match.get("active")),
+        "context_match_score": context_match.get("score"),
+        "context_match_evidence": list(context_match.get("evidence") or []),
         "matched_variant_id": row.matched_variant_id,
         "matched_variant_name": row.matched_variant_name,
         "matched_color": row.matched_color,
@@ -1608,7 +1616,15 @@ async def analyze_campaign_product_visual_context(
     profile = dict(campaign.product_context_json or {})
     profile["visual_context"] = visual_context
     campaign.product_context_json = profile
-    row = RrugcService(session).refresh_campaign_discovery(campaign)
+    service = RrugcService(session)
+    row = service.refresh_campaign_discovery(campaign)
+    service.enqueue_context_reanalysis(
+        row,
+        binding_fingerprint=str(
+            visual_context.get("binding_fingerprint") or ""
+        ),
+        limit=24,
+    )
     return _campaign(repository, row, include_keyword_health=True)
 
 

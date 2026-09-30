@@ -231,6 +231,9 @@ export type Candidate = {
   context_manual_reviewed_by_user_id?: string | null;
   context_manual_reviewed_at?: string | null;
   product_fit_score: number | null;
+  context_match_active?: boolean;
+  context_match_score?: number | null;
+  context_match_evidence?: string[];
   matched_variant_id?: string | null;
   matched_variant_name?: string | null;
   matched_color?: string | null;
