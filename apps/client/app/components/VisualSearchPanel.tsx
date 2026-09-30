@@ -5,10 +5,11 @@ import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
 type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
-type DragMode = "create" | "move" | "nw" | "ne" | "sw" | "se";
-type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop };
+type DragMode = "create" | "nw" | "ne" | "sw" | "se";
+type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop; changed: boolean };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
 const MIN_CROP = 0.1;
+const DRAG_THRESHOLD = 0.005;
 
 export function isHeicReference(asset: Pick<Asset, "mime_type" | "name">): boolean {
   return /image\/(heic|heif)/i.test(asset.mime_type) || asset.name.toLowerCase().endsWith(".heic") || asset.name.toLowerCase().endsWith(".heif");
@@ -43,24 +44,22 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
     uploadFile(event.dataTransfer.files?.[0]);
   };
   const beginNewCrop = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (loading) return;
+    if (loading || event.button !== 0) return;
     event.preventDefault();
     const stage = stageRef.current;
     if (!stage) return;
     const start = point(event, stage);
-    const initial = { x: start.x, y: start.y, width: MIN_CROP, height: MIN_CROP };
     stage.setPointerCapture(event.pointerId);
-    cropRef.current = initial;
-    setCrop(initial);
-    dragRef.current = { mode: "create", start, crop: initial };
-  };  const begin = (event: ReactPointerEvent<HTMLElement>, mode: DragMode) => {
-    if (loading) return;
+    dragRef.current = { mode: "create", start, crop: cropRef.current, changed: false };
+  };
+  const begin = (event: ReactPointerEvent<HTMLElement>, mode: DragMode) => {
+    if (loading || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     const stage = stageRef.current;
     if (!stage) return;
     stage.setPointerCapture(event.pointerId);
-    dragRef.current = { mode, start: point(event, stage), crop: cropRef.current };
+    dragRef.current = { mode, start: point(event, stage), crop: cropRef.current, changed: false };
   };
   const move = (event: ReactPointerEvent<HTMLDivElement>) => {
     const active = dragRef.current;
@@ -68,6 +67,7 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
     const stage = stageRef.current;
     if (!stage) return;
     const current = point(event, stage), dx = current.x - active.start.x, dy = current.y - active.start.y;
+    if (active.mode === "create" && Math.max(Math.abs(dx), Math.abs(dy)) < DRAG_THRESHOLD) return;
     const initial = active.crop;
     let left = initial.x, right = initial.x + initial.width, top = initial.y, bottom = initial.y + initial.height;
     if (active.mode === "create") {
@@ -75,9 +75,6 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
       top = Math.min(active.start.y, current.y); bottom = Math.max(active.start.y, current.y);
       if (right - left < MIN_CROP) { right = Math.min(1, left + MIN_CROP); left = Math.max(0, right - MIN_CROP); }
       if (bottom - top < MIN_CROP) { bottom = Math.min(1, top + MIN_CROP); top = Math.max(0, bottom - MIN_CROP); }
-    } else if (active.mode === "move") {
-      left = clamp(initial.x + dx, 0, 1 - initial.width); right = left + initial.width;
-      top = clamp(initial.y + dy, 0, 1 - initial.height); bottom = top + initial.height;
     } else {
       if (active.mode.includes("w")) left = clamp(initial.x + dx, 0, right - MIN_CROP);
       if (active.mode.includes("e")) right = clamp(initial.x + initial.width + dx, left + MIN_CROP, 1);
@@ -85,13 +82,14 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
       if (active.mode.includes("s")) bottom = clamp(initial.y + initial.height + dy, top + MIN_CROP, 1);
     }
     const next = { x: left, y: top, width: right - left, height: bottom - top };
+    active.changed = active.changed || !sameCrop(active.crop, next);
     cropRef.current = next; setCrop(next);
   };
   const finish = () => {
     const active = dragRef.current;
     if (!active) return;
     dragRef.current = null;
-    if (scope && !sameCrop(active.crop, cropRef.current)) onApplyCrop(cropRef.current);
+    if (scope && active.changed && !sameCrop(active.crop, cropRef.current)) onApplyCrop(cropRef.current);
   };
   const picker = <input ref={inputRef} type="file" accept="image/*" hidden onChange={event => { uploadFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />;
   if (!reference) return <><section className="visual-search-upload-card" aria-label="Search with an image" onDragOver={event => event.preventDefault()} onDrop={handleDrop} onClick={() => inputRef.current?.click()}><div><b>Search with an image</b><p>Drag and drop an image here, or upload one.</p></div><button type="button" className="visual-primary" onClick={event => { event.stopPropagation(); inputRef.current?.click(); }} disabled={!scope}>Upload image</button></section>{error && <div className="visual-search-error" role="alert"><span>{error}</span></div>}{picker}</>;
@@ -100,11 +98,11 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
     <div className="visual-direct-workspace">
       <div ref={stageRef} className="visual-direct-stage" onPointerDown={beginNewCrop} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
         <img src={preview || ""} alt="" draggable={false} />
-        <div className="visual-direct-crop" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} onPointerDown={event => begin(event, "move")} role="presentation">
+        <div className="visual-direct-crop" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} role="presentation">
           <i className="visual-direct-handle nw" onPointerDown={event => begin(event, "nw")} /><i className="visual-direct-handle ne" onPointerDown={event => begin(event, "ne")} /><i className="visual-direct-handle sw" onPointerDown={event => begin(event, "sw")} /><i className="visual-direct-handle se" onPointerDown={event => begin(event, "se")} />
         </div>
       </div>
-      <div className="visual-direct-caption"><small>{loading ? "Searching…" : "Drag the frame to select an area · Double-click to use the full image"}</small></div>
+      <div className="visual-direct-caption"><small>{loading ? "Searching…" : "Drag anywhere on the image to crop · Drag a corner to resize · Double-click for full image"}</small></div>
       {!scope && <p className="visual-search-context" role="status">Choose an authorized source or folder before searching.</p>}
     </div>
     {error && <div className="visual-search-error" role="alert"><span>{error}</span><button type="button" onClick={() => onRetry(crop)} disabled={loading}>Retry</button></div>}

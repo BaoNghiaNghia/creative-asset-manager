@@ -1592,12 +1592,12 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 /* Direct Lens crop canvas: no control bar; select directly on the image. */
 .visual-search-panel-direct{max-width:760px}
 .visual-search-panel-direct .visual-direct-workspace{display:grid;justify-items:center;gap:8px;padding:2px 0}
-.visual-search-panel-direct .visual-direct-stage{position:relative;display:grid;overflow:hidden;isolation:isolate;width:min(100%,300px);height:min(54vh,390px);place-items:center;border-radius:16px;background:#202124;box-shadow:0 8px 24px rgba(20,29,48,.14);touch-action:none;user-select:none}
+.visual-search-panel-direct .visual-direct-stage{position:relative;display:grid;overflow:hidden;isolation:isolate;width:min(100%,300px);height:min(54vh,390px);place-items:center;border-radius:16px;background:#202124;box-shadow:0 8px 24px rgba(20,29,48,.14);cursor:crosshair;touch-action:none;user-select:none}
 .visual-search-panel-direct .visual-direct-stage>img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
 .visual-search-panel-direct .visual-direct-change{position:absolute;z-index:4;top:10px;right:10px;display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:50%;background:rgba(24,29,38,.78);color:#fff;font-size:22px;line-height:1;box-shadow:0 1px 5px rgba(0,0,0,.25)}
 .visual-search-panel-direct .visual-direct-change:hover{background:#fff;color:#263a5b}
-.visual-search-panel-direct .visual-direct-crop{position:absolute;z-index:3;box-sizing:border-box;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 999px rgba(8,11,18,.55);cursor:move;touch-action:none}
-.visual-search-panel-direct .visual-direct-handle{position:absolute;width:30px;height:30px;box-sizing:border-box;background:transparent}
+.visual-search-panel-direct .visual-direct-crop{position:absolute;z-index:3;box-sizing:border-box;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 999px rgba(8,11,18,.55);pointer-events:none;touch-action:none}
+.visual-search-panel-direct .visual-direct-handle{position:absolute;width:30px;height:30px;box-sizing:border-box;background:transparent;pointer-events:auto}
 .visual-search-panel-direct .visual-direct-handle.nw{top:-4px;left:-4px;border-top:4px solid #fff;border-left:4px solid #fff;border-radius:12px 0 0}
 .visual-search-panel-direct .visual-direct-handle.ne{top:-4px;right:-4px;border-top:4px solid #fff;border-right:4px solid #fff;border-radius:0 12px 0 0}
 .visual-search-panel-direct .visual-direct-handle.sw{bottom:-4px;left:-4px;border-bottom:4px solid #fff;border-left:4px solid #fff;border-radius:0 0 0 12px}
@@ -1640,7 +1640,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-upload-card--reference { display: block; width: fit-content; max-width: calc(25vw + 32px); cursor: default; border-style: solid; background: #fff; }
 .visual-search-upload-card--reference:hover { border-color: #cbd9f3; background: #fff; }
 .visual-search-upload-card--reference .visual-direct-workspace { display: grid; justify-items: center; gap: 8px; }
-.visual-search-upload-card--reference .visual-direct-stage { position: relative; display: block; width: fit-content; max-width: 25vw; max-height: 25vh; overflow: hidden; isolation: isolate; border-radius: 12px; background: #202124; box-shadow: 0 8px 24px rgba(20,29,48,.14); touch-action: none; user-select: none; }
+.visual-search-upload-card--reference .visual-direct-stage { position: relative; display: block; width: fit-content; max-width: 25vw; max-height: 25vh; overflow: hidden; isolation: isolate; border-radius: 12px; background: #202124; box-shadow: 0 8px 24px rgba(20,29,48,.14); cursor: crosshair; touch-action: none; user-select: none; }
 .visual-search-upload-card--reference .visual-direct-stage > img { display: block; width: auto; height: auto; max-width: 25vw; max-height: 25vh; object-fit: contain; pointer-events: none; }
 .visual-search-upload-card--reference .visual-direct-caption { display: grid; max-width: 25vw; color: #697991; text-align: center; }
 .visual-search-upload-card--reference .visual-direct-caption small { font-size: 10px; line-height: 1.35; }
@@ -1650,7 +1650,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   .visual-search-upload-card--reference { width: fit-content; max-width: calc(25vw + 28px); }
 }
 
-/* Keep the Lens workspace inside its card and expose only its four crop corners. */
+/* Keep the Lens workspace inside its card; drag anywhere to create, corners resize. */
 .visual-search-workbench .visual-search-upload-card--reference,
 .visual-search-upload-card--reference {
   box-sizing: border-box;
@@ -1673,7 +1673,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   border: 0;
   border-radius: 0;
   box-shadow: 0 0 0 999px rgba(8, 11, 18, .55);
-  cursor: move;
+  pointer-events: none;
   touch-action: none;
 }
 .visual-search-upload-card--reference .visual-direct-handle {
@@ -1682,6 +1682,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   height: 30px;
   box-sizing: border-box;
   background: transparent;
+  pointer-events: auto;
 }
 .visual-search-upload-card--reference .visual-direct-handle.nw { top: -4px; left: -4px; border-top: 4px solid #fff; border-left: 4px solid #fff; border-radius: 12px 0 0; cursor: nwse-resize; }
 .visual-search-upload-card--reference .visual-direct-handle.ne { top: -4px; right: -4px; border-top: 4px solid #fff; border-right: 4px solid #fff; border-radius: 0 12px 0 0; cursor: nesw-resize; }

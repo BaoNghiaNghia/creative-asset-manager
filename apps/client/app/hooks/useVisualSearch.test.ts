@@ -82,6 +82,44 @@ describe("visual search client helpers", () => {
     expect(markup).toContain("Change image");
   });
 
+  it("starts a new crop when dragging from anywhere inside the current crop", async () => {
+    const onApplyCrop = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(VisualSearchPanel, {
+        scope: "folder", canSearchAllResources: false, hasCurrentSource: true, hasCurrentFolder: true,
+        reference: { kind: "asset", asset: referenceAsset() }, loading: false, error: "", refinement: "",
+        onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
+        onApplyCrop, onRetry: () => undefined, onClose: () => undefined,
+      }));
+      await settle();
+    });
+    const stage = container.querySelector(".visual-direct-stage") as HTMLDivElement;
+    const overlay = container.querySelector(".visual-direct-crop") as HTMLDivElement;
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      value: () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    Object.defineProperty(stage, "setPointerCapture", { value: vi.fn() });
+
+    await act(async () => {
+      overlay.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 40, clientY: 20 }));
+      stage.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, button: 0, clientX: 140, clientY: 80 }));
+      stage.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0, clientX: 140, clientY: 80 }));
+      await settle();
+    });
+
+    expect(onApplyCrop).toHaveBeenCalledTimes(1);
+    const applied = onApplyCrop.mock.calls[0][0];
+    expect(applied.x).toBeCloseTo(0.2);
+    expect(applied.y).toBeCloseTo(0.2);
+    expect(applied.width).toBeCloseTo(0.5);
+    expect(applied.height).toBeCloseTo(0.6);
+    await act(async () => { root.unmount(); });
+    container.remove();
+  });
+
   it("serializes committed scope consistently for asset, upload, crop, hybrid, and Load More", () => {
     const committed = committedVisualQuery({ x: 0, y: 0, width: 1, height: 1 }, " outdoor ", "source", "google-drive", "source-a", null);
     const draft = committedVisualQuery(undefined, "", "folder", "google-drive", "source-b", "folder-b");
