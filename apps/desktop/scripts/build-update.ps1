@@ -19,6 +19,18 @@ try {
     if (-not (Test-Path $path)) { throw "Expected update artifact was not generated: $path" }
   }
 
+  # Keep the release directory minimal after a successful build. electron-builder
+  # also leaves unpacked/debug output behind and older installers may still be
+  # present from previous versions; the updater only needs these three files.
+  $keepNames = @(
+    (Split-Path -Leaf $latest),
+    (Split-Path -Leaf $installer),
+    (Split-Path -Leaf $blockmap)
+  )
+  Get-ChildItem -LiteralPath $OutputDirectory -Force |
+    Where-Object { $_.Name -notin $keepNames } |
+    Remove-Item -Recurse -Force
+
   Write-Host ""
   Write-Host "Windows update package ready:"
   Write-Host "  Version:  $version"
