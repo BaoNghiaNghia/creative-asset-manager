@@ -59,6 +59,85 @@ function Get-ConfigValue(
     return $Default
 }
 
+
+function Set-LocalConfigValue(
+    [string]$Path,
+    [string]$Name,
+    [string]$Value
+) {
+    $lines = @()
+    if (Test-Path -LiteralPath $Path) {
+        $lines = @(Get-Content -LiteralPath $Path -Encoding UTF8)
+    }
+    $pattern = "^\s*" + [regex]::Escape($Name) + "\s*="
+    $updated = $false
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        if ($lines[$index] -match $pattern) {
+            $lines[$index] = $Name + "=" + $Value
+            $updated = $true
+            break
+        }
+    }
+    if (-not $updated) {
+        $lines += ($Name + "=" + $Value)
+    }
+    Set-Content -LiteralPath $Path -Value $lines -Encoding UTF8
+}
+
+function Read-HiddenValue([string]$Prompt) {
+    $secure = Read-Host $Prompt -AsSecureString
+    $pointer = [IntPtr]::Zero
+    try {
+        $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    }
+    finally {
+        if ($pointer -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+        }
+    }
+}
+
+function Complete-FirstRunPairing(
+    [string]$Path,
+    [hashtable]$Config
+) {
+    $agent = Get-ConfigValue $Config "RRUGC_AGENT_ID"
+    $secret = Get-ConfigValue $Config "RRUGC_SCOUT_TOKEN"
+
+    if (
+        -not [string]::IsNullOrWhiteSpace($agent) -and
+        -not [string]::IsNullOrWhiteSpace($secret)
+    ) {
+        return
+    }
+
+    Write-Step "First-time Scout pairing"
+    Write-Host "The local Scout needs its Agent ID and one-time token once." -ForegroundColor Yellow
+    Write-Host "In Realistic Review UGC > Scout connection, reset/pair the Scout and copy the pairing values." -ForegroundColor Yellow
+    Write-Host "They will be saved only in the Git-ignored scout.local.env file on this machine." -ForegroundColor DarkGray
+    Write-Host ""
+
+    if ([string]::IsNullOrWhiteSpace($agent)) {
+        $agent = (Read-Host "Scout Agent ID").Trim()
+        if ([string]::IsNullOrWhiteSpace($agent)) {
+            Fail "Scout Agent ID cannot be empty."
+        }
+        Set-LocalConfigValue $Path "RRUGC_AGENT_ID" $agent
+    }
+
+    if ([string]::IsNullOrWhiteSpace($secret)) {
+        $secret = Read-HiddenValue "Scout token (input hidden)"
+        if ([string]::IsNullOrWhiteSpace($secret)) {
+            Fail "Scout token cannot be empty."
+        }
+        Set-LocalConfigValue $Path "RRUGC_SCOUT_TOKEN" $secret
+    }
+
+    Write-Host ""
+    Write-Host "Scout pairing saved locally. Continuing startup..." -ForegroundColor Green
+}
+
 function Invoke-Git([string[]]$Arguments) {
     $output = & git @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -73,12 +152,16 @@ if (-not (Test-Path -LiteralPath $ConfigPath)) {
     if (Test-Path -LiteralPath $ConfigExamplePath) {
         Copy-Item -LiteralPath $ConfigExamplePath -Destination $ConfigPath
     }
-    Write-Host ""
-    Write-Host "First-time setup created:" -ForegroundColor Yellow
-    Write-Host ("  " + $ConfigPath) -ForegroundColor Yellow
-    Write-Host "Fill RRUGC_AGENT_ID and RRUGC_SCOUT_TOKEN, save the file, then run START_SCOUT.bat again." -ForegroundColor Yellow
-    Start-Process notepad.exe -ArgumentList @($ConfigPath)
-    exit 2
+    else {
+        Set-Content -LiteralPath $ConfigPath -Value @(
+            "RRUGC_BASE_URL=https://creative-assets.ddns.net",
+            "RRUGC_AGENT_ID=",
+            "RRUGC_SCOUT_TOKEN=",
+            "RRUGC_PROFILE_DIR=",
+            "RRUGC_PACE=careful",
+            "RRUGC_DETAIL_CONCURRENCY=3"
+        ) -Encoding UTF8
+    }
 }
 
 if (-not $SkipUpdate) {
@@ -139,6 +222,9 @@ if (-not $SkipUpdate) {
 }
 
 $config = Read-LocalConfig $ConfigPath
+Complete-FirstRunPairing $ConfigPath $config
+$config = Read-LocalConfig $ConfigPath
+
 $baseUrl = Get-ConfigValue $config "RRUGC_BASE_URL" "https://creative-assets.ddns.net"
 $agentId = Get-ConfigValue $config "RRUGC_AGENT_ID"
 $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
