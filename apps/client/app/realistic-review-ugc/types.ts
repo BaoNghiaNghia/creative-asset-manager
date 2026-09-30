@@ -50,6 +50,8 @@ export type Campaign = {
   product_source_url: string | null;
   product_brand: string | null;
   product_revision: number | null;
+  product_variant_ids: string[];
+  product_variants: ProductVariant[];
   product_reference_count: number;
   product_reference_views: ProductReferenceView[];
   product_bound_at: string | null;
@@ -178,6 +180,11 @@ export type Candidate = {
   reference_manual_reviewed_by_user_id?: string | null;
   reference_manual_reviewed_at?: string | null;
   product_fit_score: number | null;
+  matched_variant_id?: string | null;
+  matched_variant_name?: string | null;
+  matched_color?: string | null;
+  color_match_score?: number | null;
+  product_shape_score?: number | null;
   final_score: number | null;
   reject_reason: string | null;
   analyzer_provider: string | null;
@@ -211,6 +218,26 @@ export type ProductReferenceView =
   | "embroidery_closeup"
   | "material_closeup";
 
+export type ProductVariant = {
+  id: string;
+  product_id: string;
+  source_variant_id: string;
+  sku: string | null;
+  name: string | null;
+  color: string | null;
+  size: string | null;
+  price_text: string | null;
+  currency: string | null;
+  image_urls: string[];
+  available: boolean;
+  enabled: boolean;
+  status: "active" | "archived";
+  position: number;
+  reference_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Product = {
   id: string;
   sku: string;
@@ -234,6 +261,7 @@ export type Product = {
   source_currency: string | null;
   source_images: string[];
   source_variants: Array<Record<string, unknown>>;
+  variants: ProductVariant[];
   source_metadata: Record<string, unknown>;
   source_fetched_at: string | null;
   revision: number;
@@ -250,6 +278,8 @@ export type ProductUrlImportItem = {
   status: "created" | "updated" | "failed";
   product: Product | null;
   images_found: number;
+  variants_found: number;
+  variant_references_imported: number;
   primary_reference_imported: boolean;
   warning: string | null;
   error_code: string | null;
@@ -266,6 +296,7 @@ export type ProductUrlImportResult = {
 export type ProductReference = {
   id: string;
   product_id: string;
+  variant_id: string | null;
   view_type: ProductReferenceView;
   version: number;
   status: "active" | "archived";

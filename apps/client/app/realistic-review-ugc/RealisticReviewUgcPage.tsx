@@ -199,6 +199,7 @@ function SearchQueryEditor({
 type CampaignEditDraft = {
   name: string;
   productUrl: string;
+  productVariantIds: string[];
   searchQueries: string[];
   target: number;
   scrolls: number;
@@ -266,11 +267,13 @@ export function RealisticReviewUgcPage() {
   const [editDraft, setEditDraft] = useState<CampaignEditDraft | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [savingProductUrl, setSavingProductUrl] = useState(false);
+  const [savingProductVariants, setSavingProductVariants] = useState(false);
   const [productImportMessage, setProductImportMessage] = useState("");
   const [error, setError] = useState("");
 
   const selected = campaigns.find(item => item.id === selectedId) || null;
   const editingCampaign = campaigns.find(item => item.id === editingId) || null;
+  const editingVariants = editingCampaign?.product_variants || [];
 
   async function refreshCampaigns(signal?: AbortSignal) {
     const rows = await listCampaigns(signal);
@@ -523,6 +526,7 @@ export function RealisticReviewUgcPage() {
     setEditDraft({
       name: campaign.name,
       productUrl: campaign.product_source_url || "",
+      productVariantIds: [...(campaign.product_variant_ids || [])],
       searchQueries: campaign.search_query_anchors?.length
         ? campaign.search_query_anchors
         : campaign.search_queries?.length
@@ -576,6 +580,7 @@ export function RealisticReviewUgcPage() {
       setEditDraft(current => current ? {
         ...current,
         productUrl: item.product?.source_url || productUrl,
+        productVariantIds: [...updated.product_variant_ids],
       } : current);
       setProductImportMessage(
         "Bound "
@@ -584,13 +589,54 @@ export function RealisticReviewUgcPage() {
           + item.images_found
           + " image"
           + (item.images_found === 1 ? "" : "s")
-          + (item.primary_reference_imported ? " · front reference saved" : "")
+          + " · " + item.variants_found + " color variant" + (item.variants_found === 1 ? "" : "s")
+          + (item.variant_references_imported ? " · " + item.variant_references_imported + " variant refs saved" : "")
+          + (item.primary_reference_imported ? " · parent front reference saved" : "")
           + (item.warning ? " · " + item.warning : ""),
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan and bind product URL.");
     } finally {
       setSavingProductUrl(false);
+    }
+  }
+
+  async function saveCampaignVariants() {
+    if (
+      !editingId
+      || !editDraft
+      || !editingCampaign?.product_id
+      || savingProductVariants
+    ) return;
+    const selectable = editingVariants.filter(variant => variant.enabled);
+    if (selectable.length && editDraft.productVariantIds.length === 0) {
+      setError("Select at least one product color for this campaign.");
+      return;
+    }
+    setSavingProductVariants(true);
+    setError("");
+    setProductImportMessage("");
+    try {
+      const updated = await bindCampaignProduct(
+        editingId,
+        editingCampaign.product_id,
+        editDraft.productVariantIds,
+      );
+      setCampaigns(rows => rows.map(row => row.id === updated.id ? updated : row));
+      setEditDraft(current => current ? {
+        ...current,
+        productVariantIds: [...updated.product_variant_ids],
+      } : current);
+      setProductImportMessage(
+        updated.product_variant_ids.length
+          + " product color"
+          + (updated.product_variant_ids.length === 1 ? "" : "s")
+          + " selected for Pinterest matching.",
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update campaign product colors.");
+    } finally {
+      setSavingProductVariants(false);
     }
   }
 
@@ -658,7 +704,7 @@ export function RealisticReviewUgcPage() {
   }
   const candidateSearchNeedle = candidateSearch.trim().toLowerCase();
   const visibleCandidates = candidateGroups[candidateTab]
-    .filter(candidate => !candidateSearchNeedle || [candidate.alt_text, candidate.analysis_summary, candidate.reject_reason, candidate.status]
+    .filter(candidate => !candidateSearchNeedle || [candidate.alt_text, candidate.analysis_summary, candidate.reject_reason, candidate.status, candidate.matched_variant_name, candidate.matched_color]
       .some(value => value?.toLowerCase().includes(candidateSearchNeedle)))
     .sort((left, right) => {
       if (candidateSort === "fit") return (right.final_score ?? -1) - (left.final_score ?? -1);
@@ -834,7 +880,7 @@ export function RealisticReviewUgcPage() {
         </section>
 
         {editingId && editDraft && <div className="rrugc-campaign-editor-backdrop" role="presentation" onMouseDown={() => {
-          if (!savingEdit && !savingProductUrl) {
+          if (!savingEdit && !savingProductUrl && !savingProductVariants) {
             setEditingId("");
             setEditDraft(null);
           }
@@ -842,7 +888,7 @@ export function RealisticReviewUgcPage() {
           <section className="rrugc-campaign-editor" role="dialog" aria-modal="true" aria-label="Edit campaign" onMouseDown={event => event.stopPropagation()}>
             <header>
               <div><small>EDIT CAMPAIGN</small><h2>{editDraft.name || "Campaign"}</h2></div>
-              <button type="button" aria-label="Close editor" disabled={savingEdit || savingProductUrl} onClick={() => {
+              <button type="button" aria-label="Close editor" disabled={savingEdit || savingProductUrl || savingProductVariants} onClick={() => {
                 setEditingId("");
                 setEditDraft(null);
               }}>×</button>
@@ -910,6 +956,48 @@ export function RealisticReviewUgcPage() {
                   <span><small>Brand</small><b>{editingCampaign.product_brand || "—"}</b></span>
                   <span><small>Snapshot</small><b>{editingCampaign.product_binding_stale ? "Refresh needed" : "Current"}</b></span>
                 </div>}
+                {editingVariants.length > 0 && <div className="rrugc-editor-variant-picker">
+                  <div className="rrugc-editor-variant-picker-head">
+                    <span><small>COLORS FOUND</small><b>{editingVariants.length} variants</b></span>
+                    <strong>{editDraft.productVariantIds.length} selected</strong>
+                  </div>
+                  <div className="rrugc-editor-variant-options">
+                    {editingVariants.map(variant => {
+                      const checked = editDraft.productVariantIds.includes(variant.id);
+                      return <label key={variant.id} className={variant.enabled ? (checked ? "is-selected" : "") : "is-disabled"}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!variant.enabled || savingProductVariants}
+                          onChange={event => setEditDraft(current => {
+                            if (!current) return current;
+                            const next = new Set(current.productVariantIds);
+                            if (event.target.checked) next.add(variant.id);
+                            else next.delete(variant.id);
+                            return { ...current, productVariantIds: [...next] };
+                          })}
+                        />
+                        <span className="rrugc-editor-variant-image">
+                          {variant.image_urls[0]
+                            ? <img src={variant.image_urls[0]} alt={variant.color || variant.name || "Product color"} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+                            : <i />}
+                        </span>
+                        <span>
+                          <b>{variant.color || variant.name || "Variant"}</b>
+                          <small>{variant.reference_count} ref{variant.reference_count === 1 ? "" : "s"}{variant.enabled ? "" : " · disabled"}</small>
+                        </span>
+                      </label>;
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    className="rrugc-secondary-action"
+                    disabled={savingProductVariants || editDraft.productVariantIds.length === 0}
+                    onClick={() => void saveCampaignVariants()}
+                  >
+                    {savingProductVariants ? "Applying colors…" : "Apply selected colors"}
+                  </button>
+                </div>}
                 {productImportMessage && <p className="rrugc-editor-product-result">{productImportMessage}</p>}
               </section>
 
@@ -962,11 +1050,11 @@ export function RealisticReviewUgcPage() {
             <footer>
               <span>Keyword edits are used on the next Scout scan. Existing candidates are preserved.</span>
               <div>
-                <button type="button" disabled={savingEdit || savingProductUrl} onClick={() => {
+                <button type="button" disabled={savingEdit || savingProductUrl || savingProductVariants} onClick={() => {
                   setEditingId("");
                   setEditDraft(null);
                 }}>Cancel</button>
-                <button type="button" className="rrugc-primary" disabled={savingEdit || savingProductUrl || !editDraft.name.trim() || editDraft.searchQueries.length === 0} onClick={() => void saveCampaignEdit()}>
+                <button type="button" className="rrugc-primary" disabled={savingEdit || savingProductUrl || savingProductVariants || !editDraft.name.trim() || editDraft.searchQueries.length === 0} onClick={() => void saveCampaignEdit()}>
                   {savingEdit ? "Saving…" : "Save campaign"}
                 </button>
               </div>
@@ -1150,6 +1238,7 @@ export function RealisticReviewUgcPage() {
                     <span>Phone <b>{percent(candidate.phone_authenticity_score)}</b></span>
                     <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
                     <span>Quality <b>{percent(candidate.quality_score)}</b></span>
+                    {candidate.matched_color && <span>Color <b>{candidate.matched_color}</b></span>}
                   </div> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
                 </div>
                 <footer>
@@ -1171,7 +1260,7 @@ export function RealisticReviewUgcPage() {
               <div className="rrugc-inspector-score"><span>Fit <b>{percent(inspectedCandidate.final_score)}</b></span><span>Phone <b>{percent(inspectedCandidate.phone_authenticity_score)}</b></span><span>UGC <b>{percent(inspectedCandidate.mobile_ugc_score)}</b></span><span>Quality <b>{percent(inspectedCandidate.quality_score)}</b></span></div>
               {inspectedCandidate.reject_reason && <p className="rrugc-reject-reason">{inspectedCandidate.reject_reason.replaceAll("_", " ")}</p>}
               {inspectedCandidate.analysis_summary && <p>{inspectedCandidate.analysis_summary}</p>}
-              <div className="rrugc-inspector-metrics rrugc-metrics"><span>Head <b>{percent(inspectedCandidate.primary_head_ratio)}</b></span><span>Smile <b>{percent(inspectedCandidate.smile_score)}</b></span><span>Artistic <b>{percent(inspectedCandidate.artistic_editorial_risk)}</b></span><span>AI risk <b>{percent(inspectedCandidate.ai_risk_score)}</b></span><span>AI confidence <b>{percent(inspectedCandidate.ai_detector_confidence)}</b></span><span>Product fit <b>{percent(inspectedCandidate.product_fit_score)}</b></span></div>
+              <div className="rrugc-inspector-metrics rrugc-metrics"><span>Head <b>{percent(inspectedCandidate.primary_head_ratio)}</b></span><span>Smile <b>{percent(inspectedCandidate.smile_score)}</b></span><span>Artistic <b>{percent(inspectedCandidate.artistic_editorial_risk)}</b></span><span>AI risk <b>{percent(inspectedCandidate.ai_risk_score)}</b></span><span>AI confidence <b>{percent(inspectedCandidate.ai_detector_confidence)}</b></span><span>Product fit <b>{percent(inspectedCandidate.product_fit_score)}</b></span><span>Shape match <b>{percent(inspectedCandidate.product_shape_score)}</b></span><span>Color match <b>{percent(inspectedCandidate.color_match_score)}</b></span>{inspectedCandidate.matched_color && <span>Matched color <b>{inspectedCandidate.matched_color}</b></span>}</div>
               <div className="rrugc-inspector-review"><small>Quick authenticity review</small><div>{(["real", "ai", "unsure"] as const).map(label => <button key={label} type="button" className={inspectedCandidate.ai_manual_label === label ? "is-active" : ""} disabled={Boolean(actionId)} onClick={() => void markAiFeedback(inspectedCandidate, label)}>{label === "real" ? "Real photo" : label === "ai" ? "AI" : "Unsure"}</button>)}</div></div>
               <div className="rrugc-inspector-review rrugc-reference-review">
                 <small>Reference usefulness · feeds selection learning</small>

@@ -40,6 +40,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcDeliveryItemModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
+    RrugcProductVariantModel,
 )
 from app.modules.realistic_review_ugc.product_page_import import (
     ProductPageImportError,
@@ -100,6 +101,8 @@ from app.modules.realistic_review_ugc.schema import (
     ProductReferenceView,
     ProductResponse,
     ProductUpdateRequest,
+    ProductVariantResponse,
+    ProductVariantUpdateRequest,
     ProductUrlImportItemResponse,
     ProductUrlImportRequest,
     ProductUrlImportResponse,
@@ -206,6 +209,11 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "reference_manual_reviewed_by_user_id": signal.get("reference_manual_reviewed_by_user_id"),
         "reference_manual_reviewed_at": signal.get("reference_manual_reviewed_at"),
         "product_fit_score": row.product_fit_score,
+        "matched_variant_id": row.matched_variant_id,
+        "matched_variant_name": row.matched_variant_name,
+        "matched_color": row.matched_color,
+        "color_match_score": row.color_match_score,
+        "product_shape_score": row.product_shape_score,
         "final_score": row.final_score,
         "reject_reason": row.reject_reason,
         "analyzer_provider": row.analyzer_provider,
@@ -230,6 +238,7 @@ def _product_reference(row: RrugcProductReferenceModel) -> ProductReferenceRespo
     return ProductReferenceResponse(
         id=row.id,
         product_id=row.product_id,
+        variant_id=row.variant_id,
         view_type=row.view_type,
         version=row.version,
         status=row.status,
@@ -249,8 +258,40 @@ def _product_reference(row: RrugcProductReferenceModel) -> ProductReferenceRespo
     )
 
 
+def _product_variant(
+    row: RrugcProductVariantModel,
+    *,
+    reference_count: int = 0,
+) -> ProductVariantResponse:
+    return ProductVariantResponse(
+        id=row.id,
+        product_id=row.product_id,
+        source_variant_id=row.source_variant_id,
+        sku=row.sku,
+        name=row.name,
+        color=row.color,
+        size=row.size,
+        price_text=row.price_text,
+        currency=row.currency,
+        image_urls=list(row.image_urls_json or []),
+        available=row.available,
+        enabled=row.enabled,
+        status=row.status,
+        position=row.position,
+        reference_count=reference_count,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
 def _product(repository: RrugcRepository, row: RrugcProductModel) -> ProductResponse:
     references = repository.list_product_references(row.tenant_id, row.id)
+    variants = repository.list_product_variants(row.tenant_id, row.id)
+    reference_counts = Counter(
+        reference.variant_id
+        for reference in references
+        if reference.variant_id is not None
+    )
     views = sorted({reference.view_type for reference in references})
     return ProductResponse(
         id=row.id,
@@ -275,6 +316,13 @@ def _product(repository: RrugcRepository, row: RrugcProductModel) -> ProductResp
         source_currency=row.source_currency,
         source_images=list(row.source_images_json or []),
         source_variants=list(row.source_variants_json or []),
+        variants=[
+            _product_variant(
+                variant,
+                reference_count=int(reference_counts.get(variant.id, 0)),
+            )
+            for variant in variants
+        ],
         source_metadata=dict(row.source_metadata_json or {}),
         source_fetched_at=row.source_fetched_at,
         revision=row.revision,
@@ -614,6 +662,20 @@ def _campaign(
     approved = _count_sum(counts, ANALYSIS_APPROVED_STATUSES)
     rejected = _count_sum(counts, ANALYSIS_REJECTED_STATUSES)
     product = dict(row.product_snapshot_json or {})
+    campaign_variants = (
+        repository.list_product_variants(row.tenant_id, row.product_id)
+        if row.product_id
+        else []
+    )
+    campaign_reference_counts = Counter(
+        reference.variant_id
+        for reference in (
+            repository.list_product_references(row.tenant_id, row.product_id)
+            if row.product_id
+            else []
+        )
+        if reference.variant_id is not None
+    )
     reference_snapshot = list(row.product_reference_snapshot_json or [])
     reference_views = sorted({
         str(item.get("view_type"))
@@ -680,6 +742,18 @@ def _campaign(
         product_source_url=str(product.get("source_url") or "") or None,
         product_brand=str(product.get("brand") or "") or None,
         product_revision=row.product_revision,
+        product_variant_ids=[
+            str(value)
+            for value in (row.product_variant_ids_json or [])
+            if str(value)
+        ],
+        product_variants=[
+            _product_variant(
+                variant,
+                reference_count=int(campaign_reference_counts.get(variant.id, 0)),
+            )
+            for variant in campaign_variants
+        ],
         product_reference_count=len(reference_snapshot),
         product_reference_views=reference_views,
         product_bound_at=row.product_bound_at,
@@ -859,6 +933,10 @@ async def import_product_urls(
                     user_id=principal.user_id,
                     data=page,
                 )
+                variants = repository.list_product_variants(
+                    principal.active_tenant_id,
+                    product.id,
+                )
             except ProductPageImportError as exc:
                 results.append(ProductUrlImportItemResponse(
                     source_url=raw_url,
@@ -877,6 +955,7 @@ async def import_product_urls(
                 continue
 
             primary_reference_imported = False
+            variant_references_imported = 0
             warning: str | None = None
             if request.import_primary_image and not page.images:
                 warning = "Product details were imported, but no product gallery image was found."
@@ -920,11 +999,55 @@ async def import_product_urls(
                         if image_errors:
                             warning += " Last image error: " + image_errors[-1] + "."
 
+            if request.import_primary_image and storage_available and variants:
+                variant_errors = 0
+                for variant in variants[:24]:
+                    image_url = next(
+                        (
+                            str(value).strip()
+                            for value in (variant.image_urls_json or [])
+                            if str(value).strip()
+                        ),
+                        "",
+                    )
+                    if not image_url:
+                        continue
+                    try:
+                        content, _content_type = await fetch_product_image(
+                            client,
+                            image_url,
+                        )
+                        filename = (
+                            urlsplit(image_url).path.rsplit("/", 1)[-1].strip()
+                            or ("variant-" + variant.source_variant_id)
+                        )
+                        await registry.upload_reference(
+                            tenant_id=principal.active_tenant_id,
+                            user_id=principal.user_id,
+                            product_id=product.id,
+                            variant_id=variant.id,
+                            view_type="front",
+                            original_filename=filename[:255],
+                            content=content,
+                            storage=storage,
+                        )
+                        variant_references_imported += 1
+                    except (ProductPageImportError, RrugcError):
+                        variant_errors += 1
+                if variant_errors and not warning:
+                    warning = (
+                        f"{variant_errors} variant reference image"
+                        + ("s" if variant_errors != 1 else "")
+                        + " could not be imported."
+                    )
+
             results.append(ProductUrlImportItemResponse(
                 source_url=page.source_url,
                 status="created" if created else "updated",
                 product=_product(repository, product),
                 images_found=len(page.images),
+                variants_found=len(variants),
+                variant_references_imported=variant_references_imported,
                 primary_reference_imported=primary_reference_imported,
                 warning=warning,
             ))
@@ -967,6 +1090,51 @@ def update_product(
     except RrugcError as exc:
         raise _error(exc) from exc
     return _product(repository, row)
+
+
+@router.patch(
+    "/products/{product_id}/variants/{variant_id}",
+    response_model=ProductVariantResponse,
+)
+def update_product_variant(
+    product_id: str,
+    variant_id: str,
+    request: ProductVariantUpdateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    product = _require_product(
+        repository,
+        principal.active_tenant_id,
+        product_id,
+    )
+    variant = repository.get_product_variant(
+        principal.active_tenant_id,
+        product_id,
+        variant_id,
+    )
+    if variant is None:
+        raise HTTPException(status_code=404, detail="Product variant not found")
+    try:
+        row = RrugcProductRegistry(session).set_variant_enabled(
+            product=product,
+            variant=variant,
+            enabled=request.enabled,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    references = repository.list_product_references(
+        principal.active_tenant_id,
+        product_id,
+    )
+    return _product_variant(
+        row,
+        reference_count=sum(
+            1 for reference in references
+            if reference.variant_id == row.id
+        ),
+    )
 
 
 @router.delete("/products/{product_id}", response_model=ProductResponse)
@@ -1242,6 +1410,7 @@ def bind_campaign_product(
         row = RrugcGenerationFoundation(session).bind_campaign_product(
             campaign=campaign,
             product_id=request.product_id,
+            variant_ids=request.variant_ids,
         )
     except RrugcError as exc:
         raise _error(exc) from exc

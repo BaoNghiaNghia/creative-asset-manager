@@ -25,6 +25,7 @@ import type {
   ProductReference,
   ProductReferenceView,
   ProductUpdateRequest,
+  ProductVariant,
   ProductUrlImportResult,
   ReviewTask,
   ReviewTaskList,
@@ -89,6 +90,22 @@ export const importProductUrls = (urls: string[], importPrimaryImage = true) =>
       import_primary_image: importPrimaryImage,
     }),
   });
+
+export const updateProductVariant = (
+  productId: string,
+  variantId: string,
+  enabled: boolean,
+) =>
+  request<ProductVariant>(
+    "/api/v1/realistic-review-ugc/products/"
+      + encodeURIComponent(productId)
+      + "/variants/"
+      + encodeURIComponent(variantId),
+    {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    },
+  );
 
 export const archiveProduct = (productId: string) =>
   request<Product>("/api/v1/realistic-review-ugc/products/" + encodeURIComponent(productId), {
@@ -195,10 +212,20 @@ export const listScoutRuns = (
   );
 };
 
-export const bindCampaignProduct = (campaignId: string, productId: string | null) =>
+export const bindCampaignProduct = (
+  campaignId: string,
+  productId: string | null,
+  variantIds?: string[],
+) =>
   request<Campaign>(
     "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId) + "/product",
-    { method: "PUT", body: JSON.stringify({ product_id: productId }) },
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        product_id: productId,
+        ...(variantIds ? { variant_ids: variantIds } : {}),
+      }),
+    },
   );
 
 export const listGenerationAttempts = (campaignId: string, signal?: AbortSignal) =>

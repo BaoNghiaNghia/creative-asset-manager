@@ -80,6 +80,7 @@ class RrugcCampaignModel(Base):
     product_revision: Mapped[int | None] = mapped_column(Integer)
     product_snapshot_json: Mapped[dict | None] = mapped_column(JSON)
     product_reference_snapshot_json: Mapped[list | None] = mapped_column(JSON)
+    product_variant_ids_json: Mapped[list | None] = mapped_column(JSON)
     product_bound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     auto_complete_on_delivery: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -234,6 +235,50 @@ class RrugcProductModel(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RrugcProductVariantModel(Base):
+    __tablename__ = "rrugc_product_variants"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["rrugc_products.tenant_id", "rrugc_products.id"],
+            name="fk_rrugc_product_variant_product",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id", "product_id", "source_variant_id",
+            name="uq_rrugc_product_variant_source",
+        ),
+        UniqueConstraint(
+            "tenant_id", "product_id", "id",
+            name="uq_rrugc_product_variant_tenant_product_id",
+        ),
+        Index(
+            "ix_rrugc_product_variant_product",
+            "tenant_id", "product_id", "status", "position",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_variant_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(120))
+    name: Mapped[str | None] = mapped_column(String(300))
+    color: Mapped[str | None] = mapped_column(String(120))
+    size: Mapped[str | None] = mapped_column(String(120))
+    price_text: Mapped[str | None] = mapped_column(String(120))
+    currency: Mapped[str | None] = mapped_column(String(16))
+    image_urls_json: Mapped[list | None] = mapped_column(JSON)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+    available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RrugcProductReferenceModel(Base):
     __tablename__ = "rrugc_product_references"
     __table_args__ = (
@@ -251,15 +296,30 @@ class RrugcProductReferenceModel(Base):
             "ix_rrugc_product_reference_product_view",
             "tenant_id", "product_id", "view_type", "version",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id", "variant_id"],
+            [
+                "rrugc_product_variants.tenant_id",
+                "rrugc_product_variants.product_id",
+                "rrugc_product_variants.id",
+            ],
+            name="fk_rrugc_product_reference_variant",
+            ondelete="CASCADE",
+        ),
         Index(
             "ix_rrugc_product_reference_hash",
             "tenant_id", "content_hash",
+        ),
+        Index(
+            "ix_rrugc_product_reference_variant",
+            "tenant_id", "product_id", "variant_id", "view_type",
         ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    variant_id: Mapped[str | None] = mapped_column(String(36))
     view_type: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
@@ -346,6 +406,11 @@ class RrugcCandidateModel(Base):
     ai_manual_reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
     ai_manual_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     product_fit_score: Mapped[float | None] = mapped_column(Float)
+    matched_variant_id: Mapped[str | None] = mapped_column(String(36))
+    matched_variant_name: Mapped[str | None] = mapped_column(String(300))
+    matched_color: Mapped[str | None] = mapped_column(String(120))
+    color_match_score: Mapped[float | None] = mapped_column(Float)
+    product_shape_score: Mapped[float | None] = mapped_column(Float)
     final_score: Mapped[float | None] = mapped_column(Float)
     reject_reason: Mapped[str | None] = mapped_column(String(64))
     analyzer_provider: Mapped[str | None] = mapped_column(String(64))

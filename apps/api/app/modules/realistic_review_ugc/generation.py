@@ -15,6 +15,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcGenerationAttemptModel,
     RrugcProductModel,
     RrugcProductReferenceModel,
+    RrugcProductVariantModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.service import RrugcError
@@ -25,7 +26,27 @@ GENERATION_SOURCE_STATUSES = frozenset({"drive_ready", "rejected_duplicate"})
 REQUIRED_HAT_REFERENCE_VIEWS = frozenset({"front"})
 
 
-def product_snapshot(product: RrugcProductModel) -> dict:
+def product_variant_snapshot(variant: RrugcProductVariantModel) -> dict:
+    return {
+        "id": variant.id,
+        "source_variant_id": variant.source_variant_id,
+        "sku": variant.sku,
+        "name": variant.name,
+        "color": variant.color,
+        "size": variant.size,
+        "price_text": variant.price_text,
+        "currency": variant.currency,
+        "image_urls": list(variant.image_urls_json or []),
+        "available": variant.available,
+        "enabled": variant.enabled,
+        "position": variant.position,
+    }
+
+
+def product_snapshot(
+    product: RrugcProductModel,
+    variants: list[RrugcProductVariantModel] | None = None,
+) -> dict:
     return {
         "id": product.id,
         "sku": product.sku,
@@ -49,6 +70,10 @@ def product_snapshot(product: RrugcProductModel) -> dict:
         "source_currency": product.source_currency,
         "source_images": list(product.source_images_json or []),
         "source_variants": list(product.source_variants_json or []),
+        "variants": [
+            product_variant_snapshot(variant)
+            for variant in (variants or [])
+        ],
         "source_metadata": dict(product.source_metadata_json or {}),
         "revision": product.revision,
     }
@@ -122,15 +147,24 @@ def build_worker_prompt(attempt: RrugcGenerationAttemptModel) -> str:
 
 def latest_reference_snapshot(
     references: list[RrugcProductReferenceModel],
+    *,
+    variant_ids: list[str] | None = None,
 ) -> list[dict]:
-    latest: dict[str, RrugcProductReferenceModel] = {}
+    selected = set(variant_ids or [])
+    latest: dict[tuple[str, str], RrugcProductReferenceModel] = {}
     for reference in references:
         if reference.status != "active":
             continue
-        latest.setdefault(reference.view_type, reference)
+        if reference.variant_id is not None and selected and reference.variant_id not in selected:
+            continue
+        if reference.variant_id is not None and variant_ids is not None and not selected:
+            continue
+        key = (reference.variant_id or "", reference.view_type)
+        latest.setdefault(key, reference)
     return [
         {
             "id": row.id,
+            "variant_id": row.variant_id,
             "view_type": row.view_type,
             "version": row.version,
             "content_hash": row.content_hash,
@@ -190,6 +224,7 @@ class RrugcGenerationFoundation:
         *,
         campaign: RrugcCampaignModel,
         product_id: str | None,
+        variant_ids: list[str] | None = None,
     ) -> RrugcCampaignModel:
         locked = self.repository.lock_campaign(campaign.tenant_id, campaign.id)
         if locked is None:
@@ -202,6 +237,7 @@ class RrugcGenerationFoundation:
             locked.product_revision = None
             locked.product_snapshot_json = None
             locked.product_reference_snapshot_json = None
+            locked.product_variant_ids_json = None
             locked.product_bound_at = None
             self.session.commit()
             self.session.refresh(locked)
@@ -217,13 +253,49 @@ class RrugcGenerationFoundation:
                 status_code=409,
             )
 
+        variants = self.repository.list_product_variants(
+            campaign.tenant_id,
+            product.id,
+        )
+        variant_by_id = {variant.id: variant for variant in variants}
+        if variant_ids is None:
+            selected_variant_ids = [
+                variant.id
+                for variant in variants
+                if variant.enabled
+            ]
+        else:
+            selected_variant_ids = []
+            seen_variant_ids: set[str] = set()
+            for variant_id in variant_ids:
+                value = str(variant_id or "").strip()
+                if not value or value in seen_variant_ids:
+                    continue
+                variant = variant_by_id.get(value)
+                if variant is None or not variant.enabled:
+                    raise RrugcError(
+                        "product_variant_invalid",
+                        "One or more selected product variants are unavailable.",
+                        status_code=422,
+                    )
+                seen_variant_ids.add(value)
+                selected_variant_ids.append(value)
+        selected_variants = [
+            variant_by_id[variant_id]
+            for variant_id in selected_variant_ids
+        ]
+
         references = self.repository.list_product_references(
             campaign.tenant_id, product.id
         )
         locked.product_id = product.id
         locked.product_revision = product.revision
-        locked.product_snapshot_json = product_snapshot(product)
-        locked.product_reference_snapshot_json = latest_reference_snapshot(references)
+        locked.product_variant_ids_json = selected_variant_ids
+        locked.product_snapshot_json = product_snapshot(product, selected_variants)
+        locked.product_reference_snapshot_json = latest_reference_snapshot(
+            references,
+            variant_ids=selected_variant_ids,
+        )
         locked.product_bound_at = datetime.now(timezone.utc)
         self.session.commit()
         self.session.refresh(locked)
@@ -235,11 +307,30 @@ class RrugcGenerationFoundation:
         product = self.repository.get_product(campaign.tenant_id, campaign.product_id)
         if product is None or product.status != "active":
             return True
+        variants = self.repository.list_product_variants(
+            campaign.tenant_id,
+            product.id,
+        )
+        variant_by_id = {variant.id: variant for variant in variants}
+        selected_variant_ids = [
+            str(value)
+            for value in (campaign.product_variant_ids_json or [])
+            if str(value) in variant_by_id
+        ]
+        if len(selected_variant_ids) != len(campaign.product_variant_ids_json or []):
+            return True
+        selected_variants = [
+            variant_by_id[variant_id]
+            for variant_id in selected_variant_ids
+        ]
         references = self.repository.list_product_references(
             campaign.tenant_id, product.id
         )
-        current_product = product_snapshot(product)
-        current_references = latest_reference_snapshot(references)
+        current_product = product_snapshot(product, selected_variants)
+        current_references = latest_reference_snapshot(
+            references,
+            variant_ids=selected_variant_ids,
+        )
         return binding_fingerprint(
             product_snapshot_json=current_product,
             reference_snapshot_json=current_references,

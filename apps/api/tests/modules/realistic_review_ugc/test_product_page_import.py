@@ -7,7 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.modules.realistic_review_ugc.model import RrugcProductModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcProductModel,
+    RrugcProductVariantModel,
+)
 from app.modules.realistic_review_ugc.product_page_import import (
     ProductPageData,
     ProductPageImportError,
@@ -80,6 +83,42 @@ def test_parse_product_page_prefers_structured_product_data():
     assert len(result.variants) == 2
 
 
+def test_parse_shopify_theme_variants_keep_color_and_featured_image():
+    result = parse_product_html(
+        """
+        <html><head>
+          <meta property="og:title" content="Custom Snapback Hat" />
+          <meta property="og:image" content="https://cdn.example.com/main.jpg" />
+        </head><body>
+        <script>
+        window._themeProducts[9354174922975] = {
+          id: 9354174922975,
+          variants: [
+            {"id":4899990001,"title":"Natural/ Black","option1":"Natural/ Black","option2":null,"options":["Natural/ Black"],"price":1999,"available":true,"featured_image":{"src":"//cdn.example.com/natural-black.jpg"}},
+            {"id":4899990002,"title":"Natural/ Navy","option1":"Natural/ Navy","option2":null,"options":["Natural/ Navy"],"price":1999,"available":true,"featured_image":{"src":"//cdn.example.com/natural-navy.jpg"}}
+          ]
+        };
+        </script>
+        </body></html>
+        """,
+        "https://gatorhats.com/products/custom-snapback-hat",
+    )
+    assert [variant["source_variant_id"] for variant in result.variants] == [
+        "4899990001",
+        "4899990002",
+    ]
+    assert [variant["color"] for variant in result.variants] == [
+        "Natural/ Black",
+        "Natural/ Navy",
+    ]
+    assert result.variants[0]["image_urls"] == [
+        "https://cdn.example.com/natural-black.jpg"
+    ]
+    assert result.variants[1]["image_urls"] == [
+        "https://cdn.example.com/natural-navy.jpg"
+    ]
+
+
 def test_parse_product_page_falls_back_to_open_graph():
     result = parse_product_html(
         """
@@ -118,6 +157,7 @@ def test_imported_product_upsert_reuses_source_url_and_refreshes_metadata():
         poolclass=StaticPool,
     )
     RrugcProductModel.__table__.create(engine)
+    RrugcProductVariantModel.__table__.create(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
         with factory() as session:

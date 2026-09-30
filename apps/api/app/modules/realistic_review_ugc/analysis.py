@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v7-diversity-aware"
+ANALYZER_VERSION = "rrugc-reference-v8-product-variants"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -45,6 +45,11 @@ class ReferenceAnalysisDocument(BaseModel):
     ai_background_consistency_risk: float = Field(default=0.0, ge=0.0, le=1.0)
     ai_detector_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     product_fit_score: float = Field(ge=0.0, le=1.0)
+    matched_variant_id: str | None = Field(default=None, max_length=36)
+    matched_variant_name: str | None = Field(default=None, max_length=300)
+    matched_color: str | None = Field(default=None, max_length=120)
+    color_match_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    product_shape_score: float = Field(default=0.5, ge=0.0, le=1.0)
     scene_type: str = Field(default="unknown", max_length=40)
     framing_type: str = Field(default="unknown", max_length=40)
     camera_angle: str = Field(default="unknown", max_length=40)
@@ -403,12 +408,33 @@ def evaluate_reference(
     ai_risk_confirmed: bool | None = None,
     manual_ai_label: str | None = None,
     reference_preference_score: float = 0.0,
+    variant_matching_required: bool = False,
 ) -> ReferenceDecision:
     ai_risk = (
         document.ai_risk_score
         if effective_ai_risk_score is None
         else _bounded(effective_ai_risk_score)
     )
+    variant_mismatch = bool(
+        variant_matching_required
+        and document.existing_headwear
+        and (
+            not document.matched_variant_id
+            or document.color_match_score < 0.45
+            or document.product_shape_score < 0.50
+        )
+    )
+    variant_priority_adjustment = 0.0
+    if variant_matching_required and document.existing_headwear:
+        if document.matched_variant_id:
+            variant_match = _bounded(
+                0.55 * document.product_shape_score
+                + 0.45 * document.color_match_score
+            )
+            variant_priority_adjustment = 0.12 * (variant_match - 0.50)
+        else:
+            variant_priority_adjustment = -0.08
+
     final_score = round(_bounded(
         0.30 * document.phone_authenticity_score
         + 0.20 * document.mobile_ugc_score
@@ -416,6 +442,7 @@ def evaluate_reference(
         + 0.10 * document.quality_score
         + 0.15 * (1.0 - ai_risk)
         + 0.10 * (1.0 - document.artistic_editorial_risk)
+        + variant_priority_adjustment
         + max(-0.12, min(0.12, reference_preference_score))
     ), 4)
 
@@ -468,6 +495,15 @@ def evaluate_reference(
         return ReferenceDecision("rejected_expression", "SMILE_SCORE_LOW", final_score)
     if document.product_fit_score < policy.min_product_fit_score:
         return ReferenceDecision("rejected_context", "PRODUCT_FIT_LOW", final_score)
+    if variant_mismatch:
+        # A visually useful candid should not be discarded solely because the
+        # current hat color is outside the selected product variants. Keep it
+        # reviewable, but prevent it from outranking a strong color/shape match.
+        return ReferenceDecision(
+            "needs_review",
+            "PRODUCT_VARIANT_MISMATCH",
+            final_score,
+        )
 
     # Passing the hard gates means the image is usable, but only high-confidence
     # smartphone-like references should flow straight into automation. Borderline
@@ -485,8 +521,8 @@ def evaluate_reference(
     return ReferenceDecision("approved", None, final_score)
 
 
-def analysis_prompt() -> str:
-    return """
+def analysis_prompt(product_context: dict | None = None) -> str:
+    base = """
 You are evaluating a Pinterest lifestyle reference for a quality-first real-photo workflow.
 Return exactly one JSON object and no prose.
 
@@ -526,6 +562,11 @@ Definitions:
 - ai_background_consistency_risk: duplicated people/objects, melted details, impossible depth, bokeh, or background transitions.
 - ai_detector_confidence: 0..1 confidence that the visible evidence is sufficient to judge authenticity. Use LOW confidence when resolution/crop/compression hides evidence.
 - product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement. Wide full-body/lifestyle frames where the primary head is too small to retain useful headwear detail should score lower even if the scene is otherwise attractive.
+- matched_variant_id: when existing_headwear is true and a bound product variant is visibly the closest match, return exactly that variant's supplied internal id. Otherwise null. Never invent an id.
+- matched_variant_name: visible closest bound variant name, or null when no confident variant match exists.
+- matched_color: concise visible headwear color/colorway, or null when headwear is absent or unreadable.
+- color_match_score: 0..1 similarity between visible existing headwear colorway and the selected bound variant. Use 0 when no readable existing headwear is present.
+- product_shape_score: 0..1 similarity of visible existing headwear silhouette/construction to the bound product family (crown profile, panel structure, brim/visor, proportions). For bare heads, score general suitability for receiving the bound product without claiming an existing-product match.
 - scene_type: short lowercase setting category: home, car, cafe, outdoor, street, mirror, studio, event, workplace, or other.
 - framing_type: short lowercase framing category: selfie_close, portrait_close, half_body, full_body, group, mirror_selfie, or other.
 - camera_angle: short lowercase angle category: eye_level, high_angle, low_angle, side_angle, mirror, or other.
@@ -538,8 +579,59 @@ head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_r
 quality_score, ai_risk_score,
 ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
 ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
-product_fit_score, scene_type, framing_type, camera_angle, pose_type, summary.
+product_fit_score, matched_variant_id, matched_variant_name, matched_color,
+color_match_score, product_shape_score,
+scene_type, framing_type, camera_angle, pose_type, summary.
 """.strip()
+    product = dict(product_context or {})
+    variants = list(product.get("variants") or [])[:30]
+    family_parts = [
+        ("name", product.get("name")),
+        ("type", product.get("product_type")),
+        ("brand", product.get("brand")),
+        ("category", product.get("source_category")),
+        ("material", product.get("material")),
+        ("crown profile", product.get("crown_profile")),
+        ("brim style", product.get("brim_style")),
+        ("fit notes", product.get("fit_notes")),
+        ("description", product.get("source_description")),
+    ]
+    family = "\n".join(
+        f"- {label}: {str(value).strip()[:700]}"
+        for label, value in family_parts
+        if str(value or "").strip()
+    )
+    family_block = (
+        "\n\nBOUND PRODUCT FAMILY (use this for product_shape_score):\n" + family
+        if family
+        else ""
+    )
+    if not variants:
+        return base + family_block + (
+            "\n\nNo product variant catalog is bound. Return matched_variant_id, "
+            "matched_variant_name and matched_color as null; use color_match_score=0."
+        )
+    lines = []
+    for item in variants:
+        variant_id = str(item.get("id") or "").strip()
+        if not variant_id:
+            continue
+        label = str(item.get("name") or item.get("color") or "variant").strip()
+        color = str(item.get("color") or "").strip()
+        size = str(item.get("size") or "").strip()
+        lines.append(
+            "- id=" + variant_id
+            + " | name=" + label
+            + (" | color=" + color if color else "")
+            + (" | size=" + size if size else "")
+        )
+    return base + family_block + (
+        "\n\nBOUND PRODUCT VARIANT CATALOG (only these internal ids are valid):\n"
+        + "\n".join(lines)
+        + "\nIf existing headwear is visible, compare it against this catalog. "
+          "Choose a matched_variant_id only when the visible colorway and product shape "
+          "support that choice. If uncertain, return null rather than guessing."
+    )
 
 
 def ai_authenticity_confirmation_prompt() -> str:
@@ -576,12 +668,13 @@ async def analyze_reference_image(
     image_mime_type: str,
     width: int,
     height: int,
+    product_context: dict | None = None,
 ) -> tuple[ReferenceAnalysisDocument, str, str | None]:
     result = await provider.analyze_single(
         AiMetadataAnalysisInput(
             tenant_id=tenant_id,
             asset_id=candidate_id,
-            prompt=analysis_prompt(),
+            prompt=analysis_prompt(product_context),
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             metadata_profile="rrugc_reference",

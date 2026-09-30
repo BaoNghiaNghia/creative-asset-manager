@@ -269,7 +269,36 @@ def _additional_properties(product: dict) -> dict[str, str]:
     return output
 
 
-def _variant_rows(product: dict) -> list[dict]:
+def _stable_variant_id(*parts: object) -> str:
+    payload = "|".join(str(part or "").strip() for part in parts)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _variant_image_url(item: dict, page_url: str) -> str | None:
+    candidates: list[object] = []
+    featured = item.get("featured_image")
+    if isinstance(featured, dict):
+        candidates.append(featured.get("src"))
+    media = item.get("featured_media")
+    if isinstance(media, dict):
+        preview = media.get("preview_image")
+        if isinstance(preview, dict):
+            candidates.append(preview.get("src"))
+    candidates.extend(_image_values(item.get("image")))
+    for raw in candidates:
+        if not raw:
+            continue
+        value = str(raw).strip()
+        if value.startswith("//"):
+            value = "https:" + value
+        absolute = urljoin(page_url, value)
+        parsed = urlsplit(absolute)
+        if parsed.scheme == "https" and parsed.hostname:
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
+    return None
+
+
+def _variant_rows(product: dict, *, page_url: str = "") -> list[dict]:
     rows: list[dict] = []
     variants = product.get("hasVariant")
     if not isinstance(variants, list):
@@ -278,15 +307,112 @@ def _variant_rows(product: dict) -> list[dict]:
         if not isinstance(item, dict):
             continue
         price, currency = _offer_fields(item.get("offers"))
+        name = _clean_text(item.get("name"), limit=300)
+        color = _clean_text(item.get("color"), limit=120)
+        size = _clean_text(item.get("size"), limit=120)
+        sku = _clean_sku(item.get("sku"))
+        source_variant_id = _clean_text(
+            item.get("productID") or item.get("sku") or item.get("@id"),
+            limit=120,
+        ) or _stable_variant_id(name, color, size, sku)
+        image_url = _variant_image_url(item, page_url) if page_url else None
         row = {
-            "sku": _clean_sku(item.get("sku")),
-            "name": _clean_text(item.get("name"), limit=300),
-            "color": _clean_text(item.get("color"), limit=120),
-            "size": _clean_text(item.get("size"), limit=120),
+            "source_variant_id": source_variant_id,
+            "sku": sku,
+            "name": name,
+            "color": color,
+            "size": size,
             "price": price,
             "currency": currency,
+            "image_urls": [image_url] if image_url else [],
         }
         if any(value for value in row.values()):
+            rows.append(row)
+    return rows
+
+
+def _extract_balanced_json_array(text: str, start: int) -> str | None:
+    if start < 0 or start >= len(text) or text[start] != "[":
+        return None
+    depth = 0
+    quote = ""
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
+
+
+def _shopify_variant_rows(html: str, page_url: str, currency: str | None) -> list[dict]:
+    marker = "window._themeProducts["
+    marker_index = html.find(marker)
+    if marker_index < 0:
+        return []
+    variants_index = html.find("variants:", marker_index)
+    if variants_index < 0:
+        return []
+    array_start = html.find("[", variants_index)
+    raw = _extract_balanced_json_array(html, array_start)
+    if not raw:
+        return []
+    try:
+        variants = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(variants, list):
+        return []
+
+    rows: list[dict] = []
+    for item in variants[:MAX_PRODUCT_VARIANTS]:
+        if not isinstance(item, dict):
+            continue
+        source_variant_id = _clean_text(item.get("id"), limit=120)
+        name = _clean_text(
+            item.get("public_title") or item.get("title") or item.get("name"),
+            limit=300,
+        )
+        options = item.get("options") if isinstance(item.get("options"), list) else []
+        option1 = _clean_text(item.get("option1"), limit=120)
+        option2 = _clean_text(item.get("option2"), limit=120)
+        color = option1 or (name if len(options) <= 1 else None)
+        size = option2 if option2 and option2.casefold() != "default title" else None
+        price_value = item.get("price")
+        price = None
+        if isinstance(price_value, (int, float)):
+            price = f"{float(price_value) / 100:.2f}"
+        elif price_value is not None:
+            price = _clean_text(price_value, limit=120)
+        image_url = _variant_image_url(item, page_url)
+        sku = _clean_sku(item.get("sku"))
+        row = {
+            "source_variant_id": source_variant_id
+            or _stable_variant_id(name, color, size, sku),
+            "sku": sku,
+            "name": name,
+            "color": color,
+            "size": size,
+            "price": price,
+            "currency": currency,
+            "image_urls": [image_url] if image_url else [],
+            "available": bool(item.get("available", True)),
+        }
+        if name or color or sku or image_url:
             rows.append(row)
     return rows
 
@@ -387,6 +513,14 @@ def parse_product_html(html: str, page_url: str) -> ProductPageData:
     category = _clean_text(product.get("category"), limit=200)
     color = _clean_text(product.get("color"), limit=120) or props.get("color")
     material = _clean_text(product.get("material"), limit=200) or props.get("material")
+    variants = _shopify_variant_rows(html, page_url, currency)
+    if not variants:
+        variants = _variant_rows(product, page_url=page_url)
+    for variant in variants:
+        for image_url in variant.get("image_urls") or []:
+            if image_url not in seen and len(images) < MAX_PRODUCT_IMAGES:
+                seen.add(image_url)
+                images.append(image_url)
 
     return ProductPageData(
         source_url=source_url,
@@ -401,7 +535,7 @@ def parse_product_html(html: str, page_url: str) -> ProductPageData:
         price_text=price,
         currency=currency,
         images=images,
-        variants=_variant_rows(product),
+        variants=variants,
         metadata={
             "json_ld_product": bool(product),
             "gtin": _clean_text(
@@ -469,15 +603,46 @@ async def fetch_product_page(client: httpx.AsyncClient, raw_url: str) -> Product
                 charset = response.encoding or "utf-8"
                 html = data.decode(charset, errors="replace")
                 parsed = parse_product_html(html, str(response.url))
-                if parsed.images:
-                    checked = await asyncio.gather(
-                        *(validate_public_https_url(url) for url in parsed.images),
-                        return_exceptions=True,
-                    )
-                    safe_images = [
-                        value for value in checked if isinstance(value, str)
+                candidate_urls: list[str] = []
+                seen_urls: set[str] = set()
+                for url in parsed.images:
+                    if url not in seen_urls:
+                        seen_urls.add(url)
+                        candidate_urls.append(url)
+                for variant in parsed.variants:
+                    for raw_url in variant.get("image_urls") or []:
+                        url = str(raw_url).strip()
+                        if url and url not in seen_urls:
+                            seen_urls.add(url)
+                            candidate_urls.append(url)
+                checked = await asyncio.gather(
+                    *(validate_public_https_url(url) for url in candidate_urls[:150]),
+                    return_exceptions=True,
+                )
+                safe_by_source = {
+                    source: checked_value
+                    for source, checked_value in zip(candidate_urls[:150], checked)
+                    if isinstance(checked_value, str)
+                }
+                safe_images = [
+                    safe_by_source[url]
+                    for url in parsed.images
+                    if url in safe_by_source
+                ]
+                safe_variants = []
+                for variant in parsed.variants:
+                    row = dict(variant)
+                    row["image_urls"] = [
+                        safe_by_source[str(value).strip()]
+                        for value in (row.get("image_urls") or [])
+                        if str(value).strip() in safe_by_source
                     ]
-                    parsed = replace(parsed, images=safe_images)
+                    safe_variants.append(row)
+                parsed = replace(
+                    parsed,
+                    images=safe_images,
+                    variants=safe_variants,
+                )
                 return parsed
         except httpx.HTTPError as exc:
             raise ProductPageImportError(

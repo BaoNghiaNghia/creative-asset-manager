@@ -17,6 +17,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
     RrugcProductModel,
+    RrugcProductVariantModel,
     RrugcProductReferenceModel,
 )
 
@@ -571,6 +572,54 @@ class RrugcRepository:
             )
         )
 
+    def list_product_variants(
+        self,
+        tenant_id: str,
+        product_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> list[RrugcProductVariantModel]:
+        statement = select(RrugcProductVariantModel).where(
+            RrugcProductVariantModel.tenant_id == tenant_id,
+            RrugcProductVariantModel.product_id == product_id,
+        )
+        if not include_archived:
+            statement = statement.where(RrugcProductVariantModel.status == "active")
+        return list(self.session.scalars(
+            statement.order_by(
+                RrugcProductVariantModel.position.asc(),
+                RrugcProductVariantModel.created_at.asc(),
+            )
+        ))
+
+    def get_product_variant(
+        self,
+        tenant_id: str,
+        product_id: str,
+        variant_id: str,
+    ) -> RrugcProductVariantModel | None:
+        return self.session.scalar(
+            select(RrugcProductVariantModel).where(
+                RrugcProductVariantModel.tenant_id == tenant_id,
+                RrugcProductVariantModel.product_id == product_id,
+                RrugcProductVariantModel.id == variant_id,
+            )
+        )
+
+    def product_variant_by_source_id(
+        self,
+        tenant_id: str,
+        product_id: str,
+        source_variant_id: str,
+    ) -> RrugcProductVariantModel | None:
+        return self.session.scalar(
+            select(RrugcProductVariantModel).where(
+                RrugcProductVariantModel.tenant_id == tenant_id,
+                RrugcProductVariantModel.product_id == product_id,
+                RrugcProductVariantModel.source_variant_id == source_variant_id,
+            )
+        )
+
     def list_product_references(
         self,
         tenant_id: str,
@@ -621,7 +670,14 @@ class RrugcRepository:
         product_id: str,
         view_type: str,
         content_hash: str,
+        *,
+        variant_id: str | None = None,
     ) -> RrugcProductReferenceModel | None:
+        variant_clause = (
+            RrugcProductReferenceModel.variant_id.is_(None)
+            if variant_id is None
+            else RrugcProductReferenceModel.variant_id == variant_id
+        )
         return self.session.scalar(
             select(RrugcProductReferenceModel)
             .where(
@@ -630,6 +686,7 @@ class RrugcRepository:
                 RrugcProductReferenceModel.view_type == view_type,
                 RrugcProductReferenceModel.content_hash == content_hash,
                 RrugcProductReferenceModel.status == "active",
+                variant_clause,
             )
             .order_by(RrugcProductReferenceModel.version.desc())
             .limit(1)

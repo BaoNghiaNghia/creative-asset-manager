@@ -7,6 +7,7 @@ import {
   listProductReferences,
   listProducts,
   updateProduct,
+  updateProductVariant,
   uploadProductReference,
 } from "./api";
 import type {
@@ -51,13 +52,6 @@ export function productUrlsFromText(value: string): string[] {
   return urls;
 }
 
-function variantSummary(variant: Record<string, unknown>, index: number): string {
-  const parts = ["name", "color", "size", "sku"]
-    .map(key => typeof variant[key] === "string" ? String(variant[key]).trim() : "")
-    .filter(Boolean);
-  return parts.join(" · ") || "Variant " + (index + 1);
-}
-
 export function ProductRegistryPanel() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -84,6 +78,7 @@ export function ProductRegistryPanel() {
   const latestByView = useMemo(() => {
     const values = new Map<ProductReferenceView, ProductReference>();
     for (const reference of references) {
+      if (reference.variant_id) continue;
       if (!values.has(reference.view_type)) values.set(reference.view_type, reference);
     }
     return values;
@@ -234,6 +229,24 @@ export function ProductRegistryPanel() {
     }
   }
 
+  async function toggleVariant(variantId: string, enabled: boolean) {
+    if (!selected || busy) return;
+    setBusy("variant-" + variantId);
+    setError("");
+    try {
+      const updated = await updateProductVariant(selected.id, variantId, enabled);
+      setProducts(rows => rows.map(product => product.id === selected.id ? {
+        ...product,
+        revision: product.revision + 1,
+        variants: product.variants.map(variant => variant.id === updated.id ? updated : variant),
+      } : product));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update product color.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function archiveSelected() {
     if (!selected || busy) return;
     setBusy("archive-" + selected.id);
@@ -287,8 +300,10 @@ export function ProductRegistryPanel() {
           <small>
             {item.status === "failed"
               ? item.error_message || item.error_code || "Import failed"
-              : item.images_found + " images found"
-                + (item.primary_reference_imported ? " · front reference saved" : "")
+              : item.images_found + " images"
+                + " · " + item.variants_found + " color variant" + (item.variants_found === 1 ? "" : "s")
+                + (item.variant_references_imported ? " · " + item.variant_references_imported + " variant refs saved" : "")
+                + (item.primary_reference_imported ? " · parent front ref saved" : "")
                 + (item.warning ? " · " + item.warning : "")}
           </small>
         </div>)}
@@ -343,7 +358,7 @@ export function ProductRegistryPanel() {
           {selected.source_category && <span>Category <b>{selected.source_category}</b></span>}
           {(selected.source_price_text || selected.source_currency) && <span>Price <b>{[selected.source_price_text, selected.source_currency].filter(Boolean).join(" ")}</b></span>}
           <span>Gallery <b>{selected.source_images.length}</b></span>
-          <span>Variants <b>{selected.source_variants.length}</b></span>
+          <span>Color variants <b>{selected.variants.length}</b></span>
           {selected.source_fetched_at && <span>Scanned <b>{new Date(selected.source_fetched_at).toLocaleString()}</b></span>}
         </div>
         {selected.source_description && <p>{selected.source_description}</p>}
@@ -352,9 +367,28 @@ export function ProductRegistryPanel() {
             <img src={imageUrl} alt={"Product source " + (index + 1)} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
           </a>)}
         </div>}
-        {selected.source_variants.length > 0 && <div className="rrugc-source-variants">
-          {selected.source_variants.slice(0, 8).map((variant, index) => <span key={index}>{variantSummary(variant, index)}</span>)}
-          {selected.source_variants.length > 8 && <small>+{selected.source_variants.length - 8} more variants</small>}
+        {selected.variants.length > 0 && <div className="rrugc-variant-grid">
+          {selected.variants.map(variant => <article key={variant.id} className={variant.enabled ? "is-enabled" : "is-disabled"}>
+            <div className="rrugc-variant-thumb">
+              {variant.image_urls[0]
+                ? <img src={variant.image_urls[0]} alt={variant.color || variant.name || "Product color"} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+                : <span>No image</span>}
+            </div>
+            <div className="rrugc-variant-copy">
+              <strong>{variant.color || variant.name || "Variant"}</strong>
+              <small>{[variant.sku, variant.size].filter(Boolean).join(" · ") || variant.source_variant_id}</small>
+              <span>{variant.reference_count} ref{variant.reference_count === 1 ? "" : "s"}{variant.available ? "" : " · unavailable"}</span>
+            </div>
+            <label className="rrugc-variant-toggle">
+              <input
+                type="checkbox"
+                checked={variant.enabled}
+                disabled={Boolean(busy)}
+                onChange={event => void toggleVariant(variant.id, event.target.checked)}
+              />
+              <span>{busy === "variant-" + variant.id ? "Saving…" : variant.enabled ? "Enabled" : "Disabled"}</span>
+            </label>
+          </article>)}
         </div>}
       </section>}
 

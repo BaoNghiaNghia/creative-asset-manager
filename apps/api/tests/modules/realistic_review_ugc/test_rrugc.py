@@ -74,6 +74,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcDeliveryEventModel,
     RrugcDeliveryItemModel,
     RrugcProductModel,
+    RrugcProductVariantModel,
     RrugcProductReferenceModel,
 )
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
@@ -138,6 +139,7 @@ def database():
     RrugcScoutAgentModel.__table__.create(engine)
     RrugcScoutRunModel.__table__.create(engine)
     RrugcProductModel.__table__.create(engine)
+    RrugcProductVariantModel.__table__.create(engine)
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     RrugcVisualFingerprintModel.__table__.create(engine)
@@ -1785,6 +1787,48 @@ def test_reference_policy_approves_good_hat_reference():
     assert decision.status == "approved"
     assert decision.reject_reason is None
     assert decision.final_score > 0.75
+
+
+def test_variant_matching_prioritizes_correct_existing_hat_but_keeps_mismatch_reviewable():
+    mismatch = evaluate_reference(
+        reference_document(
+            existing_headwear=True,
+            matched_variant_id=None,
+            color_match_score=0.15,
+            product_shape_score=0.80,
+        ),
+        ReferenceFilterPolicy(),
+        variant_matching_required=True,
+    )
+    assert mismatch.status == "needs_review"
+    assert mismatch.reject_reason == "PRODUCT_VARIANT_MISMATCH"
+
+    matching = evaluate_reference(
+        reference_document(
+            existing_headwear=True,
+            matched_variant_id="variant-navy",
+            matched_variant_name="Natural/ Navy",
+            matched_color="Natural/ Navy",
+            color_match_score=0.92,
+            product_shape_score=0.88,
+        ),
+        ReferenceFilterPolicy(),
+        variant_matching_required=True,
+    )
+    assert matching.status == "approved"
+    assert matching.final_score > mismatch.final_score
+
+    bare_head = evaluate_reference(
+        reference_document(
+            existing_headwear=False,
+            matched_variant_id=None,
+            color_match_score=0.0,
+            product_shape_score=0.75,
+        ),
+        ReferenceFilterPolicy(),
+        variant_matching_required=True,
+    )
+    assert bare_head.status == "approved"
 
 
 @pytest.mark.parametrize(
@@ -3695,7 +3739,24 @@ def test_product_url_import_api_builds_product_from_page_details(api, monkeypatc
                 "https://cdn.example.com/front.jpg",
                 "https://cdn.example.com/side.jpg",
             ],
-            variants=[{"sku": "URL-CAP-1-M", "size": "M"}],
+            variants=[
+                {
+                    "source_variant_id": "shopify-forest",
+                    "sku": "URL-CAP-1-GREEN",
+                    "name": "Forest Green",
+                    "color": "Forest Green",
+                    "image_urls": ["https://cdn.example.com/front.jpg"],
+                    "available": True,
+                },
+                {
+                    "source_variant_id": "shopify-navy",
+                    "sku": "URL-CAP-1-NAVY",
+                    "name": "Navy",
+                    "color": "Navy",
+                    "image_urls": ["https://cdn.example.com/navy.jpg"],
+                    "available": True,
+                },
+            ],
         )
 
     monkeypatch.setattr(
@@ -3729,7 +3790,30 @@ def test_product_url_import_api_builds_product_from_page_details(api, monkeypatc
         "https://cdn.example.com/front.jpg",
         "https://cdn.example.com/side.jpg",
     ]
-    assert product["source_variants"] == [{"sku": "URL-CAP-1-M", "size": "M"}]
+    assert payload["items"][0]["variants_found"] == 2
+    assert payload["items"][0]["variant_references_imported"] == 0
+    assert len(product["variants"]) == 2
+    assert [variant["color"] for variant in product["variants"]] == [
+        "Forest Green",
+        "Navy",
+    ]
+    assert product["variants"][0]["image_urls"] == [
+        "https://cdn.example.com/front.jpg"
+    ]
+
+    disabled = api.patch(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/variants/{product['variants'][1]['id']}",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+
+    product = api.get(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}"
+    ).json()
+    enabled_variant_id = next(
+        variant["id"] for variant in product["variants"] if variant["enabled"]
+    )
 
     campaign = api.post(
         "/api/v1/realistic-review-ugc/campaigns",
@@ -3743,12 +3827,20 @@ def test_product_url_import_api_builds_product_from_page_details(api, monkeypatc
     ).json()
     bound = api.put(
         f"/api/v1/realistic-review-ugc/campaigns/{campaign['id']}/product",
-        json={"product_id": product["id"]},
+        json={
+            "product_id": product["id"],
+            "variant_ids": [enabled_variant_id],
+        },
     )
     assert bound.status_code == 200
     bound_payload = bound.json()
     assert bound_payload["product_source_url"] == "https://shop.example.com/products/forest-cap"
     assert bound_payload["product_brand"] == "North Studio"
+    assert bound_payload["product_variant_ids"] == [enabled_variant_id]
+    assert len(bound_payload["product_variants"]) == 2
+    assert {
+        variant["color"] for variant in bound_payload["product_variants"]
+    } == {"Forest Green", "Navy"}
 
 
 def test_product_reference_upload_is_versioned_and_reuses_hash(database):

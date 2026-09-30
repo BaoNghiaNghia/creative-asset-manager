@@ -9,7 +9,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.providers.contracts import AssetStorageProvider, StorageProviderError, StoreAssetInput
-from app.modules.realistic_review_ugc.model import RrugcProductModel, RrugcProductReferenceModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcProductModel,
+    RrugcProductReferenceModel,
+    RrugcProductVariantModel,
+)
 from app.modules.realistic_review_ugc.product_page_import import (
     ProductPageData,
     generated_sku,
@@ -191,6 +195,11 @@ class RrugcProductRegistry:
                 row = current
             else:
                 self.session.refresh(row)
+                self.sync_imported_variants(
+                    tenant_id=tenant_id,
+                    product=row,
+                    variants=data.variants,
+                )
                 return row, True
 
         was_archived = row.status == "archived"
@@ -239,7 +248,112 @@ class RrugcProductRegistry:
             row.revision += 1
         self.session.commit()
         self.session.refresh(row)
+        self.sync_imported_variants(
+            tenant_id=tenant_id,
+            product=row,
+            variants=data.variants,
+        )
         return row, False
+
+    def sync_imported_variants(
+        self,
+        *,
+        tenant_id: str,
+        product: RrugcProductModel,
+        variants: list[dict],
+    ) -> list[RrugcProductVariantModel]:
+        existing = {
+            row.source_variant_id: row
+            for row in self.repository.list_product_variants(
+                tenant_id,
+                product.id,
+                include_archived=True,
+            )
+        }
+        if not variants:
+            return [
+                row
+                for row in existing.values()
+                if row.status == "active"
+            ]
+        seen: set[str] = set()
+        for position, item in enumerate(variants[:100]):
+            source_variant_id = str(item.get("source_variant_id") or "").strip()[:120]
+            if not source_variant_id:
+                continue
+            seen.add(source_variant_id)
+            row = existing.get(source_variant_id)
+            if row is None:
+                row = RrugcProductVariantModel(
+                    tenant_id=tenant_id,
+                    product_id=product.id,
+                    source_variant_id=source_variant_id,
+                    enabled=True,
+                )
+                self.session.add(row)
+                existing[source_variant_id] = row
+            row.sku = _clean_optional(item.get("sku"))
+            row.name = _clean_optional(item.get("name"))
+            row.color = _clean_optional(item.get("color"))
+            row.size = _clean_optional(item.get("size"))
+            row.price_text = _clean_optional(item.get("price"))
+            row.currency = _clean_optional(item.get("currency"))
+            row.image_urls_json = [
+                str(value).strip()
+                for value in (item.get("image_urls") or [])
+                if str(value).strip()
+            ][:10]
+            row.metadata_json = {
+                key: value
+                for key, value in item.items()
+                if key
+                not in {
+                    "source_variant_id",
+                    "sku",
+                    "name",
+                    "color",
+                    "size",
+                    "price",
+                    "currency",
+                    "image_urls",
+                    "available",
+                }
+            }
+            row.available = bool(item.get("available", True))
+            row.status = "active"
+            row.position = position
+            row.archived_at = None
+
+        now = datetime.now(timezone.utc)
+        for source_variant_id, row in existing.items():
+            if source_variant_id in seen or row.status == "archived":
+                continue
+            row.status = "archived"
+            row.available = False
+            row.archived_at = now
+
+        self.session.commit()
+        return self.repository.list_product_variants(tenant_id, product.id)
+
+    def set_variant_enabled(
+        self,
+        *,
+        product: RrugcProductModel,
+        variant: RrugcProductVariantModel,
+        enabled: bool,
+    ) -> RrugcProductVariantModel:
+        if product.status != "active" or variant.status != "active":
+            raise RrugcError(
+                "product_variant_archived",
+                "Archived product variants cannot be changed.",
+                status_code=409,
+            )
+        if variant.enabled != bool(enabled):
+            variant.enabled = bool(enabled)
+            product.revision += 1
+            self.session.commit()
+            self.session.refresh(variant)
+        return variant
 
     def update_product(
         self,
@@ -304,6 +418,7 @@ class RrugcProductRegistry:
         product_id: str,
         view_type: str,
         original_filename: str | None,
+        variant_id: str | None = None,
         content: bytes,
         storage: AssetStorageProvider,
     ) -> RrugcProductReferenceModel:
@@ -362,8 +477,26 @@ class RrugcProductRegistry:
                 status_code=409,
             )
 
+        variant = None
+        if variant_id is not None:
+            variant = self.repository.get_product_variant(
+                tenant_id,
+                product_id,
+                variant_id,
+            )
+            if variant is None or variant.status != "active":
+                raise RrugcError(
+                    "product_variant_not_found",
+                    "Product variant not found.",
+                    status_code=404,
+                )
+
         duplicate = self.repository.product_reference_by_hash(
-            tenant_id, product_id, view_type, content_hash
+            tenant_id,
+            product_id,
+            view_type,
+            content_hash,
+            variant_id=variant_id,
         )
         if duplicate is not None:
             return duplicate
@@ -412,6 +545,7 @@ class RrugcProductRegistry:
             id=reference_id,
             tenant_id=tenant_id,
             product_id=product_id,
+            variant_id=variant_id,
             view_type=view_type,
             version=version,
             status="active",
@@ -436,7 +570,11 @@ class RrugcProductRegistry:
             # A concurrent upload may have created the same view/version. Return
             # the exact content match when possible instead of duplicating state.
             duplicate = self.repository.product_reference_by_hash(
-                tenant_id, product_id, view_type, content_hash
+                tenant_id,
+                product_id,
+                view_type,
+                content_hash,
+                variant_id=variant_id,
             )
             if duplicate is not None:
                 return duplicate

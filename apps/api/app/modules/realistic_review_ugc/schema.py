@@ -99,6 +99,30 @@ class ProductUpdateRequest(BaseModel):
     fit_notes: str | None = Field(default=None, max_length=4000)
 
 
+class ProductVariantResponse(BaseModel):
+    id: str
+    product_id: str
+    source_variant_id: str
+    sku: str | None = None
+    name: str | None = None
+    color: str | None = None
+    size: str | None = None
+    price_text: str | None = None
+    currency: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
+    available: bool = True
+    enabled: bool = True
+    status: Literal["active", "archived"]
+    position: int = 0
+    reference_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProductVariantUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class ProductResponse(BaseModel):
     id: str
     sku: str
@@ -122,6 +146,7 @@ class ProductResponse(BaseModel):
     source_currency: str | None = None
     source_images: list[str] = Field(default_factory=list)
     source_variants: list[dict] = Field(default_factory=list)
+    variants: list[ProductVariantResponse] = Field(default_factory=list)
     source_metadata: dict = Field(default_factory=dict)
     source_fetched_at: datetime | None = None
     revision: int
@@ -162,6 +187,8 @@ class ProductUrlImportItemResponse(BaseModel):
     status: Literal["created", "updated", "failed"]
     product: ProductResponse | None = None
     images_found: int = 0
+    variants_found: int = 0
+    variant_references_imported: int = 0
     primary_reference_imported: bool = False
     warning: str | None = None
     error_code: str | None = None
@@ -178,6 +205,7 @@ class ProductUrlImportResponse(BaseModel):
 class ProductReferenceResponse(BaseModel):
     id: str
     product_id: str
+    variant_id: str | None = None
     view_type: ProductReferenceView
     version: int
     status: ProductReferenceStatus
@@ -309,6 +337,8 @@ class CampaignResponse(BaseModel):
     product_source_url: str | None = None
     product_brand: str | None = None
     product_revision: int | None = None
+    product_variant_ids: list[str] = Field(default_factory=list)
+    product_variants: list[ProductVariantResponse] = Field(default_factory=list)
     product_reference_count: int = 0
     product_reference_views: list[ProductReferenceView] = Field(default_factory=list)
     product_bound_at: datetime | None = None
@@ -410,6 +440,7 @@ class ScoutRunCompleteRequest(BaseModel):
 
 class CampaignProductBindRequest(BaseModel):
     product_id: str | None = Field(default=None, max_length=36)
+    variant_ids: list[str] | None = Field(default=None, min_length=1, max_length=100)
 
 
 class GenerationAttemptCreateRequest(BaseModel):
@@ -761,6 +792,11 @@ class CandidateResponse(BaseModel):
     reference_manual_reviewed_by_user_id: str | None = None
     reference_manual_reviewed_at: datetime | None = None
     product_fit_score: float | None
+    matched_variant_id: str | None = None
+    matched_variant_name: str | None = None
+    matched_color: str | None = None
+    color_match_score: float | None = None
+    product_shape_score: float | None = None
     final_score: float | None
     reject_reason: str | None
     analyzer_provider: str | None

@@ -227,6 +227,8 @@ class RrugcCandidateAnalyzeJobHandler:
                 )
             )
             reference_preference_scope = "intent"
+            product_context = dict(campaign.product_snapshot_json or {})
+            product_variants = list(product_context.get("variants") or [])
 
         registry = context.dependencies.ai_provider_registry
         if registry is None:
@@ -246,7 +248,34 @@ class RrugcCandidateAnalyzeJobHandler:
                 image_mime_type=image_mime_type,
                 width=image.width,
                 height=image.height,
+                product_context=product_context,
             )
+            variant_by_id = {
+                str(item.get("id") or ""): item
+                for item in product_variants
+                if str(item.get("id") or "")
+            }
+            if not document.existing_headwear:
+                document.matched_variant_id = None
+                document.matched_variant_name = None
+                document.matched_color = None
+                document.color_match_score = 0.0
+            elif document.matched_variant_id not in variant_by_id:
+                document.matched_variant_id = None
+                document.matched_variant_name = None
+                document.color_match_score = 0.0
+            else:
+                matched_variant = variant_by_id[document.matched_variant_id]
+                document.matched_variant_name = str(
+                    matched_variant.get("name")
+                    or matched_variant.get("color")
+                    or ""
+                ).strip() or None
+                document.matched_color = str(
+                    matched_variant.get("color")
+                    or document.matched_color
+                    or ""
+                ).strip() or None
             confirmation = None
             if manual_ai_label not in {"real", "ai"} and should_confirm_ai_risk(
                 document, policy
@@ -287,6 +316,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 ai_risk_confirmed=ai_assessment.confirmed,
                 manual_ai_label=manual_ai_label,
                 reference_preference_score=preference_adjustment,
+                variant_matching_required=bool(product_variants),
             )
 
             with context.dependencies.session_factory() as session:
@@ -463,6 +493,11 @@ class RrugcCandidateAnalyzeJobHandler:
             },
         }
         candidate.product_fit_score = document.product_fit_score
+        candidate.matched_variant_id = document.matched_variant_id
+        candidate.matched_variant_name = document.matched_variant_name
+        candidate.matched_color = document.matched_color
+        candidate.color_match_score = document.color_match_score
+        candidate.product_shape_score = document.product_shape_score
         candidate.final_score = final_score
         candidate.reject_reason = reject_reason
         candidate.analyzer_provider = provider_name
