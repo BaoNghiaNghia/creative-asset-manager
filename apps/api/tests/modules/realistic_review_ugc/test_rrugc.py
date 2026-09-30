@@ -105,6 +105,7 @@ from app.modules.realistic_review_ugc.service import (
     RrugcService,
     download_reference_image,
     pinterest_original_image_url,
+    pinterest_reference_image_urls,
     reference_manual_good_can_override,
     reference_resolution_usable,
     validate_image_url,
@@ -215,6 +216,17 @@ def test_pinterest_original_rendition_is_preferred_when_path_is_known():
     )
 
 
+def test_pinterest_reference_candidates_upgrade_thumbnail_before_fallback():
+    assert pinterest_reference_image_urls(
+        "https://i.pinimg.com/236x/aa/bb/photo.jpg"
+    ) == [
+        "https://i.pinimg.com/originals/aa/bb/photo.jpg",
+        "https://i.pinimg.com/1200x/aa/bb/photo.jpg",
+        "https://i.pinimg.com/736x/aa/bb/photo.jpg",
+        "https://i.pinimg.com/236x/aa/bb/photo.jpg",
+    ]
+
+
 def test_reference_resolution_has_hard_minimum():
     assert reference_resolution_usable(736, 1104) is True
     assert reference_resolution_usable(800, 700) is True
@@ -234,8 +246,8 @@ def test_reference_download_prefers_original_then_falls_back():
             @asynccontextmanager
             async def download(self, url: str):
                 self.urls.append(url)
-                if "/originals/" in url:
-                    raise SecureDownloadError("original unavailable")
+                if "/originals/" in url or "/1200x/" in url:
+                    raise SecureDownloadError("higher rendition unavailable")
                 yield DownloadedImage(
                     path=path,
                     content_hash="b" * 64,
@@ -258,6 +270,50 @@ def test_reference_download_prefers_original_then_falls_back():
         asyncio.run(scenario())
         assert downloader.urls == [
             "https://i.pinimg.com/originals/aa/bb/photo.jpg",
+            "https://i.pinimg.com/1200x/aa/bb/photo.jpg",
+            "https://i.pinimg.com/736x/aa/bb/photo.jpg",
+        ]
+
+
+def test_reference_download_upgrades_236_thumbnail_to_736_when_larger_candidates_fail():
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "sample.jpg"
+        path.write_bytes(b"fake-jpeg-content")
+
+        class RecordingDownloader:
+            def __init__(self):
+                self.urls: list[str] = []
+
+            @asynccontextmanager
+            async def download(self, url: str):
+                self.urls.append(url)
+                if "/originals/" in url or "/1200x/" in url:
+                    raise SecureDownloadError("higher rendition unavailable")
+                yield DownloadedImage(
+                    path=path,
+                    content_hash="c" * 64,
+                    size_bytes=path.stat().st_size,
+                    width=736,
+                    height=981,
+                    image_format="JPEG",
+                    source_url=url,
+                )
+
+        downloader = RecordingDownloader()
+
+        async def scenario():
+            async with download_reference_image(
+                "https://i.pinimg.com/236x/aa/bb/photo.jpg",
+                downloader=downloader,
+            ) as image:
+                assert image.width == 736
+                assert image.height == 981
+                assert image.source_url.endswith("/736x/aa/bb/photo.jpg")
+
+        asyncio.run(scenario())
+        assert downloader.urls == [
+            "https://i.pinimg.com/originals/aa/bb/photo.jpg",
+            "https://i.pinimg.com/1200x/aa/bb/photo.jpg",
             "https://i.pinimg.com/736x/aa/bb/photo.jpg",
         ]
 

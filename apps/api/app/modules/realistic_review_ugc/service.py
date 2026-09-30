@@ -45,6 +45,7 @@ from app.modules.realistic_review_ugc.schema import CandidateSubmission
 PIN_HOSTS = ("pinterest.com",)
 IMAGE_HOSTS = ("pinimg.com",)
 PINIMG_RENDITION_SEGMENT = re.compile(r"^[0-9]+x(?:[0-9]+)?(?:_[A-Za-z0-9]+)?$", re.IGNORECASE)
+PINIMG_REFERENCE_RENDITIONS = ("1200x", "736x")
 MIN_REFERENCE_SHORT_EDGE = 600
 MIN_REFERENCE_PIXELS = 500_000
 ANALYZE_JOB_TYPE = "rrugc_candidate_analyze"
@@ -166,6 +167,28 @@ def pinterest_original_image_url(value: str) -> str:
     return urlunsplit(("https", parsed.netloc, path, parsed.query, ""))
 
 
+def pinterest_reference_image_urls(value: str) -> list[str]:
+    """Return Pinterest image candidates from highest practical quality to fallback."""
+    submitted = validate_image_url(value)
+    parsed = urlsplit(submitted)
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return [submitted]
+    first = parts[0]
+    if first.lower() != "originals" and not PINIMG_RENDITION_SEGMENT.fullmatch(first):
+        return [submitted]
+    suffix = "/".join(parts[1:])
+    candidates = [
+        urlunsplit(("https", parsed.netloc, "/originals/" + suffix, parsed.query, "")),
+        *[
+            urlunsplit(("https", parsed.netloc, f"/{rendition}/" + suffix, parsed.query, ""))
+            for rendition in PINIMG_REFERENCE_RENDITIONS
+        ],
+        submitted,
+    ]
+    return list(dict.fromkeys(candidates))
+
+
 def reference_resolution_usable(width: int | None, height: int | None) -> bool:
     if width is None or height is None:
         return True
@@ -183,11 +206,9 @@ async def download_reference_image(
     *,
     downloader: SecureImageDownloader | None = None,
 ):
-    """Prefer the Pinterest original, falling back to the submitted rendition."""
+    """Prefer the best Pinterest rendition before falling back to the submitted thumbnail."""
     active_downloader = downloader or build_reference_downloader()
-    submitted = validate_image_url(value)
-    preferred = pinterest_original_image_url(submitted)
-    urls = list(dict.fromkeys((preferred, submitted)))
+    urls = pinterest_reference_image_urls(value)
     last_error: Exception | None = None
     for url in urls:
         try:
