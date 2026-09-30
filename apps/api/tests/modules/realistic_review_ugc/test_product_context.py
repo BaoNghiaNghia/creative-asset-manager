@@ -5,6 +5,7 @@ from app.modules.realistic_review_ugc.analysis import (
 from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.product_context import (
     ProductVisualContextDocument,
+    derive_context_feedback_learning,
     derive_product_context_profile,
     merge_product_visual_context,
     product_visual_binding_fingerprint,
@@ -381,3 +382,82 @@ def test_stale_visual_context_is_not_used_for_candidate_context_matching():
     assert product_context_matching_active(product_context) is False
     assert "\n\nPRODUCT CONTEXT TARGETS (use only for context_match_score):" not in prompt
     assert "dog owner park" not in prompt
+
+
+def test_context_feedback_learning_waits_for_consistent_evidence():
+    one_mark = derive_context_feedback_learning([
+        ("dog owner park candid phone photo", "good"),
+    ])
+    mixed = derive_context_feedback_learning([
+        ("dog owner park candid phone photo", "good"),
+        ("dog owner park candid phone photo", "wrong"),
+    ])
+
+    assert one_mark["active"] is False
+    assert one_mark["promoted_queries"] == []
+    assert mixed["active"] is False
+    assert mixed["promoted_queries"] == []
+    assert mixed["suppressed_queries"] == []
+
+
+def test_context_feedback_learning_promotes_and_suppresses_consistent_queries():
+    learned = derive_context_feedback_learning([
+        ("dog owner park candid phone photo", "good"),
+        ("dog owner park candid phone photo", "good"),
+        ("studio fashion portrait", "wrong"),
+        ("studio fashion portrait", "wrong"),
+    ])
+
+    assert learned["active"] is True
+    assert learned["good_count"] == 2
+    assert learned["wrong_count"] == 2
+    assert learned["promoted_queries"] == [
+        "dog owner park candid phone photo"
+    ]
+    assert learned["suppressed_queries"] == [
+        "studio fashion portrait"
+    ]
+
+
+def test_product_context_profile_uses_learned_feedback_for_discovery():
+    profile = derive_product_context_profile(
+        product_snapshot={"name": "Custom dog portrait cap"},
+        config={"auto_context": True},
+        context_feedback=[
+            ("dog owner park candid phone photo", "good"),
+            ("dog owner park candid phone photo", "good"),
+            ("woman casual lifestyle candid phone photo", "wrong"),
+            ("woman casual lifestyle candid phone photo", "wrong"),
+        ],
+    )
+
+    assert profile["feedback_learning"]["active"] is True
+    assert profile["search_clusters"]["direct"][0] == (
+        "dog owner park candid phone photo"
+    )
+    assert "woman casual lifestyle candid phone photo" not in (
+        profile["search_clusters"]["generic"]
+    )
+
+
+def test_analysis_prompt_includes_human_learned_context_feedback():
+    profile = derive_product_context_profile(
+        product_snapshot={"name": "Custom dog portrait cap"},
+        config={"auto_context": True},
+        context_feedback=[
+            ("dog owner park candid phone photo", "good"),
+            ("dog owner park candid phone photo", "good"),
+            ("studio fashion portrait", "wrong"),
+            ("studio fashion portrait", "wrong"),
+        ],
+    )
+    prompt = analysis_prompt({
+        "name": "Custom dog portrait cap",
+        "product_type": "cap",
+        "discovery_context": profile,
+    })
+
+    assert "human-confirmed search contexts" in prompt
+    assert "dog owner park candid phone photo" in prompt
+    assert "human-rejected search contexts" in prompt
+    assert "studio fashion portrait" in prompt

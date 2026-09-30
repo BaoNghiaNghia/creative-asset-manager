@@ -5060,3 +5060,64 @@ def test_context_reanalysis_backfill_is_bounded_and_skips_current_or_bad_refs():
         ("context-review", True),
     ]
     assert commits == [True]
+
+
+def test_refresh_campaign_discovery_learns_consistent_context_feedback():
+    service = RrugcService.__new__(RrugcService)
+    service.repository = SimpleNamespace(
+        candidate_keyword_outcomes=lambda *_args, **_kwargs: [
+            (
+                "dog owner park candid phone photo",
+                "approved",
+                None,
+                "good",
+            ),
+            (
+                "dog owner park candid phone photo",
+                "needs_review",
+                None,
+                "good",
+            ),
+            (
+                "studio fashion portrait",
+                "approved",
+                None,
+                "wrong",
+            ),
+            (
+                "studio fashion portrait",
+                "rejected_context",
+                None,
+                "wrong",
+            ),
+        ],
+    )
+    campaign = SimpleNamespace(
+        tenant_id="tenant-a",
+        id="campaign-a",
+        name="Pet portrait",
+        query="pet lifestyle",
+        search_query_anchors_json=["pet lifestyle"],
+        search_queries_json=["pet lifestyle"],
+        discovery_mode="product_context",
+        product_snapshot_json={"name": "Custom dog portrait cap"},
+        product_reference_snapshot_json=[],
+        product_context_json={"auto_context": True},
+        reject_headwear=False,
+    )
+
+    refreshed = service.refresh_campaign_discovery(
+        campaign,
+        commit=False,
+    )
+
+    learning = refreshed.product_context_json["feedback_learning"]
+    assert learning["active"] is True
+    assert learning["promoted_queries"] == [
+        "dog owner park candid phone photo"
+    ]
+    assert learning["suppressed_queries"] == [
+        "studio fashion portrait"
+    ]
+    assert "dog owner park candid phone photo" in refreshed.search_queries_json
+    assert "studio fashion portrait" not in refreshed.search_queries_json

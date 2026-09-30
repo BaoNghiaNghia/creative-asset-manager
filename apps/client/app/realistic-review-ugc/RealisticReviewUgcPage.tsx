@@ -1127,6 +1127,26 @@ export function RealisticReviewUgcPage() {
                     Direct scenes: {(editingCampaign?.product_context?.search_clusters?.direct || []).slice(0, 3).join(" · ")}
                   </small>}
                   {(() => {
+                    const learning = editingCampaign?.product_context?.feedback_learning;
+                    if (!learning?.total_reviews) return null;
+                    const minimum = learning.minimum_consistent_reviews || 2;
+                    return <>
+                      <small>
+                        Human context learning: {learning.good_count} good · {learning.wrong_count} wrong
+                        {learning.active ? " · active" : " · collecting evidence"}
+                      </small>
+                      {!learning.active && <small>
+                        Needs at least {minimum} consistent marks on the same search context before changing discovery.
+                      </small>}
+                      {(learning.promoted_queries || []).length > 0 && <small>
+                        Learned good contexts: {(learning.promoted_queries || []).slice(0, 3).join(" · ")}
+                      </small>}
+                      {(learning.suppressed_queries || []).length > 0 && <small>
+                        Learned avoid contexts: {(learning.suppressed_queries || []).slice(0, 3).join(" · ")}
+                      </small>}
+                    </>;
+                  })()}
+                  {(() => {
                     const visual = editingCampaign?.product_context?.visual_context;
                     const status = visual?.status || "not_analyzed";
                     const ready = status === "ready";

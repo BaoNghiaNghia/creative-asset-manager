@@ -391,20 +391,26 @@ class RrugcService:
             or campaign.search_queries_json
             or [campaign.query]
         )
-        if campaign.discovery_mode == "product_context":
-            campaign.product_context_json = derive_product_context_profile(
-                product_snapshot=campaign.product_snapshot_json,
-                campaign_name=campaign.name,
-                queries=anchors,
-                config=campaign.product_context_json,
-                reference_snapshot=campaign.product_reference_snapshot_json,
-            )
         history = outcomes
         if history is None and campaign.id:
             history = self.repository.candidate_keyword_outcomes(
                 campaign.tenant_id,
                 campaign.id,
                 limit=2000,
+            )
+        if campaign.discovery_mode == "product_context":
+            context_feedback = [
+                (row[0], row[3])
+                for row in (history or ())
+                if len(row) > 3 and row[3] in {"good", "wrong"}
+            ]
+            campaign.product_context_json = derive_product_context_profile(
+                product_snapshot=campaign.product_snapshot_json,
+                campaign_name=campaign.name,
+                queries=anchors,
+                config=campaign.product_context_json,
+                reference_snapshot=campaign.product_reference_snapshot_json,
+                context_feedback=context_feedback,
             )
         refreshed_queries = build_campaign_search_queries(
             name=campaign.name,

@@ -6,6 +6,22 @@ export type ProductContextProfile = {
   preferred_scenes: string[];
   avoid: string[];
   notes?: string | null;
+  feedback_learning?: {
+    active: boolean;
+    minimum_consistent_reviews?: number;
+    total_reviews: number;
+    good_count: number;
+    wrong_count: number;
+    promoted_queries?: string[];
+    suppressed_queries?: string[];
+    query_scores?: Array<{
+      query: string;
+      good: number;
+      wrong: number;
+      reviews: number;
+      score: number;
+    }>;
+  };
   visual_context?: {
     status: "not_analyzed" | "ready" | "stale" | string;
     themes?: string[];

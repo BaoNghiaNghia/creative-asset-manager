@@ -11,7 +11,9 @@ from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataPr
 
 
 PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v1"
-PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v2"
+PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v3-feedback-learning"
+CONTEXT_FEEDBACK_MIN_MATCHES = 2
+CONTEXT_FEEDBACK_PROMOTION_SCORE = 0.20
 ProductContextTheme = Literal[
     "pet_owner",
     "dad_family",
@@ -397,6 +399,85 @@ def product_visual_binding_fingerprint(
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def derive_context_feedback_learning(
+    rows: Iterable[tuple[str, str] | tuple[str, str, str | None]] = (),
+) -> dict[str, Any]:
+    query_stats: dict[str, dict[str, Any]] = {}
+    total_good = 0
+    total_wrong = 0
+    for row in rows:
+        if len(row) < 2:
+            continue
+        query = str(row[0] or "").strip()
+        label = str(row[1] or "").strip().casefold()
+        if not query or label not in {"good", "wrong"}:
+            continue
+        key = query.casefold()
+        stat = query_stats.setdefault(
+            key,
+            {"query": query[:160], "good": 0, "wrong": 0},
+        )
+        if label == "good":
+            stat["good"] += 1
+            total_good += 1
+        else:
+            stat["wrong"] += 1
+            total_wrong += 1
+
+    scored: list[dict[str, Any]] = []
+    for stat in query_stats.values():
+        good = int(stat["good"])
+        wrong = int(stat["wrong"])
+        reviews = good + wrong
+        if not reviews:
+            continue
+        raw_signal = (good - wrong) / reviews
+        shrinkage = reviews / (reviews + 3.0)
+        score = round(raw_signal * shrinkage, 4)
+        scored.append({
+            "query": stat["query"],
+            "good": good,
+            "wrong": wrong,
+            "reviews": reviews,
+            "score": score,
+        })
+
+    scored.sort(
+        key=lambda item: (
+            item["reviews"],
+            abs(item["score"]),
+            item["query"].casefold(),
+        ),
+        reverse=True,
+    )
+    promoted = [
+        item["query"]
+        for item in scored
+        if item["reviews"] >= CONTEXT_FEEDBACK_MIN_MATCHES
+        and item["good"] >= CONTEXT_FEEDBACK_MIN_MATCHES
+        and item["score"] >= CONTEXT_FEEDBACK_PROMOTION_SCORE
+    ][:8]
+    suppressed = [
+        item["query"]
+        for item in scored
+        if item["reviews"] >= CONTEXT_FEEDBACK_MIN_MATCHES
+        and item["wrong"] >= CONTEXT_FEEDBACK_MIN_MATCHES
+        and item["score"] <= -CONTEXT_FEEDBACK_PROMOTION_SCORE
+    ][:8]
+    total_reviews = total_good + total_wrong
+    return {
+        "active": bool(promoted or suppressed),
+        "minimum_consistent_reviews": CONTEXT_FEEDBACK_MIN_MATCHES,
+        "promotion_score_threshold": CONTEXT_FEEDBACK_PROMOTION_SCORE,
+        "total_reviews": total_reviews,
+        "good_count": total_good,
+        "wrong_count": total_wrong,
+        "promoted_queries": promoted,
+        "suppressed_queries": suppressed,
+        "query_scores": scored[:12],
+    }
+
+
 def derive_product_context_profile(
     *,
     product_snapshot: dict[str, Any] | None,
@@ -404,6 +485,9 @@ def derive_product_context_profile(
     queries: Iterable[str] = (),
     config: dict[str, Any] | None = None,
     reference_snapshot: Iterable[dict[str, Any]] | None = None,
+    context_feedback: Iterable[
+        tuple[str, str] | tuple[str, str, str | None]
+    ] = (),
 ) -> dict[str, Any]:
     raw = dict(config or {})
     auto_context = bool(raw.get("auto_context", True))
@@ -462,6 +546,18 @@ def derive_product_context_profile(
         limit=8,
     )
     themes = _clean_list([*operator_themes, *detected_themes], limit=8)
+    feedback_learning = derive_context_feedback_learning(context_feedback)
+    promoted_queries = _clean_list(
+        feedback_learning.get("promoted_queries"),
+        limit=8,
+    )
+    suppressed_query_keys = {
+        value.casefold()
+        for value in _clean_list(
+            feedback_learning.get("suppressed_queries"),
+            limit=8,
+        )
+    }
 
     direct: list[str] = []
     adjacent: list[str] = []
@@ -473,10 +569,27 @@ def derive_product_context_profile(
     for scene in [*visual_scene_hints, *preferred_scenes]:
         direct.append(f"{scene} candid phone photo")
 
+    # Human context feedback only changes discovery after at least two
+    # consistent reviews for the same search context. Promoted queries are
+    # added as direct targets; suppressed queries are removed from derived
+    # clusters but manual anchor queries remain protected by the caller.
+    direct = [*promoted_queries, *direct]
     search_clusters = {
-        "direct": _clean_list(direct, limit=16),
-        "adjacent": _clean_list(adjacent, limit=12),
-        "generic": list(_GENERIC_CONTEXT_QUERIES),
+        "direct": [
+            value
+            for value in _clean_list(direct, limit=20)
+            if value.casefold() not in suppressed_query_keys
+        ][:16],
+        "adjacent": [
+            value
+            for value in _clean_list(adjacent, limit=16)
+            if value.casefold() not in suppressed_query_keys
+        ][:12],
+        "generic": [
+            value
+            for value in _GENERIC_CONTEXT_QUERIES
+            if value.casefold() not in suppressed_query_keys
+        ],
     }
 
     product_name = None
@@ -494,6 +607,7 @@ def derive_product_context_profile(
         "avoid": avoid,
         "notes": notes,
         "visual_context": visual_context,
+        "feedback_learning": feedback_learning,
         "search_clusters": search_clusters,
         "source": {
             "product_name": product_name,

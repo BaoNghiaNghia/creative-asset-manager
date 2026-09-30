@@ -612,6 +612,23 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
         else {}
     )
     direct = clean(clusters.get("direct"), limit=6)
+    feedback = (
+        dict(profile.get("feedback_learning"))
+        if isinstance(profile.get("feedback_learning"), dict)
+        else {}
+    )
+    learned_positive = clean(
+        feedback.get("promoted_queries")
+        if feedback.get("active")
+        else [],
+        limit=5,
+    )
+    learned_negative = clean(
+        feedback.get("suppressed_queries")
+        if feedback.get("active")
+        else [],
+        limit=5,
+    )
 
     visual = (
         dict(profile.get("visual_context"))
@@ -647,6 +664,16 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
         sections.append("- preferred scenes: " + " | ".join(preferred))
     if direct:
         sections.append("- direct search scenes: " + " | ".join(direct))
+    if learned_positive:
+        sections.append(
+            "- human-confirmed search contexts: "
+            + " | ".join(learned_positive)
+        )
+    if learned_negative:
+        sections.append(
+            "- human-rejected search contexts: "
+            + " | ".join(learned_negative)
+        )
     if visual_scenes:
         sections.append("- visual scene hints: " + " | ".join(visual_scenes))
     if audiences:
