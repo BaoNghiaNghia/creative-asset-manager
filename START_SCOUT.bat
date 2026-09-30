@@ -1,7 +1,9 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 title Realistic Review UGC - Pinterest Scout
+
+set "SCOUT_BOOTSTRAP=%~dp0scripts\start_scout_auto_update.ps1"
 
 where powershell.exe >nul 2>nul
 if errorlevel 1 (
@@ -10,7 +12,63 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_scout_auto_update.ps1"
+rem First-run recovery: an older/local checkout may have START_SCOUT.bat
+rem without the PowerShell launcher that normally performs auto-update.
+if not exist "%SCOUT_BOOTSTRAP%" (
+  echo.
+  echo ==> Scout launcher is incomplete. Bootstrapping the latest files from main...
+
+  where git.exe >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] Git was not found in PATH.
+    echo Install Git or run "git pull --ff-only origin main" in:
+    echo   %CD%
+    pause
+    exit /b 2
+  )
+
+  git rev-parse --is-inside-work-tree >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] This folder is not a Git checkout:
+    echo   %CD%
+    echo Re-clone or update the creative-asset-manager repository, then run START_SCOUT.bat again.
+    pause
+    exit /b 3
+  )
+
+  for /f "delims=" %%B in ('git branch --show-current 2^>nul') do set "SCOUT_BRANCH=%%B"
+  if /I not "!SCOUT_BRANCH!"=="main" (
+    echo [ERROR] First-run bootstrap requires branch main. Current branch: !SCOUT_BRANCH!
+    pause
+    exit /b 4
+  )
+
+  git fetch origin main
+  if errorlevel 1 (
+    echo [ERROR] Unable to fetch origin/main. Scout was not started.
+    pause
+    exit /b 5
+  )
+
+  git merge --ff-only origin/main
+  if errorlevel 1 (
+    echo [ERROR] Unable to fast-forward to origin/main.
+    echo Commit or stash tracked local changes, then run START_SCOUT.bat again.
+    pause
+    exit /b 6
+  )
+
+  if not exist "%SCOUT_BOOTSTRAP%" (
+    echo [ERROR] Auto-update launcher is still missing after updating main:
+    echo   %SCOUT_BOOTSTRAP%
+    pause
+    exit /b 7
+  )
+
+  echo Bootstrap complete. Continuing with the self-updating Scout launcher...
+)
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCOUT_BOOTSTRAP%"
 set "SCOUT_EXIT=%ERRORLEVEL%"
 
 if not "%SCOUT_EXIT%"=="0" (
