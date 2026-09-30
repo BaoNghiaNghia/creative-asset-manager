@@ -1,3 +1,24 @@
+export type ProductContextProfile = {
+  auto_context: boolean;
+  operator_themes?: string[];
+  detected_themes?: string[];
+  themes: string[];
+  preferred_scenes: string[];
+  avoid: string[];
+  notes?: string | null;
+  search_clusters?: {
+    direct?: string[];
+    adjacent?: string[];
+    generic?: string[];
+  };
+  source?: {
+    product_name?: string | null;
+    product_type?: string | null;
+    has_product_snapshot?: boolean;
+  };
+  version?: string;
+};
+
 export type KeywordHealth = {
   query: string;
   state: "protected" | "healthy" | "explore" | "suppressed";
@@ -9,6 +30,8 @@ export type KeywordHealth = {
   approved: number;
   ref_good: number;
   ref_bad: number;
+  context_good: number;
+  context_wrong: number;
   approved_yield: number;
   reference_yield: number;
   duplicate_rate: number;
@@ -20,6 +43,8 @@ export type Campaign = {
   query: string;
   search_queries: string[];
   search_query_anchors: string[];
+  discovery_mode: "keyword" | "product_context";
+  product_context: ProductContextProfile | null;
   keyword_health: KeywordHealth[];
   target_count: number;
   max_scroll_batches: number;
@@ -138,6 +163,7 @@ export type CandidateStatus =
 
 export type AiManualLabel = "real" | "ai" | "unsure";
 export type ReferenceManualLabel = "good" | "bad";
+export type ContextManualLabel = "good" | "wrong";
 
 export type AiFeedbackCalibration = {
   active: boolean;
@@ -179,6 +205,10 @@ export type Candidate = {
   reference_manual_note?: string | null;
   reference_manual_reviewed_by_user_id?: string | null;
   reference_manual_reviewed_at?: string | null;
+  context_manual_label?: ContextManualLabel | null;
+  context_manual_note?: string | null;
+  context_manual_reviewed_by_user_id?: string | null;
+  context_manual_reviewed_at?: string | null;
   product_fit_score: number | null;
   matched_variant_id?: string | null;
   matched_variant_name?: string | null;
@@ -620,6 +650,14 @@ export type CampaignCreateRequest = {
   name: string;
   query: string;
   search_queries: string[];
+  discovery_mode: "keyword" | "product_context";
+  product_context?: {
+    auto_context: boolean;
+    themes: string[];
+    preferred_scenes: string[];
+    avoid: string[];
+    notes?: string | null;
+  } | null;
   target_count: number;
   max_scroll_batches: number;
   auto_import: boolean;

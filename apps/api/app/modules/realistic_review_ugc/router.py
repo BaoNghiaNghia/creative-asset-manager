@@ -69,6 +69,8 @@ from app.modules.realistic_review_ugc.schema import (
     AiFeedbackCalibrationResponse,
     CandidateReferenceFeedbackRequest,
     CandidateReferenceFeedbackResponse,
+    CandidateContextFeedbackRequest,
+    CandidateContextFeedbackResponse,
     ReferencePreferenceLearningResponse,
     GenerationAttemptCreateRequest,
     GenerationAttemptCreatedResponse,
@@ -208,6 +210,10 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "reference_manual_note": signal.get("reference_manual_note"),
         "reference_manual_reviewed_by_user_id": signal.get("reference_manual_reviewed_by_user_id"),
         "reference_manual_reviewed_at": signal.get("reference_manual_reviewed_at"),
+        "context_manual_label": signal.get("context_manual_label"),
+        "context_manual_note": signal.get("context_manual_note"),
+        "context_manual_reviewed_by_user_id": signal.get("context_manual_reviewed_by_user_id"),
+        "context_manual_reviewed_at": signal.get("context_manual_reviewed_at"),
         "product_fit_score": row.product_fit_score,
         "matched_variant_id": row.matched_variant_id,
         "matched_variant_name": row.matched_variant_name,
@@ -701,7 +707,11 @@ def _campaign(
                 row.id,
                 limit=2000,
             ),
-            protected_queries=search_query_anchors,
+            protected_queries=(
+                search_query_anchors[:2]
+                if row.discovery_mode == "product_context"
+                else search_query_anchors
+            ),
         )
         if include_keyword_health
         else []
@@ -712,6 +722,8 @@ def _campaign(
         query=row.query,
         search_queries=search_queries,
         search_query_anchors=search_query_anchors,
+        discovery_mode=row.discovery_mode,
+        product_context=row.product_context_json,
         keyword_health=keyword_health,
         target_count=row.target_count,
         max_scroll_batches=row.max_scroll_batches,
@@ -1412,6 +1424,7 @@ def bind_campaign_product(
             product_id=request.product_id,
             variant_ids=request.variant_ids,
         )
+        row = RrugcService(session).refresh_campaign_discovery(row)
     except RrugcError as exc:
         raise _error(exc) from exc
     return _campaign(repository, row)
@@ -2218,6 +2231,36 @@ def mark_candidate_reference_feedback(
             bad_count=learning.bad_count,
         ),
     )
+
+
+@router.post(
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/context-feedback",
+    response_model=CandidateContextFeedbackResponse,
+)
+def mark_candidate_context_feedback(
+    campaign_id: str,
+    candidate_id: str,
+    body: CandidateContextFeedbackRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    candidate = repository.get_candidate(
+        principal.active_tenant_id, campaign_id, candidate_id
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        row = RrugcService(session).mark_candidate_context_label(
+            candidate,
+            label=body.label,
+            note=body.note,
+            user_id=principal.user_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return CandidateContextFeedbackResponse(candidate=_candidate(row))
 
 
 @router.post(

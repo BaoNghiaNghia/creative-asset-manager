@@ -15,6 +15,7 @@ import type {
   AiFeedbackCalibration,
   AiManualLabel,
   ReferenceManualLabel,
+  ContextManualLabel,
   GenerationAttempt,
   GenerationCapability,
   BatchExportResult,
@@ -514,6 +515,24 @@ export const markCandidateReferenceFeedback = (
       + "/candidates/"
       + encodeURIComponent(candidateId)
       + "/reference-feedback",
+    {
+      method: "POST",
+      body: JSON.stringify({ label, note: note || null }),
+    },
+  );
+
+export const markCandidateContextFeedback = (
+  campaignId: string,
+  candidateId: string,
+  label: ContextManualLabel | "clear",
+  note?: string,
+) =>
+  request<{ candidate: Candidate }>(
+    "/api/v1/realistic-review-ugc/campaigns/"
+      + encodeURIComponent(campaignId)
+      + "/candidates/"
+      + encodeURIComponent(candidateId)
+      + "/context-feedback",
     {
       method: "POST",
       body: JSON.stringify({ label, note: note || null }),

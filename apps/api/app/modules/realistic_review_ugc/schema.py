@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 CampaignStatus = Literal["running", "paused", "completed", "stopped"]
+DiscoveryMode = Literal["keyword", "product_context"]
 ScoutStatus = Literal["offline", "ready", "busy", "needs_login", "error"]
 ProductStatus = Literal["active", "archived"]
 ProductReferenceStatus = Literal["active", "archived"]
@@ -224,10 +225,40 @@ class ProductReferenceResponse(BaseModel):
     archived_at: datetime | None
 
 
+class ProductContextInput(BaseModel):
+    auto_context: bool = True
+    themes: list[str] = Field(default_factory=list, max_length=8)
+    preferred_scenes: list[str] = Field(default_factory=list, max_length=8)
+    avoid: list[str] = Field(default_factory=list, max_length=8)
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        def clean(values: list[str]) -> list[str]:
+            result: list[str] = []
+            seen: set[str] = set()
+            for raw in values:
+                value = str(raw or "").strip()
+                key = value.casefold()
+                if not value or key in seen:
+                    continue
+                seen.add(key)
+                result.append(value[:160])
+            return result
+
+        self.themes = clean(self.themes)
+        self.preferred_scenes = clean(self.preferred_scenes)
+        self.avoid = clean(self.avoid)
+        self.notes = (self.notes or "").strip() or None
+        return self
+
+
 class CampaignCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     query: str = Field(min_length=1, max_length=500)
     search_queries: list[str] = Field(default_factory=list)
+    discovery_mode: DiscoveryMode = "keyword"
+    product_context: ProductContextInput | None = None
     target_count: int = Field(default=100, ge=1, le=5000)
     max_scroll_batches: int = Field(default=5, ge=1, le=50)
     auto_import: bool = False
@@ -256,6 +287,8 @@ class CampaignCreateRequest(BaseModel):
 class CampaignUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     search_queries: list[str] | None = None
+    discovery_mode: DiscoveryMode | None = None
+    product_context: ProductContextInput | None = None
     target_count: int | None = Field(default=None, ge=1, le=5000)
     max_scroll_batches: int | None = Field(default=None, ge=1, le=50)
     auto_import: bool | None = None
@@ -296,6 +329,8 @@ class KeywordHealthResponse(BaseModel):
     approved: int = 0
     ref_good: int = 0
     ref_bad: int = 0
+    context_good: int = 0
+    context_wrong: int = 0
     approved_yield: float = 0.0
     reference_yield: float = 0.0
     duplicate_rate: float = 0.0
@@ -307,6 +342,8 @@ class CampaignResponse(BaseModel):
     query: str
     search_queries: list[str] = Field(default_factory=list)
     search_query_anchors: list[str] = Field(default_factory=list)
+    discovery_mode: DiscoveryMode = "keyword"
+    product_context: dict | None = None
     keyword_health: list[KeywordHealthResponse] = Field(default_factory=list)
     target_count: int
     max_scroll_batches: int
@@ -791,6 +828,10 @@ class CandidateResponse(BaseModel):
     reference_manual_note: str | None = None
     reference_manual_reviewed_by_user_id: str | None = None
     reference_manual_reviewed_at: datetime | None = None
+    context_manual_label: Literal["good", "wrong"] | None = None
+    context_manual_note: str | None = None
+    context_manual_reviewed_by_user_id: str | None = None
+    context_manual_reviewed_at: datetime | None = None
     product_fit_score: float | None
     matched_variant_id: str | None = None
     matched_variant_name: str | None = None
@@ -848,6 +889,15 @@ class ReferencePreferenceLearningResponse(BaseModel):
 class CandidateReferenceFeedbackResponse(BaseModel):
     candidate: CandidateResponse
     learning: ReferencePreferenceLearningResponse
+
+
+class CandidateContextFeedbackRequest(BaseModel):
+    label: Literal["good", "wrong", "clear"]
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class CandidateContextFeedbackResponse(BaseModel):
+    candidate: CandidateResponse
 
 
 class CandidateBatchResponse(BaseModel):

@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcScoutAgentModel,
@@ -109,6 +108,8 @@ def keyword_lifecycle_state(
     evaluated: int,
     ref_good: int,
     ref_bad: int,
+    context_good: int = 0,
+    context_wrong: int = 0,
 ) -> str:
     if protected:
         return "protected"
@@ -130,6 +131,16 @@ def keyword_lifecycle_state(
         reference_reviews >= KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS
         and reference_yield <= 0.25
     )
+    context_reviews = context_good + context_wrong
+    context_yield = (
+        context_good / context_reviews
+        if context_reviews
+        else 0.0
+    )
+    enough_bad_context_evidence = (
+        context_reviews >= 2
+        and context_yield <= 0.25
+    )
     enough_bad_approval_evidence = (
         evaluated >= KEYWORD_SUPPRESSION_MIN_EVALUATED
         and approved_yield <= 0.15
@@ -141,6 +152,7 @@ def keyword_lifecycle_state(
     )
     if (
         enough_bad_reference_evidence
+        or enough_bad_context_evidence
         or enough_bad_approval_evidence
         or enough_duplicate_evidence
     ):
@@ -150,8 +162,12 @@ def keyword_lifecycle_state(
         reference_reviews >= KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS
         and reference_yield >= 0.67
     )
+    healthy_context_signal = (
+        context_reviews >= 2
+        and context_yield >= 0.67
+    )
     healthy_approval_signal = evaluated >= 6 and approved_yield >= 0.45
-    if healthy_reference_signal or healthy_approval_signal:
+    if healthy_reference_signal or healthy_context_signal or healthy_approval_signal:
         return "healthy"
     return "explore"
 
@@ -159,7 +175,11 @@ def keyword_lifecycle_state(
 def adaptive_search_queries(
     queries: list[str],
     runs: list[RrugcScoutRunModel],
-    outcomes: list[tuple[str, str] | tuple[str, str, str | None]] | None = None,
+    outcomes: list[
+        tuple[str, str]
+        | tuple[str, str, str | None]
+        | tuple[str, str, str | None, str | None]
+    ] | None = None,
     *,
     protected_queries: list[str] | None = None,
 ) -> list[str]:
@@ -198,11 +218,12 @@ def adaptive_search_queries(
         row[1] += int(run.submitted_count or 0)
         row[2] += int(run.created_count or 0)
 
-    outcome_stats = {query: [0, 0, 0, 0] for query in clean}
+    outcome_stats = {query: [0, 0, 0, 0, 0, 0] for query in clean}
     useful_statuses = {"approved", "import_queued", "importing", "drive_ready"}
     for outcome in outcomes or []:
         query, status = outcome[0], outcome[1]
         reference_label = outcome[2] if len(outcome) > 2 else None
+        context_label = outcome[3] if len(outcome) > 3 else None
         if query not in outcome_stats:
             continue
         outcome_stats[query][1] += 1
@@ -212,11 +233,15 @@ def adaptive_search_queries(
             outcome_stats[query][2] += 1
         elif reference_label == "bad":
             outcome_stats[query][3] += 1
+        if context_label == "good":
+            outcome_stats[query][4] += 1
+        elif context_label == "wrong":
+            outcome_stats[query][5] += 1
 
     lifecycle = {}
     for query in clean:
         run_count, submitted, created = stats[query]
-        approved, evaluated, ref_good, ref_bad = outcome_stats[query]
+        approved, evaluated, ref_good, ref_bad, context_good, context_wrong = outcome_stats[query]
         lifecycle[query] = keyword_lifecycle_state(
             protected=query.casefold() in protected_keys,
             run_count=run_count,
@@ -226,6 +251,8 @@ def adaptive_search_queries(
             evaluated=evaluated,
             ref_good=ref_good,
             ref_bad=ref_bad,
+            context_good=context_good,
+            context_wrong=context_wrong,
         )
 
     if random.random() < KEYWORD_EXPLORATION_RATE:
@@ -245,7 +272,7 @@ def adaptive_search_queries(
     def score(query: str) -> float:
         run_count, submitted, created = stats[query]
         discovery_yield = (created + 1.0) / (submitted + 2.0)
-        approved, evaluated, ref_good, ref_bad = outcome_stats[query]
+        approved, evaluated, ref_good, ref_bad, context_good, context_wrong = outcome_stats[query]
         approved_yield = (approved + 1.0) / (evaluated + 2.0)
         approval_confidence = min(1.0, evaluated / 8.0)
         reference_reviews = ref_good + ref_bad
@@ -257,6 +284,10 @@ def adaptive_search_queries(
         quality_weight = 0.35 + 0.45 * approval_confidence
         discovery_weight = 0.40 - 0.20 * approval_confidence
         human_reference_signal = (reference_yield - 0.5) * reference_confidence
+        context_reviews = context_good + context_wrong
+        context_yield = (context_good + 1.0) / (context_reviews + 2.0)
+        context_confidence = min(1.0, context_reviews / 4.0)
+        human_context_signal = (context_yield - 0.5) * context_confidence
         lifecycle_bonus = {
             # Protected means "never suppress", not "always prioritize".
             # A broad manual anchor should not crowd out a more specific
@@ -270,6 +301,7 @@ def adaptive_search_queries(
             approved_yield * quality_weight
             + discovery_yield * discovery_weight * (0.65 + 0.35 * run_confidence)
             + 0.35 * human_reference_signal
+            + 0.45 * human_context_signal
             + 0.20 * novelty
             - 0.15 * duplicate_rate
             + lifecycle_bonus
@@ -294,7 +326,11 @@ def adaptive_search_queries(
 def keyword_health_rows(
     queries: list[str],
     runs: list[RrugcScoutRunModel],
-    outcomes: list[tuple[str, str] | tuple[str, str, str | None]] | None = None,
+    outcomes: list[
+        tuple[str, str]
+        | tuple[str, str, str | None]
+        | tuple[str, str, str | None, str | None]
+    ] | None = None,
     *,
     protected_queries: list[str] | None = None,
 ) -> list[dict[str, int | float | str | bool]]:
@@ -316,6 +352,8 @@ def keyword_health_rows(
             "approved": 0,
             "ref_good": 0,
             "ref_bad": 0,
+            "context_good": 0,
+            "context_wrong": 0,
             "approved_yield": 0.0,
             "reference_yield": 0.0,
             "duplicate_rate": 0.0,
@@ -346,6 +384,7 @@ def keyword_health_rows(
     for outcome in outcomes or []:
         query, status = outcome[0], outcome[1]
         label = outcome[2] if len(outcome) > 2 else None
+        context_label = outcome[3] if len(outcome) > 3 else None
         if query not in health:
             continue
         evaluated[query] += 1
@@ -356,6 +395,10 @@ def keyword_health_rows(
             row["ref_good"] = int(row["ref_good"]) + 1
         elif label == "bad":
             row["ref_bad"] = int(row["ref_bad"]) + 1
+        if context_label == "good":
+            row["context_good"] = int(row["context_good"]) + 1
+        elif context_label == "wrong":
+            row["context_wrong"] = int(row["context_wrong"]) + 1
 
     for query, row in health.items():
         evaluated_count = evaluated[query]
@@ -386,6 +429,8 @@ def keyword_health_rows(
             evaluated=evaluated_count,
             ref_good=ref_good,
             ref_bad=ref_bad,
+            context_good=int(row["context_good"]),
+            context_wrong=int(row["context_wrong"]),
         )
 
     state_order = {
@@ -855,19 +900,20 @@ class RrugcAutoScoutService:
             selected.id,
             limit=KEYWORD_OUTCOME_HISTORY,
         )
-        refreshed_queries = build_campaign_search_queries(
-            name=selected.name,
-            queries=anchor_queries,
-            protected_queries=anchor_queries,
-            product_snapshot=selected.product_snapshot_json,
-            reject_headwear=selected.reject_headwear,
+        RrugcService(self.session).refresh_campaign_discovery(
+            selected,
             outcomes=outcomes,
+            commit=False,
         )
+        refreshed_queries = list(selected.search_queries_json or current_queries)
         if refreshed_queries != current_queries:
-            selected.query = refreshed_queries[0]
-            selected.search_queries_json = refreshed_queries
             self.session.flush()
 
+        protected_queries = (
+            anchor_queries[:2]
+            if selected.discovery_mode == "product_context"
+            else anchor_queries
+        )
         ordered_queries = adaptive_search_queries(
             refreshed_queries or current_queries,
             self.repository.list_scout_runs(
@@ -876,7 +922,7 @@ class RrugcAutoScoutService:
                 limit=KEYWORD_HISTORY_RUNS,
             ),
             outcomes,
-            protected_queries=anchor_queries,
+            protected_queries=protected_queries,
         )
         selected_query = ordered_queries[0] if ordered_queries else selected.query
         run = RrugcScoutRunModel(

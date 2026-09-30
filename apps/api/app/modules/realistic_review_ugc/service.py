@@ -33,6 +33,7 @@ from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
     campaign_learning_intent,
 )
+from app.modules.realistic_review_ugc.product_context import derive_product_context_profile
 from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcCampaignModel,
@@ -296,6 +297,8 @@ class RrugcService:
         max_scroll_batches: int,
         auto_import: bool,
         search_queries: list[str] | None = None,
+        discovery_mode: str = "keyword",
+        product_context: dict | None = None,
         auto_scout: bool = True,
         scan_interval_seconds: int = 300,
         min_head_ratio: float = 0.18,
@@ -325,10 +328,22 @@ class RrugcService:
                 status_code=400,
             )
         anchors = list(queries)
+        context_profile = (
+            derive_product_context_profile(
+                product_snapshot=None,
+                campaign_name=name,
+                queries=anchors,
+                config=product_context,
+            )
+            if discovery_mode == "product_context"
+            else None
+        )
         queries = build_campaign_search_queries(
             name=name,
             queries=anchors,
             protected_queries=anchors,
+            discovery_mode=discovery_mode,
+            product_context=context_profile,
             reject_headwear=reject_headwear,
         )
         row = RrugcCampaignModel(
@@ -337,6 +352,8 @@ class RrugcService:
             query=queries[0],
             search_queries_json=queries,
             search_query_anchors_json=anchors,
+            discovery_mode=discovery_mode,
+            product_context_json=context_profile,
             target_count=target_count,
             max_scroll_batches=max_scroll_batches,
             auto_import=auto_import,
@@ -362,12 +379,58 @@ class RrugcService:
         self.session.refresh(row)
         return row, raw_token
 
+    def refresh_campaign_discovery(
+        self,
+        campaign: RrugcCampaignModel,
+        *,
+        outcomes: list[tuple] | None = None,
+        commit: bool = True,
+    ) -> RrugcCampaignModel:
+        anchors = list(
+            campaign.search_query_anchors_json
+            or campaign.search_queries_json
+            or [campaign.query]
+        )
+        if campaign.discovery_mode == "product_context":
+            campaign.product_context_json = derive_product_context_profile(
+                product_snapshot=campaign.product_snapshot_json,
+                campaign_name=campaign.name,
+                queries=anchors,
+                config=campaign.product_context_json,
+            )
+        history = outcomes
+        if history is None and campaign.id:
+            history = self.repository.candidate_keyword_outcomes(
+                campaign.tenant_id,
+                campaign.id,
+                limit=2000,
+            )
+        refreshed_queries = build_campaign_search_queries(
+            name=campaign.name,
+            queries=anchors,
+            protected_queries=anchors,
+            product_snapshot=campaign.product_snapshot_json,
+            discovery_mode=campaign.discovery_mode,
+            product_context=campaign.product_context_json,
+            reject_headwear=campaign.reject_headwear,
+            outcomes=history or (),
+        )
+        if refreshed_queries:
+            campaign.query = refreshed_queries[0]
+            campaign.search_queries_json = refreshed_queries
+        if commit:
+            self.session.commit()
+            self.session.refresh(campaign)
+        return campaign
+
     def update_campaign(
         self,
         campaign: RrugcCampaignModel,
         *,
         name: str | None = None,
         search_queries: list[str] | None = None,
+        discovery_mode: str | None = None,
+        product_context: dict | None = None,
         target_count: int | None = None,
         max_scroll_batches: int | None = None,
         auto_import: bool | None = None,
@@ -386,6 +449,13 @@ class RrugcService:
     ) -> RrugcCampaignModel:
         if name is not None:
             campaign.name = name.strip()
+
+        if discovery_mode is not None:
+            campaign.discovery_mode = discovery_mode
+            if discovery_mode == "keyword":
+                campaign.product_context_json = None
+        if product_context is not None:
+            campaign.product_context_json = dict(product_context)
 
         if search_queries is not None:
             queries: list[str] = []
@@ -438,21 +508,7 @@ class RrugcService:
             if not auto_scout:
                 campaign.scan_next_at = None
 
-        anchor_queries = list(
-            campaign.search_query_anchors_json
-            or campaign.search_queries_json
-            or [campaign.query]
-        )
-        refreshed_queries = build_campaign_search_queries(
-            name=campaign.name,
-            queries=anchor_queries,
-            protected_queries=anchor_queries,
-            product_snapshot=campaign.product_snapshot_json,
-            reject_headwear=campaign.reject_headwear,
-        )
-        if refreshed_queries:
-            campaign.query = refreshed_queries[0]
-            campaign.search_queries_json = refreshed_queries
+        self.refresh_campaign_discovery(campaign, commit=False)
 
         if campaign.auto_scout and campaign.status == "running":
             campaign.scan_next_at = datetime.now(timezone.utc)
@@ -879,6 +935,87 @@ class RrugcService:
 
         if campaign is not None:
             self.refresh_campaign_completion(campaign)
+        self.session.commit()
+        self.session.refresh(candidate)
+        return candidate
+
+    def mark_candidate_context_label(
+        self,
+        candidate: RrugcCandidateModel,
+        *,
+        label: str,
+        note: str | None,
+        user_id: str,
+    ) -> RrugcCandidateModel:
+        if label not in {"good", "wrong", "clear"}:
+            raise RrugcError(
+                "invalid_context_feedback_label",
+                "Context feedback label must be good, wrong, or clear.",
+                status_code=422,
+            )
+        now = datetime.now(timezone.utc)
+        clean_note = (note or "").strip() or None
+        if clean_note is not None:
+            clean_note = clean_note[:1000]
+
+        signal = dict(candidate.ai_signal_json or {})
+        campaign = self.repository.get_campaign(
+            candidate.tenant_id,
+            candidate.campaign_id,
+        )
+        ledger_label = {
+            "good": "context_good",
+            "wrong": "context_wrong",
+            "clear": "context_clear",
+        }[label]
+        profile = (
+            dict(campaign.product_context_json or {})
+            if campaign is not None
+            else {}
+        )
+        self.repository.add_ai_feedback(
+            RrugcAiFeedbackModel(
+                tenant_id=candidate.tenant_id,
+                campaign_id=candidate.campaign_id,
+                candidate_id=candidate.id,
+                label=ledger_label,
+                note=clean_note,
+                ai_risk_raw_score=candidate.ai_risk_raw_score,
+                ai_risk_score=candidate.ai_risk_score,
+                detector_confidence=candidate.ai_detector_confidence,
+                analyzer_version=candidate.analyzer_version,
+                signal_json={
+                    "scout_query": signal.get("scout_query"),
+                    "discovery_mode": (
+                        campaign.discovery_mode
+                        if campaign is not None
+                        else None
+                    ),
+                    "product_context_themes": list(profile.get("themes") or []),
+                },
+                created_by_user_id=user_id,
+                created_at=now,
+            )
+        )
+
+        for key in (
+            "context_manual_label",
+            "context_manual_note",
+            "context_manual_reviewed_by_user_id",
+            "context_manual_reviewed_at",
+        ):
+            signal.pop(key, None)
+        if label != "clear":
+            signal.update({
+                "context_manual_label": label,
+                "context_manual_note": clean_note,
+                "context_manual_reviewed_by_user_id": user_id,
+                "context_manual_reviewed_at": now.isoformat(),
+            })
+        candidate.ai_signal_json = signal
+
+        if campaign is not None:
+            self.refresh_campaign_discovery(campaign, commit=False)
         self.session.commit()
         self.session.refresh(candidate)
         return candidate

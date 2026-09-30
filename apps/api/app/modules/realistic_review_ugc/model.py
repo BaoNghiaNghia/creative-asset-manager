@@ -51,6 +51,8 @@ class RrugcCampaignModel(Base):
     query: Mapped[str] = mapped_column(String(500), nullable=False)
     search_queries_json: Mapped[list | None] = mapped_column(JSON)
     search_query_anchors_json: Mapped[list | None] = mapped_column(JSON)
+    discovery_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="keyword")
+    product_context_json: Mapped[dict | None] = mapped_column(JSON)
     target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     max_scroll_batches: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     auto_import: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

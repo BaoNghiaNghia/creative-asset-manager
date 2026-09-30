@@ -12,6 +12,7 @@ import {
   importProductUrls,
   markCandidateAiFeedback,
   markCandidateReferenceFeedback,
+  markCandidateContextFeedback,
   getCampaign,
   listCampaigns,
   listCandidates,
@@ -22,7 +23,7 @@ import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
-import type { AiManualLabel, Campaign, Candidate, CandidateStatus, ReferenceManualLabel } from "./types";
+import type { AiManualLabel, Campaign, Candidate, CandidateStatus, ContextManualLabel, ReferenceManualLabel } from "./types";
 import "./ui-overhaul.css";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
@@ -110,6 +111,7 @@ export function candidatePhonePriority(candidate: Candidate): number {
   const aiRisk = candidate.ai_risk_score ?? 0;
   const authenticityManual = candidate.ai_manual_label === "real" ? 0.18 : candidate.ai_manual_label === "ai" ? -1 : 0;
   const referenceManual = candidate.reference_manual_label === "good" ? 0.45 : candidate.reference_manual_label === "bad" ? -0.45 : 0;
+  const contextManual = candidate.context_manual_label === "good" ? 0.20 : candidate.context_manual_label === "wrong" ? -0.20 : 0;
   return (
     0.35 * phone
     + 0.20 * ugc
@@ -119,6 +121,7 @@ export function candidatePhonePriority(candidate: Candidate): number {
     + 0.10 * (1 - aiRisk)
     + authenticityManual
     + referenceManual
+    + contextManual
   );
 }
 
@@ -192,7 +195,7 @@ function SearchQueryEditor({
       />
       <button type="button" disabled={!draft.trim() || value.length >= 10} onClick={add}>Add</button>
     </div>
-    <small>{value.length}/10 keywords · Hat campaigns auto-refresh this pool from persona coverage and REF ✓ / REF × yield.</small>
+    <small>{value.length}/10 keywords · The server refreshes this pool from discovery mode, context, and reference feedback.</small>
   </div>;
 }
 
@@ -201,6 +204,7 @@ type CampaignEditDraft = {
   productUrl: string;
   productVariantIds: string[];
   searchQueries: string[];
+  discoveryMode: "keyword" | "product_context";
   target: number;
   scrolls: number;
   autoImport: boolean;
@@ -236,6 +240,7 @@ export function RealisticReviewUgcPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("Pinterest lifestyle references");
   const [searchQueries, setSearchQueries] = useState<string[]>(() => referenceLifestyleSearchQueries());
+  const [discoveryMode, setDiscoveryMode] = useState<"keyword" | "product_context">("keyword");
   const [target, setTarget] = useState(100);
   const [scrolls, setScrolls] = useState(6);
   const [autoImport, setAutoImport] = useState(true);
@@ -394,6 +399,10 @@ export function RealisticReviewUgcPage() {
         name: name.trim(),
         query: searchQueries[0],
         search_queries: searchQueries,
+        discovery_mode: discoveryMode,
+        product_context: discoveryMode === "product_context"
+          ? { auto_context: true, themes: [], preferred_scenes: [], avoid: [] }
+          : null,
         target_count: target,
         max_scroll_batches: scrolls,
         auto_import: autoImport,
@@ -520,6 +529,25 @@ export function RealisticReviewUgcPage() {
     }
   }
 
+  async function markContextFeedback(
+    candidate: Candidate,
+    label: ContextManualLabel | "clear",
+  ) {
+    if (!selected || actionId) return;
+    setCandidateContextMenu(null);
+    setActionId("context:" + candidate.id);
+    setError("");
+    try {
+      const result = await markCandidateContextFeedback(selected.id, candidate.id, label);
+      setCandidates(rows => rows.map(row => row.id === result.candidate.id ? result.candidate : row));
+      await refreshSelectedCampaign(selected.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to save context review.");
+    } finally {
+      setActionId("");
+    }
+  }
+
   function openCampaignEditor(campaign: Campaign) {
     setEditingId(campaign.id);
     setProductImportMessage("");
@@ -532,6 +560,7 @@ export function RealisticReviewUgcPage() {
         : campaign.search_queries?.length
           ? campaign.search_queries
           : [campaign.query],
+      discoveryMode: campaign.discovery_mode || "keyword",
       target: campaign.target_count,
       scrolls: campaign.max_scroll_batches,
       autoImport: campaign.auto_import,
@@ -656,6 +685,16 @@ export function RealisticReviewUgcPage() {
       const updated = await updateCampaign(editingId, {
         name: editDraft.name.trim(),
         search_queries: editDraft.searchQueries,
+        discovery_mode: editDraft.discoveryMode,
+        product_context: editDraft.discoveryMode === "product_context"
+          ? {
+              auto_context: true,
+              themes: editingCampaign?.product_context?.operator_themes || [],
+              preferred_scenes: editingCampaign?.product_context?.preferred_scenes || [],
+              avoid: editingCampaign?.product_context?.avoid || [],
+              notes: editingCampaign?.product_context?.notes || null,
+            }
+          : null,
         target_count: editDraft.target,
         max_scroll_batches: editDraft.scrolls,
         auto_import: editDraft.autoImport,
@@ -778,7 +817,17 @@ export function RealisticReviewUgcPage() {
             <div className="rrugc-form">
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
               <label>
-                Search keywords
+                Discovery mode
+                <select value={discoveryMode} onChange={event => setDiscoveryMode(event.target.value as "keyword" | "product_context")}>
+                  <option value="keyword">Keyword discovery</option>
+                  <option value="product_context">Product context</option>
+                </select>
+              </label>
+              {discoveryMode === "product_context" && <p className="rrugc-editor-product-result">
+                Product Context uses the bound product title, description, variants, and embroidery meaning to expand these anchor keywords into matching lifestyle scenes.
+              </p>}
+              <label>
+                {discoveryMode === "product_context" ? "Anchor keywords" : "Search keywords"}
                 <SearchQueryEditor value={searchQueries} onChange={setSearchQueries} />
               </label>
               <div className="rrugc-form-row">
@@ -1003,7 +1052,37 @@ export function RealisticReviewUgcPage() {
 
               <section className="rrugc-editor-section">
                 <div className="rrugc-editor-section-heading">
-                  <div><small>DISCOVERY</small><strong>Pinterest search keywords</strong></div>
+                  <div><small>DISCOVERY</small><strong>Pinterest reference discovery</strong></div>
+                  <span>{editDraft.discoveryMode === "product_context" ? "Product context" : "Keyword"}</span>
+                </div>
+                <label className="rrugc-editor-field">
+                  <span>Discovery mode</span>
+                  <select
+                    value={editDraft.discoveryMode}
+                    onChange={event => setEditDraft(current => current ? {
+                      ...current,
+                      discoveryMode: event.target.value as "keyword" | "product_context",
+                    } : current)}
+                  >
+                    <option value="keyword">Keyword discovery</option>
+                    <option value="product_context">Product context</option>
+                  </select>
+                  <small>{editDraft.discoveryMode === "product_context"
+                    ? "Server expands anchor keywords from the bound product meaning and learned context feedback."
+                    : "Scout searches the campaign keyword pool directly."}</small>
+                </label>
+                {editDraft.discoveryMode === "product_context" && <div className="rrugc-editor-product-result">
+                  <strong>Detected context</strong>
+                  <span className="rrugc-campaign-keywords">
+                    {(editingCampaign?.product_context?.themes || []).map(theme => <small key={theme}>{theme.replaceAll("_", " ")}</small>)}
+                    {(editingCampaign?.product_context?.themes || []).length === 0 && <small>Bind a product or save the campaign to derive themes.</small>}
+                  </span>
+                  {(editingCampaign?.product_context?.search_clusters?.direct || []).length > 0 && <small>
+                    Direct scenes: {(editingCampaign?.product_context?.search_clusters?.direct || []).slice(0, 3).join(" · ")}
+                  </small>}
+                </div>}
+                <div className="rrugc-editor-section-heading rrugc-editor-subheading">
+                  <div><small>{editDraft.discoveryMode === "product_context" ? "ANCHORS" : "KEYWORDS"}</small><strong>{editDraft.discoveryMode === "product_context" ? "Anchor keywords" : "Search keywords"}</strong></div>
                   <span>{editDraft.searchQueries.length}/10</span>
                 </div>
                 <SearchQueryEditor
@@ -1205,7 +1284,7 @@ export function RealisticReviewUgcPage() {
                   onContextMenu={event => {
                     event.preventDefault();
                     const menuWidth = 190;
-                    const menuHeight = 292;
+                    const menuHeight = selected.discovery_mode === "product_context" ? 412 : 292;
                     setCandidateContextMenu({
                       candidateId: candidate.id,
                       x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
@@ -1239,6 +1318,7 @@ export function RealisticReviewUgcPage() {
                     <span>UGC <b>{percent(candidate.mobile_ugc_score)}</b></span>
                     <span>Quality <b>{percent(candidate.quality_score)}</b></span>
                     {candidate.matched_color && <span>Color <b>{candidate.matched_color}</b></span>}
+                    {candidate.context_manual_label && <span>Context <b>{candidate.context_manual_label === "good" ? "Good" : "Wrong"}</b></span>}
                   </div> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
                 </div>
                 <footer>
@@ -1270,6 +1350,14 @@ export function RealisticReviewUgcPage() {
                   <button type="button" disabled={Boolean(actionId) || !inspectedCandidate.reference_manual_label} onClick={() => void markReferenceFeedback(inspectedCandidate, "clear")}>Clear</button>
                 </div>
               </div>
+              {selected.discovery_mode === "product_context" && <div className="rrugc-inspector-review rrugc-reference-review">
+                <small>Product context · separate from image quality</small>
+                <div>
+                  <button type="button" className={inspectedCandidate.context_manual_label === "good" ? "is-active is-ref-good" : ""} disabled={Boolean(actionId)} onClick={() => void markContextFeedback(inspectedCandidate, "good")}>Good context</button>
+                  <button type="button" className={inspectedCandidate.context_manual_label === "wrong" ? "is-active is-ref-bad" : ""} disabled={Boolean(actionId)} onClick={() => void markContextFeedback(inspectedCandidate, "wrong")}>Wrong context</button>
+                  <button type="button" disabled={Boolean(actionId) || !inspectedCandidate.context_manual_label} onClick={() => void markContextFeedback(inspectedCandidate, "clear")}>Clear</button>
+                </div>
+              </div>}
               <div className="rrugc-inspector-actions"><a href={inspectedCandidate.pin_url} target="_blank" rel="noreferrer">Open Pinterest</a>{inspectedCandidate.web_url && <a href={inspectedCandidate.web_url} target="_blank" rel="noreferrer">Open Drive</a>}</div>
             </section>
           </aside>}
@@ -1336,7 +1424,41 @@ export function RealisticReviewUgcPage() {
               >
                 <span>Clear reference mark</span><b />
               </button>
-              <small>Reference marks teach ranking and keyword selection for this tenant.</small>
+              {selected.discovery_mode === "product_context" && <>
+                <div className="rrugc-candidate-context-menu-head rrugc-context-menu-section">
+                  <strong>Product context</strong>
+                  <span>{candidate.context_manual_label === "good"
+                    ? "Good context"
+                    : candidate.context_manual_label === "wrong" ? "Wrong context" : "Not reviewed"}</span>
+                </div>
+                {([
+                  ["good", "Good context"],
+                  ["wrong", "Wrong context"],
+                ] as const).map(([label, copy]) => <button
+                  key={"context-" + label}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={candidate.context_manual_label === label}
+                  className={candidate.context_manual_label === label ? "is-active is-ref-" + (label === "good" ? "good" : "bad") : ""}
+                  disabled={Boolean(actionId)}
+                  onClick={() => void markContextFeedback(candidate, label)}
+                >
+                  <span>{copy}</span>
+                  <b>{actionId === "context:" + candidate.id ? "Saving…" : candidate.context_manual_label === label ? "✓" : ""}</b>
+                </button>)}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="rrugc-context-clear"
+                  disabled={Boolean(actionId) || !candidate.context_manual_label}
+                  onClick={() => void markContextFeedback(candidate, "clear")}
+                >
+                  <span>Clear context mark</span><b />
+                </button>
+              </>}
+              <small>{selected.discovery_mode === "product_context"
+                ? "Reference quality and product context are learned independently for this campaign."
+                : "Reference marks teach ranking and keyword selection for this tenant."}</small>
             </div>;
           })()}
           {visibleCandidates.length > candidateLimit && <button

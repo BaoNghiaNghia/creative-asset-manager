@@ -439,7 +439,7 @@ class RrugcRepository:
         campaign_id: str,
         *,
         limit: int = 2000,
-    ) -> list[tuple[str, str, str | None]]:
+    ) -> list[tuple[str, str, str | None, str | None]]:
         rows = self.session.execute(
             select(
                 RrugcCandidateModel.status,
@@ -456,11 +456,16 @@ class RrugcRepository:
             )
             .limit(max(1, int(limit)))
         ).all()
-        outcomes: list[tuple[str, str, str | None]] = []
+        outcomes: list[tuple[str, str, str | None, str | None]] = []
         for status, signal in rows:
             query = signal.get("scout_query") if isinstance(signal, dict) else None
             reference_label = (
                 signal.get("reference_manual_label")
+                if isinstance(signal, dict)
+                else None
+            )
+            context_label = (
+                signal.get("context_manual_label")
                 if isinstance(signal, dict)
                 else None
             )
@@ -469,6 +474,7 @@ class RrugcRepository:
                     query.strip(),
                     status,
                     reference_label if reference_label in {"good", "bad"} else None,
+                    context_label if context_label in {"good", "wrong"} else None,
                 ))
         return outcomes
 

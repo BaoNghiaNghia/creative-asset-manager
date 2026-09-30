@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from app.modules.realistic_review_ugc.product_context import product_context_search_queries
+
 
 MAX_CAMPAIGN_SEARCH_QUERIES = 10
 
@@ -236,14 +238,19 @@ def _persona_templates(persona: str, explicit_hat_type: str | None) -> list[str]
 
 
 def _keyword_feedback_scores(
-    outcomes: Iterable[tuple[str, str] | tuple[str, str, str | None]],
+    outcomes: Iterable[
+        tuple[str, str]
+        | tuple[str, str, str | None]
+        | tuple[str, str, str | None, str | None]
+    ],
 ) -> dict[str, float]:
     stats: dict[str, list[int]] = {}
     useful_statuses = {"approved", "import_queued", "importing", "drive_ready"}
     for outcome in outcomes:
         query, status = outcome[0].casefold(), outcome[1]
         reference_label = outcome[2] if len(outcome) > 2 else None
-        row = stats.setdefault(query, [0, 0, 0, 0])
+        context_label = outcome[3] if len(outcome) > 3 else None
+        row = stats.setdefault(query, [0, 0, 0, 0, 0, 0])
         row[0] += 1
         if status in useful_statuses:
             row[1] += 1
@@ -251,17 +258,31 @@ def _keyword_feedback_scores(
             row[2] += 1
         elif reference_label == "bad":
             row[3] += 1
+        if context_label == "good":
+            row[4] += 1
+        elif context_label == "wrong":
+            row[5] += 1
 
     scores: dict[str, float] = {}
-    for query, (evaluated, approved, ref_good, ref_bad) in stats.items():
+    for query, (evaluated, approved, ref_good, ref_bad, context_good, context_wrong) in stats.items():
         reference_reviews = ref_good + ref_bad
         reference_signal = (
             (ref_good - ref_bad) / reference_reviews
             if reference_reviews
             else 0.0
         )
+        context_reviews = context_good + context_wrong
+        context_signal = (
+            (context_good - context_wrong) / context_reviews
+            if context_reviews
+            else 0.0
+        )
         approved_signal = approved / evaluated if evaluated else 0.0
-        scores[query] = 1.25 * reference_signal + 0.35 * approved_signal
+        scores[query] = (
+            1.25 * reference_signal
+            + 0.90 * context_signal
+            + 0.35 * approved_signal
+        )
     return scores
 
 
@@ -271,8 +292,14 @@ def build_campaign_search_queries(
     queries: Iterable[str] = (),
     protected_queries: Iterable[str] = (),
     product_snapshot: dict[str, Any] | None = None,
+    discovery_mode: str = "keyword",
+    product_context: dict[str, Any] | None = None,
     reject_headwear: bool = False,
-    outcomes: Iterable[tuple[str, str] | tuple[str, str, str | None]] = (),
+    outcomes: Iterable[
+        tuple[str, str]
+        | tuple[str, str, str | None]
+        | tuple[str, str, str | None, str | None]
+    ] = (),
     max_queries: int = MAX_CAMPAIGN_SEARCH_QUERIES,
 ) -> list[str]:
     original = [str(query or "").strip() for query in queries if str(query or "").strip()]
@@ -281,6 +308,55 @@ def build_campaign_search_queries(
         for query in protected_queries
         if str(query or "").strip()
     ))
+
+    if discovery_mode == "product_context":
+        # Product Context treats manual queries as anchors, not the whole pool.
+        # Reserve most slots for server-derived semantic scene searches.
+        protected = protected[:2]
+        feedback_scores = _keyword_feedback_scores(outcomes)
+        level_weight = {"direct": 0.30, "adjacent": 0.18, "generic": 0.08}
+        contextual = product_context_search_queries(product_context)
+        protected_keys = {query.casefold() for query in protected}
+        selected: list[str] = []
+        selected_keys: set[str] = set()
+
+        for query in protected:
+            key = query.casefold()
+            if key in selected_keys:
+                continue
+            selected.append(query)
+            selected_keys.add(key)
+            if len(selected) >= max_queries:
+                return selected[:max_queries]
+
+        ranked_context = sorted(
+            contextual,
+            key=lambda item: (
+                feedback_scores.get(item[0].casefold(), 0.12)
+                + level_weight.get(item[1], 0.0)
+            ),
+            reverse=True,
+        )
+        for query, _level in ranked_context:
+            key = query.casefold()
+            if key in selected_keys or query_is_suppressed_for_reference_search(query):
+                continue
+            selected.append(query)
+            selected_keys.add(key)
+            if len(selected) >= max_queries:
+                break
+
+        if len(selected) < max_queries:
+            for query in original:
+                key = query.casefold()
+                if key in selected_keys:
+                    continue
+                selected.append(query)
+                selected_keys.add(key)
+                if len(selected) >= max_queries:
+                    break
+        return selected or list(dict.fromkeys(original))[:max_queries]
+
     if reject_headwear:
         return list(dict.fromkeys(original))[:max_queries]
     if detect_campaign_keyword_intent(
