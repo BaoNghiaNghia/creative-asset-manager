@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   archiveProduct,
   archiveProductReference,
-  createProduct,
   importProductUrls,
   listProductReferences,
   listProducts,
@@ -12,7 +11,6 @@ import {
 } from "./api";
 import type {
   Product,
-  ProductCreateRequest,
   ProductReference,
   ProductUrlImportResult,
   ProductReferenceView,
@@ -58,17 +56,6 @@ export function ProductRegistryPanel() {
   const [references, setReferences] = useState<ProductReference[]>([]);
   const [productUrls, setProductUrls] = useState("");
   const [urlImportResult, setUrlImportResult] = useState<ProductUrlImportResult | null>(null);
-  const [sku, setSku] = useState("");
-  const [name, setName] = useState("");
-  const [color, setColor] = useState("");
-  const [material, setMaterial] = useState("");
-  const [crownProfile, setCrownProfile] = useState("mid");
-  const [crownHeight, setCrownHeight] = useState("");
-  const [brimStyle, setBrimStyle] = useState("curved");
-  const [brimLength, setBrimLength] = useState("");
-  const [circumference, setCircumference] = useState("");
-  const [logoPosition, setLogoPosition] = useState("front center");
-  const [fitNotes, setFitNotes] = useState("");
   const [viewType, setViewType] = useState<ProductReferenceView>("front");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [busy, setBusy] = useState("");
@@ -129,43 +116,6 @@ export function ProductRegistryPanel() {
       if (result.failed === 0) setProductUrls("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan product URLs.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function submitProduct() {
-    if (!sku.trim() || !name.trim() || busy) return;
-    setBusy("create");
-    setError("");
-    const payload: ProductCreateRequest = {
-      sku: sku.trim(),
-      name: name.trim(),
-      product_type: "hat",
-      color: color.trim() || undefined,
-      material: material.trim() || undefined,
-      crown_profile: crownProfile.trim() || undefined,
-      crown_height_mm: crownHeight ? Number(crownHeight) : undefined,
-      brim_style: brimStyle.trim() || undefined,
-      brim_length_mm: brimLength ? Number(brimLength) : undefined,
-      circumference_mm: circumference ? Number(circumference) : undefined,
-      logo_position: logoPosition.trim() || undefined,
-      fit_notes: fitNotes.trim() || undefined,
-    };
-    try {
-      const created = await createProduct(payload);
-      await refreshProducts();
-      setSelectedId(created.id);
-      setSku("");
-      setName("");
-      setColor("");
-      setMaterial("");
-      setCrownHeight("");
-      setBrimLength("");
-      setCircumference("");
-      setFitNotes("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to create product.");
     } finally {
       setBusy("");
     }
@@ -269,28 +219,33 @@ export function ProductRegistryPanel() {
 
     {error && <div className="rrugc-error" role="alert">{error}</div>}
 
-    <section className="rrugc-product-url-import" aria-label="Import products from URLs">
+    <section className="rrugc-product-url-import" aria-label="Import product from URL">
       <div>
-        <small>PRODUCT URL IMPORT</small>
-        <h3>Scan product pages</h3>
-        <p>Paste one product URL per line. The system extracts product details, variants and gallery images, then saves the primary image as the front reference when possible.</p>
+        <small>PRODUCT LINK</small>
+        <h3>Add product reference</h3>
+        <p>Paste the product page link. Product details, colors and gallery images are collected automatically.</p>
       </div>
-      <textarea
-        rows={3}
+      <input
+        type="url"
         value={productUrls}
         onChange={event => setProductUrls(event.target.value)}
-        placeholder={"https://store.example.com/products/product-a\nhttps://store.example.com/products/product-b"}
-        aria-label="Product URLs"
+        placeholder="https://store.example.com/products/product"
+        aria-label="Product URL"
+        onKeyDown={event => {
+          if (event.key === "Enter" && productUrlsFromText(productUrls).length && !busy) {
+            event.preventDefault();
+            void scanProductUrls();
+          }
+        }}
       />
       <div className="rrugc-product-url-actions">
-        <span>{productUrlsFromText(productUrls).length}/10 URLs</span>
         <button
           type="button"
           className="rrugc-primary"
           disabled={!productUrlsFromText(productUrls).length || Boolean(busy)}
           onClick={() => void scanProductUrls()}
         >
-          {busy === "url-import" ? "Scanning product pages…" : "Scan & import products"}
+          {busy === "url-import" ? "Scanning product…" : "Scan & import"}
         </button>
       </div>
       {urlImportResult && <div className="rrugc-product-import-result">
@@ -310,30 +265,10 @@ export function ProductRegistryPanel() {
       </div>}
     </section>
 
-    <div className="rrugc-product-layout">
-      <details className="rrugc-product-create" open={products.length === 0}>
-        <summary><span><strong>Manual product fallback</strong><small>Use only when a product page cannot be scanned.</small></span><b>Manual SKU</b></summary>
-        <div className="rrugc-product-form-grid">
-          <label>SKU<input value={sku} onChange={event => setSku(event.target.value)} placeholder="CAP-001" /></label>
-          <label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="Forest Green Cap" /></label>
-          <label>Color<input value={color} onChange={event => setColor(event.target.value)} placeholder="forest green" /></label>
-          <label>Material<input value={material} onChange={event => setMaterial(event.target.value)} placeholder="cotton twill" /></label>
-          <label>Crown profile<input value={crownProfile} onChange={event => setCrownProfile(event.target.value)} placeholder="mid" /></label>
-          <label>Crown height mm<input type="number" min="1" value={crownHeight} onChange={event => setCrownHeight(event.target.value)} placeholder="118" /></label>
-          <label>Brim style<input value={brimStyle} onChange={event => setBrimStyle(event.target.value)} placeholder="curved" /></label>
-          <label>Brim length mm<input type="number" min="1" value={brimLength} onChange={event => setBrimLength(event.target.value)} placeholder="72" /></label>
-          <label>Circumference mm<input type="number" min="1" value={circumference} onChange={event => setCircumference(event.target.value)} placeholder="580" /></label>
-          <label>Logo position<input value={logoPosition} onChange={event => setLogoPosition(event.target.value)} placeholder="front center" /></label>
-        </div>
-        <label>Fit / geometry notes<textarea value={fitNotes} onChange={event => setFitNotes(event.target.value)} rows={3} placeholder="Structured six-panel cap, preserve crown depth and brim curvature." /></label>
-        <button type="button" className="rrugc-primary" disabled={!sku.trim() || !name.trim() || Boolean(busy)} onClick={() => void submitProduct()}>
-          {busy === "create" ? "Creating…" : "Create product"}
-        </button>
-      </details>
-
+    {products.length > 0 && <div className="rrugc-product-layout rrugc-product-layout--links-only">
       <div className="rrugc-product-list">
-        <h3>Product library</h3>
-        {products.length === 0 ? <p className="rrugc-empty">No product SKU yet.</p> : products.map(product =>
+        <h3>Imported products</h3>
+        {products.map(product =>
           <button type="button" key={product.id} className={product.id === selectedId ? "active" : ""} onClick={() => setSelectedId(product.id)}>
             <span><strong>{product.sku}</strong><small>{product.name}</small></span>
             <span><b>{product.reference_count}</b><small>refs</small></span>
@@ -341,7 +276,7 @@ export function ProductRegistryPanel() {
           </button>
         )}
       </div>
-    </div>
+    </div>}
 
     {selected && <div className="rrugc-product-detail">
       <div className="rrugc-product-detail-head">

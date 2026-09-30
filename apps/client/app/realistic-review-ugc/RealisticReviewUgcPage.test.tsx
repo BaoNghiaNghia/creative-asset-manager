@@ -22,11 +22,13 @@ describe("Realistic Review UGC route", () => {
     expect(markup).not.toContain("Define what Auto Scout should find");
   });
 
-  it("renders URL-first product import and keeps manual entry as fallback", () => {
+  it("renders a link-only product import flow", () => {
     const markup = renderToStaticMarkup(<ProductRegistryPanel />);
-    expect(markup).toContain("Scan product pages");
-    expect(markup).toContain("Scan &amp; import products");
-    expect(markup).toContain("Manual product fallback");
+    expect(markup).toContain("Add product reference");
+    expect(markup).toContain("Scan &amp; import");
+    expect(markup).toContain('type="url"');
+    expect(markup).not.toContain("Manual product fallback");
+    expect(markup).not.toContain("Create product");
     expect(productUrlsFromText("https://a.example/p/1\nhttps://b.example/p/2\nhttps://a.example/p/1")).toEqual([
       "https://a.example/p/1",
       "https://b.example/p/2",
