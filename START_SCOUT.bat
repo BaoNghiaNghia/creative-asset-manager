@@ -59,10 +59,33 @@ if not exist "%SCOUT_BOOTSTRAP%" (
   )
 
   if not exist "%SCOUT_BOOTSTRAP%" (
-    echo [ERROR] Auto-update launcher is still missing after updating main:
-    echo   %SCOUT_BOOTSTRAP%
-    pause
-    exit /b 7
+    echo The checkout is current, but the updater file is missing locally.
+    echo Restoring it directly from origin/main...
+
+    if not exist "%~dp0scripts" mkdir "%~dp0scripts"
+
+    git cat-file -e origin/main:scripts/start_scout_auto_update.ps1 >nul 2>nul
+    if errorlevel 1 (
+      echo [ERROR] origin/main does not contain the Scout updater.
+      pause
+      exit /b 7
+    )
+
+    git show origin/main:scripts/start_scout_auto_update.ps1 > "%SCOUT_BOOTSTRAP%.tmp"
+    if errorlevel 1 (
+      del /q "%SCOUT_BOOTSTRAP%.tmp" >nul 2>nul
+      echo [ERROR] Unable to restore the Scout updater from origin/main.
+      pause
+      exit /b 8
+    )
+
+    move /y "%SCOUT_BOOTSTRAP%.tmp" "%SCOUT_BOOTSTRAP%" >nul
+    if errorlevel 1 (
+      echo [ERROR] Unable to place the restored updater at:
+      echo   %SCOUT_BOOTSTRAP%
+      pause
+      exit /b 9
+    )
   )
 
   echo Bootstrap complete. Continuing with the self-updating Scout launcher...
