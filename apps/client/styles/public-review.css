@@ -2,7 +2,7 @@
 .public-review{
   --public-ink:#22314a;--public-muted:#718096;--public-line:#dce5f0;--public-blue:#315fe9;
   min-height:100vh;padding:0;background:#f4f7fb;color:var(--public-ink);
-  font:14px/1.45 Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font:14px/1.45 "Be Vietnam Pro",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
 .public-review>header{
   display:grid;height:auto;grid-template-columns:minmax(260px,1fr) minmax(240px,480px);gap:24px;
@@ -329,7 +329,7 @@
    is a native contenteditable hit area rather than a content-sized label. */
 .public-review-backdrop .public-review-composer{
   padding:0 14px;
-  font-family:Inter,system-ui,sans-serif;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
 }
 .public-review-backdrop .public-review-composer .public-editor{
   display:flex;
@@ -359,7 +359,7 @@
   box-sizing:border-box;
   overflow-y:auto;
   padding:17px 0 15px;
-  font-family:Inter,system-ui,sans-serif;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
   font-size:14px;
   font-weight:400;
   line-height:1.45;
@@ -371,11 +371,11 @@
 .public-review-backdrop .public-review-feed .public-rich-annotation,
 .public-review-backdrop .public-comment-footer time,
 .public-review-backdrop .public-comment-body>time{
-  font-family:Inter,system-ui,sans-serif;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
   letter-spacing:normal;
 }
 .public-review-backdrop .public-review-composer .public-tiptap p.is-editor-empty:first-child:before{
-  font-family:Inter,system-ui,sans-serif;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
   font-size:14px;
   font-weight:400;
   line-height:1.45;
@@ -386,7 +386,7 @@
   flex:0 0 auto;
   margin-left:8px;
   padding:0 8px;
-  font-family:Inter,system-ui,sans-serif;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
   font-size:14px;
   font-weight:700;
   letter-spacing:normal;
@@ -404,7 +404,7 @@
 .public-review-backdrop .public-video-loading { background:transparent; }
 .public-review-backdrop .public-media-position { top:auto; bottom:16px; }
 .public-review-backdrop .public-review-feed .public-comment-body .public-rich-annotation {
-  font-family:Inter,system-ui,sans-serif;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
   font-size:16px;
   font-weight:400;
   line-height:1.5;
