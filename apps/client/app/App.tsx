@@ -276,7 +276,6 @@ export default function App() {
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [desktopIngestion, setDesktopIngestion] = useState<DesktopIngestionJob | null>(null);
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [folderNoteOpen, setFolderNoteOpen] = useState(false);
   const [folderNoteSummary, setFolderNoteSummary] = useState("");
   const [folderNoteAvailable, setFolderNoteAvailable] = useState(false);
@@ -315,8 +314,6 @@ export default function App() {
   }, [canManageReviewLinks]);
 
   const dragDepthRef = useRef(0);
-  const newMenuRef = useRef<HTMLDivElement | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const resultContainerRef = useRef<HTMLElement | null>(null);
   const autoAppendAttemptsRef = useRef(0);
@@ -388,22 +385,6 @@ export default function App() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [confirm]);
-  useEffect(() => {
-    if (!newMenuOpen) return;
-    const closeMenu = (event: MouseEvent) => {
-      if (newMenuRef.current && !newMenuRef.current.contains(event.target as Node)) setNewMenuOpen(false);
-    };
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setNewMenuOpen(false);
-    };
-    window.addEventListener("mousedown", closeMenu);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("mousedown", closeMenu);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [newMenuOpen]);
-
   useEffect(() => {
     if (!showSuggestions && !showSearchHistory) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -627,13 +608,6 @@ export default function App() {
       : null,
   );
 
-  function chooseUploadFiles() {
-    // Use the renderer file picker for individual files. It creates an
-    // immediate upload row before the network request and avoids depending on
-    // the native IPC file-picker path. Folder ingestion still uses the native
-    // desktop service because it needs recursive filesystem access.
-    uploadInputRef.current?.click();
-  }
   function handleFileDragEnter(event: DragEvent<HTMLElement>) {
     if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;
     event.preventDefault();
@@ -1052,29 +1026,12 @@ export default function App() {
       </div>}
 
       {explorer.auth.authenticated && explorer.explorerReady && <nav>
-        <div>{explorer.path.map((folder, index) => <button
+        <div className="explorer-breadcrumb">{explorer.path.map((folder, index) => <button
           key={folder.id}
           onClick={() => void explorer.openFolder(folder.id, explorer.path.slice(0, index))}
         >
           {folder.name}
         </button>)}</div>
-        <div className="explorer-create-actions" ref={newMenuRef}>
-          <button type="button" className="explorer-new-trigger" aria-haspopup="menu" aria-expanded={newMenuOpen} aria-controls="explorer-new-menu" onClick={() => setNewMenuOpen(open => !open)}><span aria-hidden="true">+</span>New<span className="explorer-new-caret" aria-hidden="true">v</span></button>
-          {newMenuOpen && <div id="explorer-new-menu" className="explorer-new-menu" role="menu" aria-label="Create or upload">
-            {!explorer.pureViewer && <>
-              <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Folder name"); if (name?.trim()) void explorer.createFolder(name.trim()).catch(() => window.alert("Unable to create folder.")); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>New folder</b><small>Create in this folder</small></span></button>
-              <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const name = window.prompt("Text file name"); if (name?.trim()) void explorer.createTextFile(name.trim()).catch(() => window.alert("Unable to create text file.")); }}><span className="explorer-new-icon text" aria-hidden="true">T</span><span><b>Text file</b><small>Create a TXT file</small></span></button>
-              <div className="explorer-new-menu-divider" role="separator" />
-            </>}
-            {window.camDesktop?.ingestion && explorer.provider === "google-drive" && <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); const parentId = explorer.path.at(-1)?.id || "root"; void window.camDesktop?.ingestion.chooseFolders({ parentId, provider: "google-drive", externalSourceId: explorer.activeExternalSourceId || undefined }).then(job => { if (job) setDesktopIngestion(job); }); }}><span className="explorer-new-icon folder" aria-hidden="true">[]</span><span><b>Add folder</b><small>Choose local folders</small></span></button>}
-            <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); chooseUploadFiles(); }}><span className="explorer-new-icon upload-icon" aria-hidden="true">^</span><span><b>Upload files</b><small>Choose one or more files</small></span></button>
-          </div>}
-          <input ref={uploadInputRef} hidden type="file" multiple onChange={event => {
-            const files = Array.from(event.target.files || []);
-            if (files.length) void explorer.uploadFiles(files);
-            event.currentTarget.value = "";
-          }} />
-        </div>
       </nav>}
 
       {explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
