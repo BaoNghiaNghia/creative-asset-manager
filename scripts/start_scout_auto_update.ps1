@@ -144,6 +144,48 @@ function Invoke-Git([string[]]$Arguments) {
     return @($output)
 }
 
+function Ensure-ScoutBootstrap([string]$Path) {
+    # A fast-forward can briefly leave the currently running launcher absent
+    # from the working tree on Windows. The current PowerShell process keeps
+    # running from memory, but a child -File launch will fail unless the file
+    # is present again. Give Git/filesystem filters a moment to settle first.
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    }
+
+    Write-Host "Scout updater is missing after source update. Restoring it from origin/main..." -ForegroundColor Yellow
+    $parent = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $content = Invoke-Git @("show", "origin/main:scripts/start_scout_auto_update.ps1")
+    if ($content.Count -eq 0) {
+        throw "origin/main returned an empty Scout updater."
+    }
+
+    $temporaryPath = $Path + ".restore-" + [Guid]::NewGuid().ToString("N") + ".tmp"
+    try {
+        Set-Content -LiteralPath $temporaryPath -Value $content -Encoding UTF8
+        if (-not (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
+            throw "Unable to stage the restored Scout updater."
+        }
+        Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw ("Scout updater is still missing after recovery: " + $Path)
+    }
+}
+
 Set-Location -LiteralPath $RepoRoot
 
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
@@ -207,8 +249,13 @@ if (-not $SkipUpdate) {
             Invoke-Git @("merge", "--ff-only", "origin/main") | Out-Null
             Write-Host "Source update complete." -ForegroundColor Green
 
-            # Reload the launcher from disk so updates to this script take effect immediately.
-            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -SkipUpdate
+            # Reload the launcher from the updated checkout so changes to this
+            # script take effect immediately. Re-resolve the tracked path after
+            # Git updates the working tree; if a Windows filesystem/filter race
+            # left it absent, recover the exact origin/main version first.
+            $updatedBootstrap = Join-Path $RepoRoot "scripts\start_scout_auto_update.ps1"
+            Ensure-ScoutBootstrap $updatedBootstrap
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate
             exit $LASTEXITCODE
         }
 
