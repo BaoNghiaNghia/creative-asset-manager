@@ -92,7 +92,11 @@ logger = logging.getLogger(__name__)
 # Browser HTTP/2 can start every visible thumbnail concurrently. Keep the
 # DB-backed authorization phase well below the API SQLAlchemy pool ceiling so
 # thumbnails cannot starve normal API traffic.
-_THUMBNAIL_AUTH_CONCURRENCY = 6
+# Keep authorization concurrency below the API pool ceiling. Production
+# currently has three persistent connections plus two overflow slots; using
+# only three here leaves capacity for folder/navigation requests while visible
+# thumbnails are authorizing in parallel.
+_THUMBNAIL_AUTH_CONCURRENCY = 3
 _thumbnail_auth_gate = asyncio.Semaphore(_THUMBNAIL_AUTH_CONCURRENCY)
 
 _VIDEO_THUMBNAIL_PLACEHOLDER = b"""<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-label="Video thumbnail unavailable"><rect width="320" height="180" fill="#edf2fb"/><rect x="1" y="1" width="318" height="178" rx="10" fill="none" stroke="#cbd8ed" stroke-width="2"/><circle cx="160" cy="82" r="28" fill="#4163d8"/><path d="M151 66v32l25-16z" fill="#fff"/><text x="160" y="143" text-anchor="middle" fill="#50627f" font-family="Arial, sans-serif" font-size="14">Video preview unavailable</text></svg>"""
@@ -201,6 +205,13 @@ async def _viewer_folder_scope_allowed(
     if provider != "google-drive" or not access.source_id:
         return False
 
+    # The local scope check above can leave a SQLAlchemy transaction checked
+    # out. Release it before any provider I/O. The same Session object remains
+    # reusable later and will acquire a fresh connection only when needed.
+    scope_session = getattr(scope_service, "session", None)
+    if scope_session is not None:
+        scope_session.close()
+
     # New or incompletely synced files/folders may not have local ancestry.
     # Cache only immediate parent IDs; caller-specific scope evaluation remains
     # uncached. A lazy client keeps cached/follower requests from creating a
@@ -230,9 +241,10 @@ async def _viewer_folder_scope_allowed(
             )
             if not parent_id:
                 return False
-            if parent_id in access.folder_ids or scope_service.allows_external_asset(
-                tenant_id=tenant_id, access=access, external_asset_id=parent_id,
-            ):
+            # Do not re-enter the database while walking the provider chain.
+            # Reaching an explicitly assigned folder is sufficient proof that
+            # the item is inside the current viewer scope.
+            if parent_id in access.folder_ids:
                 return True
             current_id = parent_id
     return False
@@ -356,6 +368,9 @@ async def _authorized_file_context(
                 "message": "File is outside the viewer folder scope.",
             },
         )
+    # Authorization is complete. Never carry a DB checkout into thumbnail,
+    # preview, media, or CDN/provider network I/O.
+    session.close()
     return token, tenant_id, resolved_source_id
 
 
@@ -534,7 +549,12 @@ async def item_location(request: Request, item_id: str, provider: Provider = Que
         resolution_source = "provider"
         provider_folders = {}
         current = parent_id
+        resolved_item_parent: str | None = None
         visited = set()
+        # Provider ancestry fallback can be slow. Detach the read transaction;
+        # the same session will reopen only if we persist newly discovered
+        # folders after the provider walk completes.
+        session.close()
         try:
             async with create_source_provider(provider, token) as client:
                 if not current:
@@ -542,9 +562,7 @@ async def item_location(request: Request, item_id: str, provider: Provider = Que
                     current = item_node.parent_id
                     parent_id = str(current or "")
                     if current:
-                        item_source_metadata = dict(source.source_metadata or {})
-                        item_source_metadata["parents"] = [str(current)]
-                        source.source_metadata = item_source_metadata
+                        resolved_item_parent = str(current)
                 for depth in range(64):
                     if not current:
                         failure_reason = "missing_parent"
@@ -570,6 +588,17 @@ async def item_location(request: Request, item_id: str, provider: Provider = Que
             if breadcrumb:
                 from app.modules.assets.repository import AssetRegistryRepository
                 repository = AssetRegistryRepository(session)
+                if resolved_item_parent:
+                    refreshed_source = session.scalar(select(SourceAssetModel).where(
+                        SourceAssetModel.tenant_id == tenant_id,
+                        SourceAssetModel.external_source_id == resolved_source_id,
+                        SourceAssetModel.external_asset_id == item_id,
+                        SourceAssetModel.deleted_at.is_(None),
+                    ))
+                    if refreshed_source is not None:
+                        item_source_metadata = dict(refreshed_source.source_metadata or {})
+                        item_source_metadata["parents"] = [resolved_item_parent]
+                        refreshed_source.source_metadata = item_source_metadata
                 for folder_id, folder in provider_folders.items():
                     repository.upsert_source_asset(
                         tenant_id=tenant_id, external_source_id=resolved_source_id,
@@ -619,6 +648,9 @@ async def children(
             token=token,
             folder_id=parent_id,
         )
+        # Google Drive listing is network I/O. Release any viewer-scope
+        # checkout first; DB enrichment below can transparently reacquire.
+        session.close()
         return await ExplorerService(
             create_source_provider, AssetProcessingStatusService(session), access,
         ).list_folder(
@@ -660,6 +692,7 @@ async def folders(
             token=token,
             folder_id=parent_id,
         )
+        session.close()
         return await ExplorerService(
             create_source_provider, viewer_access=access,
         ).list_folders(
@@ -757,12 +790,17 @@ async def _resolve_note_owner(
     scope_service = ViewerFolderScopeService(session)
     access = scope_service.access(tenant_id=tenant_id, membership_id=principal.membership_id,
         roles=principal.effective_roles, external_source_id=source_id)
+    # access() reads Viewer scope rows. Release that checkout before Drive I/O.
+    session.close()
     async with create_source_provider(provider, token) as client:
         current = await client.get_node(folder_id)
         if current.kind != "folder":
             raise HTTPException(status_code=422, detail="Folder notes can only be opened from a folder.")
         _require_viewer_folder_scope(scope_service, tenant_id=tenant_id, access=access,
             folder_id=folder_id, allow_root=False)
+        # The scope check may reacquire a connection. Drop it before walking
+        # provider ancestry to find an inherited product-folder note.
+        session.close()
         owner = await resolve_note_owner_from_nodes(current, client.get_node)
     if owner:
         _require_viewer_folder_scope(scope_service, tenant_id=tenant_id, access=access,
@@ -926,6 +964,9 @@ async def upload_file(
         )
         if not token:
             raise HTTPException(status_code=401, detail="Connect Google Drive before uploading.")
+        # Upload streaming can take minutes. Never reserve a DB connection for
+        # the duration of the Google Drive transfer.
+        session.close()
         digest = _UploadDigest()
         async with create_source_provider(provider, token) as client:
             parent = await client.get_node(parent_id)
@@ -1433,6 +1474,9 @@ async def preview(
             "retryable": False,
         })
 
+    # The remaining work is provider download + CPU conversion; keep it out of
+    # the DB checkout lifetime.
+    session.close()
     settings = get_settings()
     shared_client = getattr(request.app.state, "google_drive_stream_client", None)
     client = None
@@ -1615,6 +1659,9 @@ async def media_playback_ticket(
         + timedelta(seconds=settings.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS + 60),
         expires_at=None,
     )
+    # The delivery resolver owns its own SessionLocal and may perform network
+    # I/O. Do not keep the request session checked out while awaiting it.
+    session.close()
     ticket = await PublicVideoDeliveryResolver(SessionLocal, settings).resolve(
         principal=ticket_principal,
         asset=asset,
@@ -1701,6 +1748,9 @@ async def media(
             if version:
                 passthrough_headers["x-cam-asset-version"] = version
 
+        # Streaming can remain open for minutes. All DB metadata needed by the
+        # response has already been materialized.
+        session.close()
         return StreamingResponse(
             upstream.aiter_raw(),
             status_code=upstream.status_code,

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.common.cache import AsyncSingleFlightTTLCache, BoundedTTLCache, ByteSizeTTLCache
 from app.modules.explorer.cache import CachedThumbnail
 from app.providers.google.drive import GoogleDriveThumbnailUnavailable
-from app.modules.explorer.router import thumbnail
+from app.modules.explorer.router import _THUMBNAIL_AUTH_CONCURRENCY, thumbnail
 
 
 class FakeUpstream:
@@ -87,6 +87,56 @@ def test_thumbnail_authorizes_before_cached_return_and_skips_second_upstream():
         assert close_thumbnail.await_count == 1
 
     asyncio.run(scenario())
+
+
+def test_thumbnail_authorization_concurrency_stays_below_db_pool_ceiling():
+    async def scenario():
+        active = 0
+        peak = 0
+        lock = asyncio.Lock()
+
+        async def authorize(*_args, **_kwargs):
+            nonlocal active, peak
+            async with lock:
+                active += 1
+                peak = max(peak, active)
+            await asyncio.sleep(0.02)
+            async with lock:
+                active -= 1
+            return "token", "tenant-a", "source-a"
+
+        with (
+            patch("app.modules.explorer.router.thumbnail_cache", _thumbnail_cache()),
+            patch(
+                "app.modules.explorer.router.thumbnail_negative_cache",
+                BoundedTTLCache(max_entries=32, ttl_seconds=60),
+            ),
+            patch(
+                "app.modules.explorer.router._authorized_file_context",
+                side_effect=authorize,
+            ),
+            patch(
+                "app.modules.explorer.router.open_google_thumbnail",
+                new=AsyncMock(return_value=(object(), FakeUpstream())),
+            ),
+            patch(
+                "app.modules.explorer.router.close_google_thumbnail",
+                new=AsyncMock(),
+            ),
+        ):
+            await asyncio.gather(*[
+                thumbnail(
+                    _request(), f"file-{index}", provider="google-drive",
+                    session=_session(), fallback=None,
+                    principal=SimpleNamespace(), external_source_id="source-a",
+                )
+                for index in range(12)
+            ])
+        return peak
+
+    peak = asyncio.run(scenario())
+    assert _THUMBNAIL_AUTH_CONCURRENCY == 3
+    assert peak <= _THUMBNAIL_AUTH_CONCURRENCY
 
 
 def test_twenty_thumbnail_misses_coalesce_to_one_upstream():

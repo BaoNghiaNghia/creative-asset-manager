@@ -251,6 +251,49 @@ class ViewerFolderScopeTest(unittest.TestCase):
 
         self.assertTrue(allowed)
 
+    def test_remote_scope_releases_db_before_provider_io_and_does_not_requery_during_walk(self):
+        access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
+        events: list[str] = []
+
+        class ScopeSession:
+            def close(self):
+                events.append("db-close")
+
+        class ScopeService:
+            session = ScopeSession()
+
+            def allows_external_asset(self, **_kwargs):
+                events.append("db-scope-check")
+                return False
+
+        class Provider:
+            parents = {"file-1": "nested-folder", "nested-folder": "folder-a"}
+
+            async def __aenter__(self):
+                events.append("provider-open")
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def get_node(self, item_id):
+                events.append("provider-get:" + item_id)
+                return SimpleNamespace(parent_id=self.parents.get(item_id))
+
+        with patch("app.modules.explorer.router.create_source_provider", return_value=Provider()):
+            allowed = asyncio.run(_viewer_media_scope_allowed(
+                ScopeService(), tenant_id="tenant-1", access=access,
+                provider="google-drive", token="test-token", item_id="file-1",
+            ))
+
+        self.assertTrue(allowed)
+        self.assertEqual(events.count("db-scope-check"), 1)
+        self.assertLess(events.index("db-close"), events.index("provider-open"))
+        self.assertEqual(
+            [event for event in events if event.startswith("provider-get:")],
+            ["provider-get:file-1", "provider-get:nested-folder"],
+        )
+
     def test_concurrent_remote_media_scope_requests_share_parent_lookups(self):
         access = ViewerFolderAccess(True, "source-1", frozenset({"folder-a"}))
 
