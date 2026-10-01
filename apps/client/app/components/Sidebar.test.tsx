@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ConnectedSource, ProviderSessions } from "../types";
-import { Sidebar, sourceProviderLoginRoute } from "./Sidebar";
+import { ONE_DRIVE_ADD_ACCOUNT_MENU_ITEMS, Sidebar, sourceProviderLoginRoute } from "./Sidebar";
 import { activeShareFolderIds, type Share } from "../public-review-management/api";
 
 const sessions: ProviderSessions = {
@@ -47,8 +47,13 @@ describe("Sidebar multi-source accounts", () => {
 
     expect(markup).toContain("(one@example.com)");
     expect(markup).toContain("(two@example.com)");
-    expect(markup).toContain("+ Add personal OneDrive");
-    expect(markup).toContain("+ Add work/school OneDrive");
+    expect(markup).not.toContain("+ Add personal OneDrive");
+    expect(markup).not.toContain("+ Add work/school OneDrive");
+    expect(ONE_DRIVE_ADD_ACCOUNT_MENU_ITEMS.map(item => item.label)).toEqual([
+      "Add personal OneDrive",
+      "Add work/school OneDrive",
+    ]);
+    expect(markup).not.toContain("Connect SharePoint");
     expect(markup).toContain('class="sidebar-scroll"');
     expect(markup).toContain('class="sidebar-resizer"');
     expect(markup).toContain('title="Right-click for source actions"');

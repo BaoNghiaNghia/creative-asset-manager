@@ -45,7 +45,11 @@ export function mayViewAiOperations(permissions: readonly string[]): boolean {
 const sources: Array<{ provider: Provider; label: string; login: string }> = [
   { provider: "google-drive", label: "Google Drive", login: "/api/auth/google/connect-drive" },
   { provider: "onedrive", label: "OneDrive", login: "/api/auth/microsoft/connect-onedrive" },
-  { provider: "sharepoint", label: "SharePoint", login: "/api/auth/microsoft/connect-sharepoint" },
+];
+
+export const ONE_DRIVE_ADD_ACCOUNT_MENU_ITEMS = [
+  { accountType: "personal" as const, label: "Add personal OneDrive" },
+  { accountType: "work" as const, label: "Add work/school OneDrive" },
 ];
 
 function SourceIcon({ provider }: { provider: Provider }) {
@@ -192,7 +196,7 @@ export function Sidebar({
                   provider: source.provider,
                   reconnectRequired,
                   x: Math.min(event.clientX, window.innerWidth - 196),
-                  y: Math.min(event.clientY, window.innerHeight - 172),
+                  y: Math.min(event.clientY, window.innerHeight - (source.provider === "onedrive" ? 244 : 172)),
                 });
               }}>
                 <SourceIcon provider={source.provider} />
@@ -223,12 +227,6 @@ export function Sidebar({
             <SourceIcon provider={source.provider} />
             <span>Connect {source.label}</span><small>Sign in</small>
           </button>}
-          {source.provider === "onedrive" && applicationAuthenticated && <button className="source-add-account" type="button" onClick={() => {
-            if (!beginSourceOAuth("onedrive", undefined, "personal")) window.location.assign(sourceLogin("onedrive", undefined, "personal"));
-          }}>+ Add personal OneDrive</button>}
-          {source.provider === "onedrive" && applicationAuthenticated && providerSources.length > 0 && <button className="source-add-account" type="button" onClick={() => {
-            if (!beginSourceOAuth("onedrive", undefined, "work")) window.location.assign(sourceLogin("onedrive", undefined, "work"));
-          }}>+ Add work/school OneDrive</button>}
         </Fragment>;
       })}
     {sourceContextMenu && createPortal(<div className="source-context-menu-backdrop" onMouseDown={() => setSourceContextMenu(null)}>
@@ -255,6 +253,17 @@ export function Sidebar({
           setSourceContextMenu(null);
           if (!beginSourceOAuth(provider, connected.id, accountType)) window.location.assign(sourceLogin(provider, connected.id, accountType));
         }}>{sourceContextMenu.reconnectRequired ? (sourceContextMenu.provider === "google-drive" ? "Reconnect Google Drive" : "Reconnect") : sourceContextMenu.provider === "google-drive" ? "Switch Google account" : "Reauthorize"}</button>}
+        {sourceContextMenu.provider === "onedrive" && applicationAuthenticated && ONE_DRIVE_ADD_ACCOUNT_MENU_ITEMS.map(item => <button
+          key={item.accountType}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setSourceContextMenu(null);
+            if (!beginSourceOAuth("onedrive", undefined, item.accountType)) {
+              window.location.assign(sourceLogin("onedrive", undefined, item.accountType));
+            }
+          }}
+        >{item.label}</button>)}
         {sourceContextMenu.connected.capabilities.disconnect && sourceContextMenu.connected.status !== "disconnected" && <button type="button" role="menuitem" className="danger" disabled={busySourceId === sourceContextMenu.connected.id} onClick={() => {
           const { account, connected, label } = sourceContextMenu;
           if (!window.confirm("Disconnect " + label + " account " + account + "?")) return;
