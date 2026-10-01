@@ -117,7 +117,7 @@ export function Sidebar({
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
   const activePathIds = new Set(path.map(folder => folder.id));
-  const [canViewAiOperations, setCanViewAiOperations] = useState(false);
+  const [workspacePermissions, setWorkspacePermissions] = useState<readonly string[]>([]);
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
   const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenu | null>(null);
 
@@ -125,8 +125,8 @@ export function Sidebar({
     let alive = true;
     fetchAccessIdentity().then(identity => {
       if (!alive) return;
-      setCanViewAiOperations(mayViewAiOperations(identity.permissions));
-    }).catch(() => { if (alive) setCanViewAiOperations(false); });
+      setWorkspacePermissions(identity.permissions);
+    }).catch(() => { if (alive) setWorkspacePermissions([]); });
     return () => { alive = false; };
   }, []);
 
@@ -155,7 +155,11 @@ export function Sidebar({
       <b><BrandIcon /></b>
       <span><strong>Creative Asset Manager</strong><small>{auth.user?.email || "Workspace · Asset library"}</small></span>
     </div>
-    <WorkspaceNavigation active="assets" showOperations={canViewAiOperations} />
+    <WorkspaceNavigation
+      active="assets"
+      showOperations={mayViewAiOperations(workspacePermissions)}
+      permissions={workspacePermissions}
+    />
     <p>SOURCES</p>
     {Object.values(authByProvider).some(session => session.checking)
       ? <div className="source-skeleton"><i /><i /><i /></div>

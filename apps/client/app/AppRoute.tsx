@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { fetchAccessIdentity } from "../features/access_management";
 import App from "./App";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
@@ -41,10 +42,40 @@ export function workspaceRouteForApplicationRoute(route: ApplicationRoute): Work
   return "assets";
 }
 
+export function requiredPermissionForApplicationRoute(route: ApplicationRoute): string | null {
+  if (route === "ai-operations" || route === "job-queue") return "ai_operations.read";
+  if (route === "realistic-review-ugc") return "realistic_review_ugc.read";
+  if (route === "access-management") return "tenant_members.read";
+  return null;
+}
+
 export function AppRoute() {
   const route = routeForPath(window.location.pathname);
+  const requiredPermission = requiredPermissionForApplicationRoute(route);
+  const [routePermissions, setRoutePermissions] = useState<readonly string[] | null>(
+    requiredPermission ? null : [],
+  );
+
+  useEffect(() => {
+    if (!requiredPermission) {
+      setRoutePermissions([]);
+      return;
+    }
+    let alive = true;
+    setRoutePermissions(null);
+    fetchAccessIdentity()
+      .then(identity => { if (alive) setRoutePermissions(identity.permissions); })
+      .catch(() => { if (alive) setRoutePermissions([]); });
+    return () => { alive = false; };
+  }, [requiredPermission]);
+
   const workspaceRoute = workspaceRouteForApplicationRoute(route);
-  const page = route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
+  const routeAllowed = !requiredPermission || Boolean(routePermissions?.includes(requiredPermission));
+  const page = requiredPermission && routePermissions === null
+    ? <main className="state" aria-busy="true">Checking permissions...</main>
+    : !routeAllowed
+      ? <main className="state"><p>This workspace is not available for your role.</p><a href="/">Return to Asset Explorer</a></main>
+      : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />
     : route === "inventory" ? <InventoryApp />

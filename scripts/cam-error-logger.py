@@ -19,6 +19,7 @@ if str(API_ROOT) not in sys.path:
 from app.core.error_archive import (  # noqa: E402
     ERROR_RETENTION_DAYS,
     append_archived_errors,
+    classify_error_message,
     iter_archived_errors,
     normalize_journal_error,
     purge_expired_archives,
@@ -154,6 +155,17 @@ def _filtered_rows(
 ) -> list[dict]:
     since = datetime.now(timezone.utc) - timedelta(days=max(1, min(days, ERROR_RETENTION_DAYS)))
     rows = list(iter_archived_errors(state_dir / "archive", since=since))
+    # Re-apply the current classifier at read time so improvements to noise
+    # filtering also clean historical views without rewriting archive files.
+    reclassified: list[dict] = []
+    for row in rows:
+        captured, severity = classify_error_message(str(row.get("message") or ""))
+        if not captured:
+            continue
+        if row.get("severity") != severity:
+            row = {**row, "severity": severity}
+        reclassified.append(row)
+    rows = reclassified
     if service:
         needle = service.casefold()
         rows = [row for row in rows if needle in str(row.get("service") or "").casefold()]

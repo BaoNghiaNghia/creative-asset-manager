@@ -23,6 +23,7 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
       active={active}
       showOperations={permissions.includes("ai_operations.read")}
       showReviewBoard={mayViewReviewBoard(permissions)}
+      permissions={permissions}
     />
   </div>;
 }

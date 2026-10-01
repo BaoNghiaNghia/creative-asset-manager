@@ -71,6 +71,21 @@ def classify_error_message(message: str) -> tuple[bool, str]:
     """Return whether a journal message is operationally relevant and its severity."""
     if message.startswith("error-logger:"):
         return False, "error"
+
+    lifecycle = message.strip()
+    if re.match(
+        r"^(Starting|Started|Stopping|Stopped|Finished) "
+        r"creative-asset-manager-[A-Za-z0-9_.@-]+\.(service|timer)\b",
+        lifecycle,
+    ):
+        return False, "error"
+    if re.match(
+        r"^creative-asset-manager-[A-Za-z0-9_.@-]+\.(service|timer): "
+        r"(Deactivated successfully\.|Consumed .+ CPU time)",
+        lifecycle,
+    ):
+        return False, "error"
+
     structured = _parse_structured(message)
     if structured is not None:
         level = str(structured.get("level") or "").strip().upper()

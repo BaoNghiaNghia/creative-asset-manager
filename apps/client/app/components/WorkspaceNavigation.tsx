@@ -37,12 +37,14 @@ export function WorkspaceNavigation({
   active,
   showOperations = true,
   showReviewBoard,
+  permissions,
   aiOperationsTab,
   onAiOperationsTab,
 }: {
   active: WorkspaceRoute;
   showOperations?: boolean;
   showReviewBoard?: boolean;
+  permissions?: readonly string[];
   aiOperationsTab?: AiOpsTab;
   onAiOperationsTab?: (tab: AiOpsTab) => void;
 }) {
@@ -65,18 +67,28 @@ export function WorkspaceNavigation({
     if (active === "operations") setOperationsOpen(true);
   }, [active]);
 
+  const permissionAware = permissions !== undefined;
+  const canViewOperations = showOperations
+    && (!permissionAware || permissions.includes("ai_operations.read"));
+  const canViewRrugc = !permissionAware || permissions.includes("realistic_review_ugc.read");
+  const canViewAccess = !permissionAware || permissions.includes("tenant_members.read");
+
   const items: Array<{ id: WorkspaceRoute; href: string; label: string }> = [
     { id: "assets", href: "/", label: "Asset Explorer" },
-    ...(showOperations ? [
+    ...(canViewOperations ? [
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
     ] : []),
-    { id: "realistic-review-ugc", href: "/realistic-review-ugc", label: "Realistic Review UGC" },
-    ...(showOperations ? [
+    ...(canViewRrugc ? [
+      { id: "realistic-review-ugc" as const, href: "/realistic-review-ugc", label: "Realistic Review UGC" },
+    ] : []),
+    ...(canViewOperations ? [
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },
     ] : []),
     { id: "generation", href: "/video-generation", label: "Video Generation" },
     ...(visible ? [{ id: "review-board" as const, href: "/review-board", label: "Review Board" }] : []),
-    { id: "access", href: "/settings/access", label: "Access Management" },
+    ...(canViewAccess ? [
+      { id: "access" as const, href: "/settings/access", label: "Access Management" },
+    ] : []),
   ];
 
   return <nav className="workspace-navigation" aria-label="Workspace navigation">

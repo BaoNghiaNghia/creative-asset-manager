@@ -18,6 +18,7 @@ from app.modules.ai_metadata.projection import SearchProjectionBuilder
 from app.modules.ai_metadata.projection_service import SearchProjectionService
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.pipeline.errors import InvalidPipelineContent, TransientPipelineContent
 from app.modules.pipeline.mime_types import (
     SourceContentTooLarge, UnsupportedSourceMimeType,
     is_supported_google_drive_image_mime_type,
@@ -184,6 +185,15 @@ class SourceAssetDownloadJobHandler(_PipelineHandler):
             return self._failed(
                 context, exc, retryable=False,
                 error_code="source_content_too_large",
+            )
+        except InvalidPipelineContent as exc:
+            # Empty/unsupported/corrupt source bytes are deterministic for the
+            # same source object. Retrying them only burns worker capacity.
+            return self._failed(context, exc, retryable=False)
+        except TransientPipelineContent as exc:
+            return self._failed(
+                context, exc, retryable=True,
+                error_code="pipeline_content_transient",
             )
         except TemporaryDownloadCapacityReached as exc:
             return DeferredJobOutcome(

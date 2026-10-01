@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { routeForPath, workspaceRouteForApplicationRoute } from "./AppRoute";
+import { requiredPermissionForApplicationRoute, routeForPath, workspaceRouteForApplicationRoute } from "./AppRoute";
 
 describe("responsive workspace routing", () => {
   it("maps internal application routes to the shared workspace navigation", () => {
@@ -23,5 +23,14 @@ describe("responsive workspace routing", () => {
     expect(routeForPath("/")).toBe("explorer");
     expect(routeForPath("/ai-operations")).toBe("ai-operations");
     expect(routeForPath("/settings/access")).toBe("access-management");
+  });
+
+  it("gates privileged workspaces before their page can issue protected API calls", () => {
+    expect(requiredPermissionForApplicationRoute("ai-operations")).toBe("ai_operations.read");
+    expect(requiredPermissionForApplicationRoute("job-queue")).toBe("ai_operations.read");
+    expect(requiredPermissionForApplicationRoute("realistic-review-ugc")).toBe("realistic_review_ugc.read");
+    expect(requiredPermissionForApplicationRoute("access-management")).toBe("tenant_members.read");
+    expect(requiredPermissionForApplicationRoute("explorer")).toBeNull();
+    expect(requiredPermissionForApplicationRoute("video-generation")).toBeNull();
   });
 });

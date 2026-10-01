@@ -6,9 +6,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.modules.assets.content_resolver import SourceAssetContentResolver, SourceAssetContentUnavailable
+from app.modules.assets.content_resolver import (
+    SourceAssetContentResolver,
+    SourceAssetContentTransient,
+    SourceAssetContentUnavailable,
+)
+from app.modules.pipeline.errors import InvalidPipelineContent, TransientPipelineContent
 from app.modules.pipeline.model import AssetPipelineModel
-from app.modules.pipeline.stages import InvalidPipelineContent
 from app.providers.source_factory import create_source_provider
 
 TokenResolver = Callable[[str], Awaitable[str]]
@@ -25,5 +29,7 @@ class SourceAssetPipelineContentResolver:
         try:
             async with self.resolver.open(tenant_id=tenant_id, source_asset_id=pipeline.source_asset_id) as stream:
                 yield stream
+        except SourceAssetContentTransient as exc:
+            raise TransientPipelineContent(str(exc)) from exc
         except SourceAssetContentUnavailable as exc:
             raise InvalidPipelineContent(str(exc)) from exc

@@ -18,6 +18,7 @@ from app.domain.providers.contracts import StorageProviderError
 from app.modules.ai_metadata.repository import AiMetadataRepository
 from app.modules.assets.model import AssetModel
 from app.modules.assets.repository import AssetRegistryRepository
+from app.modules.pipeline.errors import InvalidPipelineContent, TransientPipelineContent
 from app.modules.pipeline.handlers import (
     AssetStoreJobHandler,
     SourceAssetDownloadJobHandler,
@@ -305,6 +306,34 @@ class SourceAssetDownloadJobHandlerTest(unittest.TestCase):
                 pipeline.last_error_code, "managed_storage_unauthorized"
             )
             self.assertFalse(pipeline.failure_retryable)
+
+    def test_invalid_pipeline_content_is_terminal_without_retry_loop(self) -> None:
+        stage = FailIfCalledStage(InvalidPipelineContent("unsupported file signature"))
+        result = SourceAssetDownloadJobHandler(self.settings)(
+            self._context("image/jpeg", stage)
+        )
+
+        self.assertTrue(stage.called)
+        self.assertEqual(result.outcome, JobOutcome.NON_RETRYABLE_FAILURE)
+        self.assertEqual(result.error_code, "InvalidPipelineContent")
+        with self.sessions() as session:
+            pipeline = session.scalar(select(AssetPipelineModel))
+            self.assertEqual(pipeline.last_error_code, "InvalidPipelineContent")
+            self.assertFalse(pipeline.failure_retryable)
+
+    def test_transient_pipeline_content_remains_retryable(self) -> None:
+        stage = FailIfCalledStage(TransientPipelineContent("provider stream interrupted"))
+        result = SourceAssetDownloadJobHandler(self.settings)(
+            self._context("image/jpeg", stage)
+        )
+
+        self.assertTrue(stage.called)
+        self.assertEqual(result.outcome, JobOutcome.RETRYABLE_FAILURE)
+        self.assertEqual(result.error_code, "pipeline_content_transient")
+        with self.sessions() as session:
+            pipeline = session.scalar(select(AssetPipelineModel))
+            self.assertEqual(pipeline.last_error_code, "pipeline_content_transient")
+            self.assertTrue(pipeline.failure_retryable)
 
     def test_oversized_image_is_terminal_with_stable_error_code(self) -> None:
         stage = FailIfCalledStage(SourceContentTooLarge("too large"))

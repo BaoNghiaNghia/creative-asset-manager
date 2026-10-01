@@ -51,6 +51,31 @@ def test_harmless_warning_failed_message_is_ignored() -> None:
     assert captured is False
 
 
+def test_benign_systemd_lifecycle_for_error_named_unit_is_ignored() -> None:
+    for message in (
+        "Starting creative-asset-manager-error-logger.service - Creative Asset Manager 10-day error log collector...",
+        "Finished creative-asset-manager-error-logger.service - Creative Asset Manager 10-day error log collector.",
+        "creative-asset-manager-error-logger.service: Deactivated successfully.",
+        "creative-asset-manager-error-logger.service: Consumed 1.2s CPU time.",
+    ):
+        assert classify_error_message(message)[0] is False
+
+
+def test_systemd_failure_is_still_captured() -> None:
+    captured, severity = classify_error_message(
+        "creative-asset-manager-api.service: Failed with result 'timeout'."
+    )
+    assert captured is True
+    assert severity == "error"
+
+
+def test_error_named_worker_lifecycle_is_not_a_false_positive() -> None:
+    captured, _severity = classify_error_message(
+        "Started creative-asset-manager-error-logger.timer - Collect Creative Asset Manager errors every 5 minutes."
+    )
+    assert captured is False
+
+
 def test_plain_traceback_and_critical_are_captured() -> None:
     assert classify_error_message("Traceback (most recent call last):")[0] is True
     assert classify_error_message("CRITICAL: worker crashed") == (True, "critical")

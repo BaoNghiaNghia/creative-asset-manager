@@ -15,6 +15,7 @@ from app.domain.providers.contracts import AssetDownloadStream, AssetStorageProv
 from app.modules.assets.content_dedup_service import ContentDeduplicationService
 from app.modules.assets.repository import AssetRegistryRepository
 from app.modules.pipeline.handlers import DownloadStageResult
+from app.modules.pipeline.errors import InvalidPipelineContent
 from app.modules.ai_metadata.image_codecs import register_heif_decoder
 from app.modules.pipeline.mime_types import SourceContentTooLarge, TemporaryDownloadCapacityReached, normalize_source_mime_type
 from app.modules.pipeline.model import AssetPipelineModel
@@ -24,10 +25,6 @@ from app.modules.storage.service import ManagedAssetStorageService
 
 class PipelineContentResolver(Protocol):
     def open(self, *, tenant_id: str, pipeline: AssetPipelineModel) -> AsyncContextManager[AssetDownloadStream]: ...
-
-
-class InvalidPipelineContent(ValueError):
-    pass
 
 
 class ProviderDownloadStage:
