@@ -36,7 +36,7 @@ describe("Sidebar multi-source accounts", () => {
     const markup = renderToStaticMarkup(<Sidebar
       provider="onedrive" auth={sessions.onedrive} authByProvider={sessions}
       sources={[source("one", "one@example.com"), source("two", "two@example.com")]}
-      activeExternalSourceId="two" tags={[]} path={[]} activeId={undefined}
+      activeExternalSourceId="two" path={[]} activeId={undefined}
       rootFolders={[]} childrenByParent={{}} expanded={new Set()} loadingNodes={new Set()}
       onSelectProvider={() => undefined} onSelectSource={async () => undefined}
       onDisconnectSource={async () => undefined} onSyncSource={async () => undefined}
@@ -66,7 +66,7 @@ describe("Sidebar multi-source accounts", () => {
     const reconnecting: ConnectedSource = { ...source("google-reconnect", "drive@example.com"), source_type: "google_drive", provider: "google", status: "reconnect_required" };
     const markup = renderToStaticMarkup(<Sidebar
       provider="google-drive" auth={{ authenticated: true, user: null, checking: false }} authByProvider={{ ...sessions, "google-drive": { authenticated: true, user: null, checking: false } }}
-      sources={[reconnecting]} activeExternalSourceId={null} tags={[]} path={[]} activeId={undefined}
+      sources={[reconnecting]} activeExternalSourceId={null} path={[]} activeId={undefined}
       rootFolders={[]} childrenByParent={{}} expanded={new Set()} loadingNodes={new Set()}
       onSelectProvider={() => undefined} onSelectSource={async () => undefined}
       onDisconnectSource={async () => undefined} onSyncSource={async () => undefined}
@@ -88,7 +88,7 @@ describe("Sidebar multi-source accounts", () => {
     const markup = renderToStaticMarkup(<Sidebar
       provider="google-drive" auth={{ authenticated: true, user: null, checking: false }} authByProvider={{ ...sessions, "google-drive": { authenticated: true, user: null, checking: false } }}
       sources={[google]}
-      activeExternalSourceId="google-one" tags={[]} path={[]} activeId={undefined}
+      activeExternalSourceId="google-one" path={[]} activeId={undefined}
       rootFolders={[]} childrenByParent={{}} expanded={new Set()} loadingNodes={new Set()}
       onSelectProvider={() => undefined} onSelectSource={async () => undefined}
       onDisconnectSource={async () => undefined} onSyncSource={async () => undefined}

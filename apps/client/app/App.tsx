@@ -29,7 +29,6 @@ import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import { addSearchHistory, loadSearchHistory, saveSearchHistory } from "./utils/searchHistory";
 import type { Asset, SearchSuggestion } from "./types";
 
-const visibilityFilters = ["all", "public", "draft"] as const;
 export const DEFAULT_SEARCH_MEDIA_MODE = "all" as const;
 export type SearchMediaMode = typeof DEFAULT_SEARCH_MEDIA_MODE | "images" | "videos";
 
@@ -581,7 +580,7 @@ export default function App() {
   const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : explorer.provider === "onedrive" ? "onedrive-root" : "root";
   const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
   const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : explorer.provider === "onedrive" ? "OneDrive" : "Google Drive";
-  const paginationResetKey = [explorer.query, explorer.provider, explorer.activeExternalSourceId || "", explorer.activeAssignedRootId || "", explorer.visibilityFilter, detailsOpen ? "details" : "no-details"].join("\u001f");
+  const paginationResetKey = [explorer.query, explorer.provider, explorer.activeExternalSourceId || "", explorer.activeAssignedRootId || "", detailsOpen ? "details" : "no-details"].join("\u001f");
   useEffect(() => {
     if (autoAppendKeyRef.current !== paginationResetKey) {
       autoAppendKeyRef.current = paginationResetKey;
@@ -834,9 +833,7 @@ export default function App() {
         : <EmptyAssets
           query={explorer.query}
           path={explorer.path}
-          visibilityFilter="all"
           onClearSearch={() => explorer.setQuery("")}
-          onClearFilter={() => undefined}
           onOpen={explorer.openFolder}
         />}
   </>;
@@ -859,7 +856,6 @@ export default function App() {
       authByProvider={explorer.authByProvider}
       sources={explorer.sources}
       activeExternalSourceId={explorer.activeExternalSourceId}
-      tags={explorer.tags}
       path={explorer.path}
       activeId={activeId}
       rootFolders={rootFolders}
@@ -1114,11 +1110,7 @@ export default function App() {
                 })()}
               </h1>
               <small>{!explorer.query.trim()
-                ? !explorer.visibilityFilterReady
-                  ? "Loading asset labels"
-                  : explorer.visibilityFilter === "all"
-                    ? explorer.items.length + " items"
-                    : explorer.visibleItems.length + " items shown"
+                ? explorer.items.length + " items"
                 : searchMediaMode === "all"
                   ? searchBusy
                     ? "Searching images & videos..."
@@ -1134,15 +1126,6 @@ export default function App() {
                         : explorer.visibleItems.length + " results"}</small>
             </span>
             <div className="title-actions">
-              <div className="visibility-filter" role="group" aria-label="Filter assets by visibility">
-                {visibilityFilters.map(filter => <button
-                  key={filter}
-                  type="button"
-                  className={explorer.visibilityFilter === filter ? "active" : ""}
-                  aria-pressed={explorer.visibilityFilter === filter}
-                  onClick={() => explorer.setVisibilityFilter(filter)}
-                >{filter}</button>)}
-              </div>
               <div className="view-tools" role="group" aria-label="View options">
                 <b aria-label="Layout options">▦　☷</b>
                 <button
@@ -1231,15 +1214,10 @@ export default function App() {
             Could not load more items. <button type="button" onClick={explorer.loadMoreFolderItems}>Retry</button>
           </div>}
 
-          {!explorer.loading && !explorer.searching && !explorer.visibilityFilterReady && !explorer.visibleItems.length &&
-            <div className="state">Loading asset labels…</div>}
-
-          {!explorer.loading && !explorer.searching && explorer.visibilityFilterReady && !explorer.visibleItems.length && <EmptyAssets
+          {!explorer.loading && !explorer.searching && !explorer.visibleItems.length && <EmptyAssets
             query={explorer.query}
             path={explorer.path}
-            visibilityFilter={explorer.visibilityFilter}
             onClearSearch={() => explorer.setQuery("")}
-            onClearFilter={() => explorer.setVisibilityFilter("all")}
             onOpen={explorer.openFolder}
           />}
           </div>

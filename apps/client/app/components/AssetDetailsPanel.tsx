@@ -294,7 +294,6 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
       <h3 id="asset-state-heading">Asset state</h3>
       <div className="inspector-state-row">
         {metadata ? <AssetStatusBadge status={metadata.processing_status} /> : data && <span className="processing-status"><i />{data.lifecycle_status.replaceAll("_", " ")}</span>}
-        {metadata?.tag_ids.map(tag => <span className={"asset-status " + tag} key={tag}>{tag}</span>)}
       </div>
     </section>
 

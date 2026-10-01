@@ -37,7 +37,7 @@ describe("Asset details inspector", () => {
 
   it("renders a friendly Drive-style preview and file properties without an internal asset", () => {
     const markup = renderToStaticMarkup(<AssetDetailsPanel item={item} metadata={metadata} onClose={noop} onPreview={noop} />);
-    for (const value of ["details", "activity", item.name, "Image · image/jpeg", "31 MB", "Resolving location...", "Google Drive", "Open preview", "Open in Google Drive", "public", "indexed"]) {
+    for (const value of ["details", "activity", item.name, "Image · image/jpeg", "31 MB", "Resolving location...", "Google Drive", "Open preview", "Open in Google Drive", "indexed"]) {
       expect(markup).toContain(value);
     }
     expect(markup).not.toContain("Operator actions");

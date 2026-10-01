@@ -124,14 +124,6 @@ button,a{-webkit-tap-highlight-color:transparent}
 .product-shell .sidebar .tree-row.active .tree-label{
   font-weight:650;
 }
-.product-shell .sidebar .tag{
-  min-height:34px;
-  padding:7px 8px;
-  color:#536173;
-  font-size:11.5px;
-  font-weight:500;
-  line-height:1.3;
-}
 .product-shell .sidebar .connected-user{
   color:#7f8b9d;
   font-size:10px;

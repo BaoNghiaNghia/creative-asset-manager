@@ -11,9 +11,7 @@ import type {
   Provider,
   ProviderSessions,
   ConnectedSource,
-  Tag,
   TreeCache,
-  VisibilityFilter,
   ViewerBootstrap,
   ViewerBootstrapSource,
 } from "../types";
@@ -314,9 +312,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const auth = authByProvider[provider];
   const [path, setPath] = useState<Asset[]>([]);
   const [items, setItems] = useState<Asset[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
   const [metadataByItem, setMetadataByItem] = useState<AssetMetadataMap>({});
-  const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [childrenByParent, setChildrenByParent] = useState<TreeCache>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["root"]));
@@ -329,7 +325,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
   // The header search is tenant-wide: media tabs filter kind, not cloud source.
   // Result items retain their own provider/source identity for open and preview.
-  const searchV3 = useSearchV3(Boolean(applicationAuthenticated) && explorerReady, null, imageSearchEnabled ? query : "", undefined, visibilityFilter);
+  const searchV3 = useSearchV3(Boolean(applicationAuthenticated) && explorerReady, null, imageSearchEnabled ? query : "", undefined);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());
@@ -1162,7 +1158,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       }
     }
     void initialize();
-    fetch("/api/tags").then(response => response.json()).then(setTags).catch(() => setTags([]));
     return () => { abortPendingBrowse(); openSequence.current += 1; cancelFolderPrefetch(); };
   }, []);
 
@@ -1254,50 +1249,16 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     });
   }
 
-  async function applyTag(tagId: string) {
-    setError("");
-    const response = await fetch("/api/tags/assign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider, item_ids: [...selected], tag_id: tagId }),
-    });
-    if (!response.ok) {
-      setError("Unable to assign tag");
-      return;
-    }
-    const body = await response.json() as { items: AssetMetadata[] };
-    mergeMetadata(body.items);
-    setSelected(new Set());
-  }
-
-  function changeVisibilityFilter(filter: VisibilityFilter) {
-    setVisibilityFilter(filter);
-    setSelected(new Set());
-  }
-
   const matchedItems = useMemo(
     () => searchV3.active && query.trim().length >= 1 ? searchV3.items : items,
     [items, query, searchV3.active, searchV3.items],
   );
 
-  const visibleItems = useMemo(
-    () => visibilityFilter === "all"
-      ? matchedItems
-      : matchedItems.filter(item =>
-        item.kind === "folder"
-        || metadataByItem[item.id]?.tag_ids.includes(visibilityFilter)
-      ),
-    [matchedItems, metadataByItem, visibilityFilter],
-  );
+  const visibleItems = matchedItems;
 
   useEffect(() => {
     setSelected(current => pruneSelectedIds(current, visibleItems));
   }, [visibleItems]);
-
-  const visibilityFilterReady = visibilityFilter === "all"
-    || matchedItems.every(item =>
-      item.kind === "folder" || metadataByItem[item.id] !== undefined
-    );
 
   useEffect(() => {
     if (applicationAuthenticated !== true || matchedItems.length === 0) return;
@@ -1345,11 +1306,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     path,
     items,
     visibleItems,
-    tags,
     metadataByItem,
-    visibilityFilter,
-    visibilityFilterReady,
-    setVisibilityFilter: changeVisibilityFilter,
     selected,
     childrenByParent,
     expanded,
@@ -1400,7 +1357,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     logout,
     toggleSelection,
     replaceSelection,
-    applyTag,
     clearSelection: () => setSelected(new Set()),
     uploads, uploadFiles, createFolder, createTextFile, deleteItem, deleteItems, renameItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };

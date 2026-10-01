@@ -208,19 +208,17 @@ function AssetMetadataBar({
   item: Asset;
   metadata?: AssetMetadata;
 }) {
-  const visibility = metadata?.tag_ids.find(tag => tag === "public" || tag === "draft");
   const showProcessingStatus = item.kind !== "folder" && Boolean(metadata);
   const typeDate = item.kind === "folder"
     ? null
     : fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))
       + (item.modified_at ? " - " + new Date(item.modified_at).toLocaleDateString() : "");
 
-  if (!showProcessingStatus && !visibility && !typeDate) return null;
+  if (!showProcessingStatus && !typeDate) return null;
 
   return <div className="asset-metadata">
     <span className="asset-labels">
       {showProcessingStatus && metadata && <AssetStatusBadge status={metadata.processing_status} />}
-      {visibility && <span className={"asset-status " + visibility}>{visibility}</span>}
     </span>
     {typeDate && <small className="asset-type-date">{typeDate}</small>}
   </div>;

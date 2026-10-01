@@ -1,5 +1,4 @@
 export type Provider = "google-drive" | "onedrive" | "sharepoint";
-export type VisibilityFilter = "all" | "public" | "draft";
 export type AssetProcessingStatus =
   | "discovered"
   | "stored"
@@ -39,13 +38,6 @@ export type Asset = {
   has_children?: boolean;
 };
 
-export type Tag = {
-  id: string;
-  name: string;
-  color: string;
-  group_key?: string;
-  is_system?: boolean;
-};
 export type AssetMetadata = {
   item_id: string;
   tag_ids: string[];

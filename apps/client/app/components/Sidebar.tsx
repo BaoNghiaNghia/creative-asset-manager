@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
-import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, Tag, TreeCache } from "../types";
+import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, TreeCache } from "../types";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
@@ -14,7 +14,6 @@ type Props = {
   authByProvider: ProviderSessions;
   sources: ConnectedSource[];
   activeExternalSourceId: string | null;
-  tags: Tag[];
   path: Asset[];
   activeId?: string;
   rootFolders: Asset[];
@@ -113,7 +112,7 @@ function beginProviderLogin(provider: Provider, applicationAuthenticated: boolea
 
 
 export function Sidebar({
-  provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, tags, path, activeId, rootFolders,
+  provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onSelectSource, onDisconnectSource, onSyncSource, onOpen,
   onToggle, onPrefetch, onPrefetchNow, onCancelPrefetch, reviewLinkShareIds, onCopyReviewLink, onRefreshReviewLink, onCollapse, onResizeStart,
   applicationAuthenticated = false,
@@ -274,8 +273,6 @@ export function Sidebar({
         }}>{busySourceId === sourceContextMenu.connected.id ? "Disconnecting..." : "Disconnect"}</button>}
       </div>
     </div>, document.body)}
-    <p>TAGS</p>
-    {tags.map(tag => <button className="tag" key={tag.id}><i style={{ background: tag.color }} />{tag.name}</button>)}
     {auth.authenticated && <div className="connected-user"><span className="status-dot" /> Connected to {provider === "onedrive" ? "OneDrive" : provider === "sharepoint" ? "SharePoint" : "Google Drive"}</div>}
     </div>
     <div className="sidebar-resizer" onPointerDown={onResizeStart} role="separator" aria-label="Resize sidebar" aria-orientation="vertical" />
