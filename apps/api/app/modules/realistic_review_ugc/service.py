@@ -40,7 +40,10 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
-from app.modules.realistic_review_ugc.reference_library import RrugcReferenceLibrary
+from app.modules.realistic_review_ugc.reference_library import (
+    REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
+    RrugcReferenceLibrary,
+)
 from app.modules.realistic_review_ugc.schema import CandidateSubmission
 
 
@@ -848,6 +851,7 @@ class RrugcService:
         label: str,
         note: str | None,
         user_id: str,
+        profile_key: str = REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
     ) -> RrugcCandidateModel:
         if label not in {"good", "bad", "clear"}:
             raise RrugcError(
@@ -859,6 +863,9 @@ class RrugcService:
         clean_note = (note or "").strip() or None
         if clean_note is not None:
             clean_note = clean_note[:1000]
+        normalized_profile = str(
+            profile_key or REFERENCE_PROFILE_REALISTIC_PERSON_UGC
+        ).strip()[:100] or REFERENCE_PROFILE_REALISTIC_PERSON_UGC
 
         features = reference_preference_features(
             phone_authenticity_score=candidate.phone_authenticity_score,
@@ -910,6 +917,7 @@ class RrugcService:
                     "diversity": signal.get("diversity"),
                     "scout_query": signal.get("scout_query"),
                     "learning_intent": learning_intent,
+                    "reference_profile_key": normalized_profile,
                 },
                 created_by_user_id=user_id,
                 created_at=now,

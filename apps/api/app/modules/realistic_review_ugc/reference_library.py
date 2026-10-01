@@ -17,6 +17,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSeedModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.visual_search.preprocess import (
@@ -122,6 +123,114 @@ class RrugcReferenceLibrary:
     def __init__(self, session: Session):
         self.session = session
         self.repository = RrugcRepository(session)
+
+    def set_seed(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        campaign: RrugcCampaignModel,
+        reference_asset: RrugcReferenceAssetModel,
+        label: str,
+        profile_key: str = REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
+        note: str | None = None,
+    ) -> RrugcReferenceSeedModel:
+        normalized_label = str(label or "").strip().lower()
+        if normalized_label not in {"positive", "negative"}:
+            raise ReferenceLibraryError(
+                "reference_seed_label_invalid",
+                "Reference seed label must be positive or negative.",
+                status_code=422,
+            )
+        normalized_profile = str(
+            profile_key or REFERENCE_PROFILE_REALISTIC_PERSON_UGC
+        ).strip()[:100]
+        if not normalized_profile:
+            normalized_profile = REFERENCE_PROFILE_REALISTIC_PERSON_UGC
+        if campaign.tenant_id != tenant_id or reference_asset.tenant_id != tenant_id:
+            raise ReferenceLibraryError(
+                "reference_seed_scope_mismatch",
+                "Reference seed source does not belong to the active tenant.",
+                status_code=404,
+            )
+        if reference_asset.status != "ready":
+            raise ReferenceLibraryError(
+                "reference_seed_not_ready",
+                "Only a ready Reference Library asset can be used as a seed.",
+                status_code=409,
+            )
+
+        existing = self.repository.get_reference_seed(
+            tenant_id,
+            campaign.id,
+            normalized_profile,
+            reference_asset.id,
+        )
+        if existing is not None:
+            existing.label = normalized_label
+            existing.note = (note or "").strip()[:1000] or None
+            self.session.commit()
+            self.session.refresh(existing)
+            return existing
+
+        row = RrugcReferenceSeedModel(
+            tenant_id=tenant_id,
+            campaign_id=campaign.id,
+            reference_asset_id=reference_asset.id,
+            profile_key=normalized_profile,
+            label=normalized_label,
+            note=(note or "").strip()[:1000] or None,
+            created_by_user_id=user_id,
+        )
+        try:
+            self.repository.add_reference_seed(row)
+            self.session.commit()
+            self.session.refresh(row)
+            return row
+        except IntegrityError:
+            self.session.rollback()
+            existing = self.repository.get_reference_seed(
+                tenant_id,
+                campaign.id,
+                normalized_profile,
+                reference_asset.id,
+            )
+            if existing is None:
+                raise
+            existing.label = normalized_label
+            existing.note = (note or "").strip()[:1000] or None
+            self.session.commit()
+            self.session.refresh(existing)
+            return existing
+
+    def clear_seed(
+        self,
+        *,
+        tenant_id: str,
+        campaign: RrugcCampaignModel,
+        reference_asset_id: str,
+        profile_key: str = REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
+    ) -> bool:
+        normalized_profile = str(
+            profile_key or REFERENCE_PROFILE_REALISTIC_PERSON_UGC
+        ).strip()[:100] or REFERENCE_PROFILE_REALISTIC_PERSON_UGC
+        if campaign.tenant_id != tenant_id:
+            raise ReferenceLibraryError(
+                "reference_seed_scope_mismatch",
+                "Reference seed campaign does not belong to the active tenant.",
+                status_code=404,
+            )
+        existing = self.repository.get_reference_seed(
+            tenant_id,
+            campaign.id,
+            normalized_profile,
+            reference_asset_id,
+        )
+        if existing is None:
+            return False
+        self.repository.delete_reference_seed(existing)
+        self.session.commit()
+        return True
 
     def promote_pinterest_candidate(
         self,

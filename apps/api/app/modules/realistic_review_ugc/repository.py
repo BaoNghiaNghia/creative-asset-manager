@@ -20,6 +20,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSeedModel,
 )
 
 
@@ -218,6 +219,58 @@ class RrugcRepository:
             )
         )
 
+    def get_reference_seed(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        profile_key: str,
+        reference_asset_id: str,
+    ) -> RrugcReferenceSeedModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceSeedModel).where(
+                RrugcReferenceSeedModel.tenant_id == tenant_id,
+                RrugcReferenceSeedModel.campaign_id == campaign_id,
+                RrugcReferenceSeedModel.profile_key == profile_key,
+                RrugcReferenceSeedModel.reference_asset_id == reference_asset_id,
+            )
+        )
+
+    def list_reference_seeds(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        profile_key: str,
+        label: str | None = None,
+    ) -> list[RrugcReferenceSeedModel]:
+        statement = select(RrugcReferenceSeedModel).where(
+            RrugcReferenceSeedModel.tenant_id == tenant_id,
+            RrugcReferenceSeedModel.campaign_id == campaign_id,
+            RrugcReferenceSeedModel.profile_key == profile_key,
+        )
+        if label:
+            statement = statement.where(RrugcReferenceSeedModel.label == label)
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcReferenceSeedModel.updated_at.desc(),
+                    RrugcReferenceSeedModel.id.desc(),
+                )
+            )
+        )
+
+    def add_reference_seed(
+        self,
+        row: RrugcReferenceSeedModel,
+    ) -> RrugcReferenceSeedModel:
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete_reference_seed(self, row: RrugcReferenceSeedModel) -> None:
+        self.session.delete(row)
+        self.session.flush()
+
     def reference_asset_by_source(
         self,
         tenant_id: str,
@@ -251,6 +304,8 @@ class RrugcRepository:
         source_type: str | None = None,
         status: str | None = "ready",
         campaign_id: str | None = None,
+        profile_key: str | None = None,
+        reference_type: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[RrugcReferenceAssetModel]:
@@ -266,6 +321,14 @@ class RrugcRepository:
         if campaign_id:
             statement = statement.where(
                 RrugcReferenceAssetModel.source_campaign_id == campaign_id
+            )
+        if profile_key:
+            statement = statement.where(
+                RrugcReferenceAssetModel.profile_key == profile_key
+            )
+        if reference_type:
+            statement = statement.where(
+                RrugcReferenceAssetModel.reference_type == reference_type
             )
         return list(
             self.session.scalars(
@@ -368,6 +431,7 @@ class RrugcRepository:
         *,
         intent: str | None = None,
         legacy_campaign_id: str | None = None,
+        profile_key: str | None = None,
         limit: int = 1000,
     ) -> list[tuple[str, dict | None]]:
         rows = list(self.session.scalars(
@@ -382,15 +446,30 @@ class RrugcRepository:
             )
             .limit(limit)
         ))
-        latest_by_candidate: dict[str, RrugcAiFeedbackModel] = {}
+        latest_by_scope: dict[tuple[str, str], RrugcAiFeedbackModel] = {}
         for row in rows:
-            if row.candidate_id not in latest_by_candidate:
-                latest_by_candidate[row.candidate_id] = row
+            payload = row.signal_json if isinstance(row.signal_json, dict) else None
+            row_profile = (
+                str(payload.get("reference_profile_key") or "").strip()
+                if payload
+                else ""
+            ) or "realistic-person-ugc"
+            scope_key = (row.candidate_id, row_profile)
+            if scope_key not in latest_by_scope:
+                latest_by_scope[scope_key] = row
+
         result: list[tuple[str, dict | None]] = []
-        for row in latest_by_candidate.values():
+        for row in latest_by_scope.values():
+            payload = row.signal_json if isinstance(row.signal_json, dict) else None
+            row_profile = (
+                str(payload.get("reference_profile_key") or "").strip()
+                if payload
+                else ""
+            ) or "realistic-person-ugc"
+            if profile_key is not None and row_profile != profile_key:
+                continue
             if row.label not in {"ref_good", "ref_bad"}:
                 continue
-            payload = row.signal_json if isinstance(row.signal_json, dict) else None
             if intent is not None:
                 row_intent = payload.get("learning_intent") if payload else None
                 same_intent = row_intent == intent

@@ -77,6 +77,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSeedModel,
 )
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
@@ -148,6 +149,7 @@ def database():
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     RrugcReferenceAssetModel.__table__.create(engine)
+    RrugcReferenceSeedModel.__table__.create(engine)
     RrugcVisualFingerprintModel.__table__.create(engine)
     RrugcAiFeedbackModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
@@ -4389,6 +4391,140 @@ def test_reference_asset_upload_reuses_product_reference_storage(api, monkeypatc
     assert payload["asset"]["source_type"] == "upload"
     assert payload["asset"]["remote_file_id"] == product_reference.json()["remote_file_id"]
     assert storage.calls == 1
+
+
+
+def test_reference_seeds_are_campaign_and_profile_scoped(api, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+    uploaded = api.post(
+        "/api/v1/realistic-review-ugc/reference-assets/uploads",
+        data={"reference_type": "person"},
+        files={
+            "file": (
+                "seed-person.png",
+                _png_bytes(value=188),
+                "image/png",
+            )
+        },
+    )
+    assert uploaded.status_code == 200
+    reference_id = uploaded.json()["asset"]["id"]
+
+    def create_campaign(name: str) -> dict:
+        response = api.post(
+            "/api/v1/realistic-review-ugc/campaigns",
+            json={
+                "name": name,
+                "query": "candid phone photo",
+                "target_count": 2,
+                "max_scroll_batches": 1,
+                "auto_import": False,
+            },
+        )
+        assert response.status_code == 201
+        return response.json()
+
+    campaign_a = create_campaign("Seed scope A")
+    campaign_b = create_campaign("Seed scope B")
+
+    positive = api.put(
+        (
+            f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}"
+            f"/reference-seeds/{reference_id}"
+        ),
+        json={"label": "positive"},
+    )
+    assert positive.status_code == 200
+    seed_id = positive.json()["id"]
+    assert positive.json()["label"] == "positive"
+    assert positive.json()["profile_key"] == "realistic-person-ugc"
+
+    updated = api.put(
+        (
+            f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}"
+            f"/reference-seeds/{reference_id}"
+        ),
+        json={
+            "label": "negative",
+            "note": "Wrong style for this campaign",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["id"] == seed_id
+    assert updated.json()["label"] == "negative"
+    assert updated.json()["note"] == "Wrong style for this campaign"
+
+    alternate_profile = api.put(
+        (
+            f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}"
+            f"/reference-seeds/{reference_id}"
+        ),
+        json={
+            "label": "positive",
+            "profile_key": "embroidery-detail",
+        },
+    )
+    assert alternate_profile.status_code == 200
+    assert alternate_profile.json()["id"] != seed_id
+
+    other_campaign = api.put(
+        (
+            f"/api/v1/realistic-review-ugc/campaigns/{campaign_b['id']}"
+            f"/reference-seeds/{reference_id}"
+        ),
+        json={"label": "positive"},
+    )
+    assert other_campaign.status_code == 200
+    assert other_campaign.json()["label"] == "positive"
+
+    default_rows = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}/reference-seeds"
+    )
+    assert default_rows.status_code == 200
+    assert len(default_rows.json()) == 1
+    assert default_rows.json()[0]["label"] == "negative"
+
+    detail_rows = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}/reference-seeds",
+        params={"profile_key": "embroidery-detail"},
+    )
+    assert detail_rows.status_code == 200
+    assert len(detail_rows.json()) == 1
+    assert detail_rows.json()[0]["label"] == "positive"
+
+    cleared = api.delete(
+        (
+            f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}"
+            f"/reference-seeds/{reference_id}"
+        )
+    )
+    assert cleared.status_code == 204
+    after_clear = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}/reference-seeds"
+    )
+    assert after_clear.status_code == 200
+    assert after_clear.json() == []
+
+    still_detail = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_a['id']}/reference-seeds",
+        params={"profile_key": "embroidery-detail"},
+    )
+    assert len(still_detail.json()) == 1
+    still_other_campaign = api.get(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_b['id']}/reference-seeds"
+    )
+    assert len(still_other_campaign.json()) == 1
+    assert still_other_campaign.json()[0]["label"] == "positive"
+
+    asset = api.get(
+        f"/api/v1/realistic-review-ugc/reference-assets/{reference_id}"
+    )
+    assert asset.status_code == 200
+    assert asset.json()["status"] == "ready"
 
 
 def test_campaign_product_binding_and_generation_attempt_provenance(api, database, monkeypatch):

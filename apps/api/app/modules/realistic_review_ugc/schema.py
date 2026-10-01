@@ -25,6 +25,7 @@ ProductReferenceView = Literal[
 ]
 AiManualLabel = Literal["real", "ai", "unsure"]
 ReferenceManualLabel = Literal["good", "bad"]
+ReferenceSeedLabel = Literal["positive", "negative"]
 CandidateStatus = Literal[
     "discovered",
     "analysis_queued",
@@ -901,6 +902,24 @@ class ReferenceAssetPromotionResponse(BaseModel):
     created: bool
 
 
+class ReferenceSeedRequest(BaseModel):
+    label: ReferenceSeedLabel
+    profile_key: str = Field(default="realistic-person-ugc", min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ReferenceSeedResponse(BaseModel):
+    id: str
+    campaign_id: str
+    reference_asset_id: str
+    profile_key: str
+    label: ReferenceSeedLabel
+    note: str | None = None
+    created_by_user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class CandidateAiFeedbackRequest(BaseModel):
     label: AiManualLabel
     note: str | None = Field(default=None, max_length=1000)
@@ -921,6 +940,11 @@ class CandidateAiFeedbackResponse(BaseModel):
 
 class CandidateReferenceFeedbackRequest(BaseModel):
     label: Literal["good", "bad", "clear"]
+    profile_key: str = Field(
+        default="realistic-person-ugc",
+        min_length=1,
+        max_length=100,
+    )
     note: str | None = Field(default=None, max_length=1000)
 
 

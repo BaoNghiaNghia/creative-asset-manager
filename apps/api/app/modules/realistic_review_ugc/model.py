@@ -501,6 +501,56 @@ class RrugcReferenceAssetModel(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RrugcReferenceSeedModel(Base):
+    __tablename__ = "rrugc_reference_seeds"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_reference_seed_campaign",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "reference_asset_id"],
+            ["rrugc_reference_assets.tenant_id", "rrugc_reference_assets.id"],
+            name="fk_rrugc_reference_seed_asset",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "campaign_id",
+            "profile_key",
+            "reference_asset_id",
+            name="uq_rrugc_reference_seed_scope",
+        ),
+        Index(
+            "ix_rrugc_reference_seed_scope",
+            "tenant_id",
+            "campaign_id",
+            "profile_key",
+            "label",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    reference_asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    profile_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class RrugcVisualFingerprintModel(Base):
     __tablename__ = "rrugc_visual_fingerprints"
     __table_args__ = (

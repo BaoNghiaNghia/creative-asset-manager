@@ -46,6 +46,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductReferenceModel,
     RrugcProductVariantModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSeedModel,
 )
 from app.modules.realistic_review_ugc.product_context import (
     analyze_product_visual_reference,
@@ -97,6 +98,8 @@ from app.modules.realistic_review_ugc.schema import (
     ImportResponse,
     ReferenceAssetResponse,
     ReferenceAssetPromotionResponse,
+    ReferenceSeedRequest,
+    ReferenceSeedResponse,
     SupervisorResultResponse,
     ReviewTaskDecisionRequest,
     ReviewTaskListResponse,
@@ -332,6 +335,20 @@ def _reference_asset(row: RrugcReferenceAssetModel) -> ReferenceAssetResponse:
         created_at=row.created_at,
         updated_at=row.updated_at,
         archived_at=row.archived_at,
+    )
+
+
+def _reference_seed(row: RrugcReferenceSeedModel) -> ReferenceSeedResponse:
+    return ReferenceSeedResponse(
+        id=row.id,
+        campaign_id=row.campaign_id,
+        reference_asset_id=row.reference_asset_id,
+        profile_key=row.profile_key,
+        label=row.label,
+        note=row.note,
+        created_by_user_id=row.created_by_user_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -1123,6 +1140,107 @@ async def get_reference_asset_image(
         background=BackgroundTask(stream.close),
         headers={"Cache-Control": "private, max-age=300"},
     )
+
+
+@router.get(
+    "/campaigns/{campaign_id}/reference-seeds",
+    response_model=list[ReferenceSeedResponse],
+)
+def list_reference_seeds(
+    campaign_id: str,
+    profile_key: str = Query(
+        "realistic-person-ugc",
+        min_length=1,
+        max_length=100,
+    ),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    return [
+        _reference_seed(row)
+        for row in repository.list_reference_seeds(
+            principal.active_tenant_id,
+            campaign_id,
+            profile_key=profile_key,
+        )
+    ]
+
+
+@router.put(
+    "/campaigns/{campaign_id}/reference-seeds/{reference_asset_id}",
+    response_model=ReferenceSeedResponse,
+)
+def set_reference_seed(
+    campaign_id: str,
+    reference_asset_id: str,
+    request: ReferenceSeedRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    reference_asset = repository.get_reference_asset(
+        principal.active_tenant_id,
+        reference_asset_id,
+    )
+    if reference_asset is None:
+        raise HTTPException(status_code=404, detail="Reference asset not found")
+    try:
+        row = RrugcReferenceLibrary(session).set_seed(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            campaign=campaign,
+            reference_asset=reference_asset,
+            label=request.label,
+            profile_key=request.profile_key,
+            note=request.note,
+        )
+    except ReferenceLibraryError as exc:
+        raise _reference_library_error(exc) from exc
+    return _reference_seed(row)
+
+
+@router.delete(
+    "/campaigns/{campaign_id}/reference-seeds/{reference_asset_id}",
+    status_code=204,
+)
+def clear_reference_seed(
+    campaign_id: str,
+    reference_asset_id: str,
+    profile_key: str = Query(
+        "realistic-person-ugc",
+        min_length=1,
+        max_length=100,
+    ),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    try:
+        RrugcReferenceLibrary(session).clear_seed(
+            tenant_id=principal.active_tenant_id,
+            campaign=campaign,
+            reference_asset_id=reference_asset_id,
+            profile_key=profile_key,
+        )
+    except ReferenceLibraryError as exc:
+        raise _reference_library_error(exc) from exc
+    return Response(status_code=204)
 
 
 @router.post(
@@ -2693,6 +2811,7 @@ def mark_candidate_reference_feedback(
             label=body.label,
             note=body.note,
             user_id=principal.user_id,
+            profile_key=body.profile_key,
         )
     except RrugcError as exc:
         raise _error(exc) from exc
@@ -2707,6 +2826,7 @@ def mark_candidate_reference_feedback(
             principal.active_tenant_id,
             intent=learning_intent,
             legacy_campaign_id=campaign.id,
+            profile_key=body.profile_key,
         )
     )
     return CandidateReferenceFeedbackResponse(
