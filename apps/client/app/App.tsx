@@ -124,6 +124,70 @@ function AccountAvatar({
   </div>;
 }
 
+function AccountMenu({
+  picture,
+  name,
+  email,
+  provider,
+  onLogout,
+}: {
+  picture: string | undefined;
+  name: string | undefined;
+  email: string | undefined;
+  provider: string;
+  onLogout: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", closeOutside);
+    window.addEventListener("keydown", closeEscape);
+    return () => {
+      window.removeEventListener("mousedown", closeOutside);
+      window.removeEventListener("keydown", closeEscape);
+    };
+  }, [open]);
+
+  return <div className="account-menu" ref={rootRef}>
+    <button
+      type="button"
+      className="account-avatar-trigger"
+      aria-label="Account menu"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onClick={() => setOpen(value => !value)}
+    >
+      <AccountAvatar picture={picture} name={name} provider={provider} />
+    </button>
+    {open && <div className="account-dropdown" role="menu">
+      <div className="account-dropdown-profile">
+        <AccountAvatar picture={picture} name={name} provider={provider} />
+        <span>
+          {name && <strong>{name}</strong>}
+          {email && <small>{email}</small>}
+        </span>
+      </div>
+      <button
+        type="button"
+        role="menuitem"
+        className="account-signout"
+        onClick={() => {
+          setOpen(false);
+          void onLogout();
+        }}
+      >Sign out</button>
+    </div>}
+  </div>;
+}
+
 function LoadMoreSentinel({
   enabled,
   loading,
@@ -1003,12 +1067,13 @@ export default function App() {
               {explorer.viewerSources.map(source => <option key={source.external_source_id} value={source.external_source_id}>{source.display_name}</option>)}
             </select>
           </label>}
-          <AccountAvatar
-            picture={explorer.applicationUser?.picture || explorer.auth.user?.picture}
-            name={explorer.applicationUser?.name || explorer.auth.user?.name}
-            provider={explorer.provider}
+          <AccountMenu
+            picture={explorer.authByProvider["google-drive"].user?.picture || explorer.applicationUser?.picture}
+            name={explorer.authByProvider["google-drive"].user?.name || explorer.applicationUser?.name || explorer.auth.user?.name}
+            email={explorer.authByProvider["google-drive"].user?.email || explorer.applicationUser?.email || explorer.auth.user?.email}
+            provider="google-drive"
+            onLogout={explorer.logout}
           />
-          <button onClick={explorer.logout}>Sign out</button>
         </div> : <div className="header-sources" aria-label="Available cloud sources">
           <span className="google">G</span><b>Google Drive</b>
           <i />

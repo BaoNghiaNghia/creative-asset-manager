@@ -1103,6 +1103,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         return;
       }
 
+      const googleProfileSession = await readSession("/api/auth/google/session");
       let connectedSources: ConnectedSource[] = [];
       try {
         const sourceResponse = await fetch("/api/sources");
@@ -1120,7 +1121,11 @@ export function useDriveExplorer(imageSearchEnabled = true) {
         return source ? { id: source.account.provider_account_id || source.id, email: source.account.email || undefined } : null;
       };
       const sessions: ProviderSessions = {
-        "google-drive": { authenticated: Boolean(activeByProvider("google-drive")), user: sourceUser("google-drive"), checking: false },
+        "google-drive": {
+          authenticated: Boolean(activeByProvider("google-drive")),
+          user: googleProfileSession.state.user || sourceUser("google-drive"),
+          checking: false,
+        },
         onedrive: { authenticated: Boolean(activeByProvider("onedrive")), user: sourceUser("onedrive"), checking: false },
         sharepoint: { authenticated: Boolean(activeByProvider("sharepoint")), user: sourceUser("sharepoint"), checking: false },
       };

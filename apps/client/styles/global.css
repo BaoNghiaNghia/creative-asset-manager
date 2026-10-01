@@ -26,7 +26,20 @@
 .header-login{margin-left:auto;padding:8px 13px;border:1px solid #d8dde5;border-radius:8px;background:#fff;color:#344054;font-weight:650;cursor:pointer}
 .account{display:flex;align-items:center;gap:9px;margin-left:auto}
 .account .avatar{object-fit:cover}
-.account button{border:0;background:transparent;color:#6b7785;font-size:12px;cursor:pointer}
+.account-menu{position:relative}
+.account-avatar-trigger{display:grid;width:38px;height:38px;place-items:center;padding:0;border:0;border-radius:50%;background:transparent;cursor:pointer}
+.account-avatar-trigger .avatar{width:36px;height:36px;margin-left:0}
+.account-avatar-trigger:hover .avatar{box-shadow:0 0 0 3px #e8eefc}
+.account-avatar-trigger:focus-visible{outline:2px solid #4f7ff0;outline-offset:2px}
+.account-dropdown{position:absolute;z-index:80;top:calc(100% + 9px);right:0;width:238px;padding:7px;border:1px solid #e1e6ee;border-radius:12px;background:#fff;box-shadow:0 14px 38px rgb(15 23 42 / 16%)}
+.account-dropdown-profile{display:grid;grid-template-columns:36px minmax(0,1fr);gap:10px;align-items:center;padding:8px 9px 10px;border-bottom:1px solid #edf0f4}
+.account-dropdown-profile .avatar{width:36px;height:36px;margin-left:0}
+.account-dropdown-profile>span{display:flex;min-width:0;flex-direction:column}
+.account-dropdown-profile strong,.account-dropdown-profile small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-dropdown-profile strong{color:#1f2937;font-size:12px;font-weight:700}
+.account-dropdown-profile small{margin-top:2px;color:#7a8698;font-size:10px}
+.account-dropdown .account-signout{width:100%;margin-top:5px;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:#475467;text-align:left;font-size:11px;font-weight:600;cursor:pointer}
+.account-dropdown .account-signout:hover{background:#f4f6f9;color:#1f2937}
 
 .connect-drive{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:14px;border:1px solid #dfe4eb;border-radius:10px;background:#fff}
 .connect-drive .google-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#4285f4;color:#fff;font-weight:800}
