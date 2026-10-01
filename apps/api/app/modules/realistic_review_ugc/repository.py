@@ -19,6 +19,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductModel,
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
+    RrugcReferenceAssetModel,
 )
 
 
@@ -194,6 +195,86 @@ class RrugcRepository:
                 RrugcCandidateModel.tenant_id == tenant_id,
                 RrugcCandidateModel.campaign_id == campaign_id,
                 RrugcCandidateModel.id == candidate_id,
+            )
+        )
+
+    def add_reference_asset(
+        self,
+        row: RrugcReferenceAssetModel,
+    ) -> RrugcReferenceAssetModel:
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get_reference_asset(
+        self,
+        tenant_id: str,
+        reference_asset_id: str,
+    ) -> RrugcReferenceAssetModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceAssetModel).where(
+                RrugcReferenceAssetModel.tenant_id == tenant_id,
+                RrugcReferenceAssetModel.id == reference_asset_id,
+            )
+        )
+
+    def reference_asset_by_source(
+        self,
+        tenant_id: str,
+        source_type: str,
+        source_key: str,
+    ) -> RrugcReferenceAssetModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceAssetModel).where(
+                RrugcReferenceAssetModel.tenant_id == tenant_id,
+                RrugcReferenceAssetModel.source_type == source_type,
+                RrugcReferenceAssetModel.source_key == source_key,
+            )
+        )
+
+    def reference_asset_by_content_hash(
+        self,
+        tenant_id: str,
+        content_hash: str,
+    ) -> RrugcReferenceAssetModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceAssetModel).where(
+                RrugcReferenceAssetModel.tenant_id == tenant_id,
+                RrugcReferenceAssetModel.content_hash == content_hash,
+            )
+        )
+
+    def list_reference_assets(
+        self,
+        tenant_id: str,
+        *,
+        source_type: str | None = None,
+        status: str | None = "ready",
+        campaign_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[RrugcReferenceAssetModel]:
+        statement = select(RrugcReferenceAssetModel).where(
+            RrugcReferenceAssetModel.tenant_id == tenant_id
+        )
+        if source_type:
+            statement = statement.where(
+                RrugcReferenceAssetModel.source_type == source_type
+            )
+        if status:
+            statement = statement.where(RrugcReferenceAssetModel.status == status)
+        if campaign_id:
+            statement = statement.where(
+                RrugcReferenceAssetModel.source_campaign_id == campaign_id
+            )
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcReferenceAssetModel.updated_at.desc(),
+                    RrugcReferenceAssetModel.id.desc(),
+                )
+                .limit(limit)
+                .offset(offset)
             )
         )
 

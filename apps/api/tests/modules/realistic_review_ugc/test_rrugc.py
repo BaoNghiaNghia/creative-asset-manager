@@ -76,6 +76,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductModel,
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
+    RrugcReferenceAssetModel,
 )
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
@@ -146,6 +147,7 @@ def database():
     RrugcProductVariantModel.__table__.create(engine)
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
+    RrugcReferenceAssetModel.__table__.create(engine)
     RrugcVisualFingerprintModel.__table__.create(engine)
     RrugcAiFeedbackModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
@@ -3692,6 +3694,100 @@ def test_import_candidate_uses_existing_storage_contract(database):
             assert imported.remote_folder_id == "folder-1"
             assert storage.payload == b"fake-jpeg-content"
             assert storage.input.filename.startswith("REF_")
+
+            references = RrugcRepository(session).list_reference_assets("tenant-a")
+            assert len(references) == 1
+            assert references[0].source_type == "pinterest"
+            assert references[0].source_candidate_id == imported.id
+            assert references[0].source_campaign_id == campaign.id
+            assert references[0].content_hash == imported.content_hash
+            assert references[0].remote_file_id == imported.remote_file_id
+            reference_id = references[0].id
+
+            retried = asyncio.run(RrugcService(session).import_candidate(
+                candidate=imported,
+                storage=storage,
+                downloader=FakeDownloader(path),
+            ))
+            assert retried.id == imported.id
+            references = RrugcRepository(session).list_reference_assets("tenant-a")
+            assert len(references) == 1
+            assert references[0].id == reference_id
+
+
+def test_reference_asset_api_promotes_ready_candidate_idempotently(database, api):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="reference library",
+            query="pet owner candid",
+            target_count=3,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        campaign.discovery_mode = "product_context"
+        campaign.product_context_json = {"themes": ["pet_owner", "outdoor"]}
+        rows, created, existing = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/reference-library-1/",
+                image_url="https://i.pinimg.com/736x/ref/library.jpg",
+            )],
+        )
+        assert (created, existing) == (1, 0)
+        candidate = rows[0]
+        candidate.status = "drive_ready"
+        candidate.content_hash = "a" * 64
+        candidate.width = 1200
+        candidate.height = 1600
+        candidate.size_bytes = 345678
+        candidate.image_format = "jpeg"
+        candidate.people_count = 1
+        candidate.quality_score = 0.91
+        candidate.ai_signal_json = {
+            **(candidate.ai_signal_json or {}),
+            "context_match": {"active": True, "score": 0.88},
+        }
+        candidate.remote_file_id = "managed-ref-1"
+        candidate.remote_folder_id = "managed-folder"
+        candidate.web_url = "https://drive.google.com/file/d/managed-ref-1/view"
+        session.commit()
+        candidate_id = candidate.id
+        campaign_id = campaign.id
+
+    first = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-asset"
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["created"] is True
+    assert first_payload["asset"]["source_type"] == "pinterest"
+    assert first_payload["asset"]["source_candidate_id"] == candidate_id
+    assert first_payload["asset"]["reference_type"] == "person"
+    assert first_payload["asset"]["themes"] == ["pet_owner", "outdoor"]
+    assert first_payload["asset"]["context_score"] == 0.88
+    reference_id = first_payload["asset"]["id"]
+
+    second = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-asset"
+    )
+    assert second.status_code == 200
+    assert second.json()["created"] is False
+    assert second.json()["asset"]["id"] == reference_id
+
+    listed = api.get(
+        "/api/v1/realistic-review-ugc/reference-assets",
+        params={"source_type": "pinterest", "campaign_id": campaign_id},
+    )
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()] == [reference_id]
+
+    fetched = api.get(
+        f"/api/v1/realistic-review-ugc/reference-assets/{reference_id}"
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["content_hash"] == "a" * 64
 
 
 def test_import_candidate_rejects_low_resolution_before_storage(database):

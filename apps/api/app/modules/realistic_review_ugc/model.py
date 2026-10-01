@@ -434,6 +434,73 @@ class RrugcCandidateModel(Base):
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RrugcReferenceAssetModel(Base):
+    __tablename__ = "rrugc_reference_assets"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_rrugc_reference_asset_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "source_type",
+            "source_key",
+            name="uq_rrugc_reference_asset_source",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "content_hash",
+            name="uq_rrugc_reference_asset_content_hash",
+        ),
+        Index(
+            "ix_rrugc_reference_asset_library",
+            "tenant_id",
+            "status",
+            "source_type",
+            "updated_at",
+        ),
+        Index(
+            "ix_rrugc_reference_asset_campaign",
+            "tenant_id",
+            "source_campaign_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    original_filename: Mapped[str | None] = mapped_column(String(500))
+    source_campaign_id: Mapped[str | None] = mapped_column(String(36))
+    source_candidate_id: Mapped[str | None] = mapped_column(String(36))
+    profile_key: Mapped[str | None] = mapped_column(String(100))
+    reference_type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    image_format: Mapped[str | None] = mapped_column(String(16))
+    tags_json: Mapped[list | None] = mapped_column(JSON)
+    themes_json: Mapped[list | None] = mapped_column(JSON)
+    quality_score: Mapped[float | None] = mapped_column(Float)
+    visual_score: Mapped[float | None] = mapped_column(Float)
+    context_score: Mapped[float | None] = mapped_column(Float)
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    remote_folder_id: Mapped[str | None] = mapped_column(String(255))
+    web_url: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RrugcVisualFingerprintModel(Base):
     __tablename__ = "rrugc_visual_fingerprints"
     __table_args__ = (

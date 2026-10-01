@@ -45,6 +45,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductModel,
     RrugcProductReferenceModel,
     RrugcProductVariantModel,
+    RrugcReferenceAssetModel,
 )
 from app.modules.realistic_review_ugc.product_context import (
     analyze_product_visual_reference,
@@ -63,6 +64,10 @@ from app.modules.realistic_review_ugc.product_registry import (
     RrugcProductRegistry,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.reference_library import (
+    ReferenceLibraryError,
+    RrugcReferenceLibrary,
+)
 from app.modules.realistic_review_ugc.schema import (
     AnalyzeResponse,
     CampaignCreatedResponse,
@@ -88,6 +93,8 @@ from app.modules.realistic_review_ugc.schema import (
     GenerationAttemptResponse,
     GenerationCapabilityResponse,
     ImportResponse,
+    ReferenceAssetResponse,
+    ReferenceAssetPromotionResponse,
     SupervisorResultResponse,
     ReviewTaskDecisionRequest,
     ReviewTaskListResponse,
@@ -182,6 +189,13 @@ ANALYSIS_REJECTED_STATUSES = {
 
 
 def _error(exc: RrugcError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _reference_library_error(exc: ReferenceLibraryError) -> HTTPException:
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},
@@ -284,6 +298,39 @@ def _candidate(
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     })
+
+
+def _reference_asset(row: RrugcReferenceAssetModel) -> ReferenceAssetResponse:
+    return ReferenceAssetResponse(
+        id=row.id,
+        source_type=row.source_type,
+        source_key=row.source_key,
+        source_url=row.source_url,
+        original_filename=row.original_filename,
+        source_campaign_id=row.source_campaign_id,
+        source_candidate_id=row.source_candidate_id,
+        profile_key=row.profile_key,
+        reference_type=row.reference_type,
+        status=row.status,
+        content_hash=row.content_hash,
+        width=row.width,
+        height=row.height,
+        size_bytes=row.size_bytes,
+        image_format=row.image_format,
+        tags=list(row.tags_json or []),
+        themes=list(row.themes_json or []),
+        quality_score=row.quality_score,
+        visual_score=row.visual_score,
+        context_score=row.context_score,
+        usage_count=int(row.usage_count or 0),
+        remote_file_id=row.remote_file_id,
+        remote_folder_id=row.remote_folder_id,
+        web_url=row.web_url,
+        created_by_user_id=row.created_by_user_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        archived_at=row.archived_at,
+    )
 
 
 def _product_reference(row: RrugcProductReferenceModel) -> ProductReferenceResponse:
@@ -921,6 +968,83 @@ def _agent_token(
     except RrugcError as exc:
         raise _error(exc) from exc
     return row, token
+
+
+@router.get("/reference-assets", response_model=list[ReferenceAssetResponse])
+def list_reference_assets(
+    source_type: str | None = Query(default=None, min_length=1, max_length=32),
+    status: str | None = Query(default="ready", max_length=32),
+    campaign_id: str | None = Query(default=None, max_length=36),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    return [
+        _reference_asset(row)
+        for row in repository.list_reference_assets(
+            principal.active_tenant_id,
+            source_type=source_type,
+            status=status,
+            campaign_id=campaign_id,
+            limit=limit,
+            offset=offset,
+        )
+    ]
+
+
+@router.get("/reference-assets/{reference_asset_id}", response_model=ReferenceAssetResponse)
+def get_reference_asset(
+    reference_asset_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    row = RrugcRepository(session).get_reference_asset(
+        principal.active_tenant_id,
+        reference_asset_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Reference asset not found")
+    return _reference_asset(row)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/candidates/{candidate_id}/reference-asset",
+    response_model=ReferenceAssetPromotionResponse,
+)
+def promote_candidate_reference_asset(
+    campaign_id: str,
+    candidate_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    candidate = repository.get_candidate(
+        principal.active_tenant_id,
+        campaign_id,
+        candidate_id,
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        result = RrugcReferenceLibrary(session).promote_pinterest_candidate(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            campaign=campaign,
+            candidate=candidate,
+        )
+    except ReferenceLibraryError as exc:
+        raise _reference_library_error(exc) from exc
+    return ReferenceAssetPromotionResponse(
+        asset=_reference_asset(result.asset),
+        created=result.created,
+    )
 
 
 @router.get("/products", response_model=list[ProductResponse])

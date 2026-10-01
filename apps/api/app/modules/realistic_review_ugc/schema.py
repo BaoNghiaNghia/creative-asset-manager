@@ -865,6 +865,42 @@ class CandidateResponse(BaseModel):
     updated_at: datetime
 
 
+class ReferenceAssetResponse(BaseModel):
+    id: str
+    source_type: str
+    source_key: str
+    source_url: str | None = None
+    original_filename: str | None = None
+    source_campaign_id: str | None = None
+    source_candidate_id: str | None = None
+    profile_key: str | None = None
+    reference_type: Literal["person", "product", "scene", "detail", "artwork", "other"]
+    status: str
+    content_hash: str
+    width: int | None = None
+    height: int | None = None
+    size_bytes: int | None = None
+    image_format: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    themes: list[str] = Field(default_factory=list)
+    quality_score: float | None = None
+    visual_score: float | None = None
+    context_score: float | None = None
+    usage_count: int = 0
+    remote_file_id: str
+    remote_folder_id: str | None = None
+    web_url: str | None = None
+    created_by_user_id: str
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = None
+
+
+class ReferenceAssetPromotionResponse(BaseModel):
+    asset: ReferenceAssetResponse
+    created: bool
+
+
 class CandidateAiFeedbackRequest(BaseModel):
     label: AiManualLabel
     note: str | None = Field(default=None, max_length=1000)

@@ -720,7 +720,7 @@ class RrugcCandidateImportJobHandler:
                 )
             if candidate.import_revision != revision:
                 return JobHandlerResult.completed()
-            if candidate.status in {"drive_ready", "rejected_duplicate"}:
+            if candidate.status == "rejected_duplicate":
                 return JobHandlerResult.completed()
             await RrugcService(session).import_candidate(
                 candidate=candidate,

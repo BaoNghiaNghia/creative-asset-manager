@@ -40,6 +40,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.reference_library import RrugcReferenceLibrary
 from app.modules.realistic_review_ugc.schema import CandidateSubmission
 
 
@@ -1113,6 +1114,16 @@ class RrugcService:
         downloader: SecureImageDownloader | None = None,
     ) -> RrugcCandidateModel:
         if candidate.status == "drive_ready":
+            campaign = self.repository.get_campaign(
+                candidate.tenant_id, candidate.campaign_id
+            )
+            if campaign is not None:
+                RrugcReferenceLibrary(self.session).promote_pinterest_candidate(
+                    tenant_id=candidate.tenant_id,
+                    user_id=campaign.created_by_user_id,
+                    campaign=campaign,
+                    candidate=candidate,
+                )
             return candidate
         if candidate.status not in {"approved", "import_queued", "importing", "import_failed"}:
             raise RrugcError(
@@ -1201,6 +1212,13 @@ class RrugcService:
                     self.refresh_campaign_completion(campaign)
                 self.session.commit()
                 self.session.refresh(candidate)
+                if campaign is not None:
+                    RrugcReferenceLibrary(self.session).promote_pinterest_candidate(
+                        tenant_id=candidate.tenant_id,
+                        user_id=campaign.created_by_user_id,
+                        campaign=campaign,
+                        candidate=candidate,
+                    )
                 return candidate
         except (UnsafeUrlError, DownloadLimitError, InvalidImageError) as exc:
             candidate.status = "import_failed"
