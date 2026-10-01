@@ -82,7 +82,7 @@
 .tree-toggle:hover{background:#e6ebf2;color:#334155}
 .chevron-icon{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .16s ease}
 .chevron-icon.expanded{transform:rotate(90deg)}
-.tree-label{display:flex;align-items:center;gap:7px}
+.tree-label{display:flex;align-items:center;gap:7px;font-size:12px}
 .tree-label span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .folder-tree-icon{flex:0 0 auto;width:16px;height:16px;fill:#f5b83d;stroke:#c88b17;stroke-width:1.05;stroke-linejoin:round}
 .tree-row.active .folder-tree-icon{fill:#6e9ff7;stroke:#2f65c8}
