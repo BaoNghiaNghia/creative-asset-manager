@@ -7,6 +7,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcGenerationAttemptModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSetItemModel,
+    RrugcReferenceSetModel,
 )
 from app.providers.ai.codex_image import CodexSkillManifest
 
@@ -42,6 +44,17 @@ class ReferenceReviewLearning:
     review_count: int
     exact: dict[tuple[str, str], ReferenceReviewStats]
     family: dict[tuple[str, str, str], ReferenceReviewStats]
+    reference_sets: dict[tuple[str, str], ReferenceReviewStats]
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceSetReuseRecommendation:
+    reference_set: RrugcReferenceSetModel | None
+    score: float | None
+    reasons: tuple[str, ...]
+    candidate_count: int
+    review_approved_count: int = 0
+    review_rejected_count: int = 0
 
 
 def preferred_reference_types(role: str) -> tuple[str, ...]:
@@ -150,6 +163,44 @@ def _product_type(snapshot: dict | None) -> str:
     ).strip().lower()
 
 
+def _reference_binding_signature(
+    bindings: list[tuple[str, str]],
+) -> str:
+    normalized = sorted(
+        {
+            (
+                str(role or "").strip().lower(),
+                str(reference_asset_id or "").strip(),
+            )
+            for role, reference_asset_id in bindings
+            if str(role or "").strip() and str(reference_asset_id or "").strip()
+        }
+    )
+    return "|".join(
+        role + ":" + reference_asset_id
+        for role, reference_asset_id in normalized
+    )
+
+
+def _snapshot_reference_set_signature(references: list[dict]) -> str:
+    return _reference_binding_signature([
+        (
+            str(item.get("role") or ""),
+            str(item.get("reference_asset_id") or ""),
+        )
+        for item in references
+    ])
+
+
+def _current_reference_set_signature(
+    items: list[RrugcReferenceSetItemModel],
+) -> str:
+    return _reference_binding_signature([
+        (item.role, item.reference_asset_id)
+        for item in items
+    ])
+
+
 def _review_adjustment(
     stats: ReferenceReviewStats | None,
     *,
@@ -173,6 +224,7 @@ def build_reference_review_learning(
     target_product_type = _product_type(campaign.product_snapshot_json)
     exact_counts: dict[tuple[str, str], list[int]] = {}
     family_counts: dict[tuple[str, str, str], list[int]] = {}
+    reference_set_counts: dict[tuple[str, str], list[int]] = {}
     review_count = 0
 
     for attempt in attempts:
@@ -192,6 +244,21 @@ def build_reference_review_learning(
             continue
         review_count += 1
         approved_index = 0 if attempt.review_status == "approved" else 1
+        reference_set_ids = {
+            str(item.get("reference_set_id") or "").strip()
+            for item in references
+            if str(item.get("reference_set_id") or "").strip()
+        }
+        if len(reference_set_ids) == 1:
+            reference_set_id = next(iter(reference_set_ids))
+            reference_set_signature = _snapshot_reference_set_signature(references)
+            if reference_set_signature:
+                counts = reference_set_counts.setdefault(
+                    (reference_set_id, reference_set_signature),
+                    [0, 0],
+                )
+                counts[approved_index] += 1
+
         seen_exact: set[tuple[str, str]] = set()
         seen_family: set[tuple[str, str, str]] = set()
 
@@ -223,6 +290,104 @@ def build_reference_review_learning(
             key: ReferenceReviewStats(approved=value[0], rejected=value[1])
             for key, value in family_counts.items()
         },
+        reference_sets={
+            key: ReferenceReviewStats(approved=value[0], rejected=value[1])
+            for key, value in reference_set_counts.items()
+        },
+    )
+
+
+def _reference_set_manifest_compatible(
+    *,
+    campaign: RrugcCampaignModel,
+    manifest: CodexSkillManifest,
+    reference_set: RrugcReferenceSetModel,
+    items: list[RrugcReferenceSetItemModel],
+) -> bool:
+    if reference_set.status != "active" or reference_set.archived_at is not None:
+        return False
+    if reference_set.campaign_id and reference_set.campaign_id != campaign.id:
+        return False
+    if not items or len(items) > manifest.max_references:
+        return False
+    roles = {str(item.role or "").strip().lower() for item in items}
+    return all(
+        str(role or "").strip().lower() in roles
+        for role in manifest.required_reference_roles
+    )
+
+
+def recommend_reference_set_reuse(
+    *,
+    campaign: RrugcCampaignModel,
+    manifest: CodexSkillManifest,
+    reference_sets: list[
+        tuple[RrugcReferenceSetModel, list[RrugcReferenceSetItemModel]]
+    ],
+    review_learning: ReferenceReviewLearning,
+) -> ReferenceSetReuseRecommendation:
+    compatible = [
+        (reference_set, items)
+        for reference_set, items in reference_sets
+        if _reference_set_manifest_compatible(
+            campaign=campaign,
+            manifest=manifest,
+            reference_set=reference_set,
+            items=items,
+        )
+    ]
+    ranked: list[
+        tuple[float, RrugcReferenceSetModel, ReferenceReviewStats]
+    ] = []
+    for reference_set, items in compatible:
+        signature = _current_reference_set_signature(items)
+        stats = review_learning.reference_sets.get(
+            (reference_set.id, signature)
+        ) if signature else None
+        score = _review_adjustment(
+            stats,
+            max_weight=100.0,
+            min_samples=3,
+            full_confidence_samples=8,
+        )
+        if stats is None or stats.total < 3 or score <= 0:
+            continue
+        ranked.append((score, reference_set, stats))
+
+    ranked.sort(
+        key=lambda row: (
+            -row[0],
+            -row[2].approved,
+            row[2].rejected,
+            0 if row[1].campaign_id == campaign.id else 1,
+            -(row[1].updated_at.timestamp() if row[1].updated_at else 0.0),
+            row[1].id,
+        )
+    )
+    if not ranked:
+        return ReferenceSetReuseRecommendation(
+            reference_set=None,
+            score=None,
+            reasons=(),
+            candidate_count=len(compatible),
+        )
+
+    score, reference_set, stats = ranked[0]
+    reasons = [
+        f"Human review: {stats.approved} approved / {stats.rejected} rejected",
+        f"Evidence: {stats.total} reviewed generations",
+    ]
+    if reference_set.campaign_id == campaign.id:
+        reasons.append("Same campaign")
+    else:
+        reasons.append("Reusable global set")
+    return ReferenceSetReuseRecommendation(
+        reference_set=reference_set,
+        score=score,
+        reasons=tuple(reasons),
+        candidate_count=len(compatible),
+        review_approved_count=stats.approved,
+        review_rejected_count=stats.rejected,
     )
 
 

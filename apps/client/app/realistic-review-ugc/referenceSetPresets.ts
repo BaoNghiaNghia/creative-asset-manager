@@ -2,6 +2,7 @@ import type {
   Campaign,
   GenerationSkill,
   ReferenceAsset,
+  ReferenceSet,
   ReferenceSetRecommendation,
 } from "./types";
 
@@ -86,6 +87,28 @@ export function missingRequiredPresetRoles(
 ): string[] {
   if (!skill) return [];
   return skill.required_reference_roles.filter(role => !roleAssetIds[role]);
+}
+
+export function preferredReferenceSetSelection(
+  currentReferenceSetId: string,
+  compatibleReferenceSets: ReferenceSet[],
+  learnedReferenceSetId: string,
+  operatorTouched: boolean,
+): string {
+  const compatibleIds = new Set(
+    compatibleReferenceSets.map(referenceSet => referenceSet.id),
+  );
+  const currentCompatible = Boolean(
+    currentReferenceSetId && compatibleIds.has(currentReferenceSetId),
+  );
+  if (operatorTouched && (!currentReferenceSetId || currentCompatible)) {
+    return currentReferenceSetId;
+  }
+  if (learnedReferenceSetId && compatibleIds.has(learnedReferenceSetId)) {
+    return learnedReferenceSetId;
+  }
+  if (currentCompatible) return currentReferenceSetId;
+  return compatibleReferenceSets[0]?.id || "";
 }
 
 export function fillEmptyRecommendedReferenceRoles(

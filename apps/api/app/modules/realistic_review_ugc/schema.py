@@ -978,6 +978,16 @@ class ReferenceSetRecommendationItemResponse(BaseModel):
     review_rejected_count: int = 0
 
 
+class ReferenceSetReuseRecommendationResponse(BaseModel):
+    reference_set_id: str | None = None
+    reference_set_name: str | None = None
+    score: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+    candidate_count: int = 0
+    review_approved_count: int = 0
+    review_rejected_count: int = 0
+
+
 class ReferenceSetRecommendationResponse(BaseModel):
     campaign_id: str
     skill_name: str
@@ -986,6 +996,7 @@ class ReferenceSetRecommendationResponse(BaseModel):
     missing_required_roles: list[str] = Field(default_factory=list)
     learning_review_count: int = 0
     learning_applied: bool = False
+    reuse_recommendation: ReferenceSetReuseRecommendationResponse
     items: list[ReferenceSetRecommendationItemResponse] = Field(default_factory=list)
 
 

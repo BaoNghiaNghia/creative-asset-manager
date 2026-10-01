@@ -45,6 +45,7 @@ import {
   defaultReferenceSetName,
   fillEmptyRecommendedReferenceRoles,
   missingRequiredPresetRoles,
+  preferredReferenceSetSelection,
   recommendedReferenceAssetId,
   referenceAssetsForRole,
   referenceRoleSlots,
@@ -280,6 +281,7 @@ export function CampaignGenerationPanel({
   const [referenceAssets, setReferenceAssets] = useState<ReferenceAsset[]>([]);
   const [skillName, setSkillName] = useState("");
   const [referenceSetId, setReferenceSetId] = useState("");
+  const [referenceSetTouched, setReferenceSetTouched] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [presetRoleAssets, setPresetRoleAssets] = useState<Record<string, string>>({});
   const [presetRecommendation, setPresetRecommendation] = useState<ReferenceSetRecommendation | null>(null);
@@ -335,6 +337,11 @@ export function CampaignGenerationPanel({
       return selectedSkill.required_reference_roles.every(role => roles.has(role));
     });
   }, [referenceSets, selectedSkill]);
+  const learnedReferenceSetId = presetRecommendation?.reuse_recommendation.reference_set_id || "";
+  const learnedReferenceSet = useMemo(
+    () => referenceSets.find(referenceSet => referenceSet.id === learnedReferenceSetId) || null,
+    [referenceSets, learnedReferenceSetId],
+  );
   const selectedReferenceSet = useMemo(
     () => referenceSets.find(referenceSet => referenceSet.id === referenceSetId) || null,
     [referenceSets, referenceSetId],
@@ -396,12 +403,21 @@ export function CampaignGenerationPanel({
   }, [generationSkills, recommendedSkillName]);
 
   useEffect(() => {
-    setReferenceSetId(current =>
-      current && compatibleReferenceSets.some(referenceSet => referenceSet.id === current)
-        ? current
-        : compatibleReferenceSets[0]?.id || "",
-    );
-  }, [compatibleReferenceSets]);
+    setReferenceSetTouched(false);
+  }, [campaign.id, selectedSkill?.skill_name]);
+
+  useEffect(() => {
+    setReferenceSetId(current => preferredReferenceSetSelection(
+      current,
+      compatibleReferenceSets,
+      learnedReferenceSetId,
+      referenceSetTouched,
+    ));
+  }, [
+    compatibleReferenceSets,
+    learnedReferenceSetId,
+    referenceSetTouched,
+  ]);
 
   useEffect(() => {
     setPresetName(defaultReferenceSetName(campaign, selectedSkill));
@@ -575,6 +591,7 @@ export function CampaignGenerationPanel({
         created,
         ...rows.filter(row => row.id !== created.id),
       ]);
+      setReferenceSetTouched(true);
       setReferenceSetId(created.id);
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : "Unable to create reference preset.");
@@ -834,7 +851,10 @@ export function CampaignGenerationPanel({
         Reference set
         <select
           value={referenceSetId}
-          onChange={event => setReferenceSetId(event.target.value)}
+          onChange={event => {
+            setReferenceSetTouched(true);
+            setReferenceSetId(event.target.value);
+          }}
         >
           <option value="">Legacy product references</option>
           {referenceSets.map(referenceSet => {
@@ -845,10 +865,16 @@ export function CampaignGenerationPanel({
               disabled={!compatible}
             >
               {referenceSet.name} · {referenceSet.items.length} refs
+              {referenceSet.id === learnedReferenceSetId ? " · learned reuse" : ""}
               {compatible ? "" : " · role mismatch"}
             </option>;
           })}
         </select>
+        {learnedReferenceSet && presetRecommendation && <small>
+          Human review recommends {learnedReferenceSet.name}
+          {" · "}{presetRecommendation.reuse_recommendation.review_approved_count} approved
+          {" / "}{presetRecommendation.reuse_recommendation.review_rejected_count} rejected
+        </small>}
       </label>
     </div>
 

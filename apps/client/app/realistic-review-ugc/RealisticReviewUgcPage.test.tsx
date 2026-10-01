@@ -10,6 +10,7 @@ import { referenceLifestyleSearchQueries } from "./searchPresets";
 import {
   fillEmptyRecommendedReferenceRoles,
   missingRequiredPresetRoles,
+  preferredReferenceSetSelection,
   recommendedReferenceAssetId,
   referenceAssetsForRole,
   referenceRoleSlots,
@@ -17,6 +18,7 @@ import {
 import type {
   GenerationSkill,
   ReferenceAsset,
+  ReferenceSet,
   ReferenceSetRecommendation,
 } from "./types";
 
@@ -148,6 +150,15 @@ describe("Realistic Review UGC route", () => {
       missing_required_roles: [],
       learning_review_count: 6,
       learning_applied: true,
+      reuse_recommendation: {
+        reference_set_id: "learned-set",
+        reference_set_name: "Learned set",
+        score: 42,
+        reasons: ["Human review: 5 approved / 1 rejected"],
+        candidate_count: 2,
+        review_approved_count: 5,
+        review_rejected_count: 1,
+      },
       items: [
         {
           role: "product_front",
@@ -197,6 +208,46 @@ describe("Realistic Review UGC route", () => {
     expect(
       recommendedReferenceAssetId(recommendation, "product_front"),
     ).toBe("campaign-product");
+  });
+
+  it("prefers learned reference-set reuse without overriding operator selection", () => {
+    const sets = [
+      { id: "manual-set" },
+      { id: "learned-set" },
+    ] as ReferenceSet[];
+
+    expect(
+      preferredReferenceSetSelection(
+        "manual-set",
+        sets,
+        "learned-set",
+        false,
+      ),
+    ).toBe("learned-set");
+    expect(
+      preferredReferenceSetSelection(
+        "manual-set",
+        sets,
+        "learned-set",
+        true,
+      ),
+    ).toBe("manual-set");
+    expect(
+      preferredReferenceSetSelection(
+        "",
+        sets,
+        "learned-set",
+        true,
+      ),
+    ).toBe("");
+    expect(
+      preferredReferenceSetSelection(
+        "stale-set",
+        sets,
+        "learned-set",
+        true,
+      ),
+    ).toBe("learned-set");
   });
 
   it("ranks smartphone-like references above artistic ones", () => {

@@ -1470,8 +1470,14 @@ Implementation status as of 2026-10-01:
   - Bayesian smoothing, sample-confidence scaling and a hard +/-24 total bound prevent sparse feedback or learned priors from breaking reference-type compatibility.
   - Supervisor-only outcomes and pending reviews never train the recommender.
   - The Production UI exposes the amount of review evidence and the learned score adjustment.
+- Phase 5E — version-safe learned Reference Set reuse complete.
+  - Existing active Reference Sets can be recommended from human approved/rejected generation history for the same skill and product type.
+  - Reuse evidence is keyed by Reference Set ID plus immutable role-to-asset composition, so edits invalidate stale historical approval evidence.
+  - At least three matching human reviews and a positive smoothed preference are required before a set can be auto-selected.
+  - Current manifest role compatibility remains mandatory; incompatible or oversized sets are excluded.
+  - Learned reuse only controls the default while untouched. Manual Reference Set or Legacy selection always wins.
 
-The core end-to-end architecture is complete through Phase 5D. Cross-skill routing and more elaborate learned template families remain optional and are not required for the current production workflow.
+The core end-to-end architecture is complete through Phase 5E. Cross-skill routing remains optional and is not required for the current production workflow.
 
 ## 47. Phase 0 — preserve current Scout
 
@@ -1606,7 +1612,22 @@ Implemented without a new migration or skill registry:
 - the Production UI shows whether human-review history was observed/applied and surfaces the bounded adjustment next to each recommendation;
 - the system learns directly from existing GenerationAttempt reference snapshots and review state, so no duplicate training table is required.
 
-More elaborate learned template families or cross-skill routing remain optional. Add them only if production feedback shows that the bounded asset/family priors are insufficient.
+### Phase 5E — version-safe learned Reference Set reuse
+
+Implemented on top of the same human-review history with no migration:
+
+- each reviewed generation records the Reference Set ID in its immutable reference snapshot;
+- reuse learning additionally derives a canonical composition signature from sorted role + reference_asset_id bindings;
+- historical approval/rejection evidence is keyed by Reference Set ID + composition signature, so changing an item, asset or role automatically stops old evidence from applying to the edited set;
+- only active campaign/global sets that satisfy the selected manifest's required roles and max-reference limit are eligible;
+- a set needs at least three matching human-reviewed generations before reuse ranking is active;
+- Bayesian-smoothed positive preference ranks eligible sets; sets with neutral/negative evidence are not auto-recommended;
+- recommendation responses expose the learned set ID/name, score, candidate count, evidence reasons and exact approved/rejected counts;
+- the Production UI labels the learned reusable set and auto-selects it only while the Reference Set control is untouched;
+- manual selection, including explicit Legacy references, always wins and remains stable when recommendation data arrives;
+- a newly created preset is treated as an explicit operator selection and is never immediately replaced by learned reuse.
+
+This provides learned template reuse without a template registry or cross-skill router. Cross-skill routing remains optional and should only be added when multiple production skills have enough human-reviewed outcomes to justify it.
 
 Avoid premature skill-registry complexity.
 

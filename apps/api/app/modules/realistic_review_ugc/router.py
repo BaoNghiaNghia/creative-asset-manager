@@ -86,6 +86,7 @@ from app.modules.realistic_review_ugc.reference_library import (
 from app.modules.realistic_review_ugc.reference_recommendations import (
     build_reference_review_learning,
     recommend_reference_assets,
+    recommend_reference_set_reuse,
     suggested_reference_set_name,
 )
 from app.modules.realistic_review_ugc.reference_sets import (
@@ -128,6 +129,7 @@ from app.modules.realistic_review_ugc.schema import (
     ReferenceSetSkillPresetCreateRequest,
     ReferenceSetRecommendationItemResponse,
     ReferenceSetRecommendationResponse,
+    ReferenceSetReuseRecommendationResponse,
     ReferenceSetItemCreateRequest,
     ReferenceSetItemResponse,
     ReferenceSetResponse,
@@ -1447,6 +1449,28 @@ def recommend_reference_set(
             limit=500,
         ),
     )
+    reusable_reference_sets = repository.list_reference_sets(
+        principal.active_tenant_id,
+        campaign_id=campaign.id,
+        include_global=True,
+        status="active",
+        limit=100,
+    )
+    reuse_recommendation = recommend_reference_set_reuse(
+        campaign=campaign,
+        manifest=manifest,
+        reference_sets=[
+            (
+                reference_set,
+                repository.list_reference_set_items(
+                    principal.active_tenant_id,
+                    reference_set.id,
+                ),
+            )
+            for reference_set in reusable_reference_sets
+        ],
+        review_learning=review_learning,
+    )
     recommendations = recommend_reference_assets(
         campaign=campaign,
         manifest=manifest,
@@ -1468,6 +1492,23 @@ def recommend_reference_set(
         learning_applied=any(
             abs(item.learning_adjustment) > 0.0001
             for item in recommendations
+        ),
+        reuse_recommendation=ReferenceSetReuseRecommendationResponse(
+            reference_set_id=(
+                reuse_recommendation.reference_set.id
+                if reuse_recommendation.reference_set is not None
+                else None
+            ),
+            reference_set_name=(
+                reuse_recommendation.reference_set.name
+                if reuse_recommendation.reference_set is not None
+                else None
+            ),
+            score=reuse_recommendation.score,
+            reasons=list(reuse_recommendation.reasons),
+            candidate_count=reuse_recommendation.candidate_count,
+            review_approved_count=reuse_recommendation.review_approved_count,
+            review_rejected_count=reuse_recommendation.review_rejected_count,
         ),
         items=[
             ReferenceSetRecommendationItemResponse(

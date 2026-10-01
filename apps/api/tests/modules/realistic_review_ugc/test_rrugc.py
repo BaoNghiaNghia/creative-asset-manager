@@ -88,6 +88,7 @@ from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.reference_recommendations import (
     build_reference_review_learning,
     recommend_reference_assets,
+    recommend_reference_set_reuse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -5277,6 +5278,8 @@ def test_reference_set_recommendation_uses_role_campaign_and_product_context(
         if item["reference_asset"] is not None
     ]
     assert len(recommended_ids) == len(set(recommended_ids))
+    assert payload["reuse_recommendation"]["reference_set_id"] is None
+    assert payload["reuse_recommendation"]["candidate_count"] == 0
 
 
 def test_reference_recommendation_learning_uses_human_review_without_breaking_type_priority():
@@ -5424,6 +5427,177 @@ def test_reference_recommendation_learning_uses_human_review_without_breaking_ty
         recommendation.reference_asset.id
         != heavily_approved_detail.id
     )
+
+
+def test_reference_set_reuse_uses_version_safe_human_review_history():
+    campaign = SimpleNamespace(
+        id="campaign-current",
+        name="Hat reuse",
+        product_snapshot_json={"product_type": "hat", "sku": "HAT-REUSE"},
+    )
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=("artwork",),
+        max_references=2,
+    )
+
+    def reference_set(
+        reference_set_id: str,
+        *,
+        campaign_id: str | None = None,
+    ):
+        return SimpleNamespace(
+            id=reference_set_id,
+            name=reference_set_id,
+            campaign_id=campaign_id,
+            status="active",
+            archived_at=None,
+            updated_at=None,
+        )
+
+    def item(role: str, reference_asset_id: str):
+        return SimpleNamespace(
+            role=role,
+            reference_asset_id=reference_asset_id,
+        )
+
+    proven_set = reference_set("set-proven")
+    mixed_set = reference_set("set-mixed", campaign_id=campaign.id)
+    mutated_set = reference_set("set-mutated")
+    incompatible_set = reference_set("set-incompatible")
+    proven_items = [item("product_front", "asset-proven")]
+    mixed_items = [item("product_front", "asset-mixed")]
+    mutated_items = [item("product_front", "asset-new")]
+    incompatible_items = [item("scene", "asset-scene")]
+
+    def reviewed_attempt(
+        *,
+        reference_set_id: str,
+        reference_asset_id: str,
+        review_status: str,
+        role: str = "product_front",
+        product_type: str = "hat",
+    ):
+        return SimpleNamespace(
+            review_status=review_status,
+            product_snapshot_json={"product_type": product_type},
+            product_reference_snapshot_json=[
+                {
+                    "reference_set_id": reference_set_id,
+                    "reference_asset_id": reference_asset_id,
+                    "role": role,
+                    "reference_type": "product",
+                    "source_type": "upload",
+                }
+            ],
+        )
+
+    attempts = [
+        *[
+            reviewed_attempt(
+                reference_set_id=proven_set.id,
+                reference_asset_id="asset-proven",
+                review_status="approved",
+            )
+            for _ in range(5)
+        ],
+        reviewed_attempt(
+            reference_set_id=proven_set.id,
+            reference_asset_id="asset-proven",
+            review_status="rejected",
+        ),
+        *[
+            reviewed_attempt(
+                reference_set_id=mixed_set.id,
+                reference_asset_id="asset-mixed",
+                review_status="approved",
+            )
+            for _ in range(3)
+        ],
+        *[
+            reviewed_attempt(
+                reference_set_id=mixed_set.id,
+                reference_asset_id="asset-mixed",
+                review_status="rejected",
+            )
+            for _ in range(2)
+        ],
+        *[
+            reviewed_attempt(
+                reference_set_id=mutated_set.id,
+                reference_asset_id="asset-old",
+                review_status="approved",
+            )
+            for _ in range(10)
+        ],
+        *[
+            reviewed_attempt(
+                reference_set_id=incompatible_set.id,
+                reference_asset_id="asset-scene",
+                review_status="approved",
+                role="scene",
+            )
+            for _ in range(10)
+        ],
+        *[
+            reviewed_attempt(
+                reference_set_id=mixed_set.id,
+                reference_asset_id="asset-mixed",
+                review_status="approved",
+                product_type="shirt",
+            )
+            for _ in range(20)
+        ],
+    ]
+    learning = build_reference_review_learning(
+        campaign=campaign,
+        attempts=attempts,
+    )
+    recommendation = recommend_reference_set_reuse(
+        campaign=campaign,
+        manifest=manifest,
+        reference_sets=[
+            (proven_set, proven_items),
+            (mixed_set, mixed_items),
+            (mutated_set, mutated_items),
+            (incompatible_set, incompatible_items),
+        ],
+        review_learning=learning,
+    )
+    assert recommendation.reference_set.id == proven_set.id
+    assert recommendation.review_approved_count == 5
+    assert recommendation.review_rejected_count == 1
+    assert recommendation.candidate_count == 3
+    assert recommendation.score is not None
+    assert recommendation.score > 0
+    assert "Reusable global set" in recommendation.reasons
+
+    sparse_learning = build_reference_review_learning(
+        campaign=campaign,
+        attempts=[
+            reviewed_attempt(
+                reference_set_id=proven_set.id,
+                reference_asset_id="asset-proven",
+                review_status="approved",
+            )
+            for _ in range(2)
+        ],
+    )
+    sparse_recommendation = recommend_reference_set_reuse(
+        campaign=campaign,
+        manifest=manifest,
+        reference_sets=[(proven_set, proven_items)],
+        review_learning=sparse_learning,
+    )
+    assert sparse_recommendation.reference_set is None
+    assert sparse_recommendation.score is None
+    assert sparse_recommendation.candidate_count == 1
 
 
 def test_generation_skill_catalog_exposes_recommended_manifest(api, monkeypatch):
