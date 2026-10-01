@@ -13,6 +13,8 @@ FRONTEND = SCRIPTS / "deploy-cam-frontend.sh"
 BACKEND = SCRIPTS / "cam-rebuild-backend.sh"
 COMPOSE = ROOT / "infrastructure" / "docker" / "docker-compose.prod.yml"
 API_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-api.service"
+ERROR_LOGGER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-error-logger.service"
+ERROR_LOGGER_TIMER = ROOT / "deploy" / "systemd" / "creative-asset-manager-error-logger.timer"
 GENERIC_WORKER_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-worker.service"
 IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker.service"
 SECONDARY_IMAGE_UNIT = ROOT / "deploy" / "systemd" / "creative-asset-manager-image-worker-2.service"
@@ -160,6 +162,18 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("Type=oneshot", unit)
         self.assertIn("SuccessExitStatus=2", unit)
         self.assertIn("--manual-recovery-current-day", unit)
+
+    def test_error_logger_is_installed_enabled_and_retained_for_ten_days(self) -> None:
+        backend = BACKEND.read_text()
+        unit = ERROR_LOGGER_UNIT.read_text()
+        timer = ERROR_LOGGER_TIMER.read_text()
+        self.assertIn("creative-asset-manager-error-logger.service", backend)
+        self.assertIn("creative-asset-manager-error-logger.timer", backend)
+        self.assertIn('"Starting 10-day system error logger"', backend)
+        self.assertIn("StateDirectory=creative-asset-manager/error-logger", unit)
+        self.assertIn("cam-error-logger.py", unit)
+        self.assertIn("OnUnitActiveSec=5min", timer)
+        self.assertIn("Persistent=true", timer)
 
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
         config = (ROOT / "apps" / "api" / "alembic.ini").read_text()

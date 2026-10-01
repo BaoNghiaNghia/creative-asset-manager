@@ -1993,6 +1993,8 @@ progress 84 \
 
 for unit in \
   creative-asset-manager-api.service \
+  creative-asset-manager-error-logger.service \
+  creative-asset-manager-error-logger.timer \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
@@ -2079,6 +2081,7 @@ info \
 
 systemctl enable \
   creative-asset-manager-api.service \
+  creative-asset-manager-error-logger.timer \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
@@ -2158,6 +2161,16 @@ else
     "Service restart skipped (--no-restart)"
 
 fi
+
+
+info \
+  "Starting 10-day system error logger"
+
+systemctl start \
+  creative-asset-manager-error-logger.timer
+
+systemctl start \
+  creative-asset-manager-error-logger.service
 
 
 #
