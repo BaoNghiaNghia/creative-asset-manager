@@ -1435,6 +1435,22 @@ The desired system has one authoritative queue and one durable asset layer.
 
 # PART XI — IMPLEMENTATION ORDER
 
+Implementation status as of 2026-10-01:
+
+- Phase 0 — complete in production.
+- Phase 1 — complete in production.
+- Phase 2 — complete in production.
+- Phase 3 — complete in production.
+- Phase 4 — complete in production at backend release `b3316d4086713cc439a8f51f3611c2b41ad87a1b`.
+  - Codex CLI is authenticated with ChatGPT for the production service user.
+  - Built-in `$imagegen` was capability-probed with real PNG generation (1254×1254) before activation.
+  - The Codex runner strips API-key environment variables and does not use an automatic paid API fallback.
+  - `ReferenceSet` items are snapshotted immutably into `GenerationAttempt` and materialized into the Codex workspace using their generic roles.
+  - Existing Managed Storage, retry/defer behavior, Supervisor and Review lifecycle remain authoritative.
+- Phase 5 — optional; defer until multiple production skills require metadata/manifests.
+
+The core end-to-end architecture is therefore complete through Phase 4. Phase 5 is not required for the current production workflow.
+
 ## 47. Phase 0 — preserve current Scout
 
 Keep current production Scout behavior stable:
