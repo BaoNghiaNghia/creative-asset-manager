@@ -501,6 +501,101 @@ class RrugcReferenceAssetModel(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RrugcReferenceSetModel(Base):
+    __tablename__ = "rrugc_reference_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            name="uq_rrugc_reference_set_tenant_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_reference_set_campaign",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_rrugc_reference_set_library",
+            "tenant_id",
+            "status",
+            "updated_at",
+        ),
+        Index(
+            "ix_rrugc_reference_set_campaign",
+            "tenant_id",
+            "campaign_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    campaign_id: Mapped[str | None] = mapped_column(String(36))
+    profile_key: Mapped[str | None] = mapped_column(String(100))
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcReferenceSetItemModel(Base):
+    __tablename__ = "rrugc_reference_set_items"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "reference_set_id"],
+            ["rrugc_reference_sets.tenant_id", "rrugc_reference_sets.id"],
+            name="fk_rrugc_reference_set_item_set",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "reference_asset_id"],
+            ["rrugc_reference_assets.tenant_id", "rrugc_reference_assets.id"],
+            name="fk_rrugc_reference_set_item_asset",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "reference_set_id",
+            "role",
+            "reference_asset_id",
+            name="uq_rrugc_reference_set_item_binding",
+        ),
+        Index(
+            "ix_rrugc_reference_set_item_order",
+            "tenant_id",
+            "reference_set_id",
+            "position",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_set_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    reference_asset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class RrugcReferenceSeedModel(Base):
     __tablename__ = "rrugc_reference_seeds"
     __table_args__ = (

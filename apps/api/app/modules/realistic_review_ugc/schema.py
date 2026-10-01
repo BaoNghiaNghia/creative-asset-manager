@@ -928,6 +928,50 @@ class ReferenceSeedResponse(BaseModel):
     updated_at: datetime
 
 
+class ReferenceSetCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    campaign_id: str | None = Field(default=None, max_length=36)
+    profile_key: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class ReferenceSetItemCreateRequest(BaseModel):
+    reference_asset_id: str = Field(min_length=1, max_length=36)
+    role: str = Field(min_length=1, max_length=100)
+    position: int = Field(default=0, ge=0, le=1000)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ReferenceSetItemResponse(BaseModel):
+    id: str
+    reference_asset_id: str
+    role: str
+    position: int
+    note: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReferenceSetResponse(BaseModel):
+    id: str
+    name: str
+    campaign_id: str | None = None
+    profile_key: str | None = None
+    description: str | None = None
+    status: str
+    created_by_user_id: str
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = None
+    items: list[ReferenceSetItemResponse] = Field(default_factory=list)
+
+
+class ReferenceSetItemBindingResponse(BaseModel):
+    reference_set: ReferenceSetResponse
+    item: ReferenceSetItemResponse
+    created: bool
+
+
 class CandidateAiFeedbackRequest(BaseModel):
     label: AiManualLabel
     note: str | None = Field(default=None, max_length=1000)

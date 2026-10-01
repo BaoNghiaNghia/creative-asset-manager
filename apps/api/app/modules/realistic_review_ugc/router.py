@@ -46,6 +46,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductReferenceModel,
     RrugcProductVariantModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSetModel,
+    RrugcReferenceSetItemModel,
     RrugcReferenceSeedModel,
 )
 from app.modules.realistic_review_ugc.product_context import (
@@ -71,6 +73,10 @@ from app.modules.realistic_review_ugc.reference_library import (
     ReferenceLibraryError,
     RrugcReferenceLibrary,
     reference_image_content_type,
+)
+from app.modules.realistic_review_ugc.reference_sets import (
+    ReferenceSetError,
+    RrugcReferenceSetService,
 )
 from app.modules.realistic_review_ugc.schema import (
     AnalyzeResponse,
@@ -101,6 +107,11 @@ from app.modules.realistic_review_ugc.schema import (
     ReferenceAssetPromotionResponse,
     ReferenceSeedRequest,
     ReferenceSeedResponse,
+    ReferenceSetCreateRequest,
+    ReferenceSetItemCreateRequest,
+    ReferenceSetItemResponse,
+    ReferenceSetResponse,
+    ReferenceSetItemBindingResponse,
     SupervisorResultResponse,
     ReviewTaskDecisionRequest,
     ReviewTaskListResponse,
@@ -202,6 +213,13 @@ def _error(exc: RrugcError) -> HTTPException:
 
 
 def _reference_library_error(exc: ReferenceLibraryError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _reference_set_error(exc: ReferenceSetError) -> HTTPException:
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},
@@ -362,6 +380,45 @@ def _reference_seed(row: RrugcReferenceSeedModel) -> ReferenceSeedResponse:
         created_by_user_id=row.created_by_user_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _reference_set_item(
+    row: RrugcReferenceSetItemModel,
+) -> ReferenceSetItemResponse:
+    return ReferenceSetItemResponse(
+        id=row.id,
+        reference_asset_id=row.reference_asset_id,
+        role=row.role,
+        position=row.position,
+        note=row.note,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _reference_set(
+    repository: RrugcRepository,
+    row: RrugcReferenceSetModel,
+) -> ReferenceSetResponse:
+    return ReferenceSetResponse(
+        id=row.id,
+        name=row.name,
+        campaign_id=row.campaign_id,
+        profile_key=row.profile_key,
+        description=row.description,
+        status=row.status,
+        created_by_user_id=row.created_by_user_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        archived_at=row.archived_at,
+        items=[
+            _reference_set_item(item)
+            for item in repository.list_reference_set_items(
+                row.tenant_id,
+                row.id,
+            )
+        ],
     )
 
 
@@ -1157,6 +1214,157 @@ async def get_reference_asset_image(
         background=BackgroundTask(stream.close),
         headers={"Cache-Control": "private, max-age=300"},
     )
+
+
+@router.get(
+    "/reference-sets",
+    response_model=list[ReferenceSetResponse],
+)
+def list_reference_sets(
+    campaign_id: str | None = Query(default=None, max_length=36),
+    status: str | None = Query(default="active", max_length=16),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    if campaign_id:
+        _require_campaign(
+            repository,
+            principal.active_tenant_id,
+            campaign_id,
+        )
+    return [
+        _reference_set(repository, row)
+        for row in repository.list_reference_sets(
+            principal.active_tenant_id,
+            campaign_id=campaign_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+    ]
+
+
+@router.post(
+    "/reference-sets",
+    response_model=ReferenceSetResponse,
+    status_code=201,
+)
+def create_reference_set(
+    request: ReferenceSetCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = None
+    if request.campaign_id:
+        campaign = _require_campaign(
+            repository,
+            principal.active_tenant_id,
+            request.campaign_id,
+        )
+    try:
+        row = RrugcReferenceSetService(session).create_set(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            name=request.name,
+            campaign=campaign,
+            profile_key=request.profile_key,
+            description=request.description,
+        )
+    except ReferenceSetError as exc:
+        raise _reference_set_error(exc) from exc
+    return _reference_set(repository, row)
+
+
+@router.get(
+    "/reference-sets/{reference_set_id}",
+    response_model=ReferenceSetResponse,
+)
+def get_reference_set(
+    reference_set_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    row = repository.get_reference_set(
+        principal.active_tenant_id,
+        reference_set_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Reference set not found")
+    return _reference_set(repository, row)
+
+
+@router.post(
+    "/reference-sets/{reference_set_id}/items",
+    response_model=ReferenceSetItemBindingResponse,
+)
+def add_reference_set_item(
+    reference_set_id: str,
+    request: ReferenceSetItemCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    reference_set = repository.get_reference_set(
+        principal.active_tenant_id,
+        reference_set_id,
+    )
+    if reference_set is None:
+        raise HTTPException(status_code=404, detail="Reference set not found")
+    reference_asset = repository.get_reference_asset(
+        principal.active_tenant_id,
+        request.reference_asset_id,
+    )
+    if reference_asset is None:
+        raise HTTPException(status_code=404, detail="Reference asset not found")
+    try:
+        result = RrugcReferenceSetService(session).add_item(
+            tenant_id=principal.active_tenant_id,
+            reference_set=reference_set,
+            reference_asset=reference_asset,
+            role=request.role,
+            position=request.position,
+            note=request.note,
+        )
+    except ReferenceSetError as exc:
+        raise _reference_set_error(exc) from exc
+    return ReferenceSetItemBindingResponse(
+        reference_set=_reference_set(repository, result.reference_set),
+        item=_reference_set_item(result.item),
+        created=result.created,
+    )
+
+
+@router.delete(
+    "/reference-sets/{reference_set_id}/items/{item_id}",
+    status_code=204,
+)
+def remove_reference_set_item(
+    reference_set_id: str,
+    item_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    reference_set = repository.get_reference_set(
+        principal.active_tenant_id,
+        reference_set_id,
+    )
+    if reference_set is None:
+        raise HTTPException(status_code=404, detail="Reference set not found")
+    try:
+        RrugcReferenceSetService(session).remove_item(
+            tenant_id=principal.active_tenant_id,
+            reference_set=reference_set,
+            item_id=item_id,
+        )
+    except ReferenceSetError as exc:
+        raise _reference_set_error(exc) from exc
+    return Response(status_code=204)
 
 
 @router.get(

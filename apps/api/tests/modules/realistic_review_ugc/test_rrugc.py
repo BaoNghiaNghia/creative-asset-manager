@@ -77,6 +77,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSetModel,
+    RrugcReferenceSetItemModel,
     RrugcReferenceSeedModel,
 )
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
@@ -149,6 +151,8 @@ def database():
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     RrugcReferenceAssetModel.__table__.create(engine)
+    RrugcReferenceSetModel.__table__.create(engine)
+    RrugcReferenceSetItemModel.__table__.create(engine)
     RrugcReferenceSeedModel.__table__.create(engine)
     RrugcVisualFingerprintModel.__table__.create(engine)
     RrugcAiFeedbackModel.__table__.create(engine)
@@ -4598,6 +4602,185 @@ def test_reference_asset_upload_api_is_idempotent_and_previewable(api, monkeypat
     assert preview.status_code == 200
     assert preview.headers["content-type"].startswith("image/png")
     assert preview.content == content
+
+
+def test_reference_sets_bind_ready_assets_by_generic_role(
+    api,
+    database,
+    monkeypatch,
+):
+    storage = FakeStorage()
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+
+    person = api.post(
+        "/api/v1/realistic-review-ugc/reference-assets/uploads",
+        data={"reference_type": "person"},
+        files={
+            "file": (
+                "person.png",
+                _png_bytes(value=101),
+                "image/png",
+            )
+        },
+    )
+    product = api.post(
+        "/api/v1/realistic-review-ugc/reference-assets/uploads",
+        data={"reference_type": "product"},
+        files={
+            "file": (
+                "product.png",
+                _png_bytes(value=202),
+                "image/png",
+            )
+        },
+    )
+    assert person.status_code == 200
+    assert product.status_code == 200
+    person_id = person.json()["asset"]["id"]
+    product_id = product.json()["asset"]["id"]
+
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Generic role set",
+            "query": "candid phone photo",
+            "target_count": 2,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    )
+    assert campaign.status_code == 201
+    campaign_id = campaign.json()["id"]
+
+    created = api.post(
+        "/api/v1/realistic-review-ugc/reference-sets",
+        json={
+            "name": "Generation refs",
+            "campaign_id": campaign_id,
+            "profile_key": "realistic-person-ugc",
+            "description": "Role-based skill inputs",
+        },
+    )
+    assert created.status_code == 201
+    reference_set = created.json()
+    reference_set_id = reference_set["id"]
+    assert reference_set["items"] == []
+
+    person_binding = api.post(
+        f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}/items",
+        json={
+            "reference_asset_id": person_id,
+            "role": "Person / Scene",
+            "position": 5,
+        },
+    )
+    assert person_binding.status_code == 200
+    assert person_binding.json()["created"] is True
+    person_item_id = person_binding.json()["item"]["id"]
+    assert person_binding.json()["item"]["role"] == "person_scene"
+
+    replay = api.post(
+        f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}/items",
+        json={
+            "reference_asset_id": person_id,
+            "role": "person scene",
+            "position": 9,
+            "note": "Prefer this framing",
+        },
+    )
+    assert replay.status_code == 200
+    assert replay.json()["created"] is False
+    assert replay.json()["item"]["id"] == person_item_id
+    assert replay.json()["item"]["position"] == 9
+    assert replay.json()["item"]["note"] == "Prefer this framing"
+
+    product_binding = api.post(
+        f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}/items",
+        json={
+            "reference_asset_id": product_id,
+            "role": "product-front",
+            "position": 1,
+        },
+    )
+    assert product_binding.status_code == 200
+    assert product_binding.json()["item"]["role"] == "product_front"
+
+    fetched = api.get(
+        f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}"
+    )
+    assert fetched.status_code == 200
+    assert [
+        (item["role"], item["position"])
+        for item in fetched.json()["items"]
+    ] == [
+        ("product_front", 1),
+        ("person_scene", 9),
+    ]
+
+    listed = api.get(
+        "/api/v1/realistic-review-ugc/reference-sets",
+        params={"campaign_id": campaign_id},
+    )
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()] == [reference_set_id]
+
+    with database() as session:
+        foreign_asset = RrugcReferenceAssetModel(
+            tenant_id="tenant-b",
+            source_type="upload",
+            source_key="tenant-b-reference",
+            source_url=None,
+            original_filename="tenant-b.png",
+            source_campaign_id=None,
+            source_candidate_id=None,
+            profile_key=None,
+            reference_type="person",
+            status="ready",
+            content_hash="e" * 64,
+            width=48,
+            height=32,
+            size_bytes=100,
+            image_format="PNG",
+            tags_json=[],
+            themes_json=[],
+            quality_score=None,
+            visual_score=None,
+            context_score=None,
+            usage_count=0,
+            remote_file_id="tenant-b-file",
+            remote_folder_id=None,
+            web_url=None,
+            created_by_user_id="user-b",
+        )
+        session.add(foreign_asset)
+        session.commit()
+        foreign_id = foreign_asset.id
+
+    cross_tenant = api.post(
+        f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}/items",
+        json={
+            "reference_asset_id": foreign_id,
+            "role": "person",
+        },
+    )
+    assert cross_tenant.status_code == 404
+
+    removed = api.delete(
+        (
+            f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}"
+            f"/items/{person_item_id}"
+        )
+    )
+    assert removed.status_code == 204
+    remaining = api.get(
+        f"/api/v1/realistic-review-ugc/reference-sets/{reference_set_id}"
+    )
+    assert [item["role"] for item in remaining.json()["items"]] == [
+        "product_front"
+    ]
 
 
 def test_reference_asset_upload_reuses_product_reference_storage(api, monkeypatch):

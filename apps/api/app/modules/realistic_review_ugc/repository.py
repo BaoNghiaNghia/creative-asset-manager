@@ -20,6 +20,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
     RrugcReferenceAssetModel,
+    RrugcReferenceSetModel,
+    RrugcReferenceSetItemModel,
     RrugcReferenceSeedModel,
 )
 
@@ -218,6 +220,122 @@ class RrugcRepository:
                 RrugcReferenceAssetModel.id == reference_asset_id,
             )
         )
+
+    def add_reference_set(
+        self,
+        row: RrugcReferenceSetModel,
+    ) -> RrugcReferenceSetModel:
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get_reference_set(
+        self,
+        tenant_id: str,
+        reference_set_id: str,
+    ) -> RrugcReferenceSetModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceSetModel).where(
+                RrugcReferenceSetModel.tenant_id == tenant_id,
+                RrugcReferenceSetModel.id == reference_set_id,
+            )
+        )
+
+    def list_reference_sets(
+        self,
+        tenant_id: str,
+        *,
+        campaign_id: str | None = None,
+        status: str | None = "active",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[RrugcReferenceSetModel]:
+        statement = select(RrugcReferenceSetModel).where(
+            RrugcReferenceSetModel.tenant_id == tenant_id
+        )
+        if campaign_id:
+            statement = statement.where(
+                RrugcReferenceSetModel.campaign_id == campaign_id
+            )
+        if status:
+            statement = statement.where(RrugcReferenceSetModel.status == status)
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcReferenceSetModel.updated_at.desc(),
+                    RrugcReferenceSetModel.id.desc(),
+                )
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+
+    def add_reference_set_item(
+        self,
+        row: RrugcReferenceSetItemModel,
+    ) -> RrugcReferenceSetItemModel:
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get_reference_set_item(
+        self,
+        tenant_id: str,
+        reference_set_id: str,
+        item_id: str,
+    ) -> RrugcReferenceSetItemModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceSetItemModel).where(
+                RrugcReferenceSetItemModel.tenant_id == tenant_id,
+                RrugcReferenceSetItemModel.reference_set_id == reference_set_id,
+                RrugcReferenceSetItemModel.id == item_id,
+            )
+        )
+
+    def reference_set_item_by_binding(
+        self,
+        tenant_id: str,
+        reference_set_id: str,
+        role: str,
+        reference_asset_id: str,
+    ) -> RrugcReferenceSetItemModel | None:
+        return self.session.scalar(
+            select(RrugcReferenceSetItemModel).where(
+                RrugcReferenceSetItemModel.tenant_id == tenant_id,
+                RrugcReferenceSetItemModel.reference_set_id == reference_set_id,
+                RrugcReferenceSetItemModel.role == role,
+                RrugcReferenceSetItemModel.reference_asset_id
+                == reference_asset_id,
+            )
+        )
+
+    def list_reference_set_items(
+        self,
+        tenant_id: str,
+        reference_set_id: str,
+    ) -> list[RrugcReferenceSetItemModel]:
+        return list(
+            self.session.scalars(
+                select(RrugcReferenceSetItemModel)
+                .where(
+                    RrugcReferenceSetItemModel.tenant_id == tenant_id,
+                    RrugcReferenceSetItemModel.reference_set_id
+                    == reference_set_id,
+                )
+                .order_by(
+                    RrugcReferenceSetItemModel.position.asc(),
+                    RrugcReferenceSetItemModel.created_at.asc(),
+                    RrugcReferenceSetItemModel.id.asc(),
+                )
+            )
+        )
+
+    def delete_reference_set_item(
+        self,
+        row: RrugcReferenceSetItemModel,
+    ) -> None:
+        self.session.delete(row)
+        self.session.flush()
 
     def get_reference_seed(
         self,
