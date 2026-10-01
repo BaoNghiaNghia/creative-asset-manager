@@ -13,7 +13,9 @@ import {
   listDeliveryDestinations,
   listDeliveryPackages,
   listGenerationAttempts,
+  listGenerationSkills,
   listProducts,
+  listReferenceSets,
   listSupervisorResults,
   prepareGenerationAttempt,
   prepareSupervisorCorrection,
@@ -25,6 +27,8 @@ import type {
   Candidate,
   GenerationAttempt,
   GenerationCapability,
+  GenerationSkill,
+  ReferenceSet,
   CampaignExportSummary,
   CampaignDeliverySummary,
   DeliveryDestination,
@@ -257,6 +261,11 @@ export function CampaignGenerationPanel({
   const [attempts, setAttempts] = useState<GenerationAttempt[]>([]);
   const [supervisorResults, setSupervisorResults] = useState<SupervisorResult[]>([]);
   const [capability, setCapability] = useState<GenerationCapability | null>(null);
+  const [generationSkills, setGenerationSkills] = useState<GenerationSkill[]>([]);
+  const [recommendedSkillName, setRecommendedSkillName] = useState("");
+  const [referenceSets, setReferenceSets] = useState<ReferenceSet[]>([]);
+  const [skillName, setSkillName] = useState("");
+  const [referenceSetId, setReferenceSetId] = useState("");
   const [exportSummary, setExportSummary] = useState<CampaignExportSummary | null>(null);
   const [deliverySummary, setDeliverySummary] = useState<CampaignDeliverySummary | null>(null);
   const [deliveryDestinations, setDeliveryDestinations] = useState<DeliveryDestination[]>([]);
@@ -277,6 +286,31 @@ export function CampaignGenerationPanel({
   const durableCandidates = useMemo(
     () => candidates.filter(candidate => durableStatuses.has(candidate.status)),
     [candidates],
+  );
+  const selectedSkill = useMemo(
+    () => generationSkills.find(skill => skill.skill_name === skillName) || null,
+    [generationSkills, skillName],
+  );
+  const compatibleReferenceSets = useMemo(() => {
+    if (!selectedSkill) return referenceSets;
+    return referenceSets.filter(referenceSet => {
+      if (referenceSet.items.length > selectedSkill.max_references) return false;
+      const roles = new Set(referenceSet.items.map(item => item.role));
+      return selectedSkill.required_reference_roles.every(role => roles.has(role));
+    });
+  }, [referenceSets, selectedSkill]);
+  const selectedReferenceSet = useMemo(
+    () => referenceSets.find(referenceSet => referenceSet.id === referenceSetId) || null,
+    [referenceSets, referenceSetId],
+  );
+  const selectedReferenceSetReady = Boolean(
+    selectedReferenceSet
+      && compatibleReferenceSets.some(referenceSet => referenceSet.id === selectedReferenceSet.id),
+  );
+  const generationInputReady = Boolean(
+    campaign.product_id
+      && !campaign.product_binding_stale
+      && (selectedReferenceSetReady || campaign.generation_ready),
   );
   const hasActiveAttempt = attempts.some(attempt => activeAttemptStatuses.has(attempt.status));
   const hasActiveSupervisor = supervisorResults.some(
@@ -318,11 +352,29 @@ export function CampaignGenerationPanel({
   }, [durableCandidates]);
 
   useEffect(() => {
+    setSkillName(current =>
+      current && generationSkills.some(skill => skill.skill_name === current)
+        ? current
+        : recommendedSkillName || generationSkills[0]?.skill_name || "",
+    );
+  }, [generationSkills, recommendedSkillName]);
+
+  useEffect(() => {
+    setReferenceSetId(current =>
+      current && compatibleReferenceSets.some(referenceSet => referenceSet.id === current)
+        ? current
+        : compatibleReferenceSets[0]?.id || "",
+    );
+  }, [compatibleReferenceSets]);
+
+  useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
       listProducts(controller.signal),
       listGenerationAttempts(campaign.id, controller.signal),
       getGenerationCapability(controller.signal),
+      listGenerationSkills(campaign.id, controller.signal),
+      listReferenceSets(campaign.id, controller.signal),
       listSupervisorResults(campaign.id, controller.signal),
       getCampaignExportSummary(campaign.id, controller.signal),
       listDeliveryDestinations(controller.signal),
@@ -332,6 +384,8 @@ export function CampaignGenerationPanel({
       productRows,
       attemptRows,
       generationCapability,
+      skillCatalog,
+      referenceSetRows,
       supervisorRows,
       exportStats,
       destinationRows,
@@ -341,6 +395,9 @@ export function CampaignGenerationPanel({
       setProducts(productRows);
       setAttempts(attemptRows);
       setCapability(generationCapability);
+      setGenerationSkills(skillCatalog.items);
+      setRecommendedSkillName(skillCatalog.recommended_skill_name || "");
+      setReferenceSets(referenceSetRows);
       setSupervisorResults(supervisorRows);
       setExportSummary(exportStats);
       setDeliveryDestinations(destinationRows);
@@ -352,7 +409,7 @@ export function CampaignGenerationPanel({
       }
     });
     return () => controller.abort();
-  }, [campaign.id]);
+  }, [campaign.id, campaign.product_id, campaign.product_revision]);
 
   useEffect(() => {
     if (!hasActiveAttempt && !hasActiveSupervisor) return;
@@ -402,6 +459,8 @@ export function CampaignGenerationPanel({
         campaign.id,
         candidateId,
         nextVariant,
+        skillName || undefined,
+        referenceSetId || undefined,
       );
       setAttempts(rows => {
         const without = rows.filter(row => row.id !== result.attempt.id);
@@ -573,7 +632,8 @@ export function CampaignGenerationPanel({
         {capability == null
           ? "Checking provider…"
           : capability.available
-            ? "Gemini multi-reference ready"
+            ? (capability.provider === "codex" ? "Codex" : "Gemini")
+              + " · " + capability.model + " ready"
             : "Provider unavailable"}
       </span>
     </div>
@@ -607,11 +667,64 @@ export function CampaignGenerationPanel({
 
     {campaign.product_id ? <div className="rrugc-generation-binding rrugc-generation-binding-compact">
       <span><small>Bound SKU</small><b>{campaign.product_sku || "—"}</b></span>
-      <span><small>Generation</small><b>{campaign.generation_ready ? "Ready" : "Not ready"}</b></span>
+      <span><small>Generation</small><b>{generationInputReady ? "Ready" : "Not ready"}</b></span>
       {campaign.product_binding_stale && <span className="stale"><small>Snapshot</small><b>Refresh required</b></span>}
     </div> : <p className="rrugc-generation-note">
       Bind an active SKU before preparing a generation attempt.
     </p>}
+
+    <div className="rrugc-generation-bind">
+      <label>
+        Generation skill
+        <select
+          value={skillName}
+          onChange={event => setSkillName(event.target.value)}
+          disabled={generationSkills.length === 0}
+        >
+          {generationSkills.length === 0 && <option value="">Default worker skill</option>}
+          {generationSkills.map(skill =>
+            <option key={skill.skill_name} value={skill.skill_name}>
+              {skill.display_name}{skill.recommended ? " · recommended" : ""}
+            </option>
+          )}
+        </select>
+      </label>
+      <label>
+        Reference set
+        <select
+          value={referenceSetId}
+          onChange={event => setReferenceSetId(event.target.value)}
+        >
+          <option value="">Legacy product references</option>
+          {referenceSets.map(referenceSet => {
+            const compatible = compatibleReferenceSets.some(row => row.id === referenceSet.id);
+            return <option
+              key={referenceSet.id}
+              value={referenceSet.id}
+              disabled={!compatible}
+            >
+              {referenceSet.name} · {referenceSet.items.length} refs
+              {compatible ? "" : " · role mismatch"}
+            </option>;
+          })}
+        </select>
+      </label>
+    </div>
+
+    {selectedSkill && <div className="rrugc-generation-binding rrugc-generation-binding-compact">
+      <span>
+        <small>Required roles</small>
+        <b>{selectedSkill.required_reference_roles.join(", ") || "none"}</b>
+      </span>
+      <span>
+        <small>Optional roles</small>
+        <b>{selectedSkill.optional_reference_roles.join(", ") || "none"}</b>
+      </span>
+      <span>
+        <small>Input mode</small>
+        <b>{selectedReferenceSetReady ? "Reference Set" : "Legacy refs"}</b>
+      </span>
+    </div>}
 
     <div className="rrugc-generation-prepare">
       <label>
@@ -631,7 +744,7 @@ export function CampaignGenerationPanel({
       </label>
       <button
         type="button"
-        disabled={Boolean(busy) || !candidateId || !campaign.generation_ready}
+        disabled={Boolean(busy) || !candidateId || !generationInputReady}
         onClick={() => void prepare()}
       >
         {busy === "prepare" ? "Preparing…" : "Prepare generation attempt"}
@@ -654,6 +767,9 @@ export function CampaignGenerationPanel({
             <span>person {attempt.candidate_id.slice(0, 8)}</span>
             <span>rev {attempt.product_revision} · variant {attempt.generation_variant}</span>
             <span>{attempt.reference_count} refs</span>
+            {attempt.reference_roles.length > 0 && <span>
+              roles {attempt.reference_roles.join(", ")}
+            </span>}
             <em>{attempt.status}</em>
             {attempt.export_status && <span className={"rrugc-export-state status-" + attempt.export_status}>
               {attempt.export_status === "exported"

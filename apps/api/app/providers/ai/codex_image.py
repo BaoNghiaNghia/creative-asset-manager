@@ -51,6 +51,140 @@ class CodexImageRunnerConfig:
     model: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CodexSkillManifest:
+    schema_version: int
+    skill_name: str
+    display_name: str
+    description: str
+    workflows: tuple[str, ...]
+    product_types: tuple[str, ...]
+    required_reference_roles: tuple[str, ...]
+    optional_reference_roles: tuple[str, ...]
+    max_references: int
+
+    def matches_product_type(self, product_type: str | None) -> bool:
+        normalized = _normalize_manifest_token(product_type)
+        return bool(normalized and normalized in self.product_types)
+
+    def missing_reference_roles(self, roles: list[str] | tuple[str, ...]) -> list[str]:
+        present = {_normalize_manifest_token(role) for role in roles}
+        return [
+            role for role in self.required_reference_roles
+            if role not in present
+        ]
+
+
+def _normalize_manifest_token(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _manifest_string_list(payload: dict, key: str) -> tuple[str, ...]:
+    values = payload.get(key, [])
+    if not isinstance(values, list):
+        raise ValueError(f"{key} must be a list")
+    normalized: list[str] = []
+    for value in values:
+        token = _normalize_manifest_token(value)
+        if not token:
+            raise ValueError(f"{key} contains an empty token")
+        if token not in normalized:
+            normalized.append(token)
+    return tuple(normalized)
+
+
+def load_codex_skill_manifest(
+    codex_home: str | Path,
+    skill_name: str,
+) -> CodexSkillManifest | None:
+    if not _SAFE_SKILL_RE.fullmatch(skill_name):
+        return None
+    manifest_path = Path(codex_home).resolve() / "skills" / skill_name / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("manifest root must be an object")
+        schema_version = int(payload.get("schema_version", 0))
+        declared_skill = str(payload.get("skill_name") or "").strip()
+        display_name = str(payload.get("display_name") or "").strip()
+        description = str(payload.get("description") or "").strip()
+        workflows = _manifest_string_list(payload, "workflows")
+        product_types = _manifest_string_list(payload, "product_types")
+        required_roles = _manifest_string_list(payload, "required_reference_roles")
+        optional_roles = _manifest_string_list(payload, "optional_reference_roles")
+        max_references = int(payload.get("max_references", 32))
+        if schema_version != 1:
+            raise ValueError("unsupported schema_version")
+        if declared_skill != skill_name:
+            raise ValueError("skill_name does not match directory")
+        if not display_name:
+            raise ValueError("display_name is required")
+        if not workflows:
+            raise ValueError("workflows must not be empty")
+        if not 1 <= max_references <= 32:
+            raise ValueError("max_references must be between 1 and 32")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise CodexImageProviderError(
+            "codex_skill_manifest_invalid",
+            "Codex skill $" + skill_name + " has an invalid manifest.",
+        ) from exc
+    return CodexSkillManifest(
+        schema_version=schema_version,
+        skill_name=skill_name,
+        display_name=display_name,
+        description=description,
+        workflows=workflows,
+        product_types=product_types,
+        required_reference_roles=required_roles,
+        optional_reference_roles=optional_roles,
+        max_references=max_references,
+    )
+
+
+def list_codex_skill_manifests(
+    codex_home: str | Path,
+    *,
+    workflow: str | None = None,
+) -> list[CodexSkillManifest]:
+    skills_root = Path(codex_home).resolve() / "skills"
+    if not skills_root.is_dir():
+        return []
+    workflow_token = _normalize_manifest_token(workflow)
+    manifests: list[CodexSkillManifest] = []
+    for child in sorted(skills_root.iterdir(), key=lambda item: item.name):
+        if not child.is_dir() or not (child / "SKILL.md").is_file():
+            continue
+        try:
+            manifest = load_codex_skill_manifest(skills_root.parent, child.name)
+        except CodexImageProviderError:
+            continue
+        if manifest is None:
+            continue
+        if workflow_token and workflow_token not in manifest.workflows:
+            continue
+        manifests.append(manifest)
+    return manifests
+
+
+def recommend_codex_skill(
+    manifests: list[CodexSkillManifest],
+    *,
+    product_type: str | None,
+    fallback_skill: str | None = None,
+) -> CodexSkillManifest | None:
+    for manifest in manifests:
+        if manifest.matches_product_type(product_type):
+            return manifest
+    fallback = str(fallback_skill or "").strip()
+    if fallback:
+        for manifest in manifests:
+            if manifest.skill_name == fallback:
+                return manifest
+    return manifests[0] if manifests else None
+
+
 def _extension(mime_type: str) -> str:
     return {
         "image/jpeg": ".jpg",

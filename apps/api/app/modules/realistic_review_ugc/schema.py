@@ -483,10 +483,25 @@ class CampaignProductBindRequest(BaseModel):
 
 class GenerationAttemptCreateRequest(BaseModel):
     generation_variant: int = Field(default=1, ge=1, le=20)
-    worker_skill_version: str = Field(
-        default="worker-hat-v1", min_length=1, max_length=128
-    )
+    worker_skill_version: str | None = Field(default=None, min_length=1, max_length=128)
     reference_set_id: str | None = Field(default=None, max_length=36)
+
+
+class GenerationSkillResponse(BaseModel):
+    skill_name: str
+    display_name: str
+    description: str
+    workflows: list[str] = Field(default_factory=list)
+    product_types: list[str] = Field(default_factory=list)
+    required_reference_roles: list[str] = Field(default_factory=list)
+    optional_reference_roles: list[str] = Field(default_factory=list)
+    max_references: int
+    recommended: bool = False
+
+
+class GenerationSkillCatalogResponse(BaseModel):
+    recommended_skill_name: str | None = None
+    items: list[GenerationSkillResponse] = Field(default_factory=list)
 
 
 class GenerationCapabilityResponse(BaseModel):

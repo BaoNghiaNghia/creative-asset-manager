@@ -246,6 +246,7 @@ class RrugcRepository:
         tenant_id: str,
         *,
         campaign_id: str | None = None,
+        include_global: bool = False,
         status: str | None = "active",
         limit: int = 100,
         offset: int = 0,
@@ -254,9 +255,17 @@ class RrugcRepository:
             RrugcReferenceSetModel.tenant_id == tenant_id
         )
         if campaign_id:
-            statement = statement.where(
-                RrugcReferenceSetModel.campaign_id == campaign_id
-            )
+            if include_global:
+                statement = statement.where(
+                    or_(
+                        RrugcReferenceSetModel.campaign_id == campaign_id,
+                        RrugcReferenceSetModel.campaign_id.is_(None),
+                    )
+                )
+            else:
+                statement = statement.where(
+                    RrugcReferenceSetModel.campaign_id == campaign_id
+                )
         if status:
             statement = statement.where(RrugcReferenceSetModel.status == status)
         return list(

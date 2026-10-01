@@ -105,6 +105,7 @@ from app.modules.realistic_review_ugc.supervisor import (
 )
 from app.modules.realistic_review_ugc.router import router
 from app.modules.realistic_review_ugc.schema import CandidateSubmission, ProductCreateRequest
+from app.providers.ai.codex_image import CodexSkillManifest
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
@@ -4721,12 +4722,32 @@ def test_reference_sets_bind_ready_assets_by_generic_role(
         ("person_scene", 9),
     ]
 
+    global_set = api.post(
+        "/api/v1/realistic-review-ugc/reference-sets",
+        json={
+            "name": "Reusable global refs",
+            "profile_key": "realistic-person-ugc",
+        },
+    )
+    assert global_set.status_code == 201
+    global_set_id = global_set.json()["id"]
+
     listed = api.get(
         "/api/v1/realistic-review-ugc/reference-sets",
         params={"campaign_id": campaign_id},
     )
     assert listed.status_code == 200
     assert [row["id"] for row in listed.json()] == [reference_set_id]
+
+    listed_with_global = api.get(
+        "/api/v1/realistic-review-ugc/reference-sets",
+        params={"campaign_id": campaign_id, "include_global": True},
+    )
+    assert listed_with_global.status_code == 200
+    assert {row["id"] for row in listed_with_global.json()} == {
+        reference_set_id,
+        global_set_id,
+    }
 
     with database() as session:
         foreign_asset = RrugcReferenceAssetModel(
@@ -4950,7 +4971,164 @@ def test_reference_seeds_are_campaign_and_profile_scoped(api, monkeypatch):
     assert asset.json()["status"] == "ready"
 
 
-def test_generation_attempt_snapshots_generic_reference_set_roles(api, database):
+def test_generation_skill_catalog_exposes_recommended_manifest(api, monkeypatch):
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=("artwork", "detail"),
+        max_references=32,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router._codex_generation_skill_catalog",
+        lambda _campaign=None: ([manifest], manifest),
+    )
+
+    response = api.get("/api/v1/realistic-review-ugc/generation-skills")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_skill_name"] == "worker-hat-v1"
+    assert payload["items"][0]["recommended"] is True
+    assert payload["items"][0]["required_reference_roles"] == ["product_front"]
+
+
+def test_generation_attempt_rejects_reference_set_missing_skill_role(
+    api,
+    database,
+    monkeypatch,
+):
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=("artwork",),
+        max_references=32,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router._resolve_generation_skill",
+        lambda _campaign, _requested: ("worker-hat-v1", manifest),
+    )
+
+    product = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={"sku": "CAP-ROLE-GUARD", "name": "Role Guard Cap"},
+    ).json()
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Role guard",
+            "query": "candid portrait",
+            "target_count": 1,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    ).json()
+    campaign_id = campaign["id"]
+    assert api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/product",
+        json={"product_id": product["id"]},
+    ).status_code == 200
+
+    with database() as session:
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="d" * 64,
+            pin_url="https://www.pinterest.com/pin/role-guard/",
+            image_url="https://i.pinimg.com/role-guard.jpg",
+            status="drive_ready",
+            remote_file_id="person-role-guard",
+        )
+        reference_set = RrugcReferenceSetModel(
+            tenant_id="tenant-a",
+            name="Artwork only",
+            campaign_id=campaign_id,
+            profile_key=None,
+            description=None,
+            status="active",
+            created_by_user_id="user-a",
+        )
+        artwork = RrugcReferenceAssetModel(
+            tenant_id="tenant-a",
+            source_type="upload",
+            source_key="role-guard-artwork",
+            source_url=None,
+            original_filename="artwork.png",
+            source_campaign_id=campaign_id,
+            source_candidate_id=None,
+            profile_key=None,
+            reference_type="artwork",
+            status="ready",
+            content_hash="e" * 64,
+            width=1000,
+            height=1000,
+            size_bytes=1000,
+            image_format="PNG",
+            tags_json=[],
+            themes_json=[],
+            quality_score=None,
+            visual_score=None,
+            context_score=None,
+            usage_count=0,
+            remote_file_id="role-guard-artwork-file",
+            remote_folder_id=None,
+            web_url=None,
+            created_by_user_id="user-a",
+        )
+        session.add_all([candidate, reference_set, artwork])
+        session.flush()
+        session.add(
+            RrugcReferenceSetItemModel(
+                tenant_id="tenant-a",
+                reference_set_id=reference_set.id,
+                reference_asset_id=artwork.id,
+                role="artwork",
+                position=0,
+                note=None,
+            )
+        )
+        session.commit()
+        candidate_id = candidate.id
+        reference_set_id = reference_set.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/generation-attempts",
+        json={"reference_set_id": reference_set_id},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "reference_set_skill_roles_missing"
+    assert "product_front" in response.json()["detail"]["message"]
+
+
+def test_generation_attempt_snapshots_generic_reference_set_roles(
+    api,
+    database,
+    monkeypatch,
+):
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=("artwork",),
+        max_references=32,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router._resolve_generation_skill",
+        lambda _campaign, _requested: ("worker-hat-v1", manifest),
+    )
+
     product = api.post(
         "/api/v1/realistic-review-ugc/products",
         json={"sku": "CAP-REFSET", "name": "Reference Set Cap"},
@@ -5075,10 +5253,7 @@ def test_generation_attempt_snapshots_generic_reference_set_roles(api, database)
 
     prepared = api.post(
         f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/generation-attempts",
-        json={
-            "reference_set_id": reference_set_id,
-            "worker_skill_version": "worker-hat-v1",
-        },
+        json={"reference_set_id": reference_set_id},
     )
     assert prepared.status_code == 201
     payload = prepared.json()
@@ -5086,6 +5261,7 @@ def test_generation_attempt_snapshots_generic_reference_set_roles(api, database)
     attempt = payload["attempt"]
     assert attempt["reference_set_id"] == reference_set_id
     assert attempt["reference_roles"] == ["product_front", "artwork"]
+    assert attempt["worker_skill_version"] == "worker-hat-v1"
     assert attempt["reference_count"] == 2
     assert attempt["reference_views"] == []
 

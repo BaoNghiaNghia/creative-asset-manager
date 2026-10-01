@@ -20,7 +20,15 @@ from app.domain.providers.contracts import (
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
-from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig
+from app.providers.ai.codex_image import (
+    CodexImageGenRunner,
+    CodexImageProviderError,
+    CodexImageRunnerConfig,
+    CodexSkillManifest,
+    list_codex_skill_manifests,
+    load_codex_skill_manifest,
+    recommend_codex_skill,
+)
 from app.modules.realistic_review_ugc.analysis import (
     build_ai_risk_calibration,
     build_reference_preference_model,
@@ -103,6 +111,8 @@ from app.modules.realistic_review_ugc.schema import (
     GenerationAttemptCreatedResponse,
     GenerationAttemptResponse,
     GenerationCapabilityResponse,
+    GenerationSkillCatalogResponse,
+    GenerationSkillResponse,
     ImportResponse,
     ReferenceAssetResponse,
     ReferenceAssetPromotionResponse,
@@ -571,6 +581,68 @@ def _count_sum(counts: Counter, statuses: set[str]) -> int:
     return sum(int(counts.get(status, 0)) for status in statuses)
 
 
+
+
+def _campaign_generation_product_type(
+    campaign: RrugcCampaignModel | None,
+) -> str | None:
+    if campaign is None:
+        return None
+    snapshot = dict(campaign.product_snapshot_json or {})
+    return str(snapshot.get("product_type") or "").strip() or None
+
+
+def _codex_generation_skill_catalog(
+    campaign: RrugcCampaignModel | None = None,
+) -> tuple[list[CodexSkillManifest], CodexSkillManifest | None]:
+    settings = get_settings()
+    codex_home = str(
+        getattr(
+            settings,
+            "CODEX_IMAGE_HOME",
+            "/var/lib/creative-asset-manager/codex",
+        )
+    )
+    manifests = list_codex_skill_manifests(
+        codex_home,
+        workflow="rrugc_generate",
+    )
+    fallback_skill = (
+        str(getattr(settings, "CODEX_IMAGE_SKILL", "worker-hat-v1")).strip()
+        or "worker-hat-v1"
+    )
+    recommended = recommend_codex_skill(
+        manifests,
+        product_type=_campaign_generation_product_type(campaign),
+        fallback_skill=fallback_skill,
+    )
+    return manifests, recommended
+
+
+def _resolve_generation_skill(
+    campaign: RrugcCampaignModel,
+    requested_skill: str | None,
+) -> tuple[str, CodexSkillManifest | None]:
+    settings = get_settings()
+    requested = str(requested_skill or "").strip()
+    codex_home = str(
+        getattr(
+            settings,
+            "CODEX_IMAGE_HOME",
+            "/var/lib/creative-asset-manager/codex",
+        )
+    )
+    if requested:
+        return requested, load_codex_skill_manifest(codex_home, requested)
+
+    manifests, recommended = _codex_generation_skill_catalog(campaign)
+    if recommended is not None:
+        return recommended.skill_name, recommended
+    fallback_skill = (
+        str(getattr(settings, "CODEX_IMAGE_SKILL", "worker-hat-v1")).strip()
+        or "worker-hat-v1"
+    )
+    return fallback_skill, load_codex_skill_manifest(codex_home, fallback_skill)
 
 
 def _rrugc_generation_capability(
@@ -1294,6 +1366,7 @@ async def get_reference_asset_image(
 )
 def list_reference_sets(
     campaign_id: str | None = Query(default=None, max_length=36),
+    include_global: bool = Query(default=False),
     status: str | None = Query(default="active", max_length=16),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -1312,6 +1385,7 @@ def list_reference_sets(
         for row in repository.list_reference_sets(
             principal.active_tenant_id,
             campaign_id=campaign_id,
+            include_global=include_global,
             status=status,
             limit=limit,
             offset=offset,
@@ -2014,6 +2088,44 @@ def generation_capability(
     return _rrugc_generation_capability(session, principal.active_tenant_id)
 
 
+@router.get(
+    "/generation-skills",
+    response_model=GenerationSkillCatalogResponse,
+)
+def generation_skills(
+    campaign_id: str | None = Query(default=None, max_length=36),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    campaign = None
+    if campaign_id:
+        campaign = _require_campaign(
+            repository,
+            principal.active_tenant_id,
+            campaign_id,
+        )
+    manifests, recommended = _codex_generation_skill_catalog(campaign)
+    recommended_name = recommended.skill_name if recommended is not None else None
+    return GenerationSkillCatalogResponse(
+        recommended_skill_name=recommended_name,
+        items=[
+            GenerationSkillResponse(
+                skill_name=manifest.skill_name,
+                display_name=manifest.display_name,
+                description=manifest.description,
+                workflows=list(manifest.workflows),
+                product_types=list(manifest.product_types),
+                required_reference_roles=list(manifest.required_reference_roles),
+                optional_reference_roles=list(manifest.optional_reference_roles),
+                max_references=manifest.max_references,
+                recommended=manifest.skill_name == recommended_name,
+            )
+            for manifest in manifests
+        ],
+    )
+
+
 @router.get("/campaigns", response_model=list[CampaignResponse])
 def list_campaigns(
     session: Session = Depends(get_db),
@@ -2408,13 +2520,67 @@ def prepare_generation_attempt(
     )
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
+
+    try:
+        skill_name, skill_manifest = _resolve_generation_skill(
+            campaign,
+            request.worker_skill_version,
+        )
+    except CodexImageProviderError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    if skill_manifest is not None and request.reference_set_id:
+        reference_set = repository.get_reference_set(
+            principal.active_tenant_id,
+            request.reference_set_id,
+        )
+        if reference_set is not None:
+            items = repository.list_reference_set_items(
+                principal.active_tenant_id,
+                reference_set.id,
+            )
+            missing_roles = skill_manifest.missing_reference_roles(
+                [item.role for item in items]
+            )
+            if missing_roles:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "reference_set_skill_roles_missing",
+                        "message": (
+                            "Reference set is missing required roles for $"
+                            + skill_manifest.skill_name
+                            + ": "
+                            + ", ".join(missing_roles)
+                            + "."
+                        ),
+                    },
+                )
+            if len(items) > skill_manifest.max_references:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "reference_set_skill_limit_exceeded",
+                        "message": (
+                            "Reference set exceeds the "
+                            + str(skill_manifest.max_references)
+                            + "-reference limit for $"
+                            + skill_manifest.skill_name
+                            + "."
+                        ),
+                    },
+                )
+
     try:
         row, created = RrugcGenerationFoundation(session).prepare_attempt(
             campaign=campaign,
             candidate=candidate,
             user_id=principal.user_id,
             generation_variant=request.generation_variant,
-            worker_skill_version=request.worker_skill_version,
+            worker_skill_version=skill_name,
             reference_set_id=request.reference_set_id,
         )
     except RrugcError as exc:

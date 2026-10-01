@@ -1447,9 +1447,15 @@ Implementation status as of 2026-10-01:
   - The Codex runner strips API-key environment variables and does not use an automatic paid API fallback.
   - `ReferenceSet` items are snapshotted immutably into `GenerationAttempt` and materialized into the Codex workspace using their generic roles.
   - Existing Managed Storage, retry/defer behavior, Supervisor and Review lifecycle remain authoritative.
-- Phase 5 — optional; defer until multiple production skills require metadata/manifests.
+- Phase 5A — skill metadata foundation complete.
+  - Skill manifests live beside `SKILL.md`; no database skill registry is required.
+  - The generation API exposes installed manifest-backed skills and recommends a skill deterministically from workflow + product type.
+  - Reference Sets are validated against required roles and per-skill reference limits before a GenerationAttempt is prepared.
+  - The Production UI selects the recommended skill, filters compatible campaign/global Reference Sets, and exposes required/optional roles.
+  - Skills without a manifest remain backward-compatible with the legacy generation path.
+- Phase 5B — optional; richer Reference Set templates can be added only when multiple real skills prove they are useful.
 
-The core end-to-end architecture is therefore complete through Phase 4. Phase 5 is not required for the current production workflow.
+The core end-to-end architecture is complete through the Phase 5A metadata foundation. Phase 5B is not required for the current production workflow.
 
 ## 47. Phase 0 — preserve current Scout
 
@@ -1532,12 +1538,25 @@ After probe success:
 
 ## 52. Phase 5 — Optional skill metadata
 
-Only after multiple real skills require it:
+### Phase 5A — metadata foundation
 
-- add simple skill input manifests;
-- automatic role UI;
-- deterministic mapping from workflow/product to skill;
-- richer Reference Set templates.
+Implemented without a database skill registry:
+
+- simple manifest files live beside each skill's `SKILL.md`;
+- the API discovers manifest-backed skills from the deployed Codex skills directory;
+- workflow + product type deterministically select a recommended skill;
+- required/optional Reference Set roles are exposed to the operator UI;
+- Reference Sets are rejected before generation when required roles are missing or the skill reference limit is exceeded;
+- campaign-scoped and global reusable Reference Sets can both be selected;
+- skills without a manifest remain usable through the backward-compatible legacy path.
+
+### Phase 5B — richer templates
+
+Defer until multiple real production skills require it:
+
+- reusable Reference Set templates;
+- role presets tailored to a family of skills;
+- optional higher-level workflow-to-template mapping.
 
 Avoid premature skill-registry complexity.
 

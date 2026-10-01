@@ -419,10 +419,51 @@ export type ProductUpdateRequest = {
   fit_notes?: string | null;
 };
 
+export type ReferenceSetItem = {
+  id: string;
+  reference_asset_id: string;
+  role: string;
+  position: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReferenceSet = {
+  id: string;
+  name: string;
+  campaign_id: string | null;
+  profile_key: string | null;
+  description: string | null;
+  status: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  items: ReferenceSetItem[];
+};
+
+export type GenerationSkill = {
+  skill_name: string;
+  display_name: string;
+  description: string;
+  workflows: string[];
+  product_types: string[];
+  required_reference_roles: string[];
+  optional_reference_roles: string[];
+  max_references: number;
+  recommended: boolean;
+};
+
+export type GenerationSkillCatalog = {
+  recommended_skill_name: string | null;
+  items: GenerationSkill[];
+};
+
 export type GenerationCapability = {
   enabled: boolean;
   available: boolean;
-  provider: "gemini";
+  provider: "gemini" | "codex";
   model: string;
   operation: "reference_conditioned_product_edit";
   reason: string | null;
@@ -438,6 +479,8 @@ export type GenerationAttempt = {
   product_name: string;
   reference_count: number;
   reference_views: ProductReferenceView[];
+  reference_set_id: string | null;
+  reference_roles: string[];
   generation_variant: number;
   worker_skill_version: string;
   provider: string | null;

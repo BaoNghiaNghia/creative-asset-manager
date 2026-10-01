@@ -12,6 +12,9 @@ from app.providers.ai.codex_image import (
     CodexImageGenRunner,
     CodexImageRunnerConfig,
     _classify_failure,
+    list_codex_skill_manifests,
+    load_codex_skill_manifest,
+    recommend_codex_skill,
 )
 
 
@@ -146,3 +149,42 @@ def test_codex_runner_requires_installed_skill(tmp_path, monkeypatch):
         )
     )
     assert runner.capability_reason() == "Codex skill $worker-hat-v1 is not installed."
+
+
+def test_codex_skill_manifest_drives_deterministic_product_and_role_matching(tmp_path):
+    codex_home = tmp_path / "codex-home"
+    skill_dir = codex_home / "skills" / "worker-hat-v1"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: worker-hat-v1\ndescription: test\n---\n",
+        encoding="utf-8",
+    )
+    (skill_dir / "manifest.json").write_text(
+        """{
+          "schema_version": 1,
+          "skill_name": "worker-hat-v1",
+          "display_name": "Hat product on person",
+          "description": "test manifest",
+          "workflows": ["rrugc_generate"],
+          "product_types": ["hat", "baseball cap"],
+          "required_reference_roles": ["product front"],
+          "optional_reference_roles": ["artwork", "detail"],
+          "max_references": 12
+        }""",
+        encoding="utf-8",
+    )
+
+    manifest = load_codex_skill_manifest(codex_home, "worker-hat-v1")
+    assert manifest is not None
+    assert manifest.product_types == ("hat", "baseball_cap")
+    assert manifest.required_reference_roles == ("product_front",)
+    assert manifest.missing_reference_roles(["artwork"]) == ["product_front"]
+    assert manifest.missing_reference_roles(["product-front", "artwork"]) == []
+
+    manifests = list_codex_skill_manifests(codex_home, workflow="rrugc_generate")
+    assert [item.skill_name for item in manifests] == ["worker-hat-v1"]
+    assert recommend_codex_skill(
+        manifests,
+        product_type="Baseball Cap",
+        fallback_skill=None,
+    ) == manifest

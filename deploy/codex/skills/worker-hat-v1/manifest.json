@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "skill_name": "worker-hat-v1",
+  "display_name": "Hat product on person",
+  "description": "Reference-conditioned photorealistic hat placement while preserving the person and scene.",
+  "workflows": ["rrugc_generate"],
+  "product_types": ["hat", "cap", "snapback", "baseball_cap", "trucker_hat"],
+  "required_reference_roles": ["product_front"],
+  "optional_reference_roles": ["product_side", "product_back", "artwork", "logo", "detail"],
+  "max_references": 32
+}

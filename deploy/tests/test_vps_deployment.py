@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -202,6 +203,9 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         worker_skill = (
             ROOT / "deploy" / "codex" / "skills" / "worker-hat-v1" / "SKILL.md"
         )
+        worker_manifest = (
+            ROOT / "deploy" / "codex" / "skills" / "worker-hat-v1" / "manifest.json"
+        )
 
         self.assertIn(
             'CODEX_RUNTIME_DIR="${CAM_CODEX_RUNTIME_DIR:-/var/lib/creative-asset-manager/codex}"',
@@ -220,8 +224,13 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertTrue(enable_script.is_file())
         self.assertTrue(smoke_skill.is_file())
         self.assertTrue(worker_skill.is_file())
+        self.assertTrue(worker_manifest.is_file())
         self.assertIn("$imagegen", smoke_skill.read_text())
         self.assertIn("output/final.png", worker_skill.read_text())
+        manifest = json.loads(worker_manifest.read_text())
+        self.assertEqual(manifest["skill_name"], "worker-hat-v1")
+        self.assertIn("hat", manifest["product_types"])
+        self.assertIn("product_front", manifest["required_reference_roles"])
 
         activation = enable_script.read_text()
         self.assertIn('"$CODEX_RUNTIME" smoke', activation)

@@ -18,6 +18,8 @@ import type {
   ContextManualLabel,
   GenerationAttempt,
   GenerationCapability,
+  GenerationSkillCatalog,
+  ReferenceSet,
   BatchExportResult,
   ExportList,
   ExportRecord,
@@ -243,11 +245,27 @@ export const listGenerationAttempts = (campaignId: string, signal?: AbortSignal)
     { signal },
   );
 
+export const listGenerationSkills = (campaignId: string, signal?: AbortSignal) =>
+  request<GenerationSkillCatalog>(
+    "/api/v1/realistic-review-ugc/generation-skills?campaign_id="
+      + encodeURIComponent(campaignId),
+    { signal },
+  );
+
+export const listReferenceSets = (campaignId: string, signal?: AbortSignal) =>
+  request<ReferenceSet[]>(
+    "/api/v1/realistic-review-ugc/reference-sets?campaign_id="
+      + encodeURIComponent(campaignId)
+      + "&include_global=true&status=active",
+    { signal },
+  );
+
 export const prepareGenerationAttempt = (
   campaignId: string,
   candidateId: string,
   generationVariant = 1,
-  workerSkillVersion = "worker-hat-v1",
+  workerSkillVersion?: string,
+  referenceSetId?: string,
 ) =>
   request<{ created: boolean; attempt: GenerationAttempt }>(
     "/api/v1/realistic-review-ugc/campaigns/" + encodeURIComponent(campaignId)
@@ -256,7 +274,8 @@ export const prepareGenerationAttempt = (
       method: "POST",
       body: JSON.stringify({
         generation_variant: generationVariant,
-        worker_skill_version: workerSkillVersion,
+        ...(workerSkillVersion ? { worker_skill_version: workerSkillVersion } : {}),
+        ...(referenceSetId ? { reference_set_id: referenceSetId } : {}),
       }),
     },
   );
