@@ -56,6 +56,7 @@ from app.modules.realistic_review_ugc.keyword_strategy import (
     detect_campaign_keyword_intent,
     query_is_suppressed_for_reference_search,
 )
+from app.modules.realistic_review_ugc.generation import RrugcGenerationFoundation
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.model import (
@@ -5187,6 +5188,92 @@ def test_generation_attempt_requires_bound_product_front_reference(api, database
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "product_reference_incomplete"
 
+
+def test_rrugc_generation_enqueue_uses_codex_provider_when_configured(
+    database,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.generation.get_settings",
+        lambda: SimpleNamespace(
+            RRUGC_IMAGE_GENERATION_PROVIDER="codex",
+            CODEX_IMAGE_MODEL="",
+        ),
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="codex enqueue",
+            query="review portrait",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a",
+            sku="CAP-CODEX-QUEUE",
+            name="Codex queue cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product)
+        session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="8" * 64,
+            pin_url="https://www.pinterest.com/pin/6088/",
+            image_url="https://i.pinimg.com/codex-queue.jpg",
+            status="drive_ready",
+            remote_file_id="person-file",
+        )
+        session.add(candidate)
+        session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            product_revision=1,
+            product_snapshot_json={
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "revision": 1,
+            },
+            product_reference_snapshot_json=[{
+                "id": "front",
+                "view_type": "front",
+                "remote_file_id": "front-file",
+            }],
+            candidate_snapshot_json={},
+            generation_variant=1,
+            worker_skill_version="worker-hat-v1",
+            prompt_text="",
+            status="prepared",
+            idempotency_key="codex-enqueue-attempt",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt)
+        session.commit()
+
+        queued, created = RrugcGenerationFoundation(
+            session
+        ).enqueue_attempt(
+            attempt=attempt,
+            actor_id="user-a",
+        )
+        assert created is True
+        assert queued.provider == "codex"
+        assert queued.provider_model == "account-default"
+        assert queued.status == "queued"
+        job = session.get(ProcessingJobModel, queued.processing_job_id)
+        assert job is not None
+        assert job.provider_key == "codex"
+        assert job.provider_scope == "image_generation"
+
+
 def test_rrugc_generation_worker_completes_and_persists_drive_output(database, monkeypatch):
     output_bytes = _png_bytes(width=96, height=64, value=170)
 
@@ -5331,6 +5418,171 @@ def test_rrugc_generation_worker_completes_and_persists_drive_output(database, m
         assert persisted.output_height == 64
         assert persisted.output_remote_file_id == "file-1"
         assert persisted.output_web_url == "https://drive.google.com/file/d/file-1/view"
+        assert persisted.completed_at is not None
+
+
+
+def test_rrugc_generation_worker_codex_completes_with_existing_output_lifecycle(
+    database,
+    monkeypatch,
+    tmp_path,
+):
+    output_bytes = _png_bytes(width=104, height=72, value=190)
+    captured: dict[str, object] = {}
+
+    class FakeCodexRunner:
+        def __init__(self, config):
+            captured["config"] = config
+
+        async def generate_from_references(
+            self,
+            *,
+            attempt_id,
+            person,
+            references,
+            prompt,
+        ):
+            captured["attempt_id"] = attempt_id
+            captured["labels"] = [item.label for item in references]
+            captured["prompt"] = prompt
+            return GeneratedImageResult(
+                provider="codex",
+                model="account-default",
+                image_bytes=output_bytes,
+                mime_type="image/png",
+                provider_request_id="codex-thread-1",
+            )
+
+        def cleanup_attempt(self, attempt_id):
+            captured["cleanup_attempt_id"] = attempt_id
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.generation_handler.CodexImageGenRunner",
+        FakeCodexRunner,
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="codex worker generation",
+            query="review portrait",
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=False,
+        )
+        product = RrugcProductModel(
+            tenant_id="tenant-a",
+            sku="CAP-CODEX",
+            name="Codex cap",
+            created_by_user_id="user-a",
+        )
+        session.add(product)
+        session.flush()
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="9" * 64,
+            pin_url="https://www.pinterest.com/pin/6099/",
+            image_url="https://i.pinimg.com/codex-source.jpg",
+            status="drive_ready",
+            remote_file_id="person-file",
+        )
+        session.add(candidate)
+        session.flush()
+        attempt = RrugcGenerationAttemptModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            candidate_id=candidate.id,
+            product_id=product.id,
+            product_revision=1,
+            product_snapshot_json={
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "product_type": "hat",
+                "revision": 1,
+            },
+            product_reference_snapshot_json=[{
+                "id": "ref-front",
+                "view_type": "front",
+                "version": 1,
+                "content_type": "image/png",
+                "remote_file_id": "product-front-file",
+            }],
+            candidate_snapshot_json={
+                "id": candidate.id,
+                "remote_file_id": "person-file",
+            },
+            generation_variant=1,
+            worker_skill_version="worker-hat-v1",
+            prompt_text="Preserve the person and apply the referenced cap.",
+            status="queued",
+            idempotency_key="codex-worker-attempt-key",
+            created_by_user_id="user-a",
+        )
+        session.add(attempt)
+        session.commit()
+        attempt_id = attempt.id
+
+    claimed = ClaimedJob(
+        id="job-generate-codex-1",
+        tenant_id="tenant-a",
+        job_type="rrugc_generate",
+        entity_type="rrugc_generation_attempt",
+        entity_id=attempt_id,
+        payload={"generation_attempt_id": attempt_id},
+        attempt_count=1,
+        lease_owner="test-worker",
+        provider_key="codex",
+    )
+    storage = FakeStorage()
+    context = JobHandlerContext(
+        job=claimed,
+        dependencies=WorkerDependencies(
+            session_factory=database,
+            storage_provider=storage,
+        ),
+        shutdown_requested=Event(),
+        cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(
+            logging.getLogger("rrugc-generation-codex-test"),
+            {},
+        ),
+    )
+    settings = SimpleNamespace(
+        IMAGE_GENERATION_ENABLED=True,
+        GEMINI_IMAGE_GENERATION_ENABLED=False,
+        CODEX_IMAGE_GENERATION_ENABLED=True,
+        RRUGC_IMAGE_GENERATION_PROVIDER="codex",
+        CODEX_IMAGE_BINARY="codex",
+        CODEX_IMAGE_HOME=str(tmp_path / "codex-home"),
+        CODEX_IMAGE_SKILL="worker-hat-v1",
+        CODEX_IMAGE_MODEL="",
+        CODEX_IMAGE_TIMEOUT_SECONDS=30,
+        IMAGE_GENERATION_STAGING_ROOT=str(tmp_path / "staging"),
+    )
+
+    outcome = RrugcGenerateJobHandler(settings)(context)
+    assert outcome.outcome == JobOutcome.COMPLETED
+    assert storage.payload == output_bytes
+    assert storage.input.asset_id == f"rrugc-generation:{attempt_id}"
+    assert captured["attempt_id"] == attempt_id
+    assert captured["labels"] == ["front"]
+    assert captured["cleanup_attempt_id"] == attempt_id
+    assert captured["config"].skill_name == "worker-hat-v1"
+
+    with database() as session:
+        persisted = session.get(RrugcGenerationAttemptModel, attempt_id)
+        assert persisted is not None
+        assert persisted.status == "completed"
+        assert persisted.provider == "codex"
+        assert persisted.provider_model == "account-default"
+        assert persisted.provider_request_id == "codex-thread-1"
+        assert persisted.output_content_type == "image/png"
+        assert persisted.output_width == 104
+        assert persisted.output_height == 72
+        assert persisted.output_remote_file_id == "file-1"
         assert persisted.completed_at is not None
 
 

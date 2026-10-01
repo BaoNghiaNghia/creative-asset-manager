@@ -117,7 +117,6 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "rrugc_generate": (
         "PROCESSING_JOBS_ENABLED",
         "IMAGE_GENERATION_ENABLED",
-        "GEMINI_IMAGE_GENERATION_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED",
     ),
     "rrugc_supervisor_qa": (
@@ -141,7 +140,30 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
                 and settings.UNIFIED_ASSET_INGESTION_ENABLED
                 and (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED)
             )
+        if job_type == "rrugc_generate":
+            provider = str(
+                getattr(settings, "RRUGC_IMAGE_GENERATION_PROVIDER", "gemini")
+            ).strip().lower()
+            provider_enabled = (
+                bool(getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False))
+                if provider == "codex"
+                else bool(getattr(settings, "GEMINI_IMAGE_GENERATION_ENABLED", False))
+            )
+            return provider_enabled and all(
+                bool(getattr(settings, flag)) for flag in flags
+            )
         return all(bool(getattr(settings, flag)) for flag in flags)
+
+    def gemini_emergency_applies(job_type: str) -> bool:
+        if job_type == "rrugc_generate":
+            return str(
+                getattr(settings, "RRUGC_IMAGE_GENERATION_PROVIDER", "gemini")
+            ).strip().lower() == "gemini"
+        return job_type in {
+            "video_analyze",
+            "rrugc_candidate_analyze",
+            "rrugc_supervisor_qa",
+        }
 
     return tuple(
         job_type for job_type, flags in _JOB_GLOBAL_FLAGS.items()
@@ -155,7 +177,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
         )
         and not (
             settings.GEMINI_EMERGENCY_STOP_ENABLED
-            and job_type in {"video_analyze", "rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa"}
+            and gemini_emergency_applies(job_type)
         )
     )
 

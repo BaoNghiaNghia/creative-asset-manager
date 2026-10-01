@@ -491,7 +491,7 @@ class GenerationAttemptCreateRequest(BaseModel):
 class GenerationCapabilityResponse(BaseModel):
     enabled: bool
     available: bool
-    provider: Literal["gemini"]
+    provider: Literal["gemini", "codex"]
     model: str
     operation: Literal["reference_conditioned_product_edit"]
     reason: str | None = None

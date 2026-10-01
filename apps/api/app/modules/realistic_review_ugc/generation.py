@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.model import (
@@ -495,8 +496,25 @@ class RrugcGenerationFoundation:
         if not locked.candidate_snapshot_json:
             locked.candidate_snapshot_json = candidate_snapshot(candidate)
 
-        locked.provider = "gemini"
-        locked.provider_model = GEMINI_IMAGE_MODEL
+        settings = get_settings()
+        provider = str(
+            getattr(settings, "RRUGC_IMAGE_GENERATION_PROVIDER", "gemini")
+        ).strip().lower()
+        if provider not in {"gemini", "codex"}:
+            raise RrugcError(
+                "generation_provider_invalid",
+                "Configured RRUGC image generation provider is invalid.",
+                status_code=503,
+            )
+        locked.provider = provider
+        locked.provider_model = (
+            (
+                str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip()
+                or "account-default"
+            )
+            if provider == "codex"
+            else GEMINI_IMAGE_MODEL
+        )
         locked.prompt_text = build_worker_prompt(locked)
         locked.status = "queued"
         locked.last_error_code = None
@@ -518,7 +536,7 @@ class RrugcGenerationFoundation:
             },
             priority=60,
             max_attempts=5,
-            provider_key="gemini",
+            provider_key=provider,
             provider_scope="image_generation",
         )
         locked.processing_job_id = job.id

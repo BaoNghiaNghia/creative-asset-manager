@@ -190,6 +190,37 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("CAM_ELASTICSEARCH_MEMORY_LIMIT=1536m", production_env)
         self.assertIn("ES_JAVA_OPTS=-Xms512m -Xmx512m", production_env)
 
+
+    def test_codex_image_runtime_uses_persistent_state_and_project_skills(self) -> None:
+        backend = BACKEND.read_text()
+        production_env = (ROOT / "deploy" / "production.env.example").read_text()
+        runtime_script = SCRIPTS / "cam-codex-runtime.sh"
+        smoke_skill = (
+            ROOT / "deploy" / "codex" / "skills" / "cam-imagegen-smoke" / "SKILL.md"
+        )
+        worker_skill = (
+            ROOT / "deploy" / "codex" / "skills" / "worker-hat-v1" / "SKILL.md"
+        )
+
+        self.assertIn(
+            'CODEX_RUNTIME_DIR="${CAM_CODEX_RUNTIME_DIR:-/var/lib/creative-asset-manager/codex}"',
+            backend,
+        )
+        self.assertIn("Syncing project-managed Codex skills", backend)
+        self.assertIn("CODEX_IMAGE_GENERATION_ENABLED", backend)
+        self.assertIn("command -v codex", backend)
+        self.assertIn("RRUGC_IMAGE_GENERATION_PROVIDER=gemini", production_env)
+        self.assertIn("CODEX_IMAGE_GENERATION_ENABLED=false", production_env)
+        self.assertIn(
+            "CODEX_IMAGE_HOME=/var/lib/creative-asset-manager/codex",
+            production_env,
+        )
+        self.assertTrue(runtime_script.is_file())
+        self.assertTrue(smoke_skill.is_file())
+        self.assertTrue(worker_skill.is_file())
+        self.assertIn("$imagegen", smoke_skill.read_text())
+        self.assertIn("output/final.png", worker_skill.read_text())
+
     def test_worker_units_have_exclusive_roles(self) -> None:
         self.assertIn("WORKER_ROLE=image", IMAGE_UNIT.read_text())
         self.assertIn(

@@ -33,6 +33,11 @@ from app.modules.image_generation.providers import (
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.supervisor import RrugcSupervisorService
+from app.providers.ai.codex_image import (
+    CodexImageGenRunner,
+    CodexImageProviderError,
+    CodexImageRunnerConfig,
+)
 from app.providers.ai.gemini_image import (
     GeminiImageProviderError,
     GeminiReferenceImageProvider,
@@ -184,7 +189,20 @@ class RrugcGenerateJobHandler:
                 terminal=True,
             )
             return JobHandlerResult.cancelled("Generation was cancelled.")
-        if not settings.IMAGE_GENERATION_ENABLED or not settings.GEMINI_IMAGE_GENERATION_ENABLED:
+        selected_provider = str(
+            getattr(settings, "RRUGC_IMAGE_GENERATION_PROVIDER", "gemini")
+        ).strip().lower()
+        if selected_provider not in {"gemini", "codex"}:
+            raise RrugcGenerationHandlerError(
+                "rrugc_generation_provider_invalid",
+                "Configured RRUGC image generation provider is invalid.",
+            )
+        provider_enabled = (
+            bool(getattr(settings, "GEMINI_IMAGE_GENERATION_ENABLED", False))
+            if selected_provider == "gemini"
+            else bool(getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False))
+        )
+        if not settings.IMAGE_GENERATION_ENABLED or not provider_enabled:
             raise RrugcGenerationHandlerError(
                 "rrugc_generation_disabled",
                 "Reference-conditioned image generation is disabled.",
@@ -237,7 +255,11 @@ class RrugcGenerateJobHandler:
             session.commit()
 
         staged = self._staging_path(settings, attempt_id)
-        result = self._load_staged_result(staged, attempt)
+        result = self._load_staged_result(
+            staged,
+            attempt,
+            selected_provider=selected_provider,
+        )
         if result is None:
             person = await self._open_prepared(
                 storage,
@@ -273,36 +295,108 @@ class RrugcGenerateJobHandler:
                     "No bound product reference could be loaded.",
                 )
 
-            adapter = GeminiReferenceImageProvider(
-                api_key=self._gemini_image_key(context, settings)
-            )
-            try:
-                result = await adapter.generate_from_references(
-                    person=person,
-                    references=references,
-                    prompt=prompt,
+            codex_runner: CodexImageGenRunner | None = None
+            if selected_provider == "codex":
+                codex_runner = CodexImageGenRunner(
+                    CodexImageRunnerConfig(
+                        binary=str(
+                            getattr(settings, "CODEX_IMAGE_BINARY", "codex")
+                            or "codex"
+                        ),
+                        codex_home=str(
+                            getattr(
+                                settings,
+                                "CODEX_IMAGE_HOME",
+                                "/var/lib/creative-asset-manager/codex",
+                            )
+                        ),
+                        staging_root=str(
+                            getattr(
+                                settings,
+                                "IMAGE_GENERATION_STAGING_ROOT",
+                                "/var/lib/creative-asset-manager/image-generation",
+                            )
+                        ),
+                        skill_name=(
+                            str(attempt.worker_skill_version or "").strip()
+                            or str(
+                                getattr(
+                                    settings,
+                                    "CODEX_IMAGE_SKILL",
+                                    "worker-hat-v1",
+                                )
+                            ).strip()
+                        ),
+                        timeout_seconds=int(
+                            getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)
+                        ),
+                        model=(
+                            str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip()
+                            or None
+                        ),
+                    )
                 )
-            except GeminiImageProviderError as exc:
-                if exc.code == "gemini_image_rate_limited":
-                    self._mark_failure(
-                        context,
+                try:
+                    result = await codex_runner.generate_from_references(
+                        attempt_id=attempt_id,
+                        person=person,
+                        references=references,
+                        prompt=prompt,
+                    )
+                except CodexImageProviderError as exc:
+                    if exc.defer_seconds is not None:
+                        self._mark_failure(
+                            context,
+                            exc.code,
+                            str(exc),
+                            terminal=False,
+                        )
+                        return DeferredJobOutcome(
+                            exc.code,
+                            str(exc),
+                            datetime.now(timezone.utc)
+                            + timedelta(seconds=max(60, exc.defer_seconds)),
+                        )
+                    raise RrugcGenerationHandlerError(
                         exc.code,
                         str(exc),
-                        terminal=False,
+                        retryable=exc.retryable,
+                    ) from exc
+            else:
+                adapter = GeminiReferenceImageProvider(
+                    api_key=self._gemini_image_key(context, settings)
+                )
+                try:
+                    result = await adapter.generate_from_references(
+                        person=person,
+                        references=references,
+                        prompt=prompt,
                     )
-                    return DeferredJobOutcome(
-                        "gemini_image_quota_deferred",
+                except GeminiImageProviderError as exc:
+                    if exc.code == "gemini_image_rate_limited":
+                        self._mark_failure(
+                            context,
+                            exc.code,
+                            str(exc),
+                            terminal=False,
+                        )
+                        return DeferredJobOutcome(
+                            "gemini_image_quota_deferred",
+                            str(exc),
+                            datetime.now(timezone.utc) + timedelta(hours=1),
+                        )
+                    raise RrugcGenerationHandlerError(
+                        exc.code,
                         str(exc),
-                        datetime.now(timezone.utc) + timedelta(hours=1),
-                    )
-                raise RrugcGenerationHandlerError(
-                    exc.code,
-                    str(exc),
-                    retryable=exc.retryable,
-                ) from exc
+                        retryable=exc.retryable,
+                    ) from exc
+                finally:
+                    await adapter.aclose()
+            try:
+                self._write_stage(staged, result.image_bytes)
             finally:
-                await adapter.aclose()
-            self._write_stage(staged, result.image_bytes)
+                if codex_runner is not None:
+                    codex_runner.cleanup_attempt(attempt_id)
 
         try:
             with Image.open(BytesIO(result.image_bytes)) as output_image:
@@ -435,6 +529,8 @@ class RrugcGenerateJobHandler:
         self,
         path: Path,
         attempt,
+        *,
+        selected_provider: str,
     ) -> GeneratedImageResult | None:
         if not path.exists():
             return None
@@ -450,8 +546,13 @@ class RrugcGenerateJobHandler:
         except (OSError, ValueError):
             self._remove_stage(path)
             return None
+        staged_provider = (
+            attempt.provider
+            if attempt.provider in {"gemini", "codex"}
+            else selected_provider
+        )
         return GeneratedImageResult(
-            provider="gemini",
+            provider=staged_provider,
             model=attempt.provider_model,
             image_bytes=data,
             mime_type=mime,

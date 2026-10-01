@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-ProviderKey = Literal["adobe_firefly", "cloudflare_sd", "gemini"]
+ProviderKey = Literal["adobe_firefly", "cloudflare_sd", "gemini", "codex"]
 PreservationMode = Literal["strict_expand", "semantic_expand"]
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 CLOUDFLARE_SD_MODEL = "@cf/runwayml/stable-diffusion-v1-5-inpainting"

@@ -20,6 +20,7 @@ from app.domain.providers.contracts import (
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
+from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig
 from app.modules.realistic_review_ugc.analysis import (
     build_ai_risk_calibration,
     build_reference_preference_model,
@@ -576,24 +577,80 @@ def _rrugc_generation_capability(
     session: Session, tenant_id: str
 ) -> GenerationCapabilityResponse:
     settings = get_settings()
-    image_capability = provider_capability(session, settings, tenant_id)
-    gemini = next(
-        (item for item in image_capability.providers if item.id == "gemini"),
-        None,
-    )
+    selected_provider = str(
+        getattr(settings, "RRUGC_IMAGE_GENERATION_PROVIDER", "gemini")
+    ).strip().lower()
+    if selected_provider not in {"gemini", "codex"}:
+        selected_provider = "gemini"
+
     storage = build_managed_storage_provider(settings)
     storage_available = (
         settings.MANAGED_ASSET_STORAGE_ENABLED
         and not isinstance(storage, UnconfiguredAssetStorageProvider)
     )
-    enabled = bool(
+    base_enabled = bool(
         settings.PROCESSING_JOBS_ENABLED
         and settings.IMAGE_GENERATION_ENABLED
-        and settings.GEMINI_IMAGE_GENERATION_ENABLED
         and settings.MANAGED_ASSET_STORAGE_ENABLED
     )
-    available = bool(enabled and gemini and gemini.available and storage_available)
+
     reason = None
+    if selected_provider == "codex":
+        enabled = bool(
+            base_enabled
+            and getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False)
+        )
+        runner = CodexImageGenRunner(
+            CodexImageRunnerConfig(
+                binary=str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex"),
+                codex_home=str(
+                    getattr(
+                        settings,
+                        "CODEX_IMAGE_HOME",
+                        "/var/lib/creative-asset-manager/codex",
+                    )
+                ),
+                staging_root=str(settings.IMAGE_GENERATION_STAGING_ROOT),
+                skill_name=str(
+                    getattr(settings, "CODEX_IMAGE_SKILL", "worker-hat-v1")
+                ).strip()
+                or "worker-hat-v1",
+                timeout_seconds=int(
+                    getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)
+                ),
+                model=(
+                    str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip()
+                    or None
+                ),
+            )
+        )
+        provider_reason = runner.capability_reason()
+        available = bool(enabled and storage_available and provider_reason is None)
+        if not enabled:
+            reason = "Codex image generation is disabled by production settings."
+        elif provider_reason is not None:
+            reason = provider_reason
+        elif not storage_available:
+            reason = "Managed Drive is unavailable."
+        return GenerationCapabilityResponse(
+            enabled=enabled,
+            available=available,
+            provider="codex",
+            model=(
+                str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip()
+                or "account-default"
+            ),
+            operation="reference_conditioned_product_edit",
+            reason=reason,
+        )
+
+    image_capability = provider_capability(session, settings, tenant_id)
+    gemini = next(
+        (item for item in image_capability.providers if item.id == "gemini"),
+        None,
+    )
+    enabled = bool(base_enabled and settings.GEMINI_IMAGE_GENERATION_ENABLED)
+    available = bool(enabled and gemini and gemini.available and storage_available)
     if not enabled:
         reason = "Reference-conditioned generation is disabled by production settings."
     elif gemini is None or not gemini.available:

@@ -469,6 +469,49 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertNotIn("video_analyze", globally_enabled_job_types(Settings(**common, AI_EMERGENCY_STOP_ENABLED=True)))
         self.assertNotIn("video_analyze", globally_enabled_job_types(Settings(**common, GEMINI_EMERGENCY_STOP_ENABLED=True)))
 
+    def test_rrugc_generate_global_gate_switches_between_gemini_and_codex(self):
+        common = dict(
+            PROCESSING_JOBS_ENABLED=True,
+            IMAGE_GENERATION_ENABLED=True,
+            MANAGED_ASSET_STORAGE_ENABLED=True,
+        )
+        gemini = Settings(
+            **common,
+            RRUGC_IMAGE_GENERATION_PROVIDER="gemini",
+            GEMINI_IMAGE_GENERATION_ENABLED=True,
+        )
+        self.assertIn("rrugc_generate", globally_enabled_job_types(gemini))
+
+        codex = Settings(
+            **common,
+            RRUGC_IMAGE_GENERATION_PROVIDER="codex",
+            GEMINI_IMAGE_GENERATION_ENABLED=False,
+            CODEX_IMAGE_GENERATION_ENABLED=True,
+            GEMINI_EMERGENCY_STOP_ENABLED=True,
+        )
+        self.assertIn("rrugc_generate", globally_enabled_job_types(codex))
+
+        codex_disabled = Settings(
+            **common,
+            RRUGC_IMAGE_GENERATION_PROVIDER="codex",
+            CODEX_IMAGE_GENERATION_ENABLED=False,
+        )
+        self.assertNotIn(
+            "rrugc_generate",
+            globally_enabled_job_types(codex_disabled),
+        )
+
+        codex_global_stop = Settings(
+            **common,
+            RRUGC_IMAGE_GENERATION_PROVIDER="codex",
+            CODEX_IMAGE_GENERATION_ENABLED=True,
+            AI_EMERGENCY_STOP_ENABLED=True,
+        )
+        self.assertNotIn(
+            "rrugc_generate",
+            globally_enabled_job_types(codex_global_stop),
+        )
+
     def test_runtime_control_blocks_video_analyze_before_provider_request(self):
         self.policy("tenant")
         self.job("tenant", "video-runtime-stop", kind="video_analyze", provider="gemini", scope="video")

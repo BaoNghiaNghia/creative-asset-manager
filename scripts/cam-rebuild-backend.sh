@@ -35,6 +35,7 @@ VIDEO_WORKER_HEALTH_PORT="${CAM_VIDEO_WORKER_HEALTH_PORT:-8082}"
 VIDEO_DELIVERY_WORKER_HEALTH_PORT="${CAM_VIDEO_DELIVERY_WORKER_HEALTH_PORT:-8088}"
 VISUAL_WORKER_HEALTH_PORT="${CAM_VISUAL_WORKER_HEALTH_PORT:-8087}"
 VISUAL_ENCODER_RUNTIME_DIR="${CAM_VISUAL_ENCODER_RUNTIME_DIR:-/var/lib/creative-asset-manager/visual-encoder-runtime}"
+CODEX_RUNTIME_DIR="${CAM_CODEX_RUNTIME_DIR:-/var/lib/creative-asset-manager/codex}"
 
 REF=""
 
@@ -1867,6 +1868,63 @@ progress 65 \
   --expected-owner-uid 0 \
   --api-root "$TARGET/apps/api" \
   >/dev/null
+
+
+#
+# Keep project-managed Codex skills in the persistent state directory while
+# leaving auth/config files untouched across immutable releases.
+#
+if [[ -d "$TARGET/deploy/codex/skills" ]]; then
+  info "Syncing project-managed Codex skills"
+  install -d -m 0750 -o creative-assets -g creative-assets "$CODEX_RUNTIME_DIR"
+  install -d -m 0750 -o creative-assets -g creative-assets "$CODEX_RUNTIME_DIR/skills"
+
+  while IFS= read -r -d '' skill_dir; do
+    skill_name="$(basename -- "$skill_dir")"
+    [[ "$skill_name" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
+      || die "Invalid project-managed Codex skill directory: $skill_name"
+    [[ -f "$skill_dir/SKILL.md" ]] \
+      || die "Project-managed Codex skill is missing SKILL.md: $skill_name"
+
+    destination="$CODEX_RUNTIME_DIR/skills/$skill_name"
+    install -d -m 0750 -o creative-assets -g creative-assets "$destination"
+    rsync \
+      -a \
+      --delete \
+      --chown=creative-assets:creative-assets \
+      "$skill_dir/" \
+      "$destination/"
+  done < <(
+    find "$TARGET/deploy/codex/skills" \
+      -mindepth 1 \
+      -maxdepth 1 \
+      -type d \
+      -print0 \
+      | sort -z
+  )
+fi
+
+if "$PYTHON" \
+  "$TARGET/deploy/tools/production_env.py" \
+  flag-enabled \
+  --env-file "$ENV_FILE" \
+  --expected-owner-uid 0 \
+  --name CODEX_IMAGE_GENERATION_ENABLED
+then
+  command -v codex >/dev/null \
+    || die "CODEX_IMAGE_GENERATION_ENABLED=true but Codex CLI is not installed."
+  first_codex_skill="$(
+    find "$CODEX_RUNTIME_DIR/skills" \
+      -mindepth 2 \
+      -maxdepth 2 \
+      -type f \
+      -name SKILL.md \
+      -print \
+      -quit
+  )"
+  [[ -n "$first_codex_skill" ]] \
+    || die "CODEX_IMAGE_GENERATION_ENABLED=true but no project-managed Codex skill is installed."
+fi
 
 
 #

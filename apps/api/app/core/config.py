@@ -208,6 +208,13 @@ class Settings(BaseSettings):
     IMAGE_GENERATION_ENABLED: bool = False
     FIREFLY_IMAGE_GENERATION_ENABLED: bool = False
     GEMINI_IMAGE_GENERATION_ENABLED: bool = False
+    CODEX_IMAGE_GENERATION_ENABLED: bool = False
+    RRUGC_IMAGE_GENERATION_PROVIDER: str = "gemini"
+    CODEX_IMAGE_BINARY: str = "codex"
+    CODEX_IMAGE_HOME: str = "/var/lib/creative-asset-manager/codex"
+    CODEX_IMAGE_SKILL: str = "worker-hat-v1"
+    CODEX_IMAGE_MODEL: str = ""
+    CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False
     CLOUDFLARE_AI_ACCOUNT_ID: str = ""
     CLOUDFLARE_AI_API_TOKEN: str = ""
@@ -810,6 +817,41 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_openai_setting(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("RRUGC_IMAGE_GENERATION_PROVIDER")
+    @classmethod
+    def validate_rrugc_image_generation_provider(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"gemini", "codex"}:
+            raise ValueError(
+                "RRUGC_IMAGE_GENERATION_PROVIDER must be gemini or codex"
+            )
+        return normalized
+
+    @field_validator("CODEX_IMAGE_SKILL")
+    @classmethod
+    def validate_codex_image_skill(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", normalized):
+            raise ValueError("CODEX_IMAGE_SKILL is invalid")
+        return normalized
+
+    @field_validator("CODEX_IMAGE_BINARY")
+    @classmethod
+    def validate_codex_image_binary(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(char.isspace() for char in normalized):
+            raise ValueError("CODEX_IMAGE_BINARY is invalid")
+        return normalized
+
+    @field_validator("CODEX_IMAGE_TIMEOUT_SECONDS")
+    @classmethod
+    def validate_codex_image_timeout(cls, value: int) -> int:
+        if not 30 <= value <= 3600:
+            raise ValueError(
+                "CODEX_IMAGE_TIMEOUT_SECONDS must be between 30 and 3600"
+            )
+        return value
 
     @field_validator("APP_VERSION", "BUILD_COMMIT")
     @classmethod
