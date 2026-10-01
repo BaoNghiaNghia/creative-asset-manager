@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.modules.auth_persistence.identity import ApplicationUserInactiveError
+from app.modules.auth_persistence.identity import ApplicationUserInactiveError, safe_avatar_url
 from app.modules.auth_persistence.service import auth_repository, cookie_options
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
-from app.modules.auth_persistence.model import UserModel
+from app.modules.auth_persistence.model import OAuthConnectionModel, UserModel
 from app.modules.authorization.principal import (
     CurrentPrincipal,
     authorization_error,
@@ -24,6 +25,29 @@ class ActiveTenantRequest(BaseModel):
 router = APIRouter(prefix="/api/v1/auth", tags=["authorization"])
 
 
+def _resolved_avatar_url(database, principal: CurrentPrincipal, user: UserModel | None) -> str | None:
+    if user and user.avatar_url:
+        return safe_avatar_url(user.avatar_url)
+    identity = principal.external_identity
+    if identity is None or identity.provider != "google":
+        return None
+    connections = database.scalars(
+        select(OAuthConnectionModel)
+        .where(
+            OAuthConnectionModel.provider == "google",
+            OAuthConnectionModel.provider_account_id == identity.provider_subject,
+            OAuthConnectionModel.status == "active",
+        )
+        .order_by(OAuthConnectionModel.updated_at.desc())
+    ).all()
+    for connection in connections:
+        metadata = connection.provider_metadata_json if isinstance(connection.provider_metadata_json, dict) else {}
+        picture = safe_avatar_url(metadata.get("picture"))
+        if picture:
+            return picture
+    return None
+
+
 @router.get("/identity")
 def identity(
     principal: CurrentPrincipal = Depends(require_authenticated_principal),
@@ -33,6 +57,7 @@ def identity(
             principal.user_id
         )
         user = database.get(UserModel, principal.user_id)
+        avatar_url = _resolved_avatar_url(database, principal, user)
         tenants = [
             {
                 "id": tenant.id,
@@ -54,7 +79,7 @@ def identity(
         "application_auth_provider": principal.external_identity.provider if principal.external_identity else None,
         "display_name": user.display_name if user else None,
         "email": user.primary_email if user else None,
-        "avatar_url": user.avatar_url if user else None,
+        "avatar_url": avatar_url,
     }
 
 
@@ -83,6 +108,7 @@ def select_active_tenant(
             user_id=principal.user_id,
         )
         user = database.get(UserModel, principal.user_id)
+        avatar_url = _resolved_avatar_url(database, principal, user)
         tenants = [
             {"id": tenant.id, "name": tenant.name, "slug": tenant.slug}
             for _membership, tenant in available
@@ -124,7 +150,7 @@ def select_active_tenant(
         "application_auth_provider": principal.external_identity.provider if principal.external_identity else None,
         "display_name": user.display_name if user else None,
         "email": user.primary_email if user else None,
-        "avatar_url": user.avatar_url if user else None,
+        "avatar_url": avatar_url,
     }
     response = JSONResponse(payload)
     response.set_cookie(cookie_name, replacement_id, **cookie_options())

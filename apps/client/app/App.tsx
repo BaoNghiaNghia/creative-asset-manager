@@ -1019,9 +1019,9 @@ export default function App() {
             </select>
           </label>}
           <AccountMenu
-            picture={explorer.authByProvider["google-drive"].user?.picture || explorer.applicationUser?.picture}
-            name={explorer.authByProvider["google-drive"].user?.name || explorer.applicationUser?.name || explorer.auth.user?.name}
-            email={explorer.authByProvider["google-drive"].user?.email || explorer.applicationUser?.email || explorer.auth.user?.email}
+            picture={explorer.applicationUser?.picture || explorer.authByProvider["google-drive"].user?.picture}
+            name={explorer.applicationUser?.name || explorer.authByProvider["google-drive"].user?.name || explorer.auth.user?.name}
+            email={explorer.applicationUser?.email || explorer.authByProvider["google-drive"].user?.email || explorer.auth.user?.email}
             provider="google-drive"
             onLogout={explorer.logout}
           />
