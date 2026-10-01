@@ -708,8 +708,29 @@ async def viewer_folder_options(
     principal: CurrentPrincipal = Depends(require_permission("tenant_members.manage")),
     external_source_id: str | None = Query(None),
 ):
+    source_id = external_source_id
+    if not source_id and provider in {"google-drive", "onedrive"}:
+        source_type = "google_drive" if provider == "google-drive" else "onedrive"
+        source_id = session.scalar(
+            select(ExternalSourceModel.id)
+            .where(
+                ExternalSourceModel.tenant_id == principal.active_tenant_id,
+                ExternalSourceModel.source_type == source_type,
+                ExternalSourceModel.status == "active",
+            )
+            .order_by(ExternalSourceModel.updated_at.desc(), ExternalSourceModel.id)
+            .limit(1)
+        )
+        if not source_id:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "source_not_found",
+                    "message": f"No active {provider} source is connected to this workspace.",
+                },
+            )
     token, _account_id_value, _tenant_id_value, resolved_source_id = await _source_context(
-        request, provider, session, principal, external_source_id
+        request, provider, session, principal, source_id
     )
     if provider != "google-drive":
         return {"external_source_id": resolved_source_id, "folders": []}

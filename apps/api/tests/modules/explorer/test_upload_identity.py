@@ -13,7 +13,7 @@ from app.core.config import Settings
 from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeModel
-from app.modules.explorer.router import upload_file
+from app.modules.explorer.router import upload_file, viewer_folder_options
 from app.modules.explorer.schema import AssetNode
 
 
@@ -268,6 +268,88 @@ def test_viewer_upload_allows_unsynced_descendant_via_provider_parent_chain() ->
             "name": "photo.jpg",
             "kind": "image",
         }
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_viewer_folder_options_selects_active_tenant_drive_when_source_is_omitted() -> None:
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine, expire_on_commit=False)
+    session.add(
+        ExternalSourceModel(
+            id="source-disconnected",
+            tenant_id="tenant-a",
+            source_type="google_drive",
+            source_key="drive-old",
+            source_metadata={},
+            status="disconnected",
+        )
+    )
+    session.add(
+        ExternalSourceModel(
+            id="source-active",
+            tenant_id="tenant-a",
+            source_type="google_drive",
+            source_key="drive-active",
+            source_metadata={},
+            status="active",
+        )
+    )
+    session.commit()
+
+    class FolderProvider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def list_children(self, parent_id, folders_only=False):
+            assert parent_id == "root"
+            assert folders_only is True
+            return [
+                AssetNode(
+                    id="folder-1",
+                    name="Campaigns",
+                    kind="folder",
+                    mime_type="application/vnd.google-apps.folder",
+                )
+            ]
+
+    source_context = AsyncMock(
+        return_value=("token", "account-a", "tenant-a", "source-active")
+    )
+    principal = SimpleNamespace(active_tenant_id="tenant-a")
+
+    async def scenario():
+        with (
+            patch("app.modules.explorer.router._source_context", new=source_context),
+            patch(
+                "app.modules.explorer.router.create_source_provider",
+                return_value=FolderProvider(),
+            ),
+        ):
+            return await viewer_folder_options(
+                request=SimpleNamespace(),
+                provider="google-drive",
+                session=session,
+                principal=principal,
+                external_source_id=None,
+            )
+
+    try:
+        result = asyncio.run(scenario())
+        assert result == {
+            "external_source_id": "source-active",
+            "folders": [{"id": "folder-1", "name": "Campaigns"}],
+        }
+        assert source_context.await_args.args[4] == "source-active"
     finally:
         session.close()
         engine.dispose()
