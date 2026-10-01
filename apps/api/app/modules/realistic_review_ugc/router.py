@@ -83,6 +83,10 @@ from app.modules.realistic_review_ugc.reference_library import (
     RrugcReferenceLibrary,
     reference_image_content_type,
 )
+from app.modules.realistic_review_ugc.reference_recommendations import (
+    recommend_reference_assets,
+    suggested_reference_set_name,
+)
 from app.modules.realistic_review_ugc.reference_sets import (
     ReferenceSetError,
     RrugcReferenceSetService,
@@ -121,6 +125,8 @@ from app.modules.realistic_review_ugc.schema import (
     ReferenceSeedResponse,
     ReferenceSetCreateRequest,
     ReferenceSetSkillPresetCreateRequest,
+    ReferenceSetRecommendationItemResponse,
+    ReferenceSetRecommendationResponse,
     ReferenceSetItemCreateRequest,
     ReferenceSetItemResponse,
     ReferenceSetResponse,
@@ -1393,6 +1399,77 @@ def list_reference_sets(
             offset=offset,
         )
     ]
+
+
+@router.get(
+    "/reference-sets/recommendation",
+    response_model=ReferenceSetRecommendationResponse,
+)
+def recommend_reference_set(
+    campaign_id: str = Query(..., min_length=1, max_length=36),
+    skill_name: str | None = Query(default=None, max_length=128),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    try:
+        resolved_skill_name, manifest = _resolve_generation_skill(campaign, skill_name)
+    except CodexImageProviderError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    if manifest is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "codex_skill_manifest_required",
+                "message": "Reference recommendations require a manifest-backed Codex skill.",
+            },
+        )
+
+    assets = repository.list_reference_assets(
+        principal.active_tenant_id,
+        status="ready",
+        limit=500,
+    )
+    recommendations = recommend_reference_assets(
+        campaign=campaign,
+        manifest=manifest,
+        assets=assets,
+    )
+    missing_required_roles = [
+        item.role
+        for item in recommendations
+        if item.required and item.reference_asset is None
+    ]
+    return ReferenceSetRecommendationResponse(
+        campaign_id=campaign.id,
+        skill_name=resolved_skill_name,
+        suggested_name=suggested_reference_set_name(campaign, manifest),
+        complete=not missing_required_roles,
+        missing_required_roles=missing_required_roles,
+        items=[
+            ReferenceSetRecommendationItemResponse(
+                role=item.role,
+                required=item.required,
+                reference_asset=(
+                    _reference_asset(item.reference_asset)
+                    if item.reference_asset is not None
+                    else None
+                ),
+                score=item.score,
+                reasons=list(item.reasons),
+                candidate_count=item.candidate_count,
+            )
+            for item in recommendations
+        ],
+    )
 
 
 @router.post(

@@ -21,6 +21,7 @@ import type {
   GenerationSkillCatalog,
   ReferenceAsset,
   ReferenceSet,
+  ReferenceSetRecommendation,
   BatchExportResult,
   ExportList,
   ExportRecord,
@@ -256,6 +257,19 @@ export const listGenerationSkills = (campaignId: string, signal?: AbortSignal) =
 export const listReferenceAssets = (signal?: AbortSignal) =>
   request<ReferenceAsset[]>(
     "/api/v1/realistic-review-ugc/reference-assets?status=ready&limit=500",
+    { signal },
+  );
+
+export const getReferenceSetRecommendation = (
+  campaignId: string,
+  skillName: string,
+  signal?: AbortSignal,
+) =>
+  request<ReferenceSetRecommendation>(
+    "/api/v1/realistic-review-ugc/reference-sets/recommendation?campaign_id="
+      + encodeURIComponent(campaignId)
+      + "&skill_name="
+      + encodeURIComponent(skillName),
     { signal },
   );
 

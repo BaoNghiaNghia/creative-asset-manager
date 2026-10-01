@@ -1,4 +1,9 @@
-import type { Campaign, GenerationSkill, ReferenceAsset } from "./types";
+import type {
+  Campaign,
+  GenerationSkill,
+  ReferenceAsset,
+  ReferenceSetRecommendation,
+} from "./types";
 
 export type ReferenceRoleSlot = {
   role: string;
@@ -81,4 +86,28 @@ export function missingRequiredPresetRoles(
 ): string[] {
   if (!skill) return [];
   return skill.required_reference_roles.filter(role => !roleAssetIds[role]);
+}
+
+export function fillEmptyRecommendedReferenceRoles(
+  current: Record<string, string>,
+  recommendation: ReferenceSetRecommendation | null,
+): Record<string, string> {
+  if (!recommendation) return current;
+  const next = { ...current };
+  for (const item of recommendation.items) {
+    if (!next[item.role] && item.reference_asset?.id) {
+      next[item.role] = item.reference_asset.id;
+    }
+  }
+  return next;
+}
+
+export function recommendedReferenceAssetId(
+  recommendation: ReferenceSetRecommendation | null,
+  role: string,
+): string {
+  return (
+    recommendation?.items.find(item => item.role === role)?.reference_asset?.id
+    || ""
+  );
 }

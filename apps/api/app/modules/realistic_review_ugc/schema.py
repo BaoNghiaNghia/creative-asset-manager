@@ -966,6 +966,24 @@ class ReferenceSetSkillPresetCreateRequest(BaseModel):
     items: list[ReferenceSetSkillPresetItemRequest] = Field(min_length=1, max_length=32)
 
 
+class ReferenceSetRecommendationItemResponse(BaseModel):
+    role: str
+    required: bool
+    reference_asset: ReferenceAssetResponse | None = None
+    score: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+    candidate_count: int = 0
+
+
+class ReferenceSetRecommendationResponse(BaseModel):
+    campaign_id: str
+    skill_name: str
+    suggested_name: str
+    complete: bool
+    missing_required_roles: list[str] = Field(default_factory=list)
+    items: list[ReferenceSetRecommendationItemResponse] = Field(default_factory=list)
+
+
 class ReferenceSetItemCreateRequest(BaseModel):
     reference_asset_id: str = Field(min_length=1, max_length=36)
     role: str = Field(min_length=1, max_length=100)

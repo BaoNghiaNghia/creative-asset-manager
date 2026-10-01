@@ -8,11 +8,17 @@ import { ProductRegistryPanel, productUrlsFromText } from "./ProductRegistryPane
 import { candidateGalleryTab, candidateMatchesGalleryTab, candidatePhonePriority, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
 import {
+  fillEmptyRecommendedReferenceRoles,
   missingRequiredPresetRoles,
+  recommendedReferenceAssetId,
   referenceAssetsForRole,
   referenceRoleSlots,
 } from "./referenceSetPresets";
-import type { GenerationSkill, ReferenceAsset } from "./types";
+import type {
+  GenerationSkill,
+  ReferenceAsset,
+  ReferenceSetRecommendation,
+} from "./types";
 
 describe("Realistic Review UGC route", () => {
   it("routes the dedicated top-level workspace", () => {
@@ -133,6 +139,53 @@ describe("Realistic Review UGC route", () => {
     expect(
       referenceAssetsForRole(assets, "product_front", "campaign-1").map(asset => asset.id),
     ).toEqual(["campaign-product", "global-product", "campaign-artwork"]);
+
+    const recommendation: ReferenceSetRecommendation = {
+      campaign_id: "campaign-1",
+      skill_name: "worker-hat-v1",
+      suggested_name: "HAT · Hat product on person",
+      complete: true,
+      missing_required_roles: [],
+      items: [
+        {
+          role: "product_front",
+          required: true,
+          reference_asset: assets[2],
+          score: 150,
+          reasons: ["Type match: product", "Same campaign"],
+          candidate_count: 2,
+        },
+        {
+          role: "artwork",
+          required: false,
+          reference_asset: assets[1],
+          score: 120,
+          reasons: ["Type match: artwork"],
+          candidate_count: 1,
+        },
+        {
+          role: "detail",
+          required: false,
+          reference_asset: null,
+          score: null,
+          reasons: [],
+          candidate_count: 0,
+        },
+      ],
+    };
+    expect(
+      fillEmptyRecommendedReferenceRoles(
+        { product_front: "manual-product", artwork: "", detail: "" },
+        recommendation,
+      ),
+    ).toEqual({
+      product_front: "manual-product",
+      artwork: "campaign-artwork",
+      detail: "",
+    });
+    expect(
+      recommendedReferenceAssetId(recommendation, "product_front"),
+    ).toBe("campaign-product");
   });
 
   it("ranks smartphone-like references above artistic ones", () => {

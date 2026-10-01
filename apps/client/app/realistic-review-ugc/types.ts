@@ -450,6 +450,24 @@ export type ReferenceAsset = {
   archived_at: string | null;
 };
 
+export type ReferenceSetRecommendationItem = {
+  role: string;
+  required: boolean;
+  reference_asset: ReferenceAsset | null;
+  score: number | null;
+  reasons: string[];
+  candidate_count: number;
+};
+
+export type ReferenceSetRecommendation = {
+  campaign_id: string;
+  skill_name: string;
+  suggested_name: string;
+  complete: boolean;
+  missing_required_roles: string[];
+  items: ReferenceSetRecommendationItem[];
+};
+
 export type ReferenceSetItem = {
   id: string;
   reference_asset_id: string;

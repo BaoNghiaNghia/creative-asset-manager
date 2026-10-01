@@ -5104,6 +5104,177 @@ def test_skill_reference_preset_creates_role_complete_set_atomically(
     assert [row["name"] for row in listed] == ["Hat preset"]
 
 
+def test_reference_set_recommendation_uses_role_campaign_and_product_context(
+    api,
+    database,
+    monkeypatch,
+):
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=("artwork", "scene"),
+        max_references=3,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router._resolve_generation_skill",
+        lambda _campaign, _requested: ("worker-hat-v1", manifest),
+    )
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Dog dad hat campaign",
+            "query": "dog dad candid phone photo",
+            "target_count": 1,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    ).json()
+
+    with database() as session:
+        campaign_row = session.get(RrugcCampaignModel, campaign["id"])
+        assert campaign_row is not None
+        campaign_row.product_snapshot_json = {
+            "product_type": "hat",
+            "sku": "HAT-CTX",
+            "name": "Dog Dad Hat",
+        }
+        campaign_row.product_context_json = {
+            "themes": ["pet", "dog"],
+            "preferred_scenes": ["dog park"],
+        }
+
+        def add_asset(
+            *,
+            key: str,
+            filename: str,
+            reference_type: str,
+            content_hash: str,
+            quality: float,
+            source_campaign_id: str | None = None,
+            tags: list[str] | None = None,
+            themes: list[str] | None = None,
+        ) -> str:
+            row = RrugcReferenceAssetModel(
+                tenant_id="tenant-a",
+                source_type="upload",
+                source_key=key,
+                source_url=None,
+                original_filename=filename,
+                source_campaign_id=source_campaign_id,
+                source_candidate_id=None,
+                profile_key=None,
+                reference_type=reference_type,
+                status="ready",
+                content_hash=content_hash,
+                width=1200,
+                height=1200,
+                size_bytes=1000,
+                image_format="PNG",
+                tags_json=tags or [],
+                themes_json=themes or [],
+                quality_score=quality,
+                visual_score=None,
+                context_score=None,
+                usage_count=0,
+                remote_file_id=key + "-file",
+                remote_folder_id=None,
+                web_url=None,
+                created_by_user_id="user-a",
+            )
+            session.add(row)
+            session.flush()
+            return row.id
+
+        campaign_front_id = add_asset(
+            key="ctx-campaign-front",
+            filename="hat-front.png",
+            reference_type="product",
+            content_hash="c" * 64,
+            quality=0.55,
+            source_campaign_id=campaign["id"],
+            tags=["front", "hat"],
+        )
+        global_product_id = add_asset(
+            key="ctx-global-product",
+            filename="studio-product.png",
+            reference_type="product",
+            content_hash="d" * 64,
+            quality=1.0,
+            tags=["hat"],
+        )
+        campaign_detail_id = add_asset(
+            key="ctx-campaign-front-detail",
+            filename="hat-front-detail.png",
+            reference_type="detail",
+            content_hash="2" * 64,
+            quality=1.0,
+            source_campaign_id=campaign["id"],
+            tags=["front", "hat", "detail"],
+        )
+        artwork_id = add_asset(
+            key="ctx-artwork",
+            filename="embroidered-logo.png",
+            reference_type="artwork",
+            content_hash="e" * 64,
+            quality=0.8,
+            tags=["logo", "dog"],
+        )
+        pet_scene_id = add_asset(
+            key="ctx-pet-scene",
+            filename="dog-park-phone.png",
+            reference_type="scene",
+            content_hash="f" * 64,
+            quality=0.6,
+            themes=["pet", "dog"],
+        )
+        generic_scene_id = add_asset(
+            key="ctx-generic-scene",
+            filename="generic-room.png",
+            reference_type="scene",
+            content_hash="1" * 64,
+            quality=1.0,
+        )
+        session.commit()
+
+    response = api.get(
+        "/api/v1/realistic-review-ugc/reference-sets/recommendation",
+        params={
+            "campaign_id": campaign["id"],
+            "skill_name": "worker-hat-v1",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["skill_name"] == "worker-hat-v1"
+    assert payload["suggested_name"] == "HAT-CTX · Hat product on person"
+    assert payload["complete"] is True
+    assert payload["missing_required_roles"] == []
+
+    by_role = {item["role"]: item for item in payload["items"]}
+    assert by_role["product_front"]["reference_asset"]["id"] == campaign_front_id
+    assert by_role["product_front"]["reference_asset"]["id"] != global_product_id
+    assert by_role["product_front"]["reference_asset"]["id"] != campaign_detail_id
+    assert "Same campaign" in by_role["product_front"]["reasons"]
+    assert by_role["artwork"]["reference_asset"]["id"] == artwork_id
+    assert by_role["scene"]["reference_asset"]["id"] == pet_scene_id
+    assert by_role["scene"]["reference_asset"]["id"] != generic_scene_id
+    assert any(
+        reason.startswith("Context match:")
+        for reason in by_role["scene"]["reasons"]
+    )
+    recommended_ids = [
+        item["reference_asset"]["id"]
+        for item in payload["items"]
+        if item["reference_asset"] is not None
+    ]
+    assert len(recommended_ids) == len(set(recommended_ids))
+
+
 def test_generation_skill_catalog_exposes_recommended_manifest(api, monkeypatch):
     manifest = CodexSkillManifest(
         schema_version=1,

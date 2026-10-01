@@ -1458,8 +1458,14 @@ Implementation status as of 2026-10-01:
   - Ready Reference Library assets can be assigned to required/optional roles with deterministic relevance ordering.
   - Preset creation validates manifest roles and commits the Reference Set plus bindings atomically without a new migration.
   - The created set is selected immediately for generation.
+- Phase 5C — deterministic Reference Set recommendation complete.
+  - The backend recommends one unused ready Reference Library asset per manifest role.
+  - Role/reference type compatibility is the dominant signal; same-campaign, role metadata, product metadata, Product Context themes and bounded quality/context/visual scores refine ranking.
+  - Required roles are ranked before optional roles so optional references cannot consume the only viable required-role asset.
+  - The Production UI auto-fills only empty role slots and never overwrites an operator selection.
+  - No LLM router, skill registry table or migration is required.
 
-The core end-to-end architecture is complete through Phase 5B. Higher-level workflow-to-template mapping remains optional and is not required for the current production workflow.
+The core end-to-end architecture is complete through Phase 5C. More elaborate learned template families remain optional and are not required for the current production workflow.
 
 ## 47. Phase 0 — preserve current Scout
 
@@ -1540,7 +1546,7 @@ After probe success:
 
 ---
 
-## 52. Phase 5 — Skill metadata and Reference Set presets
+## 52. Phase 5 — Skill metadata, Reference Set presets and recommendations
 
 ### Phase 5A — metadata foundation
 
@@ -1565,7 +1571,21 @@ Implemented without a new database registry or migration:
 - the newly created set is selected immediately for generation;
 - the preset builder is responsive and reuses campaign-scoped or shared Reference Library assets.
 
-Future higher-level workflow-to-template mapping remains optional and should only be added when multiple real skill families need it.
+### Phase 5C — deterministic Reference Set recommendation
+
+Implemented as a read-only recommendation layer over the existing manifest and Reference Library:
+
+- the selected manifest defines role order, required roles and optional roles;
+- the recommendation endpoint evaluates a bounded recent ready-asset pool and returns one unused asset per role;
+- preferred reference type ordering is lexicographically dominant so contextual signals cannot turn an incompatible asset into the top recommendation;
+- same-campaign provenance, role words in filename/tags/themes, product metadata, Product Context themes and bounded quality/context/visual scores refine ranking inside compatible types;
+- required roles are allocated before optional roles;
+- recommendation responses include score, reasons and compatible candidate counts so the UI can explain why a ref was proposed;
+- the UI auto-fills only empty slots and provides an explicit Fill empty roles action after manual edits;
+- changing campaign or skill clears stale preset assignments before loading the new recommendation;
+- preset creation itself remains the Phase 5B atomic manifest-validation endpoint.
+
+Future learned template-family ranking remains optional and should only be added when real production feedback proves deterministic ranking insufficient.
 
 Avoid premature skill-registry complexity.
 

@@ -11,6 +11,7 @@ import {
   getCampaignDeliverySummary,
   getCampaignExportSummary,
   getGenerationCapability,
+  getReferenceSetRecommendation,
   listDeliveryDestinations,
   listDeliveryPackages,
   listGenerationAttempts,
@@ -32,6 +33,7 @@ import type {
   GenerationSkill,
   ReferenceAsset,
   ReferenceSet,
+  ReferenceSetRecommendation,
   CampaignExportSummary,
   CampaignDeliverySummary,
   DeliveryDestination,
@@ -41,7 +43,9 @@ import type {
 } from "./types";
 import {
   defaultReferenceSetName,
+  fillEmptyRecommendedReferenceRoles,
   missingRequiredPresetRoles,
+  recommendedReferenceAssetId,
   referenceAssetsForRole,
   referenceRoleSlots,
 } from "./referenceSetPresets";
@@ -278,6 +282,9 @@ export function CampaignGenerationPanel({
   const [referenceSetId, setReferenceSetId] = useState("");
   const [presetName, setPresetName] = useState("");
   const [presetRoleAssets, setPresetRoleAssets] = useState<Record<string, string>>({});
+  const [presetRecommendation, setPresetRecommendation] = useState<ReferenceSetRecommendation | null>(null);
+  const [presetRecommendationLoading, setPresetRecommendationLoading] = useState(false);
+  const [presetRecommendationError, setPresetRecommendationError] = useState("");
   const [exportSummary, setExportSummary] = useState<CampaignExportSummary | null>(null);
   const [deliverySummary, setDeliverySummary] = useState<CampaignDeliverySummary | null>(null);
   const [deliveryDestinations, setDeliveryDestinations] = useState<DeliveryDestination[]>([]);
@@ -310,6 +317,15 @@ export function CampaignGenerationPanel({
   const missingPresetRoles = useMemo(
     () => missingRequiredPresetRoles(selectedSkill, presetRoleAssets),
     [selectedSkill, presetRoleAssets],
+  );
+  const recommendationByRole = useMemo(() => {
+    const rows = new Map<string, ReferenceSetRecommendation["items"][number]>();
+    for (const item of presetRecommendation?.items || []) rows.set(item.role, item);
+    return rows;
+  }, [presetRecommendation]);
+  const recommendedPresetCount = useMemo(
+    () => (presetRecommendation?.items || []).filter(item => item.reference_asset).length,
+    [presetRecommendation],
   );
   const compatibleReferenceSets = useMemo(() => {
     if (!selectedSkill) return referenceSets;
@@ -389,17 +405,62 @@ export function CampaignGenerationPanel({
 
   useEffect(() => {
     setPresetName(defaultReferenceSetName(campaign, selectedSkill));
-    setPresetRoleAssets(current => {
-      const next: Record<string, string> = {};
-      for (const slot of presetSlots) next[slot.role] = current[slot.role] || "";
-      return next;
-    });
+    setPresetRoleAssets(
+      Object.fromEntries(presetSlots.map(slot => [slot.role, ""])),
+    );
+    setPresetRecommendation(null);
+    setPresetRecommendationError("");
   }, [
     campaign.id,
     campaign.name,
     campaign.product_sku,
     selectedSkill,
     presetSlots,
+  ]);
+
+  useEffect(() => {
+    if (!selectedSkill || presetSlots.length === 0) {
+      setPresetRecommendation(null);
+      setPresetRecommendationLoading(false);
+      setPresetRecommendationError("");
+      return;
+    }
+    const controller = new AbortController();
+    setPresetRecommendationLoading(true);
+    setPresetRecommendationError("");
+    void getReferenceSetRecommendation(
+      campaign.id,
+      selectedSkill.skill_name,
+      controller.signal,
+    ).then(recommendation => {
+      if (controller.signal.aborted) return;
+      setPresetRecommendation(recommendation);
+      setPresetRoleAssets(current =>
+        fillEmptyRecommendedReferenceRoles(current, recommendation),
+      );
+      setReferenceAssets(current => {
+        const known = new Set(current.map(asset => asset.id));
+        const additions = recommendation.items
+          .map(item => item.reference_asset)
+          .filter((asset): asset is ReferenceAsset => Boolean(asset && !known.has(asset.id)));
+        return additions.length ? [...current, ...additions] : current;
+      });
+    }).catch(reason => {
+      if (!controller.signal.aborted) {
+        setPresetRecommendation(null);
+        setPresetRecommendationError(
+          reason instanceof Error ? reason.message : "Unable to recommend references.",
+        );
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setPresetRecommendationLoading(false);
+    });
+    return () => controller.abort();
+  }, [
+    campaign.id,
+    campaign.product_revision,
+    selectedSkill?.skill_name,
+    presetSlots.length,
   ]);
 
   useEffect(() => {
@@ -478,6 +539,12 @@ export function CampaignGenerationPanel({
     } finally {
       setBusy("");
     }
+  }
+
+  function fillPresetRecommendations() {
+    setPresetRoleAssets(current =>
+      fillEmptyRecommendedReferenceRoles(current, presetRecommendation),
+    );
   }
 
   async function createSkillPreset() {
@@ -804,9 +871,17 @@ export function CampaignGenerationPanel({
       <summary>
         <span>
           <strong>Reference preset</strong>
-          <small>Build a role-complete set from the shared Reference Library</small>
+          <small>Deterministic role + product-context recommendations from Reference Library</small>
         </span>
-        <b>{missingPresetRoles.length === 0 ? "ready" : missingPresetRoles.length + " required"}</b>
+        <b>
+          {presetRecommendationLoading
+            ? "ranking…"
+            : presetRecommendation
+              ? recommendedPresetCount + "/" + presetSlots.length + " suggested"
+              : missingPresetRoles.length === 0
+                ? "ready"
+                : missingPresetRoles.length + " required"}
+        </b>
       </summary>
       <div className="rrugc-reference-preset-body">
         <label className="rrugc-reference-preset-name">
@@ -817,13 +892,33 @@ export function CampaignGenerationPanel({
             onChange={event => setPresetName(event.target.value)}
           />
         </label>
+        {presetRecommendation && <div className="rrugc-reference-recommendation-status">
+          <span>Auto-ranked for <b>{"$" + selectedSkill.skill_name}</b></span>
+          <small>
+            {presetRecommendation.complete
+              ? "All required roles have a recommendation"
+              : "Still missing: " + presetRecommendation.missing_required_roles.join(", ")}
+          </small>
+        </div>}
         <div className="rrugc-reference-role-grid">
           {presetSlots.map(slot => {
             const assets = referenceAssetsForRole(referenceAssets, slot.role, campaign.id);
+            const recommendation = recommendationByRole.get(slot.role);
+            const recommendedAssetId = recommendedReferenceAssetId(
+              presetRecommendation,
+              slot.role,
+            );
+            const selectedIsRecommended = Boolean(
+              recommendedAssetId
+              && presetRoleAssets[slot.role] === recommendedAssetId,
+            );
             return <label key={slot.role}>
               <span>
                 {slot.role}
-                <small>{slot.required ? "required" : "optional"}</small>
+                <small>
+                  {slot.required ? "required" : "optional"}
+                  {selectedIsRecommended ? " · recommended" : ""}
+                </small>
               </span>
               <select
                 value={presetRoleAssets[slot.role] || ""}
@@ -837,27 +932,44 @@ export function CampaignGenerationPanel({
                   <option key={asset.id} value={asset.id}>
                     {(asset.original_filename || asset.source_type + " reference")
                     + " · " + asset.reference_type
+                    + (asset.id === recommendedAssetId ? " · recommended" : "")
                     + (asset.source_campaign_id === campaign.id ? " · this campaign" : "")
                     + (asset.quality_score == null ? "" : " · q" + Math.round(asset.quality_score * 100))}
                   </option>
                 )}
               </select>
+              {recommendation?.reference_asset && <small className="rrugc-reference-recommendation-reason">
+                {recommendation.reasons.slice(0, 3).join(" · ")}
+              </small>}
             </label>;
           })}
         </div>
-        <button
-          type="button"
-          className="rrugc-primary"
-          disabled={
-            Boolean(busy)
-            || !presetName.trim()
-            || missingPresetRoles.length > 0
-            || referenceAssets.length === 0
-          }
-          onClick={() => void createSkillPreset()}
-        >
-          {busy === "preset" ? "Creating preset…" : "Create & select reference set"}
-        </button>
+        <div className="rrugc-reference-preset-actions">
+          <button
+            type="button"
+            className="rrugc-secondary"
+            disabled={Boolean(busy) || presetRecommendationLoading || !presetRecommendation}
+            onClick={fillPresetRecommendations}
+          >
+            Fill empty roles
+          </button>
+          <button
+            type="button"
+            className="rrugc-primary"
+            disabled={
+              Boolean(busy)
+              || !presetName.trim()
+              || missingPresetRoles.length > 0
+              || referenceAssets.length === 0
+            }
+            onClick={() => void createSkillPreset()}
+          >
+            {busy === "preset" ? "Creating preset…" : "Create & select reference set"}
+          </button>
+        </div>
+        {presetRecommendationError && <p className="rrugc-generation-note rrugc-reference-recommendation-error">
+          Recommendation unavailable: {presetRecommendationError}
+        </p>}
         {referenceAssets.length === 0 && <p className="rrugc-generation-note">
           Reference Library has no ready assets yet. Promote or upload reference images first.
         </p>}

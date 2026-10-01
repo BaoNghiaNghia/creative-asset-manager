@@ -356,7 +356,12 @@
 .rrugc-reference-role-grid label>span{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .rrugc-reference-role-grid label small{font-size:9px;font-weight:500;color:#8995a8}
 .rrugc-reference-role-grid select{min-width:0;min-height:32px}
-.rrugc-reference-preset-body>.rrugc-primary{justify-self:start;min-height:32px}
+.rrugc-reference-recommendation-status{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 8px;border:1px solid #e0e7f1;border-radius:7px;background:#f8fafc;color:#52627a;font-size:10px}
+.rrugc-reference-recommendation-status small{color:#7d8a9d;font-size:9.5px;text-align:right}
+.rrugc-reference-recommendation-reason{min-height:12px;font-size:8.8px!important;line-height:1.35;color:#7c889b!important}
+.rrugc-reference-preset-actions{display:flex;align-items:center;gap:8px}
+.rrugc-reference-preset-actions button{min-height:32px}
+.rrugc-reference-recommendation-error{margin:0;color:#9b3f3f}
 .rrugc-generation-attempt-title{padding-top:2px;font-size:12px}
 .rrugc-generation-attempts article{gap:7px;padding:9px;border-radius:8px}
 .rrugc-supervisor-card{border-radius:8px}
@@ -750,6 +755,10 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-last-run-compact>span:nth-last-child(-n+2){border-bottom:0}
   .rrugc-live-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rrugc-reference-role-grid{grid-template-columns:1fr}
+  .rrugc-reference-recommendation-status{align-items:flex-start;flex-direction:column}
+  .rrugc-reference-recommendation-status small{text-align:left}
+  .rrugc-reference-preset-actions{align-items:stretch;flex-direction:column}
+  .rrugc-reference-preset-actions button{width:100%}
   .rrugc-generation-bind,.rrugc-generation-prepare{grid-template-columns:1fr}
   .rrugc-export-stats,.rrugc-operations-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rrugc-masonry-grid>.rrugc-candidate{margin:0}
