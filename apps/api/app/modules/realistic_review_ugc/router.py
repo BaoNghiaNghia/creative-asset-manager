@@ -65,8 +65,10 @@ from app.modules.realistic_review_ugc.product_registry import (
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.reference_library import (
+    REFERENCE_ASSET_MAX_BYTES,
     ReferenceLibraryError,
     RrugcReferenceLibrary,
+    reference_image_content_type,
 )
 from app.modules.realistic_review_ugc.schema import (
     AnalyzeResponse,
@@ -454,6 +456,23 @@ async def _read_product_reference_upload(file: UploadFile) -> bytes:
                 detail={
                     "code": "product_reference_too_large",
                     "message": "Product reference image exceeds the 20 MB limit.",
+                },
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _read_reference_asset_upload(file: UploadFile) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(64 * 1024):
+        total += len(chunk)
+        if total > REFERENCE_ASSET_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail={
+                    "code": "reference_asset_too_large",
+                    "message": "Reference image exceeds the 20 MB limit.",
                 },
             )
         chunks.append(chunk)
@@ -994,6 +1013,53 @@ def list_reference_assets(
     ]
 
 
+@router.post(
+    "/reference-assets/uploads",
+    response_model=ReferenceAssetPromotionResponse,
+)
+async def upload_reference_asset(
+    reference_type: str = Form("other"),
+    campaign_id: str | None = Form(default=None),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = None
+    if campaign_id:
+        campaign = _require_campaign(
+            repository,
+            principal.active_tenant_id,
+            campaign_id,
+        )
+    content = await _read_reference_asset_upload(file)
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+    try:
+        result = await RrugcReferenceLibrary(session).upload_reference(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            original_filename=file.filename,
+            content=content,
+            storage=storage,
+            reference_type=reference_type,
+            campaign=campaign,
+        )
+    except ReferenceLibraryError as exc:
+        raise _reference_library_error(exc) from exc
+    return ReferenceAssetPromotionResponse(
+        asset=_reference_asset(result.asset),
+        created=result.created,
+    )
+
+
 @router.get("/reference-assets/{reference_asset_id}", response_model=ReferenceAssetResponse)
 def get_reference_asset(
     reference_asset_id: str,
@@ -1007,6 +1073,56 @@ def get_reference_asset(
     if row is None:
         raise HTTPException(status_code=404, detail="Reference asset not found")
     return _reference_asset(row)
+
+
+@router.get("/reference-assets/{reference_asset_id}/image")
+async def get_reference_asset_image(
+    reference_asset_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    row = RrugcRepository(session).get_reference_asset(
+        principal.active_tenant_id,
+        reference_asset_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Reference asset not found")
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+    try:
+        content_type, _ = reference_image_content_type(row.image_format)
+        stream = await storage.open_asset(
+            OpenStoredAssetInput(
+                tenant_id=principal.active_tenant_id,
+                asset_id=row.id,
+                remote_file_id=row.remote_file_id,
+                content_type=content_type,
+                size_bytes=row.size_bytes,
+            )
+        )
+    except ReferenceLibraryError as exc:
+        raise _reference_library_error(exc) from exc
+    except StorageProviderError as exc:
+        raise HTTPException(
+            status_code=503 if exc.retryable else 404,
+            detail={
+                "code": "reference_asset_unavailable",
+                "message": "Reference image is unavailable.",
+            },
+        ) from exc
+    return StreamingResponse(
+        stream.body,
+        media_type=stream.content_type,
+        background=BackgroundTask(stream.close),
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.post(

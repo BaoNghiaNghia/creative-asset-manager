@@ -4309,6 +4309,88 @@ def test_product_reference_upload_api(api, monkeypatch):
     assert archived.json()["status"] == "archived"
 
 
+def test_reference_asset_upload_api_is_idempotent_and_previewable(api, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+    content = _png_bytes(value=211)
+
+    first = api.post(
+        "/api/v1/realistic-review-ugc/reference-assets/uploads",
+        data={"reference_type": "person"},
+        files={"file": ("person-ref.png", content, "image/png")},
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["created"] is True
+    assert first_payload["asset"]["source_type"] == "upload"
+    assert first_payload["asset"]["reference_type"] == "person"
+    assert first_payload["asset"]["width"] == 48
+    assert first_payload["asset"]["height"] == 32
+    assert first_payload["asset"]["image_format"] == "PNG"
+    assert first_payload["asset"]["original_filename"] == "person-ref.png"
+    assert storage.calls == 1
+    reference_id = first_payload["asset"]["id"]
+
+    replay = api.post(
+        "/api/v1/realistic-review-ugc/reference-assets/uploads",
+        data={"reference_type": "scene"},
+        files={"file": ("same-content.png", content, "image/png")},
+    )
+    assert replay.status_code == 200
+    assert replay.json()["created"] is False
+    assert replay.json()["asset"]["id"] == reference_id
+    assert storage.calls == 1
+
+    listed = api.get(
+        "/api/v1/realistic-review-ugc/reference-assets",
+        params={"source_type": "upload"},
+    )
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()] == [reference_id]
+
+    preview = api.get(
+        f"/api/v1/realistic-review-ugc/reference-assets/{reference_id}/image"
+    )
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("image/png")
+    assert preview.content == content
+
+
+def test_reference_asset_upload_reuses_product_reference_storage(api, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+    content = _png_bytes(value=177)
+    product = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={"sku": "CAP-REF-REUSE", "name": "Reference Reuse Cap"},
+    ).json()
+    product_reference = api.post(
+        f"/api/v1/realistic-review-ugc/products/{product['id']}/references",
+        data={"view_type": "front"},
+        files={"file": ("front.png", content, "image/png")},
+    )
+    assert product_reference.status_code == 201
+    assert storage.calls == 1
+
+    generic_reference = api.post(
+        "/api/v1/realistic-review-ugc/reference-assets/uploads",
+        data={"reference_type": "product"},
+        files={"file": ("same-front.png", content, "image/png")},
+    )
+    assert generic_reference.status_code == 200
+    payload = generic_reference.json()
+    assert payload["created"] is True
+    assert payload["asset"]["source_type"] == "upload"
+    assert payload["asset"]["remote_file_id"] == product_reference.json()["remote_file_id"]
+    assert storage.calls == 1
+
+
 def test_campaign_product_binding_and_generation_attempt_provenance(api, database, monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(
