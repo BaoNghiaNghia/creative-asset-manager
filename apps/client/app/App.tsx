@@ -13,7 +13,6 @@ import { PublicReviewManagementDialog } from "./public-review-management/PublicR
 import { activeShareFolderIds, ManagementApiError, managementApi, resolveShareLinkForCopy } from "./public-review-management/api";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
 import { SquareImageGenerationDialog } from "./components/SquareImageGenerationDialog";
-import { AnalyzeMetadataDialog } from "./components/AnalyzeMetadataDialog";
 import { SearchCategoryFilter, SearchControls } from "./components/SearchControls";
 import { VisualSearchPanel } from "./components/VisualSearchPanel";
 import { VisualSearchIcon } from "./components/VisualSearchIcon";
@@ -265,7 +264,6 @@ export default function App() {
   const [detailsItem, setDetailsItem] = useState<Asset | null>(null);
   const [detailsVideoAnalysis, setDetailsVideoAnalysis] = useState<VideoSearchItem | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(() => Boolean(initialDetailsAssetId || new URLSearchParams(window.location.search).get("details")));
-  const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory());
@@ -603,10 +601,6 @@ export default function App() {
   const sourceRootId = explorer.provider === "sharepoint" ? "sharepoint-root" : explorer.provider === "onedrive" ? "onedrive-root" : "root";
   const rootFolders = explorer.childrenByParent[sourceRootId] ?? [];
   const sourceName = explorer.provider === "sharepoint" ? "SharePoint" : explorer.provider === "onedrive" ? "OneDrive" : "Google Drive";
-  const analysisSelection = getAnalysisSelectionState(explorer.selected, explorer.visibleItems);
-  const analysisAssetIds = analysisSelection.assetIds;
-  const completeAnalysisSelection = analysisSelection.complete;
-  const analysisTooltip = analysisSelection.tooltip;
   const paginationResetKey = [explorer.query, explorer.provider, explorer.activeExternalSourceId || "", explorer.activeAssignedRootId || "", explorer.visibilityFilter, detailsOpen ? "details" : "no-details"].join("\u001f");
   useEffect(() => {
     if (autoAppendKeyRef.current !== paginationResetKey) {
@@ -1305,45 +1299,6 @@ export default function App() {
           </div>
           </div>
           </div>
-          {(!explorer.query.trim() || imageSearchEnabled) && explorer.selected.size > 0 && <div className="bulk">
-            <b>{explorer.selected.size} selected</b>
-            <button
-              type="button"
-              disabled={!completeAnalysisSelection}
-              title={analysisTooltip}
-              onClick={() => setAnalyzeOpen(true)}
-            >Analyze metadata</button>
-            <button
-              type="button"
-              onClick={() => void explorer.refreshCurrentFolder()}
-              disabled={explorer.loading}
-              title="Refresh this folder to load newly imported assets"
-            >Refresh assets</button>
-            {explorer.provider === "google-drive" && !explorer.pureViewer && <button
-              type="button"
-              className="bulk-delete"
-              onClick={() => confirmDeleteItems(selectedExplorerItems())}
-              title="Move selected items to Google Drive trash (Delete)"
-            >Delete</button>}
-            <span className="bulk-divider" />
-            <div className="bulk-group">
-              <small>Visibility</small>
-              {explorer.tags.map(tag => <button key={tag.id} onClick={() => explorer.applyTag(tag.id)}>
-                <i style={{ background: tag.color }} />{tag.name}
-              </button>)}
-            </div>
-            <span className="bulk-divider" />
-            <div className="bulk-group bulk-rating">
-              <small>Rating</small>
-              {[1, 2, 3, 4, 5].map(rating => <button
-                key={rating}
-                onClick={() => explorer.applyRating(rating)}
-                aria-label={`Set rating to ${rating} stars`}
-                title={`Set rating to ${rating} stars`}
-              >{rating}★</button>)}
-            </div>
-            <button className="bulk-close" onClick={explorer.clearSelection} aria-label="Clear selection">×</button>
-          </div>}
         </>}
     </section>
 
@@ -1462,12 +1417,5 @@ export default function App() {
         </div>
       </section>
     </div>, document.body)}
-    <AnalyzeMetadataDialog
-      open={analyzeOpen}
-      assetIds={analysisAssetIds}
-      sourceProvider={explorer.provider}
-      authorized={completeAnalysisSelection && analysisAssetIds.length > 0}
-      onClose={() => setAnalyzeOpen(false)}
-    />
   </main>;
 }
