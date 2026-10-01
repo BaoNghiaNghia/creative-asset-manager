@@ -472,6 +472,15 @@ export type ReferenceSetReuseRecommendation = {
   review_rejected_count: number;
 };
 
+export type ReferenceSetFeedback = {
+  reference_set_id: string;
+  reference_set_name: string;
+  score: number;
+  reasons: string[];
+  review_approved_count: number;
+  review_rejected_count: number;
+};
+
 export type ReferenceSetRecommendation = {
   campaign_id: string;
   skill_name: string;
@@ -481,6 +490,7 @@ export type ReferenceSetRecommendation = {
   learning_review_count: number;
   learning_applied: boolean;
   reuse_recommendation: ReferenceSetReuseRecommendation;
+  discouraged_reference_sets: ReferenceSetFeedback[];
   items: ReferenceSetRecommendationItem[];
 };
 

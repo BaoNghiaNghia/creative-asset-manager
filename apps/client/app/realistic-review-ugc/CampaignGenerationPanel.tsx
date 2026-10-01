@@ -342,10 +342,25 @@ export function CampaignGenerationPanel({
     () => referenceSets.find(referenceSet => referenceSet.id === learnedReferenceSetId) || null,
     [referenceSets, learnedReferenceSetId],
   );
+  const discouragedReferenceSets = useMemo(
+    () => new Map(
+      (presetRecommendation?.discouraged_reference_sets || []).map(
+        feedback => [feedback.reference_set_id, feedback],
+      ),
+    ),
+    [presetRecommendation],
+  );
+  const discouragedReferenceSetIds = useMemo(
+    () => new Set(discouragedReferenceSets.keys()),
+    [discouragedReferenceSets],
+  );
   const selectedReferenceSet = useMemo(
     () => referenceSets.find(referenceSet => referenceSet.id === referenceSetId) || null,
     [referenceSets, referenceSetId],
   );
+  const selectedReferenceSetFeedback = referenceSetId
+    ? discouragedReferenceSets.get(referenceSetId) || null
+    : null;
   const selectedReferenceSetReady = Boolean(
     selectedReferenceSet
       && compatibleReferenceSets.some(referenceSet => referenceSet.id === selectedReferenceSet.id),
@@ -411,11 +426,13 @@ export function CampaignGenerationPanel({
       current,
       compatibleReferenceSets,
       learnedReferenceSetId,
+      discouragedReferenceSetIds,
       referenceSetTouched,
     ));
   }, [
     compatibleReferenceSets,
     learnedReferenceSetId,
+    discouragedReferenceSetIds,
     referenceSetTouched,
   ]);
 
@@ -859,6 +876,7 @@ export function CampaignGenerationPanel({
           <option value="">Legacy product references</option>
           {referenceSets.map(referenceSet => {
             const compatible = compatibleReferenceSets.some(row => row.id === referenceSet.id);
+            const feedback = discouragedReferenceSets.get(referenceSet.id);
             return <option
               key={referenceSet.id}
               value={referenceSet.id}
@@ -866,6 +884,7 @@ export function CampaignGenerationPanel({
             >
               {referenceSet.name} · {referenceSet.items.length} refs
               {referenceSet.id === learnedReferenceSetId ? " · learned reuse" : ""}
+              {feedback ? " · human review caution" : ""}
               {compatible ? "" : " · role mismatch"}
             </option>;
           })}
@@ -874,6 +893,11 @@ export function CampaignGenerationPanel({
           Human review recommends {learnedReferenceSet.name}
           {" · "}{presetRecommendation.reuse_recommendation.review_approved_count} approved
           {" / "}{presetRecommendation.reuse_recommendation.review_rejected_count} rejected
+        </small>}
+        {selectedReferenceSetFeedback && <small className="stale">
+          Human review caution · {selectedReferenceSetFeedback.review_approved_count} approved
+          {" / "}{selectedReferenceSetFeedback.review_rejected_count} rejected
+          {" · manual use remains allowed"}
         </small>}
       </label>
     </div>

@@ -85,6 +85,7 @@ from app.modules.realistic_review_ugc.reference_library import (
 )
 from app.modules.realistic_review_ugc.reference_recommendations import (
     build_reference_review_learning,
+    discouraged_reference_sets,
     recommend_reference_assets,
     recommend_reference_set_reuse,
     suggested_reference_set_name,
@@ -130,6 +131,7 @@ from app.modules.realistic_review_ugc.schema import (
     ReferenceSetRecommendationItemResponse,
     ReferenceSetRecommendationResponse,
     ReferenceSetReuseRecommendationResponse,
+    ReferenceSetFeedbackResponse,
     ReferenceSetItemCreateRequest,
     ReferenceSetItemResponse,
     ReferenceSetResponse,
@@ -1456,19 +1458,26 @@ def recommend_reference_set(
         status="active",
         limit=100,
     )
+    reference_set_bindings = [
+        (
+            reference_set,
+            repository.list_reference_set_items(
+                principal.active_tenant_id,
+                reference_set.id,
+            ),
+        )
+        for reference_set in reusable_reference_sets
+    ]
     reuse_recommendation = recommend_reference_set_reuse(
         campaign=campaign,
         manifest=manifest,
-        reference_sets=[
-            (
-                reference_set,
-                repository.list_reference_set_items(
-                    principal.active_tenant_id,
-                    reference_set.id,
-                ),
-            )
-            for reference_set in reusable_reference_sets
-        ],
+        reference_sets=reference_set_bindings,
+        review_learning=review_learning,
+    )
+    discouraged_sets = discouraged_reference_sets(
+        campaign=campaign,
+        manifest=manifest,
+        reference_sets=reference_set_bindings,
         review_learning=review_learning,
     )
     recommendations = recommend_reference_assets(
@@ -1510,6 +1519,17 @@ def recommend_reference_set(
             review_approved_count=reuse_recommendation.review_approved_count,
             review_rejected_count=reuse_recommendation.review_rejected_count,
         ),
+        discouraged_reference_sets=[
+            ReferenceSetFeedbackResponse(
+                reference_set_id=item.reference_set.id,
+                reference_set_name=item.reference_set.name,
+                score=item.score,
+                reasons=list(item.reasons),
+                review_approved_count=item.review_approved_count,
+                review_rejected_count=item.review_rejected_count,
+            )
+            for item in discouraged_sets
+        ],
         items=[
             ReferenceSetRecommendationItemResponse(
                 role=item.role,

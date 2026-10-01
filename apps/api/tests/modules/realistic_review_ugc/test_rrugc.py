@@ -87,6 +87,7 @@ from app.modules.realistic_review_ugc.product_registry import RrugcProductRegist
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.reference_recommendations import (
     build_reference_review_learning,
+    discouraged_reference_sets,
     recommend_reference_assets,
     recommend_reference_set_reuse,
 )
@@ -5280,6 +5281,7 @@ def test_reference_set_recommendation_uses_role_campaign_and_product_context(
     assert len(recommended_ids) == len(set(recommended_ids))
     assert payload["reuse_recommendation"]["reference_set_id"] is None
     assert payload["reuse_recommendation"]["candidate_count"] == 0
+    assert payload["discouraged_reference_sets"] == []
 
 
 def test_reference_recommendation_learning_uses_human_review_without_breaking_type_priority():
@@ -5469,10 +5471,12 @@ def test_reference_set_reuse_uses_version_safe_human_review_history():
 
     proven_set = reference_set("set-proven")
     mixed_set = reference_set("set-mixed", campaign_id=campaign.id)
+    discouraged_set = reference_set("set-discouraged")
     mutated_set = reference_set("set-mutated")
     incompatible_set = reference_set("set-incompatible")
     proven_items = [item("product_front", "asset-proven")]
     mixed_items = [item("product_front", "asset-mixed")]
+    discouraged_items = [item("product_front", "asset-discouraged")]
     mutated_items = [item("product_front", "asset-new")]
     incompatible_items = [item("scene", "asset-scene")]
 
@@ -5528,11 +5532,24 @@ def test_reference_set_reuse_uses_version_safe_human_review_history():
             )
             for _ in range(2)
         ],
+        reviewed_attempt(
+            reference_set_id=discouraged_set.id,
+            reference_asset_id="asset-discouraged",
+            review_status="approved",
+        ),
+        *[
+            reviewed_attempt(
+                reference_set_id=discouraged_set.id,
+                reference_asset_id="asset-discouraged",
+                review_status="rejected",
+            )
+            for _ in range(5)
+        ],
         *[
             reviewed_attempt(
                 reference_set_id=mutated_set.id,
                 reference_asset_id="asset-old",
-                review_status="approved",
+                review_status="rejected",
             )
             for _ in range(10)
         ],
@@ -5565,6 +5582,7 @@ def test_reference_set_reuse_uses_version_safe_human_review_history():
         reference_sets=[
             (proven_set, proven_items),
             (mixed_set, mixed_items),
+            (discouraged_set, discouraged_items),
             (mutated_set, mutated_items),
             (incompatible_set, incompatible_items),
         ],
@@ -5573,10 +5591,27 @@ def test_reference_set_reuse_uses_version_safe_human_review_history():
     assert recommendation.reference_set.id == proven_set.id
     assert recommendation.review_approved_count == 5
     assert recommendation.review_rejected_count == 1
-    assert recommendation.candidate_count == 3
+    assert recommendation.candidate_count == 4
     assert recommendation.score is not None
     assert recommendation.score > 0
     assert "Reusable global set" in recommendation.reasons
+
+    discouraged = discouraged_reference_sets(
+        campaign=campaign,
+        manifest=manifest,
+        reference_sets=[
+            (proven_set, proven_items),
+            (mixed_set, mixed_items),
+            (discouraged_set, discouraged_items),
+            (mutated_set, mutated_items),
+            (incompatible_set, incompatible_items),
+        ],
+        review_learning=learning,
+    )
+    assert [row.reference_set.id for row in discouraged] == [discouraged_set.id]
+    assert discouraged[0].score < 0
+    assert discouraged[0].review_approved_count == 1
+    assert discouraged[0].review_rejected_count == 5
 
     sparse_learning = build_reference_review_learning(
         campaign=campaign,
@@ -5598,6 +5633,12 @@ def test_reference_set_reuse_uses_version_safe_human_review_history():
     assert sparse_recommendation.reference_set is None
     assert sparse_recommendation.score is None
     assert sparse_recommendation.candidate_count == 1
+    assert discouraged_reference_sets(
+        campaign=campaign,
+        manifest=manifest,
+        reference_sets=[(proven_set, proven_items)],
+        review_learning=sparse_learning,
+    ) == ()
 
 
 def test_generation_skill_catalog_exposes_recommended_manifest(api, monkeypatch):

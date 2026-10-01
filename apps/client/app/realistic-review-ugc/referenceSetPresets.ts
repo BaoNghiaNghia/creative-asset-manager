@@ -93,6 +93,7 @@ export function preferredReferenceSetSelection(
   currentReferenceSetId: string,
   compatibleReferenceSets: ReferenceSet[],
   learnedReferenceSetId: string,
+  discouragedReferenceSetIds: ReadonlySet<string>,
   operatorTouched: boolean,
 ): string {
   const compatibleIds = new Set(
@@ -104,11 +105,24 @@ export function preferredReferenceSetSelection(
   if (operatorTouched && (!currentReferenceSetId || currentCompatible)) {
     return currentReferenceSetId;
   }
-  if (learnedReferenceSetId && compatibleIds.has(learnedReferenceSetId)) {
+  if (
+    learnedReferenceSetId
+    && compatibleIds.has(learnedReferenceSetId)
+    && !discouragedReferenceSetIds.has(learnedReferenceSetId)
+  ) {
     return learnedReferenceSetId;
   }
-  if (currentCompatible) return currentReferenceSetId;
-  return compatibleReferenceSets[0]?.id || "";
+  if (
+    currentCompatible
+    && !discouragedReferenceSetIds.has(currentReferenceSetId)
+  ) {
+    return currentReferenceSetId;
+  }
+  return (
+    compatibleReferenceSets.find(
+      referenceSet => !discouragedReferenceSetIds.has(referenceSet.id),
+    )?.id || ""
+  );
 }
 
 export function fillEmptyRecommendedReferenceRoles(

@@ -1476,8 +1476,13 @@ Implementation status as of 2026-10-01:
   - At least three matching human reviews and a positive smoothed preference are required before a set can be auto-selected.
   - Current manifest role compatibility remains mandatory; incompatible or oversized sets are excluded.
   - Learned reuse only controls the default while untouched. Manual Reference Set or Legacy selection always wins.
+- Phase 5F — negative-evidence Reference Set guard complete.
+  - The same version-safe human-review evidence identifies compatible sets with a negative smoothed preference.
+  - A cautioned set is skipped only for automatic default selection; it is never auto-archived or disabled.
+  - Manual operator selection remains authoritative and exposes the approved/rejected evidence inline.
+  - If every compatible set is cautioned, automatic selection falls back to Legacy references instead of silently choosing a known weak preset.
 
-The core end-to-end architecture is complete through Phase 5E. Cross-skill routing remains optional and is not required for the current production workflow.
+The core end-to-end architecture is complete through Phase 5F. Cross-skill routing remains optional and is not required for the current production workflow.
 
 ## 47. Phase 0 — preserve current Scout
 
@@ -1627,7 +1632,21 @@ Implemented on top of the same human-review history with no migration:
 - manual selection, including explicit Legacy references, always wins and remains stable when recommendation data arrives;
 - a newly created preset is treated as an explicit operator selection and is never immediately replaced by learned reuse.
 
-This provides learned template reuse without a template registry or cross-skill router. Cross-skill routing remains optional and should only be added when multiple production skills have enough human-reviewed outcomes to justify it.
+### Phase 5F — negative-evidence Reference Set guard
+
+Implemented using the same evidence model as Phase 5E:
+
+- compatible active Reference Sets are evaluated with the same tenant + skill + product-type scoped human-review history;
+- caution evidence uses the same Reference Set ID + composition signature, minimum three reviews, Bayesian smoothing and confidence scaling as learned reuse;
+- only a negative smoothed preference creates a caution signal; sparse or neutral evidence does not;
+- the recommendation endpoint returns cautioned set ID/name, negative score, reasons and approved/rejected counts;
+- automatic Reference Set selection skips cautioned sets after recommendation evidence arrives;
+- if every compatible set is cautioned, the untouched default becomes Legacy references rather than choosing a known weak set;
+- cautioned sets remain visible and selectable; a manual choice is never overwritten, disabled or archived;
+- the Production UI labels cautioned options and shows exact human-review evidence for a manually selected cautioned set;
+- editing the set composition invalidates stale caution evidence automatically, exactly as it invalidates stale positive reuse evidence.
+
+This adds a conservative negative-feedback guard without a migration, automatic destructive action, second learning store, template registry or cross-skill router. Cross-skill routing remains optional and should only be added when multiple production skills have enough human-reviewed outcomes to justify it.
 
 Avoid premature skill-registry complexity.
 

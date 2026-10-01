@@ -159,6 +159,16 @@ describe("Realistic Review UGC route", () => {
         review_approved_count: 5,
         review_rejected_count: 1,
       },
+      discouraged_reference_sets: [
+        {
+          reference_set_id: "discouraged-set",
+          reference_set_name: "Discouraged set",
+          score: -30,
+          reasons: ["Human review: 1 approved / 5 rejected"],
+          review_approved_count: 1,
+          review_rejected_count: 5,
+        },
+      ],
       items: [
         {
           role: "product_front",
@@ -210,17 +220,20 @@ describe("Realistic Review UGC route", () => {
     ).toBe("campaign-product");
   });
 
-  it("prefers learned reference-set reuse without overriding operator selection", () => {
+  it("prefers learned reuse, skips caution defaults, and preserves manual selection", () => {
     const sets = [
+      { id: "discouraged-set" },
       { id: "manual-set" },
       { id: "learned-set" },
     ] as ReferenceSet[];
+    const discouraged = new Set(["discouraged-set"]);
 
     expect(
       preferredReferenceSetSelection(
         "manual-set",
         sets,
         "learned-set",
+        discouraged,
         false,
       ),
     ).toBe("learned-set");
@@ -229,14 +242,34 @@ describe("Realistic Review UGC route", () => {
         "manual-set",
         sets,
         "learned-set",
+        discouraged,
         true,
       ),
     ).toBe("manual-set");
     expect(
       preferredReferenceSetSelection(
+        "discouraged-set",
+        sets,
+        "",
+        discouraged,
+        false,
+      ),
+    ).toBe("manual-set");
+    expect(
+      preferredReferenceSetSelection(
+        "discouraged-set",
+        sets,
+        "",
+        discouraged,
+        true,
+      ),
+    ).toBe("discouraged-set");
+    expect(
+      preferredReferenceSetSelection(
         "",
         sets,
         "learned-set",
+        discouraged,
         true,
       ),
     ).toBe("");
@@ -245,9 +278,19 @@ describe("Realistic Review UGC route", () => {
         "stale-set",
         sets,
         "learned-set",
+        discouraged,
         true,
       ),
     ).toBe("learned-set");
+    expect(
+      preferredReferenceSetSelection(
+        "",
+        [{ id: "discouraged-set" }] as ReferenceSet[],
+        "",
+        discouraged,
+        false,
+      ),
+    ).toBe("");
   });
 
   it("ranks smartphone-like references above artistic ones", () => {

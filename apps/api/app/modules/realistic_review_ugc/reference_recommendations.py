@@ -57,6 +57,15 @@ class ReferenceSetReuseRecommendation:
     review_rejected_count: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceSetFeedback:
+    reference_set: RrugcReferenceSetModel
+    score: float
+    reasons: tuple[str, ...]
+    review_approved_count: int
+    review_rejected_count: int
+
+
 def preferred_reference_types(role: str) -> tuple[str, ...]:
     token = str(role or "").strip().lower()
     if "artwork" in token or "logo" in token:
@@ -317,6 +326,25 @@ def _reference_set_manifest_compatible(
     )
 
 
+def _reference_set_review_signal(
+    *,
+    reference_set: RrugcReferenceSetModel,
+    items: list[RrugcReferenceSetItemModel],
+    review_learning: ReferenceReviewLearning,
+) -> tuple[ReferenceReviewStats | None, float]:
+    signature = _current_reference_set_signature(items)
+    stats = review_learning.reference_sets.get(
+        (reference_set.id, signature)
+    ) if signature else None
+    score = _review_adjustment(
+        stats,
+        max_weight=100.0,
+        min_samples=3,
+        full_confidence_samples=8,
+    )
+    return stats, score
+
+
 def recommend_reference_set_reuse(
     *,
     campaign: RrugcCampaignModel,
@@ -340,15 +368,10 @@ def recommend_reference_set_reuse(
         tuple[float, RrugcReferenceSetModel, ReferenceReviewStats]
     ] = []
     for reference_set, items in compatible:
-        signature = _current_reference_set_signature(items)
-        stats = review_learning.reference_sets.get(
-            (reference_set.id, signature)
-        ) if signature else None
-        score = _review_adjustment(
-            stats,
-            max_weight=100.0,
-            min_samples=3,
-            full_confidence_samples=8,
+        stats, score = _reference_set_review_signal(
+            reference_set=reference_set,
+            items=items,
+            review_learning=review_learning,
         )
         if stats is None or stats.total < 3 or score <= 0:
             continue
@@ -389,6 +412,54 @@ def recommend_reference_set_reuse(
         review_approved_count=stats.approved,
         review_rejected_count=stats.rejected,
     )
+
+
+def discouraged_reference_sets(
+    *,
+    campaign: RrugcCampaignModel,
+    manifest: CodexSkillManifest,
+    reference_sets: list[
+        tuple[RrugcReferenceSetModel, list[RrugcReferenceSetItemModel]]
+    ],
+    review_learning: ReferenceReviewLearning,
+) -> tuple[ReferenceSetFeedback, ...]:
+    rows: list[ReferenceSetFeedback] = []
+    for reference_set, items in reference_sets:
+        if not _reference_set_manifest_compatible(
+            campaign=campaign,
+            manifest=manifest,
+            reference_set=reference_set,
+            items=items,
+        ):
+            continue
+        stats, score = _reference_set_review_signal(
+            reference_set=reference_set,
+            items=items,
+            review_learning=review_learning,
+        )
+        if stats is None or stats.total < 3 or score >= 0:
+            continue
+        rows.append(
+            ReferenceSetFeedback(
+                reference_set=reference_set,
+                score=score,
+                reasons=(
+                    f"Human review: {stats.approved} approved / {stats.rejected} rejected",
+                    f"Evidence: {stats.total} reviewed generations",
+                ),
+                review_approved_count=stats.approved,
+                review_rejected_count=stats.rejected,
+            )
+        )
+    rows.sort(
+        key=lambda row: (
+            row.score,
+            -row.review_rejected_count,
+            row.review_approved_count,
+            row.reference_set.id,
+        )
+    )
+    return tuple(rows)
 
 
 def _learning_signal(
