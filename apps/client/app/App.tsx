@@ -1037,15 +1037,6 @@ export default function App() {
         <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
       </div>}
 
-      {explorer.auth.authenticated && explorer.explorerReady && <nav>
-        <div className="explorer-breadcrumb">{explorer.path.map((folder, index) => <button
-          key={folder.id}
-          onClick={() => void explorer.openFolder(folder.id, explorer.path.slice(0, index))}
-        >
-          {folder.name}
-        </button>)}</div>
-      </nav>}
-
       {explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
         : explorer.applicationAuthenticated === false ? <DriveEmpty
           oauthError={explorer.oauthError}
@@ -1125,11 +1116,19 @@ export default function App() {
                   ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">⟶</span></a> : null;
                 })()}
               </h1>
-              <small>{!explorer.query.trim()
-                ? explorer.items.length + " items"
-                : searchBusy
+              {!explorer.query.trim()
+                ? <div className="title-breadcrumb explorer-breadcrumb" aria-label="Folder breadcrumb">
+                  {explorer.path.map((folder, index) => <button
+                    type="button"
+                    key={folder.id}
+                    onClick={() => void explorer.openFolder(folder.id, explorer.path.slice(0, index))}
+                  >
+                    {folder.name}
+                  </button>)}
+                </div>
+                : <small>{searchBusy
                   ? "Searching images & videos..."
-                  : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"}</small>
+                  : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"}</small>}
             </span>
             <div className="title-actions">
               <div className="view-tools" role="group" aria-label="View options">
