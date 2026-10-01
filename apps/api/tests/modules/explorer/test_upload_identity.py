@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.authorization.folder_scope import ViewerFolderScopeModel
 from app.modules.explorer.router import upload_file
 from app.modules.explorer.schema import AssetNode
 
@@ -149,6 +150,124 @@ def test_explorer_upload_registers_content_asset_link_immediately() -> None:
         assert asset is not None
         assert asset.content_hash == expected_hash
         assert asset.mime_type == "video/mp4"
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_viewer_upload_allows_unsynced_descendant_via_provider_parent_chain() -> None:
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine, expire_on_commit=False)
+    session.add(
+        ExternalSourceModel(
+            id="source-a",
+            tenant_id="tenant-a",
+            source_type="google_drive",
+            source_key="drive-a",
+            source_metadata={},
+        )
+    )
+    session.add(
+        ViewerFolderScopeModel(
+            tenant_id="tenant-a",
+            tenant_membership_id="membership-viewer",
+            external_source_id="source-a",
+            folder_external_id="folder-a",
+            folder_name="Allowed root",
+        )
+    )
+    session.commit()
+
+    class ViewerUploadProvider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def get_node(self, item_id):
+            if item_id == "folder-b":
+                return AssetNode(
+                    id="folder-b",
+                    name="Nested folder",
+                    kind="folder",
+                    mime_type="application/vnd.google-apps.folder",
+                    parent_id="folder-a",
+                )
+            if item_id == "folder-a":
+                return AssetNode(
+                    id="folder-a",
+                    name="Allowed root",
+                    kind="folder",
+                    mime_type="application/vnd.google-apps.folder",
+                )
+            raise AssertionError(item_id)
+
+        async def upload_file_stream(self, parent_id, filename, mime_type, content):
+            uploaded = bytearray()
+            async for block in content:
+                uploaded.extend(block)
+            assert parent_id == "folder-b"
+            return AssetNode(
+                id="uploaded-file",
+                name=filename,
+                kind="image",
+                mime_type=mime_type,
+                parent_id=parent_id,
+                size=len(uploaded),
+            )
+
+    provider = ViewerUploadProvider()
+    principal = SimpleNamespace(
+        membership_id="membership-viewer",
+        effective_roles=frozenset({"viewer"}),
+        platform_admin=False,
+        actor_id="viewer-a",
+    )
+    settings = Settings(
+        PROCESSING_JOBS_ENABLED=False,
+        VIDEO_SEARCH_ENABLED=False,
+        VIDEO_ANALYSIS_ENABLED=False,
+        VIDEO_PROXY_ENABLED=False,
+    )
+
+    async def scenario():
+        with (
+            patch(
+                "app.modules.explorer.router._source_context",
+                new=AsyncMock(
+                    return_value=("token", "account-a", "tenant-a", "source-a")
+                ),
+            ),
+            patch(
+                "app.modules.explorer.router.create_source_provider",
+                return_value=provider,
+            ),
+            patch("app.modules.explorer.router.get_settings", return_value=settings),
+        ):
+            return await upload_file(
+                UploadRequest((b"viewer-upload",)),
+                parent_id="folder-b",
+                filename="photo.jpg",
+                mime_type="image/jpeg",
+                provider="google-drive",
+                session=session,
+                principal=principal,
+                external_source_id="source-a",
+            )
+
+    try:
+        result = asyncio.run(scenario())
+        assert result == {
+            "id": "uploaded-file",
+            "name": "photo.jpg",
+            "kind": "image",
+        }
     finally:
         session.close()
         engine.dispose()

@@ -894,10 +894,12 @@ async def upload_file(
             roles=principal.effective_roles,
             external_source_id=resolved_source_id,
         )
-        _require_viewer_folder_scope(
+        await _require_viewer_folder_scope_from_provider(
             scope_service,
             tenant_id=tenant_id,
             access=access,
+            provider=provider,
+            token=token,
             folder_id=parent_id,
             allow_root=False,
         )
