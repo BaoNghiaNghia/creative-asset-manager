@@ -146,6 +146,8 @@ describe("Realistic Review UGC route", () => {
       suggested_name: "HAT · Hat product on person",
       complete: true,
       missing_required_roles: [],
+      learning_review_count: 6,
+      learning_applied: true,
       items: [
         {
           role: "product_front",
@@ -154,6 +156,9 @@ describe("Realistic Review UGC route", () => {
           score: 150,
           reasons: ["Type match: product", "Same campaign"],
           candidate_count: 2,
+          learning_adjustment: 4.2,
+          review_approved_count: 6,
+          review_rejected_count: 0,
         },
         {
           role: "artwork",
@@ -162,6 +167,9 @@ describe("Realistic Review UGC route", () => {
           score: 120,
           reasons: ["Type match: artwork"],
           candidate_count: 1,
+          learning_adjustment: 0,
+          review_approved_count: 0,
+          review_rejected_count: 0,
         },
         {
           role: "detail",
@@ -170,6 +178,9 @@ describe("Realistic Review UGC route", () => {
           score: null,
           reasons: [],
           candidate_count: 0,
+          learning_adjustment: 0,
+          review_approved_count: 0,
+          review_rejected_count: 0,
         },
       ],
     };

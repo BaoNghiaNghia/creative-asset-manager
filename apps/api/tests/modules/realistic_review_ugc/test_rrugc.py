@@ -85,6 +85,10 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.reference_recommendations import (
+    build_reference_review_learning,
+    recommend_reference_assets,
+)
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
     RrugcAutoScoutService,
@@ -5273,6 +5277,153 @@ def test_reference_set_recommendation_uses_role_campaign_and_product_context(
         if item["reference_asset"] is not None
     ]
     assert len(recommended_ids) == len(set(recommended_ids))
+
+
+def test_reference_recommendation_learning_uses_human_review_without_breaking_type_priority():
+    campaign = SimpleNamespace(
+        id="campaign-current",
+        name="Hat learning",
+        product_snapshot_json={"product_type": "hat", "sku": "HAT-LEARN"},
+        product_context_json={},
+    )
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=(),
+        max_references=1,
+    )
+
+    def asset(
+        asset_id: str,
+        *,
+        reference_type: str,
+        quality: float,
+    ):
+        return SimpleNamespace(
+            id=asset_id,
+            status="ready",
+            archived_at=None,
+            reference_type=reference_type,
+            source_type="upload",
+            original_filename=asset_id + ".png",
+            source_key=asset_id,
+            profile_key=None,
+            tags_json=[],
+            themes_json=[],
+            source_campaign_id=None,
+            quality_score=quality,
+            context_score=None,
+            visual_score=None,
+            updated_at=None,
+        )
+
+    learned_product = asset(
+        "learned-product",
+        reference_type="product",
+        quality=0.40,
+    )
+    high_quality_product = asset(
+        "high-quality-product",
+        reference_type="product",
+        quality=1.0,
+    )
+    heavily_approved_detail = asset(
+        "approved-detail",
+        reference_type="detail",
+        quality=1.0,
+    )
+
+    def reviewed_attempt(
+        *,
+        asset_id: str,
+        reference_type: str,
+        review_status: str,
+        product_type: str = "hat",
+    ):
+        return SimpleNamespace(
+            review_status=review_status,
+            product_snapshot_json={"product_type": product_type},
+            product_reference_snapshot_json=[
+                {
+                    "reference_asset_id": asset_id,
+                    "role": "product_front",
+                    "reference_type": reference_type,
+                    "source_type": "upload",
+                }
+            ],
+        )
+
+    attempts = [
+        *[
+            reviewed_attempt(
+                asset_id=learned_product.id,
+                reference_type="product",
+                review_status="approved",
+            )
+            for _ in range(6)
+        ],
+        *[
+            reviewed_attempt(
+                asset_id=high_quality_product.id,
+                reference_type="product",
+                review_status="rejected",
+            )
+            for _ in range(6)
+        ],
+        *[
+            reviewed_attempt(
+                asset_id=heavily_approved_detail.id,
+                reference_type="detail",
+                review_status="approved",
+            )
+            for _ in range(6)
+        ],
+        *[
+            reviewed_attempt(
+                asset_id=high_quality_product.id,
+                reference_type="product",
+                review_status="approved",
+                product_type="shirt",
+            )
+            for _ in range(20)
+        ],
+    ]
+    learning = build_reference_review_learning(
+        campaign=campaign,
+        attempts=attempts,
+    )
+    assert learning.review_count == 18
+
+    result = recommend_reference_assets(
+        campaign=campaign,
+        manifest=manifest,
+        assets=[
+            learned_product,
+            high_quality_product,
+            heavily_approved_detail,
+        ],
+        review_learning=learning,
+    )
+    assert len(result) == 1
+    recommendation = result[0]
+    assert recommendation.reference_asset.id == learned_product.id
+    assert recommendation.review_approved_count == 6
+    assert recommendation.review_rejected_count == 0
+    assert recommendation.learning_adjustment > 0
+    assert any(
+        reason.startswith("Human review:")
+        for reason in recommendation.reasons
+    )
+    assert recommendation.score > 300
+    assert (
+        recommendation.reference_asset.id
+        != heavily_approved_detail.id
+    )
 
 
 def test_generation_skill_catalog_exposes_recommended_manifest(api, monkeypatch):

@@ -1313,6 +1313,32 @@ class RrugcRepository:
         )
         return rows, total
 
+    def reviewed_generation_attempts(
+        self,
+        tenant_id: str,
+        *,
+        skill_name: str,
+        limit: int = 500,
+    ) -> list[RrugcGenerationAttemptModel]:
+        return list(
+            self.session.scalars(
+                select(RrugcGenerationAttemptModel)
+                .where(
+                    RrugcGenerationAttemptModel.tenant_id == tenant_id,
+                    RrugcGenerationAttemptModel.worker_skill_version == skill_name,
+                    RrugcGenerationAttemptModel.status == "completed",
+                    RrugcGenerationAttemptModel.review_status.in_(
+                        ("approved", "rejected")
+                    ),
+                )
+                .order_by(
+                    RrugcGenerationAttemptModel.reviewed_at.desc().nullslast(),
+                    RrugcGenerationAttemptModel.id.desc(),
+                )
+                .limit(limit)
+            )
+        )
+
     def exportable_attempts(
         self,
         tenant_id: str,

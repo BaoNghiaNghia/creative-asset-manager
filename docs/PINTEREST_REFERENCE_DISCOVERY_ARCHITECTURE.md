@@ -1464,8 +1464,14 @@ Implementation status as of 2026-10-01:
   - Required roles are ranked before optional roles so optional references cannot consume the only viable required-role asset.
   - The Production UI auto-fills only empty role slots and never overwrites an operator selection.
   - No LLM router, skill registry table or migration is required.
+- Phase 5D — human-review learned recommendation ranking complete.
+  - Human approved/rejected GenerationAttempts are reused directly as training evidence.
+  - Learning is tenant + skill + product-type scoped and combines exact asset-role history with a weaker role/reference/source family prior.
+  - Bayesian smoothing, sample-confidence scaling and a hard +/-24 total bound prevent sparse feedback or learned priors from breaking reference-type compatibility.
+  - Supervisor-only outcomes and pending reviews never train the recommender.
+  - The Production UI exposes the amount of review evidence and the learned score adjustment.
 
-The core end-to-end architecture is complete through Phase 5C. More elaborate learned template families remain optional and are not required for the current production workflow.
+The core end-to-end architecture is complete through Phase 5D. Cross-skill routing and more elaborate learned template families remain optional and are not required for the current production workflow.
 
 ## 47. Phase 0 — preserve current Scout
 
@@ -1585,7 +1591,22 @@ Implemented as a read-only recommendation layer over the existing manifest and R
 - changing campaign or skill clears stale preset assignments before loading the new recommendation;
 - preset creation itself remains the Phase 5B atomic manifest-validation endpoint.
 
-Future learned template-family ranking remains optional and should only be added when real production feedback proves deterministic ranking insufficient.
+### Phase 5D — human-review learned recommendation ranking
+
+Implemented without a new migration or skill registry:
+
+- only terminal human generation reviews (approved / rejected) are learning inputs; Supervisor decisions and pending reviews are excluded;
+- learning rows are scoped by tenant, selected skill and current product type before they can influence ranking;
+- exact reference_asset_id + role history provides the strongest prior;
+- a weaker role + reference_type + source_type family prior generalizes learning when exact asset history is sparse;
+- both priors use Bayesian smoothing and sample-confidence scaling so one or two outcomes cannot dominate ranking;
+- exact learning is bounded to +/-18 points and family learning to +/-6 points;
+- the combined +/-24 point learning range remains below the 100-point reference-type gap, so human feedback can refine candidates inside a compatible type but cannot make an incompatible type win;
+- recommendation responses expose the number of human-reviewed generations used, whether learning changed a score, per-role adjustment and exact approved/rejected counts;
+- the Production UI shows whether human-review history was observed/applied and surfaces the bounded adjustment next to each recommendation;
+- the system learns directly from existing GenerationAttempt reference snapshots and review state, so no duplicate training table is required.
+
+More elaborate learned template families or cross-skill routing remain optional. Add them only if production feedback shows that the bounded asset/family priors are insufficient.
 
 Avoid premature skill-registry complexity.
 

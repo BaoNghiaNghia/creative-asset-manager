@@ -973,6 +973,9 @@ class ReferenceSetRecommendationItemResponse(BaseModel):
     score: float | None = None
     reasons: list[str] = Field(default_factory=list)
     candidate_count: int = 0
+    learning_adjustment: float = 0.0
+    review_approved_count: int = 0
+    review_rejected_count: int = 0
 
 
 class ReferenceSetRecommendationResponse(BaseModel):
@@ -981,6 +984,8 @@ class ReferenceSetRecommendationResponse(BaseModel):
     suggested_name: str
     complete: bool
     missing_required_roles: list[str] = Field(default_factory=list)
+    learning_review_count: int = 0
+    learning_applied: bool = False
     items: list[ReferenceSetRecommendationItemResponse] = Field(default_factory=list)
 
 

@@ -457,6 +457,9 @@ export type ReferenceSetRecommendationItem = {
   score: number | null;
   reasons: string[];
   candidate_count: number;
+  learning_adjustment: number;
+  review_approved_count: number;
+  review_rejected_count: number;
 };
 
 export type ReferenceSetRecommendation = {
@@ -465,6 +468,8 @@ export type ReferenceSetRecommendation = {
   suggested_name: string;
   complete: boolean;
   missing_required_roles: string[];
+  learning_review_count: number;
+  learning_applied: boolean;
   items: ReferenceSetRecommendationItem[];
 };
 

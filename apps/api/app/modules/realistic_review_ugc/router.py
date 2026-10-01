@@ -84,6 +84,7 @@ from app.modules.realistic_review_ugc.reference_library import (
     reference_image_content_type,
 )
 from app.modules.realistic_review_ugc.reference_recommendations import (
+    build_reference_review_learning,
     recommend_reference_assets,
     suggested_reference_set_name,
 )
@@ -1438,10 +1439,19 @@ def recommend_reference_set(
         status="ready",
         limit=500,
     )
+    review_learning = build_reference_review_learning(
+        campaign=campaign,
+        attempts=repository.reviewed_generation_attempts(
+            principal.active_tenant_id,
+            skill_name=resolved_skill_name,
+            limit=500,
+        ),
+    )
     recommendations = recommend_reference_assets(
         campaign=campaign,
         manifest=manifest,
         assets=assets,
+        review_learning=review_learning,
     )
     missing_required_roles = [
         item.role
@@ -1454,6 +1464,11 @@ def recommend_reference_set(
         suggested_name=suggested_reference_set_name(campaign, manifest),
         complete=not missing_required_roles,
         missing_required_roles=missing_required_roles,
+        learning_review_count=review_learning.review_count,
+        learning_applied=any(
+            abs(item.learning_adjustment) > 0.0001
+            for item in recommendations
+        ),
         items=[
             ReferenceSetRecommendationItemResponse(
                 role=item.role,
@@ -1466,6 +1481,9 @@ def recommend_reference_set(
                 score=item.score,
                 reasons=list(item.reasons),
                 candidate_count=item.candidate_count,
+                learning_adjustment=item.learning_adjustment,
+                review_approved_count=item.review_approved_count,
+                review_rejected_count=item.review_rejected_count,
             )
             for item in recommendations
         ],

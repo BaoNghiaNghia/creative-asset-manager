@@ -895,9 +895,15 @@ export function CampaignGenerationPanel({
         {presetRecommendation && <div className="rrugc-reference-recommendation-status">
           <span>Auto-ranked for <b>{"$" + selectedSkill.skill_name}</b></span>
           <small>
-            {presetRecommendation.complete
+            {(presetRecommendation.complete
               ? "All required roles have a recommendation"
-              : "Still missing: " + presetRecommendation.missing_required_roles.join(", ")}
+              : "Still missing: " + presetRecommendation.missing_required_roles.join(", "))
+              + (presetRecommendation.learning_review_count > 0
+                ? " · "
+                  + presetRecommendation.learning_review_count
+                  + " human-reviewed generations"
+                  + (presetRecommendation.learning_applied ? " applied" : " observed")
+                : " · no human-review history yet")}
           </small>
         </div>}
         <div className="rrugc-reference-role-grid">
@@ -940,6 +946,11 @@ export function CampaignGenerationPanel({
               </select>
               {recommendation?.reference_asset && <small className="rrugc-reference-recommendation-reason">
                 {recommendation.reasons.slice(0, 3).join(" · ")}
+                {Math.abs(recommendation.learning_adjustment) > 0.0001
+                  ? " · human learning "
+                    + (recommendation.learning_adjustment > 0 ? "+" : "")
+                    + recommendation.learning_adjustment.toFixed(1)
+                  : ""}
               </small>}
             </label>;
           })}
