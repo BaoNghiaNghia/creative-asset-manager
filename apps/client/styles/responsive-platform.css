@@ -35,14 +35,20 @@ button,a{-webkit-tap-highlight-color:transparent}
 .product-shell .grid{
   background:#fff;
 }
+.product-shell .brand{
+  gap:10px;
+}
 .product-shell .brand>b{
+  width:38px;
+  height:38px;
+  flex:0 0 38px;
   background:transparent;
   color:inherit;
   box-shadow:none;
 }
 .product-shell .brand-logo{
-  width:34px;
-  height:34px;
+  width:38px;
+  height:38px;
 }
 
 /* Asset Explorer sidebar hierarchy: clear information levels on a pure white surface. */

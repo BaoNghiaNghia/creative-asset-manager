@@ -1128,14 +1128,14 @@ export default function App() {
             <div className="title-actions">
               <div className="view-tools" role="group" aria-label="View options">
                 <b aria-label="Layout options">▦　☷</b>
-                <button
+                {explorer.selected.size > 0 && <button
                   type="button"
                   className={"details-toggle " + (detailsOpen ? "active" : "")}
                   aria-label={detailsOpen ? "Hide file information" : "Show file information"}
                   aria-pressed={detailsOpen}
                   title={detailsOpen ? "Hide details" : "Show details"}
                   onClick={toggleDetails}
-                >i</button>
+                >i</button>}
               </div>
             </div>
           </div>

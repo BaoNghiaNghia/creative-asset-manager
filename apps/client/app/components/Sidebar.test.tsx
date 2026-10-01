@@ -45,6 +45,8 @@ describe("Sidebar multi-source accounts", () => {
       applicationAuthenticated
     />);
 
+    expect(markup).toContain("Creative assets");
+    expect(markup).not.toContain("Creative Asset Manager");
     expect(markup).toContain("(one@example.com)");
     expect(markup).toContain("(two@example.com)");
     expect(markup).not.toContain("+ Add personal OneDrive");
