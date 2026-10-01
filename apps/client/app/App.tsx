@@ -29,23 +29,6 @@ import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import { addSearchHistory, loadSearchHistory, saveSearchHistory } from "./utils/searchHistory";
 import type { Asset, SearchSuggestion } from "./types";
 
-export const DEFAULT_SEARCH_MEDIA_MODE = "all" as const;
-export type SearchMediaMode = typeof DEFAULT_SEARCH_MEDIA_MODE | "images" | "videos";
-
-export function parseSearchMediaMode(value: string | null): SearchMediaMode {
-  return value === "images" || value === "videos" || value === "all"
-    ? value
-    : DEFAULT_SEARCH_MEDIA_MODE;
-}
-
-export function searchIncludesImages(mode: SearchMediaMode): boolean {
-  return mode === "all" || mode === "images";
-}
-
-export function searchIncludesVideos(mode: SearchMediaMode): boolean {
-  return mode === "all" || mode === "videos";
-}
-
 export function toggleVisualSearchOpen(currentOpen: boolean, clear: () => void): boolean {
   if (currentOpen) clear();
   return !currentOpen;
@@ -296,28 +279,23 @@ export default function App() {
     return window.camDesktop?.onAuthComplete(() => window.location.reload());
   }, []);
 
-  const [searchMediaMode, setSearchMediaMode] = useState<SearchMediaMode>(
-    () => parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")),
-  );
   const [imageResultsExpanded, setImageResultsExpanded] = useState(true);
   const [videoResultsExpanded, setVideoResultsExpanded] = useState(true);
-  const imageSearchEnabled = searchIncludesImages(searchMediaMode);
-  const videoSearchEnabled = searchIncludesVideos(searchMediaMode);
-  const explorer = useDriveExplorer(imageSearchEnabled);
+  const explorer = useDriveExplorer(true);
   const canManageReviewLinks = explorer.applicationPermissions.includes("public_review.manage");
   const canSearchAllResources = explorer.pureViewer === null ? null : !explorer.pureViewer;
   const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId, canSearchAllResources);
   const [visualSearchOpen, setVisualSearchOpen] = useState(false);
   const videoSearch = useVideoSearch({
     authenticated: explorer.applicationAuthenticated === true,
-    enabled: videoSearchEnabled,
+    enabled: true,
     query: explorer.query,
     provider: explorer.provider,
     externalSourceId: null,
     designTypes: explorer.searchV3.selectedFacets.__design_type || [],
   });
   const searchBusy = explorer.query.trim().length > 0
-    && ((imageSearchEnabled && explorer.searching) || (videoSearchEnabled && videoSearch.loading));
+    && (explorer.searching || videoSearch.loading);
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const [playbackItem, setPlaybackItem] = useState<VideoSearchItem | null>(null);
@@ -396,7 +374,7 @@ export default function App() {
     };
   }, []);
   const suggestions = curateSearchSuggestions(explorer.query, explorer.searchV3.suggestions);
-  const showSuggestions = imageSearchEnabled && !suggestionsDismissed
+  const showSuggestions = !suggestionsDismissed
     && explorer.searchV3.active
     && explorer.query.trim().length >= 2
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
@@ -409,21 +387,6 @@ export default function App() {
         reviewLinkShareIds,
       )
     : null;
-  useEffect(() => {
-    const restoreMediaMode = () => {
-      setSearchMediaMode(parseSearchMediaMode(new URLSearchParams(window.location.search).get("media")));
-    };
-    window.addEventListener("popstate", restoreMediaMode);
-    return () => window.removeEventListener("popstate", restoreMediaMode);
-  }, []);
-
-  function selectSearchMediaMode(mode: SearchMediaMode) {
-    setSearchMediaMode(mode);
-    const params = new URLSearchParams(window.location.search);
-    params.set("media", mode);
-    window.history.replaceState({}, "", window.location.pathname + "?" + params.toString());
-  }
-
   useEffect(() => {
     const folder = explorer.path.at(-1);
     if (!folder || folder.id === "root") { setFolderNoteSummary(""); setFolderNoteAvailable(false); return; }
@@ -986,7 +949,7 @@ export default function App() {
                 onKeyDown={handleSearchKeyDown}
                 placeholder={!explorer.applicationAuthenticated
                   ? "Sign in to search connected sources"
-                  : searchMediaMode === "all" ? "Search images & videos" : searchMediaMode === "videos" ? "Search videos" : "Search images"}
+                  : "Search images & videos"}
                 aria-label="Search images and videos"
                 aria-autocomplete="list"
                 aria-expanded={showSuggestions}
@@ -1032,27 +995,15 @@ export default function App() {
               </div>}
             </div>
 
-            <div className="search-mode-tabs" role="radiogroup" aria-label="Search media type">
-              {(["all", "images", "videos"] as SearchMediaMode[]).map(mode => <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={searchMediaMode === mode}
-                className={searchMediaMode === mode ? "active" : ""}
-                onClick={() => selectSearchMediaMode(mode)}
-              >{mode === "all" ? "All" : mode === "images" ? "Images" : "Videos"}</button>)}
-            </div>
           </div>
           {searchBusy && <small className="search-waiting" role="status" aria-live="polite">
-            {searchMediaMode === "all"
-              ? explorer.searching && videoSearch.loading
-                ? "Searching images & videos..."
-                : explorer.searching
-                  ? "Searching images..."
-                  : "Searching videos..."
-              : "Searching..."}
+            {explorer.searching && videoSearch.loading
+              ? "Searching images & videos..."
+              : explorer.searching
+                ? "Searching images..."
+                : "Searching videos..."}
           </small>}
-          {imageSearchEnabled && explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
+          {explorer.query.trim() && explorer.searchDurationMs !== null && !explorer.searching && <small className="search-duration" role="status" aria-live="polite">
             {"T\u00ecm ki\u1ebfm ho\u00e0n t\u1ea5t trong "}{formatSearchDuration(explorer.searchDurationMs)}
           </small>}
         </div>
@@ -1176,19 +1127,9 @@ export default function App() {
               </h1>
               <small>{!explorer.query.trim()
                 ? explorer.items.length + " items"
-                : searchMediaMode === "all"
-                  ? searchBusy
-                    ? "Searching images & videos..."
-                    : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"
-                  : searchMediaMode === "videos"
-                    ? videoSearch.loading
-                      ? "Searching indexed videos..."
-                      : videoSearch.total + " video result" + (videoSearch.total === 1 ? "" : "s")
-                    : explorer.searching
-                      ? "Searching with Search V3..."
-                      : explorer.searchComplete
-                        ? "Completed: " + explorer.visibleItems.length + " results"
-                        : explorer.visibleItems.length + " results"}</small>
+                : searchBusy
+                  ? "Searching images & videos..."
+                  : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"}</small>
             </span>
             <div className="title-actions">
               <div className="view-tools" role="group" aria-label="View options">
@@ -1220,15 +1161,14 @@ export default function App() {
             onRetry={visualSearch.retry}
             onClose={() => { visualSearch.clear(); setVisualSearchOpen(false); }}
           />}
-          <div className={explorer.query.trim() && imageSearchEnabled ? "search-results-layout has-category-filter" : "search-results-layout"}>
-          {explorer.query.trim() && imageSearchEnabled && <SearchCategoryFilter
+          <div className={explorer.query.trim() ? "search-results-layout has-category-filter" : "search-results-layout"}>
+          {explorer.query.trim() && <SearchCategoryFilter
             selected={explorer.searchV3.selectedFacets}
             onChange={explorer.searchV3.setFacetValues}
           />}
           <div id="search-results">
-          {searchMediaMode === "videos" && explorer.query.trim() ? videoResults : <>
-          {searchMediaMode === "all" && explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span></button></h2>}
-          <div id="mixed-image-results" hidden={searchMediaMode === "all" && Boolean(explorer.query.trim()) && !imageResultsExpanded}>
+          {explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span></button></h2>}
+          <div id="mixed-image-results" hidden={Boolean(explorer.query.trim()) && !imageResultsExpanded}>
                     {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
           {explorer.searchError && <div className="search-warning" role="alert">
@@ -1286,11 +1226,10 @@ export default function App() {
             onOpen={explorer.openFolder}
           />}
           </div>
-          {searchMediaMode === "all" && explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
+          {explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
             <h2><button type="button" className="mixed-search-toggle" aria-expanded={videoResultsExpanded} aria-controls="mixed-video-results" onClick={() => setVideoResultsExpanded(value => !value)}><i aria-hidden="true">{videoResultsExpanded ? "−" : "+"}</i><span>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></span></button></h2>
             <div id="mixed-video-results" hidden={!videoResultsExpanded}>{videoResults}</div>
           </section>}
-          </>}
           </div>
           </div>
           </div>
