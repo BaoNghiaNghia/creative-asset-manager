@@ -16,6 +16,47 @@ function folder(id: string, name: string, sourceId: string): Asset {
 }
 
 describe("AssetGrid shared-folder actions", () => {
+  it("shows type/date in the metadata row and does not render star ratings", () => {
+    const image = {
+      provider: "google-drive",
+      id: "image-1",
+      name: "sample.jpg",
+      kind: "image",
+      mime_type: "image/jpeg",
+      is_folder: false,
+      modified_at: "2026-10-01T00:00:00Z",
+      external_source_id: "source-a",
+    } as Asset;
+
+    const markup = renderToStaticMarkup(<AssetGrid
+      items={[image]}
+      path={[]}
+      selected={new Set()}
+      metadataByItem={{
+        "image-1": {
+          item_id: "image-1",
+          tag_ids: [],
+          rating: 5,
+          processing_status: "discovered",
+        },
+      }}
+      onOpen={() => undefined}
+      onToggle={() => undefined}
+      onReplaceSelection={() => undefined}
+      onPrefetch={() => undefined}
+      onCancelPrefetch={() => undefined}
+      onPreview={() => undefined}
+      onDetails={() => undefined}
+      onFocus={() => undefined}
+      onContextMenu={() => undefined}
+    />);
+
+    expect(markup).toContain("processing-status");
+    expect(markup).toContain("asset-type-date");
+    expect(markup).not.toContain("asset-rating");
+    expect(markup).not.toContain("★");
+  });
+
   it("renders the circular three-dot trigger only for folders with an active share", () => {
     const shared = folder("shared", "Shared folder", "source-a");
     const plain = folder("plain", "Plain folder", "source-a");
@@ -30,7 +71,6 @@ describe("AssetGrid shared-folder actions", () => {
       onPrefetch={() => undefined}
       onCancelPrefetch={() => undefined}
       onPreview={() => undefined}
-      onRate={() => undefined}
       onDetails={() => undefined}
       onFocus={() => undefined}
       onContextMenu={() => undefined}
@@ -60,7 +100,6 @@ describe("AssetGrid shared-folder actions", () => {
       onPrefetch={() => undefined}
       onCancelPrefetch={() => undefined}
       onPreview={() => undefined}
-      onRate={() => undefined}
       onDetails={() => undefined}
       onFocus={() => undefined}
       onContextMenu={() => undefined}

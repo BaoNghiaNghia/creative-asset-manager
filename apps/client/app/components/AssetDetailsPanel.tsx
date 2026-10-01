@@ -296,7 +296,6 @@ function FriendlyDetails({ item, data, metadata, provider, onPreview, onOpenFold
         {metadata ? <AssetStatusBadge status={metadata.processing_status} /> : data && <span className="processing-status"><i />{data.lifecycle_status.replaceAll("_", " ")}</span>}
         {metadata?.tag_ids.map(tag => <span className={"asset-status " + tag} key={tag}>{tag}</span>)}
       </div>
-      <div className="inspector-rating" aria-label="Asset rating">{[1, 2, 3, 4, 5].map(star => <span className={(metadata?.rating || 0) >= star ? "filled" : ""} key={star}>★</span>)}</div>
     </section>
 
     {data && <section className="inspector-section">

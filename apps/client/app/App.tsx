@@ -1199,7 +1199,6 @@ export default function App() {
             onPrefetchNow={explorer.prefetchFolderNow}
             onCancelPrefetch={explorer.cancelFolderPrefetch}
             onPreview={setPreviewItem}
-            onRate={explorer.rateAsset}
             onDetails={openDetails}
             onFocus={item => detailsOpen && openDetails(item)}
             onContextMenu={(item, event) => { event.preventDefault(); setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } }); }}

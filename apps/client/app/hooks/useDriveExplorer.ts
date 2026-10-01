@@ -1270,30 +1270,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     setSelected(new Set());
   }
 
-  async function rateItems(itemIds: string[], rating: number | null) {
-    setError("");
-    const response = await fetch("/api/metadata/rating", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider, item_ids: itemIds, rating }),
-    });
-    if (!response.ok) {
-      setError("Unable to save asset rating");
-      return false;
-    }
-    const body = await response.json() as { items: AssetMetadata[] };
-    mergeMetadata(body.items);
-    return true;
-  }
-
-  async function rateAsset(item: Asset, rating: number | null) {
-    await rateItems([item.id], rating);
-  }
-
-  async function applyRating(rating: number | null) {
-    if (await rateItems([...selected], rating)) setSelected(new Set());
-  }
-
   function changeVisibilityFilter(filter: VisibilityFilter) {
     setVisibilityFilter(filter);
     setSelected(new Set());
@@ -1425,8 +1401,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     toggleSelection,
     replaceSelection,
     applyTag,
-    rateAsset,
-    applyRating,
     clearSelection: () => setSelected(new Set()),
     uploads, uploadFiles, createFolder, createTextFile, deleteItem, deleteItems, renameItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };

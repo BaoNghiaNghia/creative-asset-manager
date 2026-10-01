@@ -204,32 +204,25 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
 function AssetMetadataBar({
   item,
   metadata,
-  onRate,
 }: {
   item: Asset;
   metadata?: AssetMetadata;
-  onRate: (item: Asset, rating: number | null) => void;
 }) {
   const visibility = metadata?.tag_ids.find(tag => tag === "public" || tag === "draft");
   const showProcessingStatus = item.kind !== "folder" && Boolean(metadata);
+  const typeDate = item.kind === "folder"
+    ? null
+    : fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))
+      + (item.modified_at ? " - " + new Date(item.modified_at).toLocaleDateString() : "");
 
-  if (!showProcessingStatus && !visibility && item.kind === "folder") return null;
+  if (!showProcessingStatus && !visibility && !typeDate) return null;
 
   return <div className="asset-metadata">
     <span className="asset-labels">
       {showProcessingStatus && metadata && <AssetStatusBadge status={metadata.processing_status} />}
       {visibility && <span className={"asset-status " + visibility}>{visibility}</span>}
     </span>
-    {item.kind !== "folder" && <span className="asset-rating" aria-label="Asset rating">
-      {[1, 2, 3, 4, 5].map(star => <button
-        key={star}
-        type="button"
-        className={(metadata?.rating || 0) >= star ? "filled" : ""}
-        title={`Rate ${star} star${star > 1 ? "s" : ""}`}
-        aria-label={`Rate ${item.name} ${star} star${star > 1 ? "s" : ""}`}
-        onClick={() => onRate(item, metadata?.rating === star ? null : star)}
-      >★</button>)}
-    </span>}
+    {typeDate && <small className="asset-type-date">{typeDate}</small>}
   </div>;
 }
 
@@ -379,7 +372,6 @@ type Props = {
   onPrefetchNow?: (id: string) => void;
   onCancelPrefetch: () => void;
   onPreview: (item: Asset) => void;
-  onRate: (item: Asset, rating: number | null) => void;
   onDetails: (item: Asset) => void;
   onFocus: (item: Asset) => void;
   onContextMenu: (item: Asset, event: MouseEvent<HTMLElement>) => void;
@@ -409,7 +401,6 @@ export function AssetGrid({
   onPrefetchNow,
   onCancelPrefetch,
   onPreview,
-  onRate,
   onDetails,
   onFocus,
   onContextMenu,
@@ -761,8 +752,7 @@ export function AssetGrid({
           <button className="name" onDoubleClick={() => openItem(item)}>{item.name}</button>
           {folderShareTrigger(item)}
         </div>
-        <small>{fileTypeLabel(getFileType(item.mime_type, item.kind, item.name))}{item.modified_at && item.kind !== "folder" ? " - " + new Date(item.modified_at).toLocaleDateString() : ""}</small>
-        <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} onRate={onRate} />
+        <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} />
       </div>
     </article>)}
     {shareMenu && createPortal(<div
