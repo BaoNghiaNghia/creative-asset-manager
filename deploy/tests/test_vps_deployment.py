@@ -195,6 +195,7 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         backend = BACKEND.read_text()
         production_env = (ROOT / "deploy" / "production.env.example").read_text()
         runtime_script = SCRIPTS / "cam-codex-runtime.sh"
+        enable_script = SCRIPTS / "cam-enable-codex-imagegen.sh"
         smoke_skill = (
             ROOT / "deploy" / "codex" / "skills" / "cam-imagegen-smoke" / "SKILL.md"
         )
@@ -216,10 +217,19 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             production_env,
         )
         self.assertTrue(runtime_script.is_file())
+        self.assertTrue(enable_script.is_file())
         self.assertTrue(smoke_skill.is_file())
         self.assertTrue(worker_skill.is_file())
         self.assertIn("$imagegen", smoke_skill.read_text())
         self.assertIn("output/final.png", worker_skill.read_text())
+
+        activation = enable_script.read_text()
+        self.assertIn('"$CODEX_RUNTIME" smoke', activation)
+        self.assertIn('"IMAGE_GENERATION_ENABLED": "true"', activation)
+        self.assertIn('"CODEX_IMAGE_GENERATION_ENABLED": "true"', activation)
+        self.assertIn('"RRUGC_IMAGE_GENERATION_PROVIDER": "codex"', activation)
+        self.assertIn("creative-asset-manager-image-worker-4.service", activation)
+        self.assertNotIn("OPENAI_API_KEY=", activation)
 
     def test_worker_units_have_exclusive_roles(self) -> None:
         self.assertIn("WORKER_ROLE=image", IMAGE_UNIT.read_text())
