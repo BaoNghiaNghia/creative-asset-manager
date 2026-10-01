@@ -1077,6 +1077,15 @@ export default function App() {
           </div>}
           <div className="title">
             <span className="search-summary">
+              {!explorer.query.trim() && <div className="title-breadcrumb explorer-breadcrumb" aria-label="Folder breadcrumb">
+                {explorer.path.map((folder, index) => <button
+                  type="button"
+                  key={folder.id}
+                  onClick={() => void explorer.openFolder(folder.id, explorer.path.slice(0, index))}
+                >
+                  {folder.name}
+                </button>)}
+              </div>}
               <h1>
                 {currentFolder?.name || "My Drive"}
                 {currentFolder && currentFolderReviewShareId && <FolderReviewLinkActions
@@ -1086,12 +1095,12 @@ export default function App() {
                   onRefreshReviewLink={refreshReviewLink}
                   titleContext
                 />}
-                {folderNoteAvailable && <button
+                {folderNoteAvailable && folderNoteSummary && <button
                   type="button"
                   className="folder-note-trigger"
                   onClick={() => setFolderNoteOpen(true)}
                   aria-label="Open folder note"
->{folderNoteSummary || "+ Add note"}</button>}
+>{folderNoteSummary}</button>}
                 {(() => {
                   const currentName = explorer.path.at(-1)?.name || "";
                   const ancestorNames = explorer.path.slice(0, -1).map(folder => folder.name);
@@ -1113,22 +1122,12 @@ export default function App() {
                     rel="noreferrer"
                     aria-label={"Open listing " + listingId + " on Etsy"}
                     title={"Open listing " + listingId + " on Etsy"}
-                  ><EtsyLogo /><span className="etsy-external-mark" aria-hidden="true">⟶</span></a> : null;
+                  ><EtsyLogo /></a> : null;
                 })()}
               </h1>
-              {!explorer.query.trim()
-                ? <div className="title-breadcrumb explorer-breadcrumb" aria-label="Folder breadcrumb">
-                  {explorer.path.map((folder, index) => <button
-                    type="button"
-                    key={folder.id}
-                    onClick={() => void explorer.openFolder(folder.id, explorer.path.slice(0, index))}
-                  >
-                    {folder.name}
-                  </button>)}
-                </div>
-                : <small>{searchBusy
-                  ? "Searching images & videos..."
-                  : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"}</small>}
+              {explorer.query.trim() && <small>{searchBusy
+                ? "Searching images & videos..."
+                : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"}</small>}
             </span>
             <div className="title-actions">
               <div className="view-tools" role="group" aria-label="View options">
