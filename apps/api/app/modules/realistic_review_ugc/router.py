@@ -48,6 +48,7 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.product_context import (
     analyze_product_visual_reference,
+    context_feedback_ranking_signal,
     merge_product_visual_context,
     product_visual_binding_fingerprint,
     select_product_visual_references,
@@ -187,12 +188,33 @@ def _error(exc: RrugcError) -> HTTPException:
     )
 
 
-def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
+def _ranking_product_context(
+    campaign: RrugcCampaignModel | None,
+) -> dict | None:
+    if campaign is None or campaign.discovery_mode != "product_context":
+        return None
+    return (
+        dict(campaign.product_context_json)
+        if isinstance(campaign.product_context_json, dict)
+        else None
+    )
+
+
+def _candidate(
+    row: RrugcCandidateModel,
+    *,
+    product_context: dict | None = None,
+) -> CandidateResponse:
     signal = row.ai_signal_json if isinstance(row.ai_signal_json, dict) else {}
     context_match = (
         dict(signal.get("context_match"))
         if isinstance(signal.get("context_match"), dict)
         else {}
+    )
+    ranking = context_feedback_ranking_signal(
+        profile=product_context,
+        source_query=signal.get("scout_query"),
+        base_score=row.final_score,
     )
     return CandidateResponse.model_validate({
         "id": row.id,
@@ -240,6 +262,11 @@ def _candidate(row: RrugcCandidateModel) -> CandidateResponse:
         "color_match_score": row.color_match_score,
         "product_shape_score": row.product_shape_score,
         "final_score": row.final_score,
+        "ranking_score": ranking["ranking_score"],
+        "source_query": ranking["source_query"],
+        "context_feedback_adjustment": ranking["adjustment"],
+        "context_feedback_direction": ranking["direction"],
+        "context_feedback_reviews": ranking["reviews"],
         "reject_reason": row.reject_reason,
         "analyzer_provider": row.analyzer_provider,
         "analyzer_model": row.analyzer_model,
@@ -2301,9 +2328,14 @@ def list_candidates(
     principal: CurrentPrincipal = Depends(READ),
 ):
     repository = RrugcRepository(session)
-    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
+    product_context = _ranking_product_context(campaign)
     return [
-        _candidate(row)
+        _candidate(row, product_context=product_context)
         for row in repository.list_candidates(
             principal.active_tenant_id, campaign_id, limit=limit, offset=offset
         )
@@ -2322,7 +2354,11 @@ def analyze_candidate(
     principal: CurrentPrincipal = Depends(RUN),
 ):
     repository = RrugcRepository(session)
-    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
     candidate = repository.get_candidate(
         principal.active_tenant_id, campaign_id, candidate_id
     )
@@ -2332,7 +2368,12 @@ def analyze_candidate(
         row = RrugcService(session).reanalyze_candidate(candidate)
     except RrugcError as exc:
         raise _error(exc) from exc
-    return AnalyzeResponse(candidate=_candidate(row))
+    return AnalyzeResponse(
+        candidate=_candidate(
+            row,
+            product_context=_ranking_product_context(campaign),
+        )
+    )
 
 
 @router.post(
@@ -2347,7 +2388,11 @@ def mark_candidate_ai_feedback(
     principal: CurrentPrincipal = Depends(RUN),
 ):
     repository = RrugcRepository(session)
-    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
     candidate = repository.get_candidate(
         principal.active_tenant_id, campaign_id, candidate_id
     )
@@ -2366,7 +2411,10 @@ def mark_candidate_ai_feedback(
         repository.ai_feedback_training_rows(principal.active_tenant_id)
     )
     return CandidateAiFeedbackResponse(
-        candidate=_candidate(row),
+        candidate=_candidate(
+            row,
+            product_context=_ranking_product_context(campaign),
+        ),
         calibration=AiFeedbackCalibrationResponse(
             active=calibration.active,
             real_count=calibration.real_count,
@@ -2422,7 +2470,10 @@ def mark_candidate_reference_feedback(
         )
     )
     return CandidateReferenceFeedbackResponse(
-        candidate=_candidate(row),
+        candidate=_candidate(
+            row,
+            product_context=_ranking_product_context(campaign),
+        ),
         learning=ReferencePreferenceLearningResponse(
             active=learning.active,
             good_count=learning.good_count,
@@ -2443,7 +2494,11 @@ def mark_candidate_context_feedback(
     principal: CurrentPrincipal = Depends(RUN),
 ):
     repository = RrugcRepository(session)
-    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
     candidate = repository.get_candidate(
         principal.active_tenant_id, campaign_id, candidate_id
     )
@@ -2458,7 +2513,12 @@ def mark_candidate_context_feedback(
         )
     except RrugcError as exc:
         raise _error(exc) from exc
-    return CandidateContextFeedbackResponse(candidate=_candidate(row))
+    return CandidateContextFeedbackResponse(
+        candidate=_candidate(
+            row,
+            product_context=_ranking_product_context(campaign),
+        )
+    )
 
 
 @router.post(
@@ -2473,7 +2533,11 @@ def import_candidate(
     principal: CurrentPrincipal = Depends(RUN),
 ):
     repository = RrugcRepository(session)
-    _require_campaign(repository, principal.active_tenant_id, campaign_id)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        campaign_id,
+    )
     candidate = repository.get_candidate(
         principal.active_tenant_id, campaign_id, candidate_id
     )
@@ -2483,7 +2547,12 @@ def import_candidate(
         row = RrugcService(session).queue_candidate_import(candidate)
     except RrugcError as exc:
         raise _error(exc) from exc
-    return ImportResponse(candidate=_candidate(row))
+    return ImportResponse(
+        candidate=_candidate(
+            row,
+            product_context=_ranking_product_context(campaign),
+        )
+    )
 
 
 @router.get(
@@ -2767,12 +2836,17 @@ def scout_candidates(
         candidates, created, existing = RrugcService(session).ingest_candidates(
             campaign=row,
             submissions=request.items,
+            source_query=request.source_query,
         )
     except RrugcError as exc:
         raise _error(exc) from exc
 
+    product_context = _ranking_product_context(row)
     return CandidateBatchResponse(
         created=created,
         existing=existing,
-        items=[_candidate(candidate) for candidate in candidates],
+        items=[
+            _candidate(candidate, product_context=product_context)
+            for candidate in candidates
+        ],
     )

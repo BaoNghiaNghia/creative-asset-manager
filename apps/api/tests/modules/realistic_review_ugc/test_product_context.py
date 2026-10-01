@@ -5,6 +5,7 @@ from app.modules.realistic_review_ugc.analysis import (
 from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.product_context import (
     ProductVisualContextDocument,
+    context_feedback_ranking_signal,
     derive_context_feedback_learning,
     derive_product_context_profile,
     merge_product_visual_context,
@@ -461,3 +462,107 @@ def test_analysis_prompt_includes_human_learned_context_feedback():
     assert "dog owner park candid phone photo" in prompt
     assert "human-rejected search contexts" in prompt
     assert "studio fashion portrait" in prompt
+
+
+def test_context_feedback_ranking_keeps_base_score_without_active_learning():
+    result = context_feedback_ranking_signal(
+        profile={"feedback_learning": {"active": False}},
+        source_query="dog owner park candid phone photo",
+        base_score=0.72,
+    )
+
+    assert result["active"] is False
+    assert result["adjustment"] == 0.0
+    assert result["ranking_score"] == 0.72
+
+
+def test_context_feedback_ranking_boosts_promoted_query():
+    profile = derive_product_context_profile(
+        product_snapshot={"name": "Custom dog portrait cap"},
+        config={"auto_context": True},
+        context_feedback=[
+            ("dog owner park candid phone photo", "good"),
+            ("dog owner park candid phone photo", "good"),
+        ],
+    )
+
+    result = context_feedback_ranking_signal(
+        profile=profile,
+        source_query="dog owner park candid phone photo",
+        base_score=0.72,
+    )
+
+    assert result["active"] is True
+    assert result["direction"] == "boost"
+    assert result["reviews"] == 2
+    assert result["adjustment"] == 0.032
+    assert result["ranking_score"] == 0.752
+
+
+def test_context_feedback_ranking_downranks_suppressed_query():
+    profile = derive_product_context_profile(
+        product_snapshot={"name": "Custom dog portrait cap"},
+        config={"auto_context": True},
+        context_feedback=[
+            ("studio fashion portrait", "wrong"),
+            ("studio fashion portrait", "wrong"),
+        ],
+    )
+
+    result = context_feedback_ranking_signal(
+        profile=profile,
+        source_query="studio fashion portrait",
+        base_score=0.72,
+    )
+
+    assert result["active"] is True
+    assert result["direction"] == "downrank"
+    assert result["adjustment"] == -0.032
+    assert result["ranking_score"] == 0.688
+
+
+def test_context_feedback_ranking_ignores_unlearned_query():
+    profile = derive_product_context_profile(
+        product_snapshot={"name": "Custom dog portrait cap"},
+        config={"auto_context": True},
+        context_feedback=[
+            ("dog owner park candid phone photo", "good"),
+            ("dog owner park candid phone photo", "good"),
+        ],
+    )
+
+    result = context_feedback_ranking_signal(
+        profile=profile,
+        source_query="family backyard candid phone photo",
+        base_score=0.72,
+    )
+
+    assert result["active"] is False
+    assert result["adjustment"] == 0.0
+    assert result["ranking_score"] == 0.72
+
+
+def test_context_feedback_ranking_adjustment_is_capped():
+    profile = {
+        "feedback_learning": {
+            "active": True,
+            "promoted_queries": ["dog owner park candid phone photo"],
+            "suppressed_queries": [],
+            "query_scores": [{
+                "query": "dog owner park candid phone photo",
+                "good": 100,
+                "wrong": 0,
+                "reviews": 100,
+                "score": 1.0,
+            }],
+        },
+    }
+
+    result = context_feedback_ranking_signal(
+        profile=profile,
+        source_query="dog owner park candid phone photo",
+        base_score=0.97,
+    )
+
+    assert result["adjustment"] == 0.06
+    assert result["ranking_score"] == 1.0

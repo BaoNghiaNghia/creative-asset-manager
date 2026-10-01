@@ -842,6 +842,11 @@ class CandidateResponse(BaseModel):
     color_match_score: float | None = None
     product_shape_score: float | None = None
     final_score: float | None
+    ranking_score: float | None = None
+    source_query: str | None = None
+    context_feedback_adjustment: float = 0.0
+    context_feedback_direction: Literal["boost", "downrank"] | None = None
+    context_feedback_reviews: int = 0
     reject_reason: str | None
     analyzer_provider: str | None
     analyzer_model: str | None

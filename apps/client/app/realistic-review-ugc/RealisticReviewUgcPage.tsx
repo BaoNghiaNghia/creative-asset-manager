@@ -29,6 +29,11 @@ import "./ui-overhaul.css";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
 const percent = (value: number | null | undefined) => value == null ? "—" : Math.round(value * 100) + "%";
+const signedPercent = (value: number | null | undefined) => {
+  if (!value) return "0%";
+  const rounded = Math.round(value * 100);
+  return (rounded > 0 ? "+" : "") + rounded + "%";
+};
 
 const statusLabel: Record<CandidateStatus, string> = {
   discovered: "Discovered",
@@ -543,6 +548,7 @@ export function RealisticReviewUgcPage() {
       const result = await markCandidateContextFeedback(selected.id, candidate.id, label);
       setCandidates(rows => rows.map(row => row.id === result.candidate.id ? result.candidate : row));
       await refreshSelectedCampaign(selected.id);
+      await refreshCandidates(selected.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save context review.");
     } finally {
@@ -789,10 +795,13 @@ export function RealisticReviewUgcPage() {
   }
   const candidateSearchNeedle = candidateSearch.trim().toLowerCase();
   const visibleCandidates = candidateGroups[candidateTab]
-    .filter(candidate => !candidateSearchNeedle || [candidate.alt_text, candidate.analysis_summary, candidate.reject_reason, candidate.status, candidate.matched_variant_name, candidate.matched_color]
+    .filter(candidate => !candidateSearchNeedle || [candidate.alt_text, candidate.analysis_summary, candidate.reject_reason, candidate.status, candidate.matched_variant_name, candidate.matched_color, candidate.source_query]
       .some(value => value?.toLowerCase().includes(candidateSearchNeedle)))
     .sort((left, right) => {
-      if (candidateSort === "fit") return (right.final_score ?? -1) - (left.final_score ?? -1);
+      if (candidateSort === "fit") {
+        return (right.ranking_score ?? right.final_score ?? -1)
+          - (left.ranking_score ?? left.final_score ?? -1);
+      }
       if (candidateSort === "quality") return (right.quality_score ?? -1) - (left.quality_score ?? -1);
       return candidatePhonePriority(right) - candidatePhonePriority(left);
     });
@@ -1369,7 +1378,7 @@ export function RealisticReviewUgcPage() {
               <div className="rrugc-review-tools">
                 <input aria-label="Filter candidates" type="search" placeholder="Filter references…" value={candidateSearch} onChange={event => setCandidateSearch(event.target.value)} />
                 <select aria-label="Sort candidates" value={candidateSort} onChange={event => setCandidateSort(event.target.value as "phone" | "fit" | "quality")}>
-                  <option value="phone">Phone-like first</option><option value="fit">Best fit first</option><option value="quality">Quality first</option>
+                  <option value="phone">Phone-like first</option><option value="fit">{selected.discovery_mode === "product_context" ? "Learned fit first" : "Best fit first"}</option><option value="quality">Quality first</option>
                 </select>
               </div>
             </div>
@@ -1413,7 +1422,7 @@ export function RealisticReviewUgcPage() {
                     />
                   </button>
                   <span className={"rrugc-candidate-status tone-" + tone}>{statusLabel[candidate.status]}</span>
-                  {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.final_score)} fit</span>}
+                  {candidate.final_score != null && <span className="rrugc-candidate-score">{percent(candidate.ranking_score ?? candidate.final_score)} fit</span>}
                   {candidate.reference_manual_label && <span className={"rrugc-candidate-ref-label is-" + candidate.reference_manual_label}>
                     {candidate.reference_manual_label === "good" ? "REF ✓" : "REF ×"}
                   </span>}
@@ -1427,6 +1436,7 @@ export function RealisticReviewUgcPage() {
                     <span>Quality <b>{percent(candidate.quality_score)}</b></span>
                     {candidate.matched_color && <span>Color <b>{candidate.matched_color}</b></span>}
                     {candidate.context_manual_label && <span>Context <b>{candidate.context_manual_label === "good" ? "Good" : "Wrong"}</b></span>}
+                    {Boolean(candidate.context_feedback_adjustment) && <span>Learned <b>{signedPercent(candidate.context_feedback_adjustment)}</b></span>}
                   </div> : <span className="rrugc-candidate-caption">{candidate.alt_text || "Pinterest candidate"}</span>}
                 </div>
                 <footer>
@@ -1445,11 +1455,14 @@ export function RealisticReviewUgcPage() {
             <section>
               <header><div><small>REFERENCE INSPECTOR</small><strong>{statusLabel[inspectedCandidate.status]}</strong></div><button type="button" aria-label="Close inspector" onClick={() => setInspectedCandidateId(null)}>×</button></header>
               <div className="rrugc-image-shell rrugc-inspector-image"><span className="rrugc-image-skeleton" aria-hidden="true" /><img src={inspectedCandidate.image_url} alt={inspectedCandidate.alt_text || "Pinterest reference"} decoding="async" referrerPolicy="no-referrer" onLoad={event => event.currentTarget.parentElement?.classList.add("is-loaded")} onError={event => event.currentTarget.parentElement?.classList.add("is-loaded")} /></div>
-              <div className="rrugc-inspector-score"><span>Fit <b>{percent(inspectedCandidate.final_score)}</b></span>{inspectedCandidate.context_match_active && <span>Context <b>{percent(inspectedCandidate.context_match_score)}</b></span>}<span>Phone <b>{percent(inspectedCandidate.phone_authenticity_score)}</b></span><span>UGC <b>{percent(inspectedCandidate.mobile_ugc_score)}</b></span><span>Quality <b>{percent(inspectedCandidate.quality_score)}</b></span></div>
+              <div className="rrugc-inspector-score"><span>Fit <b>{percent(inspectedCandidate.final_score)}</b></span>{Boolean(inspectedCandidate.context_feedback_adjustment) && <span>Rank <b>{percent(inspectedCandidate.ranking_score)}</b></span>}{inspectedCandidate.context_match_active && <span>Context <b>{percent(inspectedCandidate.context_match_score)}</b></span>}<span>Phone <b>{percent(inspectedCandidate.phone_authenticity_score)}</b></span><span>UGC <b>{percent(inspectedCandidate.mobile_ugc_score)}</b></span><span>Quality <b>{percent(inspectedCandidate.quality_score)}</b></span></div>
               {inspectedCandidate.reject_reason && <p className="rrugc-reject-reason">{inspectedCandidate.reject_reason.replaceAll("_", " ")}</p>}
               {inspectedCandidate.analysis_summary && <p>{inspectedCandidate.analysis_summary}</p>}
               <div className="rrugc-inspector-metrics rrugc-metrics"><span>Head <b>{percent(inspectedCandidate.primary_head_ratio)}</b></span><span>Smile <b>{percent(inspectedCandidate.smile_score)}</b></span><span>Artistic <b>{percent(inspectedCandidate.artistic_editorial_risk)}</b></span><span>AI risk <b>{percent(inspectedCandidate.ai_risk_score)}</b></span><span>AI confidence <b>{percent(inspectedCandidate.ai_detector_confidence)}</b></span><span>Product fit <b>{percent(inspectedCandidate.product_fit_score)}</b></span>{inspectedCandidate.context_match_active && <span>Context match <b>{percent(inspectedCandidate.context_match_score)}</b></span>}<span>Shape match <b>{percent(inspectedCandidate.product_shape_score)}</b></span><span>Color match <b>{percent(inspectedCandidate.color_match_score)}</b></span>{inspectedCandidate.matched_color && <span>Matched color <b>{inspectedCandidate.matched_color}</b></span>}</div>
               {inspectedCandidate.context_match_active && (inspectedCandidate.context_match_evidence || []).length > 0 && <p className="rrugc-context-evidence">Context evidence: {(inspectedCandidate.context_match_evidence || []).slice(0, 3).join(" · ")}</p>}
+              {Boolean(inspectedCandidate.context_feedback_adjustment) && <p className="rrugc-context-evidence">
+                Human context learning: {signedPercent(inspectedCandidate.context_feedback_adjustment)} rank adjustment from “{inspectedCandidate.source_query}” · {inspectedCandidate.context_feedback_reviews || 0} reviews. Qualification score stays unchanged.
+              </p>}
               <div className="rrugc-inspector-review"><small>Quick authenticity review</small><div>{(["real", "ai", "unsure"] as const).map(label => <button key={label} type="button" className={inspectedCandidate.ai_manual_label === label ? "is-active" : ""} disabled={Boolean(actionId)} onClick={() => void markAiFeedback(inspectedCandidate, label)}>{label === "real" ? "Real photo" : label === "ai" ? "AI" : "Unsure"}</button>)}</div></div>
               <div className="rrugc-inspector-review rrugc-reference-review">
                 <small>Reference usefulness · feeds selection learning</small>

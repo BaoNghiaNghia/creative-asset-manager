@@ -14,6 +14,8 @@ PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v1"
 PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v3-feedback-learning"
 CONTEXT_FEEDBACK_MIN_MATCHES = 2
 CONTEXT_FEEDBACK_PROMOTION_SCORE = 0.20
+CONTEXT_FEEDBACK_RANKING_SCALE = 0.08
+CONTEXT_FEEDBACK_MAX_RANKING_ADJUSTMENT = 0.06
 ProductContextTheme = Literal[
     "pet_owner",
     "dad_family",
@@ -475,6 +477,97 @@ def derive_context_feedback_learning(
         "promoted_queries": promoted,
         "suppressed_queries": suppressed,
         "query_scores": scored[:12],
+    }
+
+
+def context_feedback_ranking_signal(
+    *,
+    profile: dict[str, Any] | None,
+    source_query: str | None,
+    base_score: float | None,
+) -> dict[str, Any]:
+    query = str(source_query or "").strip()
+    ranking_score = (
+        round(max(0.0, min(1.0, float(base_score))), 4)
+        if base_score is not None
+        else None
+    )
+    result = {
+        "active": False,
+        "source_query": query or None,
+        "direction": None,
+        "learned_score": 0.0,
+        "adjustment": 0.0,
+        "ranking_score": ranking_score,
+        "reviews": 0,
+        "good": 0,
+        "wrong": 0,
+    }
+    if not query or not isinstance(profile, dict):
+        return result
+
+    learning = (
+        dict(profile.get("feedback_learning"))
+        if isinstance(profile.get("feedback_learning"), dict)
+        else {}
+    )
+    if not learning.get("active"):
+        return result
+
+    key = query.casefold()
+    promoted_keys = {
+        str(value or "").strip().casefold()
+        for value in learning.get("promoted_queries") or []
+        if str(value or "").strip()
+    }
+    suppressed_keys = {
+        str(value or "").strip().casefold()
+        for value in learning.get("suppressed_queries") or []
+        if str(value or "").strip()
+    }
+    if key not in promoted_keys and key not in suppressed_keys:
+        return result
+
+    matched: dict[str, Any] | None = None
+    for row in learning.get("query_scores") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("query") or "").strip().casefold() == key:
+            matched = row
+            break
+    if matched is None:
+        return result
+
+    learned_score = float(matched.get("score") or 0.0)
+    adjustment = max(
+        -CONTEXT_FEEDBACK_MAX_RANKING_ADJUSTMENT,
+        min(
+            CONTEXT_FEEDBACK_MAX_RANKING_ADJUSTMENT,
+            learned_score * CONTEXT_FEEDBACK_RANKING_SCALE,
+        ),
+    )
+    if key in promoted_keys:
+        adjustment = abs(adjustment)
+        direction = "boost"
+    else:
+        adjustment = -abs(adjustment)
+        direction = "downrank"
+
+    ranking_score = (
+        round(max(0.0, min(1.0, float(base_score) + adjustment)), 4)
+        if base_score is not None
+        else None
+    )
+    return {
+        "active": bool(adjustment),
+        "source_query": query,
+        "direction": direction,
+        "learned_score": round(learned_score, 4),
+        "adjustment": round(adjustment, 4),
+        "ranking_score": ranking_score,
+        "reviews": int(matched.get("reviews") or 0),
+        "good": int(matched.get("good") or 0),
+        "wrong": int(matched.get("wrong") or 0),
     }
 
 

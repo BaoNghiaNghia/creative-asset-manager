@@ -256,6 +256,11 @@ export type Candidate = {
   color_match_score?: number | null;
   product_shape_score?: number | null;
   final_score: number | null;
+  ranking_score?: number | null;
+  source_query?: string | null;
+  context_feedback_adjustment?: number;
+  context_feedback_direction?: "boost" | "downrank" | null;
+  context_feedback_reviews?: number;
   reject_reason: string | null;
   analyzer_provider: string | null;
   analyzer_model: string | null;
