@@ -268,16 +268,30 @@ class RrugcGenerateJobHandler:
                 remote_file_id=str(candidate_snapshot["remote_file_id"]),
             )
             references: list[ReferenceImageInput] = []
-            for item in product_references[:10]:
+            max_references = 32 if selected_provider == "codex" else 10
+            for item in product_references[:max_references]:
                 remote_file_id = str(item.get("remote_file_id") or "")
                 if not remote_file_id:
                     continue
+                role = str(item.get("role") or "product").strip() or "product"
+                label = str(
+                    item.get("view_type")
+                    or item.get("reference_type")
+                    or role
+                    or "reference"
+                )
+                reference_identity = (
+                    item.get("reference_asset_id")
+                    or item.get("id")
+                    or item.get("reference_set_item_id")
+                    or label
+                )
                 references.append(
                     ReferenceImageInput(
                         image=await self._open_prepared(
                             storage,
                             tenant_id=context.job.tenant_id,
-                            asset_id=f"rrugc-product-reference:{item.get('id') or item.get('view_type')}",
+                            asset_id=f"rrugc-generation-reference:{reference_identity}",
                             remote_file_id=remote_file_id,
                             content_type=(
                                 str(item.get("content_type"))
@@ -285,14 +299,14 @@ class RrugcGenerateJobHandler:
                                 else None
                             ),
                         ),
-                        role="product",
-                        label=str(item.get("view_type") or "reference"),
+                        role=role,
+                        label=label,
                     )
                 )
             if not references:
                 raise RrugcGenerationHandlerError(
-                    "rrugc_generation_product_references_unavailable",
-                    "No bound product reference could be loaded.",
+                    "rrugc_generation_references_unavailable",
+                    "No bound generation reference could be loaded.",
                 )
 
             codex_runner: CodexImageGenRunner | None = None

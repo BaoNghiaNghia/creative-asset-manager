@@ -486,6 +486,7 @@ class GenerationAttemptCreateRequest(BaseModel):
     worker_skill_version: str = Field(
         default="worker-hat-v1", min_length=1, max_length=128
     )
+    reference_set_id: str | None = Field(default=None, max_length=36)
 
 
 class GenerationCapabilityResponse(BaseModel):
@@ -507,6 +508,8 @@ class GenerationAttemptResponse(BaseModel):
     product_name: str
     reference_count: int
     reference_views: list[ProductReferenceView]
+    reference_set_id: str | None = None
+    reference_roles: list[str] = Field(default_factory=list)
     generation_variant: int
     worker_skill_version: str
     provider: str | None

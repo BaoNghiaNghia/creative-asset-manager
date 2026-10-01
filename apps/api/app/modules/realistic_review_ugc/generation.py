@@ -18,6 +18,10 @@ from app.modules.realistic_review_ugc.model import (
     RrugcProductReferenceModel,
     RrugcProductVariantModel,
 )
+from app.modules.realistic_review_ugc.reference_library import (
+    ReferenceLibraryError,
+    reference_image_content_type,
+)
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.service import RrugcError, reference_resolution_usable
 
@@ -309,12 +313,15 @@ class RrugcGenerationFoundation:
         self.session.refresh(locked)
         return locked
 
-    def binding_is_stale(self, campaign: RrugcCampaignModel) -> bool:
+    def _current_product_snapshot(
+        self,
+        campaign: RrugcCampaignModel,
+    ) -> dict | None:
         if not campaign.product_id or not campaign.product_snapshot_json:
-            return False
+            return None
         product = self.repository.get_product(campaign.tenant_id, campaign.product_id)
         if product is None or product.status != "active":
-            return True
+            return None
         variants = self.repository.list_product_variants(
             campaign.tenant_id,
             product.id,
@@ -326,15 +333,35 @@ class RrugcGenerationFoundation:
             if str(value) in variant_by_id
         ]
         if len(selected_variant_ids) != len(campaign.product_variant_ids_json or []):
-            return True
+            return None
         selected_variants = [
             variant_by_id[variant_id]
             for variant_id in selected_variant_ids
         ]
+        return product_snapshot(product, selected_variants)
+
+    def product_snapshot_is_stale(self, campaign: RrugcCampaignModel) -> bool:
+        if not campaign.product_id or not campaign.product_snapshot_json:
+            return False
+        current_product = self._current_product_snapshot(campaign)
+        return current_product is None or current_product != dict(
+            campaign.product_snapshot_json
+        )
+
+    def binding_is_stale(self, campaign: RrugcCampaignModel) -> bool:
+        current_product = self._current_product_snapshot(campaign)
+        if current_product is None:
+            return bool(campaign.product_id and campaign.product_snapshot_json)
+        product = self.repository.get_product(campaign.tenant_id, campaign.product_id)
+        if product is None:
+            return True
+        selected_variant_ids = [
+            str(value)
+            for value in (campaign.product_variant_ids_json or [])
+        ]
         references = self.repository.list_product_references(
             campaign.tenant_id, product.id
         )
-        current_product = product_snapshot(product, selected_variants)
         current_references = latest_reference_snapshot(
             references,
             variant_ids=selected_variant_ids,
@@ -347,6 +374,88 @@ class RrugcGenerationFoundation:
             reference_snapshot_json=list(campaign.product_reference_snapshot_json or []),
         )
 
+    def reference_set_snapshot(
+        self,
+        *,
+        campaign: RrugcCampaignModel,
+        reference_set_id: str,
+    ) -> list[dict]:
+        reference_set = self.repository.get_reference_set(
+            campaign.tenant_id,
+            reference_set_id,
+        )
+        if reference_set is None:
+            raise RrugcError(
+                "reference_set_not_found",
+                "Reference set not found.",
+                status_code=404,
+            )
+        if reference_set.status != "active":
+            raise RrugcError(
+                "reference_set_not_available",
+                "Reference set is not active.",
+                status_code=409,
+            )
+        if reference_set.campaign_id and reference_set.campaign_id != campaign.id:
+            raise RrugcError(
+                "reference_set_campaign_mismatch",
+                "Reference set belongs to a different campaign.",
+                status_code=409,
+            )
+        items = self.repository.list_reference_set_items(
+            campaign.tenant_id,
+            reference_set.id,
+        )
+        if not items:
+            raise RrugcError(
+                "reference_set_empty",
+                "Reference set has no generation references.",
+                status_code=409,
+            )
+
+        snapshot: list[dict] = []
+        for item in items:
+            asset = self.repository.get_reference_asset(
+                campaign.tenant_id,
+                item.reference_asset_id,
+            )
+            if asset is None or asset.status != "ready" or not asset.remote_file_id:
+                raise RrugcError(
+                    "reference_set_asset_unavailable",
+                    "Reference set contains an unavailable asset.",
+                    status_code=409,
+                )
+            try:
+                content_type, _suffix = reference_image_content_type(
+                    asset.image_format
+                )
+            except ReferenceLibraryError as exc:
+                raise RrugcError(
+                    "reference_set_asset_unsupported",
+                    str(exc),
+                    status_code=409,
+                ) from exc
+            snapshot.append(
+                {
+                    "reference_set_id": reference_set.id,
+                    "reference_set_item_id": item.id,
+                    "reference_asset_id": asset.id,
+                    "role": item.role,
+                    "position": item.position,
+                    "note": item.note,
+                    "source_type": asset.source_type,
+                    "reference_type": asset.reference_type,
+                    "content_hash": asset.content_hash,
+                    "content_type": content_type,
+                    "width": asset.width,
+                    "height": asset.height,
+                    "remote_file_id": asset.remote_file_id,
+                    "remote_folder_id": asset.remote_folder_id,
+                    "web_url": asset.web_url,
+                }
+            )
+        return snapshot
+
     def prepare_attempt(
         self,
         *,
@@ -355,6 +464,7 @@ class RrugcGenerationFoundation:
         user_id: str,
         generation_variant: int,
         worker_skill_version: str = DEFAULT_WORKER_SKILL_VERSION,
+        reference_set_id: str | None = None,
     ) -> tuple[RrugcGenerationAttemptModel, bool]:
         if candidate.status not in GENERATION_SOURCE_STATUSES:
             raise RrugcError(
@@ -374,19 +484,32 @@ class RrugcGenerationFoundation:
                 "Bind a product SKU to the campaign before preparing generation.",
                 status_code=409,
             )
-        references = list(campaign.product_reference_snapshot_json or [])
-        if self.binding_is_stale(campaign):
-            raise RrugcError(
-                "campaign_product_binding_stale",
-                "Refresh the campaign product snapshot before preparing generation.",
-                status_code=409,
+        normalized_reference_set_id = str(reference_set_id or "").strip() or None
+        if normalized_reference_set_id:
+            if self.product_snapshot_is_stale(campaign):
+                raise RrugcError(
+                    "campaign_product_binding_stale",
+                    "Refresh the campaign product snapshot before preparing generation.",
+                    status_code=409,
+                )
+            references = self.reference_set_snapshot(
+                campaign=campaign,
+                reference_set_id=normalized_reference_set_id,
             )
-        if not binding_is_generation_ready(references):
-            raise RrugcError(
-                "product_reference_incomplete",
-                "The bound product snapshot needs at least an active front reference in Managed Drive.",
-                status_code=409,
-            )
+        else:
+            references = list(campaign.product_reference_snapshot_json or [])
+            if self.binding_is_stale(campaign):
+                raise RrugcError(
+                    "campaign_product_binding_stale",
+                    "Refresh the campaign product snapshot before preparing generation.",
+                    status_code=409,
+                )
+            if not binding_is_generation_ready(references):
+                raise RrugcError(
+                    "product_reference_incomplete",
+                    "The bound product snapshot needs at least an active front reference in Managed Drive.",
+                    status_code=409,
+                )
 
         product = self.repository.get_product(campaign.tenant_id, campaign.product_id)
         if product is None or product.status != "active":

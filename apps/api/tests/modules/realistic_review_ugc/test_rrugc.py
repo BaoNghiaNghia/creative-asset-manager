@@ -4950,6 +4950,170 @@ def test_reference_seeds_are_campaign_and_profile_scoped(api, monkeypatch):
     assert asset.json()["status"] == "ready"
 
 
+def test_generation_attempt_snapshots_generic_reference_set_roles(api, database):
+    product = api.post(
+        "/api/v1/realistic-review-ugc/products",
+        json={"sku": "CAP-REFSET", "name": "Reference Set Cap"},
+    ).json()
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Reference set generation",
+            "query": "candid portrait",
+            "target_count": 1,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    ).json()
+    campaign_id = campaign["id"]
+    bound = api.put(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/product",
+        json={"product_id": product["id"]},
+    )
+    assert bound.status_code == 200
+    assert bound.json()["generation_ready"] is False
+
+    with database() as session:
+        candidate = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="a" * 64,
+            pin_url="https://www.pinterest.com/pin/refset-generation/",
+            image_url="https://i.pinimg.com/refset-generation.jpg",
+            status="drive_ready",
+            remote_file_id="person-refset-file",
+        )
+        session.add(candidate)
+        reference_set = RrugcReferenceSetModel(
+            tenant_id="tenant-a",
+            name="Role refs",
+            campaign_id=campaign_id,
+            profile_key="realistic-person-ugc",
+            description=None,
+            status="active",
+            created_by_user_id="user-a",
+        )
+        session.add(reference_set)
+        session.flush()
+        product_asset = RrugcReferenceAssetModel(
+            tenant_id="tenant-a",
+            source_type="upload",
+            source_key="refset-product",
+            source_url=None,
+            original_filename="product-front.png",
+            source_campaign_id=campaign_id,
+            source_candidate_id=None,
+            profile_key=None,
+            reference_type="product",
+            status="ready",
+            content_hash="b" * 64,
+            width=1200,
+            height=1200,
+            size_bytes=1000,
+            image_format="PNG",
+            tags_json=[],
+            themes_json=[],
+            quality_score=None,
+            visual_score=None,
+            context_score=None,
+            usage_count=0,
+            remote_file_id="refset-product-file",
+            remote_folder_id=None,
+            web_url=None,
+            created_by_user_id="user-a",
+        )
+        artwork_asset = RrugcReferenceAssetModel(
+            tenant_id="tenant-a",
+            source_type="pinterest",
+            source_key="refset-artwork",
+            source_url="https://www.pinterest.com/pin/refset-artwork/",
+            original_filename=None,
+            source_campaign_id=campaign_id,
+            source_candidate_id=None,
+            profile_key=None,
+            reference_type="artwork",
+            status="ready",
+            content_hash="c" * 64,
+            width=900,
+            height=900,
+            size_bytes=900,
+            image_format="JPEG",
+            tags_json=[],
+            themes_json=[],
+            quality_score=None,
+            visual_score=None,
+            context_score=None,
+            usage_count=0,
+            remote_file_id="refset-artwork-file",
+            remote_folder_id=None,
+            web_url=None,
+            created_by_user_id="user-a",
+        )
+        session.add_all([product_asset, artwork_asset])
+        session.flush()
+        session.add_all([
+            RrugcReferenceSetItemModel(
+                tenant_id="tenant-a",
+                reference_set_id=reference_set.id,
+                reference_asset_id=product_asset.id,
+                role="product_front",
+                position=0,
+                note=None,
+            ),
+            RrugcReferenceSetItemModel(
+                tenant_id="tenant-a",
+                reference_set_id=reference_set.id,
+                reference_asset_id=artwork_asset.id,
+                role="artwork",
+                position=1,
+                note="Preserve this artwork",
+            ),
+        ])
+        session.commit()
+        candidate_id = candidate.id
+        reference_set_id = reference_set.id
+
+    prepared = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/generation-attempts",
+        json={
+            "reference_set_id": reference_set_id,
+            "worker_skill_version": "worker-hat-v1",
+        },
+    )
+    assert prepared.status_code == 201
+    payload = prepared.json()
+    assert payload["created"] is True
+    attempt = payload["attempt"]
+    assert attempt["reference_set_id"] == reference_set_id
+    assert attempt["reference_roles"] == ["product_front", "artwork"]
+    assert attempt["reference_count"] == 2
+    assert attempt["reference_views"] == []
+
+    replay = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/generation-attempts",
+        json={
+            "reference_set_id": reference_set_id,
+            "worker_skill_version": "worker-hat-v1",
+        },
+    )
+    assert replay.status_code == 201
+    assert replay.json()["created"] is False
+    assert replay.json()["attempt"]["id"] == attempt["id"]
+
+    with database() as session:
+        persisted = session.get(RrugcGenerationAttemptModel, attempt["id"])
+        assert persisted is not None
+        snapshots = list(persisted.product_reference_snapshot_json)
+        assert [row["role"] for row in snapshots] == ["product_front", "artwork"]
+        assert [row["content_type"] for row in snapshots] == [
+            "image/png",
+            "image/jpeg",
+        ]
+        assert {row["reference_set_id"] for row in snapshots} == {
+            reference_set_id
+        }
+
+
 def test_campaign_product_binding_and_generation_attempt_provenance(api, database, monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(
@@ -5444,6 +5608,7 @@ def test_rrugc_generation_worker_codex_completes_with_existing_output_lifecycle(
         ):
             captured["attempt_id"] = attempt_id
             captured["labels"] = [item.label for item in references]
+            captured["roles"] = [item.role for item in references]
             captured["prompt"] = prompt
             return GeneratedImageResult(
                 provider="codex",
@@ -5504,9 +5669,11 @@ def test_rrugc_generation_worker_codex_completes_with_existing_output_lifecycle(
                 "revision": 1,
             },
             product_reference_snapshot_json=[{
-                "id": "ref-front",
-                "view_type": "front",
-                "version": 1,
+                "reference_set_id": "reference-set-1",
+                "reference_set_item_id": "reference-set-item-1",
+                "reference_asset_id": "reference-asset-1",
+                "role": "product_front",
+                "reference_type": "product",
                 "content_type": "image/png",
                 "remote_file_id": "product-front-file",
             }],
@@ -5568,7 +5735,8 @@ def test_rrugc_generation_worker_codex_completes_with_existing_output_lifecycle(
     assert storage.payload == output_bytes
     assert storage.input.asset_id == f"rrugc-generation:{attempt_id}"
     assert captured["attempt_id"] == attempt_id
-    assert captured["labels"] == ["front"]
+    assert captured["labels"] == ["product"]
+    assert captured["roles"] == ["product_front"]
     assert captured["cleanup_attempt_id"] == attempt_id
     assert captured["config"].skill_name == "worker-hat-v1"
 

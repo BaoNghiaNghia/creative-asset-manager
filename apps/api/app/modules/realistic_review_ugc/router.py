@@ -670,6 +670,19 @@ def _rrugc_generation_capability(
 def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptResponse:
     product = dict(row.product_snapshot_json or {})
     references = list(row.product_reference_snapshot_json or [])
+    reference_set_id = next(
+        (
+            str(item.get("reference_set_id"))
+            for item in references
+            if item.get("reference_set_id")
+        ),
+        None,
+    )
+    reference_roles: list[str] = []
+    for item in references:
+        role = str(item.get("role") or "").strip()
+        if role and role not in reference_roles:
+            reference_roles.append(role)
     return GenerationAttemptResponse(
         id=row.id,
         campaign_id=row.campaign_id,
@@ -684,6 +697,8 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
             for item in references
             if item.get("view_type")
         }),
+        reference_set_id=reference_set_id,
+        reference_roles=reference_roles,
         generation_variant=row.generation_variant,
         worker_skill_version=row.worker_skill_version,
         provider=row.provider,
@@ -2400,6 +2415,7 @@ def prepare_generation_attempt(
             user_id=principal.user_id,
             generation_variant=request.generation_variant,
             worker_skill_version=request.worker_skill_version,
+            reference_set_id=request.reference_set_id,
         )
     except RrugcError as exc:
         raise _error(exc) from exc
