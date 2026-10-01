@@ -848,6 +848,14 @@ class CandidateResponse(BaseModel):
     context_feedback_adjustment: float = 0.0
     context_feedback_direction: Literal["boost", "downrank"] | None = None
     context_feedback_reviews: int = 0
+    seed_visual_active: bool = False
+    seed_visual_score: float | None = None
+    seed_visual_adjustment: float = 0.0
+    seed_visual_positive_similarity: float | None = None
+    seed_visual_negative_similarity: float | None = None
+    seed_visual_positive_count: int = 0
+    seed_visual_negative_count: int = 0
+    seed_visual_profile_key: str | None = None
     reject_reason: str | None
     analyzer_provider: str | None
     analyzer_model: str | None

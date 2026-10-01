@@ -65,6 +65,7 @@ from app.modules.realistic_review_ugc.product_registry import (
     RrugcProductRegistry,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.seed_similarity import seed_visual_ranking_signal
 from app.modules.realistic_review_ugc.reference_library import (
     REFERENCE_ASSET_MAX_BYTES,
     ReferenceLibraryError,
@@ -235,6 +236,10 @@ def _candidate(
         source_query=signal.get("scout_query"),
         base_score=row.final_score,
     )
+    seed_ranking = seed_visual_ranking_signal(
+        signal=signal,
+        base_score=ranking["ranking_score"],
+    )
     return CandidateResponse.model_validate({
         "id": row.id,
         "campaign_id": row.campaign_id,
@@ -281,11 +286,19 @@ def _candidate(
         "color_match_score": row.color_match_score,
         "product_shape_score": row.product_shape_score,
         "final_score": row.final_score,
-        "ranking_score": ranking["ranking_score"],
+        "ranking_score": seed_ranking["ranking_score"],
         "source_query": ranking["source_query"],
         "context_feedback_adjustment": ranking["adjustment"],
         "context_feedback_direction": ranking["direction"],
         "context_feedback_reviews": ranking["reviews"],
+        "seed_visual_active": seed_ranking["active"],
+        "seed_visual_score": seed_ranking["score"],
+        "seed_visual_adjustment": seed_ranking["adjustment"],
+        "seed_visual_positive_similarity": seed_ranking["positive_similarity"],
+        "seed_visual_negative_similarity": seed_ranking["negative_similarity"],
+        "seed_visual_positive_count": seed_ranking["positive_count"],
+        "seed_visual_negative_count": seed_ranking["negative_count"],
+        "seed_visual_profile_key": seed_ranking["profile_key"],
         "reject_reason": row.reject_reason,
         "analyzer_provider": row.analyzer_provider,
         "analyzer_model": row.analyzer_model,

@@ -1335,6 +1335,80 @@ def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, data
         assert RrugcRepository(session).reference_feedback_training_rows("tenant-a") == []
 
 
+def test_reference_feedback_learning_is_profile_scoped(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="profile scoped feedback",
+            query="candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/profile-feedback/",
+                image_url="https://i.pinimg.com/736x/profile-feedback.jpg",
+            )],
+            source_query=campaign.query,
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "approved"
+        candidate.phone_authenticity_score = 0.92
+        candidate.mobile_ugc_score = 0.90
+        candidate.product_fit_score = 0.86
+        candidate.quality_score = 0.84
+        candidate.artistic_editorial_risk = 0.04
+        candidate.ai_risk_score = 0.03
+        candidate.ai_signal_json = {"scout_query": campaign.query}
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    default_good = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "good"},
+    )
+    assert default_good.status_code == 200
+    assert default_good.json()["learning"]["good_count"] == 1
+    assert default_good.json()["learning"]["bad_count"] == 0
+
+    detail_bad = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={
+            "label": "bad",
+            "profile_key": "embroidery-detail",
+            "note": "Good person ref, wrong embroidery-detail ref.",
+        },
+    )
+    assert detail_bad.status_code == 200
+    assert detail_bad.json()["learning"]["good_count"] == 0
+    assert detail_bad.json()["learning"]["bad_count"] == 1
+
+    with database() as session:
+        repository = RrugcRepository(session)
+        default_rows = repository.reference_feedback_training_rows(
+            "tenant-a",
+            intent=f"campaign:{campaign_id}",
+            legacy_campaign_id=campaign_id,
+            profile_key="realistic-person-ugc",
+        )
+        detail_rows = repository.reference_feedback_training_rows(
+            "tenant-a",
+            intent=f"campaign:{campaign_id}",
+            legacy_campaign_id=campaign_id,
+            profile_key="embroidery-detail",
+        )
+        assert [label for label, _ in default_rows] == ["ref_good"]
+        assert [label for label, _ in detail_rows] == ["ref_bad"]
+        assert default_rows[0][1]["reference_profile_key"] == "realistic-person-ugc"
+        assert detail_rows[0][1]["reference_profile_key"] == "embroidery-detail"
+
+
 def test_reference_good_approves_immediately_and_requeues_failed_analysis(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(
@@ -3967,6 +4041,149 @@ def test_analysis_worker_persists_metrics_and_queues_auto_import(database, monke
                 )
             ))
             assert len(import_jobs) == 1
+
+
+def test_analysis_worker_applies_scoped_seed_visual_ranking(api, database, monkeypatch):
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "sample.jpg"
+        path.write_bytes(b"fake-jpeg-content")
+        monkeypatch.setattr(
+            "app.modules.realistic_review_ugc.handler.build_reference_downloader",
+            lambda: FakeDownloader(path),
+        )
+
+        with database() as session:
+            campaign, _ = RrugcService(session).create_campaign(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                name="seed-ranked",
+                query="candid person outdoors",
+                target_count=2,
+                max_scroll_batches=1,
+                auto_import=False,
+            )
+            rows, created, _ = RrugcService(session).ingest_candidates(
+                campaign=campaign,
+                submissions=[
+                    CandidateSubmission(
+                        pin_url="https://www.pinterest.com/pin/seed-ranked/",
+                        image_url="https://i.pinimg.com/seed-ranked.jpg",
+                    )
+                ],
+            )
+            assert created == 1
+            candidate_id = rows[0].id
+            reference = RrugcReferenceAssetModel(
+                tenant_id="tenant-a",
+                source_type="upload",
+                source_key="seed-source",
+                source_url=None,
+                original_filename="seed.png",
+                source_campaign_id=None,
+                source_candidate_id=None,
+                profile_key="realistic-person-ugc",
+                reference_type="person",
+                status="ready",
+                content_hash="c" * 64,
+                width=800,
+                height=800,
+                size_bytes=1234,
+                image_format="PNG",
+                tags_json=[],
+                themes_json=[],
+                quality_score=0.9,
+                visual_score=None,
+                context_score=None,
+                usage_count=0,
+                remote_file_id="seed-file",
+                remote_folder_id="seed-folder",
+                web_url=None,
+                created_by_user_id="user-a",
+            )
+            session.add(reference)
+            session.flush()
+            session.add(
+                RrugcReferenceSeedModel(
+                    tenant_id="tenant-a",
+                    campaign_id=campaign.id,
+                    reference_asset_id=reference.id,
+                    profile_key="realistic-person-ugc",
+                    label="positive",
+                    note=None,
+                    created_by_user_id="user-a",
+                )
+            )
+            session.commit()
+            job = session.scalar(
+                select(ProcessingJobModel).where(
+                    ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                    ProcessingJobModel.entity_id == candidate_id,
+                )
+            )
+            assert job is not None
+            claimed = ClaimedJob(
+                id=job.id,
+                tenant_id=job.tenant_id,
+                job_type=job.job_type,
+                entity_type=job.entity_type,
+                entity_id=job.entity_id,
+                payload=job.payload_json,
+                attempt_count=job.attempt_count,
+                lease_owner="test-worker",
+                provider_key=job.provider_key,
+            )
+
+        async def fake_seed_signal(**kwargs):
+            assert len(kwargs["seeds"]) == 1
+            assert kwargs["seeds"][0].reference_asset_id == reference.id
+            assert kwargs["seeds"][0].label == "positive"
+            return {
+                "active": True,
+                "profile_key": "realistic-person-ugc",
+                "positive_count": 1,
+                "negative_count": 0,
+                "positive_similarity": 0.9,
+                "negative_similarity": None,
+                "score": 0.9,
+                "adjustment": 0.03,
+            }
+
+        monkeypatch.setattr(
+            "app.modules.realistic_review_ugc.handler.compute_seed_visual_signal",
+            fake_seed_signal,
+        )
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeAnalysisProvider())
+        context = JobHandlerContext(
+            job=claimed,
+            dependencies=WorkerDependencies(
+                session_factory=database,
+                storage_provider=FakeStorage(),
+                ai_provider_registry=registry,
+            ),
+            shutdown_requested=Event(),
+            cancellation_requested=Event(),
+            logger=logging.LoggerAdapter(logging.getLogger("rrugc-seed-test"), {}),
+        )
+        outcome = RrugcCandidateAnalyzeJobHandler()(context)
+        assert outcome.outcome == JobOutcome.COMPLETED
+
+        with database() as session:
+            candidate = session.get(RrugcCandidateModel, candidate_id)
+            assert candidate is not None
+            assert candidate.ai_signal_json["seed_visual"]["adjustment"] == 0.03
+            base_score = candidate.final_score
+            assert base_score is not None
+
+        response = api.get(
+            f"/api/v1/realistic-review-ugc/campaigns/{campaign.id}/candidates"
+        )
+        assert response.status_code == 200
+        payload = response.json()[0]
+        assert payload["seed_visual_active"] is True
+        assert payload["seed_visual_adjustment"] == pytest.approx(0.03)
+        assert payload["seed_visual_positive_similarity"] == pytest.approx(0.9)
+        assert payload["ranking_score"] == pytest.approx(min(1.0, base_score + 0.03))
 
 
 def _png_bytes(width: int = 48, height: int = 32, value: int = 120) -> bytes:

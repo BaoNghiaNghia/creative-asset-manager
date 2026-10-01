@@ -37,6 +37,13 @@ from app.modules.realistic_review_ugc.analysis import (
 )
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.seed_similarity import (
+    SEED_VISUAL_MAX_PER_LABEL,
+    SEED_VISUAL_PROFILE,
+    SeedEmbeddingCache,
+    SeedVisualAsset,
+    compute_seed_visual_signal,
+)
 from app.modules.realistic_review_ugc.service import (
     MIN_REFERENCE_PIXELS,
     MIN_REFERENCE_SHORT_EDGE,
@@ -98,6 +105,7 @@ def reference_qualification_resolution(
 class RrugcCandidateAnalyzeJobHandler:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings
+        self.seed_embedding_cache = SeedEmbeddingCache()
 
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
         try:
@@ -259,6 +267,39 @@ class RrugcCandidateAnalyzeJobHandler:
                 else ""
             ) or None
             product_variants = list(product_context.get("variants") or [])
+            seed_visual_assets: list[SeedVisualAsset] = []
+            seed_counts = {"positive": 0, "negative": 0}
+            for seed in repository.list_reference_seeds(
+                context.job.tenant_id,
+                campaign.id,
+                profile_key=SEED_VISUAL_PROFILE,
+            ):
+                if seed.label not in seed_counts:
+                    continue
+                if seed_counts[seed.label] >= SEED_VISUAL_MAX_PER_LABEL:
+                    continue
+                asset = repository.get_reference_asset(
+                    context.job.tenant_id,
+                    seed.reference_asset_id,
+                )
+                if (
+                    asset is None
+                    or asset.status != "ready"
+                    or not asset.remote_file_id
+                    or not asset.content_hash
+                ):
+                    continue
+                seed_visual_assets.append(
+                    SeedVisualAsset(
+                        reference_asset_id=asset.id,
+                        label=seed.label,
+                        content_hash=asset.content_hash,
+                        remote_file_id=asset.remote_file_id,
+                        content_type=_image_mime(asset.image_format or ""),
+                        size_bytes=asset.size_bytes,
+                    )
+                )
+                seed_counts[seed.label] += 1
 
         downloader = build_reference_downloader()
         async with download_reference_image(image_url, downloader=downloader) as image:
@@ -321,6 +362,17 @@ class RrugcCandidateAnalyzeJobHandler:
             provider = registry.require("gemini")
             image_bytes = image.path.read_bytes()
             image_mime_type = _image_mime(image.image_format)
+            seed_visual_signal = await compute_seed_visual_signal(
+                tenant_id=context.job.tenant_id,
+                candidate_bytes=image_bytes,
+                seeds=seed_visual_assets,
+                storage=context.dependencies.storage_provider,
+                encoder_client=context.dependencies.resources.get(
+                    "visual_encoder_client"
+                ),
+                cache=self.seed_embedding_cache,
+                profile_key=SEED_VISUAL_PROFILE,
+            )
             document, provider_name, model = await analyze_reference_image(
                 provider=provider,
                 tenant_id=context.job.tenant_id,
@@ -487,6 +539,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 candidate.ai_signal_json = {
                     **(candidate.ai_signal_json or {}),
                     "reference_preference_adjustment": preference_adjustment,
+                    "seed_visual": seed_visual_signal,
                     "reference_manual_pending_approval": False,
                     "reference_manual_pending_analysis": False,
                     "reference_manual_approval_override": manual_reference_override,
