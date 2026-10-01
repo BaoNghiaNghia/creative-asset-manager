@@ -1,21 +1,8 @@
+import brandIconUrl from "../../assets/logos/creative-assets-icon.png";
 import amazonLogoUrl from "../../assets/logos/amazon-logo.svg";
 
 export function BrandIcon() {
-  return <svg className="brand-logo" viewBox="0 0 256 256" fill="none" aria-hidden="true">
-    <defs>
-      <linearGradient id="creative-assets-brand-gradient" x1="38" y1="28" x2="218" y2="228" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#5B6CFF" />
-        <stop offset="1" stopColor="#3154D9" />
-      </linearGradient>
-    </defs>
-    <rect x="20" y="20" width="216" height="216" rx="52" fill="url(#creative-assets-brand-gradient)" />
-    <rect x="76" y="61" width="118" height="92" rx="22" fill="white" fillOpacity="0.34" />
-    <rect x="54" y="87" width="148" height="112" rx="26" fill="white" />
-    <circle cx="96" cy="125" r="13" fill="#4C63F1" />
-    <path d="M72 177L105 146C109.404 141.865 116.316 141.865 120.72 146L139 163.2L159.47 143.92C163.874 139.774 170.786 139.774 175.19 143.92L187 155.04V173C187 180.18 181.18 186 174 186H82C76.477 186 72 181.523 72 176V177Z" fill="#4C63F1" />
-    <path d="M189 55C189 45.611 196.611 38 206 38C196.611 38 189 30.389 189 21C189 30.389 181.389 38 172 38C181.389 38 189 45.611 189 55Z" fill="white" />
-    <circle cx="211" cy="64" r="7" fill="white" fillOpacity="0.9" />
-  </svg>;
+  return <img className="brand-logo" src={brandIconUrl} alt="" aria-hidden="true" />;
 }
 
 export function ChevronIcon({ expanded = false }: { expanded?: boolean }) {

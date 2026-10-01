@@ -1,4 +1,5 @@
 import { app, BrowserWindow, shell } from "electron";
+import { readFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,20 @@ import {
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const startupStartedAt = Date.now();
+
+function desktopBrandIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "brand-icon.png")
+    : join(currentDirectory, "../../build/icon-source.png");
+}
+
+function desktopBrandIconDataUrl(): string {
+  try {
+    return `data:image/png;base64,${readFileSync(desktopBrandIconPath()).toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
 const RENDERER_READY_TIMEOUT_MS = 8_000;
 const UNRESPONSIVE_RECOVERY_DELAY_MS = 3_000;
 
@@ -49,6 +64,10 @@ function shellDataUrl(kind: "loading" | "error", camUrl: URL, detail?: string): 
   const action = loading
     ? ""
     : `<a class="retry" href="${htmlEscape(camUrl.toString())}">Retry now</a>`;
+  const brandIcon = desktopBrandIconDataUrl();
+  const brandMark = brandIcon
+    ? `<img src="${brandIcon}" alt="" aria-hidden="true">`
+    : "";
   const html = `<!doctype html>
 <html>
 <head>
@@ -60,7 +79,8 @@ function shellDataUrl(kind: "loading" | "error", camUrl: URL, detail?: string): 
   html,body{width:100%;height:100%;margin:0}
   body{display:grid;place-items:center;background:#f5f7fb;color:#26364d;font-family:Inter,Segoe UI,Arial,sans-serif}
   .shell{display:grid;justify-items:center;gap:12px;padding:28px;text-align:center}
-  .mark{display:grid;place-items:center;width:44px;height:44px;border:1px solid #dbe4f2;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgb(39 64 110 / 10%);color:#3566d6;font-size:13px;font-weight:800;letter-spacing:.04em}
+  .mark{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;overflow:hidden;background:transparent;box-shadow:0 10px 30px rgb(39 64 110 / 12%)}
+  .mark img{display:block;width:100%;height:100%;object-fit:cover}
   .spinner{width:22px;height:22px;border:2px solid #dce5f4;border-top-color:#3566d6;border-radius:50%;animation:spin .85s linear infinite}
   h1{margin:2px 0 0;font-size:15px;font-weight:750;letter-spacing:-.01em}
   p{max-width:390px;margin:0;color:#7a879a;font-size:11px;line-height:1.55}
@@ -70,7 +90,7 @@ function shellDataUrl(kind: "loading" | "error", camUrl: URL, detail?: string): 
 </head>
 <body>
   <main class="shell">
-    <div class="mark">CAM</div>
+    <div class="mark">${brandMark}</div>
     ${loading ? '<div class="spinner" aria-hidden="true"></div>' : ""}
     <h1>${htmlEscape(title)}</h1>
     <p>${htmlEscape(subtitle)}</p>
@@ -112,6 +132,7 @@ export function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: "#f5f7fb",
     title: "Creative Asset Manager",
+    icon: desktopBrandIconPath(),
     webPreferences: {
       preload: join(currentDirectory, "../preload/index.cjs"),
       nodeIntegration: false,

@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { amazonAsin, BrandIcon, etsyListingId, sourceFolderBrand } from "./Icons";
 
 describe("BrandIcon", () => {
-  it("renders the inline product mark without depending on a remote image", () => {
+  it("renders the bundled Creative Asset Manager artwork without a remote dependency", () => {
     const markup = renderToStaticMarkup(<BrandIcon />);
     expect(markup).toContain('class="brand-logo"');
-    expect(markup).not.toContain("<img");
+    expect(markup).toContain("<img");
+    expect(markup).toContain("/assets/logos/creative-assets-icon.png");
   });
 });
 
