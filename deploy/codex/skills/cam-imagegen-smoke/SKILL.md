@@ -10,4 +10,5 @@ Requirements:
 - Save the final image to `output/final.png`.
 - Do not use an API-key-backed fallback.
 - Do not create additional final images.
-- Verify `output/final.png` exists and is a valid PNG before finishing.
+- Save the generated image to `output/final.png` and finish; the caller validates the PNG after Codex exits.
+- Do not run extra Python/PIL validation commands.

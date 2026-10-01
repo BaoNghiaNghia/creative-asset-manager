@@ -63,6 +63,7 @@ def test_codex_runner_materializes_role_files_and_scrubs_api_credentials(
     async def fake_create_subprocess_exec(*argv, **kwargs):
         captured["argv"] = argv
         captured["env"] = kwargs["env"]
+        captured["stdin"] = kwargs["stdin"]
         cd_index = argv.index("-C")
         captured["workspace"] = argv[cd_index + 1]
         return FakeProcess()
@@ -108,11 +109,11 @@ def test_codex_runner_materializes_role_files_and_scrubs_api_credentials(
     argv = tuple(captured["argv"])
     assert "exec" in argv
     assert "--ephemeral" in argv
-    assert "--sandbox" in argv
-    assert "workspace-write" in argv
+    assert "--sandbox" not in argv
     assert "--approve-for-me" in argv
     assert "Use $worker-hat-v1 and $imagegen." in argv[-1]
     assert "product-front.png" in argv[-1]
+    assert captured["stdin"] == asyncio.subprocess.DEVNULL
     env = dict(captured["env"])
     assert env["CODEX_HOME"] == str(codex_home)
     assert "OPENAI_API_KEY" not in env

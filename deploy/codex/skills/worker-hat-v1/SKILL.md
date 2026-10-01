@@ -28,6 +28,7 @@ Create one photorealistic edit from the role-labeled files in the current worksp
 Use the available image-generation capability to produce exactly one final raster image.
 
 - Save the only final deliverable to `output/final.png`.
-- The file must be a valid PNG.
+- The file must be a PNG.
 - Do not use any API-key-backed fallback.
-- Verify `output/final.png` exists and decodes successfully before finishing.
+- Save the generated image to `output/final.png` and finish; the caller validates and decodes the raster after Codex exits.
+- Do not run extra Python/PIL validation commands.

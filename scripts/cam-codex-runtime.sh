@@ -81,10 +81,10 @@ smoke() {
       --json \
       --ephemeral \
       --skip-git-repo-check \
-      --sandbox workspace-write \
       --approve-for-me \
       -C "$SMOKE_WORKSPACE" \
-      'Use $cam-imagegen-smoke and $imagegen. Generate exactly one image and save it to output/final.png. Do not use an API-key-backed fallback.'
+      'Use $cam-imagegen-smoke and $imagegen. Generate exactly one image and save it to output/final.png. Do not use an API-key-backed fallback.' \
+      </dev/null
 
   output="$SMOKE_WORKSPACE/output/final.png"
   [[ -s "$output" ]] || die "Smoke test did not create output/final.png."

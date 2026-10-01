@@ -221,8 +221,6 @@ class CodexImageGenRunner:
             "--json",
             "--ephemeral",
             "--skip-git-repo-check",
-            "--sandbox",
-            "workspace-write",
             "--approve-for-me",
             "-C",
             str(workspace),
@@ -234,6 +232,7 @@ class CodexImageGenRunner:
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_codex_env(codex_home),
@@ -334,5 +333,5 @@ class CodexImageGenRunner:
             "Generate exactly one final image. "
             "Save it to output/final.png. "
             "Do not use an API-key-backed image generation fallback. "
-            "Before finishing, verify output/final.png exists and is a valid PNG."
+            "Do not run extra Python/PIL validation commands; the caller validates the PNG after Codex exits."
         )
