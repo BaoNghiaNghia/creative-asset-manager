@@ -683,8 +683,10 @@ export default function App() {
     }
     void explorer.uploadFiles(files);
   }
-  function preventInternalFileDrag(event: DragEvent<HTMLElement>) {
-    event.preventDefault();
+  function handleInternalFileDragStart() {
+    // AssetGrid owns drag-out. Do not cancel dragstart here: Electron native
+    // drag-out and the browser DownloadURL fallback both require the original
+    // drag gesture to remain active. We only clear the upload overlay state.
     dragDepthRef.current = 0;
     setIsDraggingFiles(false);
   }
@@ -932,7 +934,7 @@ export default function App() {
     <section
       ref={resultContainerRef}
       className={isDraggingFiles ? "explorer-content explorer-drop-active" : "explorer-content"}
-      onDragStart={preventInternalFileDrag}
+      onDragStart={handleInternalFileDragStart}
     >
       {isDraggingFiles && explorer.auth.authenticated && <div className="explorer-drop-overlay" role="status" aria-live="polite">
         <div><b>Drop files to upload</b><span>Files will be added to {explorer.path.at(-1)?.name || "My Drive"}.</span></div>

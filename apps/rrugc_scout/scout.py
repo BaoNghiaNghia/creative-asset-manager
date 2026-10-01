@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import random
 import re
@@ -18,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v10"
+CLIENT_VERSION = "rrugc-scout-v11"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -34,6 +35,8 @@ QUALITY_FIRST_RUN_CANDIDATE_CAP = 12
 MAX_KEYWORDS_PER_RUN = 4
 QUALITY_QUERY_SUFFIX = "authentic smartphone candid photo real people"
 HEARTBEAT_INTERVAL_SECONDS = 10
+SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
+SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +190,100 @@ class Candidate:
             "image_url": self.image_url,
             "alt_text": self.alt_text,
         }
+
+
+def pin_history_key(value: str) -> str:
+    parsed = urlsplit(str(value or "").strip())
+    host = (parsed.hostname or "").rstrip(".").lower()
+    if (
+        parsed.scheme == "https"
+        and (host == "pinterest.com" or host.endswith(".pinterest.com"))
+        and parsed.path.startswith("/pin/")
+    ):
+        return "https://www.pinterest.com" + parsed.path.rstrip("/") + "/"
+    return str(value or "").strip()
+
+
+class ScoutHistory:
+    """Small durable Pin history stored beside the persistent Chrome profile."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        max_pins_per_campaign: int = SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN,
+    ) -> None:
+        self.path = Path(path)
+        self.max_pins_per_campaign = max(100, int(max_pins_per_campaign))
+        self.data: dict[str, Any] = {"version": 1, "campaigns": {}}
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("campaigns"), dict):
+                self.data = payload
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            pass
+
+    def seen_pin_keys(self, campaign_id: str) -> set[str]:
+        campaigns = self.data.get("campaigns")
+        if not isinstance(campaigns, dict):
+            return set()
+        row = campaigns.get(str(campaign_id))
+        if not isinstance(row, dict):
+            return set()
+        pins = row.get("seen_pins")
+        if not isinstance(pins, list):
+            return set()
+        return {
+            pin_history_key(value)
+            for value in pins
+            if isinstance(value, str) and value.strip()
+        }
+
+    def remember(self, campaign_id: str, rows: list[Candidate]) -> int:
+        if not rows:
+            return 0
+        campaigns = self.data.setdefault("campaigns", {})
+        if not isinstance(campaigns, dict):
+            campaigns = {}
+            self.data["campaigns"] = campaigns
+        key = str(campaign_id)
+        campaign = campaigns.setdefault(key, {"seen_pins": []})
+        if not isinstance(campaign, dict):
+            campaign = {"seen_pins": []}
+            campaigns[key] = campaign
+        pins = campaign.get("seen_pins")
+        if not isinstance(pins, list):
+            pins = []
+        ordered = [
+            pin_history_key(value)
+            for value in pins
+            if isinstance(value, str) and value.strip()
+        ]
+        known = set(ordered)
+        added = 0
+        for row in rows:
+            pin = pin_history_key(row.pin_url)
+            if not pin or pin in known:
+                continue
+            known.add(pin)
+            ordered.append(pin)
+            added += 1
+        campaign["seen_pins"] = ordered[-self.max_pins_per_campaign:]
+        if added:
+            self.save()
+        return added
+
+    def save(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_name(self.path.name + ".tmp")
+            temporary.write_text(
+                json.dumps(self.data, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            os.replace(temporary, self.path)
+        except OSError as exc:
+            print("Scout history could not be saved: " + exc.__class__.__name__)
 
 
 def allowed_pin(value: str) -> bool:
@@ -835,9 +932,12 @@ async def scan_auto_run(
     pace_name: str = "careful",
     detail_page: Any | None = None,
     detail_concurrency: int = PIN_DETAIL_CONCURRENCY,
+    history: ScoutHistory | None = None,
 ) -> None:
     pace = SCOUT_PACES.get(pace_name, SCOUT_PACES["careful"])
     run_id = str(task["run"]["id"])
+    campaign_id = str(task["campaign_id"])
+    persistent_seen = history.seen_pin_keys(campaign_id) if history else set()
     raw_queries = task.get("search_queries") or [task["query"]]
     search_queries: list[str] = []
     seen_queries: set[str] = set()
@@ -933,14 +1033,33 @@ async def scan_auto_run(
             await heartbeat_if_due()
             inspect_dwell = await paced_wait(page, pace.inspect_dwell_ms)
             visible = await extract_visible(page)
-            unseen = [
+            visible_once = [
                 row
                 for row in visible
-                if row.pin_url not in seen_pins
+                if pin_history_key(row.pin_url) not in seen_pins
             ]
-            for row in unseen:
-                seen_pins.add(row.pin_url)
+            persistent_skipped = sum(
+                1
+                for row in visible_once
+                if pin_history_key(row.pin_url) in persistent_seen
+            )
+            unseen = [
+                row
+                for row in visible_once
+                if pin_history_key(row.pin_url) not in persistent_seen
+            ]
+            for row in visible_once:
+                seen_pins.add(pin_history_key(row.pin_url))
+            filtered_rows = [
+                row for row in unseen
+                if synthetic_metadata_reason(row) is not None
+            ]
             fresh, metadata_filtered = quality_prefilter(unseen)
+            if history and filtered_rows:
+                history.remember(campaign_id, filtered_rows)
+                persistent_seen.update(
+                    pin_history_key(row.pin_url) for row in filtered_rows
+                )
             print(
                 "campaign="
                 + str(task["campaign_id"])
@@ -958,6 +1077,8 @@ async def scan_auto_run(
                 + str(len(visible))
                 + " unseen="
                 + str(len(unseen))
+                + " persistent_skipped="
+                + str(persistent_skipped)
                 + " quality_candidates="
                 + str(len(fresh))
             )
@@ -1019,6 +1140,11 @@ async def scan_auto_run(
                     resolved_chunk,
                     source_query=raw_query,
                 )
+                if history:
+                    history.remember(campaign_id, resolved_chunk)
+                    persistent_seen.update(
+                        pin_history_key(row.pin_url) for row in resolved_chunk
+                    )
                 created_now = int(result.get("created") or 0)
                 created_this_run += created_now
                 created_for_keyword += created_now
@@ -1303,6 +1429,9 @@ async def run_agent(args: argparse.Namespace) -> None:
     )
     playwright = None
     context = None
+    history = ScoutHistory(
+        Path(args.profile_dir).expanduser().resolve() / SCOUT_HISTORY_FILENAME
+    )
     idle_failures = 0
     last_idle_diagnostic_at = 0.0
     try:
@@ -1355,6 +1484,7 @@ async def run_agent(args: argparse.Namespace) -> None:
                         pace_name=args.pace,
                         detail_page=detail_page,
                         detail_concurrency=1,
+                        history=history,
                     )
                 except PinterestAccessGateError as exc:
                     await client.complete(

@@ -210,7 +210,7 @@ describe("AssetGrid marquee selection and drag-out", () => {
     expect(changed).not.toBe(base);
   });
 
-  it("bounds speculative native prewarm to small originals and prioritizes the dragged item", () => {
+  it("prewarms the complete native drag request and prioritizes the dragged item", () => {
     const mib = 1024 * 1024;
     const items = [
       { provider: "google-drive", id: "a", name: "a.jpg", kind: "image", mime_type: "image/jpeg", size: 120 * mib },
@@ -221,10 +221,7 @@ describe("AssetGrid marquee selection and drag-out", () => {
       { provider: "google-drive", id: "unknown", name: "unknown.jpg", kind: "image", mime_type: "image/jpeg" },
     ] as const;
     const prewarm = nativeOriginalPrewarmItems([...items], "c");
-    expect(prewarm.map(item => item.id)).toEqual(["c", "a", "b"]);
-    expect(prewarm.reduce((sum, item) => sum + (item.size || 0), 0)).toBe(200 * mib);
-    expect(prewarm.some(item => item.id === "huge")).toBe(false);
-    expect(prewarm.some(item => item.id === "unknown")).toBe(false);
+    expect(prewarm.map(item => item.id)).toEqual(["c", "a", "b", "d", "huge", "unknown"]);
   });
 
   it("hides the Discovered processing badge on folder cards", () => {
@@ -286,10 +283,10 @@ describe("AssetGrid marquee selection and drag-out", () => {
 });
 
 describe("AssetGrid native drag strategy", () => {
-  it("prefers a prepared ticket, falls back to direct native start, and only uses web drag without desktop support", () => {
+  it("uses native drag only for a synchronously prepared ticket", () => {
     expect(nativeOriginalDragMode(true, true, true)).toBe("prepared");
-    expect(nativeOriginalDragMode(true, false, true)).toBe("direct");
-    expect(nativeOriginalDragMode(true, false, false)).toBe("deferred");
+    expect(nativeOriginalDragMode(true, false, true)).toBe("web");
+    expect(nativeOriginalDragMode(true, false, false)).toBe("web");
     expect(nativeOriginalDragMode(false, false, true)).toBe("web");
   });
 });

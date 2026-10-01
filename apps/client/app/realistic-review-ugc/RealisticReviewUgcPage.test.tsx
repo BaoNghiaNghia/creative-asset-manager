@@ -53,7 +53,8 @@ describe("Realistic Review UGC route", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v7")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v8")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v9")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v10")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v10")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v11")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 

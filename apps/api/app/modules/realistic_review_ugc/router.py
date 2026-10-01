@@ -3812,7 +3812,7 @@ def auto_scout_agent_claim(
         query=claim.campaign.query,
         search_queries=search_queries,
         target_count=claim.campaign.target_count,
-        max_scroll_batches=claim.campaign.max_scroll_batches,
+        max_scroll_batches=claim.run.max_scroll_batches,
         auto_import=claim.campaign.auto_import,
         progress=claim.progress,
         pipeline_count=claim.pipeline_count,

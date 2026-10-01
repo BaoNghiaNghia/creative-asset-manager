@@ -94,6 +94,7 @@ from app.modules.realistic_review_ugc.reference_recommendations import (
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
     RrugcAutoScoutService,
+    adaptive_scroll_batch_budget,
     adaptive_search_queries,
     keyword_health_rows,
     scout_retry_delay_seconds,
@@ -706,6 +707,7 @@ def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):
         session.commit()
         second = service.claim(agent_id=agent.id, raw_token=token)
         assert second is not None
+        assert second.run.max_scroll_batches == 4
         second_run = service.complete(
             agent_id=agent.id,
             raw_token=token,
@@ -843,6 +845,29 @@ def test_auto_scout_failure_streak_grows_then_resets(database, monkeypatch):
         assert (
             campaign.scan_next_at - healthy_run.completed_at
         ).total_seconds() == 180
+
+
+def test_auto_scout_scroll_budget_deepens_after_repeat_runs():
+    assert adaptive_scroll_batch_budget(
+        6,
+        scan_attempt_count=0,
+        empty_streak=0,
+    ) == 6
+    assert adaptive_scroll_batch_budget(
+        6,
+        scan_attempt_count=3,
+        empty_streak=0,
+    ) == 9
+    assert adaptive_scroll_batch_budget(
+        6,
+        scan_attempt_count=2,
+        empty_streak=2,
+    ) == 18
+    assert adaptive_scroll_batch_budget(
+        20,
+        scan_attempt_count=100,
+        empty_streak=100,
+    ) == 50
 
 
 def test_auto_scout_quality_pipeline_caps_to_target(database):

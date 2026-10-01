@@ -12,7 +12,7 @@ const time = (value: string | null) =>
 const DEFAULT_PROFILE_DIR =
   "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
 
-export const MIN_SCOUT_CLIENT_VERSION = 10;
+export const MIN_SCOUT_CLIENT_VERSION = 11;
 
 export function scoutClientIsCurrent(value: string | null | undefined): boolean {
   const match = /^rrugc-scout-v(\d+)$/.exec((value || "").trim());

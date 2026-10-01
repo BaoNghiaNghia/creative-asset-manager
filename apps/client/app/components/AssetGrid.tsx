@@ -300,32 +300,20 @@ export function nativeOriginalDragKey(items: DesktopNativeDragAsset[]): string {
 export function nativeOriginalDragMode(
   hasDesktop: boolean,
   hasPreparedTicket: boolean,
-  canStartItems: boolean,
-): "prepared" | "direct" | "deferred" | "web" {
+  _canStartItems: boolean,
+): "prepared" | "web" {
   if (!hasDesktop) return "web";
-  if (hasPreparedTicket) return "prepared";
-  return canStartItems ? "direct" : "deferred";
+  return hasPreparedTicket ? "prepared" : "web";
 }
 
-const MAX_NATIVE_PREWARM_FILES = 3;
-const MAX_NATIVE_PREWARM_BYTES = 256 * 1024 * 1024;
-
 export function nativeOriginalPrewarmItems(items: Asset[], preferredId: string): Asset[] {
-  const ordered = [
-    ...items.filter(item => item.id === preferredId),
-    ...items.filter(item => item.id !== preferredId),
+  // Native Windows drag-out needs every selected original to exist on disk
+  // before dragstart. Prewarm the complete request (IPC already caps this at
+  // 100 items) so multi-select never falls into an impossible partial ticket.
+  return [
+    ...items.filter(item => item.id === preferredId && item.kind !== "folder"),
+    ...items.filter(item => item.id !== preferredId && item.kind !== "folder"),
   ];
-  const selected: Asset[] = [];
-  let totalBytes = 0;
-  for (const item of ordered) {
-    if (selected.length >= MAX_NATIVE_PREWARM_FILES) break;
-    if (item.kind === "folder" || !item.size || item.size <= 0) continue;
-    if (item.size > MAX_NATIVE_PREWARM_BYTES) continue;
-    if (totalBytes + item.size > MAX_NATIVE_PREWARM_BYTES) continue;
-    selected.push(item);
-    totalBytes += item.size;
-  }
-  return selected;
 }
 
 function dragTypesIncludeAssetPayload(types: Iterable<string>): boolean {
@@ -677,28 +665,12 @@ export function AssetGrid({
         return;
       }
 
-      if (mode === "direct" && desktop.startItems) {
-        // Native Windows applications expect real filesystem paths. If the
-        // pointer/hover prewarm has not completed yet, keep this as a native
-        // drag and let the desktop shell finish materializing the originals.
-        event.preventDefault();
-        void desktop.startItems(descriptors).catch(() => undefined);
-        return;
-      }
-
-      if (mode === "deferred") {
-        // Compatibility path for desktop 0.1.9 and earlier ticket-based shells:
-        // cancel Chromium's URL drag, finish materializing the real file, then
-        // start the native OS drag with the ticket that prepare() issued.
-        event.preventDefault();
-        void prepareNativeOriginalDrag(dragItems).then(() => {
-          pruneNativeDragTickets();
-          const prepared = nativeDragTickets.current.get(key);
-          if (!prepared || prepared.expiresAt <= Date.now()) return;
-          nativeDragTickets.current.delete(key);
-          desktop.start(prepared.ticket);
-        });
-        return;
+      if (mode === "web") {
+        // webContents.startDrag must be entered synchronously from dragstart.
+        // Waiting for an async download here loses the native OS drag gesture,
+        // so keep materializing originals in the background and preserve the
+        // browser drag payload for this gesture. The next drag becomes native.
+        void prepareNativeOriginalDrag(dragItems);
       }
     }
 

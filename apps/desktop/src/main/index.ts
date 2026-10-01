@@ -21,7 +21,7 @@ let ingestion: IngestionService | undefined;
 let nativeDrag: NativeDragService | undefined;
 const desktopInstanceNonce = createDesktopInstanceNonce();
 const FALLBACK_DRAG_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAE0lEQVR42mNkYGD4z0AEYBxVSFUAANWfAf8nqQzRAAAAAElFTkSuQmCC";
-const nativeDragTickets = createNativeDragTicketStore<ReturnType<typeof nativeImage.createFromDataURL>>(5000);
+const nativeDragTickets = createNativeDragTicketStore<ReturnType<typeof nativeImage.createFromDataURL>>(120_000);
 
 function focusWindow(): void {
   if (!mainWindow) return;

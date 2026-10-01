@@ -37,6 +37,25 @@ SCOUT_BACKOFF_JITTER = 0.10
 SCOUT_EMPTY_BACKOFF_MAX_MULTIPLIER = 3.0
 SCOUT_LOGIN_BACKOFF_CAP_SECONDS = 30 * 60
 SCOUT_FAILURE_BACKOFF_CAP_SECONDS = 60 * 60
+SCOUT_MAX_SCROLL_BATCHES = 50
+
+
+def adaptive_scroll_batch_budget(
+    configured_batches: int,
+    *,
+    scan_attempt_count: int,
+    empty_streak: int,
+) -> int:
+    """Grow the search window when repeated runs revisit saturated Pin bands."""
+    base = max(1, min(int(configured_batches or 1), SCOUT_MAX_SCROLL_BATCHES))
+    attempts = max(0, int(scan_attempt_count or 0))
+    empty = max(0, int(empty_streak or 0))
+    attempt_growth = (attempts // 3) * max(1, base // 2)
+    empty_growth = empty * base
+    return min(
+        SCOUT_MAX_SCROLL_BATCHES,
+        base + max(attempt_growth, empty_growth),
+    )
 
 
 def _jittered_delay(seconds: float) -> int:
@@ -925,6 +944,11 @@ class RrugcAutoScoutService:
             protected_queries=protected_queries,
         )
         selected_query = ordered_queries[0] if ordered_queries else selected.query
+        effective_scroll_batches = adaptive_scroll_batch_budget(
+            selected.max_scroll_batches,
+            scan_attempt_count=int(selected.scan_attempt_count or 0),
+            empty_streak=int(selected.scan_empty_streak or 0),
+        )
         run = RrugcScoutRunModel(
             tenant_id=agent.tenant_id,
             campaign_id=selected.id,
@@ -932,7 +956,7 @@ class RrugcAutoScoutService:
             status="claimed",
             query=selected_query,
             target_count=selected.target_count,
-            max_scroll_batches=selected.max_scroll_batches,
+            max_scroll_batches=effective_scroll_batches,
             auto_import=selected.auto_import,
             progress_before=progress,
             last_heartbeat_at=now,
