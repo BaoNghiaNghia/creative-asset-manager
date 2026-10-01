@@ -4971,6 +4971,139 @@ def test_reference_seeds_are_campaign_and_profile_scoped(api, monkeypatch):
     assert asset.json()["status"] == "ready"
 
 
+def test_skill_reference_preset_creates_role_complete_set_atomically(
+    api,
+    database,
+    monkeypatch,
+):
+    manifest = CodexSkillManifest(
+        schema_version=1,
+        skill_name="worker-hat-v1",
+        display_name="Hat product on person",
+        description="test",
+        workflows=("rrugc_generate",),
+        product_types=("hat",),
+        required_reference_roles=("product_front",),
+        optional_reference_roles=("artwork", "detail"),
+        max_references=3,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router._resolve_generation_skill",
+        lambda _campaign, _requested: ("worker-hat-v1", manifest),
+    )
+
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Preset campaign",
+            "query": "candid phone photo",
+            "target_count": 1,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+        },
+    ).json()
+    with database() as session:
+        product = RrugcReferenceAssetModel(
+            tenant_id="tenant-a",
+            source_type="upload",
+            source_key="preset-product-front",
+            source_url=None,
+            original_filename="front.png",
+            source_campaign_id=campaign["id"],
+            source_candidate_id=None,
+            profile_key=None,
+            reference_type="product",
+            status="ready",
+            content_hash="a" * 64,
+            width=1000,
+            height=1000,
+            size_bytes=1000,
+            image_format="PNG",
+            tags_json=[],
+            themes_json=[],
+            quality_score=0.9,
+            visual_score=None,
+            context_score=None,
+            usage_count=0,
+            remote_file_id="preset-product-front-file",
+            remote_folder_id=None,
+            web_url=None,
+            created_by_user_id="user-a",
+        )
+        artwork = RrugcReferenceAssetModel(
+            tenant_id="tenant-a",
+            source_type="upload",
+            source_key="preset-artwork",
+            source_url=None,
+            original_filename="artwork.png",
+            source_campaign_id=None,
+            source_candidate_id=None,
+            profile_key=None,
+            reference_type="artwork",
+            status="ready",
+            content_hash="b" * 64,
+            width=1000,
+            height=1000,
+            size_bytes=1000,
+            image_format="PNG",
+            tags_json=[],
+            themes_json=[],
+            quality_score=0.8,
+            visual_score=None,
+            context_score=None,
+            usage_count=0,
+            remote_file_id="preset-artwork-file",
+            remote_folder_id=None,
+            web_url=None,
+            created_by_user_id="user-a",
+        )
+        session.add_all([product, artwork])
+        session.commit()
+        product_id = product.id
+        artwork_id = artwork.id
+
+    created = api.post(
+        "/api/v1/realistic-review-ugc/reference-sets/from-skill",
+        json={
+            "skill_name": "worker-hat-v1",
+            "name": "Hat preset",
+            "campaign_id": campaign["id"],
+            "items": [
+                {"role": "product-front", "reference_asset_id": product_id},
+                {"role": "artwork", "reference_asset_id": artwork_id},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["campaign_id"] == campaign["id"]
+    assert payload["description"] == "Generated from $worker-hat-v1 manifest roles."
+    assert [(item["role"], item["position"]) for item in payload["items"]] == [
+        ("product_front", 0),
+        ("artwork", 1),
+    ]
+
+    missing = api.post(
+        "/api/v1/realistic-review-ugc/reference-sets/from-skill",
+        json={
+            "skill_name": "worker-hat-v1",
+            "name": "Invalid preset",
+            "campaign_id": campaign["id"],
+            "items": [
+                {"role": "artwork", "reference_asset_id": artwork_id},
+            ],
+        },
+    )
+    assert missing.status_code == 409
+    assert missing.json()["detail"]["code"] == "reference_set_skill_roles_missing"
+
+    listed = api.get(
+        "/api/v1/realistic-review-ugc/reference-sets",
+        params={"campaign_id": campaign["id"]},
+    ).json()
+    assert [row["name"] for row in listed] == ["Hat preset"]
+
+
 def test_generation_skill_catalog_exposes_recommended_manifest(api, monkeypatch):
     manifest = CodexSkillManifest(
         schema_version=1,

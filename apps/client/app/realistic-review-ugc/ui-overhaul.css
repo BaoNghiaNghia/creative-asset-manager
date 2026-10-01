@@ -347,6 +347,16 @@
 .rrugc-generation-bind button,.rrugc-generation-prepare button,.rrugc-attempt-action,.rrugc-delivery-panel button{min-height:32px;border-radius:7px;font-size:10.8px}
 .rrugc-generation-binding{grid-template-columns:repeat(4,minmax(0,1fr))}
 .rrugc-generation-binding>span{padding:8px;border-radius:7px}
+.rrugc-reference-preset{border:1px solid #dce4f0;border-radius:9px;background:#fff}
+.rrugc-reference-preset-body{display:grid;gap:9px;padding:10px}
+.rrugc-reference-preset-name{display:grid;gap:5px;font-size:11px;font-weight:600;color:#52627a}
+.rrugc-reference-preset-name input{min-height:32px;padding:6px 8px;border:1px solid #d7dfeb;border-radius:7px;background:#fff;color:#24324a}
+.rrugc-reference-role-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.rrugc-reference-role-grid label{display:grid;gap:5px;min-width:0;font-size:10.8px;font-weight:600;color:#52627a}
+.rrugc-reference-role-grid label>span{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rrugc-reference-role-grid label small{font-size:9px;font-weight:500;color:#8995a8}
+.rrugc-reference-role-grid select{min-width:0;min-height:32px}
+.rrugc-reference-preset-body>.rrugc-primary{justify-self:start;min-height:32px}
 .rrugc-generation-attempt-title{padding-top:2px;font-size:12px}
 .rrugc-generation-attempts article{gap:7px;padding:9px;border-radius:8px}
 .rrugc-supervisor-card{border-radius:8px}
@@ -739,6 +749,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-last-run-compact>span{border-right:0;border-bottom:1px solid #e7ebf1}
   .rrugc-last-run-compact>span:nth-last-child(-n+2){border-bottom:0}
   .rrugc-live-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-reference-role-grid{grid-template-columns:1fr}
   .rrugc-generation-bind,.rrugc-generation-prepare{grid-template-columns:1fr}
   .rrugc-export-stats,.rrugc-operations-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rrugc-masonry-grid>.rrugc-candidate{margin:0}

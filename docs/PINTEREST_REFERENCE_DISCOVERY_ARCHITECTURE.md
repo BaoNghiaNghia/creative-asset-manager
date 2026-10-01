@@ -1453,9 +1453,13 @@ Implementation status as of 2026-10-01:
   - Reference Sets are validated against required roles and per-skill reference limits before a GenerationAttempt is prepared.
   - The Production UI selects the recommended skill, filters compatible campaign/global Reference Sets, and exposes required/optional roles.
   - Skills without a manifest remain backward-compatible with the legacy generation path.
-- Phase 5B — optional; richer Reference Set templates can be added only when multiple real skills prove they are useful.
+- Phase 5B — manifest-driven Reference Set presets complete.
+  - The Production UI derives role slots directly from the selected skill manifest.
+  - Ready Reference Library assets can be assigned to required/optional roles with deterministic relevance ordering.
+  - Preset creation validates manifest roles and commits the Reference Set plus bindings atomically without a new migration.
+  - The created set is selected immediately for generation.
 
-The core end-to-end architecture is complete through the Phase 5A metadata foundation. Phase 5B is not required for the current production workflow.
+The core end-to-end architecture is complete through Phase 5B. Higher-level workflow-to-template mapping remains optional and is not required for the current production workflow.
 
 ## 47. Phase 0 — preserve current Scout
 
@@ -1536,7 +1540,7 @@ After probe success:
 
 ---
 
-## 52. Phase 5 — Optional skill metadata
+## 52. Phase 5 — Skill metadata and Reference Set presets
 
 ### Phase 5A — metadata foundation
 
@@ -1550,13 +1554,18 @@ Implemented without a database skill registry:
 - campaign-scoped and global reusable Reference Sets can both be selected;
 - skills without a manifest remain usable through the backward-compatible legacy path.
 
-### Phase 5B — richer templates
+### Phase 5B — manifest-driven Reference Set presets
 
-Defer until multiple real production skills require it:
+Implemented without a new database registry or migration:
 
-- reusable Reference Set templates;
-- role presets tailored to a family of skills;
-- optional higher-level workflow-to-template mapping.
+- the Production UI derives required/optional role slots directly from the selected skill manifest;
+- ready Reference Library assets can be assigned to each role, with reference-type relevance first and same-campaign assets preferred within the same type;
+- required roles must be complete before a preset can be created;
+- one batch endpoint validates all roles against the manifest and creates the Reference Set plus bindings atomically;
+- the newly created set is selected immediately for generation;
+- the preset builder is responsive and reuses campaign-scoped or shared Reference Library assets.
+
+Future higher-level workflow-to-template mapping remains optional and should only be added when multiple real skill families need it.
 
 Avoid premature skill-registry complexity.
 

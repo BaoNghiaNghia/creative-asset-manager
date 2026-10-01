@@ -419,6 +419,37 @@ export type ProductUpdateRequest = {
   fit_notes?: string | null;
 };
 
+export type ReferenceAsset = {
+  id: string;
+  source_type: string;
+  source_key: string;
+  source_url: string | null;
+  original_filename: string | null;
+  source_campaign_id: string | null;
+  source_candidate_id: string | null;
+  profile_key: string | null;
+  reference_type: "person" | "product" | "scene" | "detail" | "artwork" | "other";
+  status: string;
+  content_hash: string;
+  width: number | null;
+  height: number | null;
+  size_bytes: number | null;
+  image_format: string | null;
+  tags: string[];
+  themes: string[];
+  quality_score: number | null;
+  visual_score: number | null;
+  context_score: number | null;
+  usage_count: number;
+  remote_file_id: string;
+  remote_folder_id: string | null;
+  web_url: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
 export type ReferenceSetItem = {
   id: string;
   reference_asset_id: string;

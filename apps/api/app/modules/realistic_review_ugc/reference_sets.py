@@ -50,6 +50,12 @@ class ReferenceSetBinding:
     created: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceSetPreset:
+    reference_set: RrugcReferenceSetModel
+    items: tuple[RrugcReferenceSetItemModel, ...]
+
+
 class RrugcReferenceSetService:
     def __init__(self, session: Session):
         self.session = session
@@ -93,6 +99,104 @@ class RrugcReferenceSetService:
         self.session.commit()
         self.session.refresh(row)
         return row
+
+    def create_from_skill_preset(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        name: str,
+        campaign: RrugcCampaignModel,
+        profile_key: str | None,
+        skill_name: str,
+        bindings: list[tuple[RrugcReferenceAssetModel, str]],
+    ) -> ReferenceSetPreset:
+        clean_name = str(name or "").strip()[:200]
+        if not clean_name:
+            raise ReferenceSetError(
+                "reference_set_name_required",
+                "Reference set name is required.",
+                status_code=422,
+            )
+        if campaign.tenant_id != tenant_id:
+            raise ReferenceSetError(
+                "reference_set_campaign_not_found",
+                "Reference set campaign was not found.",
+                status_code=404,
+            )
+        if not bindings:
+            raise ReferenceSetError(
+                "reference_set_preset_items_required",
+                "At least one reference asset is required.",
+                status_code=422,
+            )
+        if len(bindings) > REFERENCE_SET_MAX_ITEMS:
+            raise ReferenceSetError(
+                "reference_set_item_limit",
+                f"Reference set cannot contain more than {REFERENCE_SET_MAX_ITEMS} items.",
+                status_code=409,
+            )
+
+        normalized_bindings: list[tuple[RrugcReferenceAssetModel, str]] = []
+        seen_roles: set[str] = set()
+        for reference_asset, role in bindings:
+            if reference_asset.tenant_id != tenant_id:
+                raise ReferenceSetError(
+                    "reference_asset_not_found",
+                    "Reference asset was not found.",
+                    status_code=404,
+                )
+            if reference_asset.status != "ready":
+                raise ReferenceSetError(
+                    "reference_asset_not_ready",
+                    "Only ready Reference Library assets can be added to a reference set.",
+                    status_code=409,
+                )
+            normalized_role = normalize_reference_role(role)
+            if normalized_role in seen_roles:
+                raise ReferenceSetError(
+                    "reference_set_preset_duplicate_role",
+                    f"Reference role {normalized_role} can only be assigned once in a skill preset.",
+                    status_code=422,
+                )
+            seen_roles.add(normalized_role)
+            normalized_bindings.append((reference_asset, normalized_role))
+
+        row = RrugcReferenceSetModel(
+            tenant_id=tenant_id,
+            name=clean_name,
+            campaign_id=campaign.id,
+            profile_key=str(profile_key or "").strip()[:100] or None,
+            description=("Generated from $" + str(skill_name).strip() + " manifest roles.")[:2000],
+            status="active",
+            created_by_user_id=user_id,
+        )
+        self.repository.add_reference_set(row)
+        items: list[RrugcReferenceSetItemModel] = []
+        for position, (reference_asset, role) in enumerate(normalized_bindings):
+            item = RrugcReferenceSetItemModel(
+                tenant_id=tenant_id,
+                reference_set_id=row.id,
+                reference_asset_id=reference_asset.id,
+                role=role,
+                position=position,
+                note=None,
+            )
+            self.repository.add_reference_set_item(item)
+            items.append(item)
+        try:
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ReferenceSetError(
+                "reference_set_preset_conflict",
+                "Reference set preset could not be created because a binding conflicted.",
+                status_code=409,
+            ) from exc
+        self.session.refresh(row)
+        for item in items:
+            self.session.refresh(item)
+        return ReferenceSetPreset(reference_set=row, items=tuple(items))
 
     def add_item(
         self,

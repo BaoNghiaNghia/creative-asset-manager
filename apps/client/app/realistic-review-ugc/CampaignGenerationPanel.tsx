@@ -3,6 +3,7 @@ import {
   bindCampaignProduct,
   executeGenerationAttempt,
   createDeliveryDestination,
+  createReferenceSetFromSkill,
   deliverCampaign,
   exportCampaignOutputs,
   generationAttemptOutputUrl,
@@ -15,6 +16,7 @@ import {
   listGenerationAttempts,
   listGenerationSkills,
   listProducts,
+  listReferenceAssets,
   listReferenceSets,
   listSupervisorResults,
   prepareGenerationAttempt,
@@ -28,6 +30,7 @@ import type {
   GenerationAttempt,
   GenerationCapability,
   GenerationSkill,
+  ReferenceAsset,
   ReferenceSet,
   CampaignExportSummary,
   CampaignDeliverySummary,
@@ -36,6 +39,12 @@ import type {
   Product,
   SupervisorResult,
 } from "./types";
+import {
+  defaultReferenceSetName,
+  missingRequiredPresetRoles,
+  referenceAssetsForRole,
+  referenceRoleSlots,
+} from "./referenceSetPresets";
 
 type Props = {
   campaign: Campaign;
@@ -264,8 +273,11 @@ export function CampaignGenerationPanel({
   const [generationSkills, setGenerationSkills] = useState<GenerationSkill[]>([]);
   const [recommendedSkillName, setRecommendedSkillName] = useState("");
   const [referenceSets, setReferenceSets] = useState<ReferenceSet[]>([]);
+  const [referenceAssets, setReferenceAssets] = useState<ReferenceAsset[]>([]);
   const [skillName, setSkillName] = useState("");
   const [referenceSetId, setReferenceSetId] = useState("");
+  const [presetName, setPresetName] = useState("");
+  const [presetRoleAssets, setPresetRoleAssets] = useState<Record<string, string>>({});
   const [exportSummary, setExportSummary] = useState<CampaignExportSummary | null>(null);
   const [deliverySummary, setDeliverySummary] = useState<CampaignDeliverySummary | null>(null);
   const [deliveryDestinations, setDeliveryDestinations] = useState<DeliveryDestination[]>([]);
@@ -290,6 +302,14 @@ export function CampaignGenerationPanel({
   const selectedSkill = useMemo(
     () => generationSkills.find(skill => skill.skill_name === skillName) || null,
     [generationSkills, skillName],
+  );
+  const presetSlots = useMemo(
+    () => referenceRoleSlots(selectedSkill),
+    [selectedSkill],
+  );
+  const missingPresetRoles = useMemo(
+    () => missingRequiredPresetRoles(selectedSkill, presetRoleAssets),
+    [selectedSkill, presetRoleAssets],
   );
   const compatibleReferenceSets = useMemo(() => {
     if (!selectedSkill) return referenceSets;
@@ -368,6 +388,21 @@ export function CampaignGenerationPanel({
   }, [compatibleReferenceSets]);
 
   useEffect(() => {
+    setPresetName(defaultReferenceSetName(campaign, selectedSkill));
+    setPresetRoleAssets(current => {
+      const next: Record<string, string> = {};
+      for (const slot of presetSlots) next[slot.role] = current[slot.role] || "";
+      return next;
+    });
+  }, [
+    campaign.id,
+    campaign.name,
+    campaign.product_sku,
+    selectedSkill,
+    presetSlots,
+  ]);
+
+  useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
       listProducts(controller.signal),
@@ -375,6 +410,7 @@ export function CampaignGenerationPanel({
       getGenerationCapability(controller.signal),
       listGenerationSkills(campaign.id, controller.signal),
       listReferenceSets(campaign.id, controller.signal),
+      listReferenceAssets(controller.signal),
       listSupervisorResults(campaign.id, controller.signal),
       getCampaignExportSummary(campaign.id, controller.signal),
       listDeliveryDestinations(controller.signal),
@@ -386,6 +422,7 @@ export function CampaignGenerationPanel({
       generationCapability,
       skillCatalog,
       referenceSetRows,
+      referenceAssetRows,
       supervisorRows,
       exportStats,
       destinationRows,
@@ -398,6 +435,7 @@ export function CampaignGenerationPanel({
       setGenerationSkills(skillCatalog.items);
       setRecommendedSkillName(skillCatalog.recommended_skill_name || "");
       setReferenceSets(referenceSetRows);
+      setReferenceAssets(referenceAssetRows);
       setSupervisorResults(supervisorRows);
       setExportSummary(exportStats);
       setDeliveryDestinations(destinationRows);
@@ -437,6 +475,42 @@ export function CampaignGenerationPanel({
       setProductId(updated.product_id || "");
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : "Unable to bind product.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function createSkillPreset() {
+    if (
+      busy
+      || !selectedSkill
+      || !presetName.trim()
+      || missingPresetRoles.length > 0
+    ) return;
+    const items = presetSlots
+      .map(slot => ({
+        role: slot.role,
+        reference_asset_id: presetRoleAssets[slot.role] || "",
+      }))
+      .filter(item => item.reference_asset_id);
+    if (items.length === 0) return;
+
+    setBusy("preset");
+    onError("");
+    try {
+      const created = await createReferenceSetFromSkill(
+        campaign.id,
+        selectedSkill.skill_name,
+        presetName.trim(),
+        items,
+      );
+      setReferenceSets(rows => [
+        created,
+        ...rows.filter(row => row.id !== created.id),
+      ]);
+      setReferenceSetId(created.id);
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to create reference preset.");
     } finally {
       setBusy("");
     }
@@ -725,6 +799,70 @@ export function CampaignGenerationPanel({
         <b>{selectedReferenceSetReady ? "Reference Set" : "Legacy refs"}</b>
       </span>
     </div>}
+
+    {selectedSkill && presetSlots.length > 0 && <details className="rrugc-reference-preset rrugc-compact-disclosure">
+      <summary>
+        <span>
+          <strong>Reference preset</strong>
+          <small>Build a role-complete set from the shared Reference Library</small>
+        </span>
+        <b>{missingPresetRoles.length === 0 ? "ready" : missingPresetRoles.length + " required"}</b>
+      </summary>
+      <div className="rrugc-reference-preset-body">
+        <label className="rrugc-reference-preset-name">
+          Set name
+          <input
+            value={presetName}
+            maxLength={200}
+            onChange={event => setPresetName(event.target.value)}
+          />
+        </label>
+        <div className="rrugc-reference-role-grid">
+          {presetSlots.map(slot => {
+            const assets = referenceAssetsForRole(referenceAssets, slot.role, campaign.id);
+            return <label key={slot.role}>
+              <span>
+                {slot.role}
+                <small>{slot.required ? "required" : "optional"}</small>
+              </span>
+              <select
+                value={presetRoleAssets[slot.role] || ""}
+                onChange={event => setPresetRoleAssets(current => ({
+                  ...current,
+                  [slot.role]: event.target.value,
+                }))}
+              >
+                <option value="">{slot.required ? "Choose reference…" : "Skip optional role"}</option>
+                {assets.map(asset =>
+                  <option key={asset.id} value={asset.id}>
+                    {(asset.original_filename || asset.source_type + " reference")
+                    + " · " + asset.reference_type
+                    + (asset.source_campaign_id === campaign.id ? " · this campaign" : "")
+                    + (asset.quality_score == null ? "" : " · q" + Math.round(asset.quality_score * 100))}
+                  </option>
+                )}
+              </select>
+            </label>;
+          })}
+        </div>
+        <button
+          type="button"
+          className="rrugc-primary"
+          disabled={
+            Boolean(busy)
+            || !presetName.trim()
+            || missingPresetRoles.length > 0
+            || referenceAssets.length === 0
+          }
+          onClick={() => void createSkillPreset()}
+        >
+          {busy === "preset" ? "Creating preset…" : "Create & select reference set"}
+        </button>
+        {referenceAssets.length === 0 && <p className="rrugc-generation-note">
+          Reference Library has no ready assets yet. Promote or upload reference images first.
+        </p>}
+      </div>
+    </details>}
 
     <div className="rrugc-generation-prepare">
       <label>

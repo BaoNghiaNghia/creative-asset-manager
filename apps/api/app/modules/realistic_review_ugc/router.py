@@ -86,6 +86,7 @@ from app.modules.realistic_review_ugc.reference_library import (
 from app.modules.realistic_review_ugc.reference_sets import (
     ReferenceSetError,
     RrugcReferenceSetService,
+    normalize_reference_role,
 )
 from app.modules.realistic_review_ugc.schema import (
     AnalyzeResponse,
@@ -119,6 +120,7 @@ from app.modules.realistic_review_ugc.schema import (
     ReferenceSeedRequest,
     ReferenceSeedResponse,
     ReferenceSetCreateRequest,
+    ReferenceSetSkillPresetCreateRequest,
     ReferenceSetItemCreateRequest,
     ReferenceSetItemResponse,
     ReferenceSetResponse,
@@ -1423,6 +1425,124 @@ def create_reference_set(
     except ReferenceSetError as exc:
         raise _reference_set_error(exc) from exc
     return _reference_set(repository, row)
+
+
+@router.post(
+    "/reference-sets/from-skill",
+    response_model=ReferenceSetResponse,
+    status_code=201,
+)
+def create_reference_set_from_skill(
+    request: ReferenceSetSkillPresetCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    repository = RrugcRepository(session)
+    campaign = _require_campaign(
+        repository,
+        principal.active_tenant_id,
+        request.campaign_id,
+    )
+    try:
+        skill_name, manifest = _resolve_generation_skill(campaign, request.skill_name)
+    except CodexImageProviderError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    if manifest is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "codex_skill_manifest_required",
+                "message": "Skill preset creation requires a manifest-backed Codex skill.",
+            },
+        )
+    if len(request.items) > manifest.max_references:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "reference_set_skill_limit_exceeded",
+                "message": (
+                    "Reference preset exceeds the "
+                    + str(manifest.max_references)
+                    + "-reference limit for $"
+                    + manifest.skill_name
+                    + "."
+                ),
+            },
+        )
+
+    allowed_roles = set(
+        manifest.required_reference_roles + manifest.optional_reference_roles
+    )
+    normalized_roles: list[str] = []
+    bindings = []
+    for item in request.items:
+        try:
+            role = normalize_reference_role(item.role)
+        except ReferenceSetError as exc:
+            raise _reference_set_error(exc) from exc
+        if role not in allowed_roles:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "reference_set_skill_role_not_allowed",
+                    "message": (
+                        "Reference role "
+                        + role
+                        + " is not declared by $"
+                        + manifest.skill_name
+                        + "."
+                    ),
+                },
+            )
+        if role in normalized_roles:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "reference_set_preset_duplicate_role",
+                    "message": "Each skill preset role can only be assigned once.",
+                },
+            )
+        reference_asset = repository.get_reference_asset(
+            principal.active_tenant_id,
+            item.reference_asset_id,
+        )
+        if reference_asset is None:
+            raise HTTPException(status_code=404, detail="Reference asset not found")
+        normalized_roles.append(role)
+        bindings.append((reference_asset, role))
+
+    missing_roles = manifest.missing_reference_roles(normalized_roles)
+    if missing_roles:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "reference_set_skill_roles_missing",
+                "message": (
+                    "Reference preset is missing required roles for $"
+                    + manifest.skill_name
+                    + ": "
+                    + ", ".join(missing_roles)
+                    + "."
+                ),
+            },
+        )
+
+    try:
+        result = RrugcReferenceSetService(session).create_from_skill_preset(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            name=request.name,
+            campaign=campaign,
+            profile_key=request.profile_key,
+            skill_name=skill_name,
+            bindings=bindings,
+        )
+    except ReferenceSetError as exc:
+        raise _reference_set_error(exc) from exc
+    return _reference_set(repository, result.reference_set)
 
 
 @router.get(

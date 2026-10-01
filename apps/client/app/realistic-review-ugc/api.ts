@@ -19,6 +19,7 @@ import type {
   GenerationAttempt,
   GenerationCapability,
   GenerationSkillCatalog,
+  ReferenceAsset,
   ReferenceSet,
   BatchExportResult,
   ExportList,
@@ -252,6 +253,12 @@ export const listGenerationSkills = (campaignId: string, signal?: AbortSignal) =
     { signal },
   );
 
+export const listReferenceAssets = (signal?: AbortSignal) =>
+  request<ReferenceAsset[]>(
+    "/api/v1/realistic-review-ugc/reference-assets?status=ready&limit=500",
+    { signal },
+  );
+
 export const listReferenceSets = (campaignId: string, signal?: AbortSignal) =>
   request<ReferenceSet[]>(
     "/api/v1/realistic-review-ugc/reference-sets?campaign_id="
@@ -259,6 +266,22 @@ export const listReferenceSets = (campaignId: string, signal?: AbortSignal) =>
       + "&include_global=true&status=active",
     { signal },
   );
+
+export const createReferenceSetFromSkill = (
+  campaignId: string,
+  skillName: string,
+  name: string,
+  items: Array<{ role: string; reference_asset_id: string }>,
+) =>
+  request<ReferenceSet>("/api/v1/realistic-review-ugc/reference-sets/from-skill", {
+    method: "POST",
+    body: JSON.stringify({
+      campaign_id: campaignId,
+      skill_name: skillName,
+      name,
+      items,
+    }),
+  });
 
 export const prepareGenerationAttempt = (
   campaignId: string,

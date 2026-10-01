@@ -953,6 +953,19 @@ class ReferenceSetCreateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
 
 
+class ReferenceSetSkillPresetItemRequest(BaseModel):
+    reference_asset_id: str = Field(min_length=1, max_length=36)
+    role: str = Field(min_length=1, max_length=100)
+
+
+class ReferenceSetSkillPresetCreateRequest(BaseModel):
+    skill_name: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=200)
+    campaign_id: str = Field(min_length=1, max_length=36)
+    profile_key: str | None = Field(default=None, max_length=100)
+    items: list[ReferenceSetSkillPresetItemRequest] = Field(min_length=1, max_length=32)
+
+
 class ReferenceSetItemCreateRequest(BaseModel):
     reference_asset_id: str = Field(min_length=1, max_length=36)
     role: str = Field(min_length=1, max_length=100)

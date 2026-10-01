@@ -7,6 +7,12 @@ import { autoScoutBootstrapCommand, autoScoutCommand, scoutClientIsCurrent, scou
 import { ProductRegistryPanel, productUrlsFromText } from "./ProductRegistryPanel";
 import { candidateGalleryTab, candidateMatchesGalleryTab, candidatePhonePriority, RealisticReviewUgcPage, scoutCommand } from "./RealisticReviewUgcPage";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
+import {
+  missingRequiredPresetRoles,
+  referenceAssetsForRole,
+  referenceRoleSlots,
+} from "./referenceSetPresets";
+import type { GenerationSkill, ReferenceAsset } from "./types";
 
 describe("Realistic Review UGC route", () => {
   it("routes the dedicated top-level workspace", () => {
@@ -79,6 +85,54 @@ describe("Realistic Review UGC route", () => {
     expect(queries).toContain("couple wearing hats candid outdoor phone photo");
     expect(queries).toContain("family wearing hats candid outdoor natural light");
     expect(queries).toContain("friends wearing hats candid smartphone photo");
+  });
+
+  it("builds manifest-driven reference preset slots and ranks role assets", () => {
+    const skill: GenerationSkill = {
+      skill_name: "worker-hat-v1",
+      display_name: "Hat product on person",
+      description: "test",
+      workflows: ["rrugc_generate"],
+      product_types: ["hat"],
+      required_reference_roles: ["product_front"],
+      optional_reference_roles: ["artwork", "detail"],
+      max_references: 32,
+      recommended: true,
+    };
+    expect(referenceRoleSlots(skill)).toEqual([
+      { role: "product_front", required: true },
+      { role: "artwork", required: false },
+      { role: "detail", required: false },
+    ]);
+    expect(missingRequiredPresetRoles(skill, {})).toEqual(["product_front"]);
+    expect(missingRequiredPresetRoles(skill, { product_front: "asset-1" })).toEqual([]);
+
+    const assets = [
+      {
+        id: "global-product",
+        reference_type: "product",
+        source_campaign_id: null,
+        quality_score: 0.95,
+        updated_at: "2026-09-30T00:00:00Z",
+      },
+      {
+        id: "campaign-artwork",
+        reference_type: "artwork",
+        source_campaign_id: "campaign-1",
+        quality_score: 1,
+        updated_at: "2026-10-01T00:00:00Z",
+      },
+      {
+        id: "campaign-product",
+        reference_type: "product",
+        source_campaign_id: "campaign-1",
+        quality_score: 0.8,
+        updated_at: "2026-09-29T00:00:00Z",
+      },
+    ] as ReferenceAsset[];
+    expect(
+      referenceAssetsForRole(assets, "product_front", "campaign-1").map(asset => asset.id),
+    ).toEqual(["campaign-product", "global-product", "campaign-artwork"]);
   });
 
   it("ranks smartphone-like references above artistic ones", () => {
