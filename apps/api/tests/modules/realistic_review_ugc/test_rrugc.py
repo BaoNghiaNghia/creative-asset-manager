@@ -4353,6 +4353,28 @@ def test_reference_asset_upload_api_is_idempotent_and_previewable(api, monkeypat
     assert listed.status_code == 200
     assert [row["id"] for row in listed.json()] == [reference_id]
 
+    typed = api.get(
+        "/api/v1/realistic-review-ugc/reference-assets",
+        params={"reference_type": "person"},
+    )
+    assert typed.status_code == 200
+    assert [row["id"] for row in typed.json()] == [reference_id]
+    assert api.get(
+        "/api/v1/realistic-review-ugc/reference-assets",
+        params={"reference_type": "product"},
+    ).json() == []
+
+    profiled = api.get(
+        "/api/v1/realistic-review-ugc/reference-assets",
+        params={"profile_key": "realistic-person-ugc"},
+    )
+    assert profiled.status_code == 200
+    assert [row["id"] for row in profiled.json()] == [reference_id]
+    assert api.get(
+        "/api/v1/realistic-review-ugc/reference-assets",
+        params={"profile_key": "embroidery-detail"},
+    ).json() == []
+
     preview = api.get(
         f"/api/v1/realistic-review-ugc/reference-assets/{reference_id}/image"
     )

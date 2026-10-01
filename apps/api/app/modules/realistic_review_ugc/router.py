@@ -1011,6 +1011,8 @@ def list_reference_assets(
     source_type: str | None = Query(default=None, min_length=1, max_length=32),
     status: str | None = Query(default="ready", max_length=32),
     campaign_id: str | None = Query(default=None, max_length=36),
+    profile_key: str | None = Query(default=None, min_length=1, max_length=100),
+    reference_type: str | None = Query(default=None, min_length=1, max_length=32),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_db),
@@ -1024,6 +1026,8 @@ def list_reference_assets(
             source_type=source_type,
             status=status,
             campaign_id=campaign_id,
+            profile_key=profile_key,
+            reference_type=reference_type,
             limit=limit,
             offset=offset,
         )
