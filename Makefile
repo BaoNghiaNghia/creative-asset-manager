@@ -1,4 +1,4 @@
-.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update
+.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke
 
 api:
 	bash scripts/dev-api.sh
@@ -36,3 +36,6 @@ ui-visual-accept:
 ui-visual-update:
 	@echo "Direct baseline writes are disabled; creating a governed proposal instead."
 	bash scripts/cam-ui-baseline-propose.sh
+
+production-ui-smoke:
+	bash scripts/cam-production-ui-smoke.sh

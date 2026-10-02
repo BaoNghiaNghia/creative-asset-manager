@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "ui:qa": "node scripts/ui-qa.mjs",
+    "ui:production-smoke": "node scripts/production-ui-smoke.mjs",
     "ui:qa:analysis:test": "node --test scripts/ui-qa-*.node-test.mjs scripts/ui-autofix.node-test.mjs",
     "ui:smart-tests": "node scripts/ui-smart-tests.mjs",
     "ui:autofix-plan": "node scripts/ui-autofix-plan.mjs"

@@ -29,6 +29,25 @@ sudo scripts/deploy-cam-frontend.sh --rollback
 
 The frontend script builds and scans only generated `apps/client/dist`, installs an immutable release under `/var/www/creative-asset-manager/releases/<commit>`, atomically switches `current`, reloads Nginx, and restores the previous symlink if activation fails. It never restarts backend services.
 
+### Read-only Production UI smoke
+
+After an explicitly authorized frontend deploy, run the live Browser smoke separately with `make production-ui-smoke`, or opt in during that deploy with `CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1`. The smoke never deploys anything and blocks every HTTP method except GET, HEAD, and OPTIONS. It verifies HTTPS, `/build-info.json` provenance, console/page/network health, and sequential desktop/tablet/mobile rendering for Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms.
+
+Authenticated private-route coverage requires a Playwright storage-state file outside the repository, normally `/etc/creative-asset-manager/production-ui-storage-state.json`, with mode `600` or stricter. Treat that file as a credential: never commit, print, copy into `.ui-qa`, or place it under the source checkout. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` runs only Privacy and Terms and is intentionally partial.
+
+```bash
+CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storage-state.json \
+CAM_PRODUCTION_EXPECTED_COMMIT=$(git rev-parse HEAD) \
+make production-ui-smoke
+
+# Optional during an already-authorized frontend deploy:
+CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1 \
+CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storage-state.json \
+scripts/deploy-cam-frontend.sh
+```
+
+A smoke failure reports evidence under `apps/client/.ui-qa/production-smoke/` and returns non-zero. Successful runs prune that directory to the newest five smoke-run groups by default (`CAM_PRODUCTION_UI_KEEP_RUNS=1..20` overrides this). It does not roll back or mutate Production automatically; rollback remains an explicit operator decision based on the evidence.
+
 ## Backend
 
 ```bash

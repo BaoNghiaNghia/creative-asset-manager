@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    { "name": "desktop", "width": 1440, "height": 900 },
+    { "name": "tabletPortrait", "width": 768, "height": 1024 },
+    { "name": "mobile", "width": 390, "height": 844 }
+  ],
+  "routes": [
+    {
+      "name": "privacy",
+      "path": "/privacy-policy",
+      "public": true,
+      "requiresAuth": false,
+      "ready": "main",
+      "states": [{ "name": "default" }]
+    },
+    {
+      "name": "terms",
+      "path": "/terms-of-service",
+      "public": true,
+      "requiresAuth": false,
+      "ready": "main",
+      "states": [{ "name": "default" }]
+    },
+    {
+      "name": "asset-explorer",
+      "path": "/",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.shell.product-shell",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        { "name": "default" },
+        {
+          "name": "search-focus",
+          "focus": "input[aria-label='Search images and videos']",
+          "optional": true
+        },
+        {
+          "name": "first-card-hover",
+          "hover": ".grid article:first-child",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "review-board",
+      "path": "/review-board",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.review-board-shell",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        { "name": "default" },
+        {
+          "name": "first-issue-hover",
+          "hover": ".review-board-row:first-child",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "realistic-review-ugc",
+      "path": "/realistic-review-ugc",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.rrugc-shell",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        { "name": "default" },
+        {
+          "name": "campaign-hover",
+          "hover": ".rrugc-campaign-card:first-child",
+          "optional": true
+        }
+      ]
+    }
+  ]
+}

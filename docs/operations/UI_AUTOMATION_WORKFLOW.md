@@ -146,7 +146,8 @@ The automatic UI workflow is implemented in these concrete phases:
 10. **Smart Test Selection** — `apps/client/scripts/ui-smart-tests.mjs` builds a lightweight local import/reverse-dependency graph for frontend code and tests. Localized component/hook changes run only linked Vitest files, visual/automation-only changes can skip Vitest, and shared/security-sensitive/uncertain changes fall back to the full suite. `scripts/cam-ui-run-smart-tests.sh` is used by both repair checks and the final UI gate.
 11. **Baseline governance** — intentional visual changes never overwrite tracked baselines directly. `CAM_UI_TASK="..." make ui-visual-propose` runs the current UI against the tracked baselines and writes an isolated proposal under `.ui-qa/baseline-proposals/<id>/` containing candidate screenshots, hashes, source HEAD/workspace fingerprint, changed frontend source files, Browser/runtime evidence, `proposal.json`, and `proposal.md`. Tracked baselines remain untouched. Acceptance requires a separate current-user confirmation and an explicit `CAM_UI_BASELINE_ACCEPT=1`, proposal ID, and acceptance reason. Before applying, the system verifies that source HEAD, working-tree fingerprint, candidate hashes, and tracked baseline hashes still match the proposal. After applying, it reruns full dev-server visual QA; any failure restores the previous baselines automatically.
 12. **Resource control** — targeted repair runs and full viewport checks are sequential, only one Chrome process is used at a time, local servers are stopped automatically, and old `.ui-qa` runs are pruned.
-13. **Production handoff** — Production deployment remains a separate explicit user-authorized step.
+13. **Production UI Smoke** — after an explicitly authorized Production deployment, `make production-ui-smoke` can verify the live HTTPS site without mutating Production. The Browser blocks every HTTP method except GET, HEAD, and OPTIONS, runs desktop/tablet/mobile sequentially, captures screenshots plus console/page/network evidence, checks `/build-info.json` provenance against the expected deploy commit, and verifies Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms. Authenticated private routes require a Playwright storage-state file kept outside the repository with mode `600` or stricter. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` intentionally runs only the public legal routes and is a partial smoke, not a replacement for authenticated verification.
+14. **Production handoff** — Production deployment remains a separate explicit user-authorized step. The smoke workflow never grants deployment authorization and never performs create/update/delete actions.
 
 ### Standard commands
 
@@ -191,6 +192,17 @@ make ui-visual-accept
 # Compatibility alias: now creates a proposal instead of writing baselines directly.
 CAM_UI_TASK="Increase Asset Explorer card title size" make ui-visual-update
 
+# Read-only Production smoke after an explicitly authorized deploy.
+# Authenticated route coverage requires a root/operator-owned Playwright storage state outside the repo.
+CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storage-state.json \
+CAM_PRODUCTION_EXPECTED_COMMIT=<deployed-commit> \
+make production-ui-smoke
+
+# Deliberately partial public-only smoke when no authenticated state is available.
+CAM_PRODUCTION_UI_PUBLIC_ONLY=1 \
+CAM_PRODUCTION_EXPECTED_COMMIT=<deployed-commit> \
+make production-ui-smoke
+
 # Force the gate even when automatic diff detection sees no frontend change.
 CAM_UI_FORCE=1 make ui-check
 
@@ -212,5 +224,7 @@ npm run ui:qa -- \
   --baseline-dir visual-baselines/explorer-viewer \
   --strict
 ```
+
+Production smoke artifacts are written under `apps/client/.ui-qa/production-smoke/<run-id>/` and are gitignored. They contain screenshots and `report.json`/`report.md`, but never the authenticated storage-state file. To limit disk usage and Production screenshot retention, the wrapper keeps the newest five runs by default; `CAM_PRODUCTION_UI_KEEP_RUNS` may be set from 1 to 20. The Production runner refuses HTTP/loopback targets, rejects storage state located inside the repository, and treats any attempted non-read request as a smoke failure.
 
 The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. When baseline comparison is enabled it also writes `visual-analysis.json` and `visual-analysis.md`; failures include annotated screenshots in `diagnostics/` and raw visual diffs in `diffs/`. Direct `--update-baselines`/`CAM_UI_VISUAL_UPDATE=1` writes are blocked in normal workflows; baseline changes must pass through the proposal/acceptance governance flow above. Reports are tagged with `mode: "full"` or `mode: "repair"`, so the repair workflow does not recursively treat its own targeted failures as a new full-gate session. The repair runner supports `--states` targeting while still replaying prerequisite steps from the plan, which preserves dependent states such as selected+hover without capturing every earlier screenshot. Repair attempt counters live under `.ui-qa/repair-sessions/`; the default limit is two. Auto-Fix session guards live under `.ui-qa/autofix-sessions/` and prevent repeated final full-gate execution for the same task/base commit. Reset an Auto-Fix session only after a diagnosed, causally scoped repair using `CAM_UI_AUTOFIX_RESET=1`. Smart Test Selection is enabled by default; set `CAM_UI_SMART_TESTS=0` only when you deliberately need the full suite, or use `CAM_UI_TESTS` / `CAM_UI_REPAIR_TESTS` to name an explicit test subset. The analysis reports the viewport/state, triggering selector actions, changed-pixel regions, likely DOM elements and likely changed source files so an agent can localize the regression before editing. The directory is gitignored and old runs are pruned automatically. Visual comparison uses `pixelmatch`/`pngjs`; the default per-pixel threshold is `0.1` and the maximum accepted changed-pixel ratio is `0.001` (0.1%). A dimension mismatch always fails strict QA. Region clustering defaults to 12 px tiles, a two-tile join radius and at most eight reported regions; these can be tuned with `CAM_UI_VISUAL_REGION_TILE_SIZE`, `CAM_UI_VISUAL_REGION_JOIN_RADIUS` and `CAM_UI_VISUAL_MAX_REGIONS` for a justified diagnostic case. Override pixel thresholds only with `CAM_UI_VISUAL_PIXEL_THRESHOLD` or `CAM_UI_VISUAL_MAX_DIFF_RATIO`. Set `CAM_UI_VISUAL_SKIP=1` only for an exceptional browser diagnostic where baseline comparison is intentionally not relevant. The default fixture contains synthetic `.example.test` identity data and synthetic asset metadata only; it must never be replaced with copied Production session cookies, OAuth tokens, or Production user data.

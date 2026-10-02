@@ -112,4 +112,10 @@ for path in / /build-info.json /favicon.svg /favicon.ico /favicon-32x32.png /app
   curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null
 done
 curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" >/dev/null
+if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
+  CAM_PRODUCTION_UI_URL="$PUBLIC_URL" \
+  CAM_PRODUCTION_EXPECTED_COMMIT="$COMMIT" \
+    bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
+fi
 printf "Frontend release %s activated.\n" "$RELEASE_ID"
+printf "Post-deploy UI smoke: set CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1 for an authenticated read-only Browser smoke during an explicitly authorized deploy.\n"
