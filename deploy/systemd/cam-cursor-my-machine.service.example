@@ -1,0 +1,26 @@
+[Unit]
+Description=Cursor My Machines worker for Creative Asset Manager staging
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cursoragent
+Group=cursoragent
+WorkingDirectory=/srv/creative-asset-manager-cursor
+Environment=HOME=/var/lib/cursoragent
+Environment=PATH=/var/lib/cursoragent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/var/lib/cursoragent/.local/bin/agent worker --name cam-vps-staging --worker-dir /srv/creative-asset-manager-cursor start
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/creative-asset-manager-cursor /var/lib/cursoragent
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

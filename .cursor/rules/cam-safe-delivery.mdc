@@ -1,0 +1,51 @@
+---
+description: Safe autonomous development and staging workflow for Creative Asset Manager
+alwaysApply: true
+---
+
+# Creative Asset Manager autonomous workflow
+
+Follow `AGENTS.md` first. This rule adds a stricter delivery lane for Cursor Agent / My Machines.
+
+## Allowed autonomous lane
+
+- Work only in a non-production checkout intended for Cursor/My Machines.
+- Create or reuse a task branch. Do not make feature changes directly on `main`.
+- Inspect, edit, build, test, and run development/staging services without asking for routine approval.
+- For UI work, use Browser to verify the changed flow at a loopback or explicitly designated staging URL. Capture the page state, console errors, and failed requests relevant to the change.
+- Run `bash scripts/cam-cursor-staging-gate.sh` before declaring work ready. Use `CAM_STAGING_FULL=1` for architecture, migration, authorization, storage, pipeline, provider, or other cross-cutting changes.
+- Keep changes scoped. Preserve the repository security and architecture contracts.
+
+## Production boundary
+
+Cursor Agent must NOT:
+
+- run `scripts/deploy-cam-frontend.sh`, `scripts/cam-rebuild-backend.sh`, or any other production deploy/rollback command;
+- use `sudo`, mutate systemd/Nginx production state, or write under `/etc/creative-asset-manager`, `/opt/creative-asset-manager`, or `/var/www/creative-asset-manager`;
+- read or source production secrets;
+- connect to or mutate the production PostgreSQL/Elasticsearch state for development or testing;
+- perform destructive migrations, production data repair, IAM/DNS/firewall changes, or bulk source-asset deletion;
+- publish a Windows desktop release from Linux.
+
+Production web/API deployment and Windows desktop packaging remain CodeLocal/operator actions after an explicit current user instruction.
+
+## Browser boundary
+
+- Prefer local development or isolated staging endpoints.
+- Never use Browser to perform a mutating production action.
+- If a browser check needs authenticated state, use staging/test credentials only.
+- Treat console/network failures as verification evidence; do not bypass security controls to make a browser check pass.
+
+## Handoff contract
+
+When work is ready, report:
+
+1. branch and commit (or dirty working-tree status if not committed);
+2. files changed and behavior changed;
+3. tests/checks actually run and their result;
+4. Browser verification performed and any console/network errors;
+5. migration/dependency/secret impact;
+6. known risks and rollback notes;
+7. whether production deployment or native Windows build is requested next.
+
+Do not claim production is deployed unless CodeLocal/operator deployment actually completed and was verified.
