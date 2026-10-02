@@ -190,7 +190,6 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
 
   const active = isSearchV3Active(capabilitiesResolved, capabilities);
   const facetKey = JSON.stringify(selectedFacets);
-  const viewerSourceMissing = Boolean(capabilities.viewer_scoped) && !externalSourceId?.trim();
 
   useEffect(() => {
     const epoch = ++suggestionEpoch.current;
@@ -217,7 +216,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
       return;
     }
     if (previous && (previous.scope !== scope || previous.query !== normalizedQuery)) clearSuggestionState();
-    if (viewerSourceMissing || !shouldFetchSearchSuggestions(active, authenticated, normalizedQuery)) {
+    if (!shouldFetchSearchSuggestions(active, authenticated, normalizedQuery)) {
       setSuggestionsLoading(false); setSuggestionsError("");
       return;
     }
@@ -272,7 +271,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
       controller.abort();
       if (suggestionController.current === controller) suggestionController.current = null;
     };
-  }, [active, authenticated, provider, query, externalSourceId, viewerSourceMissing, suggestionsRetry]);
+  }, [active, authenticated, provider, query, externalSourceId, suggestionsRetry]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -289,11 +288,6 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
     epoch: number,
     signal: AbortSignal,
   ) => {
-    if (viewerSourceMissing) {
-      if (append) setLoadingMore(false); else setLoading(false);
-      setError("Search source is unavailable");
-      return;
-    }
     const startedAt = performance.now();
     try {
       const assetRequest = fetch("/api/v1/search", {
@@ -345,7 +339,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
       }
       if (append) pageInFlight.current = false;
     }
-  }, [provider, query, selectedFacets, externalSourceId, viewerSourceMissing]);
+  }, [provider, query, selectedFacets, externalSourceId]);
 
   useEffect(() => {
     const epoch = ++searchEpoch.current;
@@ -357,7 +351,7 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
     setHasMore(false);
     setLoadingMore(false);
     setItems([]);
-    if (viewerSourceMissing || !active || !authenticated || query.trim().length < 1) {
+    if (!active || !authenticated || query.trim().length < 1) {
       setTotal(0); setParsed(null); setDurationMs(null); setError(""); setLoading(false); return;
     }
     setDurationMs(null);
@@ -368,17 +362,17 @@ export function useSearchV3(authenticated: boolean, provider: Provider | null, q
       void fetchPage(null, false, epoch, controller.signal);
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [active, authenticated, query, facetKey, fetchPage, viewerSourceMissing, paginationResetKey]);
+  }, [active, authenticated, query, facetKey, fetchPage, paginationResetKey]);
 
   const loadMore = useCallback(() => {
-    if (viewerSourceMissing || !active || !authenticated || !query.trim() || !hasMore || !nextCursor.current || loading || loadingMore || pageInFlight.current) return;
+    if (!active || !authenticated || !query.trim() || !hasMore || !nextCursor.current || loading || loadingMore || pageInFlight.current) return;
     pageInFlight.current = true;
     setLoadingMore(true);
     const controller = new AbortController();
     appendController.current?.abort();
     appendController.current = controller;
     void fetchPage(nextCursor.current, true, searchEpoch.current, controller.signal);
-  }, [active, authenticated, query, hasMore, loading, loadingMore, fetchPage, viewerSourceMissing]);
+  }, [active, authenticated, query, hasMore, loading, loadingMore, fetchPage]);
 
   useEffect(() => () => appendController.current?.abort(), []);
 

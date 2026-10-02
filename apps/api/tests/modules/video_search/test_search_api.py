@@ -95,7 +95,7 @@ class VideoSearchApiTest(unittest.TestCase):
             )
         self.assertEqual(raised.exception.status_code, 403)
 
-    def test_pure_viewer_requires_source_and_is_limited_to_authorized_assets(self):
+    def test_pure_viewer_can_search_all_authorized_sources_and_stays_scoped(self):
         from app.modules.video_search.router import _authorized_video_scope
 
         principal = CurrentPrincipal(
@@ -104,13 +104,28 @@ class VideoSearchApiTest(unittest.TestCase):
             effective_permissions=frozenset({"search.read"}), platform_admin=False,
             session_id=None, authorization_source="tenant_rbac",
         )
-        with self.assertRaises(HTTPException) as raised:
-            _authorized_video_scope(
+        with patch("app.modules.video_search.router.ViewerFolderScopeService") as scope_type:
+            service = scope_type.return_value
+            service.list_membership_scopes.return_value = {
+                "source-a": {"folder-a"},
+                "source-b": {"folder-b"},
+            }
+            service.access.side_effect = lambda **kwargs: ViewerFolderAccess(
+                restricted=True,
+                source_id=kwargs["external_source_id"],
+                folder_ids=frozenset({f"folder-{kwargs['external_source_id'][-1]}"}),
+            )
+            service.allowed_source_asset_ids.side_effect = lambda *, tenant_id, access: {
+                f"asset-in-{access.source_id}"
+            }
+            source_id, allowed_ids = _authorized_video_scope(
                 external_source_id=None,
                 principal=principal,
                 session=Mock(),
             )
-        self.assertEqual(raised.exception.status_code, 422)
+
+        self.assertIsNone(source_id)
+        self.assertEqual(allowed_ids, {"asset-in-source-a", "asset-in-source-b"})
 
         session = Mock()
         session.scalar.return_value = "source-a"

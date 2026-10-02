@@ -38,14 +38,31 @@ def _authorized_video_scope(
     session: Session,
 ) -> tuple[str | None, set[str] | None]:
     source_id = (external_source_id or "").strip() or None
+    scope_service = ViewerFolderScopeService(session)
+
     if is_pure_viewer(principal) and source_id is None:
-        raise HTTPException(
-            422,
-            detail={
-                "code": "viewer_source_context_required",
-                "message": "Select a source before searching videos.",
-            },
+        if not principal.membership_id:
+            return None, set()
+        scopes = scope_service.list_membership_scopes(
+            tenant_id=principal.active_tenant_id,
+            membership_id=principal.membership_id,
         )
+        allowed_source_asset_ids: set[str] = set()
+        for scoped_source_id in scopes:
+            access = scope_service.access(
+                tenant_id=principal.active_tenant_id,
+                membership_id=principal.membership_id,
+                roles=principal.effective_roles,
+                external_source_id=scoped_source_id,
+            )
+            allowed_source_asset_ids.update(
+                scope_service.allowed_source_asset_ids(
+                    tenant_id=principal.active_tenant_id,
+                    access=access,
+                )
+            )
+        return None, allowed_source_asset_ids
+
     if source_id is None:
         return None, None
     source_exists = session.scalar(
@@ -62,7 +79,6 @@ def _authorized_video_scope(
                 "message": "The selected source is unavailable.",
             },
         )
-    scope_service = ViewerFolderScopeService(session)
     access = scope_service.access(
         tenant_id=principal.active_tenant_id,
         membership_id=principal.membership_id,

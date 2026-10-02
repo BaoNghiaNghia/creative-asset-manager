@@ -21,7 +21,7 @@ from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, El
 from app.modules.assets.content_resolver import SourceAssetContentTransient, SourceAssetContentUnavailable
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
-from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
+from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.search.router import _hydrate_search_hits, _search_scope_filters, _typed_filters
 from app.modules.search.schema import SearchCoreFilters
 from app.modules.visual_search.contracts import (
@@ -273,14 +273,86 @@ def _ranking_weights(settings) -> VisualRankingWeights:
     )
 
 
+def _viewer_authorized_accesses(
+    session,
+    principal: CurrentPrincipal,
+    *,
+    external_source_id: str | None,
+):
+    service = ViewerFolderScopeService(session)
+    source_id = (external_source_id or "").strip()
+    if source_id:
+        return service, [
+            service.access(
+                tenant_id=principal.active_tenant_id,
+                membership_id=principal.membership_id,
+                roles=principal.effective_roles,
+                external_source_id=source_id,
+            )
+        ]
+    if not principal.membership_id:
+        return service, []
+    scopes = service.list_membership_scopes(
+        tenant_id=principal.active_tenant_id,
+        membership_id=principal.membership_id,
+    )
+    return service, [
+        service.access(
+            tenant_id=principal.active_tenant_id,
+            membership_id=principal.membership_id,
+            roles=principal.effective_roles,
+            external_source_id=scoped_source_id,
+        )
+        for scoped_source_id in scopes
+    ]
+
+
+def _viewer_allowed_internal_asset_ids(
+    session,
+    principal: CurrentPrincipal,
+    *,
+    external_source_id: str | None,
+) -> set[str]:
+    service, accesses = _viewer_authorized_accesses(
+        session, principal, external_source_id=external_source_id,
+    )
+    allowed: set[str] = set()
+    for access in accesses:
+        allowed.update(
+            service.allowed_internal_asset_ids(
+                tenant_id=principal.active_tenant_id,
+                access=access,
+            )
+        )
+    return allowed
+
+
+def _viewer_allowed_asset_source_pairs(
+    session,
+    principal: CurrentPrincipal,
+    *,
+    external_source_id: str | None,
+) -> set[tuple[str, str]]:
+    service, accesses = _viewer_authorized_accesses(
+        session, principal, external_source_id=external_source_id,
+    )
+    allowed: set[tuple[str, str]] = set()
+    for access in accesses:
+        allowed.update(
+            service.allowed_asset_source_pairs(
+                tenant_id=principal.active_tenant_id,
+                access=access,
+            )
+        )
+    return allowed
+
+
 def _visual_scope_filters(session, principal: CurrentPrincipal, *, scope: VisualQueryScope, source_provider: str | None, external_source_id: str | None, folder_id: str | None):
     """Normalize explicit visual scope without bypassing Search V3 viewer filters."""
     tenant = principal.active_tenant_id
     if scope not in {"all", "source", "folder"}:
         raise HTTPException(422, detail={"code": "visual_scope_invalid"})
     if scope == "all":
-        if is_pure_viewer(principal):
-            raise HTTPException(422, detail={"code": "viewer_source_required", "message": "Viewer search must use an authorized source or folder."})
         return _search_scope_filters(session, principal, source_provider=None, external_source_id=None)
     if not (external_source_id or "").strip():
         raise HTTPException(422, detail={"code": "visual_scope_source_required"})
@@ -390,17 +462,12 @@ async def find_similar_by_asset(
         filters, viewer_scope_key, viewer_restricted = _visual_scope_filters(
             session, principal, scope=body.scope, source_provider=body.source_provider, external_source_id=body.external_source_id, folder_id=body.folder_id,
         )
-        if viewer_restricted:
-            access = ViewerFolderScopeService(session).access(
-                tenant_id=tenant,
-                membership_id=principal.membership_id,
-                roles=principal.effective_roles,
-                external_source_id=body.external_source_id,
-            )
-            if asset.id not in ViewerFolderScopeService(session).allowed_internal_asset_ids(
-                tenant_id=tenant, access=access,
-            ):
-                raise HTTPException(404, detail={"code": "visual_query_asset_not_found", "message": "Asset is unavailable."})
+        if viewer_restricted and asset.id not in _viewer_allowed_internal_asset_ids(
+            session,
+            principal,
+            external_source_id=body.external_source_id,
+        ):
+            raise HTTPException(404, detail={"code": "visual_query_asset_not_found", "message": "Asset is unavailable."})
         session.commit()
 
     descriptor = VISUAL_SEARCH_ACTIVE_DESCRIPTOR
@@ -844,15 +911,10 @@ async def _find_similar_by_asset_crop(
             )
         source = session.scalar(source_query)
         if viewer_restricted:
-            access = ViewerFolderScopeService(session).access(
-                tenant_id=tenant,
-                membership_id=principal.membership_id,
-                roles=principal.effective_roles,
+            allowed_pairs = _viewer_allowed_asset_source_pairs(
+                session,
+                principal,
                 external_source_id=body.external_source_id,
-            )
-            allowed_pairs = ViewerFolderScopeService(session).allowed_asset_source_pairs(
-                tenant_id=tenant,
-                access=access,
             )
             if source is None or (asset.id, source.id) not in allowed_pairs:
                 source = next(

@@ -275,6 +275,48 @@ class SearchV3ApiTest(unittest.TestCase):
             {"value": "cat", "count": 2, "selected": True},
         )
 
+    def test_pure_viewer_tenant_wide_search_without_source_is_allowed_and_fail_closed_without_scopes(self):
+        captured = []
+
+        class FakeIndex:
+            async def open_point_in_time(self, *, keep_alive):
+                return "pit-viewer-global"
+
+            async def search_with_pit(self, query, *, pit_id, keep_alive):
+                captured.append(copy.deepcopy(query))
+                return {
+                    "pit_id": pit_id,
+                    "took": 1,
+                    "hits": {"total": {"value": 0, "relation": "eq"}, "hits": []},
+                    "aggregations": {},
+                }
+
+            async def close_point_in_time(self, _pit_id):
+                return True
+
+        settings = Settings(
+            SEARCH_V3_ENABLED=True,
+            ELASTICSEARCH_URL="http://search.test:9200",
+        )
+        fake_index = FakeIndex()
+
+        async def get_index(_config):
+            return fake_index
+
+        with (
+            patch("app.modules.search.router.SessionLocal", self.factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch.object(API_SEARCH_INDEX_POOL, "get", side_effect=get_index),
+        ):
+            response = self.client.post(
+                "/api/v1/search",
+                json={"query": "8869 valucap"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [])
+        self.assertIn({"match_none": {}}, captured[0]["query"]["bool"]["filter"])
+
     def test_cursor_page_two_reuses_pit_and_rejects_context_changes(self):
         app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
             user_id="operator-a",

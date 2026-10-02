@@ -437,8 +437,10 @@ class VisualByAssetApiTest(unittest.TestCase):
             ])
             session.commit()
         global_scope = self._post({"asset_id": "asset-a", "scope": "all"})
-        self.assertEqual(global_scope.status_code, 422)
-        self.assertEqual(global_scope.json()["detail"]["code"], "viewer_source_required")
+        self.assertEqual(global_scope.status_code, 200)
+        _embedding, global_kwargs = _Index.calls[-1]
+        self.assertIn("source-a", str(global_kwargs["scope"].access_filters))
+        self.assertIn("assigned-a", str(global_kwargs["scope"].access_filters))
         allowed_folder = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a", "folder_id": "assigned-a"})
         self.assertEqual(allowed_folder.status_code, 200)
         forbidden_folder = self._post({"asset_id": "asset-a", "scope": "folder", "external_source_id": "source-a", "folder_id": "other-folder"})

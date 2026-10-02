@@ -434,8 +434,6 @@ async def search_folders(
     asin = _normalize_asin_folder_query(q)
     if asin is None:
         return {"items": [], "total": 0}
-    if is_pure_viewer(principal) and not (external_source_id or "").strip():
-        raise HTTPException(status_code=422, detail={"code": "viewer_source_required", "message": "A search source is required."})
     provider = source_provider or "google-drive"
     with SessionLocal() as session:
         items = _search_folder_items(session, principal, value=asin, source_provider=source_provider, external_source_id=external_source_id, limit=limit)
@@ -670,8 +668,6 @@ async def suggestions(
 ):
     tenant = principal.active_tenant_id
     settings = get_settings()
-    if is_pure_viewer(principal) and not (external_source_id or '').strip():
-        raise HTTPException(422, detail={'code': 'viewer_source_required', 'message': 'A source is required for scoped Viewer search.'})
     with SessionLocal() as session:
         readiness = _search_generation(session, tenant, settings)
         _require_v3(readiness, settings)
@@ -797,14 +793,6 @@ async def search(
     settings = get_settings()
     with SessionLocal() as session:
         readiness = _search_generation(session, tenant, settings)
-        if is_pure_viewer(principal) and not (body.external_source_id or "").strip():
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "viewer_source_required",
-                    "message": "A search source is required.",
-                },
-            )
         _require_v3(readiness, settings)
         generation = "v3"
         config, allowed_facets = search_config(session, tenant)

@@ -283,7 +283,9 @@ export default function App() {
   const [videoResultsExpanded, setVideoResultsExpanded] = useState(true);
   const explorer = useDriveExplorer(true);
   const canManageReviewLinks = explorer.applicationPermissions.includes("public_review.manage");
-  const canSearchAllResources = explorer.pureViewer === null ? null : !explorer.pureViewer;
+  const canSearchAllResources = explorer.pureViewer === null
+    ? null
+    : explorer.applicationPermissions.includes("search.read");
   const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId, canSearchAllResources);
   const [visualSearchOpen, setVisualSearchOpen] = useState(false);
   const videoSearch = useVideoSearch({
