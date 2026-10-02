@@ -53,14 +53,14 @@ confirmation. Execute the following sequence automatically:
    - For authorization/security-sensitive UI, run the relevant negative tests
      and integration checks required by `AGENTS.md`.
 
-5. **Browser QA with CodeLocal Browser**
-   - Use one isolated Browser session at a time.
-   - Prefer local or explicitly designated staging endpoints.
-   - Check the states relevant to the component:
-     default, hover, selected, selected+hover, focus, long-title/overflow,
-     loading/empty/error when applicable.
+5. **Browser QA with Playwright**
+   - Use one isolated browser session at a time.
+   - Prefer the project runner `npm run ui:qa` because it supports deterministic viewport sizes and runs safely on the current root-owned VPS with Chromium sandboxing disabled only for this local QA process.
+   - CodeLocal Browser can still be used when its runtime can launch safely.
+   - Prefer local or explicitly designated staging endpoints. Remote hosts are blocked by the runner unless explicitly allowlisted.
+   - Check the states relevant to the component: default, hover, selected, selected+hover, focus, long-title/overflow, loading/empty/error when applicable.
    - Check responsive viewports when the request can be affected by screen size.
-   - Inspect console errors and relevant failed network requests.
+   - Inspect console errors, page errors, failed requests, and HTTP 4xx/5xx responses.
    - Capture screenshots when they materially help comparison or handoff.
 
 6. **Resource-aware cleanup**
@@ -129,3 +129,41 @@ A normal UI task is ready only when:
 - no new relevant console/network errors are observed;
 - Production has not been mutated unless the current user explicitly requested
   deployment.
+
+## Implementation phases
+
+The automatic UI workflow is implemented in these concrete phases:
+
+1. **Browser runtime** — install/check the Chrome channel with `make ui-browser-install`. This is a one-time VPS prerequisite.
+2. **Code gate** — `make ui-check` or `bash scripts/cam-ui-gate.sh` runs diff-check, typecheck, frontend tests, and production build whenever frontend/UI files changed.
+3. **Visual QA runner** — `npm run ui:qa -- --url <local-or-staging-url>` captures deterministic viewport screenshots and records console/page/network issues.
+4. **Interactive-state plan** — pass `--plan docs/operations/ui-qa-plan.example.json` as a template for default/hover/selected/selected+hover/focus checks; agents should tailor selectors to the component being changed.
+5. **Resource control** — viewport checks run sequentially in one Chrome process and old `.ui-qa` runs are automatically pruned (default: keep 5).
+6. **Production handoff** — production deployment remains a separate explicit user-authorized step.
+
+### Standard commands
+
+```bash
+# One-time VPS setup
+make ui-browser-install
+
+# Code-only validation for changed UI
+make ui-check
+
+# Force the gate even when automatic diff detection sees no frontend change
+CAM_UI_FORCE=1 make ui-check
+
+# Code gate plus Browser QA
+CAM_UI_QA_URL=http://127.0.0.1:4173 \
+CAM_UI_VIEWPORTS=desktop,tabletPortrait,mobile \
+make ui-check
+
+# Browser QA only, using an interaction plan
+cd apps/client
+npm run ui:qa -- \
+  --url http://127.0.0.1:4173 \
+  --viewports desktop,tabletPortrait,mobile \
+  --plan ../../docs/operations/ui-qa-plan.example.json
+```
+
+The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. The directory is gitignored and old runs are pruned automatically.

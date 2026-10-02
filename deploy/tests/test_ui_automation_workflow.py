@@ -10,7 +10,7 @@ class UiAutomationWorkflowTests(unittest.TestCase):
         text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("## Automatic UI work", text)
         self.assertIn("docs/operations/UI_AUTOMATION_WORKFLOW.md", text)
-        self.assertIn("CodeLocal Browser (Playwright)", text)
+        self.assertIn("project Playwright runner", text)
         self.assertIn("Deploy Production only when the current user explicitly asks", text)
 
     def test_workflow_covers_interaction_and_responsive_qa(self) -> None:
@@ -20,7 +20,7 @@ class UiAutomationWorkflowTests(unittest.TestCase):
         for required in (
             "default, hover, selected, selected+hover, focus",
             "console errors",
-            "failed network requests",
+            "failed requests",
             "1440 x 900",
             "390 x 844",
             "Close the Browser session",

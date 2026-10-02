@@ -17,11 +17,12 @@ describe("upload progress panel", () => {
     );
   });
 
-  it("uses the renderer picker and uploader for individual files", () => {
-    expect(appSource).toContain("function chooseUploadFiles()");
-    expect(appSource).toContain("chooseUploadFiles();");
-    expect(appSource).toContain("if (files.length) void explorer.uploadFiles(files);");
-    expect(appSource).not.toContain("if (!chooseDesktopFiles())");
+  it("keeps external file drops wired to the uploader after the New menu was removed", () => {
+    expect(appSource).toContain("function handleFileDrop");
+    expect(appSource).toContain("if (!internal) void explorer.uploadFiles(files);");
+    expect(appSource).toContain(".catch(() => void explorer.uploadFiles(files));");
+    expect(appSource).toContain("void explorer.uploadFiles(files);");
+    expect(appSource).not.toContain("function chooseUploadFiles()");
   });
 
   it("shows real byte progress, ETA, completion and server errors", () => {

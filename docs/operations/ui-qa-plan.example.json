@@ -1,0 +1,10 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    { "name": "default" },
+    { "name": "hover", "hover": ".grid article:first-child" },
+    { "name": "selected", "click": ".grid article:first-child" },
+    { "name": "selected-hover", "hover": ".grid article:first-child" },
+    { "name": "focus", "focus": ".grid article:first-child" }
+  ]
+}

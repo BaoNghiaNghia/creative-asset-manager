@@ -48,6 +48,7 @@ Thumbs.db
 
 # Test output
 /artifacts/
+apps/client/.ui-qa/
 
 
 # Local Pi / SoL-Pi workspace
