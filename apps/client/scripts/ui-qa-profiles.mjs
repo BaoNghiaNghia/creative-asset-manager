@@ -51,6 +51,20 @@ export const UI_QA_PROFILES = Object.freeze({
     plan: "docs/operations/ui-qa-video-generation-plan.json",
     baseline: "apps/client/visual-baselines/video-generation",
   },
+  "job-queue": {
+    scope: "job-queue",
+    route: "/job-queue",
+    fixture: "apps/client/scripts/fixtures/job-queue.json",
+    plan: "docs/operations/ui-qa-job-queue-plan.json",
+    baseline: "apps/client/visual-baselines/job-queue",
+  },
+  "public-review": {
+    scope: "public-review",
+    route: "/share/qa-review",
+    fixture: "apps/client/scripts/fixtures/public-review.json",
+    plan: "docs/operations/ui-qa-public-review-plan.json",
+    baseline: "apps/client/visual-baselines/public-review",
+  },
 });
 
 export function getUiQaProfile(name = "explorer-viewer") {

@@ -144,6 +144,18 @@ class UiAutomationRuntimeTests(unittest.TestCase):
                 "docs/operations/ui-qa-video-generation-plan.json",
                 "apps/client/visual-baselines/video-generation",
             ),
+            "job-queue": (
+                "/job-queue",
+                "apps/client/scripts/fixtures/job-queue.json",
+                "docs/operations/ui-qa-job-queue-plan.json",
+                "apps/client/visual-baselines/job-queue",
+            ),
+            "public-review": (
+                "/share/qa-review",
+                "apps/client/scripts/fixtures/public-review.json",
+                "docs/operations/ui-qa-public-review-plan.json",
+                "apps/client/visual-baselines/public-review",
+            ),
         }
         for profile, expected in profiles.items():
             result = subprocess.run(
@@ -174,8 +186,13 @@ class UiAutomationRuntimeTests(unittest.TestCase):
                 [item["name"] for item in manifest["viewports"]],
                 expected_viewports,
             )
-            self.assertTrue(fixture["providerSession"]["authenticated"])
-            self.assertTrue(fixture["identity"]["email"].endswith("@example.test"))
+            if profile == "public-review":
+                self.assertFalse(fixture["providerSession"]["authenticated"])
+                self.assertIsNone(fixture["identity"]["email"])
+                self.assertEqual(fixture["identity"]["authorization_source"], "public_share")
+            else:
+                self.assertTrue(fixture["providerSession"]["authenticated"])
+                self.assertTrue(fixture["identity"]["email"].endswith("@example.test"))
             pngs = sorted(path.name for path in baseline_dir.glob("*.png"))
             self.assertEqual(
                 len(pngs),

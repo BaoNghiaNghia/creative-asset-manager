@@ -27,6 +27,13 @@ const SUPPORTED_STATES = [
   "generation-card-hover",
   "prompt-focus",
   "reference-selected",
+  "queue-row-hover",
+  "queue-search-focus",
+  "queue-completed-tab",
+  "queue-result-modal",
+  "public-card-hover",
+  "public-search-focus",
+  "public-media-open",
 ];
 
 function unique(values) {
@@ -64,6 +71,10 @@ export function classifyUiTask(task, changedFiles = []) {
     scope = "access-management";
   } else if (includesAny(text, ["video generation", "video-generation"]) || joinedFiles.includes("/video-generation/")) {
     scope = "video-generation";
+  } else if (includesAny(text, ["job queue", "job-queue"]) || joinedFiles.includes("/job-queue/")) {
+    scope = "job-queue";
+  } else if (includesAny(text, ["public review", "shared review", "share review"]) || joinedFiles.includes("/public-review/")) {
+    scope = "public-review";
   } else if (includesAny(text, ["ai operations"]) || joinedFiles.includes("/ai-operations/")) {
     scope = "ai-operations";
   }
@@ -126,6 +137,17 @@ export function classifyUiTask(task, changedFiles = []) {
     if (focusLike || includesAny(text, ["prompt"])) states.push("prompt-focus");
     if (includesAny(text, ["reference", "image", "ảnh"])) states.push("reference-selected");
     if (hoverLike || includesAny(text, ["card"])) states.push("generation-card-hover");
+  } else if (scope === "job-queue") {
+    states.push("default");
+    if (hoverLike || includesAny(text, ["row", "job"])) states.push("queue-row-hover");
+    if (searchLike || focusLike) states.push("queue-search-focus");
+    if (includesAny(text, ["completed", "status", "tab"])) states.push("queue-completed-tab");
+    if (includesAny(text, ["result", "modal", "comparison"])) states.push("queue-result-modal");
+  } else if (scope === "public-review") {
+    states.push("default");
+    if (hoverLike || includesAny(text, ["card", "thumbnail"])) states.push("public-card-hover");
+    if (searchLike || focusLike) states.push("public-search-focus");
+    if (includesAny(text, ["viewer", "media", "comment", "review"])) states.push("public-media-open");
   } else {
     if (searchLike) states.push("search-results", "search-focus");
     if (hoverLike) states.push("hover-card");

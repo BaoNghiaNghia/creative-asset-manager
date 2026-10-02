@@ -1,0 +1,176 @@
+{
+  "name": "public-review",
+  "identity": {
+    "user_id": "qa-public-fixture",
+    "actor_id": "qa-public-fixture",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [],
+    "roles": [],
+    "permissions": [],
+    "is_processing_admin": false,
+    "authorization_source": "public_share",
+    "application_auth_provider": null,
+    "display_name": "Public Reviewer",
+    "email": null,
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": false,
+    "user": null
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/bootstrap",
+      "body": {
+        "public_id": "qa-review",
+        "name": "QA Shared Review",
+        "allow_comments": true,
+        "allow_download": true,
+        "expires_at": "2026-10-09T00:00:00Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/folders",
+      "body": {
+        "items": [
+          {
+            "source_id": "qa-public-source",
+            "folder_id": "root",
+            "name": "Campaign References"
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/folders/root/children",
+      "body": {
+        "items": [
+          {
+            "kind": "folder",
+            "source_id": "qa-public-source",
+            "folder_id": "nested",
+            "name": "Etsy References"
+          },
+          {
+            "kind": "asset",
+            "asset_id": "qa-public-asset-1",
+            "source_asset_id": "qa-source-asset-1",
+            "filename": "Natural Navy Front.jpg",
+            "media_type": "image/jpeg",
+            "thumbnail_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+            "preview_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+            "annotation_count": 2
+          },
+          {
+            "kind": "asset",
+            "asset_id": "qa-public-asset-2",
+            "source_asset_id": "qa-source-asset-2",
+            "filename": "Embroidery Close Up.png",
+            "media_type": "image/png",
+            "thumbnail_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+            "preview_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+            "annotation_count": 0
+          }
+        ],
+        "next_offset": null
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/assets/qa-public-asset-1/annotations",
+      "body": {
+        "items": [
+          {
+            "id": "qa-note-1",
+            "author": {
+              "display_name": "QA Reviewer"
+            },
+            "content_json": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Keep the embroidery centered and realistic."
+                    }
+                  ]
+                }
+              ]
+            },
+            "plain_text": "Keep the embroidery centered and realistic.",
+            "parent_annotation_id": null,
+            "anchor_x": null,
+            "anchor_y": null,
+            "created_at": "2026-10-02T08:00:00Z",
+            "updated_at": "2026-10-02T08:00:00Z",
+            "can_edit": false,
+            "can_delete": false
+          },
+          {
+            "id": "qa-note-2",
+            "author": {
+              "display_name": "QA Creative"
+            },
+            "content_json": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Front angle approved."
+                    }
+                  ]
+                }
+              ]
+            },
+            "plain_text": "Front angle approved.",
+            "parent_annotation_id": "qa-note-1",
+            "anchor_x": null,
+            "anchor_y": null,
+            "created_at": "2026-10-02T08:05:00Z",
+            "updated_at": "2026-10-02T08:05:00Z",
+            "can_edit": false,
+            "can_delete": false
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/assets/qa-public-asset-2/annotations",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/comments",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/search/suggestions",
+      "body": {
+        "suggestions": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/search",
+      "body": {
+        "items": []
+      }
+    }
+  ]
+}

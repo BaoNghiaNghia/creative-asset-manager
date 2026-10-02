@@ -1,0 +1,32 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "default",
+      "waitFor": ".job-queue-table",
+      "waitMs": 300
+    },
+    {
+      "name": "queue-row-hover",
+      "hover": ".job-queue-table tbody tr"
+    },
+    {
+      "name": "queue-search-focus",
+      "focus": ".job-queue-filter-fields input"
+    },
+    {
+      "name": "queue-completed-tab",
+      "click": ".job-queue-tabs button:nth-child(4)",
+      "waitFor": ".job-queue-table"
+    },
+    {
+      "name": "queue-result-modal",
+      "click": ".job-view-result",
+      "waitFor": ".generation-result-modal"
+    }
+  ]
+}

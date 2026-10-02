@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "queue-row-hover",
+    "queue-search-focus",
+    "queue-completed-tab",
+    "queue-result-modal"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T090335Z-11d5af33-job-queue",
+    "task": "Bootstrap fixture-backed visual regression coverage for Job Queue as the next requested UI automation phase",
+    "acceptanceReason": "User requested continuation of deterministic UI QA rollout; bootstrap the current verified Job Queue fixture states as governed baselines.",
+    "sourceHead": "11d5af33cd7577b572b350129d31b8f8f3e47358",
+    "workspaceFingerprint": "0d908638f9733476f4df52d602606ba4dd6202bcb27911100d179425ace36bdb",
+    "acceptedAt": "2026-10-02T09:04:08.186343+00:00"
+  }
+}

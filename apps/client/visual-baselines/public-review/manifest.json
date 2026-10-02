@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "public-card-hover",
+    "public-search-focus",
+    "public-media-open"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T090452Z-11d5af33-public-review",
+    "task": "Bootstrap fixture-backed visual regression coverage for Public Review as the next requested UI automation phase",
+    "acceptanceReason": "User requested continuation of deterministic UI QA rollout; bootstrap the current verified Public Review fixture states as governed baselines.",
+    "sourceHead": "11d5af33cd7577b572b350129d31b8f8f3e47358",
+    "workspaceFingerprint": "c1f79642ce352f803febf15e24fae26936c768a1be51ba71c616ee9cbd8753ae",
+    "acceptedAt": "2026-10-02T09:05:40.642445+00:00"
+  }
+}

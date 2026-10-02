@@ -77,6 +77,28 @@ test("selects the Video Generation fixture-backed profile", () => {
   assert.ok(plan.states.includes("reference-selected"));
 });
 
+test("selects the Job Queue fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust Job Queue row hover and result modal", [
+    "apps/client/app/job-queue/JobQueuePage.tsx",
+  ]);
+  assert.equal(plan.scope, "job-queue");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "job-queue");
+  assert.ok(plan.states.includes("queue-row-hover"));
+  assert.ok(plan.states.includes("queue-result-modal"));
+});
+
+test("selects the Public Review fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust Public Review card hover and media viewer", [
+    "apps/client/app/public-review/PublicReviewRoute.tsx",
+  ]);
+  assert.equal(plan.scope, "public-review");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "public-review");
+  assert.ok(plan.states.includes("public-card-hover"));
+  assert.ok(plan.states.includes("public-media-open"));
+});
+
 test("autofix session id is stable for one task and base commit", () => {
   assert.equal(
     buildAutofixSessionId("same task", "abc"),

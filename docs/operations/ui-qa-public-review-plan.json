@@ -1,0 +1,29 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "default",
+      "waitFor": ".public-grid",
+      "waitMs": 500
+    },
+    {
+      "name": "public-card-hover",
+      "hover": ".public-media-card"
+    },
+    {
+      "name": "public-search-focus",
+      "focus": ".public-search-field input"
+    },
+    {
+      "name": "public-media-open",
+      "resetBefore": true,
+      "click": ".public-media-card .public-card-comment-action",
+      "waitFor": ".public-viewer",
+      "waitMs": 300
+    }
+  ]
+}
