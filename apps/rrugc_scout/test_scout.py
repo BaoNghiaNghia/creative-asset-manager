@@ -487,7 +487,7 @@ def test_scan_auto_run_skips_persisted_pin_history(tmp_path):
 
     history = ScoutHistory(tmp_path / "history.json")
     history.remember(
-        "campaign-history",
+        "source-plan-history",
         [Candidate(
             "https://pinterest.com/pin/old/?utm_source=previous",
             "https://i.pinimg.com/236x/old.jpg",
@@ -500,6 +500,9 @@ def test_scan_auto_run_skips_persisted_pin_history(tmp_path):
         {
             "run": {"id": "run-history"},
             "campaign_id": "campaign-history",
+            "source_plan_id": "source-plan-history",
+            "source_relative_path": "hats/navy/embroidery-front.png",
+            "source_name": "embroidery-front.png",
             "query": "phone candid",
             "search_queries": ["phone candid"],
             "target_count": 10,
@@ -513,8 +516,9 @@ def test_scan_auto_run_skips_persisted_pin_history(tmp_path):
 
     assert client.submitted == ["https://www.pinterest.com/pin/new/"]
     assert "https://www.pinterest.com/pin/new/" in history.seen_pin_keys(
-        "campaign-history"
+        "source-plan-history"
     )
+    assert not history.seen_pin_keys("campaign-history")
     assert client.completed == ["run-history:completed"]
 
 
@@ -576,7 +580,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v11"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v12"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

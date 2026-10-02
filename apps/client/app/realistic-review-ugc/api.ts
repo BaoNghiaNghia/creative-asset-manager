@@ -38,6 +38,7 @@ import type {
   ScoutAgent,
   ScoutAgentCreated,
   ScoutRun,
+  SourcePlan,
   SourcePlanSyncResult,
   SupervisorResult,
 } from "./types";
@@ -143,6 +144,9 @@ export const archiveProductReference = (productId: string, referenceId: string) 
     "/api/v1/realistic-review-ugc/products/" + encodeURIComponent(productId) + "/references/" + encodeURIComponent(referenceId),
     { method: "DELETE" },
   );
+
+export const listSourcePlans = (signal?: AbortSignal) =>
+  request<SourcePlan[]>("/api/v1/realistic-review-ugc/source-plans", { signal });
 
 export const syncSourcePlans = () =>
   request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync", {

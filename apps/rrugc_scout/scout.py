@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v11"
+CLIENT_VERSION = "rrugc-scout-v12"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -937,7 +937,11 @@ async def scan_auto_run(
     pace = SCOUT_PACES.get(pace_name, SCOUT_PACES["careful"])
     run_id = str(task["run"]["id"])
     campaign_id = str(task["campaign_id"])
-    persistent_seen = history.seen_pin_keys(campaign_id) if history else set()
+    source_plan_id = str(task.get("source_plan_id") or "").strip()
+    source_relative_path = str(task.get("source_relative_path") or "").strip()
+    source_name = str(task.get("source_name") or "").strip()
+    history_key = source_plan_id or campaign_id
+    persistent_seen = history.seen_pin_keys(history_key) if history else set()
     raw_queries = task.get("search_queries") or [task["query"]]
     search_queries: list[str] = []
     seen_queries: set[str] = set()
@@ -982,6 +986,18 @@ async def scan_auto_run(
         run_candidate_cap,
         len(search_queries),
     )
+    if source_plan_id:
+        print(
+            "source_plan="
+            + source_plan_id
+            + " source="
+            + (source_relative_path or source_name or "unknown")
+            + " campaign="
+            + campaign_id
+            + " target="
+            + str(target)
+            + " refs"
+        )
     print(
         "campaign="
         + str(task["campaign_id"])
@@ -1056,7 +1072,7 @@ async def scan_auto_run(
             ]
             fresh, metadata_filtered = quality_prefilter(unseen)
             if history and filtered_rows:
-                history.remember(campaign_id, filtered_rows)
+                history.remember(history_key, filtered_rows)
                 persistent_seen.update(
                     pin_history_key(row.pin_url) for row in filtered_rows
                 )
@@ -1141,7 +1157,7 @@ async def scan_auto_run(
                     source_query=raw_query,
                 )
                 if history:
-                    history.remember(campaign_id, resolved_chunk)
+                    history.remember(history_key, resolved_chunk)
                     persistent_seen.update(
                         pin_history_key(row.pin_url) for row in resolved_chunk
                     )

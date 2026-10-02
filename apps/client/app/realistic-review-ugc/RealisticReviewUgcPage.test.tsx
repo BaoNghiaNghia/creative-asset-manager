@@ -33,6 +33,10 @@ describe("Realistic Review UGC route", () => {
     expect(markup).toContain("Campaigns");
     expect(markup).toContain("＋ Add campaign");
     expect(markup).toContain("Add, edit, delete, and select campaigns from one place.");
+    expect(markup).toContain("Embroidery source → Pinterest refs");
+    expect(markup).toContain("1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX");
+    expect(markup).toContain("Source image");
+    expect(markup).toContain("References");
     expect(markup).not.toContain("Define what Auto Scout should find");
   });
 
@@ -54,7 +58,8 @@ describe("Realistic Review UGC route", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v8")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v9")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v10")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v11")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v11")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v12")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 

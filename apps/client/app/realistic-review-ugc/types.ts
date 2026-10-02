@@ -138,6 +138,66 @@ export type Campaign = {
 
 export type CampaignCreated = Campaign & { scout_token: string };
 
+export type SourcePlanReferencePreview = {
+  id: string;
+  pin_url: string;
+  image_url: string;
+  status: CandidateStatus;
+  source_query: string | null;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+};
+
+export type SourcePlan = {
+  id: string;
+  root_folder_id: string;
+  source_file_id: string;
+  source_parent_folder_id: string | null;
+  source_relative_path: string;
+  source_name: string;
+  source_mime_type: string;
+  source_size_bytes: number | null;
+  source_width: number | null;
+  source_height: number | null;
+  source_modified_at: string | null;
+  source_web_url: string | null;
+  source_preview_url: string;
+  source_revision: string;
+  analysis_revision: number;
+  target_count: number;
+  status: "queued" | "analyzing" | "ready" | "retry" | "failed" | "missing" | string;
+  visual_context: {
+    status?: string;
+    themes?: string[];
+    scene_hints?: string[];
+    audience_hints?: string[];
+    occasion_hints?: string[];
+    product_cues?: string[];
+    avoid_hints?: string[];
+    confidence?: number;
+    summary?: string | null;
+  } | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  campaign_status: Campaign["status"] | null;
+  scout_status: Campaign["scout_status"] | null;
+  auto_scout: boolean;
+  search_queries: string[];
+  progress_count: number;
+  pipeline_count: number;
+  candidate_count: number;
+  approved_count: number;
+  drive_ready_count: number;
+  scan_next_at: string | null;
+  scan_last_completed_at: string | null;
+  reference_previews: SourcePlanReferencePreview[];
+  last_error_code: string | null;
+  analyzed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SourcePlanSyncResult = {
   root_folder_id: string;
   target_count: number;

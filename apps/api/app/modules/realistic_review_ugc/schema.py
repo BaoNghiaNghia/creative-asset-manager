@@ -403,6 +403,17 @@ class CampaignCreatedResponse(CampaignResponse):
     scout_token: str
 
 
+class SourcePlanReferencePreviewResponse(BaseModel):
+    id: str
+    pin_url: str
+    image_url: str
+    status: str
+    source_query: str | None = None
+    width: int | None = None
+    height: int | None = None
+    created_at: datetime
+
+
 class SourcePlanResponse(BaseModel):
     id: str
     root_folder_id: str
@@ -416,12 +427,26 @@ class SourcePlanResponse(BaseModel):
     source_height: int | None = None
     source_modified_at: datetime | None = None
     source_web_url: str | None = None
+    source_preview_url: str
     source_revision: str
     analysis_revision: int
     target_count: int
     status: str
     visual_context: dict | None = None
     campaign_id: str | None = None
+    campaign_name: str | None = None
+    campaign_status: str | None = None
+    scout_status: str | None = None
+    auto_scout: bool = False
+    search_queries: list[str] = Field(default_factory=list)
+    progress_count: int = 0
+    pipeline_count: int = 0
+    candidate_count: int = 0
+    approved_count: int = 0
+    drive_ready_count: int = 0
+    scan_next_at: datetime | None = None
+    scan_last_completed_at: datetime | None = None
+    reference_previews: list[SourcePlanReferencePreviewResponse] = Field(default_factory=list)
     last_error_code: str | None = None
     analyzed_at: datetime | None = None
     created_at: datetime
@@ -506,6 +531,11 @@ class ScoutClaimResponse(BaseModel):
     auto_import: bool
     progress: int
     pipeline_count: int
+    source_plan_id: str | None = None
+    source_file_id: str | None = None
+    source_relative_path: str | None = None
+    source_name: str | None = None
+    source_context: dict | None = None
 
 
 class ScoutRunCompleteRequest(BaseModel):

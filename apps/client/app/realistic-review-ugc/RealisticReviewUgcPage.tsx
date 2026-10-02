@@ -17,6 +17,7 @@ import {
   getCampaign,
   listCampaigns,
   listCandidates,
+  listSourcePlans,
   syncSourcePlans,
   updateCampaign,
 } from "./api";
@@ -24,8 +25,9 @@ import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { DeliveryOperationsPanel } from "./DeliveryOperationsPanel";
 import { ProductRegistryPanel } from "./ProductRegistryPanel";
+import { SourcePlanTable } from "./SourcePlanTable";
 import { referenceLifestyleSearchQueries } from "./searchPresets";
-import type { AiManualLabel, Campaign, Candidate, CandidateStatus, ContextManualLabel, ReferenceManualLabel } from "./types";
+import type { AiManualLabel, Campaign, Candidate, CandidateStatus, ContextManualLabel, ReferenceManualLabel, SourcePlan } from "./types";
 import "./ui-overhaul.css";
 
 const time = (value: string | null) => value ? new Date(value).toLocaleString() : "Never";
@@ -242,6 +244,7 @@ export function scoutCommand(baseUrl: string, campaignId: string, token: string)
 
 export function RealisticReviewUgcPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [sourcePlans, setSourcePlans] = useState<SourcePlan[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -305,6 +308,11 @@ export function RealisticReviewUgcPage() {
     setSelectedId(current => current && rows.some(row => row.id === current) ? current : rows[0]?.id || "");
   }
 
+  async function refreshSourcePlans(signal?: AbortSignal) {
+    const rows = await listSourcePlans(signal);
+    setSourcePlans(rows);
+  }
+
   async function refreshCandidates(campaignId: string, signal?: AbortSignal) {
     const rows = await listCandidates(campaignId, signal);
     setCandidates(rows);
@@ -328,7 +336,7 @@ export function RealisticReviewUgcPage() {
         + (result.plans_missing ? `; ${result.plans_missing} removed sources archived` : "")
         + `; each plan targets ${result.target_count} Pinterest refs.`,
       );
-      await refreshCampaigns();
+      await Promise.all([refreshCampaigns(), refreshSourcePlans()]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to sync the embroidery source folder.");
     } finally {
@@ -339,11 +347,17 @@ export function RealisticReviewUgcPage() {
   useEffect(() => {
     const controller = new AbortController();
     setError("");
-    void refreshCampaigns(controller.signal).catch(reason => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load campaigns.");
+    void Promise.all([
+      refreshCampaigns(controller.signal),
+      refreshSourcePlans(controller.signal),
+    ]).catch(reason => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load Realistic Review UGC.");
     });
     const timer = window.setInterval(() => {
-      if (!document.hidden) void refreshCampaigns().catch(() => undefined);
+      if (!document.hidden) {
+        void refreshCampaigns().catch(() => undefined);
+        void refreshSourcePlans().catch(() => undefined);
+      }
     }, 5000);
     return () => {
       controller.abort();
@@ -868,6 +882,14 @@ export function RealisticReviewUgcPage() {
           <PinterestAutoScoutPanel onError={setError} />
         </div>
 
+        <SourcePlanTable
+          plans={sourcePlans}
+          syncing={syncingSourcePlans}
+          message={sourcePlanMessage}
+          onSync={() => void syncDriveSourcePlans()}
+          onOpenCampaign={campaignId => setSelectedId(campaignId)}
+        />
+
         <section id="rrugc-campaigns" className="rrugc-card rrugc-campaign-browser rrugc-campaign-manager">
           <div className="rrugc-section-heading">
             <div>
@@ -888,27 +910,12 @@ export function RealisticReviewUgcPage() {
             </div>
           </div>
 
-          {sourcePlanMessage && (
-            <p className="rrugc-editor-product-result" role="status">{sourcePlanMessage}</p>
-          )}
-
           {createOpen && <div className="rrugc-create-campaign-panel">
             <div className="rrugc-create-campaign-heading">
               <div><small>NEW CAMPAIGN</small><strong>Define what Auto Scout should find</strong></div>
               <button type="button" onClick={() => setCreateOpen(false)} aria-label="Close new campaign form">×</button>
             </div>
             <div className="rrugc-form">
-              <div className="rrugc-form-submit">
-                <span>Scan the configured Drive source tree and create one 20-reference Pinterest plan per embroidery image.</span>
-                <button
-                  type="button"
-                  className="rrugc-secondary-action"
-                  disabled={syncingSourcePlans}
-                  onClick={() => void syncDriveSourcePlans()}
-                >
-                  {syncingSourcePlans ? "Scanning source…" : "Sync source folder"}
-                </button>
-              </div>
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
               <label>
                 Discovery mode

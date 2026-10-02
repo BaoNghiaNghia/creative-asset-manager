@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -47,6 +48,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcExportModel,
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
+    RrugcSourcePlanModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
     RrugcDeliveryEventModel,
@@ -176,6 +178,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutRunResponse,
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
+    SourcePlanReferencePreviewResponse,
     SourcePlanResponse,
     SourcePlanSyncResponse,
 )
@@ -184,6 +187,7 @@ from app.modules.realistic_review_ugc.scout_automation import (
     RrugcAutoScoutService,
     effective_agent_status,
     keyword_health_rows,
+    quality_pipeline_count,
 )
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
@@ -2410,7 +2414,57 @@ def generation_skills(
     )
 
 
-def _source_plan_response(row) -> SourcePlanResponse:
+SOURCE_PLAN_REFERENCE_STATUSES = frozenset(
+    {"approved", "import_queued", "importing", "drive_ready"}
+)
+
+
+def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanReferencePreviewResponse:
+    signal = dict(row.ai_signal_json or {})
+    source_query = str(signal.get("scout_query") or "").strip() or None
+    return SourcePlanReferencePreviewResponse(
+        id=row.id,
+        pin_url=row.pin_url,
+        image_url=row.image_url,
+        status=row.status,
+        source_query=source_query,
+        width=row.width,
+        height=row.height,
+        created_at=row.created_at,
+    )
+
+
+def _source_plan_response(
+    row: RrugcSourcePlanModel,
+    *,
+    campaign: RrugcCampaignModel | None = None,
+    counts: Counter | None = None,
+    previews: list[RrugcCandidateModel] | None = None,
+) -> SourcePlanResponse:
+    campaign_counts = counts or Counter()
+    approved_count = sum(
+        campaign_counts.get(status, 0)
+        for status in SOURCE_PLAN_REFERENCE_STATUSES
+    )
+    drive_ready_count = campaign_counts.get("drive_ready", 0)
+    progress_count = (
+        drive_ready_count
+        if campaign is not None and campaign.auto_import
+        else approved_count
+    )
+    pipeline_count = (
+        quality_pipeline_count(
+            campaign_counts,
+            auto_import=campaign.auto_import,
+        )
+        if campaign is not None
+        else 0
+    )
+    queries = (
+        list(campaign.search_queries_json or [campaign.query])
+        if campaign is not None
+        else []
+    )
     return SourcePlanResponse(
         id=row.id,
         root_folder_id=row.root_folder_id,
@@ -2424,12 +2478,38 @@ def _source_plan_response(row) -> SourcePlanResponse:
         source_height=row.source_height,
         source_modified_at=row.source_modified_at,
         source_web_url=row.source_web_url,
+        source_preview_url=(
+            f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
+            f"?v={row.source_revision[:16]}"
+        ),
         source_revision=row.source_revision,
         analysis_revision=row.analysis_revision,
         target_count=row.target_count,
         status=row.status,
         visual_context=dict(row.visual_context_json or {}) or None,
         campaign_id=row.campaign_id,
+        campaign_name=campaign.name if campaign is not None else None,
+        campaign_status=campaign.status if campaign is not None else None,
+        scout_status=campaign.scout_status if campaign is not None else None,
+        auto_scout=bool(campaign.auto_scout) if campaign is not None else False,
+        search_queries=[
+            str(query).strip()
+            for query in queries
+            if str(query).strip()
+        ],
+        progress_count=int(progress_count),
+        pipeline_count=int(pipeline_count),
+        candidate_count=int(sum(campaign_counts.values())),
+        approved_count=int(approved_count),
+        drive_ready_count=int(drive_ready_count),
+        scan_next_at=campaign.scan_next_at if campaign is not None else None,
+        scan_last_completed_at=(
+            campaign.scan_last_completed_at if campaign is not None else None
+        ),
+        reference_previews=[
+            _source_plan_reference_preview(candidate)
+            for candidate in (previews or [])
+        ],
         last_error_code=row.last_error_code,
         analyzed_at=row.analyzed_at,
         created_at=row.created_at,
@@ -2442,13 +2522,121 @@ def get_source_plans(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    return [
-        _source_plan_response(row)
-        for row in list_source_plans(
-            session,
-            tenant_id=principal.active_tenant_id,
-        )
+    plans = list_source_plans(
+        session,
+        tenant_id=principal.active_tenant_id,
+    )
+    campaign_ids = [
+        row.campaign_id
+        for row in plans
+        if row.campaign_id
     ]
+    campaigns: dict[str, RrugcCampaignModel] = {}
+    counts_by_campaign: dict[str, Counter] = {}
+    previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
+    if campaign_ids:
+        campaigns = {
+            row.id: row
+            for row in session.scalars(
+                select(RrugcCampaignModel).where(
+                    RrugcCampaignModel.tenant_id == principal.active_tenant_id,
+                    RrugcCampaignModel.id.in_(campaign_ids),
+                )
+            )
+        }
+        for campaign_id, status, count in session.execute(
+            select(
+                RrugcCandidateModel.campaign_id,
+                RrugcCandidateModel.status,
+                func.count(RrugcCandidateModel.id),
+            )
+            .where(
+                RrugcCandidateModel.tenant_id == principal.active_tenant_id,
+                RrugcCandidateModel.campaign_id.in_(campaign_ids),
+            )
+            .group_by(
+                RrugcCandidateModel.campaign_id,
+                RrugcCandidateModel.status,
+            )
+        ):
+            counts_by_campaign.setdefault(campaign_id, Counter())[status] = int(count)
+        for candidate in session.scalars(
+            select(RrugcCandidateModel)
+            .where(
+                RrugcCandidateModel.tenant_id == principal.active_tenant_id,
+                RrugcCandidateModel.campaign_id.in_(campaign_ids),
+                RrugcCandidateModel.status.in_(SOURCE_PLAN_REFERENCE_STATUSES),
+            )
+            .order_by(
+                RrugcCandidateModel.campaign_id.asc(),
+                RrugcCandidateModel.created_at.desc(),
+            )
+        ):
+            rows = previews_by_campaign.setdefault(candidate.campaign_id, [])
+            if len(rows) < RRUGC_SOURCE_TARGET_COUNT:
+                rows.append(candidate)
+
+    return [
+        _source_plan_response(
+            row,
+            campaign=campaigns.get(row.campaign_id or ""),
+            counts=counts_by_campaign.get(row.campaign_id or "", Counter()),
+            previews=previews_by_campaign.get(row.campaign_id or "", []),
+        )
+        for row in plans
+    ]
+
+
+@router.get("/source-plans/{source_plan_id}/image")
+async def get_source_plan_image(
+    source_plan_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    row = session.scalar(
+        select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.id == source_plan_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Source plan not found")
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+    try:
+        stream = await storage.open_asset(
+            OpenStoredAssetInput(
+                tenant_id=principal.active_tenant_id,
+                asset_id=row.id,
+                remote_file_id=row.source_file_id,
+                content_type=row.source_mime_type,
+                size_bytes=row.source_size_bytes,
+            )
+        )
+    except StorageProviderError as exc:
+        raise HTTPException(
+            status_code=503 if exc.retryable else 404,
+            detail={
+                "code": "rrugc_source_image_unavailable",
+                "message": "The embroidery source image is unavailable.",
+            },
+        ) from exc
+    return StreamingResponse(
+        stream.body,
+        media_type=stream.content_type or row.source_mime_type,
+        background=BackgroundTask(stream.close),
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "ETag": f'"{row.source_revision}"',
+        },
+    )
 
 
 @router.post("/source-plans/sync", response_model=SourcePlanSyncResponse)
@@ -3884,6 +4072,12 @@ def auto_scout_agent_claim(
     if claim is None:
         return None
     search_queries = list(claim.search_queries)
+    source_plan = session.scalar(
+        select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == claim.campaign.tenant_id,
+            RrugcSourcePlanModel.campaign_id == claim.campaign.id,
+        )
+    )
     return ScoutClaimResponse(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,
@@ -3894,6 +4088,13 @@ def auto_scout_agent_claim(
         auto_import=claim.campaign.auto_import,
         progress=claim.progress,
         pipeline_count=claim.pipeline_count,
+        source_plan_id=source_plan.id if source_plan is not None else None,
+        source_file_id=source_plan.source_file_id if source_plan is not None else None,
+        source_relative_path=(
+            source_plan.source_relative_path if source_plan is not None else None
+        ),
+        source_name=source_plan.source_name if source_plan is not None else None,
+        source_context=dict(claim.campaign.product_context_json or {}) or None,
     )
 
 
