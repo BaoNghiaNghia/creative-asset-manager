@@ -33,6 +33,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("captureDomElements", text)
         self.assertIn("rankSourceHints", text)
         self.assertIn("visual-analysis.md", text)
+        self.assertIn('["repair", "baseline-proposal", "baseline-accept"]', text)
+        self.assertIn("ignoredRequestFailures", text)
         self.assertIn("desktop", text)
         self.assertIn("tabletPortrait", text)
         self.assertIn("mobile", text)
@@ -61,8 +63,12 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("scripts/cam-ui-autofix.sh", text)
         self.assertIn("ui-smart-tests:", text)
         self.assertIn("scripts/cam-ui-run-smart-tests.sh", text)
+        self.assertIn("ui-visual-propose:", text)
+        self.assertIn("scripts/cam-ui-baseline-propose.sh", text)
+        self.assertIn("ui-visual-accept:", text)
+        self.assertIn("scripts/cam-ui-baseline-accept.sh", text)
         self.assertIn("ui-visual-update:", text)
-        self.assertIn("CAM_UI_VISUAL_UPDATE=1", text)
+        self.assertNotIn("CAM_UI_VISUAL_UPDATE=1", text)
         self.assertIn("ui:qa:analysis:test", (ROOT / "apps/client/package.json").read_text(encoding="utf-8"))
 
     def test_authenticated_staging_fixture_is_safe_and_complete(self) -> None:
@@ -84,7 +90,7 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("127.0.0.1", staging)
         self.assertIn("--fixture", staging)
         self.assertIn("--baseline-dir", staging)
-        self.assertIn("--update-baselines", staging)
+        self.assertIn("Direct baseline update is disabled", staging)
         self.assertIn("CAM_UI_VISUAL_SKIP", staging)
         self.assertIn("CAM_UI_CHANGED_FILES", gate)
         self.assertIn("ui:qa:analysis:test", gate)
@@ -169,6 +175,22 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("visual-or-automation-only-change", selector)
         self.assertIn("visualProfileSupported", planner)
         self.assertIn("no-fixture-backed-visual-profile-for", planner)
+
+    def test_baseline_governance_requires_proposal_and_explicit_acceptance(self) -> None:
+        runner = (ROOT / "apps/client/scripts/ui-qa.mjs").read_text(encoding="utf-8")
+        propose = (ROOT / "scripts/cam-ui-baseline-propose.sh").read_text(encoding="utf-8")
+        accept = (ROOT / "scripts/cam-ui-baseline-accept.sh").read_text(encoding="utf-8")
+        governance = (ROOT / "scripts/ui_baseline_governance.py").read_text(encoding="utf-8")
+        self.assertIn("Direct visual baseline writes are disabled", runner)
+        self.assertIn("CAM_UI_TASK", propose)
+        self.assertIn("Tracked baselines were not modified", propose)
+        self.assertIn("CAM_UI_BASELINE_ACCEPT", accept)
+        self.assertIn("CAM_UI_BASELINE_ACCEPT_REASON", accept)
+        self.assertIn("baseline-accept-backup", accept)
+        self.assertIn("workspaceFingerprint", governance)
+        self.assertIn("manifestHash", governance)
+        self.assertNotIn("deploy-cam-frontend.sh", propose)
+        self.assertNotIn("deploy-cam-frontend.sh", accept)
 
 
 if __name__ == "__main__":

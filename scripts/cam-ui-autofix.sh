@@ -94,7 +94,7 @@ if [[ "$VISUAL_SUPPORTED" == "1" ]]; then
   set -e
 
   if (( REPAIR_STATUS != 0 )); then
-    printf '\nAuto-Fix targeted verification did not pass (exit %s). Read the newest repair visual-analysis.md, make one causally scoped edit, and rerun this same Auto-Fix session. The repair budget is capped at %s; do not run the full gate yet.\n' \
+    printf '\nAuto-Fix targeted verification did not pass (exit %s). Read the newest repair visual-analysis.md, make one causally scoped edit, and rerun this same Auto-Fix session. The repair budget is capped at %s; do not run the full gate yet. If the mismatch is an intentional user-approved redesign, create a governed baseline proposal instead of rewriting baselines directly; acceptance still requires a separate explicit user confirmation.\n' \
       "$REPAIR_STATUS" "$MAX_REPAIRS" >&2
     exit "$REPAIR_STATUS"
   fi

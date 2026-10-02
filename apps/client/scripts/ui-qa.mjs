@@ -428,6 +428,11 @@ const baselineArg = argValue("--baseline-dir") || process.env.CAM_UI_VISUAL_BASE
 const baselineDir = baselineArg ? path.resolve(baselineArg) : null;
 const updateBaselines =
   hasFlag("--update-baselines") || process.env.CAM_UI_VISUAL_UPDATE === "1";
+if (updateBaselines) {
+  throw new Error(
+    "Direct visual baseline writes are disabled. Create a governed proposal and explicitly accept it instead.",
+  );
+}
 if (updateBaselines && requestedStates.length > 0) {
   throw new Error(
     "Targeted --states runs cannot update visual baselines. Run the full baseline update workflow instead.",
@@ -527,7 +532,10 @@ try {
         url: request.url(),
         error: request.failure()?.errorText || "request_failed",
       };
-      if (qaMode === "repair" && failure.error === "net::ERR_ABORTED") {
+      if (
+        ["repair", "baseline-proposal", "baseline-accept"].includes(qaMode) &&
+        failure.error === "net::ERR_ABORTED"
+      ) {
         issues.ignoredRequestFailures.push(failure);
         return;
       }

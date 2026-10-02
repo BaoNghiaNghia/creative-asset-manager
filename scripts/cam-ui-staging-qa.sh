@@ -67,11 +67,13 @@ QA_ARGS=(
   --viewports "$VIEWPORTS"
 )
 
+if [[ "${CAM_UI_VISUAL_UPDATE:-0}" == "1" ]]; then
+  echo "ERROR: Direct baseline update is disabled. Use make ui-visual-propose, review the proposal, then explicitly run make ui-visual-accept." >&2
+  exit 2
+fi
+
 if [[ "${CAM_UI_VISUAL_SKIP:-0}" != "1" ]]; then
   QA_ARGS+=(--baseline-dir "$BASELINE_DIR")
-  if [[ "${CAM_UI_VISUAL_UPDATE:-0}" == "1" ]]; then
-    QA_ARGS+=(--update-baselines)
-  fi
 fi
 
 if [[ "${CAM_UI_QA_STRICT:-1}" == "1" ]]; then

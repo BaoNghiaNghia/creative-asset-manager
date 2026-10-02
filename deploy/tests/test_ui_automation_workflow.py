@@ -50,6 +50,17 @@ class UiAutomationWorkflowTests(unittest.TestCase):
         self.assertIn("two attempts", text)
         self.assertIn("exactly one final full UI gate", text)
 
+    def test_workflow_requires_governed_baseline_acceptance(self) -> None:
+        text = (ROOT / "docs/operations/UI_AUTOMATION_WORKFLOW.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Baseline governance", text)
+        self.assertIn("make ui-visual-propose", text)
+        self.assertIn("make ui-visual-accept", text)
+        self.assertIn("does NOT mutate baselines", text)
+        self.assertIn("current user explicitly confirms", text)
+        self.assertIn("Direct `--update-baselines`", text)
+
 
 if __name__ == "__main__":
     unittest.main()
