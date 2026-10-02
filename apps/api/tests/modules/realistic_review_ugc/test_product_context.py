@@ -15,6 +15,33 @@ from app.modules.realistic_review_ugc.product_context import (
 from app.modules.realistic_review_ugc.scout_automation import adaptive_search_queries
 
 
+def test_visual_context_normalizes_gemini_confidence_labels():
+    assert ProductVisualContextDocument.model_validate(
+        {
+            "themes": ["outdoor"],
+            "scene_hints": ["weekend outing"],
+            "audience_hints": [],
+            "occasion_hints": [],
+            "product_cues": ["embroidered mountain"],
+            "avoid_hints": [],
+            "confidence": "high",
+            "summary": "Outdoor embroidery suggests a casual weekend context.",
+        }
+    ).confidence == 0.9
+    assert ProductVisualContextDocument.model_validate(
+        {
+            "themes": [],
+            "scene_hints": [],
+            "audience_hints": [],
+            "occasion_hints": [],
+            "product_cues": [],
+            "avoid_hints": [],
+            "confidence": "75%",
+            "summary": "Limited visual evidence.",
+        }
+    ).confidence == 0.75
+
+
 def test_product_context_detects_pet_owner_and_builds_scene_clusters():
     profile = derive_product_context_profile(
         product_snapshot={

@@ -5,7 +5,7 @@ import json
 from collections.abc import Iterable
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
@@ -43,6 +43,26 @@ class ProductVisualContextDocument(BaseModel):
     avoid_hints: list[str] = Field(default_factory=list, max_length=6)
     confidence: float = Field(ge=0.0, le=1.0)
     summary: str = Field(max_length=500)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def normalize_confidence(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            raw = value.strip().casefold()
+            labels = {
+                "high": 0.9,
+                "medium": 0.6,
+                "moderate": 0.6,
+                "low": 0.3,
+            }
+            if raw in labels:
+                return labels[raw]
+            if raw.endswith("%"):
+                try:
+                    return float(raw[:-1]) / 100.0
+                except ValueError:
+                    return value
+        return value
 
 
 _CONTEXT_THEME_RULES: dict[str, tuple[str, ...]] = {

@@ -18,8 +18,13 @@ from app.modules.realistic_review_ugc.router import get_source_plans
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
+    _synthetic_product_snapshot,
+    _synthetic_reference_snapshot,
     discover_source_images,
     sync_source_plans,
+)
+from app.modules.realistic_review_ugc.product_context import (
+    product_visual_binding_fingerprint,
 )
 from app.providers.google.storage import GoogleDriveAssetStorage
 
@@ -124,6 +129,31 @@ def make_database():
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
     return sessionmaker(engine, expire_on_commit=False)
+
+
+def test_source_plan_visual_binding_uses_numeric_revision_and_hash_content():
+    plan = RrugcSourcePlanModel(
+        tenant_id="tenant-a",
+        root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+        source_file_id="image-hash",
+        source_parent_folder_id="folder-a",
+        source_relative_path="Dogs/design.webp",
+        source_name="design.webp",
+        source_mime_type="image/webp",
+        source_revision="e25b0b8085e4c2e71b55385a7d0c40a578476dee1a119b42dd634e7eb1bda28a",
+        analysis_revision=3,
+        target_count=20,
+        status="queued",
+        created_by_user_id="user-a",
+    )
+
+    product = _synthetic_product_snapshot(plan)
+    references = _synthetic_reference_snapshot(plan)
+
+    assert product["revision"] == 3
+    assert references[0]["version"] == 3
+    assert references[0]["content_hash"] == plan.source_revision
+    assert len(product_visual_binding_fingerprint(product, references)) == 64
 
 
 def test_source_plan_list_is_server_paginated_and_searchable():

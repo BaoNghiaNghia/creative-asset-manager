@@ -408,7 +408,7 @@ def _synthetic_product_snapshot(plan: RrugcSourcePlanModel) -> dict[str, Any]:
     folder_note = "" if folder in {"", "."} else f" Source folder: {folder}."
     return {
         "id": f"rrugc-source:{plan.source_file_id}",
-        "revision": plan.source_revision,
+        "revision": int(plan.analysis_revision or 0),
         "name": PurePosixPath(plan.source_name).stem[:200] or plan.source_name[:200],
         "product_type": "cap",
         "source_category": "embroidered hat",
@@ -426,7 +426,7 @@ def _synthetic_reference_snapshot(plan: RrugcSourcePlanModel) -> list[dict[str, 
             "id": plan.source_file_id,
             "variant_id": None,
             "view_type": "embroidery_closeup",
-            "version": plan.source_revision,
+            "version": int(plan.analysis_revision or 0),
             "content_hash": plan.source_revision,
             "remote_file_id": plan.source_file_id,
         }
