@@ -1,6 +1,8 @@
 # Cursor UI design workflow
 
-This document defines the screenshot-driven design lane for Creative Asset Manager.
+This document defines the Cursor-specific screenshot-driven design lane for Creative Asset Manager.
+
+The project-wide source of truth for automatic UI work is `docs/operations/UI_AUTOMATION_WORKFLOW.md`. This document only adds the optional Cursor/My Machines lane.
 
 It complements `docs/operations/CURSOR_AGENT_STAGING.md`:
 

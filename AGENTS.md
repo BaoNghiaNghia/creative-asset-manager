@@ -97,4 +97,12 @@ Those documents are the repository source of truth for database-backup requireme
 
 When implementing backup work, start from current `main` on a feature branch unless the current user explicitly asks for another workflow, inspect the actual current code before editing, and reuse managed Google Drive credential/storage infrastructure where practical. Never use tenant or user Source Drive OAuth credentials for production database backups. Do not add migrations or frontend work unless a later explicit requirement needs them. Run the checks in the implementation plan and update the documentation if an intentional architectural decision changes.
 
+## Automatic UI work
+
+For any request that changes visible or interactive frontend behavior, follow [docs/operations/UI_AUTOMATION_WORKFLOW.md](docs/operations/UI_AUTOMATION_WORKFLOW.md) automatically. This includes screenshot-driven redesigns, spacing/typography/layout, hover/selected/focus states, responsive changes, cards/grids, menus/dialogs/panels, media presentation, and visible permission states.
+
+Do not ask for routine confirmation when the UI request is already clear. Inspect the current implementation first, make the smallest scoped change, preserve existing interactions, run the relevant frontend checks/build, and use CodeLocal Browser (Playwright) for visual/interaction verification when the changed flow is reachable. For Browser QA, check the states and responsive widths relevant to the change, inspect console/network failures, run a single browser session sequentially to conserve VPS resources, and close it after verification.
+
+A normal UI request does not by itself authorize Production deployment or a Windows desktop release. Deploy Production only when the current user explicitly asks for it, and use the authorized native Windows workflow for desktop packaging/publishing.
+
 Direct current user instructions override these repository instructions, but do not silently infer authorization for destructive production actions from a general coding request.

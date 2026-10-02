@@ -9,7 +9,7 @@ alwaysApply: false
 
 Use this rule for UI redesign, screenshot matching, responsive layout, card/grid, navigation, modal, panel, hover/focus/selected-state, and visual polish tasks.
 
-Follow `AGENTS.md` and `.cursor/rules/cam-safe-delivery.mdc` first. This rule does not authorize production deployment.
+Follow `AGENTS.md`, `docs/operations/UI_AUTOMATION_WORKFLOW.md`, and `.cursor/rules/cam-safe-delivery.mdc` first. This Cursor-specific rule extends the project-wide UI workflow and does not authorize production deployment.
 
 ## Design source of truth
 
