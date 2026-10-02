@@ -3,21 +3,32 @@ import { describe, expect, it } from "vitest";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
 
 describe("WorkspaceNavigation permissions", () => {
-  it("hides privileged destinations from a Viewer", () => {
+  it("shows Viewer review workflows while hiding admin destinations", () => {
     const markup = renderToStaticMarkup(
       <WorkspaceNavigation
         active="assets"
         showOperations={false}
-        showReviewBoard={false}
-        permissions={["assets.read", "assets.upload", "assets.delete", "search.read"]}
+        showReviewBoard
+        permissions={[
+          "assets.read",
+          "assets.upload",
+          "assets.delete",
+          "search.read",
+          "public_review.read",
+          "public_review.resolve",
+          "realistic_review_ugc.read",
+          "realistic_review_ugc.run",
+          "realistic_review_ugc.configure",
+        ]}
       />,
     );
 
     expect(markup).toContain("Asset Explorer");
     expect(markup).toContain("Video Generation");
+    expect(markup).toContain("Realistic Review UGC");
+    expect(markup).toContain("Review Board");
     expect(markup).not.toContain("AI Operations");
     expect(markup).not.toContain("Job Queue");
-    expect(markup).not.toContain("Realistic Review UGC");
     expect(markup).not.toContain("Access Management");
   });
 

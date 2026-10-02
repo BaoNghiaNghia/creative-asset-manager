@@ -57,7 +57,23 @@ class TenantAuthorizationServiceTest(unittest.TestCase):
         self.assign("viewer")
         effective = self.service.get_effective_permissions(tenant_id=self.tenant.id, user_id=self.user.id)
         self.assertEqual(effective.roles, {"viewer"})
-        self.assertEqual(effective.permissions, {"assets.read", "assets.upload", "assets.delete", "search.read"})
+        self.assertEqual(
+            effective.permissions,
+            {
+                "assets.read",
+                "assets.upload",
+                "assets.delete",
+                "search.read",
+                "public_review.read",
+                "public_review.resolve",
+                "realistic_review_ugc.read",
+                "realistic_review_ugc.run",
+                "realistic_review_ugc.configure",
+            },
+        )
+        self.assertNotIn("public_review.manage", effective.permissions)
+        self.assertNotIn("search.rebuild", effective.permissions)
+        self.assertNotIn("search.index.activate", effective.permissions)
 
     def test_operator_permissions(self):
         self.assign("operator")

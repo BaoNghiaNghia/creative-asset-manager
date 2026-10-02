@@ -40,7 +40,17 @@ PERMISSION_DEFINITIONS = {
     **INVENTORY_PERMISSION_DEFINITIONS,
 }
 
-VIEWER_PERMISSIONS = {"assets.read", "assets.upload", "assets.delete", "search.read"}
+VIEWER_PERMISSIONS = {
+    "assets.read",
+    "assets.upload",
+    "assets.delete",
+    "search.read",
+    "public_review.read",
+    "public_review.resolve",
+    "realistic_review_ugc.read",
+    "realistic_review_ugc.run",
+    "realistic_review_ugc.configure",
+}
 OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
     "assets.generate",
     "ai_operations.read",
@@ -56,7 +66,11 @@ BILLING_ADMIN_PERMISSIONS = {
     "ai_budget.update",
 }
 SYSTEM_ROLE_DEFINITIONS = {
-    "viewer": ("Viewer", "Read, search, upload, and delete files within assigned folders", VIEWER_PERMISSIONS),
+    "viewer": (
+        "Viewer",
+        "Read and search assigned assets, operate Realistic Review UGC, and fully use Review Board workflows",
+        VIEWER_PERMISSIONS,
+    ),
     "operator": ("Operator", "Operate tenant AI processing", OPERATOR_PERMISSIONS),
     "tenant_admin": (
         "Tenant administrator",

@@ -217,7 +217,20 @@ class CurrentPrincipalTest(unittest.TestCase):
         self.assertEqual(principal.membership_id, self.membership.id)
         self.assertEqual(principal.external_identity.provider_subject, "google-subject")
         self.assertEqual(principal.effective_roles, {"viewer"})
-        self.assertEqual(principal.effective_permissions, {"assets.read", "assets.upload", "assets.delete", "search.read"})
+        self.assertEqual(
+            principal.effective_permissions,
+            {
+                "assets.read",
+                "assets.upload",
+                "assets.delete",
+                "search.read",
+                "public_review.read",
+                "public_review.resolve",
+                "realistic_review_ugc.read",
+                "realistic_review_ugc.run",
+                "realistic_review_ugc.configure",
+            },
+        )
         self.assertEqual(principal.session_id, "safe-session-hash")
 
     def test_disabled_user(self):
