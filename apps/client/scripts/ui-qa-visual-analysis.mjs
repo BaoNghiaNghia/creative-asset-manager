@@ -363,6 +363,7 @@ export function createVisualAnalysis(report) {
   return {
     schemaVersion: 1,
     runId: report.runId,
+    mode: report.mode || "full",
     status: issues.length > 0 ? "failed" : "passed",
     issueCount: issues.length,
     issues,

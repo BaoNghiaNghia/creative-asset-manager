@@ -45,13 +45,13 @@ confirmation. Execute the following sequence automatically:
    - Avoid adding dependencies unless the existing stack cannot reasonably solve
      the task.
 
-4. **Verify code**
-   - Run targeted tests for the changed component or feature.
-   - Run TypeScript/typecheck when frontend types or component contracts changed.
-   - Run the production frontend build for user-visible UI changes.
-   - Run `git diff --check`.
-   - For authorization/security-sensitive UI, run the relevant negative tests
-     and integration checks required by `AGENTS.md`.
+4. **Verify during repair without looping the full gate**
+   - During implementation, prefer `make ui-repair-check` for the affected viewport/state instead of rerunning the full gate.
+   - The repair check always runs `git diff --check`, then uses a Vite dev server and targeted Browser/visual comparison. It intentionally skips the production build and full frontend test suite.
+   - Add `CAM_UI_REPAIR_TESTS="..."` for a small relevant Vitest subset or `CAM_UI_REPAIR_TYPECHECK=1` when the current edit specifically needs those checks.
+   - Automatic repair retries are bounded to two attempts per failed full-gate analysis by default. If they are exhausted, stop and inspect rather than increasing the loop.
+   - Run the production build, complete frontend test suite and typecheck in the full UI gate only when the targeted state passes and the change is ready to finalize.
+   - For authorization/security-sensitive UI, still run the relevant negative tests and integration checks required by `AGENTS.md`.
 
 5. **Browser QA with Playwright**
    - Use one isolated browser session at a time.
@@ -140,9 +140,10 @@ The automatic UI workflow is implemented in these concrete phases:
 4. **Visual QA runner** — `npm run ui:qa -- --url <local-or-staging-url>` captures deterministic viewport screenshots and records console/page/network issues. Add `--fixture <json>` to provide a safe authenticated scenario.
 5. **Interactive-state plan** — `docs/operations/ui-qa-explorer-viewer-plan.json` exercises Asset Explorer default/hover/selected/selected+hover/search/focus states. `docs/operations/ui-qa-plan.example.json` remains the generic template; agents should tailor selectors to the feature being changed.
 6. **Visual regression** — the authenticated staging run compares every captured state against tracked PNG baselines in `apps/client/visual-baselines/explorer-viewer`. Pixel differences above the configured tolerance or any screenshot dimension change fail strict QA and write a diff image into the current `.ui-qa/<run-id>/diffs/` folder. Baselines are never rewritten during the normal gate; an intentional UI change requires the explicit `make ui-visual-update` command after review.
-7. **Automatic diff triage** — on a visual failure the runner clusters changed pixels into bounded regions, maps those regions to the current DOM, records the interaction that produced the state, ranks likely affected selectors, cross-checks those selectors against changed frontend source files, and writes both `visual-analysis.json` and `visual-analysis.md`. It also creates annotated screenshots in `.ui-qa/<run-id>/diagnostics/`. Agents should use these diagnostics to repair the likely component/CSS source and rerun the gate before considering a baseline refresh.
-8. **Resource control** — viewport checks run sequentially in one Chrome process, the local preview is stopped automatically, and old `.ui-qa` runs are pruned (default: keep 5).
-9. **Production handoff** — Production deployment remains a separate explicit user-authorized step.
+7. **Automatic diff triage** — on a visual failure the runner clusters changed pixels into bounded regions, maps those regions to the current DOM, records the interaction that produced the state, ranks likely affected selectors, cross-checks those selectors against changed frontend source files, and writes both `visual-analysis.json` and `visual-analysis.md`. It also creates annotated screenshots in `.ui-qa/<run-id>/diagnostics/`.
+8. **Adaptive repair loop** — `make ui-repair-check` reads the latest failed **full** visual analysis, selects at most four failing issues, replays only the necessary interaction prefix, captures only the requested failing states and viewports, and runs against the Vite dev server without a production build or full test suite. The default repair budget is two attempts per failed full-gate run. A successful targeted repair authorizes one final full gate; a failed targeted repair does not.
+9. **Resource control** — targeted repair runs and full viewport checks are sequential, only one Chrome process is used at a time, local servers are stopped automatically, and old `.ui-qa` runs are pruned.
+10. **Production handoff** — Production deployment remains a separate explicit user-authorized step.
 
 ### Standard commands
 
@@ -150,7 +151,16 @@ The automatic UI workflow is implemented in these concrete phases:
 # One-time VPS setup
 make ui-browser-install
 
-# Full UI gate. By default this now includes authenticated local staging QA.
+# Fast repair iteration: automatically target the latest failed full-gate viewport/state.
+# No production build and no full frontend test suite.
+make ui-repair-check
+
+# Manual targeted repair when there is no failed full analysis yet.
+CAM_UI_REPAIR_VIEWPORTS=mobile \
+CAM_UI_REPAIR_STATES=selected-hover \
+make ui-repair-check
+
+# Full UI gate. Run once after targeted repair passes and the change is ready to finalize.
 make ui-check
 
 # Run only the authenticated local viewer scenario against the current dist build.
@@ -182,4 +192,4 @@ npm run ui:qa -- \
   --strict
 ```
 
-The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. When baseline comparison is enabled it also writes `visual-analysis.json` and `visual-analysis.md`; failures include annotated screenshots in `diagnostics/` and raw visual diffs in `diffs/`. The analysis reports the viewport/state, triggering selector actions, changed-pixel regions, likely DOM elements and likely changed source files so an agent can localize the regression before editing. The directory is gitignored and old runs are pruned automatically. Visual comparison uses `pixelmatch`/`pngjs`; the default per-pixel threshold is `0.1` and the maximum accepted changed-pixel ratio is `0.001` (0.1%). A dimension mismatch always fails strict QA. Region clustering defaults to 12 px tiles, a two-tile join radius and at most eight reported regions; these can be tuned with `CAM_UI_VISUAL_REGION_TILE_SIZE`, `CAM_UI_VISUAL_REGION_JOIN_RADIUS` and `CAM_UI_VISUAL_MAX_REGIONS` for a justified diagnostic case. Override pixel thresholds only with `CAM_UI_VISUAL_PIXEL_THRESHOLD` or `CAM_UI_VISUAL_MAX_DIFF_RATIO`. Set `CAM_UI_VISUAL_SKIP=1` only for an exceptional browser diagnostic where baseline comparison is intentionally not relevant. The default fixture contains synthetic `.example.test` identity data and synthetic asset metadata only; it must never be replaced with copied Production session cookies, OAuth tokens, or Production user data.
+The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. When baseline comparison is enabled it also writes `visual-analysis.json` and `visual-analysis.md`; failures include annotated screenshots in `diagnostics/` and raw visual diffs in `diffs/`. Reports are tagged with `mode: "full"` or `mode: "repair"`, so the repair workflow does not recursively treat its own targeted failures as a new full-gate session. The repair runner supports `--states` targeting while still replaying prerequisite steps from the plan, which preserves dependent states such as selected+hover without capturing every earlier screenshot. Repair attempt counters live under `.ui-qa/repair-sessions/`; the default limit is two and can be changed deliberately with `CAM_UI_REPAIR_MAX_ATTEMPTS`. The analysis reports the viewport/state, triggering selector actions, changed-pixel regions, likely DOM elements and likely changed source files so an agent can localize the regression before editing. The directory is gitignored and old runs are pruned automatically. Visual comparison uses `pixelmatch`/`pngjs`; the default per-pixel threshold is `0.1` and the maximum accepted changed-pixel ratio is `0.001` (0.1%). A dimension mismatch always fails strict QA. Region clustering defaults to 12 px tiles, a two-tile join radius and at most eight reported regions; these can be tuned with `CAM_UI_VISUAL_REGION_TILE_SIZE`, `CAM_UI_VISUAL_REGION_JOIN_RADIUS` and `CAM_UI_VISUAL_MAX_REGIONS` for a justified diagnostic case. Override pixel thresholds only with `CAM_UI_VISUAL_PIXEL_THRESHOLD` or `CAM_UI_VISUAL_MAX_DIFF_RATIO`. Set `CAM_UI_VISUAL_SKIP=1` only for an exceptional browser diagnostic where baseline comparison is intentionally not relevant. The default fixture contains synthetic `.example.test` identity data and synthetic asset metadata only; it must never be replaced with copied Production session cookies, OAuth tokens, or Production user data.

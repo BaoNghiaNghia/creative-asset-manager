@@ -1,4 +1,4 @@
-.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-visual-update
+.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-repair-check ui-visual-update
 
 api:
 	bash scripts/dev-api.sh
@@ -17,6 +17,9 @@ ui-browser-install:
 
 ui-staging-qa:
 	bash scripts/cam-ui-staging-qa.sh
+
+ui-repair-check:
+	bash scripts/cam-ui-repair-check.sh
 
 ui-visual-update:
 	CAM_UI_VISUAL_UPDATE=1 bash scripts/cam-ui-staging-qa.sh

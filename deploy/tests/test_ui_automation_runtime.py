@@ -55,6 +55,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("scripts/cam-ui-gate.sh", text)
         self.assertIn("ui-staging-qa:", text)
         self.assertIn("scripts/cam-ui-staging-qa.sh", text)
+        self.assertIn("ui-repair-check:", text)
+        self.assertIn("scripts/cam-ui-repair-check.sh", text)
         self.assertIn("ui-visual-update:", text)
         self.assertIn("CAM_UI_VISUAL_UPDATE=1", text)
         self.assertIn("ui:qa:analysis:test", (ROOT / "apps/client/package.json").read_text(encoding="utf-8"))
@@ -111,6 +113,23 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("Do not refresh baselines", analyzer)
         self.assertIn("diagnostics", runner)
         self.assertIn("CAM_UI_CHANGED_FILES", runner)
+        self.assertIn("--states", runner)
+        self.assertIn("selectExecutionSteps", runner)
+        self.assertIn('mode: qaMode', runner)
+
+    def test_targeted_repair_runner_is_bounded_and_skips_full_gate_work(self) -> None:
+        repair = (ROOT / "scripts/cam-ui-repair-check.sh").read_text(encoding="utf-8")
+        self.assertIn("CAM_UI_REPAIR_MAX_ATTEMPTS", repair)
+        self.assertIn("CAM_UI_REPAIR_MAX_TARGETS", repair)
+        self.assertIn("--states", repair)
+        self.assertIn("--mode repair", repair)
+        self.assertIn("npm run dev", repair)
+        self.assertIn("git diff --check", repair)
+        self.assertIn("repair-sessions", repair)
+        self.assertIn("CAM_UI_REPAIR_TYPECHECK", repair)
+        self.assertNotIn("npm run build", repair)
+        self.assertNotIn("deploy-cam-frontend.sh", repair)
+        self.assertNotIn("scripts/cam-ui-gate.sh", repair)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,11 @@ import {
   renderVisualAnalysisMarkdown,
 } from "./ui-qa-visual-analysis.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
+import {
+  parseCsvList,
+  selectExecutionSteps,
+  selectPlanSteps,
+} from "./ui-qa-targeting.mjs";
 
 const VIEWPORTS = {
   desktop: { width: 1440, height: 900 },
@@ -408,12 +413,26 @@ if (!rawUrl) {
 
 const url = assertAllowedUrl(rawUrl);
 const plan = await readPlan(argValue("--plan"));
+const requestedStates = parseCsvList(
+  argValue("--states") || process.env.CAM_UI_STATES || "",
+);
+const captureSteps = selectPlanSteps(plan.steps, requestedStates);
+const executionSteps = selectExecutionSteps(plan.steps, requestedStates);
+const captureStateNames = new Set(
+  captureSteps.map((step) => sanitize(step.name || "state")),
+);
+const qaMode = argValue("--mode") || process.env.CAM_UI_QA_MODE || "full";
 const fixturePath = argValue("--fixture") || process.env.CAM_UI_QA_FIXTURE;
 const fixture = await loadUiQaFixture(fixturePath);
 const baselineArg = argValue("--baseline-dir") || process.env.CAM_UI_VISUAL_BASELINE_DIR;
 const baselineDir = baselineArg ? path.resolve(baselineArg) : null;
 const updateBaselines =
   hasFlag("--update-baselines") || process.env.CAM_UI_VISUAL_UPDATE === "1";
+if (updateBaselines && requestedStates.length > 0) {
+  throw new Error(
+    "Targeted --states runs cannot update visual baselines. Run the full baseline update workflow instead.",
+  );
+}
 const pixelThreshold = boundedNumber(
   process.env.CAM_UI_VISUAL_PIXEL_THRESHOLD,
   0.1,
@@ -469,6 +488,8 @@ const report = {
   url,
   runId,
   strict: hasFlag("--strict"),
+  mode: qaMode,
+  states: captureSteps.map((step) => sanitize(step.name || "state")),
   fixture: fixture ? path.relative(process.cwd(), fixture.absolutePath) : null,
   visual: baselineDir
     ? {
@@ -492,6 +513,7 @@ try {
       consoleErrors: [],
       pageErrors: [],
       requestFailures: [],
+      ignoredRequestFailures: [],
       badResponses: [],
     };
 
@@ -500,11 +522,16 @@ try {
     });
     page.on("pageerror", (error) => issues.pageErrors.push(String(error)));
     page.on("requestfailed", (request) => {
-      issues.requestFailures.push({
+      const failure = {
         method: request.method(),
         url: request.url(),
         error: request.failure()?.errorText || "request_failed",
-      });
+      };
+      if (qaMode === "repair" && failure.error === "net::ERR_ABORTED") {
+        issues.ignoredRequestFailures.push(failure);
+        return;
+      }
+      issues.requestFailures.push(failure);
     });
     page.on("response", (response) => {
       if (response.status() >= 400) {
@@ -517,9 +544,10 @@ try {
 
     const screenshots = [];
     const visualComparisons = [];
-    for (const step of plan.steps) {
+    for (const step of executionSteps) {
       await performStep(page, step);
       const name = sanitize(step.name || "state");
+      if (!captureStateNames.has(name)) continue;
       const filename = `${viewportName}--${name}.png`;
       const screenshotPath = path.join(runDir, filename);
       await page.screenshot({
@@ -625,7 +653,7 @@ try {
 }
 
 if (baselineDir && updateBaselines) {
-  const states = plan.steps.map((step) => sanitize(step.name || "state"));
+  const states = captureSteps.map((step) => sanitize(step.name || "state"));
   const expectedPngs = new Set(
     viewportNames.flatMap((viewportName) =>
       states.map((state) => `${viewportName}--${state}.png`),
