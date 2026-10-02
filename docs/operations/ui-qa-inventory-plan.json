@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"default","waitFor":".inventory-materials","waitMs":300},
+    {"name":"material-hover","hover":".inventory-material-registry tbody tr"},
+    {"name":"material-search-focus","focus":".inventory-material-registry input[type='search']"},
+    {"name":"candidate-hover","hover":".inventory-material-summary article:last-child"}
+  ]
+}

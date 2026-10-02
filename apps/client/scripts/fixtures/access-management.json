@@ -1,0 +1,118 @@
+{
+  "name": "access-management",
+  "identity": {
+    "user_id": "qa-access-admin",
+    "actor_id": "qa-access-admin",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
+    "roles": ["tenant_admin"],
+    "permissions": ["assets.read","tenant_members.read","tenant_members.manage","tenant_roles.manage","ai_operations.read"],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Access Admin",
+    "email": "qa.access@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {"id":"qa-google-access","name":"QA Access Admin","email":"qa.access@example.test"}
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method":"GET",
+      "path":"/api/v1/tenants/qa-tenant/members",
+      "body":{
+        "items":[
+          {
+            "membership_id":"qa-membership-admin",
+            "user_id":"qa-access-admin",
+            "display_name":"QA Access Admin",
+            "email":"qa.access@example.test",
+            "avatar_url":null,
+            "status":"active",
+            "roles":[{"id":"qa-role-admin","key":"tenant_admin","name":"Tenant Admin","system":true}],
+            "joined_at":"2026-08-01T02:00:00Z",
+            "last_login_at":"2026-10-02T07:30:00Z"
+          },
+          {
+            "membership_id":"qa-membership-viewer",
+            "user_id":"qa-viewer-user",
+            "display_name":"QA Viewer",
+            "email":"qa.viewer.access@example.test",
+            "avatar_url":null,
+            "status":"active",
+            "roles":[{"id":"qa-role-viewer","key":"viewer","name":"Viewer","system":true}],
+            "joined_at":"2026-09-15T02:00:00Z",
+            "last_login_at":"2026-10-01T12:00:00Z"
+          }
+        ],
+        "page":1,
+        "page_size":25,
+        "total":2
+      }
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/tenants/qa-tenant/roles",
+      "body":{
+        "items":[
+          {
+            "id":"qa-role-admin",
+            "key":"tenant_admin",
+            "name":"Tenant Admin",
+            "system":true,
+            "description":"Manage tenant members and roles.",
+            "protected":true,
+            "status":"active",
+            "permissions":["tenant_members.read","tenant_members.manage","tenant_roles.manage","assets.read"],
+            "created_at":"2026-08-01T02:00:00Z",
+            "updated_at":"2026-09-01T02:00:00Z"
+          },
+          {
+            "id":"qa-role-viewer",
+            "key":"viewer",
+            "name":"Viewer",
+            "system":true,
+            "description":"Read-only access to approved workspace features.",
+            "protected":true,
+            "status":"active",
+            "permissions":["assets.read"],
+            "created_at":"2026-08-01T02:00:00Z",
+            "updated_at":"2026-09-01T02:00:00Z"
+          },
+          {
+            "id":"qa-role-editor",
+            "key":"creative_editor",
+            "name":"Creative Editor",
+            "system":false,
+            "description":"Custom creative production role.",
+            "protected":false,
+            "status":"active",
+            "permissions":["assets.read"],
+            "created_at":"2026-09-20T02:00:00Z",
+            "updated_at":"2026-09-20T02:00:00Z"
+          }
+        ],
+        "page":1,
+        "page_size":100,
+        "total":3
+      }
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/tenants/qa-tenant/permissions",
+      "body":{
+        "items":[
+          {"id":"perm-assets-read","key":"assets.read","description":"Read assets"},
+          {"id":"perm-members-read","key":"tenant_members.read","description":"Read tenant members"},
+          {"id":"perm-members-manage","key":"tenant_members.manage","description":"Manage tenant members"},
+          {"id":"perm-roles-manage","key":"tenant_roles.manage","description":"Manage tenant roles"},
+          {"id":"perm-ai-read","key":"ai_operations.read","description":"Read AI operations"}
+        ]
+      }
+    }
+  ]
+}

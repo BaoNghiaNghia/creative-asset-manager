@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "member-row-hover",
+    "member-search-focus",
+    "roles-tab"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T084745Z-68b86dd1-access-management",
+    "task": "Bootstrap fixture-backed visual regression coverage for Access Management as the next requested UI automation phase",
+    "acceptanceReason": "User requested continuation of fixture-backed visual regression coverage; this bootstraps Access Management from the current verified UI.",
+    "sourceHead": "68b86dd1ab36fd324a5bce8cbbee65366d856a80",
+    "workspaceFingerprint": "db3d7d0a7d916c77b9e093c21c37ab54339ec4347e40e87b1d4d851f194a8482",
+    "acceptedAt": "2026-10-02T08:48:14.318635+00:00"
+  }
+}

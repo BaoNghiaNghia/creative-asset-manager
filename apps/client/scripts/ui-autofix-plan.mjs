@@ -18,6 +18,15 @@ const SUPPORTED_STATES = [
   "candidate-filter-focus",
   "kpi-hover",
   "filter-focus",
+  "material-hover",
+  "material-search-focus",
+  "candidate-hover",
+  "member-row-hover",
+  "member-search-focus",
+  "roles-tab",
+  "generation-card-hover",
+  "prompt-focus",
+  "reference-selected",
 ];
 
 function unique(values) {
@@ -51,6 +60,10 @@ export function classifyUiTask(task, changedFiles = []) {
     scope = "realistic-review-ugc";
   } else if (includesAny(text, ["inventory"]) || joinedFiles.includes("/inventory/")) {
     scope = "inventory";
+  } else if (includesAny(text, ["access management", "access-management", "settings/access"]) || joinedFiles.includes("/access-management/")) {
+    scope = "access-management";
+  } else if (includesAny(text, ["video generation", "video-generation"]) || joinedFiles.includes("/video-generation/")) {
+    scope = "video-generation";
   } else if (includesAny(text, ["ai operations"]) || joinedFiles.includes("/ai-operations/")) {
     scope = "ai-operations";
   }
@@ -98,6 +111,21 @@ export function classifyUiTask(task, changedFiles = []) {
     states.push("default");
     if (hoverLike || includesAny(text, ["kpi", "card"])) states.push("kpi-hover");
     if (searchLike || focusLike) states.push("filter-focus");
+  } else if (scope === "inventory") {
+    states.push("default");
+    if (hoverLike || includesAny(text, ["material", "vật tư", "card"])) states.push("material-hover");
+    if (searchLike || focusLike) states.push("material-search-focus");
+    if (hoverLike || includesAny(text, ["candidate", "review", "gợi ý"])) states.push("candidate-hover");
+  } else if (scope === "access-management") {
+    states.push("default");
+    if (hoverLike || includesAny(text, ["member", "thành viên", "row"])) states.push("member-row-hover");
+    if (searchLike || focusLike) states.push("member-search-focus");
+    if (includesAny(text, ["role", "roles", "quyền"])) states.push("roles-tab");
+  } else if (scope === "video-generation") {
+    states.push("default");
+    if (focusLike || includesAny(text, ["prompt"])) states.push("prompt-focus");
+    if (includesAny(text, ["reference", "image", "ảnh"])) states.push("reference-selected");
+    if (hoverLike || includesAny(text, ["card"])) states.push("generation-card-hover");
   } else {
     if (searchLike) states.push("search-results", "search-focus");
     if (hoverLike) states.push("hover-card");

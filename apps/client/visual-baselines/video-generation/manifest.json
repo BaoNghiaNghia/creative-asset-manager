@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "generation-card-hover",
+    "prompt-focus",
+    "reference-selected"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T084844Z-68b86dd1-video-generation",
+    "task": "Bootstrap fixture-backed visual regression coverage for Video Generation as the next requested UI automation phase",
+    "acceptanceReason": "User requested continuation of fixture-backed visual regression coverage; this bootstraps Video Generation from the current verified UI.",
+    "sourceHead": "68b86dd1ab36fd324a5bce8cbbee65366d856a80",
+    "workspaceFingerprint": "be5fd598b17334b37cc816096f2296dd7b1648fcecdba74aff375746156d91a9",
+    "acceptedAt": "2026-10-02T08:49:13.087834+00:00"
+  }
+}

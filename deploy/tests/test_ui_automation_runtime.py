@@ -126,6 +126,24 @@ class UiAutomationRuntimeTests(unittest.TestCase):
                 "docs/operations/ui-qa-ai-operations-plan.json",
                 "apps/client/visual-baselines/ai-operations",
             ),
+            "inventory": (
+                "/inventory/materials",
+                "apps/client/scripts/fixtures/inventory.json",
+                "docs/operations/ui-qa-inventory-plan.json",
+                "apps/client/visual-baselines/inventory",
+            ),
+            "access-management": (
+                "/settings/access",
+                "apps/client/scripts/fixtures/access-management.json",
+                "docs/operations/ui-qa-access-management-plan.json",
+                "apps/client/visual-baselines/access-management",
+            ),
+            "video-generation": (
+                "/video-generation",
+                "apps/client/scripts/fixtures/video-generation.json",
+                "docs/operations/ui-qa-video-generation-plan.json",
+                "apps/client/visual-baselines/video-generation",
+            ),
         }
         for profile, expected in profiles.items():
             result = subprocess.run(

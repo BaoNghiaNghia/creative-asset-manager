@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"default","waitFor":".video-generation-card","waitMs":300},
+    {"name":"generation-card-hover","hover":".video-generation-card"},
+    {"name":"prompt-focus","focus":".video-generation-prompt textarea"},
+    {"name":"reference-selected","click":".video-reference-asset","waitFor":".video-reference-order"}
+  ]
+}

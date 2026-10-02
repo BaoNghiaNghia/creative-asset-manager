@@ -1,0 +1,111 @@
+{
+  "name": "inventory",
+  "identity": {
+    "user_id": "qa-inventory-operator",
+    "actor_id": "qa-inventory-operator",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
+    "roles": ["operator"],
+    "permissions": ["assets.read","ai_operations.read"],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Inventory Operator",
+    "email": "qa.inventory@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {"id":"qa-google-inventory","name":"QA Inventory Operator","email":"qa.inventory@example.test"}
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/inventory/materials",
+      "body": {
+        "items": [
+          {
+            "material_id":"qa-material-cotton",
+            "canonical_name":"Cotton fabric",
+            "category":"Fabric",
+            "canonical_dimension":"mass",
+            "preferred_unit":"g",
+            "active":true,
+            "first_seen_at":"2026-09-12T03:00:00Z",
+            "last_seen_at":"2026-10-02T07:00:00Z",
+            "metadata":{},
+            "sheet_keys":["COTTON-01"],
+            "aliases":["Cotton","Cotton cloth"],
+            "package_conversions":[]
+          },
+          {
+            "material_id":"qa-material-thread",
+            "canonical_name":"Embroidery thread",
+            "category":"Thread",
+            "canonical_dimension":"count",
+            "preferred_unit":"count",
+            "active":true,
+            "first_seen_at":"2026-09-13T03:00:00Z",
+            "last_seen_at":"2026-10-02T07:05:00Z",
+            "metadata":{},
+            "sheet_keys":["THREAD-02"],
+            "aliases":["Thread"],
+            "package_conversions":[]
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/materials/candidates",
+      "body": {
+        "items": [
+          {
+            "id":"qa-candidate-1",
+            "status":"new_material",
+            "sheet":"Daily Inventory",
+            "source_row":42,
+            "sheet_item_key":"LINEN-03",
+            "raw_name":"Linen fabric",
+            "category":"Fabric",
+            "suggested_item_id":null,
+            "suggested_canonical_name":"Linen fabric",
+            "confidence":0.91,
+            "reasons":["New material name detected in the latest workbook snapshot."],
+            "review_evidence":{
+              "status":"ready",
+              "name_cell":"B42",
+              "unit_evidence":[{"header_cell":"E2","header":"ĐVT","value_cell":"E42","value":"kg","evidence_hash":"qa-evidence-1"}],
+              "suggested_preferred_unit":"g",
+              "suggested_canonical_dimension":"mass",
+              "refreshed_at":"2026-10-02T07:06:00Z"
+            }
+          },
+          {
+            "id":"qa-candidate-2",
+            "status":"possible_rename",
+            "sheet":"Daily Inventory",
+            "source_row":57,
+            "sheet_item_key":"THREAD-WHITE",
+            "raw_name":"White embroidery thread",
+            "category":"Thread",
+            "suggested_item_id":"qa-material-thread",
+            "suggested_canonical_name":"Embroidery thread",
+            "confidence":0.84,
+            "reasons":["Name is close to an existing canonical material."],
+            "review_evidence":{
+              "status":"ready",
+              "name_cell":"B57",
+              "unit_evidence":[{"header_cell":"E2","header":"ĐVT","value_cell":"E57","value":"cone","evidence_hash":"qa-evidence-2"}],
+              "suggested_preferred_unit":"count",
+              "suggested_canonical_dimension":"count",
+              "refreshed_at":"2026-10-02T07:06:00Z"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

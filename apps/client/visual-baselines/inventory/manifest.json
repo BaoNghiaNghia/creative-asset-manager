@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "material-hover",
+    "material-search-focus",
+    "candidate-hover"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T084537Z-68b86dd1-inventory",
+    "task": "Bootstrap fixture-backed visual regression coverage for Inventory as the next requested UI automation phase",
+    "acceptanceReason": "User requested continuation of fixture-backed visual regression coverage; this bootstraps Inventory from the current verified UI.",
+    "sourceHead": "68b86dd1ab36fd324a5bce8cbbee65366d856a80",
+    "workspaceFingerprint": "55be4f563743db99faad825ce9e31a2ad37981e98a89435521e018e6320c7e57",
+    "acceptedAt": "2026-10-02T08:46:13.281012+00:00"
+  }
+}

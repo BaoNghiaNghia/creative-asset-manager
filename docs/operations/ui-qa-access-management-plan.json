@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"default","waitFor":".access-content","waitMs":300},
+    {"name":"member-row-hover","hover":".access-table tbody tr"},
+    {"name":"member-search-focus","focus":"form[aria-label='Member filters'] input"},
+    {"name":"roles-tab","click":"#access-tab-roles","waitFor":".role-grid"}
+  ]
+}

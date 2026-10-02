@@ -30,6 +30,27 @@ export const UI_QA_PROFILES = Object.freeze({
     plan: "docs/operations/ui-qa-ai-operations-plan.json",
     baseline: "apps/client/visual-baselines/ai-operations",
   },
+  "inventory": {
+    scope: "inventory",
+    route: "/inventory/materials",
+    fixture: "apps/client/scripts/fixtures/inventory.json",
+    plan: "docs/operations/ui-qa-inventory-plan.json",
+    baseline: "apps/client/visual-baselines/inventory",
+  },
+  "access-management": {
+    scope: "access-management",
+    route: "/settings/access",
+    fixture: "apps/client/scripts/fixtures/access-management.json",
+    plan: "docs/operations/ui-qa-access-management-plan.json",
+    baseline: "apps/client/visual-baselines/access-management",
+  },
+  "video-generation": {
+    scope: "video-generation",
+    route: "/video-generation",
+    fixture: "apps/client/scripts/fixtures/video-generation.json",
+    plan: "docs/operations/ui-qa-video-generation-plan.json",
+    baseline: "apps/client/visual-baselines/video-generation",
+  },
 });
 
 export function getUiQaProfile(name = "explorer-viewer") {

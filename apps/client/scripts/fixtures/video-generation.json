@@ -1,0 +1,89 @@
+{
+  "name": "video-generation",
+  "identity": {
+    "user_id": "qa-video-editor",
+    "actor_id": "qa-video-editor",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
+    "roles": ["editor"],
+    "permissions": ["assets.read"],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Video Editor",
+    "email": "qa.video@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {"id":"qa-google-video","name":"QA Video Editor","email":"qa.video@example.test"}
+  },
+  "sources": [
+    {
+      "id":"qa-video-source",
+      "source_type":"google_drive",
+      "display_name":"QA Video References",
+      "status":"active",
+      "provider":"google",
+      "connection_purpose":"google_drive_source",
+      "account":{"provider_account_id":"qa-google-video","email":"qa.video@example.test"},
+      "metadata":{"drive_type":"personal","drive_name":"QA Video References"},
+      "capabilities":{"browse":true,"sync":false,"write":false,"reconnect":false,"disconnect":false}
+    }
+  ],
+  "folders": {
+    "root": {
+      "parent": {
+        "provider":"google-drive",
+        "id":"root",
+        "name":"QA Reference Root",
+        "kind":"folder",
+        "mime_type":"application/vnd.google-apps.folder",
+        "external_source_id":"qa-video-source"
+      },
+      "children": [
+        {
+          "provider":"google-drive",
+          "id":"qa-video-ref-1",
+          "name":"Natural Navy Cap Front Reference.jpg",
+          "kind":"image",
+          "mime_type":"image/jpeg",
+          "size":1450000,
+          "modified_at":"2026-10-01T08:00:00Z",
+          "external_source_id":"qa-video-source",
+          "internal_asset_id":"qa-video-asset-1"
+        },
+        {
+          "provider":"google-drive",
+          "id":"qa-video-ref-2",
+          "name":"Embroidery Close Up Reference.png",
+          "kind":"image",
+          "mime_type":"image/png",
+          "size":1250000,
+          "modified_at":"2026-10-01T09:00:00Z",
+          "external_source_id":"qa-video-source",
+          "internal_asset_id":"qa-video-asset-2"
+        }
+      ],
+      "next_page_token": null,
+      "has_more": false
+    }
+  },
+  "apiRoutes": [
+    {
+      "method":"GET",
+      "path":"/api/v1/video-generations/capabilities",
+      "body":{
+        "enabled":true,
+        "provider":"fixture-video",
+        "models":["video-model-fast","video-model-quality"],
+        "aspect_ratios":["16:9","9:16","1:1"],
+        "durations":[8,10],
+        "max_references":3,
+        "allowed_reference_mime_types":["image/jpeg","image/png","image/webp"],
+        "max_reference_bytes":10485760,
+        "max_reference_total_bytes":20971520
+      }
+    }
+  ]
+}

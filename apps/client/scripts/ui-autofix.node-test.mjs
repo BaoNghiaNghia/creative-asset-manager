@@ -44,13 +44,37 @@ test("selects the AI Operations fixture-backed profile", () => {
   assert.ok(plan.states.includes("filter-focus"));
 });
 
-test("keeps Inventory unsupported until it has a deterministic profile", () => {
-  const plan = classifyUiTask("Adjust Inventory grid", [
+test("selects the Inventory fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust Inventory material grid hover and search", [
     "apps/client/app/inventory/InventoryApp.tsx",
   ]);
   assert.equal(plan.scope, "inventory");
-  assert.equal(plan.visualProfileSupported, false);
-  assert.equal(plan.profile, null);
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "inventory");
+  assert.ok(plan.states.includes("material-hover"));
+  assert.ok(plan.states.includes("material-search-focus"));
+});
+
+test("selects the Access Management fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust Access Management member row hover and role layout", [
+    "apps/client/app/access-management/AccessManagementPage.tsx",
+  ]);
+  assert.equal(plan.scope, "access-management");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "access-management");
+  assert.ok(plan.states.includes("member-row-hover"));
+  assert.ok(plan.states.includes("roles-tab"));
+});
+
+test("selects the Video Generation fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust Video Generation prompt focus and reference image card", [
+    "apps/client/app/video-generation/VideoGenerationPage.tsx",
+  ]);
+  assert.equal(plan.scope, "video-generation");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "video-generation");
+  assert.ok(plan.states.includes("prompt-focus"));
+  assert.ok(plan.states.includes("reference-selected"));
 });
 
 test("autofix session id is stable for one task and base commit", () => {
