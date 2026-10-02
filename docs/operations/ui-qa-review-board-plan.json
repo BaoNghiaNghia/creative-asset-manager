@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"default","waitFor":".review-board-workspace","waitMs":300},
+    {"name":"issue-hover","hover":".review-board-row"},
+    {"name":"reviewer-focus","focus":".review-board-reviewer-filter input"},
+    {"name":"date-filters","click":".review-board-filter-more > summary","waitFor":".review-board-filter-more[open]"}
+  ]
+}

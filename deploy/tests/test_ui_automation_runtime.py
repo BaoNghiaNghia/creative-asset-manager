@@ -41,6 +41,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("requestFailures", text)
         self.assertIn("consoleErrors", text)
         self.assertIn('context.route("**/api/**"', fixture)
+        self.assertIn("fixtureApiResponse", fixture)
+        self.assertIn("apiRoutes", fixture)
         self.assertIn("Unhandled UI QA fixture route", fixture)
 
     def test_example_plan_is_valid_json(self) -> None:
@@ -92,23 +94,76 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("--baseline-dir", staging)
         self.assertIn("Direct baseline update is disabled", staging)
         self.assertIn("CAM_UI_VISUAL_SKIP", staging)
+        self.assertIn("CAM_UI_QA_PROFILE", staging)
+        self.assertIn("ui-qa-profiles.mjs", staging)
         self.assertIn("CAM_UI_CHANGED_FILES", gate)
         self.assertIn("ui:qa:analysis:test", gate)
         self.assertNotIn("deploy-cam-frontend.sh", staging)
 
-    def test_visual_baseline_manifest_matches_default_plan(self) -> None:
-        baseline_dir = ROOT / "apps/client/visual-baselines/explorer-viewer"
-        manifest = json.loads((baseline_dir / "manifest.json").read_text(encoding="utf-8"))
-        plan = json.loads(
-            (ROOT / "docs/operations/ui-qa-explorer-viewer-plan.json").read_text(encoding="utf-8")
-        )
-        expected_states = [step["name"] for step in plan["steps"]]
-        expected_viewports = plan["viewports"]
-        self.assertEqual(manifest["schemaVersion"], 1)
-        self.assertEqual(manifest["states"], expected_states)
-        self.assertEqual([item["name"] for item in manifest["viewports"]], expected_viewports)
-        pngs = sorted(path.name for path in baseline_dir.glob("*.png"))
-        self.assertEqual(len(pngs), len(expected_states) * len(expected_viewports))
+    def test_fixture_backed_profiles_have_matching_visual_baselines(self) -> None:
+        profiles = {
+            "explorer-viewer": (
+                "/",
+                "apps/client/scripts/fixtures/explorer-viewer.json",
+                "docs/operations/ui-qa-explorer-viewer-plan.json",
+                "apps/client/visual-baselines/explorer-viewer",
+            ),
+            "review-board": (
+                "/review-board",
+                "apps/client/scripts/fixtures/review-board.json",
+                "docs/operations/ui-qa-review-board-plan.json",
+                "apps/client/visual-baselines/review-board",
+            ),
+            "realistic-review-ugc": (
+                "/realistic-review-ugc",
+                "apps/client/scripts/fixtures/realistic-review-ugc.json",
+                "docs/operations/ui-qa-realistic-review-ugc-plan.json",
+                "apps/client/visual-baselines/realistic-review-ugc",
+            ),
+            "ai-operations": (
+                "/ai-operations",
+                "apps/client/scripts/fixtures/ai-operations.json",
+                "docs/operations/ui-qa-ai-operations-plan.json",
+                "apps/client/visual-baselines/ai-operations",
+            ),
+        }
+        for profile, expected in profiles.items():
+            result = subprocess.run(
+                [
+                    "node",
+                    str(ROOT / "apps/client/scripts/ui-qa-profiles.mjs"),
+                    "--profile",
+                    profile,
+                    "--format-lines",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            route, fixture_rel, plan_rel, baseline_rel, _scope = result.stdout.splitlines()
+            self.assertEqual((route, fixture_rel, plan_rel, baseline_rel), expected)
+
+            fixture = json.loads((ROOT / fixture_rel).read_text(encoding="utf-8"))
+            plan = json.loads((ROOT / plan_rel).read_text(encoding="utf-8"))
+            baseline_dir = ROOT / baseline_rel
+            manifest = json.loads((baseline_dir / "manifest.json").read_text(encoding="utf-8"))
+            expected_states = [step["name"] for step in plan["steps"]]
+            expected_viewports = plan["viewports"]
+            self.assertEqual(manifest["schemaVersion"], 1)
+            self.assertEqual(manifest["states"], expected_states)
+            self.assertEqual(
+                [item["name"] for item in manifest["viewports"]],
+                expected_viewports,
+            )
+            self.assertTrue(fixture["providerSession"]["authenticated"])
+            self.assertTrue(fixture["identity"]["email"].endswith("@example.test"))
+            pngs = sorted(path.name for path in baseline_dir.glob("*.png"))
+            self.assertEqual(
+                len(pngs),
+                len(expected_states) * len(expected_viewports),
+                profile,
+            )
 
     def test_visual_analyzer_has_actionable_region_and_source_diagnostics(self) -> None:
         analyzer = (ROOT / "apps/client/scripts/ui-qa-visual-analysis.mjs").read_text(
@@ -139,6 +194,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("CAM_UI_REPAIR_TYPECHECK", repair)
         self.assertIn("cam-ui-run-smart-tests.sh", repair)
         self.assertIn("CAM_UI_REPAIR_SESSION_ID", repair)
+        self.assertIn("CAM_UI_QA_PROFILE", repair)
+        self.assertIn("ui-qa-profiles.mjs", repair)
         self.assertNotIn("npm run build", repair)
         self.assertNotIn("deploy-cam-frontend.sh", repair)
         self.assertNotIn("scripts/cam-ui-gate.sh", repair)
@@ -159,6 +216,7 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("CAM_UI_SKIP_FRONTEND_TESTS", gate)
         self.assertIn("CAM_UI_SKIP_FRONTEND_TESTS", autofix)
         self.assertIn("TARGETED_VERIFIED", autofix)
+        self.assertIn("CAM_UI_QA_PROFILE", autofix)
         self.assertIn("CAM_UI_SMART_TESTS", smart)
         self.assertIn("ui-smart-tests.mjs", smart)
 
@@ -189,6 +247,10 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("baseline-accept-backup", accept)
         self.assertIn("workspaceFingerprint", governance)
         self.assertIn("manifestHash", governance)
+        self.assertIn("profileBootstrap", governance)
+        self.assertIn("qaProfileSupportFiles", governance)
+        self.assertIn("CAM_UI_QA_PROFILE", propose)
+        self.assertIn("CAM_UI_QA_PROFILE", accept)
         self.assertNotIn("deploy-cam-frontend.sh", propose)
         self.assertNotIn("deploy-cam-frontend.sh", accept)
 

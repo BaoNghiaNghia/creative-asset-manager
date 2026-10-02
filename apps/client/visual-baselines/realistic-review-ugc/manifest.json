@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "campaign-hover",
+    "candidate-hover",
+    "candidate-filter-focus"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T082050Z-d7a092cd-realistic-review-ugc",
+    "task": "Bootstrap fixture-backed visual regression coverage for Realistic Review UGC as the next requested UI automation phase",
+    "acceptanceReason": "User explicitly requested continuation of fixture-backed visual regression coverage for Realistic Review UGC.",
+    "sourceHead": "d7a092cdcc83eb5ea44c722094cf461c6891e6cd",
+    "workspaceFingerprint": "aaec9c11176fae6c7bd7c5f3dbfda1cae7096e9d3b94762552adeed884a19735",
+    "acceptedAt": "2026-10-02T08:21:20.744894+00:00"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"default","waitFor":".ops-content","waitMs":400},
+    {"name":"kpi-hover","hover":".ops-kpis article"},
+    {"name":"filter-focus","focus":".ops-filters select"}
+  ]
+}

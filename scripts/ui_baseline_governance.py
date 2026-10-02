@@ -70,6 +70,28 @@ def frontend_source_files(changed_files: list[str]) -> list[str]:
     ]
 
 
+def qa_profile_support_files(changed_files: list[str]) -> list[str]:
+    allowed_exact = {
+        "scripts/cam-ui-staging-qa.sh",
+        "scripts/cam-ui-repair-check.sh",
+        "scripts/cam-ui-autofix.sh",
+        "scripts/cam-ui-baseline-propose.sh",
+        "scripts/cam-ui-baseline-accept.sh",
+        "scripts/ui_baseline_governance.py",
+    }
+    return [
+        file_path
+        for file_path in changed_files
+        if (
+            file_path in allowed_exact
+            or file_path == "apps/client/scripts/ui-qa-profiles.mjs"
+            or file_path == "apps/client/scripts/ui-qa-fixture.mjs"
+            or file_path.startswith("apps/client/scripts/fixtures/")
+            or file_path.startswith("docs/operations/ui-qa-")
+        )
+    ]
+
+
 def expected_names(manifest: dict[str, Any]) -> set[str]:
     viewport_names = [
         item if isinstance(item, str) else item["name"]
@@ -117,6 +139,8 @@ def render_markdown(proposal: dict[str, Any]) -> str:
         f"- Candidate screenshots: **{len(proposal['candidates'])}**",
         f"- Visual changes requiring review: **{len(proposal['changedScreenshots'])}**",
         f"- Frontend source files changed: **{len(proposal['source']['frontendSourceFiles'])}**",
+        f"- Fixture/profile support files changed: **{len(proposal['source'].get('qaProfileSupportFiles', []))}**",
+        f"- New profile bootstrap: **{'yes' if proposal.get('profileBootstrap') else 'no'}**",
         "",
     ]
     if proposal["changedScreenshots"]:
@@ -155,14 +179,31 @@ def create_proposal(run_dir: Path, baseline_dir: Path, proposal_dir: Path, task:
     expected = expected_names(manifest)
     state = workspace_state()
     state["frontendSourceFiles"] = frontend_source_files(state["changedFiles"])
+    state["qaProfileSupportFiles"] = qa_profile_support_files(state["changedFiles"])
+    baseline_rel = baseline_dir.relative_to(ROOT).as_posix()
+    bootstrap_profile = not any(baseline_dir.glob("*.png"))
+    target_baseline_changes = [
+        file_path
+        for file_path in state["changedFiles"]
+        if file_path.startswith(baseline_rel + "/")
+    ]
 
-    if not state["frontendSourceFiles"]:
+    if not state["frontendSourceFiles"] and not (
+        bootstrap_profile and state["qaProfileSupportFiles"]
+    ):
         raise SystemExit(
-            "ERROR: Refusing baseline proposal without a frontend source change tied to the visual change."
+            "ERROR: Refusing baseline proposal without a frontend source change or a new fixture-backed QA profile bootstrap."
         )
-    if any(path.startswith("apps/client/visual-baselines/") for path in state["changedFiles"]):
+
+    allowed_bootstrap_change = baseline_rel + "/manifest.json"
+    unexpected_target_changes = [
+        file_path
+        for file_path in target_baseline_changes
+        if not (bootstrap_profile and file_path == allowed_bootstrap_change)
+    ]
+    if unexpected_target_changes:
         raise SystemExit(
-            "ERROR: Tracked visual baselines are already modified. Restore them before creating a governed proposal."
+            "ERROR: Target visual baselines are already modified. Restore them before creating a governed proposal."
         )
 
     candidate_dir = proposal_dir / "candidate"
@@ -208,8 +249,9 @@ def create_proposal(run_dir: Path, baseline_dir: Path, proposal_dir: Path, task:
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "task": task.strip(),
         "source": state,
+        "profileBootstrap": bootstrap_profile,
         "baseline": {
-            "directory": baseline_dir.relative_to(ROOT).as_posix(),
+            "directory": baseline_rel,
             "manifestHash": sha256_file(manifest_path),
         },
         "run": {

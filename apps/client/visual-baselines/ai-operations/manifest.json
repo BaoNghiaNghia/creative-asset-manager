@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "kpi-hover",
+    "filter-focus"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T082157Z-d7a092cd-ai-operations",
+    "task": "Bootstrap fixture-backed visual regression coverage for AI Operations as the next requested UI automation phase",
+    "acceptanceReason": "User explicitly requested continuation of fixture-backed visual regression coverage for AI Operations.",
+    "sourceHead": "d7a092cdcc83eb5ea44c722094cf461c6891e6cd",
+    "workspaceFingerprint": "e8a78c9e0bb0034db825965fef634ab6e1bb37fd559f3ce461ba0baabc7f1f10",
+    "acceptedAt": "2026-10-02T08:22:40.246208+00:00"
+  }
+}

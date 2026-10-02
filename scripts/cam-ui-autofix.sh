@@ -48,6 +48,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     plan = json.load(handle)
 print(plan.get("sessionId", "ui-autofix"))
 print(plan.get("scope", "unknown"))
+print(plan.get("profile") or "")
 print("1" if plan.get("visualProfileSupported") else "0")
 print(",".join(plan.get("viewports") or []))
 print(",".join(plan.get("states") or []))
@@ -57,10 +58,11 @@ PY
 
 SESSION_ID="${CAM_UI_AUTOFIX_SESSION:-${PLAN_LINES[0]:-ui-autofix}}"
 SCOPE="${PLAN_LINES[1]:-unknown}"
-VISUAL_SUPPORTED="${PLAN_LINES[2]:-0}"
-VIEWPORTS="${PLAN_LINES[3]:-desktop}"
-STATES="${PLAN_LINES[4]:-default}"
-PLAN_REASON="${PLAN_LINES[5]:-}"
+PROFILE="${PLAN_LINES[2]:-}"
+VISUAL_SUPPORTED="${PLAN_LINES[3]:-0}"
+VIEWPORTS="${PLAN_LINES[4]:-desktop}"
+STATES="${PLAN_LINES[5]:-default}"
+PLAN_REASON="${PLAN_LINES[6]:-}"
 SESSION_SAFE="$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '-')"
 FINAL_MARKER="$SESSION_DIR/$SESSION_SAFE.final-attempted"
 PASS_MARKER="$SESSION_DIR/$SESSION_SAFE.passed"
@@ -72,6 +74,7 @@ fi
 note "UI Auto-Fix plan"
 printf 'Session: %s\n' "$SESSION_ID"
 printf 'Scope: %s\n' "$SCOPE"
+printf 'Profile: %s\n' "${PROFILE:-none}"
 printf 'Changed files: %s\n' "$(printf '%s\n' "$CHANGED" | awk 'NF' | wc -l)"
 printf 'Visual profile: %s\n' "$PLAN_REASON"
 printf 'Plan: %s\n' "$PLAN_FILE"
@@ -84,6 +87,7 @@ TARGETED_VERIFIED=0
 if [[ "$VISUAL_SUPPORTED" == "1" ]]; then
   note "Bounded targeted repair verification"
   set +e
+  CAM_UI_QA_PROFILE="$PROFILE" \
   CAM_UI_REPAIR_SESSION_ID="$SESSION_ID" \
   CAM_UI_REPAIR_SESSION_RESET="${CAM_UI_AUTOFIX_RESET:-0}" \
   CAM_UI_REPAIR_MAX_ATTEMPTS="$MAX_REPAIRS" \
@@ -120,6 +124,7 @@ date -u +"%Y-%m-%dT%H:%M:%SZ" > "$FINAL_MARKER"
 set +e
 CAM_UI_FORCE=1 \
 CAM_UI_SMART_TESTS=1 \
+CAM_UI_QA_PROFILE="${PROFILE:-explorer-viewer}" \
 CAM_UI_SKIP_FRONTEND_TESTS="$TARGETED_VERIFIED" \
   bash "$ROOT/scripts/cam-ui-gate.sh"
 FINAL_STATUS=$?

@@ -13,11 +13,42 @@ test("classifies responsive Asset Explorer card work into bounded visual targets
   assert.deepEqual(plan.states, ["hover-card", "selected", "selected-hover"]);
 });
 
-test("marks non-Explorer UI as requiring a future fixture profile", () => {
-  const plan = classifyUiTask("Adjust Review Board toolbar spacing", [
+test("selects the Review Board fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust Review Board toolbar spacing and hover", [
     "apps/client/app/review-board/ReviewBoardPage.tsx",
   ]);
   assert.equal(plan.scope, "review-board");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "review-board");
+  assert.ok(plan.states.includes("default"));
+  assert.ok(plan.states.includes("issue-hover"));
+});
+
+test("selects the RRUGC fixture-backed profile", () => {
+  const plan = classifyUiTask("Fix Realistic Review UGC candidate grid on mobile", [
+    "apps/client/app/realistic-review-ugc/RealisticReviewUgcPage.tsx",
+  ]);
+  assert.equal(plan.scope, "realistic-review-ugc");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "realistic-review-ugc");
+  assert.ok(plan.states.includes("candidate-hover"));
+});
+
+test("selects the AI Operations fixture-backed profile", () => {
+  const plan = classifyUiTask("Adjust AI Operations filters and focus", [
+    "apps/client/app/ai-operations/AiOperationsPage.tsx",
+  ]);
+  assert.equal(plan.scope, "ai-operations");
+  assert.equal(plan.visualProfileSupported, true);
+  assert.equal(plan.profile, "ai-operations");
+  assert.ok(plan.states.includes("filter-focus"));
+});
+
+test("keeps Inventory unsupported until it has a deterministic profile", () => {
+  const plan = classifyUiTask("Adjust Inventory grid", [
+    "apps/client/app/inventory/InventoryApp.tsx",
+  ]);
+  assert.equal(plan.scope, "inventory");
   assert.equal(plan.visualProfileSupported, false);
   assert.equal(plan.profile, null);
 });

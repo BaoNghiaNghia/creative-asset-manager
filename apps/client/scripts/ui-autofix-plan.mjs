@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { profileForScope } from "./ui-qa-profiles.mjs";
 
 const SUPPORTED_STATES = [
   "default",
@@ -9,6 +10,14 @@ const SUPPORTED_STATES = [
   "selected-hover",
   "search-results",
   "search-focus",
+  "issue-hover",
+  "reviewer-focus",
+  "date-filters",
+  "campaign-hover",
+  "candidate-hover",
+  "candidate-filter-focus",
+  "kpi-hover",
+  "filter-focus",
 ];
 
 function unique(values) {
@@ -72,35 +81,54 @@ export function classifyUiTask(task, changedFiles = []) {
     includesAny(text, ["search", "filter", "tìm kiếm"]) ||
     joinedFiles.includes("searchcontrols") ||
     joinedFiles.includes("usesearch");
-  if (searchLike) states.push("search-results", "search-focus");
-  if (includesAny(text, ["hover"])) states.push("hover-card");
-  if (includesAny(text, ["selected", "selection", "chọn"])) {
-    states.push("selected", "selected-hover");
-  }
-  if (includesAny(text, ["focus", "keyboard"])) states.push(searchLike ? "search-focus" : "default");
+  const hoverLike = includesAny(text, ["hover"]);
+  const focusLike = includesAny(text, ["focus", "keyboard"]);
 
-  if (states.length === 0) {
-    if (
-      joinedFiles.includes("assetgrid") ||
-      includesAny(text, ["card", "grid", "folder", "title", "thumbnail", "font", "spacing", "border"])
-    ) {
-      states.push("default", "hover-card", "selected-hover");
-    } else {
-      states.push("default");
+  if (scope === "review-board") {
+    states.push("default");
+    if (hoverLike) states.push("issue-hover");
+    if (searchLike || focusLike) states.push("reviewer-focus");
+    if (includesAny(text, ["date", "ngày"])) states.push("date-filters");
+  } else if (scope === "realistic-review-ugc") {
+    states.push("default");
+    if (hoverLike || includesAny(text, ["campaign", "card"])) states.push("campaign-hover");
+    if (hoverLike || includesAny(text, ["candidate", "reference", "grid"])) states.push("candidate-hover");
+    if (searchLike || focusLike) states.push("candidate-filter-focus");
+  } else if (scope === "ai-operations") {
+    states.push("default");
+    if (hoverLike || includesAny(text, ["kpi", "card"])) states.push("kpi-hover");
+    if (searchLike || focusLike) states.push("filter-focus");
+  } else {
+    if (searchLike) states.push("search-results", "search-focus");
+    if (hoverLike) states.push("hover-card");
+    if (includesAny(text, ["selected", "selection", "chọn"])) {
+      states.push("selected", "selected-hover");
+    }
+    if (focusLike) states.push(searchLike ? "search-focus" : "default");
+
+    if (states.length === 0) {
+      if (
+        joinedFiles.includes("assetgrid") ||
+        includesAny(text, ["card", "grid", "folder", "title", "thumbnail", "font", "spacing", "border"])
+      ) {
+        states.push("default", "hover-card", "selected-hover");
+      } else {
+        states.push("default");
+      }
     }
   }
 
   const normalizedStates = unique(states).filter((state) => SUPPORTED_STATES.includes(state));
-  const profileSupported = scope === "asset-explorer";
+  const profile = profileForScope(scope);
 
   return {
     scope,
-    profile: profileSupported ? "explorer-viewer" : null,
-    visualProfileSupported: profileSupported,
+    profile: profile?.name || null,
+    visualProfileSupported: Boolean(profile),
     viewports: unique(viewports),
     states: normalizedStates.slice(0, 3),
-    reason: profileSupported
-      ? "fixture-backed-asset-explorer-profile"
+    reason: profile
+      ? `fixture-backed-${profile.name}-profile`
       : `no-fixture-backed-visual-profile-for:${scope}`,
   };
 }

@@ -1,0 +1,154 @@
+{
+  "name": "ai-operations",
+  "identity": {
+    "user_id": "qa-ai-admin",
+    "actor_id": "qa-ai-admin",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
+    "roles": ["processing_admin"],
+    "permissions": ["assets.read","ai_operations.read","ai_operations.manage"],
+    "is_processing_admin": true,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA AI Admin",
+    "email": "qa.ai@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {"id":"qa-google-ai","name":"QA AI Admin","email":"qa.ai@example.test"}
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/summary",
+      "body":{
+        "requested":1280,
+        "queued":34,
+        "running":8,
+        "completed":1194,
+        "failed":44,
+        "cancelled":0,
+        "budget_blocked":0,
+        "deferred":12,
+        "next_deferred_retry_at":"2026-10-02T08:20:00Z",
+        "local_rate_limited":5,
+        "quota_deferred":4,
+        "provider_cooldown_deferred":3,
+        "next_local_rate_limit_retry_at":"2026-10-02T08:11:00Z",
+        "next_quota_retry_at":"2026-10-02T08:14:00Z",
+        "next_provider_retry_at":"2026-10-02T08:12:00Z",
+        "success_rate":0.964,
+        "input_units":284000,
+        "output_units":91000,
+        "cost":{
+          "estimated_cost_micros":4280000,
+          "provider_reported_cost_micros":4210000,
+          "reconciled_cost_micros":4210000,
+          "currency":"USD"
+        },
+        "latency":{"average_ms":2680,"p50_ms":2210,"p95_ms":5940},
+        "average_cost_per_completed_asset_micros":3526
+      }
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/daily",
+      "body":{"items":[
+        {
+          "date":"2026-10-01","requested":610,"completed":570,"failed":20,
+          "estimated_cost_micros":2020000,"provider_reported_cost_micros":1980000,
+          "reconciled_cost_micros":1980000,"provider_estimated_cost_micros":{"gemini":1620000,"openai":400000},
+          "average_latency_ms":2750,"p95_latency_ms":6100
+        },
+        {
+          "date":"2026-10-02","requested":670,"completed":624,"failed":24,
+          "estimated_cost_micros":2260000,"provider_reported_cost_micros":2230000,
+          "reconciled_cost_micros":2230000,"provider_estimated_cost_micros":{"gemini":1840000,"openai":420000},
+          "average_latency_ms":2610,"p95_latency_ms":5790
+        }
+      ]}
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/providers",
+      "body":{"items":[
+        {
+          "provider":"gemini","model":"gemini-fixture","processing_mode":"batch",
+          "count":980,"completed":940,"failed":24,"success_rate":0.975,
+          "average_latency_ms":2510,"p95_latency_ms":5480,"input_units":224000,"output_units":72000,
+          "estimated_cost_micros":3440000,"provider_reported_cost_micros":3390000,
+          "reconciled_cost_micros":3390000,"currency":"USD"
+        },
+        {
+          "provider":"openai","model":"fixture-model","processing_mode":"single",
+          "count":300,"completed":254,"failed":20,"success_rate":0.927,
+          "average_latency_ms":3240,"p95_latency_ms":6900,"input_units":60000,"output_units":19000,
+          "estimated_cost_micros":840000,"provider_reported_cost_micros":820000,
+          "reconciled_cost_micros":820000,"currency":"USD"
+        }
+      ]}
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/failures",
+      "body":{"items":[
+        {"source":"image_analysis","error_code":"provider_timeout","count":16},
+        {"source":"video_analysis","error_code":"quota_deferred","count":9}
+      ]}
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/configuration",
+      "body":{
+        "tenant_id":"qa-tenant",
+        "scope":{"tenant":"qa-tenant","global_upper_bounds_read_only":true},
+        "permissions":{
+          "can_manage_tenant":true,
+          "can_configure_provider":true,
+          "can_read_budget":true,
+          "can_update_budget":true,
+          "can_emergency_stop":false,
+          "can_retry_jobs":true,
+          "can_cancel_jobs":true,
+          "can_manage_global":false,
+          "platform_admin":false
+        },
+        "tenant":{
+          "ai_enabled":true,
+          "video_enabled":true,
+          "processing_paused":false,
+          "default_provider":"gemini",
+          "default_model":"gemini-fixture",
+          "default_mode":"batch",
+          "default_metadata_profile":"default",
+          "auto_analyze_new_assets":true,
+          "daily_item_limit":5000,
+          "total_ai_concurrency":8,
+          "retry_count":3,
+          "timeout_seconds":90
+        },
+        "global":{
+          "ai_auto_analyze_enabled":true,
+          "single_enabled":true,
+          "batch_enabled":true,
+          "emergency_stop":false
+        },
+        "providers":[],
+        "metadata_profiles":["default"],
+        "metadata_prompt_template":null,
+        "video_prompt_template":null,
+        "budget":{
+          "enabled":true,
+          "daily_limit_micros":10000000,
+          "monthly_limit_micros":200000000,
+          "warning_threshold_percent":80,
+          "hard_stop_threshold_percent":100,
+          "currency":"USD"
+        }
+      }
+    }
+  ]
+}

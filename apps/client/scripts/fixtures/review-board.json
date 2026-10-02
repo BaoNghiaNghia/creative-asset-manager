@@ -1,0 +1,141 @@
+{
+  "name": "review-board",
+  "identity": {
+    "user_id": "qa-reviewer",
+    "actor_id": "qa-reviewer",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
+    "roles": ["reviewer"],
+    "permissions": ["assets.read","public_review.read","public_review.resolve","realistic_review_ugc.read"],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Reviewer",
+    "email": "qa.reviewer@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {"id":"qa-google-reviewer","name":"QA Reviewer","email":"qa.reviewer@example.test"}
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/public-review/board/issues",
+      "body": {
+        "items": [
+          {
+            "id": "qa-issue-1",
+            "status": "open",
+            "annotation_preview": "Move the embroidery slightly higher and keep the logo centered.",
+            "created_at": "2026-10-01T08:30:00Z",
+            "updated_at": "2026-10-02T06:45:00Z",
+            "anchor_x": 0.46,
+            "anchor_y": 0.38,
+            "reviewer": {"display_name":"QA Client"},
+            "share": {"id":"qa-share-1","name":"October Campaign Review"},
+            "asset": {
+              "asset_id": "qa-asset-1",
+              "source_asset_id": "qa-source-asset-1",
+              "filename": "Personalized Embroidery UGC Review Final Version.mp4",
+              "media_type": "video/mp4"
+            },
+            "reply_count": 2,
+            "resolved_at": null,
+            "resolver": null
+          },
+          {
+            "id": "qa-issue-2",
+            "status": "open",
+            "annotation_preview": "Use a tighter crop for the close-up detail.",
+            "created_at": "2026-10-01T09:20:00Z",
+            "updated_at": "2026-10-02T05:20:00Z",
+            "anchor_x": null,
+            "anchor_y": null,
+            "reviewer": {"display_name":"QA Client"},
+            "share": {"id":"qa-share-1","name":"October Campaign Review"},
+            "asset": {
+              "asset_id": "qa-asset-1",
+              "source_asset_id": "qa-source-asset-1",
+              "filename": "Personalized Embroidery UGC Review Final Version.mp4",
+              "media_type": "video/mp4"
+            },
+            "reply_count": 0,
+            "resolved_at": null,
+            "resolver": null
+          }
+        ],
+        "page": 1,
+        "page_size": 100,
+        "total": 2
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/public-review/board/stats",
+      "body": {
+        "total_issues": 7,
+        "open_issues": 2,
+        "resolved_issues": 5,
+        "resolution_rate": 71,
+        "assets_with_open_issues": 1,
+        "shares_with_open_issues": 1
+      }
+    },
+    {
+      "method": "GET",
+      "prefix": "/api/v1/public-review/board/issues/",
+      "body": {
+        "id": "qa-issue-1",
+        "status": "open",
+        "annotation_preview": "Move the embroidery slightly higher and keep the logo centered.",
+        "created_at": "2026-10-01T08:30:00Z",
+        "updated_at": "2026-10-02T06:45:00Z",
+        "anchor_x": 0.46,
+        "anchor_y": 0.38,
+        "reviewer": {"display_name":"QA Client"},
+        "share": {"id":"qa-share-1","name":"October Campaign Review"},
+        "asset": {
+          "asset_id": "qa-asset-1",
+          "source_asset_id": "qa-source-asset-1",
+          "filename": "Personalized Embroidery UGC Review Final Version.mp4",
+          "media_type": "video/mp4"
+        },
+        "reply_count": 2,
+        "resolved_at": null,
+        "resolver": null,
+        "plain_text": "Move the embroidery slightly higher and keep the logo centered.",
+        "content_json": {
+          "type": "doc",
+          "content": [{"type":"paragraph","content":[{"type":"text","text":"Move the embroidery slightly higher and keep the logo centered."}]}]
+        },
+        "replies": [
+          {
+            "id": "qa-reply-1",
+            "content_json": {
+              "type": "doc",
+              "content": [{"type":"paragraph","content":[{"type":"text","text":"Updated placement is ready for another pass."}]}]
+            },
+            "plain_text": "Updated placement is ready for another pass.",
+            "created_at": "2026-10-01T11:00:00Z",
+            "updated_at": "2026-10-01T11:00:00Z",
+            "reviewer": {"display_name":"QA Editor"}
+          },
+          {
+            "id": "qa-reply-2",
+            "content_json": {
+              "type": "doc",
+              "content": [{"type":"paragraph","content":[{"type":"text","text":"Keep the thread density from the original product reference."}]}]
+            },
+            "plain_text": "Keep the thread density from the original product reference.",
+            "created_at": "2026-10-02T06:45:00Z",
+            "updated_at": "2026-10-02T06:45:00Z",
+            "reviewer": {"display_name":"QA Client"}
+          }
+        ]
+      }
+    }
+  ]
+}

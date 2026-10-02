@@ -7,11 +7,23 @@ QA_ROOT="$CLIENT/.ui-qa"
 
 MAX_ATTEMPTS="${CAM_UI_REPAIR_MAX_ATTEMPTS:-2}"
 MAX_TARGETS="${CAM_UI_REPAIR_MAX_TARGETS:-4}"
-FIXTURE="${CAM_UI_QA_FIXTURE:-$CLIENT/scripts/fixtures/explorer-viewer.json}"
-PLAN="${CAM_UI_QA_PLAN:-$ROOT/docs/operations/ui-qa-explorer-viewer-plan.json}"
-BASELINE_DIR="${CAM_UI_VISUAL_BASELINE_DIR:-$CLIENT/visual-baselines/explorer-viewer}"
+PROFILE="${CAM_UI_QA_PROFILE:-explorer-viewer}"
+
+mapfile -t PROFILE_VALUES < <(
+  node "$CLIENT/scripts/ui-qa-profiles.mjs" --profile "$PROFILE" --format-lines
+)
+PROFILE_ROUTE="${PROFILE_VALUES[0]}"
+PROFILE_FIXTURE="${PROFILE_VALUES[1]}"
+PROFILE_PLAN="${PROFILE_VALUES[2]}"
+PROFILE_BASELINE="${PROFILE_VALUES[3]}"
+
+ROUTE_PATH="${CAM_UI_QA_PATH:-$PROFILE_ROUTE}"
+FIXTURE="${CAM_UI_QA_FIXTURE:-$ROOT/$PROFILE_FIXTURE}"
+PLAN="${CAM_UI_QA_PLAN:-$ROOT/$PROFILE_PLAN}"
+BASELINE_DIR="${CAM_UI_VISUAL_BASELINE_DIR:-$ROOT/$PROFILE_BASELINE}"
 HOST="127.0.0.1"
 
+[[ "$ROUTE_PATH" == /* ]] || ROUTE_PATH="/$ROUTE_PATH"
 if [[ "$FIXTURE" != /* ]]; then
   FIXTURE="$ROOT/$FIXTURE"
 fi
@@ -144,6 +156,7 @@ printf '%s\n' "$ATTEMPTS" > "$COUNT_FILE"
 
 note "Targeted UI repair check $ATTEMPTS/$MAX_ATTEMPTS"
 printf 'Session: %s\n' "$SESSION_ID"
+printf 'Profile: %s (%s)\n' "$PROFILE" "$ROUTE_PATH"
 printf 'Viewports: %s\n' "$VIEWPORTS"
 printf 'States: %s\n' "$STATES"
 if [[ -n "$ANALYSIS" ]]; then
@@ -194,7 +207,8 @@ PY
 )"
 fi
 
-URL="http://$HOST:$PORT/"
+ROOT_URL="http://$HOST:$PORT/"
+URL="http://$HOST:$PORT$ROUTE_PATH"
 SERVER_LOG="$QA_ROOT/repair-dev-server.log"
 
 cleanup() {
@@ -211,7 +225,7 @@ npm run dev -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 80); do
-  if curl --silent --fail --max-time 1 "$URL" >/dev/null; then
+  if curl --silent --fail --max-time 1 "$ROOT_URL" >/dev/null; then
     break
   fi
   if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
@@ -221,9 +235,9 @@ for _ in $(seq 1 80); do
   sleep 0.1
 done
 
-curl --silent --fail --max-time 2 "$URL" >/dev/null || {
+curl --silent --fail --max-time 2 "$ROOT_URL" >/dev/null || {
   cat "$SERVER_LOG" >&2 || true
-  die "UI repair dev server did not become ready at $URL"
+  die "UI repair dev server did not become ready at $ROOT_URL"
 }
 
 note "Targeted Browser + visual regression QA"

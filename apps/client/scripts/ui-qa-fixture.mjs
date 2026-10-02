@@ -9,6 +9,21 @@ function json(body, status = 200) {
   };
 }
 
+function fixtureApiResponse(fixture, method, pathname) {
+  const routes = Array.isArray(fixture.apiRoutes) ? fixture.apiRoutes : [];
+  for (const route of routes) {
+    if (!route || typeof route !== "object") continue;
+    const routeMethod = String(route.method || "GET").toUpperCase();
+    if (routeMethod !== method) continue;
+    const exact = typeof route.path === "string" && route.path === pathname;
+    const prefix = typeof route.prefix === "string" && pathname.startsWith(route.prefix);
+    if (!exact && !prefix) continue;
+    const status = Number.isInteger(route.status) ? route.status : 200;
+    return json(route.body ?? {}, status);
+  }
+  return null;
+}
+
 function folderPayload(fixture, parentId) {
   const folder = fixture.folders?.[parentId];
   if (!folder) {
@@ -89,6 +104,28 @@ export async function loadUiQaFixture(fixturePath) {
   for (const required of ["identity", "providerSession", "sources", "folders"]) {
     if (!(required in fixture)) throw new Error(`UI QA fixture is missing "${required}".`);
   }
+  if (fixture.apiRoutes !== undefined) {
+    if (!Array.isArray(fixture.apiRoutes)) {
+      throw new Error("UI QA fixture apiRoutes must be an array.");
+    }
+    for (const [index, route] of fixture.apiRoutes.entries()) {
+      if (!route || typeof route !== "object") {
+        throw new Error(`UI QA fixture apiRoutes[${index}] must be an object.`);
+      }
+      if (typeof route.path !== "string" && typeof route.prefix !== "string") {
+        throw new Error(
+          `UI QA fixture apiRoutes[${index}] must define an exact path or prefix.`,
+        );
+      }
+      for (const value of [route.path, route.prefix]) {
+        if (value !== undefined && (!value.startsWith("/") || value.startsWith("//"))) {
+          throw new Error(
+            `UI QA fixture apiRoutes[${index}] must use an origin-relative API path.`,
+          );
+        }
+      }
+    }
+  }
   return { ...fixture, absolutePath };
 }
 
@@ -105,6 +142,7 @@ export async function installUiQaFixture(context, fixture, baseUrl) {
 
     const method = request.method().toUpperCase();
     const pathname = url.pathname;
+    const customResponse = fixtureApiResponse(fixture, method, pathname);
     let response;
 
     if (method === "GET" && pathname === "/api/v1/auth/identity") {
@@ -115,6 +153,8 @@ export async function installUiQaFixture(context, fixture, baseUrl) {
       response = json({ authenticated: false, user: null }, 401);
     } else if (method === "GET" && pathname === "/api/sources") {
       response = json(fixture.sources);
+    } else if (customResponse) {
+      response = customResponse;
     } else if (method === "GET" && pathname === "/api/explorer/viewer/bootstrap") {
       response = json(fixture.viewerBootstrap || {
         sources: [],

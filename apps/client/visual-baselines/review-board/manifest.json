@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "issue-hover",
+    "reviewer-focus",
+    "date-filters"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001,
+  "governance": {
+    "lastAcceptedProposalId": "20261002T081943Z-d7a092cd-review-board",
+    "task": "Bootstrap fixture-backed visual regression coverage for Review Board as the next requested UI automation phase",
+    "acceptanceReason": "User explicitly requested continuation of fixture-backed visual regression coverage for Review Board.",
+    "sourceHead": "d7a092cdcc83eb5ea44c722094cf461c6891e6cd",
+    "workspaceFingerprint": "e9f89b18e76e76357f4bd9ee525ceb1267991e33f26acea51f2800fdfeafe7d7",
+    "acceptedAt": "2026-10-02T08:20:16.497311+00:00"
+  }
+}
