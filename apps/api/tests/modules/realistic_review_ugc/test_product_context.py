@@ -42,6 +42,61 @@ def test_visual_context_normalizes_gemini_confidence_labels():
     ).confidence == 0.75
 
 
+def test_visual_scene_hints_rank_ahead_of_generic_theme_templates():
+    product = {
+        "id": "grandpa-golf-cap",
+        "revision": 3,
+        "name": "Best Grandpa By Par",
+        "product_type": "cap",
+    }
+    visual = {
+        "status": "ready",
+        "binding_fingerprint": product_visual_binding_fingerprint(product, None),
+        "themes": ["dad_family", "sports"],
+        "scene_hints": [
+            "grandfather golf course outing",
+            "dad golfing weekend",
+            "golf course lifestyle",
+        ],
+        "audience_hints": ["grandfather", "dad", "golfer"],
+        "occasion_hints": ["Father's Day gift", "golf outing"],
+        "product_cues": [
+            "embroidered golf swing figure",
+            "text reading Best Grandpa By Par",
+        ],
+        "avoid_hints": [],
+        "confidence": 0.95,
+        "summary": "Grandpa golf embroidery.",
+    }
+
+    profile = derive_product_context_profile(
+        product_snapshot=product,
+        campaign_name="Best Grandpa By Par",
+        config={"auto_context": True, "visual_context": visual},
+    )
+
+    assert profile["search_clusters"]["direct"][:3] == [
+        "grandfather golf course outing candid phone photo",
+        "dad golfing weekend candid phone photo",
+        "golf course lifestyle candid phone photo",
+    ]
+
+    queries = build_campaign_search_queries(
+        name="Best Grandpa By Par",
+        queries=profile["search_clusters"]["direct"][:2],
+        protected_queries=profile["search_clusters"]["direct"][:2],
+        product_snapshot=product,
+        discovery_mode="product_context",
+        product_context=profile,
+        max_queries=10,
+    )
+    assert queries[:3] == [
+        "grandfather golf course outing candid phone photo",
+        "dad golfing weekend candid phone photo",
+        "golf course lifestyle candid phone photo",
+    ]
+
+
 def test_product_context_detects_pet_owner_and_builds_scene_clusters():
     profile = derive_product_context_profile(
         product_snapshot={

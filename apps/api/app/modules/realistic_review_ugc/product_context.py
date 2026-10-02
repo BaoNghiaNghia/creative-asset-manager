@@ -672,15 +672,19 @@ def derive_product_context_profile(
         )
     }
 
-    direct: list[str] = []
+    # Visible design evidence is the strongest signal for source-image discovery.
+    # Put scene concepts inferred from the actual embroidery/artwork ahead of
+    # broad theme templates so a design like "Best Grandpa By Par" searches
+    # for a grandfather golfing context before generic family/sports scenes.
+    direct: list[str] = [
+        f"{scene} candid phone photo"
+        for scene in [*visual_scene_hints, *preferred_scenes]
+    ]
     adjacent: list[str] = []
     for theme in themes:
         templates = _CONTEXT_QUERY_TEMPLATES.get(theme, {})
         direct.extend(templates.get("direct", ()))
         adjacent.extend(templates.get("adjacent", ()))
-
-    for scene in [*visual_scene_hints, *preferred_scenes]:
-        direct.append(f"{scene} candid phone photo")
 
     # Human context feedback only changes discovery after at least two
     # consistent reviews for the same search context. Promoted queries are
