@@ -198,6 +198,13 @@ export type SourcePlan = {
   updated_at: string;
 };
 
+export type SourcePlanPage = {
+  items: SourcePlan[];
+  page: number;
+  page_size: number;
+  total: number;
+};
+
 export type SourcePlanSyncResult = {
   root_folder_id: string;
   target_count: number;

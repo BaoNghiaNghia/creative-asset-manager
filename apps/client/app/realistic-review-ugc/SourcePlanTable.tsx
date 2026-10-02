@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
+import { useRef } from "react";
 import type { SourcePlan } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
-const INITIAL_VISIBLE_ROWS = 40;
+const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
 export function sourcePlanProgressPercent(plan: Pick<SourcePlan, "progress_count" | "target_count">): number {
   if (plan.target_count <= 0) return 0;
   return Math.min(100, Math.round((plan.progress_count / plan.target_count) * 100));
+}
+
+export function sourcePlanPageCount(totalRows: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(Math.max(0, totalRows) / Math.max(1, pageSize)));
 }
 
 export function sourcePlanContextSummary(plan: SourcePlan): string {
@@ -47,226 +51,142 @@ function sourceMeta(plan: SourcePlan): string {
   return [dimensions, size].filter(Boolean).join(" · ");
 }
 
-function ReferenceSlots({ plan }: { plan: SourcePlan }) {
-  const slotCount = Math.max(1, Math.min(20, plan.target_count || 20));
-  const slots = Array.from({ length: slotCount }, (_, index) => plan.reference_previews[index] || null);
-  return <div className="rrugc-source-ref-grid" aria-label={plan.progress_count + " of " + plan.target_count + " references ready"}>
-    {slots.map((reference, index) => reference ? (
-      <a
-        key={reference.id}
-        href={reference.pin_url}
-        target="_blank"
-        rel="noreferrer"
-        className={"rrugc-source-ref-tile status-" + reference.status}
-        title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}
-      >
-        <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
-        <span>{index + 1}</span>
-      </a>
-    ) : (
-      <span key={"empty-" + index} className="rrugc-source-ref-tile is-empty" aria-hidden="true">
-        <small>{index + 1}</small>
-      </span>
-    ))}
+function ReferenceSlider({ plan }: { plan: SourcePlan }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const references = plan.reference_previews;
+
+  function move(direction: -1 | 1) {
+    trackRef.current?.scrollBy({ left: direction * 360, behavior: "smooth" });
+  }
+
+  return <div className="rrugc-source-ref-slider">
+    <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} disabled={references.length === 0} onClick={() => move(-1)}>‹</button>
+    <div ref={trackRef} className="rrugc-source-ref-track" aria-label={references.length + " reference images for " + plan.source_name}>
+      {references.map((reference, index) => (
+        <a key={reference.id} href={reference.pin_url} target="_blank" rel="noreferrer" className={"rrugc-source-ref-card status-" + reference.status} title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}>
+          <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
+          <span>{index + 1}</span>
+        </a>
+      ))}
+      {references.length === 0 && <div className="rrugc-source-ref-empty"><strong>No refs yet</strong><small>Auto Scout will add qualified Pinterest references here.</small></div>}
+    </div>
+    <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references right"} disabled={references.length === 0} onClick={() => move(1)}>›</button>
   </div>;
 }
 
 export function SourcePlanTable({
   plans,
+  total,
+  page,
+  pageSize,
+  query,
   syncing,
   message,
   onSync,
-  onOpenCampaign,
+  onPageChange,
+  onPageSizeChange,
+  onQueryChange,
 }: {
   plans: SourcePlan[];
+  total: number;
+  page: number;
+  pageSize: number;
+  query: string;
   syncing: boolean;
   message: string;
   onSync: () => void;
-  onOpenCampaign: (campaignId: string) => void;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  onQueryChange: (query: string) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "working" | "complete" | "attention">("all");
-  const [visibleRows, setVisibleRows] = useState(INITIAL_VISIBLE_ROWS);
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    return plans.filter(plan => {
-      if (needle && ![
-        plan.source_name,
-        plan.source_relative_path,
-        plan.campaign_name,
-        ...plan.search_queries,
-        ...(plan.visual_context?.themes || []),
-        ...(plan.visual_context?.scene_hints || []),
-      ].some(value => value?.toLocaleLowerCase().includes(needle))) return false;
-      if (statusFilter === "complete") return plan.target_count > 0 && plan.progress_count >= plan.target_count;
-      if (statusFilter === "attention") return ["failed", "retry", "missing"].includes(plan.status);
-      if (statusFilter === "working") {
-        return plan.progress_count < plan.target_count && !["failed", "missing"].includes(plan.status);
-      }
-      return true;
-    });
-  }, [plans, query, statusFilter]);
-
-  const shown = filtered.slice(0, visibleRows);
-  const complete = plans.filter(plan => plan.target_count > 0 && plan.progress_count >= plan.target_count).length;
+  const pageCount = sourcePlanPageCount(total, pageSize);
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = total === 0 ? 0 : Math.min((page - 1) * pageSize + plans.length, total);
   const working = plans.filter(plan => plan.progress_count < plan.target_count && !["failed", "missing"].includes(plan.status)).length;
-  const readyRefs = plans.reduce((sum, plan) => sum + plan.progress_count, 0);
-  const targetRefs = plans.reduce((sum, plan) => sum + plan.target_count, 0);
+  const loadedRefs = plans.reduce((sum, plan) => sum + plan.reference_previews.length, 0);
 
   return <section id="rrugc-source-plans" className="rrugc-card rrugc-source-plans">
     <div className="rrugc-section-heading rrugc-source-plans-heading">
       <div>
         <small>DRIVE → AI CONTEXT → PINTEREST</small>
         <h2>Embroidery source → Pinterest refs</h2>
-        <p>Each image inside child folders becomes one independent plan that scouts exactly 20 context-matched references.</p>
+        <p>New images are discovered automatically in the configured Drive tree. Each source image starts with a 20-ref target, while the reference slider can continue showing additional qualified refs.</p>
       </div>
       <div className="rrugc-source-plan-heading-actions">
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Auto scan on</span>
         <span className="rrugc-source-root" title={SOURCE_ROOT_FOLDER_ID}>Drive · {SOURCE_ROOT_FOLDER_ID}</span>
-        <button
-          type="button"
-          className="rrugc-primary"
-          disabled={syncing}
-          onClick={onSync}
-        >
-          {syncing ? "Scanning source…" : "Sync source folder"}
-        </button>
+        <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>{syncing ? "Scanning…" : "Scan now"}</button>
       </div>
     </div>
 
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
 
     <div className="rrugc-source-plan-kpis">
-      <article><span>Source images</span><strong>{plans.length}</strong></article>
-      <article><span>Working</span><strong>{working}</strong></article>
-      <article><span>Complete</span><strong>{complete}</strong></article>
-      <article><span>Refs ready</span><strong>{readyRefs}<small>/{targetRefs}</small></strong></article>
+      <article><span>Source images</span><strong>{total}</strong></article>
+      <article><span>This page</span><strong>{plans.length}</strong></article>
+      <article><span>Working here</span><strong>{working}</strong></article>
+      <article><span>Refs loaded</span><strong>{loadedRefs}</strong></article>
     </div>
 
-    <div className="rrugc-source-plan-toolbar">
+    <div className="rrugc-source-plan-toolbar rrugc-source-plan-toolbar-server">
       <label>
         <span className="sr-only">Search source plans</span>
         <input
           type="search"
           value={query}
-          placeholder="Search file, folder, context, or keyword…"
-          onChange={event => {
-            setQuery(event.target.value);
-            setVisibleRows(INITIAL_VISIBLE_ROWS);
-          }}
+          placeholder="Search source file or folder…"
+          onChange={event => onQueryChange(event.target.value)}
         />
       </label>
-      <div className="rrugc-source-plan-filters" role="group" aria-label="Source plan status">
-        {([
-          ["all", "All"],
-          ["working", "Working"],
-          ["complete", "Complete"],
-          ["attention", "Needs attention"],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={statusFilter === value ? "active" : ""}
-            onClick={() => {
-              setStatusFilter(value);
-              setVisibleRows(INITIAL_VISIBLE_ROWS);
-            }}
-          >{label}</button>
-        ))}
-      </div>
-      <span>{filtered.length} rows</span>
+      <span>{total} source images</span>
     </div>
 
     <div className="rrugc-source-plan-table-wrap">
       <table className="rrugc-source-plan-table">
-        <thead>
-          <tr>
-            <th>Source image</th>
-            <th>AI context & Pinterest plan</th>
-            <th>Scout</th>
-            <th>References</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Source image</th><th>AI context & Pinterest plan</th><th>Scout</th><th>References</th></tr></thead>
         <tbody>
-          {shown.map(plan => {
+          {plans.map(plan => {
             const progress = sourcePlanProgressPercent(plan);
             const context = sourcePlanContextSummary(plan);
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
             return <tr key={plan.id}>
-              <td className="rrugc-source-cell">
-                <div className="rrugc-source-file">
-                  {plan.source_web_url ? (
-                    <a href={plan.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title="Open source in Google Drive">
-                      <img src={plan.source_preview_url} alt={plan.source_name} loading="lazy" />
-                    </a>
-                  ) : (
-                    <span className="rrugc-source-thumb"><img src={plan.source_preview_url} alt={plan.source_name} loading="lazy" /></span>
-                  )}
-                  <span>
-                    <strong title={plan.source_name}>{plan.source_name}</strong>
-                    <small title={plan.source_relative_path}>{plan.source_relative_path}</small>
-                    <em>{sourceMeta(plan) || "Image source"}</em>
-                  </span>
-                </div>
-              </td>
+              <td className="rrugc-source-cell"><div className="rrugc-source-file">
+                {plan.source_web_url ? <a href={plan.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title="Open source in Google Drive"><img src={plan.source_preview_url} alt={plan.source_name} loading="lazy" /></a> : <span className="rrugc-source-thumb"><img src={plan.source_preview_url} alt={plan.source_name} loading="lazy" /></span>}
+                <span><strong title={plan.source_name}>{plan.source_name}</strong><small title={plan.source_relative_path}>{plan.source_relative_path}</small><em>{sourceMeta(plan) || "Image source"}</em></span>
+              </div></td>
               <td className="rrugc-source-plan-context">
-                <div className="rrugc-source-context-head">
-                  <span className={"rrugc-source-plan-status tone-" + planTone(plan)}>
-                    {planStatusLabel(plan)}
-                  </span>
-                  {plan.analyzed_at && <small>Analyzed {new Date(plan.analyzed_at).toLocaleString()}</small>}
-                </div>
+                <div className="rrugc-source-context-head"><span className={"rrugc-source-plan-status tone-" + planTone(plan)}>{planStatusLabel(plan)}</span>{plan.analyzed_at && <small>Analyzed {new Date(plan.analyzed_at).toLocaleString()}</small>}</div>
                 <p title={context}>{context}</p>
-                {themes.length > 0 && <div className="rrugc-source-theme-chips">
-                  {themes.map(theme => <span key={theme}>{theme}</span>)}
-                </div>}
-                <div className="rrugc-source-query-chips">
-                  {plan.search_queries.slice(0, 4).map(keyword => <span key={keyword} title={keyword}>{keyword}</span>)}
-                  {plan.search_queries.length > 4 && <span>+{plan.search_queries.length - 4}</span>}
-                  {plan.search_queries.length === 0 && <small>{plan.status === "ready" ? "No search query" : "Waiting for AI search plan…"}</small>}
-                </div>
+                {themes.length > 0 && <div className="rrugc-source-theme-chips">{themes.map(theme => <span key={theme}>{theme}</span>)}</div>}
+                <div className="rrugc-source-query-chips">{plan.search_queries.slice(0, 4).map(keyword => <span key={keyword} title={keyword}>{keyword}</span>)}{plan.search_queries.length > 4 && <span>+{plan.search_queries.length - 4}</span>}{plan.search_queries.length === 0 && <small>{plan.status === "ready" ? "No search query" : "Waiting for AI search plan…"}</small>}</div>
                 {plan.last_error_code && <small className="rrugc-source-error">{plan.last_error_code}</small>}
               </td>
               <td className="rrugc-source-scout-cell">
-                <div className="rrugc-source-progress-copy">
-                  <strong>{plan.progress_count}<small>/{plan.target_count}</small></strong>
-                  <span>{progress}%</span>
-                </div>
+                <div className="rrugc-source-progress-copy"><strong>{plan.progress_count}<small>/{plan.target_count}</small></strong><span>{progress}%</span></div>
                 <span className="rrugc-progress rrugc-source-progress"><i style={{ width: progress + "%" }} /></span>
-                <div className="rrugc-source-scout-meta">
-                  <span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>
-                    {(plan.scout_status || "offline").replaceAll("_", " ")}
-                  </span>
-                  <small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small>
-                </div>
-                {plan.campaign_id && <button type="button" onClick={() => onOpenCampaign(plan.campaign_id as string)}>
-                  Open campaign
-                </button>}
+                <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>{(plan.scout_status || "offline").replaceAll("_", " ")}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
-                <div className="rrugc-source-refs-head">
-                  <strong>{plan.reference_previews.length} refs shown</strong>
-                  <small>{plan.drive_ready_count} Drive ready · {plan.approved_count} qualified</small>
-                </div>
-                <ReferenceSlots plan={plan} />
+                <div className="rrugc-source-refs-head"><strong>{plan.reference_previews.length} refs loaded</strong><small>{plan.drive_ready_count} Drive ready · {plan.approved_count} qualified</small></div>
+                <ReferenceSlider plan={plan} />
               </td>
             </tr>;
           })}
-          {shown.length === 0 && <tr>
-            <td colSpan={4} className="rrugc-source-plan-empty">
-              {plans.length === 0
-                ? "No source images yet. Sync the configured Drive folder to create one 20-ref plan per image."
-                : "No source plan matches this filter."}
-            </td>
-          </tr>}
+          {plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">{query.trim() ? "No source image matches this search." : "No source images yet. Auto scan will create plans when images appear in the configured Drive folders."}</td></tr>}
         </tbody>
       </table>
     </div>
 
-    {filtered.length > visibleRows && <div className="rrugc-source-plan-more">
-      <button type="button" onClick={() => setVisibleRows(value => value + INITIAL_VISIBLE_ROWS)}>
-        Show {Math.min(INITIAL_VISIBLE_ROWS, filtered.length - visibleRows)} more
-      </button>
-      <small>{visibleRows} of {filtered.length} visible</small>
-    </div>}
+    <div className="rrugc-source-pagination">
+      <span>{start}–{end} of {total}</span>
+      <div className="rrugc-source-page-controls">
+        <button type="button" disabled={page <= 1} onClick={() => onPageChange(1)} aria-label="First page">«</button>
+        <button type="button" disabled={page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))} aria-label="Previous page">‹</button>
+        <strong>Page {page} / {pageCount}</strong>
+        <button type="button" disabled={page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))} aria-label="Next page">›</button>
+        <button type="button" disabled={page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page">»</button>
+      </div>
+      <label>Rows<select value={pageSize} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+    </div>
   </section>;
 }

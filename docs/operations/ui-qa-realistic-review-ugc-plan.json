@@ -1,9 +1,9 @@
 {
   "viewports": ["desktop", "tabletPortrait", "mobile"],
   "steps": [
-    {"name":"default","waitFor":".rrugc-page-body","waitMs":400},
-    {"name":"campaign-hover","hover":".rrugc-campaign-list article"},
-    {"name":"candidate-hover","hover":".rrugc-candidate"},
-    {"name":"candidate-filter-focus","focus":"input[aria-label='Filter candidates']"}
+    {"name":"default","waitFor":"#rrugc-source-plans","waitMs":400},
+    {"name":"campaign-hover","hover":".rrugc-source-plan-table tbody tr"},
+    {"name":"candidate-hover","hover":".rrugc-source-ref-card"},
+    {"name":"candidate-filter-focus","focus":"input[placeholder='Search source file or folder…']"}
   ]
 }

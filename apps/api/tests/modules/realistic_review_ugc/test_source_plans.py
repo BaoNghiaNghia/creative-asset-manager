@@ -14,6 +14,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcSourcePlanModel,
 )
+from app.modules.realistic_review_ugc.router import get_source_plans
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
@@ -123,6 +124,98 @@ def make_database():
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
     return sessionmaker(engine, expire_on_commit=False)
+
+
+def test_source_plan_list_is_server_paginated_and_searchable():
+    factory = make_database()
+
+    with factory() as session:
+        session.add_all(
+            [
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="image-a",
+                    source_parent_folder_id="folder-a",
+                    source_relative_path="Dogs/dog-cap.jpg",
+                    source_name="dog-cap.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision="a" * 64,
+                    analysis_revision=1,
+                    target_count=20,
+                    status="ready",
+                    created_by_user_id="user-a",
+                ),
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="image-b",
+                    source_parent_folder_id="folder-b",
+                    source_relative_path="Teachers/teacher-cap.png",
+                    source_name="teacher-cap.png",
+                    source_mime_type="image/png",
+                    source_revision="b" * 64,
+                    analysis_revision=1,
+                    target_count=20,
+                    status="ready",
+                    created_by_user_id="user-a",
+                ),
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="image-c",
+                    source_parent_folder_id="folder-c",
+                    source_relative_path="Weekend/camping-cap.jpg",
+                    source_name="camping-cap.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision="c" * 64,
+                    analysis_revision=1,
+                    target_count=20,
+                    status="ready",
+                    created_by_user_id="user-a",
+                ),
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-b",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="other-tenant",
+                    source_parent_folder_id="folder-z",
+                    source_relative_path="Other/hidden.jpg",
+                    source_name="hidden.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision="d" * 64,
+                    analysis_revision=1,
+                    target_count=20,
+                    status="ready",
+                    created_by_user_id="user-b",
+                ),
+            ]
+        )
+        session.commit()
+        principal = SimpleNamespace(active_tenant_id="tenant-a")
+
+        page = get_source_plans(
+            page=2,
+            page_size=1,
+            q=None,
+            session=session,
+            principal=principal,
+        )
+        assert page.total == 3
+        assert page.page == 2
+        assert page.page_size == 1
+        assert [item.source_relative_path for item in page.items] == [
+            "Teachers/teacher-cap.png"
+        ]
+
+        search = get_source_plans(
+            page=1,
+            page_size=20,
+            q="teacher",
+            session=session,
+            principal=principal,
+        )
+        assert search.total == 1
+        assert [item.source_name for item in search.items] == ["teacher-cap.png"]
 
 
 def test_discover_source_images_recurses_child_folders_and_ignores_root_images():

@@ -180,6 +180,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutTaskResponse,
     SourcePlanReferencePreviewResponse,
     SourcePlanResponse,
+    SourcePlanPageResponse,
     SourcePlanSyncResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
@@ -206,7 +207,6 @@ from app.modules.realistic_review_ugc.service import (
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_TARGET_COUNT,
     RrugcSourcePlanError,
-    list_source_plans,
     sync_source_plans,
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
@@ -2432,6 +2432,7 @@ def generation_skills(
 SOURCE_PLAN_REFERENCE_STATUSES = frozenset(
     {"approved", "import_queued", "importing", "drive_ready"}
 )
+SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT = 100
 
 
 def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanReferencePreviewResponse:
@@ -2532,20 +2533,43 @@ def _source_plan_response(
     )
 
 
-@router.get("/source-plans", response_model=list[SourcePlanResponse])
+@router.get("/source-plans", response_model=SourcePlanPageResponse)
 def get_source_plans(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q: str | None = Query(default=None, max_length=200),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    plans = list_source_plans(
-        session,
-        tenant_id=principal.active_tenant_id,
+    filters = [RrugcSourcePlanModel.tenant_id == principal.active_tenant_id]
+    needle = str(q or "").strip()
+    if needle:
+        pattern = f"%{needle}%"
+        filters.append(
+            RrugcSourcePlanModel.source_name.ilike(pattern)
+            | RrugcSourcePlanModel.source_relative_path.ilike(pattern)
+        )
+
+    total = int(
+        session.scalar(
+            select(func.count(RrugcSourcePlanModel.id)).where(*filters)
+        )
+        or 0
     )
-    campaign_ids = [
-        row.campaign_id
-        for row in plans
-        if row.campaign_id
-    ]
+    plans = list(
+        session.scalars(
+            select(RrugcSourcePlanModel)
+            .where(*filters)
+            .order_by(
+                RrugcSourcePlanModel.source_relative_path.asc(),
+                RrugcSourcePlanModel.id.asc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+
+    campaign_ids = [row.campaign_id for row in plans if row.campaign_id]
     campaigns: dict[str, RrugcCampaignModel] = {}
     counts_by_campaign: dict[str, Counter] = {}
     previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
@@ -2588,10 +2612,10 @@ def get_source_plans(
             )
         ):
             rows = previews_by_campaign.setdefault(candidate.campaign_id, [])
-            if len(rows) < RRUGC_SOURCE_TARGET_COUNT:
+            if len(rows) < SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT:
                 rows.append(candidate)
 
-    return [
+    items = [
         _source_plan_response(
             row,
             campaign=campaigns.get(row.campaign_id or ""),
@@ -2600,6 +2624,12 @@ def get_source_plans(
         )
         for row in plans
     ]
+    return SourcePlanPageResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.get("/source-plans/{source_plan_id}/image")

@@ -59,6 +59,7 @@ from app.modules.realistic_review_ugc.handler import (
     RrugcCandidateAnalyzeJobHandler,
     RrugcCandidateImportJobHandler,
 )
+from app.modules.realistic_review_ugc.source_plan_scheduler import RrugcSourcePlanSyncScheduler
 from app.modules.realistic_review_ugc.source_plans import RrugcSourcePlanAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
@@ -403,6 +404,7 @@ def run_worker(
     creative_pipeline_canary_scheduler: CreativePipelineCanaryScheduler | None = None
     managed_cleanup_scheduler: ManagedStorageCleanupSchedulerRunner | None = None
     rrugc_delivery_scheduler: RrugcDeliveryMaintenanceScheduler | None = None
+    rrugc_source_scheduler: RrugcSourcePlanSyncScheduler | None = None
     video_cache_cleanup: VideoCacheCleanupRunner | None = None
     visual_backfill_scheduler: VisualSearchBackfillScheduler | None = None
     try:
@@ -439,6 +441,12 @@ def run_worker(
                 session_factory, settings, logger=worker_logger,
             )
             source_sync_scheduler.start()
+            rrugc_source_scheduler = RrugcSourcePlanSyncScheduler(
+                session_factory,
+                settings,
+                logger=worker_logger,
+            )
+            rrugc_source_scheduler.start()
             creative_pipeline_canary_scheduler = CreativePipelineCanaryScheduler(session_factory, settings, logger=worker_logger)
             creative_pipeline_canary_scheduler.start()
             if settings.MANAGED_STORAGE_AUTO_CLEANUP_ENABLED:
@@ -519,6 +527,8 @@ def run_worker(
             creative_pipeline_canary_scheduler.stop()
         if source_sync_scheduler is not None:
             source_sync_scheduler.stop()
+        if rrugc_source_scheduler is not None:
+            rrugc_source_scheduler.stop()
         if managed_cleanup_scheduler is not None:
             managed_cleanup_scheduler.stop()
         if rrugc_delivery_scheduler is not None:

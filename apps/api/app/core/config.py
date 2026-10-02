@@ -68,6 +68,7 @@ FEATURE_FLAG_NAMES = (
     "VIDEO_CDN_DELIVERY_GUARD_ENABLED",
     "R2_VIDEO_PLAYBACK_DERIVED_ENABLED",
     "RRUGC_DELIVERY_AUTOMATION_ENABLED",
+    "RRUGC_SOURCE_AUTO_SYNC_ENABLED",
 )
 
 
@@ -466,6 +467,8 @@ class Settings(BaseSettings):
     # delivery packages and reconciles package lifecycle; it never invents a
     # destination or auto-exports new catalog assets.
     RRUGC_DELIVERY_AUTOMATION_ENABLED: bool = False
+    RRUGC_SOURCE_AUTO_SYNC_ENABLED: bool = True
+    RRUGC_SOURCE_AUTO_SYNC_INTERVAL_SECONDS: int = 120
     RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS: int = 300
     RRUGC_DELIVERY_MAINTENANCE_MAX_PACKAGES_PER_RUN: int = 20
     RRUGC_DELIVERY_AUTO_RETRY_MAX_ATTEMPTS: int = 5
@@ -1296,6 +1299,8 @@ class Settings(BaseSettings):
         )
         if min(rrugc_delivery_values) <= 0:
             raise ValueError("RRUGC delivery automation limits must be positive")
+        if self.RRUGC_SOURCE_AUTO_SYNC_INTERVAL_SECONDS < 60:
+            raise ValueError("RRUGC_SOURCE_AUTO_SYNC_INTERVAL_SECONDS must be at least 60")
         if self.RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS < 60:
             raise ValueError("RRUGC_DELIVERY_MAINTENANCE_INTERVAL_SECONDS must be at least 60")
         if self.RRUGC_DELIVERY_AUTO_RETRY_BASE_SECONDS > self.RRUGC_DELIVERY_AUTO_RETRY_MAX_SECONDS:

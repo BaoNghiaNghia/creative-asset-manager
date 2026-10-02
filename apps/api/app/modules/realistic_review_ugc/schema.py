@@ -453,6 +453,13 @@ class SourcePlanResponse(BaseModel):
     updated_at: datetime
 
 
+class SourcePlanPageResponse(BaseModel):
+    items: list[SourcePlanResponse] = Field(default_factory=list)
+    page: int
+    page_size: int
+    total: int
+
+
 class SourcePlanSyncResponse(BaseModel):
     root_folder_id: str
     target_count: int = 20

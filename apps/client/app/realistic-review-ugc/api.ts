@@ -38,7 +38,7 @@ import type {
   ScoutAgent,
   ScoutAgentCreated,
   ScoutRun,
-  SourcePlan,
+  SourcePlanPage,
   SourcePlanSyncResult,
   SupervisorResult,
 } from "./types";
@@ -145,8 +145,20 @@ export const archiveProductReference = (productId: string, referenceId: string) 
     { method: "DELETE" },
   );
 
-export const listSourcePlans = (signal?: AbortSignal) =>
-  request<SourcePlan[]>("/api/v1/realistic-review-ugc/source-plans", { signal });
+export const listSourcePlans = (
+  filters: { page?: number; pageSize?: number; query?: string } = {},
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({
+    page: String(filters.page ?? 1),
+    page_size: String(filters.pageSize ?? 20),
+  });
+  if (filters.query?.trim()) params.set("q", filters.query.trim());
+  return request<SourcePlanPage>(
+    "/api/v1/realistic-review-ugc/source-plans?" + params.toString(),
+    { signal },
+  );
+};
 
 export const syncSourcePlans = () =>
   request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync", {
