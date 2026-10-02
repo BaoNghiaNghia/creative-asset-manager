@@ -80,7 +80,7 @@ PY
 )"
 fi
 
-SESSION_ID=""
+SESSION_ID="${CAM_UI_REPAIR_SESSION_ID:-}"
 ANALYSIS_VIEWPORTS=""
 ANALYSIS_STATES=""
 
@@ -100,7 +100,9 @@ console.log(targets.viewports.join(","));
 console.log(targets.states.join(","));
 JS
   )
-  SESSION_ID="${TARGET_LINES[0]:-visual-repair}"
+  if [[ -z "$SESSION_ID" ]]; then
+    SESSION_ID="${TARGET_LINES[0]:-visual-repair}"
+  fi
   ANALYSIS_VIEWPORTS="${TARGET_LINES[1]:-}"
   ANALYSIS_STATES="${TARGET_LINES[2]:-}"
 fi
@@ -157,11 +159,17 @@ if [[ ! -d "$CLIENT/node_modules" ]]; then
   (cd "$CLIENT" && npm ci)
 fi
 
-if [[ -n "${CAM_UI_REPAIR_TESTS:-}" ]]; then
-  note "Optional targeted frontend tests"
-  read -r -a TEST_ARGS <<< "$CAM_UI_REPAIR_TESTS"
-  (cd "$CLIENT" && npm test -- "${TEST_ARGS[@]}")
-fi
+CHANGED="$({
+  git diff --name-only origin/main...HEAD 2>/dev/null || true
+  git diff --name-only
+  git diff --name-only --cached
+  git ls-files --others --exclude-standard
+} | awk 'NF' | sort -u)"
+export CAM_UI_CHANGED_FILES="$CHANGED"
+
+note "Smart targeted frontend tests"
+CAM_UI_TESTS_OVERRIDE="${CAM_UI_REPAIR_TESTS:-}" \
+  bash "$ROOT/scripts/cam-ui-run-smart-tests.sh"
 
 if [[ "${CAM_UI_REPAIR_TYPECHECK:-0}" == "1" ]]; then
   note "Optional TypeScript check"
@@ -172,14 +180,6 @@ if ! command -v google-chrome >/dev/null 2>&1 && ! command -v google-chrome-stab
   note "Browser runtime preflight"
   bash "$ROOT/scripts/cam-install-ui-browser.sh"
 fi
-
-CHANGED="$({
-  git diff --name-only origin/main...HEAD 2>/dev/null || true
-  git diff --name-only
-  git diff --name-only --cached
-  git ls-files --others --exclude-standard
-} | awk 'NF' | sort -u)"
-export CAM_UI_CHANGED_FILES="$CHANGED"
 
 if [[ -n "${CAM_UI_STAGING_PORT:-}" ]]; then
   PORT="$CAM_UI_STAGING_PORT"

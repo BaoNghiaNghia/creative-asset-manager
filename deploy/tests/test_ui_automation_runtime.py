@@ -57,6 +57,10 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("scripts/cam-ui-staging-qa.sh", text)
         self.assertIn("ui-repair-check:", text)
         self.assertIn("scripts/cam-ui-repair-check.sh", text)
+        self.assertIn("ui-autofix:", text)
+        self.assertIn("scripts/cam-ui-autofix.sh", text)
+        self.assertIn("ui-smart-tests:", text)
+        self.assertIn("scripts/cam-ui-run-smart-tests.sh", text)
         self.assertIn("ui-visual-update:", text)
         self.assertIn("CAM_UI_VISUAL_UPDATE=1", text)
         self.assertIn("ui:qa:analysis:test", (ROOT / "apps/client/package.json").read_text(encoding="utf-8"))
@@ -127,9 +131,44 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("git diff --check", repair)
         self.assertIn("repair-sessions", repair)
         self.assertIn("CAM_UI_REPAIR_TYPECHECK", repair)
+        self.assertIn("cam-ui-run-smart-tests.sh", repair)
+        self.assertIn("CAM_UI_REPAIR_SESSION_ID", repair)
         self.assertNotIn("npm run build", repair)
         self.assertNotIn("deploy-cam-frontend.sh", repair)
         self.assertNotIn("scripts/cam-ui-gate.sh", repair)
+
+    def test_autofix_orchestrator_bounds_repairs_and_final_gate(self) -> None:
+        autofix = (ROOT / "scripts/cam-ui-autofix.sh").read_text(encoding="utf-8")
+        gate = (ROOT / "scripts/cam-ui-gate.sh").read_text(encoding="utf-8")
+        smart = (ROOT / "scripts/cam-ui-run-smart-tests.sh").read_text(encoding="utf-8")
+        self.assertIn("CAM_UI_AUTOFIX_MAX_REPAIRS", autofix)
+        self.assertIn("must be 1 or 2", autofix)
+        self.assertIn("cam-ui-repair-check.sh", autofix)
+        self.assertIn("cam-ui-gate.sh", autofix)
+        self.assertIn("final-attempted", autofix)
+        self.assertIn("will not rerun the full gate automatically", autofix)
+        self.assertIn("CAM_UI_AUTOFIX_PLAN_ONLY", autofix)
+        self.assertNotIn("deploy-cam-frontend.sh", autofix)
+        self.assertIn("cam-ui-run-smart-tests.sh", gate)
+        self.assertIn("CAM_UI_SKIP_FRONTEND_TESTS", gate)
+        self.assertIn("CAM_UI_SKIP_FRONTEND_TESTS", autofix)
+        self.assertIn("TARGETED_VERIFIED", autofix)
+        self.assertIn("CAM_UI_SMART_TESTS", smart)
+        self.assertIn("ui-smart-tests.mjs", smart)
+
+    def test_smart_test_selector_has_safe_escalation_and_dependency_mapping(self) -> None:
+        selector = (ROOT / "apps/client/scripts/ui-smart-tests.mjs").read_text(
+            encoding="utf-8"
+        )
+        planner = (ROOT / "apps/client/scripts/ui-autofix-plan.mjs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("dependency-linked-tests", selector)
+        self.assertIn("broad-or-security-sensitive-frontend-change", selector)
+        self.assertIn("frontend-code-change-without-confident-test-map", selector)
+        self.assertIn("visual-or-automation-only-change", selector)
+        self.assertIn("visualProfileSupported", planner)
+        self.assertIn("no-fixture-backed-visual-profile-for", planner)
 
 
 if __name__ == "__main__":

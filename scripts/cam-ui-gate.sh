@@ -52,12 +52,12 @@ fi
 note "TypeScript"
 (cd apps/client && npm run typecheck)
 
-note "Frontend tests"
-if [[ -n "${CAM_UI_TESTS:-}" ]]; then
-  read -r -a TEST_ARGS <<< "$CAM_UI_TESTS"
-  (cd apps/client && npm test -- "${TEST_ARGS[@]}")
+if [[ "${CAM_UI_SKIP_FRONTEND_TESTS:-0}" == "1" ]]; then
+  note "Frontend tests already passed in the immediately preceding targeted Auto-Fix check"
 else
-  (cd apps/client && npm test)
+  note "Frontend tests (smart selection)"
+  CAM_UI_TESTS_OVERRIDE="${CAM_UI_TESTS:-}" \
+    bash scripts/cam-ui-run-smart-tests.sh
 fi
 
 note "Visual regression analyzer tests"

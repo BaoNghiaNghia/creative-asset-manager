@@ -11,8 +11,9 @@ class UiAutomationWorkflowTests(unittest.TestCase):
         self.assertIn("## Automatic UI work", text)
         self.assertIn("docs/operations/UI_AUTOMATION_WORKFLOW.md", text)
         self.assertIn("project Playwright runner", text)
-        self.assertIn("cam-ui-repair-check.sh", text)
-        self.assertIn("do **not** rerun the full UI gate after every edit", text)
+        self.assertIn("make ui-autofix", text)
+        self.assertIn("Smart Test Selection", text)
+        self.assertIn("one final full UI gate", text)
         self.assertIn("Deploy Production only when the current user explicitly asks", text)
 
     def test_workflow_covers_interaction_and_responsive_qa(self) -> None:
@@ -42,10 +43,12 @@ class UiAutomationWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Adaptive repair loop", text)
+        self.assertIn("UI Auto-Fix Orchestrator", text)
+        self.assertIn("Smart Test Selection", text)
         self.assertIn("make ui-repair-check", text)
-        self.assertIn("skips the production build and full frontend test suite", text)
+        self.assertIn("CAM_UI_TASK=", text)
         self.assertIn("two attempts", text)
-        self.assertIn("Full UI gate. Run once", text)
+        self.assertIn("exactly one final full UI gate", text)
 
 
 if __name__ == "__main__":
