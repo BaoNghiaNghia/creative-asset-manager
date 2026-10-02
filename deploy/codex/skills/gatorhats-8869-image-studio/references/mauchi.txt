@@ -1,0 +1,42 @@
+1942,SMS Madeira PolyNeon,Amber Red,A,125,76,68
+1738,SMS Madeira PolyNeon,Beige,A,206,192,156
+1800,SMS Madeira PolyNeon,Black,A,32,36,36
+1829,SMS Madeira PolyNeon,Blue,A,36,100,167
+1830,SMS Madeira PolyNeon,Cornflower Blue,A,108,142,205
+1861,SMS Madeira PolyNeon,Cream Yellow,A,251,221,118
+1859,SMS Madeira PolyNeon,Dark Brown,A,54,48,46
+1984,SMS Madeira PolyNeon,Dark Fuchsia,A,168,40,83
+1841,SMS Madeira PolyNeon,Dark Gray,A,62,75,80
+1772,SMS Madeira PolyNeon,Deep Gold,A,210,148,6
+1721,SMS Madeira PolyNeon,Deep Rose,A,231,95,142
+1750,SMS Madeira PolyNeon,Emerald Green,A,0,108,69
+1915,SMS Madeira PolyNeon,Flesh Pink,A,255,187,192
+1706,SMS Madeira PolyNeon,Fresh Green,A,137,129,56
+1939,SMS Madeira PolyNeon,Khaki,A,146,129,81
+1630,SMS Madeira PolyNeon,Lavender,A,151,151,201
+1749,SMS Madeira PolyNeon,Leaf Green,A,59,157,55
+1932,SMS Madeira PolyNeon,Light Blue,A,137,207,240
+1911,SMS Madeira PolyNeon,Light Lilac,A,205,183,220
+1729,SMS Madeira PolyNeon,Light Brown,A,144,118,99
+1831,SMS Madeira PolyNeon,Lilac,A,151,100,163
+1848,SMS Madeira PolyNeon,Lime Green,A,108,153,72
+1682,SMS Madeira PolyNeon,Linen,A,212,201,178
+1702,SMS Madeira PolyNeon,Mint Green,A,121,203,137
+1640,SMS Madeira PolyNeon,Gray,A,85,92,93
+1921,SMS Madeira PolyNeon,Pink,A,248,156,197
+1767,SMS Madeira PolyNeon,Prussian Blue,A,28,49,110
+1952,SMS Madeira PolyNeon,Pumpkin,A,253,119,78
+1880,SMS Madeira PolyNeon,Purple,A,107,53,128
+1637,SMS Madeira PolyNeon,Red,A,172,33,28
+1753,SMS Madeira PolyNeon,Reddish Brown,A,185,109,58
+1726,SMS Madeira PolyNeon,Russet Brown,A,171,123,75
+1647,SMS Madeira PolyNeon,Seacrest,A,144,194,161
+1812,SMS Madeira PolyNeon,Silver,A,171,175,169
+1828,SMS Madeira PolyNeon,Sky Blue,A,61,132,175
+1965,SMS Madeira PolyNeon,Tangerine,A,241,104,0
+1779,SMS Madeira PolyNeon,Vermillion,A,183,76,60
+1801,SMS Madeira PolyNeon,White,A,227,233,255
+1980,SMS Madeira PolyNeon,Yellow,A,255,207,0
+1967,SMS Madeira PolyNeon,Navy,A,24,44,72
+1784,SMS Madeira PolyNeon,Maroon,A,94,30,40
+1746,SMS Madeira PolyNeon,Teal Green,A,45,161,156

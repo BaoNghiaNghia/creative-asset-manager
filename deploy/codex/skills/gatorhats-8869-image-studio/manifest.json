@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-image-studio",
+  "display_name": "GatorHats 8869 Image Studio",
+  "description": "Valucap 8869 ecommerce, multi-cap, UGC/lifestyle full-set generation, revision, QA and packaging workflow.",
+  "workflows": ["image_studio"],
+  "product_types": ["valucap_8869", "8869_cap"],
+  "required_reference_roles": ["artwork"],
+  "optional_reference_roles": ["product_front", "product_side", "product_back", "master", "target_image", "detail"],
+  "max_references": 32
+}
