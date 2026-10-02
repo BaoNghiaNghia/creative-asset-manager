@@ -137,6 +137,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .upload:hover,.connect-drive button:hover,.drive-empty button:hover{background:#164fd3;transform:translateY(-1px);box-shadow:0 6px 14px #1f5eea2e}
 .upload:active,.connect-drive button:active,.drive-empty button:active{transform:translateY(0)}
 .grid article:hover{transform:translateY(-2px);border-color:#cbd4e1;box-shadow:0 8px 22px #18213317}
+.grid article.selected:hover,.grid article.selected:focus-within{border-color:#2463eb;box-shadow:0 0 0 2px #2463eb22,0 8px 22px #18213317}
 .grid article:hover .preview{background:#e9edf3}
 .grid article:hover .preview.folder{background:#f5eedc}
 .preview,.name,.check{cursor:pointer}
@@ -868,8 +869,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .asset-find-similar:focus-visible{outline:2px solid #6f9af0;outline-offset:2px}
 .asset-find-similar .visual-search-icon{width:14px;height:14px;transform:translateX(-.5px)}
 .grid article:hover .asset-info,.asset-info:focus,.grid article:hover .asset-find-similar,.asset-find-similar:focus{opacity:1}
-.asset-name-row{display:flex;min-width:0;align-items:center;gap:7px}
-.asset-name-row .name{min-width:0;max-width:calc(100% - 30px);flex:0 1 auto}
+.asset-name-row{display:flex;min-width:0;min-height:35px;align-items:flex-start;gap:7px}
+.asset-name-row .name{display:-webkit-box;min-width:0;min-height:35px;max-width:none;flex:1 1 auto;overflow:hidden;white-space:normal;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.grid article:not(.media-card)>div{padding:12px 12px 15px}
 .folder-share-trigger{display:grid;place-items:center;flex:0 0 23px;width:23px;height:23px;margin:-3px 0 -3px;padding:0;border:1px solid #c8d1de;border-radius:50%;background:transparent;cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
 .folder-share-trigger svg{display:block;width:15px;height:15px;fill:#65758b}
 .folder-share-trigger:hover,.folder-share-trigger:focus{border-color:#8098c5;background:#f2f6ff}
@@ -1067,8 +1069,8 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 /* Media cards keep one stable footprint; hover reveals details inside the card. */
 .grid article.media-card{position:relative;min-width:0;min-height:0;width:100%;aspect-ratio:1/1;background:#fff;overflow:hidden}
 .grid article.media-card .preview{position:absolute;inset:0;width:100%;height:100%;z-index:0;background:#eef1f5}
-.grid article.media-card>div{position:absolute;z-index:1;left:0;right:0;bottom:0;min-height:94px;padding:36px 12px 11px;background:linear-gradient(to bottom,rgba(255,255,255,0),rgba(255,255,255,.92) 42%,#fff 82%);transform:translateY(43px);transition:transform .22s ease,background-color .22s ease}
-.grid article.media-card .name{display:block;width:100%;overflow:hidden;color:#111827;white-space:nowrap;text-overflow:ellipsis}
+.grid article.media-card>div{position:absolute;z-index:1;left:0;right:0;bottom:0;min-height:104px;padding:36px 12px 14px;background:linear-gradient(to bottom,rgba(255,255,255,0),rgba(255,255,255,.92) 42%,#fff 82%);transform:translateY(35px);transition:transform .22s ease,background-color .22s ease}
+.grid article.media-card .name{display:-webkit-box;width:100%;min-height:35px;overflow:hidden;color:#111827;white-space:normal;line-height:1.35;text-overflow:ellipsis;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .grid article.media-card>div small,.grid article.media-card>div .asset-metadata{display:flex;opacity:0;transition:opacity .16s ease}
 .grid article.media-card:hover>div,.grid article.media-card:focus-within>div{transform:translateY(0);}
 .grid article.media-card:hover>div small,.grid article.media-card:hover>div .asset-metadata,.grid article.media-card:focus-within>div small,.grid article.media-card:focus-within>div .asset-metadata{opacity:1}

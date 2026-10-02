@@ -364,7 +364,6 @@ type Props = {
   selected: Set<string>;
   metadataByItem: AssetMetadataMap;
   onOpen: (id: string, ancestors: Asset[]) => void;
-  onToggle: (id: string) => void;
   onReplaceSelection: (ids: Iterable<string>) => void;
   onPrefetch: (id: string) => void;
   onPrefetchNow?: (id: string) => void;
@@ -393,7 +392,6 @@ export function AssetGrid({
   selected,
   metadataByItem,
   onOpen,
-  onToggle,
   onReplaceSelection,
   onPrefetch,
   onPrefetchNow,
@@ -740,7 +738,6 @@ export function AssetGrid({
     >
       {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }} aria-label={"Find similar images to " + item.name} title="Find similar images"><VisualSearchIcon /></button>}
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>
-      <button className="check" onClick={event => { event.stopPropagation(); selectionAnchorRef.current = item.id; onToggle(item.id); }}>{selected.has(item.id) ? "✓" : ""}</button>
       <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
         <AssetPreview item={item} fetchPriority={thumbnailFetchPriority(index)} />
         {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}

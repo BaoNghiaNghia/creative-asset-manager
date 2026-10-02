@@ -41,7 +41,6 @@ describe("AssetGrid shared-folder actions", () => {
         },
       }}
       onOpen={() => undefined}
-      onToggle={() => undefined}
       onReplaceSelection={() => undefined}
       onPrefetch={() => undefined}
       onCancelPrefetch={() => undefined}
@@ -55,6 +54,7 @@ describe("AssetGrid shared-folder actions", () => {
     expect(markup).toContain("asset-type-date");
     expect(markup).not.toContain("asset-rating");
     expect(markup).not.toContain("★");
+    expect(markup).not.toContain('class="check"');
   });
 
   it("renders the circular three-dot trigger only for folders with an active share", () => {
@@ -66,7 +66,6 @@ describe("AssetGrid shared-folder actions", () => {
       selected={new Set()}
       metadataByItem={{}}
       onOpen={() => undefined}
-      onToggle={() => undefined}
       onReplaceSelection={() => undefined}
       onPrefetch={() => undefined}
       onCancelPrefetch={() => undefined}
@@ -95,7 +94,6 @@ describe("AssetGrid shared-folder actions", () => {
       selected={new Set()}
       metadataByItem={{}}
       onOpen={() => undefined}
-      onToggle={() => undefined}
       onReplaceSelection={() => undefined}
       onPrefetch={() => undefined}
       onCancelPrefetch={() => undefined}
