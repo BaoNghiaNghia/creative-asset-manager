@@ -879,15 +879,6 @@ export function RealisticReviewUgcPage() {
               <span className="rrugc-count-badge">{campaigns.length}</span>
               <button
                 type="button"
-                className="rrugc-secondary-action"
-                disabled={syncingSourcePlans}
-                onClick={() => void syncDriveSourcePlans()}
-                title="Scan the configured Google Drive embroidery source tree and create one 20-ref Pinterest plan per image."
-              >
-                {syncingSourcePlans ? "Scanning source…" : "↻ Sync source folder"}
-              </button>
-              <button
-                type="button"
                 className={createOpen ? "rrugc-campaign-add is-open" : "rrugc-campaign-add"}
                 onClick={() => setCreateOpen(value => !value)}
                 aria-expanded={createOpen}
@@ -907,6 +898,17 @@ export function RealisticReviewUgcPage() {
               <button type="button" onClick={() => setCreateOpen(false)} aria-label="Close new campaign form">×</button>
             </div>
             <div className="rrugc-form">
+              <div className="rrugc-form-submit">
+                <span>Scan the configured Drive source tree and create one 20-reference Pinterest plan per embroidery image.</span>
+                <button
+                  type="button"
+                  className="rrugc-secondary-action"
+                  disabled={syncingSourcePlans}
+                  onClick={() => void syncDriveSourcePlans()}
+                >
+                  {syncingSourcePlans ? "Scanning source…" : "Sync source folder"}
+                </button>
+              </div>
               <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
               <label>
                 Discovery mode
