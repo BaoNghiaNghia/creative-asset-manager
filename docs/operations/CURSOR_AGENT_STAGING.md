@@ -44,6 +44,9 @@ Cursor automatically reads:
 
 - `AGENTS.md`
 - `.cursor/rules/cam-safe-delivery.mdc`
+- `.cursor/rules/cam-ui-design.mdc` for frontend/UI design work
+
+For screenshot-driven UI work, also follow `docs/operations/CURSOR_UI_DESIGN.md`.
 
 Before a task is ready, run this from a task branch (the gate rejects `main` by default):
 

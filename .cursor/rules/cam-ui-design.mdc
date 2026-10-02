@@ -1,0 +1,81 @@
+---
+description: Screenshot-driven UI design and Browser QA workflow for Creative Asset Manager
+globs:
+  - "apps/client/**/*.{ts,tsx,css}"
+alwaysApply: false
+---
+
+# Creative Asset Manager UI design workflow
+
+Use this rule for UI redesign, screenshot matching, responsive layout, card/grid, navigation, modal, panel, hover/focus/selected-state, and visual polish tasks.
+
+Follow `AGENTS.md` and `.cursor/rules/cam-safe-delivery.mdc` first. This rule does not authorize production deployment.
+
+## Design source of truth
+
+- Treat the user's screenshot and explicit written requirements as the visual acceptance contract.
+- Inspect the existing component, CSS, responsive rules, and interaction behavior before editing.
+- Preserve working behavior unless the user explicitly asks to change it.
+- Prefer the smallest scoped change over a broad restyle.
+- Reuse the existing design language: typography, radius, spacing, shadows, icon family, and interaction patterns.
+- Avoid adding dependencies for ordinary layout/styling work.
+
+## Implementation rules
+
+- Keep layout stable between default, hover, selected, selected+hover, focus, loading, and empty states.
+- Selected state must never disappear because a later hover selector overrides its border/outline.
+- Text containers must have deliberate wrapping/truncation behavior; do not let labels touch card edges.
+- Avoid layout shift when controls appear on hover.
+- Keep touch/mobile behavior usable without hover.
+- Do not hide an essential action behind hover only.
+- Preserve drag/drop, multi-select, keyboard/focus, context-menu, media playback, and review/share behavior unless the task explicitly changes them.
+- Prefer CSS/layout changes over JS when the request is purely visual.
+
+## Browser verification loop
+
+After code checks pass, use Cursor Browser against loopback or an explicitly designated staging URL.
+
+Verify the changed component in this order:
+
+1. default state;
+2. hover state;
+3. selected state;
+4. selected + hover state;
+5. keyboard focus where applicable;
+6. long title / two-line / truncation behavior;
+7. narrow/tablet viewport;
+8. mobile viewport when the component is available there.
+
+For screenshot-driven tasks, compare the rendered result against the reference screenshot for:
+- geometry and spacing;
+- font size/weight/line-height;
+- border/radius/shadow;
+- alignment and overflow;
+- visible controls;
+- state transitions.
+
+Do not accept the task based on code review alone when Browser is available.
+
+## Browser evidence
+
+Before handoff, record:
+- URL/environment checked;
+- viewport(s) checked;
+- interaction states checked;
+- screenshot(s) captured when useful;
+- relevant console errors;
+- relevant failed network requests.
+
+If Browser cannot reach authenticated content without production credentials, stop at the safe boundary and report the exact blocker. Never use production secrets merely to satisfy visual QA.
+
+## Ready gate
+
+Run:
+
+```bash
+bash scripts/cam-cursor-staging-gate.sh
+```
+
+Then perform Browser verification. A UI task is ready only when both code checks and visual/interaction checks pass.
+
+Use the task/acceptance format documented in `docs/operations/CURSOR_UI_DESIGN.md`.

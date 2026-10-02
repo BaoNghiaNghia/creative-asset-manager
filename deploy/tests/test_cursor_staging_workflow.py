@@ -38,6 +38,21 @@ class CursorStagingWorkflowTests(unittest.TestCase):
         self.assertIn('CAM_STAGING_ALLOW_MAIN', text)
         self.assertIn('must run on a task branch, not main', text)
 
+    def test_ui_design_rule_requires_browser_state_verification(self) -> None:
+        text = (ROOT / ".cursor/rules/cam-ui-design.mdc").read_text(encoding="utf-8")
+        self.assertIn("selected + hover", text)
+        self.assertIn("Cursor Browser", text)
+        self.assertIn("console errors", text)
+        self.assertIn("failed network requests", text)
+        self.assertIn("does not authorize production deployment", text)
+
+    def test_ui_design_runbook_keeps_production_as_separate_handoff(self) -> None:
+        text = (ROOT / "docs/operations/CURSOR_UI_DESIGN.md").read_text(encoding="utf-8")
+        self.assertIn("CodeLocal review", text)
+        self.assertIn("do not deploy production", text)
+        self.assertIn("1440 x 900", text)
+        self.assertIn("selected + hover", text)
+
 
 if __name__ == "__main__":
     unittest.main()
