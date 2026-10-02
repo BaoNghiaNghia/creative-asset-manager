@@ -72,6 +72,12 @@ if [[ -n "${CAM_UI_QA_URL:-}" ]]; then
   if [[ -n "${CAM_UI_QA_FIXTURE:-}" ]]; then
     QA_ARGS+=(--fixture "$CAM_UI_QA_FIXTURE")
   fi
+  if [[ -n "${CAM_UI_VISUAL_BASELINE_DIR:-}" ]]; then
+    QA_ARGS+=(--baseline-dir "$CAM_UI_VISUAL_BASELINE_DIR")
+    if [[ "${CAM_UI_VISUAL_UPDATE:-0}" == "1" ]]; then
+      QA_ARGS+=(--update-baselines)
+    fi
+  fi
   if [[ -n "${CAM_UI_VIEWPORTS:-}" ]]; then
     QA_ARGS+=(--viewports "$CAM_UI_VIEWPORTS")
   fi

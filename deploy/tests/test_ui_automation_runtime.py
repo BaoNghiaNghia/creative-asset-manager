@@ -25,6 +25,10 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("CAM_UI_QA_ALLOWED_HOSTS", text)
         self.assertIn("--fixture", text)
         self.assertIn("installUiQaFixture", text)
+        self.assertIn("--baseline-dir", text)
+        self.assertIn("--update-baselines", text)
+        self.assertIn("pixelmatch", text)
+        self.assertIn("PNG.sync.read", text)
         self.assertIn("desktop", text)
         self.assertIn("tabletPortrait", text)
         self.assertIn("mobile", text)
@@ -47,6 +51,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("scripts/cam-ui-gate.sh", text)
         self.assertIn("ui-staging-qa:", text)
         self.assertIn("scripts/cam-ui-staging-qa.sh", text)
+        self.assertIn("ui-visual-update:", text)
+        self.assertIn("CAM_UI_VISUAL_UPDATE=1", text)
 
     def test_authenticated_staging_fixture_is_safe_and_complete(self) -> None:
         fixture = json.loads(
@@ -66,7 +72,24 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("CAM_UI_QA_SKIP", gate)
         self.assertIn("127.0.0.1", staging)
         self.assertIn("--fixture", staging)
+        self.assertIn("--baseline-dir", staging)
+        self.assertIn("--update-baselines", staging)
+        self.assertIn("CAM_UI_VISUAL_SKIP", staging)
         self.assertNotIn("deploy-cam-frontend.sh", staging)
+
+    def test_visual_baseline_manifest_matches_default_plan(self) -> None:
+        baseline_dir = ROOT / "apps/client/visual-baselines/explorer-viewer"
+        manifest = json.loads((baseline_dir / "manifest.json").read_text(encoding="utf-8"))
+        plan = json.loads(
+            (ROOT / "docs/operations/ui-qa-explorer-viewer-plan.json").read_text(encoding="utf-8")
+        )
+        expected_states = [step["name"] for step in plan["steps"]]
+        expected_viewports = plan["viewports"]
+        self.assertEqual(manifest["schemaVersion"], 1)
+        self.assertEqual(manifest["states"], expected_states)
+        self.assertEqual([item["name"] for item in manifest["viewports"]], expected_viewports)
+        pngs = sorted(path.name for path in baseline_dir.glob("*.png"))
+        self.assertEqual(len(pngs), len(expected_states) * len(expected_viewports))
 
 
 if __name__ == "__main__":

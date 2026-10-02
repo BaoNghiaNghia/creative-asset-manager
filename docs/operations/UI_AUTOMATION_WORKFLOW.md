@@ -139,8 +139,9 @@ The automatic UI workflow is implemented in these concrete phases:
 3. **Authenticated local staging** — after the build, the gate starts a loopback-only Vite preview and runs the real frontend against `apps/client/scripts/fixtures/explorer-viewer.json`. Playwright intercepts only `/api/**` inside that browser context, supplies a deterministic viewer identity/source/folder/search dataset, and fails closed on unhandled fixture API routes. No OAuth login, Production session cookie, Production database, or Production cloud source is used.
 4. **Visual QA runner** — `npm run ui:qa -- --url <local-or-staging-url>` captures deterministic viewport screenshots and records console/page/network issues. Add `--fixture <json>` to provide a safe authenticated scenario.
 5. **Interactive-state plan** — `docs/operations/ui-qa-explorer-viewer-plan.json` exercises Asset Explorer default/hover/selected/selected+hover/search/focus states. `docs/operations/ui-qa-plan.example.json` remains the generic template; agents should tailor selectors to the feature being changed.
-6. **Resource control** — viewport checks run sequentially in one Chrome process, the local preview is stopped automatically, and old `.ui-qa` runs are pruned (default: keep 5).
-7. **Production handoff** — Production deployment remains a separate explicit user-authorized step.
+6. **Visual regression** — the authenticated staging run compares every captured state against tracked PNG baselines in `apps/client/visual-baselines/explorer-viewer`. Pixel differences above the configured tolerance or any screenshot dimension change fail strict QA and write a diff image into the current `.ui-qa/<run-id>/diffs/` folder. Baselines are never rewritten during the normal gate; an intentional UI change requires the explicit `make ui-visual-update` command after review.
+7. **Resource control** — viewport checks run sequentially in one Chrome process, the local preview is stopped automatically, and old `.ui-qa` runs are pruned (default: keep 5).
+8. **Production handoff** — Production deployment remains a separate explicit user-authorized step.
 
 ### Standard commands
 
@@ -152,7 +153,11 @@ make ui-browser-install
 make ui-check
 
 # Run only the authenticated local viewer scenario against the current dist build.
+# This compares screenshots to the tracked visual baselines.
 make ui-staging-qa
+
+# After reviewing an intentional UI change, explicitly refresh the tracked baselines.
+make ui-visual-update
 
 # Force the gate even when automatic diff detection sees no frontend change.
 CAM_UI_FORCE=1 make ui-check
@@ -172,7 +177,8 @@ npm run ui:qa -- \
   --fixture scripts/fixtures/explorer-viewer.json \
   --viewports desktop,tabletPortrait,mobile \
   --plan ../../docs/operations/ui-qa-explorer-viewer-plan.json \
+  --baseline-dir visual-baselines/explorer-viewer \
   --strict
 ```
 
-The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. The directory is gitignored and old runs are pruned automatically. The default fixture contains synthetic `.example.test` identity data and synthetic asset metadata only; it must never be replaced with copied Production session cookies, OAuth tokens, or Production user data.
+The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. The directory is gitignored and old runs are pruned automatically. Visual comparison uses `pixelmatch`/`pngjs`; the default per-pixel threshold is `0.1` and the maximum accepted changed-pixel ratio is `0.001` (0.1%). A dimension mismatch always fails strict QA. Override these only for a justified test scenario with `CAM_UI_VISUAL_PIXEL_THRESHOLD` or `CAM_UI_VISUAL_MAX_DIFF_RATIO`. Set `CAM_UI_VISUAL_SKIP=1` only for an exceptional browser diagnostic where baseline comparison is intentionally not relevant. The default fixture contains synthetic `.example.test` identity data and synthetic asset metadata only; it must never be replaced with copied Production session cookies, OAuth tokens, or Production user data.

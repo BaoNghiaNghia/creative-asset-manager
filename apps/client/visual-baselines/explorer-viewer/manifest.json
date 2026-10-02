@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "states": [
+    "default",
+    "hover-card",
+    "selected",
+    "selected-hover",
+    "search-results",
+    "search-focus"
+  ],
+  "pixelThreshold": 0.1,
+  "maxDiffRatio": 0.001
+}

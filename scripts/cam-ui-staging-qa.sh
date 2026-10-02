@@ -9,6 +9,7 @@ bash "$ROOT/scripts/cam-install-ui-browser.sh"
 FIXTURE="${CAM_UI_QA_FIXTURE:-$CLIENT/scripts/fixtures/explorer-viewer.json}"
 PLAN="${CAM_UI_QA_PLAN:-$ROOT/docs/operations/ui-qa-explorer-viewer-plan.json}"
 VIEWPORTS="${CAM_UI_VIEWPORTS:-desktop,tabletPortrait,mobile}"
+BASELINE_DIR="${CAM_UI_VISUAL_BASELINE_DIR:-$CLIENT/visual-baselines/explorer-viewer}"
 HOST="127.0.0.1"
 
 if [[ -n "${CAM_UI_STAGING_PORT:-}" ]]; then
@@ -65,6 +66,13 @@ QA_ARGS=(
   --plan "$PLAN"
   --viewports "$VIEWPORTS"
 )
+
+if [[ "${CAM_UI_VISUAL_SKIP:-0}" != "1" ]]; then
+  QA_ARGS+=(--baseline-dir "$BASELINE_DIR")
+  if [[ "${CAM_UI_VISUAL_UPDATE:-0}" == "1" ]]; then
+    QA_ARGS+=(--update-baselines)
+  fi
+fi
 
 if [[ "${CAM_UI_QA_STRICT:-1}" == "1" ]]; then
   QA_ARGS+=(--strict)

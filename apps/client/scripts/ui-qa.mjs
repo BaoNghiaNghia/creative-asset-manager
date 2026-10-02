@@ -1,6 +1,8 @@
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
+import pixelmatch from "pixelmatch";
+import { PNG } from "pngjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 
 const VIEWPORTS = {
@@ -72,6 +74,80 @@ async function cleanupRuns(outputRoot, keep) {
   await Promise.all(dirs.slice(keep).map((entry) => fs.rm(entry.fullPath, { recursive: true, force: true })));
 }
 
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function boundedNumber(rawValue, fallback, minimum, maximum, name) {
+  const value = rawValue === undefined || rawValue === "" ? fallback : Number(rawValue);
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be between ${minimum} and ${maximum}.`);
+  }
+  return value;
+}
+
+async function compareScreenshot({
+  actualPath,
+  baselinePath,
+  diffPath,
+  pixelThreshold,
+  maxDiffRatio,
+}) {
+  if (!(await fileExists(baselinePath))) {
+    return {
+      status: "missing-baseline",
+      mismatchedPixels: null,
+      diffRatio: null,
+      baseline: baselinePath,
+      diff: null,
+    };
+  }
+
+  const actual = PNG.sync.read(await fs.readFile(actualPath));
+  const baseline = PNG.sync.read(await fs.readFile(baselinePath));
+  if (actual.width !== baseline.width || actual.height !== baseline.height) {
+    return {
+      status: "dimension-mismatch",
+      mismatchedPixels: null,
+      diffRatio: 1,
+      actualSize: { width: actual.width, height: actual.height },
+      baselineSize: { width: baseline.width, height: baseline.height },
+      baseline: baselinePath,
+      diff: null,
+    };
+  }
+
+  const diff = new PNG({ width: actual.width, height: actual.height });
+  const mismatchedPixels = pixelmatch(
+    actual.data,
+    baseline.data,
+    diff.data,
+    actual.width,
+    actual.height,
+    { threshold: pixelThreshold, includeAA: false },
+  );
+  const diffRatio = mismatchedPixels / (actual.width * actual.height);
+  const status = diffRatio > maxDiffRatio ? "mismatch" : "match";
+
+  if (status === "mismatch") {
+    await fs.mkdir(path.dirname(diffPath), { recursive: true });
+    await fs.writeFile(diffPath, PNG.sync.write(diff));
+  }
+
+  return {
+    status,
+    mismatchedPixels,
+    diffRatio,
+    baseline: baselinePath,
+    diff: status === "mismatch" ? diffPath : null,
+  };
+}
+
 async function performStep(page, step) {
   if (step.resetBefore) {
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -97,6 +173,12 @@ async function performStep(page, step) {
   if (step.waitMs) {
     await page.waitForTimeout(Number(step.waitMs));
   }
+  const settleMs = Number(
+    step.settleMs ?? process.env.CAM_UI_QA_STEP_SETTLE_MS ?? 250,
+  );
+  if (Number.isFinite(settleMs) && settleMs > 0) {
+    await page.waitForTimeout(settleMs);
+  }
 }
 
 const rawUrl = argValue("--url") || process.env.CAM_UI_QA_URL;
@@ -108,6 +190,27 @@ const url = assertAllowedUrl(rawUrl);
 const plan = await readPlan(argValue("--plan"));
 const fixturePath = argValue("--fixture") || process.env.CAM_UI_QA_FIXTURE;
 const fixture = await loadUiQaFixture(fixturePath);
+const baselineArg = argValue("--baseline-dir") || process.env.CAM_UI_VISUAL_BASELINE_DIR;
+const baselineDir = baselineArg ? path.resolve(baselineArg) : null;
+const updateBaselines =
+  hasFlag("--update-baselines") || process.env.CAM_UI_VISUAL_UPDATE === "1";
+const pixelThreshold = boundedNumber(
+  process.env.CAM_UI_VISUAL_PIXEL_THRESHOLD,
+  0.1,
+  0,
+  1,
+  "CAM_UI_VISUAL_PIXEL_THRESHOLD",
+);
+const maxDiffRatio = boundedNumber(
+  process.env.CAM_UI_VISUAL_MAX_DIFF_RATIO,
+  0.001,
+  0,
+  1,
+  "CAM_UI_VISUAL_MAX_DIFF_RATIO",
+);
+if (updateBaselines && !baselineDir) {
+  throw new Error("--update-baselines requires --baseline-dir or CAM_UI_VISUAL_BASELINE_DIR.");
+}
 const viewportNames = (
   argValue("--viewports") ||
   process.env.CAM_UI_VIEWPORTS ||
@@ -147,6 +250,14 @@ const report = {
   runId,
   strict: hasFlag("--strict"),
   fixture: fixture ? path.relative(process.cwd(), fixture.absolutePath) : null,
+  visual: baselineDir
+    ? {
+        baselineDir: path.relative(process.cwd(), baselineDir),
+        updateBaselines,
+        pixelThreshold,
+        maxDiffRatio,
+      }
+    : null,
   results: [],
 };
 
@@ -185,19 +296,56 @@ try {
     await page.waitForTimeout(Number(process.env.CAM_UI_QA_SETTLE_MS || 800));
 
     const screenshots = [];
+    const visualComparisons = [];
     for (const step of plan.steps) {
       await performStep(page, step);
       const name = sanitize(step.name || "state");
       const filename = `${viewportName}--${name}.png`;
       const screenshotPath = path.join(runDir, filename);
-      await page.screenshot({ path: screenshotPath, fullPage: step.fullPage !== false });
+      await page.screenshot({
+        path: screenshotPath,
+        fullPage: step.fullPage !== false,
+        animations: "disabled",
+        caret: "hide",
+      });
       screenshots.push(filename);
+
+      if (baselineDir) {
+        const baselinePath = path.join(baselineDir, filename);
+        if (updateBaselines) {
+          await fs.mkdir(baselineDir, { recursive: true });
+          await fs.copyFile(screenshotPath, baselinePath);
+          visualComparisons.push({
+            screenshot: filename,
+            status: "updated",
+            mismatchedPixels: 0,
+            diffRatio: 0,
+            baseline: path.relative(process.cwd(), baselinePath),
+            diff: null,
+          });
+        } else {
+          const comparison = await compareScreenshot({
+            actualPath: screenshotPath,
+            baselinePath,
+            diffPath: path.join(runDir, "diffs", filename),
+            pixelThreshold,
+            maxDiffRatio,
+          });
+          visualComparisons.push({
+            screenshot: filename,
+            ...comparison,
+            baseline: path.relative(process.cwd(), comparison.baseline),
+            diff: comparison.diff ? path.relative(process.cwd(), comparison.diff) : null,
+          });
+        }
+      }
     }
 
     report.results.push({
       viewport: viewportName,
       size: viewport,
       screenshots,
+      visualComparisons,
       issues,
     });
 
@@ -205,6 +353,40 @@ try {
   }
 } finally {
   await browser.close();
+}
+
+if (baselineDir && updateBaselines) {
+  const states = plan.steps.map((step) => sanitize(step.name || "state"));
+  const expectedPngs = new Set(
+    viewportNames.flatMap((viewportName) =>
+      states.map((state) => `${viewportName}--${state}.png`),
+    ),
+  );
+  await fs.mkdir(baselineDir, { recursive: true });
+  const baselineEntries = await fs.readdir(baselineDir, { withFileTypes: true });
+  await Promise.all(
+    baselineEntries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.endsWith(".png") &&
+          !expectedPngs.has(entry.name),
+      )
+      .map((entry) => fs.rm(path.join(baselineDir, entry.name), { force: true })),
+  );
+
+  const manifest = {
+    schemaVersion: 1,
+    viewports: viewportNames.map((name) => ({ name, ...VIEWPORTS[name] })),
+    states,
+    pixelThreshold,
+    maxDiffRatio,
+  };
+  await fs.writeFile(
+    path.join(baselineDir, "manifest.json"),
+    JSON.stringify(manifest, null, 2) + "\n",
+    "utf8",
+  );
 }
 
 const reportPath = path.join(runDir, "report.json");
@@ -220,10 +402,26 @@ const issueCount = report.results.reduce(
   0,
 );
 
+const visualIssueCount = report.results.reduce(
+  (total, result) =>
+    total +
+    result.visualComparisons.filter((comparison) =>
+      ["missing-baseline", "dimension-mismatch", "mismatch"].includes(comparison.status),
+    ).length,
+  0,
+);
+
 console.log(`UI QA complete: ${runDir}`);
 console.log(`Viewports: ${viewportNames.join(", ")}`);
 console.log(`Recorded issues: ${issueCount}`);
+if (baselineDir) {
+  console.log(
+    updateBaselines
+      ? `Visual baselines updated: ${baselineDir}`
+      : `Visual regression issues: ${visualIssueCount}`,
+  );
+}
 
-if (hasFlag("--strict") && issueCount > 0) {
+if (hasFlag("--strict") && issueCount + visualIssueCount > 0) {
   process.exitCode = 2;
 }
