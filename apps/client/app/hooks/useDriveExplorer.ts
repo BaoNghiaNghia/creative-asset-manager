@@ -1074,10 +1074,16 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       }
     }
     async function readIdentity(): Promise<{ user_id: string; roles: string[]; permissions: string[]; application_auth_provider?: "google" | "microsoft" | null; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null }> {
-      const response = await fetch("/api/v1/auth/identity");
-      if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
-      if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
-      return await response.json();
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetch("/api/v1/auth/identity", { signal: controller.signal });
+        if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
+        if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
     }
     async function initialize() {
       let identity: { user_id: string; roles: string[]; permissions: string[]; application_auth_provider?: "google" | "microsoft" | null; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null };

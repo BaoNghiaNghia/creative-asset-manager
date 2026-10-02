@@ -1347,6 +1347,15 @@ async def get_reference_asset_image(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Reference asset not found")
+    asset_id = row.id
+    remote_file_id = row.remote_file_id
+    image_format = row.image_format
+    size_bytes = row.size_bytes
+    content_type, _ = reference_image_content_type(image_format)
+    # Managed Drive I/O can outlive a normal DB read by many seconds. Release
+    # the transaction before opening/streaming the remote object so browser
+    # image loads cannot pin API pool connections.
+    session.close()
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(
@@ -1357,14 +1366,13 @@ async def get_reference_asset_image(
             },
         )
     try:
-        content_type, _ = reference_image_content_type(row.image_format)
         stream = await storage.open_asset(
             OpenStoredAssetInput(
                 tenant_id=principal.active_tenant_id,
-                asset_id=row.id,
-                remote_file_id=row.remote_file_id,
+                asset_id=asset_id,
+                remote_file_id=remote_file_id,
                 content_type=content_type,
-                size_bytes=row.size_bytes,
+                size_bytes=size_bytes,
             )
         )
     except ReferenceLibraryError as exc:
@@ -2265,6 +2273,13 @@ async def get_product_reference_image(
     if reference is None or not reference.remote_file_id:
         raise HTTPException(status_code=404, detail="Product reference image not found")
 
+    reference_id_value = reference.id
+    remote_file_id = reference.remote_file_id
+    content_type = reference.content_type
+    size_bytes = reference.size_bytes
+    # Detach from PostgreSQL before remote storage I/O; the response stream
+    # must not own a DB connection for its lifetime.
+    session.close()
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(
@@ -2278,10 +2293,10 @@ async def get_product_reference_image(
         stream = await storage.open_asset(
             OpenStoredAssetInput(
                 tenant_id=principal.active_tenant_id,
-                asset_id=reference.id,
-                remote_file_id=reference.remote_file_id,
-                content_type=reference.content_type,
-                size_bytes=reference.size_bytes,
+                asset_id=reference_id_value,
+                remote_file_id=remote_file_id,
+                content_type=content_type,
+                size_bytes=size_bytes,
             )
         )
     except StorageProviderError as exc:
@@ -2601,6 +2616,15 @@ async def get_source_plan_image(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Source plan not found")
+    asset_id = row.id
+    remote_file_id = row.source_file_id
+    content_type = row.source_mime_type
+    size_bytes = row.source_size_bytes
+    source_revision = row.source_revision
+    # SourcePlanTable lazy-loads many Drive thumbnails concurrently. Release
+    # the read transaction before remote I/O so those streams cannot exhaust
+    # the API QueuePool and block auth/bootstrap requests.
+    session.close()
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(
@@ -2614,10 +2638,10 @@ async def get_source_plan_image(
         stream = await storage.open_asset(
             OpenStoredAssetInput(
                 tenant_id=principal.active_tenant_id,
-                asset_id=row.id,
-                remote_file_id=row.source_file_id,
-                content_type=row.source_mime_type,
-                size_bytes=row.source_size_bytes,
+                asset_id=asset_id,
+                remote_file_id=remote_file_id,
+                content_type=content_type,
+                size_bytes=size_bytes,
             )
         )
     except StorageProviderError as exc:
@@ -2630,11 +2654,11 @@ async def get_source_plan_image(
         ) from exc
     return StreamingResponse(
         stream.body,
-        media_type=stream.content_type or row.source_mime_type,
+        media_type=stream.content_type or content_type,
         background=BackgroundTask(stream.close),
         headers={
             "Cache-Control": "private, max-age=3600",
-            "ETag": f'"{row.source_revision}"',
+            "ETag": f'"{source_revision}"',
         },
     )
 
@@ -3647,6 +3671,13 @@ async def get_generation_attempt_output(
                 "message": "Generated output is not ready.",
             },
         )
+    attempt_id_value = attempt.id
+    output_remote_file_id = attempt.output_remote_file_id
+    output_content_type = attempt.output_content_type
+    output_size_bytes = attempt.output_size_bytes
+    # Generated media is streamed from managed storage. Release PostgreSQL
+    # before remote I/O so slow clients cannot hold an API pool connection.
+    session.close()
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(
@@ -3660,10 +3691,10 @@ async def get_generation_attempt_output(
         stream = await storage.open_asset(
             OpenStoredAssetInput(
                 tenant_id=principal.active_tenant_id,
-                asset_id=f"rrugc-generation:{attempt.id}",
-                remote_file_id=attempt.output_remote_file_id,
-                content_type=attempt.output_content_type,
-                size_bytes=attempt.output_size_bytes,
+                asset_id=f"rrugc-generation:{attempt_id_value}",
+                remote_file_id=output_remote_file_id,
+                content_type=output_content_type,
+                size_bytes=output_size_bytes,
             )
         )
     except StorageProviderError as exc:
@@ -3676,7 +3707,7 @@ async def get_generation_attempt_output(
         ) from exc
     return StreamingResponse(
         stream.body,
-        media_type=attempt.output_content_type or stream.content_type,
+        media_type=output_content_type or stream.content_type,
         background=BackgroundTask(stream.close),
         headers={"Cache-Control": "private, max-age=300"},
     )

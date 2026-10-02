@@ -238,6 +238,13 @@ describe("appendUniqueFolderPage", () => {
 });
 
 
+describe("application session bootstrap", () => {
+  it("bounds the identity request so a saturated API cannot leave the shell loading forever", () => {
+    expect(driveExplorerSource).toContain("window.setTimeout(() => controller.abort(), 10_000)");
+    expect(driveExplorerSource).toContain('fetch("/api/v1/auth/identity", { signal: controller.signal })');
+  });
+});
+
 describe("fast folder browsing", () => {
   it("requests lightweight folder listings and keeps navigation prefetch claimable", () => {
     expect(driveExplorerSource).toContain('include_location: "false"');

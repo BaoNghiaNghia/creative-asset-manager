@@ -1039,7 +1039,12 @@ export default function App() {
         <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
       </div>}
 
-      {explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
+      {explorer.applicationAuthenticated === null && explorer.error ? <div className="state" role="alert">
+          <strong>Unable to verify application session</strong>
+          <p>{explorer.error}</p>
+          <button type="button" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+        : explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
         : explorer.applicationAuthenticated === false ? <DriveEmpty
           oauthError={explorer.oauthError}
           activeProvider={explorer.provider}

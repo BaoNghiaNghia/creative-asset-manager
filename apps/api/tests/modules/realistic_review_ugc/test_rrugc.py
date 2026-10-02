@@ -70,6 +70,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcExportModel,
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
+    RrugcSourcePlanModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
     RrugcDeliveryEventModel,
@@ -153,6 +154,7 @@ def database():
     TenantProcessingPolicyModel.__table__.create(engine)
     ProcessingJobModel.__table__.create(engine)
     RrugcCampaignModel.__table__.create(engine)
+    RrugcSourcePlanModel.__table__.create(engine)
     RrugcScoutAgentModel.__table__.create(engine)
     RrugcScoutRunModel.__table__.create(engine)
     RrugcProductModel.__table__.create(engine)
