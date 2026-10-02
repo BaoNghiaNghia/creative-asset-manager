@@ -12,6 +12,7 @@ import {
   paintRegionBoxes,
   renderVisualAnalysisMarkdown,
 } from "./ui-qa-visual-analysis.mjs";
+import { cleanupRuns } from "./ui-qa-cleanup.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 import {
   parseCsvList,
@@ -72,20 +73,6 @@ async function readPlan(planPath) {
     throw new Error("UI QA plan must contain a non-empty steps array.");
   }
   return plan;
-}
-
-async function cleanupRuns(outputRoot, keep) {
-  await fs.mkdir(outputRoot, { recursive: true });
-  const entries = await fs.readdir(outputRoot, { withFileTypes: true });
-  const dirs = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const fullPath = path.join(outputRoot, entry.name);
-    const stat = await fs.stat(fullPath);
-    dirs.push({ fullPath, mtimeMs: stat.mtimeMs });
-  }
-  dirs.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  await Promise.all(dirs.slice(keep).map((entry) => fs.rm(entry.fullPath, { recursive: true, force: true })));
 }
 
 async function fileExists(filePath) {

@@ -1,0 +1,215 @@
+/*
+ * CAM UI foundation
+ * Central tokens and low-risk cross-workspace accessibility/readability rules.
+ * Keep page-specific layout in its existing stylesheet; use these tokens when
+ * touching a component instead of introducing new one-off values.
+ */
+:root {
+  --cam-font-2xs: 10px;
+  --cam-font-xs: 11px;
+  --cam-font-sm: 12px;
+  --cam-font-md: 13px;
+  --cam-font-base: 14px;
+  --cam-font-lg: 16px;
+  --cam-font-xl: 20px;
+  --cam-font-2xl: 24px;
+
+  --cam-space-1: 4px;
+  --cam-space-2: 8px;
+  --cam-space-3: 12px;
+  --cam-space-4: 16px;
+  --cam-space-5: 20px;
+  --cam-space-6: 24px;
+  --cam-space-8: 32px;
+
+  --cam-radius-xs: 6px;
+  --cam-radius-sm: 8px;
+  --cam-radius-md: 10px;
+  --cam-radius-lg: 12px;
+  --cam-radius-xl: 14px;
+
+  --cam-control-sm: 32px;
+  --cam-control-md: 36px;
+  --cam-control-lg: 40px;
+  --cam-control-touch: 44px;
+
+  --cam-color-text: #1f2933;
+  --cam-color-muted: #66758a;
+  --cam-color-border: #dfe6ef;
+  --cam-color-surface: #ffffff;
+  --cam-color-surface-subtle: #f7f9fc;
+  --cam-color-primary: #315fe9;
+  --cam-color-focus: #315fe9;
+
+  --cam-shadow-popover: 0 12px 28px rgb(33 56 94 / 18%);
+  --cam-shadow-modal: 0 20px 60px rgb(15 23 42 / 22%);
+
+  --cam-z-sticky: 100;
+  --cam-z-dropdown: 1000;
+  --cam-z-popover: 1100;
+  --cam-z-drawer: 1200;
+  --cam-z-modal: 1400;
+  --cam-z-toast: 1500;
+}
+
+/* Shared keyboard focus. Inputs in Asset Explorer keep their existing
+ * focus-within treatment so the established explorer visual baseline remains
+ * stable while the other workspaces gain one consistent focus contract.
+ */
+:where(
+  .ops-shell,
+  .access-shell,
+  .inventory-shell,
+  .review-board-shell,
+  .rrugc-shell,
+  .video-generation-shell,
+  .responsive-workspace-nav
+) :where(button, a[href], select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--cam-color-focus);
+  outline-offset: 2px;
+}
+
+/* Keep common overlays on one documented layer scale. */
+.account-dropdown {
+  z-index: var(--cam-z-dropdown);
+}
+
+.inventory-pipeline-context-menu,
+.rrugc-candidate-context-menu {
+  z-index: var(--cam-z-popover);
+}
+
+.rrugc-inspector {
+  z-index: var(--cam-z-drawer);
+}
+
+/* Review Board: remove the sub-9px readability floor without changing its
+ * information architecture or compact three-pane layout.
+ */
+.review-board-asset-group-copy > span,
+.review-board-asset-group-stats > small,
+.review-board-asset-group-stats > span,
+.review-board-status,
+.review-board-row-title time,
+.review-board-row-meta,
+.review-board-pagination,
+.review-board-pagination select,
+.review-board-preview > header > span,
+.review-board-preview-pin,
+.review-board-pin-badge,
+.review-board-metadata dt,
+.review-board-replies > header > span,
+.review-board-reply time,
+.review-board-no-replies,
+.rrugc-review-priority,
+.rrugc-review-state,
+.rrugc-review-row-copy small,
+.rrugc-review-metrics span {
+  font-size: var(--cam-font-2xs);
+}
+
+/* Realistic Review UGC: the densest control surfaces previously dropped to
+ * 7.8–8.4px. Bring only those micro-labels to a 10px floor first; larger text
+ * stays untouched so cards and masonry geometry remain stable.
+ */
+.rrugc-editor-section-heading small,
+.rrugc-editor-section-heading > span,
+.rrugc-editor-number-grid .rrugc-editor-field > small,
+.rrugc-editor-product-bound small,
+.rrugc-scout-overview small,
+.rrugc-scout-health-note small,
+.rrugc-scout-run-summary small,
+.rrugc-last-run-compact small,
+.rrugc-candidate-status,
+.rrugc-candidate-score,
+.rrugc-candidate-ref-label,
+.rrugc-candidate-head span,
+.rrugc-candidate-caption,
+.rrugc-card-signals span,
+.rrugc-metrics span,
+.rrugc-metrics b,
+.rrugc-candidate-context-menu > small,
+.rrugc-pipeline-health small,
+.rrugc-compact-disclosure > summary small,
+.rrugc-campaign-keywords small,
+.rrugc-active-keywords small,
+.rrugc-campaign-stats small,
+.rrugc-campaign-actions button,
+.rrugc-compact-section-summary small,
+.rrugc-compact-section-summary > b,
+.rrugc-product-create > summary small,
+.rrugc-product-url-import > div > small,
+.rrugc-product-import-result > div > small,
+.rrugc-source-product > header small,
+.rrugc-source-product-meta span,
+.rrugc-source-variants span,
+.rrugc-source-variants small,
+.rrugc-variant-thumb span,
+.rrugc-variant-copy small,
+.rrugc-variant-copy span,
+.rrugc-variant-toggle,
+.rrugc-editor-variant-picker-head small,
+.rrugc-editor-variant-options small {
+  font-size: var(--cam-font-2xs);
+}
+
+/* Inventory: lift the smallest operational labels while preserving compact
+ * tables. The pipeline stage width is increased slightly to avoid wrapping.
+ */
+.inventory-material-candidate-kind,
+.inventory-material-candidate dt,
+.inventory-material-create-fields label,
+.inventory-prompt-step,
+.inventory-prompt-meta dt,
+.inventory-pipeline-stage small {
+  font-size: var(--cam-font-2xs);
+}
+
+.inventory-pipeline-stage {
+  width: 64px;
+}
+
+.inventory-pipeline-node {
+  min-width: 80px;
+}
+
+/* Dense action controls should not fall below a 32px desktop target. */
+.rrugc-campaign-actions button,
+.rrugc-keyword-preset button,
+.rrugc-pairing-ready button,
+.rrugc-auto-scout-agents article button,
+.rrugc-scan-control-strip button,
+.rrugc-inspector-review button,
+.inventory-material-review-tools button,
+.inventory-material-match button,
+.inventory-material-actions button,
+.inventory-prompt-history-list button {
+  min-height: var(--cam-control-sm);
+}
+
+/* Touch layouts get a reliable target size without inflating desktop tables. */
+@media (max-width: 900px), (pointer: coarse) {
+  :where(
+    .ops-shell,
+    .access-shell,
+    .inventory-shell,
+    .review-board-shell,
+    .rrugc-shell,
+    .video-generation-shell,
+    .responsive-workspace-nav
+  ) :where(button, a[href], select) {
+    min-height: var(--cam-control-touch);
+  }
+}
+
+/* One reduced-motion contract for every workspace. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

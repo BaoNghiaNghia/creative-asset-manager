@@ -16,6 +16,7 @@ import "../styles/public-review.css";
 import "../styles/review-board.css";
 import "../styles/workspace-page-header.css";
 import "../styles/responsive-platform.css";
+import "../styles/ui-foundation.css";
 
 function AppBoot() {
   useEffect(() => {
