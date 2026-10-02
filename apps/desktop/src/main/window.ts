@@ -151,6 +151,12 @@ export function createMainWindow(): BrowserWindow {
   window.setMenuBarVisibility(false);
   window.removeMenu();
 
+  // Normalize every newly opened desktop window to the web app's 100% CSS
+  // scale. Users can still change zoom afterwards with Chromium/Electron
+  // accessibility shortcuts; we only remove persisted/per-machine startup
+  // zoom differences.
+  window.webContents.setZoomFactor(1);
+
   const session = window.webContents.session;
   session.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false);
