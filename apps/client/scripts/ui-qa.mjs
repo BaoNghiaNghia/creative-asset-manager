@@ -3,6 +3,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
+import {
+  buildChangedMask,
+  clusterChangedRegions,
+  createVisualAnalysis,
+  enrichRegions,
+  issueSearchTokens,
+  paintRegionBoxes,
+  renderVisualAnalysisMarkdown,
+} from "./ui-qa-visual-analysis.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 
 const VIEWPORTS = {
@@ -91,6 +100,165 @@ function boundedNumber(rawValue, fallback, minimum, maximum, name) {
   return value;
 }
 
+function extractStepActions(step) {
+  const actions = [];
+  for (const action of ["click", "hover", "focus"]) {
+    if (step[action]) actions.push({ action, selector: step[action] });
+  }
+  if (step.fill?.selector) {
+    actions.push({ action: "fill", selector: step.fill.selector });
+  }
+  if (step.press?.selector) {
+    actions.push({ action: "press", selector: step.press.selector });
+  }
+  if (step.waitFor) {
+    actions.push({ action: "waitFor", selector: step.waitFor });
+  }
+  return actions;
+}
+
+async function captureActionTargets(page, actions) {
+  const scroll = await page.evaluate(() => ({
+    x: window.scrollX,
+    y: window.scrollY,
+  }));
+  const targets = [];
+  for (const action of actions) {
+    try {
+      const box = await page.locator(action.selector).first().boundingBox();
+      if (!box) continue;
+      targets.push({
+        ...action,
+        rect: {
+          x: Math.round(box.x + scroll.x),
+          y: Math.round(box.y + scroll.y),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+        },
+      });
+    } catch {
+      // The action itself was already executed successfully; diagnostics are best-effort.
+    }
+  }
+  return targets;
+}
+
+async function captureDomElements(page) {
+  return page.evaluate(() => {
+    const entries = [];
+    const nodes = Array.from(document.body?.querySelectorAll("*") || []);
+    const excluded = new Set(["script", "style", "meta", "link", "noscript"]);
+
+    for (const element of nodes) {
+      if (entries.length >= 1500) break;
+      const tag = element.localName || "";
+      if (!tag || excluded.has(tag)) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4) continue;
+      const style = window.getComputedStyle(element);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number(style.opacity) === 0
+      ) {
+        continue;
+      }
+
+      const id = element.id || null;
+      const testId = element.getAttribute("data-testid");
+      const ariaLabel = element.getAttribute("aria-label");
+      const role = element.getAttribute("role");
+      const classes = Array.from(element.classList || []).slice(0, 5);
+      let selector = tag;
+      if (id) {
+        selector = `#${CSS.escape(id)}`;
+      } else if (testId) {
+        selector = `[data-testid=${JSON.stringify(testId)}]`;
+      } else if (ariaLabel) {
+        selector = `${tag}[aria-label=${JSON.stringify(ariaLabel)}]`;
+      } else if (classes.length > 0) {
+        selector = tag + classes.map((name) => `.${CSS.escape(name)}`).join("");
+      } else if (role) {
+        selector = `${tag}[role=${JSON.stringify(role)}]`;
+      }
+
+      entries.push({
+        selector,
+        tag,
+        id,
+        testId,
+        ariaLabel,
+        role,
+        classes,
+        rect: {
+          x: Math.round(rect.left + window.scrollX),
+          y: Math.round(rect.top + window.scrollY),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+      });
+    }
+
+    return entries;
+  });
+}
+
+async function writeDiagnosticImage(screenshotPath, diagnosticPath, regions) {
+  const actual = PNG.sync.read(await fs.readFile(screenshotPath));
+  const annotated = new PNG({ width: actual.width, height: actual.height });
+  annotated.data.set(actual.data);
+  paintRegionBoxes(annotated.data, actual.width, actual.height, regions);
+  await fs.mkdir(path.dirname(diagnosticPath), { recursive: true });
+  await fs.writeFile(diagnosticPath, PNG.sync.write(annotated));
+}
+
+function changedFilesFromEnvironment() {
+  return (process.env.CAM_UI_CHANGED_FILES || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function rankSourceHints(issueLike) {
+  const tokens = issueSearchTokens(issueLike);
+  if (tokens.length === 0) return [];
+
+  const repositoryRoot = path.resolve(process.cwd(), "../..");
+  const eligible = changedFilesFromEnvironment().filter(
+    (filePath) =>
+      /^(apps\/client\/|packages\/)/.test(filePath) &&
+      /\.(?:css|scss|ts|tsx|js|jsx|mjs)$/.test(filePath),
+  );
+  const hints = [];
+
+  for (const filePath of eligible) {
+    const absolutePath = path.resolve(repositoryRoot, filePath);
+    if (!absolutePath.startsWith(repositoryRoot + path.sep)) continue;
+    let source;
+    try {
+      source = await fs.readFile(absolutePath, "utf8");
+    } catch {
+      continue;
+    }
+
+    const matches = [];
+    let score = 0;
+    for (const token of tokens) {
+      const occurrences = source.split(token).length - 1;
+      if (occurrences <= 0) continue;
+      matches.push(token);
+      score += 1 + Math.min(5, occurrences);
+    }
+    if (score > 0) {
+      hints.push({ path: filePath, score, matches: matches.slice(0, 8) });
+    }
+  }
+
+  return hints
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+    .slice(0, 5);
+}
+
 async function compareScreenshot({
   actualPath,
   baselinePath,
@@ -105,20 +273,24 @@ async function compareScreenshot({
       diffRatio: null,
       baseline: baselinePath,
       diff: null,
+      regions: [],
     };
   }
 
   const actual = PNG.sync.read(await fs.readFile(actualPath));
   const baseline = PNG.sync.read(await fs.readFile(baselinePath));
+  const actualSize = { width: actual.width, height: actual.height };
+  const baselineSize = { width: baseline.width, height: baseline.height };
   if (actual.width !== baseline.width || actual.height !== baseline.height) {
     return {
       status: "dimension-mismatch",
       mismatchedPixels: null,
       diffRatio: 1,
-      actualSize: { width: actual.width, height: actual.height },
-      baselineSize: { width: baseline.width, height: baseline.height },
+      actualSize,
+      baselineSize,
       baseline: baselinePath,
       diff: null,
+      regions: [],
     };
   }
 
@@ -133,18 +305,66 @@ async function compareScreenshot({
   );
   const diffRatio = mismatchedPixels / (actual.width * actual.height);
   const status = diffRatio > maxDiffRatio ? "mismatch" : "match";
+  let regions = [];
 
   if (status === "mismatch") {
     await fs.mkdir(path.dirname(diffPath), { recursive: true });
     await fs.writeFile(diffPath, PNG.sync.write(diff));
+
+    const diffMask = new PNG({ width: actual.width, height: actual.height });
+    pixelmatch(
+      actual.data,
+      baseline.data,
+      diffMask.data,
+      actual.width,
+      actual.height,
+      { threshold: pixelThreshold, includeAA: false, diffMask: true },
+    );
+    regions = clusterChangedRegions(
+      buildChangedMask(diffMask),
+      actual.width,
+      actual.height,
+      {
+        tileSize: Math.round(
+          boundedNumber(
+            process.env.CAM_UI_VISUAL_REGION_TILE_SIZE,
+            12,
+            4,
+            64,
+            "CAM_UI_VISUAL_REGION_TILE_SIZE",
+          ),
+        ),
+        joinRadiusTiles: Math.round(
+          boundedNumber(
+            process.env.CAM_UI_VISUAL_REGION_JOIN_RADIUS,
+            2,
+            1,
+            4,
+            "CAM_UI_VISUAL_REGION_JOIN_RADIUS",
+          ),
+        ),
+        maxRegions: Math.round(
+          boundedNumber(
+            process.env.CAM_UI_VISUAL_MAX_REGIONS,
+            8,
+            1,
+            20,
+            "CAM_UI_VISUAL_MAX_REGIONS",
+          ),
+        ),
+      },
+    );
   }
 
   return {
     status,
     mismatchedPixels,
     diffRatio,
+    actualSize,
+    baselineSize,
     baseline: baselinePath,
     diff: status === "mismatch" ? diffPath : null,
+    regions,
   };
 }
 
@@ -312,16 +532,22 @@ try {
 
       if (baselineDir) {
         const baselinePath = path.join(baselineDir, filename);
+        const actions = extractStepActions(step);
         if (updateBaselines) {
           await fs.mkdir(baselineDir, { recursive: true });
           await fs.copyFile(screenshotPath, baselinePath);
           visualComparisons.push({
+            state: name,
             screenshot: filename,
             status: "updated",
             mismatchedPixels: 0,
             diffRatio: 0,
             baseline: path.relative(process.cwd(), baselinePath),
             diff: null,
+            diagnostic: null,
+            actions,
+            regions: [],
+            sourceHints: [],
           });
         } else {
           const comparison = await compareScreenshot({
@@ -331,11 +557,54 @@ try {
             pixelThreshold,
             maxDiffRatio,
           });
+          comparison.state = name;
+          comparison.actions = actions;
+          comparison.diagnostic = null;
+
+          if (comparison.status === "mismatch" && comparison.regions.length > 0) {
+            const [domElements, actionTargets] = await Promise.all([
+              captureDomElements(page),
+              captureActionTargets(page, actions),
+            ]);
+            comparison.regions = enrichRegions(
+              comparison.regions,
+              domElements,
+              actionTargets,
+              comparison.actualSize.width,
+              comparison.actualSize.height,
+            );
+            const diagnosticPath = path.join(runDir, "diagnostics", filename);
+            await writeDiagnosticImage(
+              screenshotPath,
+              diagnosticPath,
+              comparison.regions,
+            );
+            comparison.diagnostic = diagnosticPath;
+          }
+
+          if (
+            ["missing-baseline", "dimension-mismatch", "mismatch"].includes(
+              comparison.status,
+            )
+          ) {
+            comparison.sourceHints = await rankSourceHints({
+              actions,
+              regions: comparison.regions,
+            });
+          } else {
+            comparison.sourceHints = [];
+          }
+
           visualComparisons.push({
             screenshot: filename,
             ...comparison,
             baseline: path.relative(process.cwd(), comparison.baseline),
-            diff: comparison.diff ? path.relative(process.cwd(), comparison.diff) : null,
+            diff: comparison.diff
+              ? path.relative(process.cwd(), comparison.diff)
+              : null,
+            diagnostic: comparison.diagnostic
+              ? path.relative(process.cwd(), comparison.diagnostic)
+              : null,
           });
         }
       }
@@ -389,9 +658,6 @@ if (baselineDir && updateBaselines) {
   );
 }
 
-const reportPath = path.join(runDir, "report.json");
-await fs.writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
-
 const issueCount = report.results.reduce(
   (total, result) =>
     total +
@@ -411,6 +677,34 @@ const visualIssueCount = report.results.reduce(
   0,
 );
 
+let visualAnalysis = null;
+let visualAnalysisJsonPath = null;
+let visualAnalysisMarkdownPath = null;
+if (baselineDir) {
+  visualAnalysis = createVisualAnalysis(report);
+  visualAnalysisJsonPath = path.join(runDir, "visual-analysis.json");
+  visualAnalysisMarkdownPath = path.join(runDir, "visual-analysis.md");
+  await fs.writeFile(
+    visualAnalysisJsonPath,
+    JSON.stringify(visualAnalysis, null, 2) + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    visualAnalysisMarkdownPath,
+    renderVisualAnalysisMarkdown(visualAnalysis) + "\n",
+    "utf8",
+  );
+  report.visual.analysis = {
+    status: visualAnalysis.status,
+    issueCount: visualAnalysis.issueCount,
+    json: path.relative(process.cwd(), visualAnalysisJsonPath),
+    markdown: path.relative(process.cwd(), visualAnalysisMarkdownPath),
+  };
+}
+
+const reportPath = path.join(runDir, "report.json");
+await fs.writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
+
 console.log(`UI QA complete: ${runDir}`);
 console.log(`Viewports: ${viewportNames.join(", ")}`);
 console.log(`Recorded issues: ${issueCount}`);
@@ -420,6 +714,20 @@ if (baselineDir) {
       ? `Visual baselines updated: ${baselineDir}`
       : `Visual regression issues: ${visualIssueCount}`,
   );
+  console.log(
+    `Visual analysis: ${path.relative(process.cwd(), visualAnalysisMarkdownPath)}`,
+  );
+}
+
+if (visualAnalysis?.issueCount > 0) {
+  for (const issue of visualAnalysis.issues.slice(0, 5)) {
+    const selectors = issue.likelySelectors.slice(0, 3).join(", ") || "n/a";
+    const sources =
+      issue.sourceHints.slice(0, 3).map((hint) => hint.path).join(", ") || "n/a";
+    console.error(
+      `[visual] ${issue.viewport}/${issue.state}: ${issue.status}; changed=${issue.mismatchedPixels ?? "n/a"}; selectors=${selectors}; sources=${sources}`,
+    );
+  }
 }
 
 if (hasFlag("--strict") && issueCount + visualIssueCount > 0) {

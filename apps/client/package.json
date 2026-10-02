@@ -12,7 +12,8 @@
     "build": "tsc -b && vite build && node scripts/write-build-info.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "ui:qa": "node scripts/ui-qa.mjs"
+    "ui:qa": "node scripts/ui-qa.mjs",
+    "ui:qa:analysis:test": "node --test scripts/ui-qa-visual-analysis.node-test.mjs"
   },
   "dependencies": {
     "@fontsource/be-vietnam-pro": "^5.3.0",

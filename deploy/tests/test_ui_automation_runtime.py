@@ -29,6 +29,10 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("--update-baselines", text)
         self.assertIn("pixelmatch", text)
         self.assertIn("PNG.sync.read", text)
+        self.assertIn("createVisualAnalysis", text)
+        self.assertIn("captureDomElements", text)
+        self.assertIn("rankSourceHints", text)
+        self.assertIn("visual-analysis.md", text)
         self.assertIn("desktop", text)
         self.assertIn("tabletPortrait", text)
         self.assertIn("mobile", text)
@@ -53,6 +57,7 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("scripts/cam-ui-staging-qa.sh", text)
         self.assertIn("ui-visual-update:", text)
         self.assertIn("CAM_UI_VISUAL_UPDATE=1", text)
+        self.assertIn("ui:qa:analysis:test", (ROOT / "apps/client/package.json").read_text(encoding="utf-8"))
 
     def test_authenticated_staging_fixture_is_safe_and_complete(self) -> None:
         fixture = json.loads(
@@ -75,6 +80,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("--baseline-dir", staging)
         self.assertIn("--update-baselines", staging)
         self.assertIn("CAM_UI_VISUAL_SKIP", staging)
+        self.assertIn("CAM_UI_CHANGED_FILES", gate)
+        self.assertIn("ui:qa:analysis:test", gate)
         self.assertNotIn("deploy-cam-frontend.sh", staging)
 
     def test_visual_baseline_manifest_matches_default_plan(self) -> None:
@@ -90,6 +97,20 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in manifest["viewports"]], expected_viewports)
         pngs = sorted(path.name for path in baseline_dir.glob("*.png"))
         self.assertEqual(len(pngs), len(expected_states) * len(expected_viewports))
+
+    def test_visual_analyzer_has_actionable_region_and_source_diagnostics(self) -> None:
+        analyzer = (ROOT / "apps/client/scripts/ui-qa-visual-analysis.mjs").read_text(
+            encoding="utf-8"
+        )
+        runner = (ROOT / "apps/client/scripts/ui-qa.mjs").read_text(encoding="utf-8")
+        self.assertIn("clusterChangedRegions", analyzer)
+        self.assertIn("likelyElements", analyzer)
+        self.assertIn("actionTargets", analyzer)
+        self.assertIn("sourceHints", analyzer)
+        self.assertIn("paintRegionBoxes", analyzer)
+        self.assertIn("Do not refresh baselines", analyzer)
+        self.assertIn("diagnostics", runner)
+        self.assertIn("CAM_UI_CHANGED_FILES", runner)
 
 
 if __name__ == "__main__":

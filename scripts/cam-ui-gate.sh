@@ -60,8 +60,13 @@ else
   (cd apps/client && npm test)
 fi
 
+note "Visual regression analyzer tests"
+(cd apps/client && npm run ui:qa:analysis:test)
+
 note "Production frontend build"
 (cd apps/client && npm run build)
+
+export CAM_UI_CHANGED_FILES="$CHANGED"
 
 if [[ -n "${CAM_UI_QA_URL:-}" ]]; then
   note "Responsive Browser QA"
