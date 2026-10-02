@@ -50,6 +50,15 @@
   --cam-z-drawer: 1200;
   --cam-z-modal: 1400;
   --cam-z-toast: 1500;
+
+  /* Canonical cross-workspace layout rhythm. Page-specific CSS may still
+   * choose its own internal grids, but outer spacing should consume these
+   * tokens instead of introducing another breakpoint ladder.
+   */
+  --cam-page-inline: 32px;
+  --cam-page-block: 22px;
+  --cam-section-gap: 16px;
+  --cam-panel-gap: 14px;
 }
 
 /* Shared keyboard focus. Inputs in Asset Explorer keep their existing
@@ -199,6 +208,223 @@
     .responsive-workspace-nav
   ) :where(button, a[href], select) {
     min-height: var(--cam-control-touch);
+  }
+}
+
+/* Responsive foundation
+ * Canonical cross-workspace matrix:
+ *   wide desktop      >= 1600
+ *   standard desktop  1280-1599
+ *   compact desktop   1025-1279
+ *   tablet            681-1024
+ *   phone             <= 680
+ *   small phone       <= 420
+ *
+ * Feature styles may have narrower breakpoints for a local component, but
+ * Review Board, RRUGC and AI Operations use this matrix for page spacing and
+ * major column changes. This layer loads last so older page-specific rules do
+ * not re-introduce cramped tablet layouts.
+ */
+
+.ops-content,
+.rrugc-page-body,
+.review-board-main {
+  padding-inline: var(--cam-page-inline);
+}
+
+.review-board-workspace,
+.rrugc-page-body,
+.ops-charts,
+.ops-provider-grid,
+.ops-config-grid {
+  gap: var(--cam-panel-gap);
+}
+
+.review-board-list,
+.ops-table-scroll,
+.rrugc-workflow-rail,
+.rrugc-grid.rrugc-masonry-grid {
+  scrollbar-gutter: stable;
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --cam-page-inline: 40px;
+    --cam-page-block: 24px;
+    --cam-section-gap: 18px;
+    --cam-panel-gap: 16px;
+  }
+}
+
+@media (min-width: 1025px) and (max-width: 1279px) {
+  :root {
+    --cam-page-inline: 24px;
+    --cam-page-block: 20px;
+    --cam-section-gap: 14px;
+    --cam-panel-gap: 12px;
+  }
+
+  .ops-content,
+  .rrugc-page-body,
+  .review-board-main {
+    padding-inline: var(--cam-page-inline) !important;
+  }
+
+  .ops-kpis,
+  .ops-cost-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ops-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rrugc-workflow-rail {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
+@media (min-width: 681px) and (max-width: 1024px) {
+  :root {
+    --cam-page-inline: 20px;
+    --cam-page-block: 18px;
+    --cam-section-gap: 14px;
+    --cam-panel-gap: 12px;
+  }
+
+  .ops-content,
+  .rrugc-page-body,
+  .review-board-main {
+    padding-inline: var(--cam-page-inline) !important;
+  }
+
+  .review-board-workspace {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .review-board-inbox {
+    min-height: 380px;
+    border-right: 0;
+    border-bottom: 1px solid var(--cam-color-border);
+  }
+
+  .review-board-list {
+    height: auto;
+    max-height: 420px;
+  }
+
+  .review-board-preview,
+  .review-board-detail {
+    min-height: 320px;
+  }
+
+  .review-board-detail {
+    max-height: none;
+  }
+
+  .review-board-filter-main {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .rrugc-grid.rrugc-masonry-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .rrugc-source-gallery {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .rrugc-auto-scout-status,
+  .rrugc-operations-stats,
+  .rrugc-export-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .ops-query-bar .ops-filters,
+  .ops-provider-grid,
+  .ops-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ops-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  :root {
+    --cam-page-inline: 12px;
+    --cam-page-block: 14px;
+    --cam-section-gap: 12px;
+    --cam-panel-gap: 10px;
+  }
+
+  .ops-content,
+  .rrugc-page-body,
+  .review-board-main {
+    padding-inline: max(var(--cam-page-inline), env(safe-area-inset-left)) !important;
+  }
+
+  .review-board-filter-main,
+  .ops-query-bar .ops-filters,
+  .ops-provider-grid,
+  .ops-config-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .review-board-inbox {
+    min-height: 360px;
+  }
+
+  .review-board-preview,
+  .review-board-detail {
+    min-height: 300px;
+  }
+
+  .rrugc-grid.rrugc-masonry-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .rrugc-source-gallery {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rrugc-live-meta-primary,
+  .rrugc-live-meta-secondary,
+  .rrugc-auto-scout-status,
+  .rrugc-operations-stats,
+  .rrugc-export-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .ops-kpis,
+  .ops-cost-summary,
+  .ops-charts {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --cam-page-inline: 10px;
+    --cam-panel-gap: 8px;
+  }
+
+  .rrugc-grid.rrugc-masonry-grid,
+  .rrugc-source-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .rrugc-auto-scout-status,
+  .rrugc-operations-stats,
+  .rrugc-export-stats {
+    grid-template-columns: 1fr !important;
   }
 }
 

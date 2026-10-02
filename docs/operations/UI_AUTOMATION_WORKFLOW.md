@@ -102,6 +102,14 @@ Recommended viewport targets when relevant:
 - 768 x 1024 tablet portrait;
 - approximately 390 x 844 mobile.
 
+For cross-workspace responsive layout, use the canonical CSS matrix from
+`apps/client/styles/ui-foundation.css`: wide desktop `>=1600`, standard
+desktop `1280–1599`, compact desktop `1025–1279`, tablet `681–1024`,
+phone `<=680`, and small phone `<=420`. A feature may add a narrower local
+breakpoint when its component genuinely needs it, but do not introduce a new
+page-level breakpoint ladder when one of these ranges already covers the
+behavior.
+
 Do not run every viewport for every change. Run the ones whose layout could
 actually be affected.
 
