@@ -94,6 +94,27 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(sourcePlanPageCount(101, 50)).toBe(3);
   });
 
+  it("lazy-loads source thumbnails behind a stable skeleton", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan()]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("rrugc-source-thumb-skeleton");
+    expect(markup).toContain('loading="lazy"');
+    expect(markup).toContain('decoding="async"');
+  });
+
   it("renders more than twenty references in one horizontal slider", () => {
     const markup = renderToStaticMarkup(
       <SourcePlanTable

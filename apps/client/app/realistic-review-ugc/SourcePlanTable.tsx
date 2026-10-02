@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { SourcePlan } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
@@ -49,6 +49,25 @@ function sourceMeta(plan: SourcePlan): string {
     ? (plan.source_size_bytes / (1024 * 1024)).toFixed(plan.source_size_bytes > 10 * 1024 * 1024 ? 0 : 1) + " MB"
     : "";
   return [dimensions, size].filter(Boolean).join(" · ");
+}
+
+function SourceImageThumb({ plan }: { plan: SourcePlan }) {
+  const [loaded, setLoaded] = useState(false);
+  const media = <span className={"rrugc-source-thumb-media " + (loaded ? "is-loaded" : "is-loading")}>
+    {!loaded && <span className="rrugc-source-thumb-skeleton" aria-hidden="true" />}
+    <img
+      src={plan.source_preview_url}
+      alt={plan.source_name}
+      loading="lazy"
+      decoding="async"
+      onLoad={() => setLoaded(true)}
+      onError={() => setLoaded(true)}
+    />
+  </span>;
+
+  return plan.source_web_url
+    ? <a href={plan.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title="Open source in Google Drive">{media}</a>
+    : <span className="rrugc-source-thumb">{media}</span>;
 }
 
 function ReferenceSlider({ plan }: { plan: SourcePlan }) {
@@ -151,7 +170,7 @@ export function SourcePlanTable({
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
             return <tr key={plan.id}>
               <td className="rrugc-source-cell"><div className="rrugc-source-file">
-                {plan.source_web_url ? <a href={plan.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title="Open source in Google Drive"><img src={plan.source_preview_url} alt={plan.source_name} loading="lazy" /></a> : <span className="rrugc-source-thumb"><img src={plan.source_preview_url} alt={plan.source_name} loading="lazy" /></span>}
+                <SourceImageThumb plan={plan} />
                 <span><strong title={plan.source_name}>{plan.source_name}</strong><small title={plan.source_relative_path}>{plan.source_relative_path}</small><em>{sourceMeta(plan) || "Image source"}</em></span>
               </div></td>
               <td className="rrugc-source-plan-context">
