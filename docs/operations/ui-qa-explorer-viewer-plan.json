@@ -1,0 +1,38 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "default",
+      "waitFor": ".grid article"
+    },
+    {
+      "name": "hover-card",
+      "hover": ".grid article:nth-child(2)"
+    },
+    {
+      "name": "selected",
+      "click": ".grid article:nth-child(2)"
+    },
+    {
+      "name": "selected-hover",
+      "hover": ".grid article:nth-child(2)"
+    },
+    {
+      "name": "search-results",
+      "fill": {
+        "selector": "input[aria-label='Search images and videos']",
+        "value": "embroidery"
+      },
+      "waitMs": 900,
+      "waitFor": ".grid article"
+    },
+    {
+      "name": "search-focus",
+      "focus": "input[aria-label='Search images and videos']"
+    }
+  ]
+}

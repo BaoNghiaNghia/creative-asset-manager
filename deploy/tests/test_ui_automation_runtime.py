@@ -19,14 +19,19 @@ class UiAutomationRuntimeTests(unittest.TestCase):
 
     def test_browser_runner_has_vps_safe_defaults(self) -> None:
         text = (ROOT / "apps/client/scripts/ui-qa.mjs").read_text(encoding="utf-8")
+        fixture = (ROOT / "apps/client/scripts/ui-qa-fixture.mjs").read_text(encoding="utf-8")
         self.assertIn("chromiumSandbox: false", text)
         self.assertIn("--no-sandbox", text)
         self.assertIn("CAM_UI_QA_ALLOWED_HOSTS", text)
+        self.assertIn("--fixture", text)
+        self.assertIn("installUiQaFixture", text)
         self.assertIn("desktop", text)
         self.assertIn("tabletPortrait", text)
         self.assertIn("mobile", text)
         self.assertIn("requestFailures", text)
         self.assertIn("consoleErrors", text)
+        self.assertIn('context.route("**/api/**"', fixture)
+        self.assertIn("Unhandled UI QA fixture route", fixture)
 
     def test_example_plan_is_valid_json(self) -> None:
         plan = json.loads(
@@ -40,6 +45,28 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         text = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn("ui-check:", text)
         self.assertIn("scripts/cam-ui-gate.sh", text)
+        self.assertIn("ui-staging-qa:", text)
+        self.assertIn("scripts/cam-ui-staging-qa.sh", text)
+
+    def test_authenticated_staging_fixture_is_safe_and_complete(self) -> None:
+        fixture = json.loads(
+            (ROOT / "apps/client/scripts/fixtures/explorer-viewer.json").read_text(encoding="utf-8")
+        )
+        plan = json.loads(
+            (ROOT / "docs/operations/ui-qa-explorer-viewer-plan.json").read_text(encoding="utf-8")
+        )
+        gate = (ROOT / "scripts/cam-ui-gate.sh").read_text(encoding="utf-8")
+        staging = (ROOT / "scripts/cam-ui-staging-qa.sh").read_text(encoding="utf-8")
+        self.assertEqual(fixture["identity"]["roles"], ["viewer"])
+        self.assertTrue(fixture["providerSession"]["authenticated"])
+        self.assertTrue(fixture["viewerBootstrap"]["auto_selected_source_id"])
+        self.assertGreaterEqual(len(fixture["folders"]["qa-root"]["children"]), 4)
+        self.assertTrue(any("fill" in step for step in plan["steps"]))
+        self.assertIn("Authenticated local staging Browser QA", gate)
+        self.assertIn("CAM_UI_QA_SKIP", gate)
+        self.assertIn("127.0.0.1", staging)
+        self.assertIn("--fixture", staging)
+        self.assertNotIn("deploy-cam-frontend.sh", staging)
 
 
 if __name__ == "__main__":

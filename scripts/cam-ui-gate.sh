@@ -69,6 +69,9 @@ if [[ -n "${CAM_UI_QA_URL:-}" ]]; then
   if [[ -n "${CAM_UI_QA_PLAN:-}" ]]; then
     QA_ARGS+=(--plan "$CAM_UI_QA_PLAN")
   fi
+  if [[ -n "${CAM_UI_QA_FIXTURE:-}" ]]; then
+    QA_ARGS+=(--fixture "$CAM_UI_QA_FIXTURE")
+  fi
   if [[ -n "${CAM_UI_VIEWPORTS:-}" ]]; then
     QA_ARGS+=(--viewports "$CAM_UI_VIEWPORTS")
   fi
@@ -76,8 +79,11 @@ if [[ -n "${CAM_UI_QA_URL:-}" ]]; then
     QA_ARGS+=(--strict)
   fi
   (cd apps/client && npm run ui:qa -- "${QA_ARGS[@]}")
+elif [[ "${CAM_UI_QA_SKIP:-0}" != "1" ]]; then
+  note "Authenticated local staging Browser QA"
+  bash scripts/cam-ui-staging-qa.sh
 else
-  note "CAM_UI_QA_URL is not set; code gate passed and Browser QA remains pending"
+  note "Browser QA explicitly skipped with CAM_UI_QA_SKIP=1"
 fi
 
 note "UI gate passed"

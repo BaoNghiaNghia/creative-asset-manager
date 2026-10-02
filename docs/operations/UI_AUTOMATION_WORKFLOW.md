@@ -136,10 +136,11 @@ The automatic UI workflow is implemented in these concrete phases:
 
 1. **Browser runtime** — install/check the Chrome channel with `make ui-browser-install`. This is a one-time VPS prerequisite.
 2. **Code gate** — `make ui-check` or `bash scripts/cam-ui-gate.sh` runs diff-check, typecheck, frontend tests, and production build whenever frontend/UI files changed.
-3. **Visual QA runner** — `npm run ui:qa -- --url <local-or-staging-url>` captures deterministic viewport screenshots and records console/page/network issues.
-4. **Interactive-state plan** — pass `--plan docs/operations/ui-qa-plan.example.json` as a template for default/hover/selected/selected+hover/focus checks; agents should tailor selectors to the component being changed.
-5. **Resource control** — viewport checks run sequentially in one Chrome process and old `.ui-qa` runs are automatically pruned (default: keep 5).
-6. **Production handoff** — production deployment remains a separate explicit user-authorized step.
+3. **Authenticated local staging** — after the build, the gate starts a loopback-only Vite preview and runs the real frontend against `apps/client/scripts/fixtures/explorer-viewer.json`. Playwright intercepts only `/api/**` inside that browser context, supplies a deterministic viewer identity/source/folder/search dataset, and fails closed on unhandled fixture API routes. No OAuth login, Production session cookie, Production database, or Production cloud source is used.
+4. **Visual QA runner** — `npm run ui:qa -- --url <local-or-staging-url>` captures deterministic viewport screenshots and records console/page/network issues. Add `--fixture <json>` to provide a safe authenticated scenario.
+5. **Interactive-state plan** — `docs/operations/ui-qa-explorer-viewer-plan.json` exercises Asset Explorer default/hover/selected/selected+hover/search/focus states. `docs/operations/ui-qa-plan.example.json` remains the generic template; agents should tailor selectors to the feature being changed.
+6. **Resource control** — viewport checks run sequentially in one Chrome process, the local preview is stopped automatically, and old `.ui-qa` runs are pruned (default: keep 5).
+7. **Production handoff** — Production deployment remains a separate explicit user-authorized step.
 
 ### Standard commands
 
@@ -147,23 +148,31 @@ The automatic UI workflow is implemented in these concrete phases:
 # One-time VPS setup
 make ui-browser-install
 
-# Code-only validation for changed UI
+# Full UI gate. By default this now includes authenticated local staging QA.
 make ui-check
 
-# Force the gate even when automatic diff detection sees no frontend change
+# Run only the authenticated local viewer scenario against the current dist build.
+make ui-staging-qa
+
+# Force the gate even when automatic diff detection sees no frontend change.
 CAM_UI_FORCE=1 make ui-check
 
-# Code gate plus Browser QA
+# Use a specific local/staging URL instead of the built-in loopback preview.
 CAM_UI_QA_URL=http://127.0.0.1:4173 \
 CAM_UI_VIEWPORTS=desktop,tabletPortrait,mobile \
 make ui-check
 
-# Browser QA only, using an interaction plan
+# Explicitly skip Browser QA for an exceptional code-only diagnostic run.
+CAM_UI_QA_SKIP=1 make ui-check
+
+# Browser QA only, with a deterministic authenticated viewer fixture.
 cd apps/client
 npm run ui:qa -- \
   --url http://127.0.0.1:4173 \
+  --fixture scripts/fixtures/explorer-viewer.json \
   --viewports desktop,tabletPortrait,mobile \
-  --plan ../../docs/operations/ui-qa-plan.example.json
+  --plan ../../docs/operations/ui-qa-explorer-viewer-plan.json \
+  --strict
 ```
 
-The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. The directory is gitignored and old runs are pruned automatically.
+The Browser runner writes screenshots plus `report.json` under `apps/client/.ui-qa/<run-id>/`. The directory is gitignored and old runs are pruned automatically. The default fixture contains synthetic `.example.test` identity data and synthetic asset metadata only; it must never be replaced with copied Production session cookies, OAuth tokens, or Production user data.

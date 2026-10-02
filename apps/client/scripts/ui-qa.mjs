@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 
 const VIEWPORTS = {
   desktop: { width: 1440, height: 900 },
@@ -84,6 +85,9 @@ async function performStep(page, step) {
   if (step.focus) {
     await page.locator(step.focus).first().focus();
   }
+  if (step.fill?.selector) {
+    await page.locator(step.fill.selector).first().fill(String(step.fill.value ?? ""));
+  }
   if (step.press?.selector && step.press?.key) {
     await page.locator(step.press.selector).first().press(step.press.key);
   }
@@ -102,6 +106,8 @@ if (!rawUrl) {
 
 const url = assertAllowedUrl(rawUrl);
 const plan = await readPlan(argValue("--plan"));
+const fixturePath = argValue("--fixture") || process.env.CAM_UI_QA_FIXTURE;
+const fixture = await loadUiQaFixture(fixturePath);
 const viewportNames = (
   argValue("--viewports") ||
   process.env.CAM_UI_VIEWPORTS ||
@@ -140,6 +146,7 @@ const report = {
   url,
   runId,
   strict: hasFlag("--strict"),
+  fixture: fixture ? path.relative(process.cwd(), fixture.absolutePath) : null,
   results: [],
 };
 
@@ -147,6 +154,7 @@ try {
   for (const viewportName of viewportNames) {
     const viewport = VIEWPORTS[viewportName];
     const context = await browser.newContext({ viewport });
+    await installUiQaFixture(context, fixture, url);
     const page = await context.newPage();
 
     const issues = {

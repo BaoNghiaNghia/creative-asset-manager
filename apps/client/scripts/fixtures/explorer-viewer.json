@@ -1,0 +1,268 @@
+{
+  "name": "explorer-viewer",
+  "identity": {
+    "user_id": "qa-viewer",
+    "actor_id": "qa-viewer",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [
+      {
+        "id": "qa-tenant",
+        "name": "QA Studio",
+        "slug": "qa-studio"
+      }
+    ],
+    "roles": [
+      "viewer"
+    ],
+    "permissions": [
+      "assets.read",
+      "search.read",
+      "review_board.read",
+      "realistic_review_ugc.read"
+    ],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Viewer",
+    "email": "qa.viewer@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {
+      "id": "qa-google",
+      "name": "QA Viewer",
+      "email": "qa.viewer@example.test"
+    }
+  },
+  "sources": [
+    {
+      "id": "qa-source",
+      "source_type": "google_drive",
+      "display_name": "QA Drive",
+      "status": "active",
+      "provider": "google",
+      "connection_purpose": "google_drive_source",
+      "account": {
+        "provider_account_id": "qa-google",
+        "email": "qa.viewer@example.test"
+      },
+      "metadata": {
+        "drive_type": "personal",
+        "drive_name": "QA Drive"
+      },
+      "capabilities": {
+        "browse": true,
+        "sync": false,
+        "write": false,
+        "reconnect": false,
+        "disconnect": false
+      }
+    }
+  ],
+  "viewerBootstrap": {
+    "sources": [
+      {
+        "external_source_id": "qa-source",
+        "display_name": "QA Drive",
+        "folders": [
+          {
+            "id": "qa-root",
+            "name": "Creative QA Workspace",
+            "external_source_id": "qa-source"
+          }
+        ]
+      }
+    ],
+    "auto_selected_source_id": "qa-source",
+    "auto_selected_folder_id": "qa-root"
+  },
+  "folders": {
+    "qa-root": {
+      "parent": {
+        "provider": "google-drive",
+        "id": "qa-root",
+        "name": "Creative QA Workspace",
+        "kind": "folder",
+        "mime_type": "application/vnd.google-apps.folder",
+        "external_source_id": "qa-source"
+      },
+      "children": [
+        {
+          "provider": "google-drive",
+          "id": "qa-folder-long",
+          "name": "Personalized Embroidery References – Long Folder Name For Two Lines",
+          "kind": "folder",
+          "mime_type": "application/vnd.google-apps.folder",
+          "external_source_id": "qa-source",
+          "has_children": true
+        },
+        {
+          "provider": "google-drive",
+          "id": "qa-image-black",
+          "name": "Custom Snapback Hat Embroidered Logo Front Black – Final Product Reference.jpg",
+          "kind": "image",
+          "mime_type": "image/jpeg",
+          "size": 2457612,
+          "modified_at": "2026-10-01T08:00:00Z",
+          "external_source_id": "qa-source",
+          "internal_asset_id": "qa-asset-image-black",
+          "image_width": 2048,
+          "image_height": 2048
+        },
+        {
+          "provider": "google-drive",
+          "id": "qa-video-ugc",
+          "name": "UGC Review Family Embroidery Reveal Final Version For Paid Ads.mp4",
+          "kind": "video",
+          "mime_type": "video/mp4",
+          "size": 10485760,
+          "modified_at": "2026-10-01T09:00:00Z",
+          "external_source_id": "qa-source",
+          "internal_asset_id": "qa-asset-video-ugc"
+        },
+        {
+          "provider": "google-drive",
+          "id": "qa-image-pink",
+          "name": "Pink Bow Heart Locket Tote Personalized Embroidery Close Up.jpg",
+          "kind": "image",
+          "mime_type": "image/jpeg",
+          "size": 1987654,
+          "modified_at": "2026-10-01T10:00:00Z",
+          "external_source_id": "qa-source",
+          "internal_asset_id": "qa-asset-image-pink",
+          "image_width": 1800,
+          "image_height": 1800
+        }
+      ],
+      "next_page_token": null,
+      "has_more": false
+    },
+    "qa-folder-long": {
+      "parent": {
+        "provider": "google-drive",
+        "id": "qa-folder-long",
+        "name": "Personalized Embroidery References – Long Folder Name For Two Lines",
+        "kind": "folder",
+        "mime_type": "application/vnd.google-apps.folder",
+        "external_source_id": "qa-source"
+      },
+      "children": [
+        {
+          "provider": "google-drive",
+          "id": "qa-image-child",
+          "name": "Child Folder Embroidery Reference.jpg",
+          "kind": "image",
+          "mime_type": "image/jpeg",
+          "size": 1200000,
+          "modified_at": "2026-10-01T11:00:00Z",
+          "external_source_id": "qa-source",
+          "internal_asset_id": "qa-asset-image-child",
+          "image_width": 1600,
+          "image_height": 1600
+        }
+      ],
+      "next_page_token": null,
+      "has_more": false
+    }
+  },
+  "metadata": {
+    "qa-image-black": {
+      "item_id": "qa-image-black",
+      "tag_ids": [],
+      "rating": 5,
+      "processing_status": "indexed"
+    },
+    "qa-video-ugc": {
+      "item_id": "qa-video-ugc",
+      "tag_ids": [],
+      "rating": 4,
+      "processing_status": "indexed"
+    },
+    "qa-image-pink": {
+      "item_id": "qa-image-pink",
+      "tag_ids": [],
+      "rating": null,
+      "processing_status": "indexed"
+    },
+    "qa-image-child": {
+      "item_id": "qa-image-child",
+      "tag_ids": [],
+      "rating": null,
+      "processing_status": "indexed"
+    }
+  },
+  "search": {
+    "capabilities": {
+      "selected_version": "v3",
+      "readiness": "ready",
+      "search_available": true,
+      "viewer_scoped": true,
+      "failure_code": null,
+      "facet_names": [],
+      "examples": [
+        "embroidery",
+        "ugc review"
+      ]
+    },
+    "suggestions": [
+      {
+        "text": "embroidery",
+        "prefix": "embro",
+        "completion": "idery",
+        "kind": "search_text"
+      },
+      {
+        "text": "embroidery reveal",
+        "prefix": "embro",
+        "completion": "idery reveal",
+        "kind": "search_text"
+      }
+    ],
+    "items": [
+      {
+        "provider": "google-drive",
+        "id": "qa-image-black",
+        "name": "Custom Snapback Hat Embroidered Logo Front Black – Final Product Reference.jpg",
+        "kind": "image",
+        "mime_type": "image/jpeg",
+        "size": 2457612,
+        "modified_at": "2026-10-01T08:00:00Z",
+        "external_source_id": "qa-source",
+        "internal_asset_id": "qa-asset-image-black",
+        "image_width": 2048,
+        "image_height": 2048,
+        "folder_path": "Creative QA Workspace",
+        "score": 0.96
+      },
+      {
+        "provider": "google-drive",
+        "id": "qa-video-ugc",
+        "name": "UGC Review Family Embroidery Reveal Final Version For Paid Ads.mp4",
+        "kind": "video",
+        "mime_type": "video/mp4",
+        "size": 10485760,
+        "modified_at": "2026-10-01T09:00:00Z",
+        "external_source_id": "qa-source",
+        "internal_asset_id": "qa-asset-video-ugc",
+        "folder_path": "Creative QA Workspace",
+        "score": 0.91
+      },
+      {
+        "provider": "google-drive",
+        "id": "qa-image-pink",
+        "name": "Pink Bow Heart Locket Tote Personalized Embroidery Close Up.jpg",
+        "kind": "image",
+        "mime_type": "image/jpeg",
+        "size": 1987654,
+        "modified_at": "2026-10-01T10:00:00Z",
+        "external_source_id": "qa-source",
+        "internal_asset_id": "qa-asset-image-pink",
+        "image_width": 1800,
+        "image_height": 1800,
+        "folder_path": "Creative QA Workspace",
+        "score": 0.88
+      }
+    ]
+  }
+}
