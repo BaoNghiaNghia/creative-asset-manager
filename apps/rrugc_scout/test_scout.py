@@ -23,6 +23,7 @@ from scout import (
     quality_search_query,
     resolve_pin_details,
     scan_auto_run,
+    task_search_queries,
     wait_for_pin_growth,
 )
 
@@ -529,6 +530,45 @@ def test_keyword_candidate_budgets_cap_keywords_and_share_capacity():
     assert keyword_candidate_budgets(0, 5) == []
 
 
+def test_source_plan_search_queries_prioritize_image_context_over_legacy_queries():
+    task = {
+        "source_plan_id": "source-plan-context",
+        "query": "generic candid lifestyle",
+        "search_queries": [
+            "generic candid lifestyle",
+            "casual cap phone photo",
+        ],
+        "source_context": {
+            "search_clusters": {
+                "direct": [
+                    "grandpa golf course candid phone photo",
+                    "grandfather tee time candid phone photo",
+                ],
+                "adjacent": ["family golf outing candid phone photo"],
+                "generic": ["casual lifestyle candid phone photo"],
+            }
+        },
+    }
+
+    assert task_search_queries(task)[:4] == [
+        "grandpa golf course candid phone photo",
+        "grandfather tee time candid phone photo",
+        "family golf outing candid phone photo",
+        "generic candid lifestyle",
+    ]
+
+
+def test_legacy_search_queries_keep_server_order_without_source_plan_context():
+    task = {
+        "query": "first query",
+        "search_queries": ["first query", "second query"],
+        "source_context": {
+            "search_clusters": {"direct": ["should not be promoted"]},
+        },
+    }
+    assert task_search_queries(task) == ["first query", "second query"]
+
+
 def test_careful_pace_uses_gradual_scrolls_and_longer_waits():
     class FakeMouse:
         def __init__(self):
@@ -580,7 +620,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v12"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v13"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

@@ -221,6 +221,20 @@ if (-not $SkipUpdate) {
         Fail ("Auto-update requires the local checkout to be on branch main. Current branch: " + $branch)
     }
 
+    # The launcher itself is managed code, not local configuration. Older
+    # releases could leave this file modified and permanently block updates.
+    # Restore only this managed file from the current HEAD before checking for
+    # real user/source edits; scout.local.env remains untouched.
+    $managedLauncherPath = "scripts/start_scout_auto_update.ps1"
+    $launcherDirty = @(& git status --porcelain --untracked-files=no -- $managedLauncherPath)
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Unable to inspect the managed Scout launcher."
+    }
+    if ($launcherDirty.Count -gt 0) {
+        Write-Host "Repairing locally modified managed Scout launcher..." -ForegroundColor Yellow
+        Invoke-Git @("restore", "--source=HEAD", "--staged", "--worktree", "--", $managedLauncherPath) | Out-Null
+    }
+
     $dirty = @(& git status --porcelain --untracked-files=no)
     if ($LASTEXITCODE -ne 0) {
         Fail "Unable to inspect the Git working tree."
@@ -377,6 +391,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Starting Pinterest Auto Scout"
 Write-Host ("Source commit       : " + $head) -ForegroundColor Green
+Write-Host "Scout mode          : source-plan context-first (v13)" -ForegroundColor Green
 Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
 Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
 Write-Host ("Pace                : " + $pace) -ForegroundColor Green

@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v12"
+CLIENT_VERSION = "rrugc-scout-v13"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -923,6 +923,46 @@ def keyword_candidate_budgets(total_cap: int, query_count: int) -> list[int]:
     ]
 
 
+def task_search_queries(task: dict[str, Any]) -> list[str]:
+    """Return source-plan context queries before adaptive/legacy campaign queries.
+
+    Source-plan claims include the AI-derived product context for the exact
+    embroidery image. Keep direct/adjacent scene hints at the front so an
+    adaptive campaign refresh cannot silently make a generic historical query
+    the first Pinterest search again.
+    """
+    raw_queries: list[Any] = []
+    source_plan_id = str(task.get("source_plan_id") or "").strip()
+    source_context = task.get("source_context")
+    if source_plan_id and isinstance(source_context, dict):
+        clusters = source_context.get("search_clusters")
+        if isinstance(clusters, dict):
+            for level in ("direct", "adjacent"):
+                values = clusters.get(level)
+                if isinstance(values, list):
+                    raw_queries.extend(values)
+
+    configured = task.get("search_queries")
+    if isinstance(configured, list):
+        raw_queries.extend(configured)
+    else:
+        raw_queries.append(task.get("query"))
+
+    search_queries: list[str] = []
+    seen_queries: set[str] = set()
+    for raw in raw_queries:
+        value = str(raw or "").strip()
+        key = value.casefold()
+        if value and key not in seen_queries:
+            seen_queries.add(key)
+            search_queries.append(value)
+
+    fallback = str(task.get("query") or "").strip()
+    if not search_queries and fallback:
+        search_queries.append(fallback)
+    return search_queries
+
+
 async def scan_auto_run(
     page: Any,
     client: AutoScoutClient,
@@ -942,15 +982,7 @@ async def scan_auto_run(
     source_name = str(task.get("source_name") or "").strip()
     history_key = source_plan_id or campaign_id
     persistent_seen = history.seen_pin_keys(history_key) if history else set()
-    raw_queries = task.get("search_queries") or [task["query"]]
-    search_queries: list[str] = []
-    seen_queries: set[str] = set()
-    for raw in raw_queries:
-        value = str(raw or "").strip()
-        key = value.casefold()
-        if value and key not in seen_queries:
-            seen_queries.add(key)
-            search_queries.append(value)
+    search_queries = task_search_queries(task)
     if not search_queries:
         search_queries = [str(task["query"])]
 

@@ -34,7 +34,7 @@ START_SCOUT.bat
 
 Do not commit `scout.local.env`; it is intentionally ignored by Git.
 
-## Auto Scout v12 source-plan aware setup
+## Auto Scout v13 source-plan aware setup
 
 1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.
 2. Install Playwright Chromium, or pass `--chrome-executable` for a local Chrome/Chromium binary.
@@ -58,11 +58,11 @@ Auto Scout now prefers an installed Google Chrome automatically when available. 
 --chrome-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 ```
 
-The pairing is machine-level, not campaign-level. Once the Agent is online, every due source-image plan with **Auto Scout** enabled can be claimed automatically. Auto Scout v12 is source-plan aware: a Drive embroidery image owns its own plan, AI-derived context/search queries, 20-reference target, persistent Pin history, and Scout diagnostics. The Scout remains quality-first and low-footprint: it enriches searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once that source image already has enough viable work in the analysis/import pipeline.
+The pairing is machine-level, not campaign-level. Once the Agent is online, every due source-image plan with **Auto Scout** enabled can be claimed automatically. Auto Scout v13 is source-plan aware and context-first: a Drive embroidery image owns its own plan, AI-derived direct/adjacent lifestyle scene queries are promoted ahead of adaptive/legacy campaign queries, the plan has a 20-reference target, Pin history is persistent, and Scout diagnostics remain available. The Scout remains quality-first and low-footprint: it enriches searches toward candid lifestyle photography, filters obvious AI/render/illustration metadata before submission, sends small batches, and stops adding candidates once that source image already has enough viable work in the analysis/import pipeline.
 
 Search results are now discovery-only. Before a bounded batch is submitted, the Scout resolves each discovered `pin_url` through the Pinterest Pin detail page and selects the best matching `pinimg.com` asset from Open Graph metadata, JSON-LD, close-up images, and `srcset`. It matches the rendition-independent asset path so a high-resolution related Pin cannot replace the discovered Pin. The resolver now keeps exactly one reusable Pin-detail tab beside the search tab and resolves Pins sequentially. It pauses between detail navigations, stops the current run immediately when Pinterest presents a login/challenge gate, and applies a five-minute cooldown when HTTP 429 rate limiting is detected. The legacy `--detail-concurrency` option is retained for command compatibility but production mode always forces a single detail tab.
 
-Auto Scout v12 defaults to `--pace careful`. This deliberately slows the browsing loop so results have more time to load and be inspected: 4.5–7 seconds of dwell after opening a keyword, 1.4–2.6 seconds before each visible-result inspection, gradual 420–700 px scroll steps with pauses, batches of 3 candidates, and 3.5–6 second pauses between keywords. Use `--pace balanced` when a shorter scan is preferred.
+Auto Scout v13 defaults to `--pace careful`. This deliberately slows the browsing loop so results have more time to load and be inspected: 4.5–7 seconds of dwell after opening a keyword, 1.4–2.6 seconds before each visible-result inspection, gradual 420–700 px scroll steps with pauses, batches of 3 candidates, and 3.5–6 second pauses between keywords. Use `--pace balanced` when a shorter scan is preferred.
 
 The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the current run stops immediately so it can be resolved manually; a later scheduled scan resumes only after normal access is available again.
 
