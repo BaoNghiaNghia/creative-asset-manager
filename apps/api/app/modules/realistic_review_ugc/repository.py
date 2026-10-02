@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import (
@@ -16,6 +16,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcExportModel,
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
+    RrugcSourcePlanModel,
     RrugcProductModel,
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
@@ -794,7 +795,19 @@ class RrugcRepository:
         *,
         now,
         limit: int = 20,
+        source_plan_only: bool = False,
     ) -> list[RrugcCampaignModel]:
+        source_scope = (
+            exists(
+                select(RrugcSourcePlanModel.id).where(
+                    RrugcSourcePlanModel.tenant_id == tenant_id,
+                    RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
+                    RrugcSourcePlanModel.status == "ready",
+                )
+            )
+            if source_plan_only
+            else true()
+        )
         return list(
             self.session.scalars(
                 select(RrugcCampaignModel)
@@ -802,6 +815,7 @@ class RrugcRepository:
                     RrugcCampaignModel.tenant_id == tenant_id,
                     RrugcCampaignModel.status == "running",
                     RrugcCampaignModel.auto_scout.is_(True),
+                    source_scope,
                     or_(
                         RrugcCampaignModel.scan_next_at.is_(None),
                         RrugcCampaignModel.scan_next_at <= now,

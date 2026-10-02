@@ -36,7 +36,8 @@ def rate_limit_provider_key(
 AI_JOB_TYPES = (
     "asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit",
     "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate",
-    "rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa",
+    "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
+    "rrugc_supervisor_qa",
 )
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_scan")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export", "rrugc_candidate_import")
@@ -77,6 +78,7 @@ STAGE_POLICY = {
     # tenant pause/total-cap gate as other pipeline work.
     "creative_pipeline_node": "pipeline_enabled",
     "creative_pipeline_scan": "pipeline_enabled",
+    "rrugc_source_plan_analyze": "ai_analysis_enabled",
     "rrugc_candidate_analyze": "ai_analysis_enabled",
     "rrugc_candidate_import": "managed_storage_enabled",
     "rrugc_generate": "pipeline_enabled",

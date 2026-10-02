@@ -218,6 +218,7 @@ class ProcessingPolicyTest(unittest.TestCase):
 
     def test_rrugc_jobs_are_claimable_by_image_worker(self):
         cases = (
+            ("rrugc_source_plan_analyze", "gemini", "ai"),
             ("rrugc_candidate_analyze", "gemini", "ai"),
             ("rrugc_candidate_import", "google_drive", "storage"),
             ("rrugc_generate", "gemini", "ai"),

@@ -664,6 +664,70 @@ def test_candidate_keyword_outcomes_uses_recent_history_limit(database):
         assert [row[0] for row in outcomes] == ["new query", "middle query"]
 
 
+def test_auto_scout_v12_claims_only_ready_source_plan_campaigns(database):
+    with database() as session:
+        legacy, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Legacy campaign",
+            query="generic candid lifestyle",
+            search_queries=["generic candid lifestyle"],
+            target_count=10,
+            max_scroll_batches=3,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        source_campaign, _source_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Source campaign",
+            query="grandpa golf course candid",
+            search_queries=["grandpa golf course candid"],
+            target_count=20,
+            max_scroll_batches=3,
+            auto_import=True,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        session.add(
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id="root",
+                source_file_id="source-file",
+                source_parent_folder_id="source-folder",
+                source_relative_path="Grandpa/Navy/design.webp",
+                source_name="design.webp",
+                source_mime_type="image/webp",
+                source_revision="a" * 64,
+                analysis_revision=1,
+                target_count=20,
+                status="ready",
+                campaign_id=source_campaign.id,
+                created_by_user_id="user-a",
+            )
+        )
+        session.commit()
+
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Source-only Scout",
+        )
+
+        claim = service.claim(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v12",
+            machine_label="studio-pc",
+        )
+
+        assert claim is not None
+        assert claim.campaign.id == source_campaign.id
+        assert claim.campaign.id != legacy.id
+
+
 def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.scout_automation.random.uniform",

@@ -40,6 +40,17 @@ SCOUT_FAILURE_BACKOFF_CAP_SECONDS = 60 * 60
 SCOUT_MAX_SCROLL_BATCHES = 50
 
 
+def scout_client_supports_source_plans(value: str | None) -> bool:
+    raw = str(value or "").strip().casefold()
+    prefix = "rrugc-scout-v"
+    if not raw.startswith(prefix):
+        return False
+    try:
+        return int(raw[len(prefix):]) >= 12
+    except ValueError:
+        return False
+
+
 def adaptive_scroll_batch_budget(
     configured_batches: int,
     *,
@@ -867,6 +878,7 @@ class RrugcAutoScoutService:
             agent.tenant_id,
             now=now,
             limit=25,
+            source_plan_only=scout_client_supports_source_plans(client_version),
         )
         selected: RrugcCampaignModel | None = None
         progress = 0
