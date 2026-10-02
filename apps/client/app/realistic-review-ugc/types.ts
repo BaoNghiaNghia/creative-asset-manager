@@ -138,6 +138,18 @@ export type Campaign = {
 
 export type CampaignCreated = Campaign & { scout_token: string };
 
+export type SourcePlanSyncResult = {
+  root_folder_id: string;
+  target_count: number;
+  folders_scanned: number;
+  images_found: number;
+  plans_created: number;
+  plans_updated: number;
+  plans_missing: number;
+  jobs_queued: number;
+  unchanged: number;
+};
+
 export type ScoutAgent = {
   id: string;
   name: string;

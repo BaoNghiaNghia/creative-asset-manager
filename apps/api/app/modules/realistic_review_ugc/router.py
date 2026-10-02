@@ -176,6 +176,8 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutRunResponse,
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
+    SourcePlanResponse,
+    SourcePlanSyncResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -196,6 +198,12 @@ from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
     campaign_token_matches,
+)
+from app.modules.realistic_review_ugc.source_plans import (
+    RRUGC_SOURCE_TARGET_COUNT,
+    RrugcSourcePlanError,
+    list_source_plans,
+    sync_source_plans,
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.ai.factory import build_ai_provider_registry
@@ -2399,6 +2407,76 @@ def generation_skills(
             )
             for manifest in manifests
         ],
+    )
+
+
+def _source_plan_response(row) -> SourcePlanResponse:
+    return SourcePlanResponse(
+        id=row.id,
+        root_folder_id=row.root_folder_id,
+        source_file_id=row.source_file_id,
+        source_parent_folder_id=row.source_parent_folder_id,
+        source_relative_path=row.source_relative_path,
+        source_name=row.source_name,
+        source_mime_type=row.source_mime_type,
+        source_size_bytes=row.source_size_bytes,
+        source_width=row.source_width,
+        source_height=row.source_height,
+        source_modified_at=row.source_modified_at,
+        source_web_url=row.source_web_url,
+        source_revision=row.source_revision,
+        analysis_revision=row.analysis_revision,
+        target_count=row.target_count,
+        status=row.status,
+        visual_context=dict(row.visual_context_json or {}) or None,
+        campaign_id=row.campaign_id,
+        last_error_code=row.last_error_code,
+        analyzed_at=row.analyzed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.get("/source-plans", response_model=list[SourcePlanResponse])
+def get_source_plans(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    return [
+        _source_plan_response(row)
+        for row in list_source_plans(
+            session,
+            tenant_id=principal.active_tenant_id,
+        )
+    ]
+
+
+@router.post("/source-plans/sync", response_model=SourcePlanSyncResponse)
+async def sync_source_folder_plans(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        result = await sync_source_plans(
+            session,
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+        )
+    except RrugcSourcePlanError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return SourcePlanSyncResponse(
+        root_folder_id=result.root_folder_id,
+        target_count=RRUGC_SOURCE_TARGET_COUNT,
+        folders_scanned=result.folders_scanned,
+        images_found=result.images_found,
+        plans_created=result.plans_created,
+        plans_updated=result.plans_updated,
+        plans_missing=result.plans_missing,
+        jobs_queued=result.jobs_queued,
+        unchanged=result.unchanged,
     )
 
 

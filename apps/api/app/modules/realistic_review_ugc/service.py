@@ -315,6 +315,7 @@ class RrugcService:
         min_product_fit_score: float = 0.55,
         require_head_visible: bool = True,
         reject_headwear: bool = False,
+        commit: bool = True,
     ) -> tuple[RrugcCampaignModel, str]:
         raw_token = secrets.token_urlsafe(32)
         queries: list[str] = []
@@ -379,8 +380,11 @@ class RrugcService:
             created_by_user_id=user_id,
         )
         self.repository.add_campaign(row)
-        self.session.commit()
-        self.session.refresh(row)
+        if commit:
+            self.session.commit()
+            self.session.refresh(row)
+        else:
+            self.session.flush()
         return row, raw_token
 
     def refresh_campaign_discovery(

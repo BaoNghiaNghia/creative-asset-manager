@@ -26,6 +26,7 @@ class JobType(str, Enum):
     VIDEO_GENERATE = "video_generate"
     CREATIVE_PIPELINE_NODE = "creative_pipeline_node"
     CREATIVE_PIPELINE_SCAN = "creative_pipeline_scan"
+    RRUGC_SOURCE_PLAN_ANALYZE = "rrugc_source_plan_analyze"
     RRUGC_CANDIDATE_ANALYZE = "rrugc_candidate_analyze"
     RRUGC_CANDIDATE_IMPORT = "rrugc_candidate_import"
     RRUGC_GENERATE = "rrugc_generate"

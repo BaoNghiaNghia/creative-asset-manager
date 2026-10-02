@@ -17,7 +17,8 @@ VIDEO_AI_JOB_TYPES = ("video_analyze",)
 IMAGE_AI_JOB_TYPES = (
     "asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll",
     "ai_batch_import", "ai_batch_retry_items", "image_generate",
-    "rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa",
+    "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
+    "rrugc_supervisor_qa",
 )
 IMAGE_WORKER_JOB_TYPES = tuple(
     job_type for job_type in JOB_TYPES if job_type not in VIDEO_WORKER_JOB_TYPES + VISUAL_WORKER_JOB_TYPES

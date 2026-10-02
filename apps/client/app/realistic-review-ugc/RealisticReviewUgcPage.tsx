@@ -17,6 +17,7 @@ import {
   getCampaign,
   listCampaigns,
   listCandidates,
+  syncSourcePlans,
   updateCampaign,
 } from "./api";
 import { CampaignGenerationPanel } from "./CampaignGenerationPanel";
@@ -281,6 +282,8 @@ export function RealisticReviewUgcPage() {
   const [savingProductVariants, setSavingProductVariants] = useState(false);
   const [analyzingProductContext, setAnalyzingProductContext] = useState(false);
   const [productImportMessage, setProductImportMessage] = useState("");
+  const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
+  const [sourcePlanMessage, setSourcePlanMessage] = useState("");
   const [error, setError] = useState("");
 
   const selected = campaigns.find(item => item.id === selectedId) || null;
@@ -310,6 +313,27 @@ export function RealisticReviewUgcPage() {
   async function refreshSelectedCampaign(campaignId: string, signal?: AbortSignal) {
     const row = await getCampaign(campaignId, signal);
     setCampaigns(current => current.map(item => item.id === row.id ? row : item));
+  }
+
+  async function syncDriveSourcePlans() {
+    if (syncingSourcePlans) return;
+    setSyncingSourcePlans(true);
+    setSourcePlanMessage("");
+    setError("");
+    try {
+      const result = await syncSourcePlans();
+      setSourcePlanMessage(
+        `Scanned ${result.folders_scanned} folders / ${result.images_found} images. `
+        + `${result.jobs_queued} source plans queued for AI context analysis`
+        + (result.plans_missing ? `; ${result.plans_missing} removed sources archived` : "")
+        + `; each plan targets ${result.target_count} Pinterest refs.`,
+      );
+      await refreshCampaigns();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to sync the embroidery source folder.");
+    } finally {
+      setSyncingSourcePlans(false);
+    }
   }
 
   useEffect(() => {
@@ -855,6 +879,15 @@ export function RealisticReviewUgcPage() {
               <span className="rrugc-count-badge">{campaigns.length}</span>
               <button
                 type="button"
+                className="rrugc-secondary-action"
+                disabled={syncingSourcePlans}
+                onClick={() => void syncDriveSourcePlans()}
+                title="Scan the configured Google Drive embroidery source tree and create one 20-ref Pinterest plan per image."
+              >
+                {syncingSourcePlans ? "Scanning source…" : "↻ Sync source folder"}
+              </button>
+              <button
+                type="button"
                 className={createOpen ? "rrugc-campaign-add is-open" : "rrugc-campaign-add"}
                 onClick={() => setCreateOpen(value => !value)}
                 aria-expanded={createOpen}
@@ -863,6 +896,10 @@ export function RealisticReviewUgcPage() {
               </button>
             </div>
           </div>
+
+          {sourcePlanMessage && (
+            <p className="rrugc-editor-product-result" role="status">{sourcePlanMessage}</p>
+          )}
 
           {createOpen && <div className="rrugc-create-campaign-panel">
             <div className="rrugc-create-campaign-heading">

@@ -403,6 +403,43 @@ class CampaignCreatedResponse(CampaignResponse):
     scout_token: str
 
 
+class SourcePlanResponse(BaseModel):
+    id: str
+    root_folder_id: str
+    source_file_id: str
+    source_parent_folder_id: str | None = None
+    source_relative_path: str
+    source_name: str
+    source_mime_type: str
+    source_size_bytes: int | None = None
+    source_width: int | None = None
+    source_height: int | None = None
+    source_modified_at: datetime | None = None
+    source_web_url: str | None = None
+    source_revision: str
+    analysis_revision: int
+    target_count: int
+    status: str
+    visual_context: dict | None = None
+    campaign_id: str | None = None
+    last_error_code: str | None = None
+    analyzed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SourcePlanSyncResponse(BaseModel):
+    root_folder_id: str
+    target_count: int = 20
+    folders_scanned: int
+    images_found: int
+    plans_created: int
+    plans_updated: int
+    plans_missing: int
+    jobs_queued: int
+    unchanged: int
+
+
 class CampaignScoutAutomationRequest(BaseModel):
     auto_scout: bool = True
     scan_interval_seconds: int = Field(default=300, ge=60, le=86400)

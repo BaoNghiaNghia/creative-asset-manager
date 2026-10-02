@@ -96,6 +96,66 @@ class RrugcCampaignModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class RrugcSourcePlanModel(Base):
+    __tablename__ = "rrugc_source_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "root_folder_id",
+            "source_file_id",
+            name="uq_rrugc_source_plan_source",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_source_plan_campaign",
+            ondelete="SET NULL",
+        ),
+        Index(
+            "ix_rrugc_source_plan_tenant_status",
+            "tenant_id",
+            "status",
+            "updated_at",
+        ),
+        Index(
+            "ix_rrugc_source_plan_campaign",
+            "tenant_id",
+            "campaign_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    root_folder_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_parent_folder_id: Mapped[str | None] = mapped_column(String(255))
+    source_relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    source_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    source_width: Mapped[int | None] = mapped_column(Integer)
+    source_height: Mapped[int | None] = mapped_column(Integer)
+    source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_web_url: Mapped[str | None] = mapped_column(Text)
+    source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    analysis_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    visual_context_json: Mapped[dict | None] = mapped_column(JSON)
+    campaign_id: Mapped[str | None] = mapped_column(String(36))
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class RrugcScoutAgentModel(Base):
     __tablename__ = "rrugc_scout_agents"
     __table_args__ = (

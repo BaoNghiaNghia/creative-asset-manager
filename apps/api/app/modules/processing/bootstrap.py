@@ -59,6 +59,7 @@ from app.modules.realistic_review_ugc.handler import (
     RrugcCandidateAnalyzeJobHandler,
     RrugcCandidateImportJobHandler,
 )
+from app.modules.realistic_review_ugc.source_plans import RrugcSourcePlanAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.delivery_automation import (
@@ -112,6 +113,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "video_generate": ("PROCESSING_JOBS_ENABLED", "VIDEO_GENERATION_ENABLED", "DOLA_RENDER_GATEWAY_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "creative_pipeline_node": ("PROCESSING_JOBS_ENABLED",),
     "creative_pipeline_scan": ("PROCESSING_JOBS_ENABLED", "CREATIVE_PIPELINE_CANARY_ENABLED"),
+    "rrugc_source_plan_analyze": ("PROCESSING_JOBS_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "rrugc_candidate_analyze": ("PROCESSING_JOBS_ENABLED",),
     "rrugc_candidate_import": ("PROCESSING_JOBS_ENABLED", "MANAGED_ASSET_STORAGE_ENABLED"),
     "rrugc_generate": (
@@ -369,6 +371,7 @@ def build_worker_runtime(
                 ("video_generate", VideoGenerateJobHandler(settings)),
                 ("creative_pipeline_node", CreativePipelineNodeHandler(settings)),
                 ("creative_pipeline_scan", CreativePipelineCanaryScanHandler(settings)),
+                ("rrugc_source_plan_analyze", RrugcSourcePlanAnalyzeJobHandler(settings)),
                 ("rrugc_candidate_analyze", RrugcCandidateAnalyzeJobHandler(settings)),
                 ("rrugc_candidate_import", RrugcCandidateImportJobHandler(settings)),
                 ("rrugc_generate", RrugcGenerateJobHandler(settings)),
