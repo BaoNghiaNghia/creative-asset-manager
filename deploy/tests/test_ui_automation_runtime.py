@@ -59,6 +59,8 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("scripts/cam-ui-gate.sh", text)
         self.assertIn("ui-staging-qa:", text)
         self.assertIn("scripts/cam-ui-staging-qa.sh", text)
+        self.assertIn("ui-profile-matrix:", text)
+        self.assertIn("scripts/cam-ui-profile-matrix.sh", text)
         self.assertIn("ui-repair-check:", text)
         self.assertIn("scripts/cam-ui-repair-check.sh", text)
         self.assertIn("ui-autofix:", text)
@@ -216,6 +218,24 @@ class UiAutomationRuntimeTests(unittest.TestCase):
         self.assertIn("--states", runner)
         self.assertIn("selectExecutionSteps", runner)
         self.assertIn('mode: qaMode', runner)
+
+    def test_profile_matrix_selects_impacted_workspaces_and_reuses_one_preview(self) -> None:
+        matrix = (ROOT / "scripts/cam-ui-profile-matrix.sh").read_text(encoding="utf-8")
+        gate = (ROOT / "scripts/cam-ui-gate.sh").read_text(encoding="utf-8")
+        selector = (
+            ROOT / "apps/client/scripts/ui-qa-profile-selection.mjs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ui-qa-profile-selection.mjs", matrix)
+        self.assertIn("npm run preview", matrix)
+        self.assertIn("CAM_UI_QA_PROFILES", matrix)
+        self.assertIn("UI profile matrix summary", matrix)
+        self.assertIn("CAM_UI_QA_KEEP", matrix)
+        self.assertIn("cam-ui-profile-matrix.sh", gate)
+        self.assertIn("CAM_UI_QA_PROFILE", gate)
+        self.assertIn("cross-workspace-ui-change", selector)
+        self.assertIn("apps/client/styles/ui-foundation.css", selector)
+        self.assertIn('"ai-operations", "job-queue"', selector)
+        self.assertNotIn("deploy-cam-frontend.sh", matrix)
 
     def test_targeted_repair_runner_is_bounded_and_skips_full_gate_work(self) -> None:
         repair = (ROOT / "scripts/cam-ui-repair-check.sh").read_text(encoding="utf-8")

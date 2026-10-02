@@ -91,8 +91,13 @@ if [[ -n "${CAM_UI_QA_URL:-}" ]]; then
   fi
   (cd apps/client && npm run ui:qa -- "${QA_ARGS[@]}")
 elif [[ "${CAM_UI_QA_SKIP:-0}" != "1" ]]; then
-  note "Authenticated local staging Browser QA"
-  bash scripts/cam-ui-staging-qa.sh
+  if [[ -n "${CAM_UI_QA_PROFILE:-}" ]]; then
+    note "Authenticated local staging Browser QA"
+    bash scripts/cam-ui-staging-qa.sh
+  else
+    note "Smart fixture-backed Browser QA profile matrix"
+    bash scripts/cam-ui-profile-matrix.sh
+  fi
 else
   note "Browser QA explicitly skipped with CAM_UI_QA_SKIP=1"
 fi
