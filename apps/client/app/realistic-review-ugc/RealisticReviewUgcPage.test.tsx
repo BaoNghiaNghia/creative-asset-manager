@@ -238,7 +238,7 @@ describe("Realistic Review UGC source-first workspace", () => {
   it("does not label a singleton source row as same embroidery", () => {
     const plan = makePlan();
     plan.embroidery_group_size = 1;
-    plan.source_group_images = [plan.source_group_images[0]];
+    plan.source_group_images = [plan.source_group_images![0]];
     const markup = renderToStaticMarkup(
       <SourcePlanTable
         plans={[plan]}
