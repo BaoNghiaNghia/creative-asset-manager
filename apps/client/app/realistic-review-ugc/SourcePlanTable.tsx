@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { SourcePlan } from "./types";
+import type { SourcePlan, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -70,7 +70,15 @@ function SourceImageThumb({ plan }: { plan: SourcePlan }) {
     : <span className="rrugc-source-thumb">{media}</span>;
 }
 
-function ReferenceSlider({ plan }: { plan: SourcePlan }) {
+function ReferenceSlider({
+  plan,
+  pickingReferenceIds,
+  onToggleReferencePick,
+}: {
+  plan: SourcePlan;
+  pickingReferenceIds: ReadonlySet<string>;
+  onToggleReferencePick: (plan: SourcePlan, reference: SourcePlanReferencePreview) => void;
+}) {
   const trackRef = useRef<HTMLDivElement>(null);
   const references = plan.reference_previews;
 
@@ -82,10 +90,21 @@ function ReferenceSlider({ plan }: { plan: SourcePlan }) {
     <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} disabled={references.length === 0} onClick={() => move(-1)}>‹</button>
     <div ref={trackRef} className="rrugc-source-ref-track" aria-label={references.length + " reference images for " + plan.source_name}>
       {references.map((reference, index) => (
-        <a key={reference.id} href={reference.pin_url} target="_blank" rel="noreferrer" className={"rrugc-source-ref-card status-" + reference.status} title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}>
-          <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
-          <span>{index + 1}</span>
-        </a>
+        <div key={reference.id} className={"rrugc-source-ref-card status-" + reference.status + (reference.picked ? " is-picked" : "")}>
+          <a href={reference.pin_url} target="_blank" rel="noreferrer" className="rrugc-source-ref-link" title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}>
+            <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
+            <span>{index + 1}</span>
+          </a>
+          <button
+            type="button"
+            className="rrugc-source-ref-pick"
+            aria-label={(reference.picked ? "Unpick " : "Pick ") + "reference " + (index + 1) + " for " + plan.source_name}
+            aria-pressed={reference.picked}
+            disabled={!plan.campaign_id || pickingReferenceIds.has(reference.id)}
+            title={reference.picked ? "Unpick training reference" : "Pick as a positive training reference"}
+            onClick={() => onToggleReferencePick(plan, reference)}
+          >{pickingReferenceIds.has(reference.id) ? "…" : reference.picked ? "✓" : "+"}</button>
+        </div>
       ))}
       {references.length === 0 && <div className="rrugc-source-ref-empty"><strong>No refs yet</strong><small>Auto Scout will add qualified Pinterest references here.</small></div>}
     </div>
@@ -100,11 +119,13 @@ export function SourcePlanTable({
   pageSize,
   query,
   syncing,
+  pickingReferenceIds = new Set<string>(),
   message,
   onSync,
   onPageChange,
   onPageSizeChange,
   onQueryChange,
+  onToggleReferencePick = () => undefined,
 }: {
   plans: SourcePlan[];
   total: number;
@@ -112,11 +133,13 @@ export function SourcePlanTable({
   pageSize: number;
   query: string;
   syncing: boolean;
+  pickingReferenceIds?: ReadonlySet<string>;
   message: string;
   onSync: () => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
+  onToggleReferencePick?: (plan: SourcePlan, reference: SourcePlanReferencePreview) => void;
 }) {
   const pageCount = sourcePlanPageCount(total, pageSize);
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -168,6 +191,7 @@ export function SourcePlanTable({
             const progress = sourcePlanProgressPercent(plan);
             const context = sourcePlanContextSummary(plan);
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
+            const pickedCount = plan.reference_previews.filter(reference => reference.picked).length;
             return <tr key={plan.id}>
               <td className="rrugc-source-cell"><div className="rrugc-source-file">
                 <SourceImageThumb plan={plan} />
@@ -186,8 +210,8 @@ export function SourcePlanTable({
                 <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>{(plan.scout_status || "offline").replaceAll("_", " ")}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
-                <div className="rrugc-source-refs-head"><strong>{plan.reference_previews.length} refs loaded</strong><small>{plan.drive_ready_count} Drive ready · {plan.approved_count} qualified</small></div>
-                <ReferenceSlider plan={plan} />
+                <div className="rrugc-source-refs-head"><strong>{plan.reference_previews.length} refs · {pickedCount} picked</strong><small>Pick = train this row · {plan.drive_ready_count} Drive ready</small></div>
+                <ReferenceSlider plan={plan} pickingReferenceIds={pickingReferenceIds} onToggleReferencePick={onToggleReferencePick} />
               </td>
             </tr>;
           })}

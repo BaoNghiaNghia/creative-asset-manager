@@ -14,7 +14,10 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcSourcePlanModel,
 )
-from app.modules.realistic_review_ugc.router import get_source_plans
+from app.modules.realistic_review_ugc.router import (
+    _source_plan_reference_preview,
+    get_source_plans,
+)
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
@@ -154,6 +157,37 @@ def test_source_plan_visual_binding_uses_numeric_revision_and_hash_content():
     assert references[0]["version"] == 3
     assert references[0]["content_hash"] == plan.source_revision
     assert len(product_visual_binding_fingerprint(product, references)) == 64
+
+
+def test_source_plan_reference_preview_exposes_human_pick_signal():
+    created_at = datetime(2026, 10, 3, tzinfo=timezone.utc)
+    picked = _source_plan_reference_preview(SimpleNamespace(
+        id="candidate-picked",
+        pin_url="https://www.pinterest.com/pin/123/",
+        image_url="https://i.pinimg.com/736x/example.jpg",
+        status="drive_ready",
+        width=900,
+        height=1200,
+        created_at=created_at,
+        ai_signal_json={
+            "scout_query": "grandpa golf course candid phone photo",
+            "reference_manual_label": "good",
+        },
+    ))
+    neutral = _source_plan_reference_preview(SimpleNamespace(
+        id="candidate-neutral",
+        pin_url="https://www.pinterest.com/pin/456/",
+        image_url="https://i.pinimg.com/736x/example-2.jpg",
+        status="approved",
+        width=900,
+        height=1200,
+        created_at=created_at,
+        ai_signal_json={"scout_query": "grandpa golf course candid phone photo"},
+    ))
+
+    assert picked.picked is True
+    assert picked.source_query == "grandpa golf course candid phone photo"
+    assert neutral.picked is False
 
 
 def test_source_plan_list_is_server_paginated_and_searchable():

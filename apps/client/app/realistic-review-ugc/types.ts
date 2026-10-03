@@ -143,6 +143,7 @@ export type SourcePlanReferencePreview = {
   pin_url: string;
   image_url: string;
   status: CandidateStatus;
+  picked: boolean;
   source_query: string | null;
   width: number | null;
   height: number | null;

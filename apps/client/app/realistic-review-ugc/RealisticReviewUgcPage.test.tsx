@@ -57,6 +57,7 @@ function makePlan(referenceCount = 0): SourcePlan {
       pin_url: "https://pinterest.example/pin/" + index,
       image_url: "https://img.example/" + index + ".jpg",
       status: "drive_ready",
+      picked: index === 0,
       source_query: "cookout cap",
       width: 800,
       height: 1000,
@@ -131,9 +132,11 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("25 refs loaded");
+    expect(markup).toContain("25 refs · 1 picked");
     expect(markup).toContain("rrugc-source-ref-slider");
     expect(markup).toContain("rrugc-source-ref-track");
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain("Pick = train this row");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
   });

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
-import { listSourcePlans, syncSourcePlans } from "./api";
+import { listSourcePlans, markCandidateReferenceFeedback, syncSourcePlans } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { SourcePlanTable } from "./SourcePlanTable";
-import type { SourcePlanPage } from "./types";
+import type { SourcePlan, SourcePlanPage, SourcePlanReferencePreview } from "./types";
 import "./ui-overhaul.css";
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
@@ -22,6 +22,7 @@ export function RealisticReviewUgcPage() {
   const [sourceQuery, setSourceQuery] = useState("");
   const [debouncedSourceQuery, setDebouncedSourceQuery] = useState("");
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
+  const [pickingReferenceIds, setPickingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -60,6 +61,58 @@ export function RealisticReviewUgcPage() {
       setError(reason instanceof Error ? reason.message : "Unable to scan the embroidery source folder.");
     } finally {
       setSyncingSourcePlans(false);
+    }
+  }
+
+  async function toggleSourceReferencePick(
+    plan: SourcePlan,
+    reference: SourcePlanReferencePreview,
+  ) {
+    if (!plan.campaign_id || pickingReferenceIds.has(reference.id)) return;
+    const nextPicked = !reference.picked;
+    setPickingReferenceIds(current => new Set(current).add(reference.id));
+    setError("");
+    setSourcePage(current => ({
+      ...current,
+      items: current.items.map(item => item.id !== plan.id ? item : {
+        ...item,
+        reference_previews: item.reference_previews.map(row => (
+          row.id === reference.id ? { ...row, picked: nextPicked } : row
+        )),
+      }),
+    }));
+    try {
+      await markCandidateReferenceFeedback(
+        plan.campaign_id,
+        reference.id,
+        nextPicked ? "good" : "clear",
+        nextPicked
+          ? "Picked as a positive reference from source row " + plan.source_relative_path
+          : "Removed from picked references for source row " + plan.source_relative_path,
+      );
+      setSourcePlanMessage(
+        nextPicked
+          ? "Reference picked. Future Scout runs for this source row will learn from this positive example."
+          : "Reference unpicked. Its positive training signal was removed.",
+      );
+      await refreshSourcePlans();
+    } catch (reason) {
+      setSourcePage(current => ({
+        ...current,
+        items: current.items.map(item => item.id !== plan.id ? item : {
+          ...item,
+          reference_previews: item.reference_previews.map(row => (
+            row.id === reference.id ? { ...row, picked: reference.picked } : row
+          )),
+        }),
+      }));
+      setError(reason instanceof Error ? reason.message : "Unable to update the picked reference.");
+    } finally {
+      setPickingReferenceIds(current => {
+        const next = new Set(current);
+        next.delete(reference.id);
+        return next;
+      });
     }
   }
 
@@ -121,6 +174,7 @@ export function RealisticReviewUgcPage() {
           pageSize={sourcePageSize}
           query={sourceQuery}
           syncing={syncingSourcePlans}
+          pickingReferenceIds={pickingReferenceIds}
           message={sourcePlanMessage}
           onSync={() => void syncDriveSourcePlans()}
           onPageChange={setSourcePageNumber}
@@ -129,6 +183,7 @@ export function RealisticReviewUgcPage() {
             setSourcePageSize(value);
           }}
           onQueryChange={setSourceQuery}
+          onToggleReferencePick={(plan, reference) => void toggleSourceReferencePick(plan, reference)}
         />
       </div>
     </section>

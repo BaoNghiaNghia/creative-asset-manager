@@ -2443,6 +2443,7 @@ def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanRefere
         pin_url=row.pin_url,
         image_url=row.image_url,
         status=row.status,
+        picked=signal.get("reference_manual_label") == "good",
         source_query=source_query,
         width=row.width,
         height=row.height,

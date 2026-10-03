@@ -408,6 +408,7 @@ class SourcePlanReferencePreviewResponse(BaseModel):
     pin_url: str
     image_url: str
     status: str
+    picked: bool = False
     source_query: str | None = None
     width: int | None = None
     height: int | None = None
