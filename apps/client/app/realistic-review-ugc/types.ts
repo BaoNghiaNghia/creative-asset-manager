@@ -154,6 +154,17 @@ export type SourcePlanReferencePreview = {
   created_at: string;
 };
 
+export type SourcePlanGroupImage = {
+  id: string;
+  source_name: string;
+  source_relative_path: string;
+  source_preview_url: string;
+  source_web_url: string | null;
+  source_width: number | null;
+  source_height: number | null;
+  source_size_bytes: number | null;
+};
+
 export type SourcePlan = {
   id: string;
   root_folder_id: string;
@@ -172,6 +183,7 @@ export type SourcePlan = {
   analysis_revision: number;
   embroidery_signature: string | null;
   embroidery_group_size: number;
+  source_group_images?: SourcePlanGroupImage[];
   target_count: number;
   status: "queued" | "analyzing" | "ready" | "retry" | "failed" | "missing" | string;
   visual_context: {

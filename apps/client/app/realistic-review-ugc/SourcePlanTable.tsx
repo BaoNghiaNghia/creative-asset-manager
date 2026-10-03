@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReferenceManualLabel, SourcePlan, SourcePlanReferencePreview } from "./types";
+import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -51,13 +51,18 @@ function sourceMeta(plan: SourcePlan): string {
   return [dimensions, size].filter(Boolean).join(" · ");
 }
 
-function SourceImageThumb({ plan }: { plan: SourcePlan }) {
+type SourceThumbItem = Pick<
+  SourcePlanGroupImage,
+  "id" | "source_name" | "source_preview_url" | "source_web_url"
+>;
+
+function SourceImageThumb({ source }: { source: SourceThumbItem }) {
   const [loaded, setLoaded] = useState(false);
   const media = <span className={"rrugc-source-thumb-media " + (loaded ? "is-loaded" : "is-loading")}>
     {!loaded && <span className="rrugc-source-thumb-skeleton" aria-hidden="true" />}
     <img
-      src={plan.source_preview_url}
-      alt={plan.source_name}
+      src={source.source_preview_url}
+      alt={source.source_name}
       loading="lazy"
       decoding="async"
       onLoad={() => setLoaded(true)}
@@ -65,9 +70,19 @@ function SourceImageThumb({ plan }: { plan: SourcePlan }) {
     />
   </span>;
 
-  return plan.source_web_url
-    ? <a href={plan.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title="Open source in Google Drive">{media}</a>
-    : <span className="rrugc-source-thumb">{media}</span>;
+  return source.source_web_url
+    ? <a href={source.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title={"Open " + source.source_name + " in Google Drive"}>{media}</a>
+    : <span className="rrugc-source-thumb" title={source.source_name}>{media}</span>;
+}
+
+function SourceImageGroup({ plan }: { plan: SourcePlan }) {
+  const sources: SourceThumbItem[] = plan.source_group_images?.length
+    ? plan.source_group_images
+    : [plan];
+
+  return <div className="rrugc-source-group-track" aria-label={sources.length + " source images with the same embroidery"}>
+    {sources.map(source => <SourceImageThumb key={source.id} source={source} />)}
+  </div>;
 }
 
 
@@ -294,7 +309,7 @@ export function SourcePlanTable({
       <div>
         <small>DRIVE → AI CONTEXT → PINTEREST</small>
         <h2>Embroidery source → Pinterest refs</h2>
-        <p>New images are discovered automatically in the configured Drive tree. Each source image starts with a 20-ref target, while the reference slider can continue showing additional qualified refs.</p>
+        <p>New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool.</p>
       </div>
       <div className="rrugc-source-plan-heading-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Auto scan on</span>
@@ -306,7 +321,7 @@ export function SourcePlanTable({
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
 
     <div className="rrugc-source-plan-kpis">
-      <article><span>Source images</span><strong>{total}</strong></article>
+      <article><span>Embroidery groups</span><strong>{total}</strong></article>
       <article><span>This page</span><strong>{plans.length}</strong></article>
       <article><span>Working here</span><strong>{working}</strong></article>
       <article><span>Refs loaded</span><strong>{loadedRefs}</strong></article>
@@ -322,7 +337,7 @@ export function SourcePlanTable({
           onChange={event => onQueryChange(event.target.value)}
         />
       </label>
-      <span>{total} source images</span>
+      <span>{total} embroidery groups</span>
     </div>
 
     <div className="rrugc-source-plan-table-wrap">
@@ -336,14 +351,18 @@ export function SourcePlanTable({
             const pickedCount = plan.reference_previews.filter(reference => reference.picked).length;
             const rejectedCount = plan.reference_previews.filter(reference => reference.rejected).length;
             return <tr key={plan.id}>
-              <td className="rrugc-source-cell"><div className="rrugc-source-file">
-                <SourceImageThumb plan={plan} />
-                <span><strong title={plan.source_name}>{plan.source_name}</strong><small title={plan.source_relative_path}>{plan.source_relative_path}</small><em>{sourceMeta(plan) || "Image source"}</em></span>
+              <td className="rrugc-source-cell"><div className="rrugc-source-file rrugc-source-file-grouped">
+                <SourceImageGroup plan={plan} />
+                <span>
+                  <strong title={plan.source_name}>{plan.source_name}</strong>
+                  <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"} · same embroidery</small>
+                  <em>{sourceMeta(plan) || "Image source"}</em>
+                </span>
               </div></td>
               <td className="rrugc-source-plan-context">
                 <div className="rrugc-source-context-head"><span className={"rrugc-source-plan-status tone-" + planTone(plan)}>{planStatusLabel(plan)}</span>{plan.analyzed_at && <small>Analyzed {new Date(plan.analyzed_at).toLocaleString()}</small>}</div>
                 <p title={context}>{context}</p>
-                {(plan.embroidery_group_size > 1 || themes.length > 0) && <div className="rrugc-source-theme-chips">{plan.embroidery_group_size > 1 && <span>Shared refs · {plan.embroidery_group_size} colors</span>}{themes.map(theme => <span key={theme}>{theme}</span>)}</div>}
+                {(plan.embroidery_group_size > 1 || themes.length > 0) && <div className="rrugc-source-theme-chips">{plan.embroidery_group_size > 1 && <span>Same embroidery · {plan.embroidery_group_size} images</span>}{themes.map(theme => <span key={theme}>{theme}</span>)}</div>}
                 <div className="rrugc-source-query-chips">{plan.search_queries.slice(0, 4).map(keyword => <span key={keyword} title={keyword}>{keyword}</span>)}{plan.search_queries.length > 4 && <span>+{plan.search_queries.length - 4}</span>}{plan.search_queries.length === 0 && <small>{plan.status === "ready" ? "No search query" : "Waiting for AI search plan…"}</small>}</div>
                 {plan.last_error_code && <small className="rrugc-source-error">{plan.last_error_code}</small>}
               </td>
@@ -358,7 +377,7 @@ export function SourcePlanTable({
               </td>
             </tr>;
           })}
-          {plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">{query.trim() ? "No source image matches this search." : "No source images yet. Auto scan will create plans when images appear in the configured Drive folders."}</td></tr>}
+          {plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">{query.trim() ? "No embroidery group matches this search." : "No source images yet. Auto scan will create embroidery groups when images appear in the configured Drive folders."}</td></tr>}
         </tbody>
       </table>
     </div>

@@ -180,6 +180,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
     SourcePlanReferencePreviewResponse,
+    SourcePlanGroupImageResponse,
     SourcePlanResponse,
     SourcePlanPageResponse,
     SourcePlanSyncResponse,
@@ -2462,6 +2463,24 @@ def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanRefere
     )
 
 
+def _source_plan_group_image_response(
+    row: RrugcSourcePlanModel,
+) -> SourcePlanGroupImageResponse:
+    return SourcePlanGroupImageResponse(
+        id=row.id,
+        source_name=row.source_name,
+        source_relative_path=row.source_relative_path,
+        source_preview_url=(
+            f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
+            f"?v={row.source_revision[:16]}"
+        ),
+        source_web_url=row.source_web_url,
+        source_width=row.source_width,
+        source_height=row.source_height,
+        source_size_bytes=row.source_size_bytes,
+    )
+
+
 def _source_plan_response(
     row: RrugcSourcePlanModel,
     *,
@@ -2470,6 +2489,7 @@ def _source_plan_response(
     excluded_counts: Counter | None = None,
     previews: list[RrugcCandidateModel] | None = None,
     embroidery_group_size: int = 1,
+    source_group_images: list[RrugcSourcePlanModel] | None = None,
 ) -> SourcePlanResponse:
     campaign_counts = counts or Counter()
     campaign_excluded_counts = excluded_counts or Counter()
@@ -2527,6 +2547,10 @@ def _source_plan_response(
         analysis_revision=row.analysis_revision,
         embroidery_signature=row.embroidery_signature,
         embroidery_group_size=max(1, int(embroidery_group_size)),
+        source_group_images=[
+            _source_plan_group_image_response(member)
+            for member in (source_group_images or [row])
+        ],
         target_count=row.target_count,
         status=row.status,
         visual_context=dict(row.visual_context_json or {}) or None,
@@ -2569,40 +2593,80 @@ def get_source_plans(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    filters = [RrugcSourcePlanModel.tenant_id == principal.active_tenant_id]
-    needle = str(q or "").strip()
-    if needle:
-        pattern = f"%{needle}%"
-        filters.append(
-            RrugcSourcePlanModel.source_name.ilike(pattern)
-            | RrugcSourcePlanModel.source_relative_path.ilike(pattern)
-        )
-
-    total = int(
-        session.scalar(
-            select(func.count(RrugcSourcePlanModel.id)).where(*filters)
-        )
-        or 0
-    )
-    plans = list(
+    all_plans = list(
         session.scalars(
             select(RrugcSourcePlanModel)
-            .where(*filters)
+            .where(RrugcSourcePlanModel.tenant_id == principal.active_tenant_id)
             .order_by(
                 RrugcSourcePlanModel.source_relative_path.asc(),
                 RrugcSourcePlanModel.id.asc(),
             )
-            .offset((page - 1) * page_size)
-            .limit(page_size)
         )
     )
 
-    campaign_ids = [row.campaign_id for row in plans if row.campaign_id]
+    grouped_plans: dict[str, list[RrugcSourcePlanModel]] = {}
+    for source_plan in all_plans:
+        group_key = (
+            f"embroidery:{source_plan.embroidery_signature}"
+            if source_plan.embroidery_signature
+            else f"source:{source_plan.id}"
+        )
+        grouped_plans.setdefault(group_key, []).append(source_plan)
+
+    needle = str(q or "").strip().lower()
+    groups = list(grouped_plans.values())
+    if needle:
+        groups = [
+            members
+            for members in groups
+            if any(
+                needle in member.source_name.lower()
+                or needle in member.source_relative_path.lower()
+                for member in members
+            )
+        ]
+
+    for members in groups:
+        members.sort(
+            key=lambda member: (
+                member.source_relative_path.lower(),
+                member.id,
+            )
+        )
+    groups.sort(
+        key=lambda members: (
+            members[0].source_relative_path.lower(),
+            members[0].id,
+        )
+    )
+
+    total = len(groups)
+    page_groups = groups[(page - 1) * page_size : page * page_size]
+    plans: list[RrugcSourcePlanModel] = []
+    group_members_by_plan_id: dict[str, list[RrugcSourcePlanModel]] = {}
+    for members in page_groups:
+        representative = min(
+            members,
+            key=lambda member: (
+                0 if member.campaign_id else 1,
+                0 if member.status == "ready" else 1,
+                0 if member.analyzed_at is not None else 1,
+                member.source_relative_path.lower(),
+                member.id,
+            ),
+        )
+        plans.append(representative)
+        group_members_by_plan_id[representative.id] = members
+
+    campaign_ids = sorted({
+        str(row.campaign_id)
+        for row in plans
+        if row.campaign_id
+    })
     campaigns: dict[str, RrugcCampaignModel] = {}
     counts_by_campaign: dict[str, Counter] = {}
     excluded_counts_by_campaign: dict[str, Counter] = {}
     previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
-    group_sizes_by_campaign: dict[str, int] = {}
     if campaign_ids:
         campaigns = {
             row.id: row
@@ -2612,21 +2676,6 @@ def get_source_plans(
                     RrugcCampaignModel.id.in_(campaign_ids),
                 )
             )
-        }
-        group_sizes_by_campaign = {
-            campaign_id: int(count)
-            for campaign_id, count in session.execute(
-                select(
-                    RrugcSourcePlanModel.campaign_id,
-                    func.count(RrugcSourcePlanModel.id),
-                )
-                .where(
-                    RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
-                    RrugcSourcePlanModel.campaign_id.in_(campaign_ids),
-                )
-                .group_by(RrugcSourcePlanModel.campaign_id)
-            )
-            if campaign_id
         }
         for campaign_id, status, count in session.execute(
             select(
@@ -2698,10 +2747,8 @@ def get_source_plans(
                 Counter(),
             ),
             previews=previews_by_campaign.get(row.campaign_id or "", []),
-            embroidery_group_size=group_sizes_by_campaign.get(
-                row.campaign_id or "",
-                1,
-            ),
+            embroidery_group_size=len(group_members_by_plan_id.get(row.id, [row])),
+            source_group_images=group_members_by_plan_id.get(row.id, [row]),
         )
         for row in plans
     ]

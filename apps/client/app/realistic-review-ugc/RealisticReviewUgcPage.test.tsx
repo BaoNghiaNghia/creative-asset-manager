@@ -35,6 +35,38 @@ function makePlan(referenceCount = 0): SourcePlan {
     analysis_revision: 1,
     embroidery_signature: "signature-hotdog",
     embroidery_group_size: 3,
+    source_group_images: [
+      {
+        id: "plan-1",
+        source_name: "front.png",
+        source_relative_path: "Navy/Hotdog/front.png",
+        source_preview_url: "/api/v1/realistic-review-ugc/source-plans/plan-1/image",
+        source_web_url: "https://drive.example/file-1",
+        source_width: 1200,
+        source_height: 1200,
+        source_size_bytes: 1024,
+      },
+      {
+        id: "plan-2",
+        source_name: "front-black.png",
+        source_relative_path: "Black/Hotdog/front.png",
+        source_preview_url: "/api/v1/realistic-review-ugc/source-plans/plan-2/image",
+        source_web_url: "https://drive.example/file-2",
+        source_width: 1200,
+        source_height: 1200,
+        source_size_bytes: 1024,
+      },
+      {
+        id: "plan-3",
+        source_name: "front-red.png",
+        source_relative_path: "Red/Hotdog/front.png",
+        source_preview_url: "/api/v1/realistic-review-ugc/source-plans/plan-3/image",
+        source_web_url: "https://drive.example/file-3",
+        source_width: 1200,
+        source_height: 1200,
+        source_size_bytes: 1024,
+      },
+    ],
     target_count: 50,
     status: "ready",
     visual_context: {
@@ -147,7 +179,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Pending AI = waiting analysis");
     expect(markup).toContain("AI synthetic/remove + train AI");
     expect(markup).toContain("rrugc-source-ref-vote is-ai");
-    expect(markup).toContain("Shared refs · 3 colors");
+    expect(markup).toContain("Same embroidery · 3 images");
+    expect(markup).toContain("rrugc-source-group-track");
+    expect(markup).toContain("3 source images · same embroidery");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
   });

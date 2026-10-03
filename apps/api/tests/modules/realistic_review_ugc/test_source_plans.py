@@ -452,7 +452,7 @@ def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usab
         page = get_source_plans(
             page=1,
             page_size=20,
-            q="cookout-cap",
+            q=None,
             session=session,
             principal=SimpleNamespace(active_tenant_id="tenant-a"),
         )
@@ -464,6 +464,10 @@ def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usab
         assert item.pending_ai_count == 1
         assert item.embroidery_signature == "shared-signature"
         assert item.embroidery_group_size == 2
+        assert [source.source_name for source in item.source_group_images] == [
+            "alternate-color.jpg",
+            "cookout-cap.jpg",
+        ]
         assert len(item.reference_previews) == 2
         assert all(reference.rejected is False for reference in item.reference_previews)
         assert [row.status for row in item.reference_previews] == [

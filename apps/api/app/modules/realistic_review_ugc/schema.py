@@ -416,6 +416,17 @@ class SourcePlanReferencePreviewResponse(BaseModel):
     created_at: datetime
 
 
+class SourcePlanGroupImageResponse(BaseModel):
+    id: str
+    source_name: str
+    source_relative_path: str
+    source_preview_url: str
+    source_web_url: str | None = None
+    source_width: int | None = None
+    source_height: int | None = None
+    source_size_bytes: int | None = None
+
+
 class SourcePlanResponse(BaseModel):
     id: str
     root_folder_id: str
@@ -434,6 +445,7 @@ class SourcePlanResponse(BaseModel):
     analysis_revision: int
     embroidery_signature: str | None = None
     embroidery_group_size: int = 1
+    source_group_images: list[SourcePlanGroupImageResponse] = Field(default_factory=list)
     target_count: int
     status: str
     visual_context: dict | None = None
