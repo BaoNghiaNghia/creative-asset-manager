@@ -162,6 +162,7 @@ export function ReferenceReviewModal({
                   type="button"
                   className="rrugc-source-review-vote is-ai"
                   aria-label={"Mark AI-generated reference " + (index + 1)}
+                  aria-pressed={false}
                   disabled={!plan.campaign_id || reviewing}
                   title="AI-generated · reject from real refs · train AI + negative"
                   onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
@@ -246,6 +247,7 @@ function ReferenceSlider({
               type="button"
               className="rrugc-source-ref-vote is-ai"
               aria-label={"Mark AI-generated reference " + (index + 1)}
+              aria-pressed={false}
               disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
               title="AI-generated · remove from real refs · train AI + negative"
               onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
