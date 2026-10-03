@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.redaction import redact_url_queries, sanitize_log_value
 from app.core.database import SessionLocal, engine
+from app.providers.decision.jev import build_jev_client
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3Index
 from app.domain.processing.handlers import WorkerDependencies
 from app.modules.processing.health import WorkerHealthServer, WorkerHealthState
@@ -289,6 +290,11 @@ def build_worker_runtime(
             ),
         ),
     }
+    jev_client = build_jev_client(settings)
+    if jev_client is not None and "jev_client" not in explicit_resources:
+        default_resources["jev_client"] = jev_client
+        worker_dependency_closers.append(jev_client.close)
+
     if storage_configured:
         default_resources["pipeline_storage_stage"] = ProviderStorageStage(
             session_factory, resolver, storage_provider,

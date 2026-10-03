@@ -33,6 +33,7 @@ FEATURE_FLAG_NAMES = (
     "AI_SINGLE_ANALYSIS_ENABLED",
     "AI_BATCH_ANALYSIS_ENABLED",
     "AI_AUTO_ANALYZE_ENABLED",
+    "JEV_ENABLED",
     "OPENAI_AI_ENABLED",
     "OPENAI_BATCH_ENABLED",
     "SEARCH_PROJECTION_ENABLED",
@@ -313,6 +314,23 @@ class Settings(BaseSettings):
     AI_JOB_RATE_LIMIT_SAFETY_SECONDS: float = 0.5
     AI_RATE_LIMIT_429_MAX_RETRIES: int = 8
     AI_RATE_LIMIT_BACKOFF_MAX_SECONDS: float = 300.0
+    # TypeSafe AI Jev is an optional decision layer. It must never be
+    # required for pipeline completion; when disabled, unconfigured, out of
+    # credit, rate-limited, or unavailable, callers fall back to existing logic.
+    JEV_ENABLED: bool = False
+    JEV_API_KEY: SecretStr = SecretStr("")
+    JEV_BASE_URL: str = "https://api.typesafe.ai"
+    JEV_MODEL: str = "jev-latest"
+    JEV_MODE: str = "shadow"
+    JEV_TIMEOUT_SECONDS: float = 1.5
+    JEV_MAX_RETRIES: int = 1
+    JEV_CIRCUIT_FAILURE_THRESHOLD: int = 5
+    JEV_CIRCUIT_OPEN_SECONDS: int = 300
+    JEV_BILLING_RECHECK_SECONDS: int = 3600
+    JEV_CACHE_TTL_SECONDS: int = 1800
+    JEV_DAILY_BUDGET_USD: float = 1.0
+    JEV_MONTHLY_BUDGET_USD: float = 10.0
+    JEV_INPUT_PRICE_PER_MILLION_USD: float = 0.042
     OPENAI_AI_ENABLED: bool = False
     OPENAI_API_KEY: str | None = None
     OPENAI_BASE_URL: str | None = None
@@ -1442,6 +1460,24 @@ class Settings(BaseSettings):
             raise ValueError("AI_RATE_LIMIT_BACKOFF_MAX_SECONDS must be at least 10 seconds")
         # Parse once during startup so malformed per-model limits fail closed.
         _ = self.ai_model_rpm_limits
+        if self.JEV_MODE not in {"shadow", "assisted", "active"}:
+            raise ValueError("JEV_MODE must be shadow, assisted, or active")
+        if self.JEV_TIMEOUT_SECONDS <= 0:
+            raise ValueError("JEV_TIMEOUT_SECONDS must be positive")
+        if self.JEV_MAX_RETRIES < 0:
+            raise ValueError("JEV_MAX_RETRIES cannot be negative")
+        if self.JEV_CIRCUIT_FAILURE_THRESHOLD < 1:
+            raise ValueError("JEV_CIRCUIT_FAILURE_THRESHOLD must be positive")
+        if min(
+            self.JEV_CIRCUIT_OPEN_SECONDS,
+            self.JEV_BILLING_RECHECK_SECONDS,
+            self.JEV_CACHE_TTL_SECONDS,
+        ) < 0:
+            raise ValueError("Jev cooldown/cache values cannot be negative")
+        if min(self.JEV_DAILY_BUDGET_USD, self.JEV_MONTHLY_BUDGET_USD) < 0:
+            raise ValueError("Jev budgets cannot be negative")
+        if self.JEV_INPUT_PRICE_PER_MILLION_USD <= 0:
+            raise ValueError("JEV_INPUT_PRICE_PER_MILLION_USD must be positive")
         if self.OPENAI_TIMEOUT_SECONDS <= 0:
             raise ValueError("OPENAI_TIMEOUT_SECONDS must be positive")
         if self.OPENAI_MAX_RETRIES < 0:

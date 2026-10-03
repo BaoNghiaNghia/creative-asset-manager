@@ -78,6 +78,17 @@ recovery and provider state normalization. Unconfigured or unsupported adapters
 fail closed. Batch consumers use stable custom item IDs and never depend on
 provider result order.
 
+## Optional decision provider: TypeSafe Jev
+
+Jev is intentionally separate from `AiMetadataProvider`: it does not analyze
+raw media and is not a fallback vision provider. It consumes structured state
+and returns typed decisions used by application workflows. The integration is
+disabled by default and must fail open to existing deterministic/Gemini logic.
+
+Detailed architecture, fallback, cost/latency model, rollout plan, and current
+scaffold are documented in
+[`TYPESAFE_JEV_DECISION_LAYER.md`](./TYPESAFE_JEV_DECISION_LAYER.md).
+
 ## AI-MULTI-01 provider registry
 
 `AiProviderRegistry` is the worker composition boundary for AI adapters. Provider

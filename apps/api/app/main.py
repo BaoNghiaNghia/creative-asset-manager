@@ -53,6 +53,7 @@ from app.modules.video_cache.admin_router import router as video_delivery_admin_
 from app.modules.search.shadow_runtime import SHADOW_SEARCH
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL, SEARCH_SUGGESTION_CACHE
 from app.modules.tag.router import router as tag_router
+from app.providers.decision.jev import build_jev_client
 from app.providers.google.drive import create_stream_client
 from app.providers.microsoft.onedrive import create_stream_client as create_onedrive_stream_client
 
@@ -117,6 +118,10 @@ async def lifespan(_app: FastAPI):
                 await onedrive_stream_client.aclose()
                 await API_SEARCH_INDEX_POOL.aclose_current_loop()
                 SEARCH_SUGGESTION_CACHE.clear()
+                jev_client = getattr(_app.state, "jev_client", None)
+                close_jev = getattr(jev_client, "close", None)
+                if callable(close_jev):
+                    close_jev()
                 visual_encoder_client = getattr(
                     _app.state,
                     "visual_encoder_client",
@@ -134,6 +139,8 @@ async def lifespan(_app: FastAPI):
                 _app.state.onedrive_stream_client = None
                 if hasattr(_app.state, "visual_encoder_client"):
                     _app.state.visual_encoder_client = None
+                if hasattr(_app.state, "jev_client"):
+                    _app.state.jev_client = None
                 dispose_database()
 
 
@@ -150,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
     )
     api.state.settings = settings
+    api.state.jev_client = build_jev_client(settings)
     @api.middleware("http")
     async def operations_timing(request: Request, call_next):
         path = request.url.path

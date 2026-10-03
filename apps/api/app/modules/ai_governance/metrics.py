@@ -1,14 +1,15 @@
 import threading
 from collections import Counter, defaultdict
 
-_ALLOWED_PROVIDERS = {"gemini", "openai", "unknown"}
-_ALLOWED_MODES = {"single", "batch", "unknown"}
+_ALLOWED_PROVIDERS = {"gemini", "openai", "jev", "unknown"}
+_ALLOWED_MODES = {"single", "batch", "decision", "unknown"}
 _ALLOWED_OUTCOMES = {
     "completed","failed","reserved","unlimited","open","closed","budget_blocked",
     "missing_cost_rate","rate_limit","invalid_metadata","provider_unavailable",
     "batch_expired","batch_submission_ambiguous","ai_emergency_stop","global_ai_stop",
     "daily_budget_exceeded","monthly_budget_exceeded","budget_currency_mismatch",
     "ai_provider_disabled","ai_provider_paused","ai_provider_mode_disabled",
+    "cache_hit","timeout","billing_blocked","circuit_open","invalid_response",
 }
 def _bounded(value: str, allowed: set[str]) -> str:
     return value if value in allowed else "other"
