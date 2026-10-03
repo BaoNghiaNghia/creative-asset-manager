@@ -403,3 +403,266 @@ These remain intentionally unresolved until measured:
 - when remote Astra/reference paths should be invoked.
 
 Future POD implementation discussions should update this document whenever a decision becomes validated so the repository retains one canonical technical history.
+
+## 21. GPT-6 hybrid acceleration layer
+
+GPT-6-class reasoning/vision models are a control and semantic-recovery capability, not a substitute for the print-quality pipeline. Keep reasoning/vision and image-generation providers separate so latency, quality and cost can be benchmarked independently.
+
+Supported roles:
+
+- **Analyzer / planner:** understand the source, produce DesignSpec, identify exact text, objects, composition, difficult texture, occlusion and uncertainty.
+- **Fast 2D path:** when the user needs an initial 2D result quickly, use a remote image-generation provider to produce a semantic draft, then run basic cleanup/QC.
+- **Precision assist:** invoke a higher-fidelity remote reconstruction path for difficult artwork, severe deformation, ambiguity, occlusion or local-model failure.
+- **Region rescue:** repair only failed/low-confidence regions rather than regenerating an already-good full design.
+- **Judge:** compare source, candidate and DesignSpec, while deterministic OCR/CV/edge/alpha metrics remain independent checks.
+- **Fallback:** preserve service when local workers/models are unavailable, overloaded or repeatedly fail.
+
+The remote image result is an intermediate semantic reconstruction, not automatically the print master. Exact text, vector-capable geometry, gradients, complex textures, alpha, edges and effective resolution still pass through the precision pipeline.
+
+### 21.1 User-facing quality modes
+
+Use three understandable modes while keeping provider choice internal:
+
+- **Quick 2D:** prioritize latency; return a reviewable transparent 2D draft quickly.
+- **Print Ready:** default smart routing plus local precision finish and full QC.
+- **Max Fidelity:** stronger analysis, multiple/alternate candidates where justified, targeted rescue and stricter QC.
+
+A Quick 2D result can continue into Print Ready/Max Fidelity without repeating source analysis when cached DesignSpec/artifacts remain valid.
+
+### 21.2 Capability-based routing
+
+Do not route by hard-coded model names. Route by capabilities such as:
+
+```text
+need_fast_draft
+need_semantic_reconstruction
+need_exact_text
+need_complex_texture
+need_region_rescue
+need_vector
+need_high_resolution
+need_fallback
+```
+
+Provider adapters map those capabilities to the currently benchmarked GPT/local implementations. Replacing a provider must not change downstream contracts.
+
+## 22. Typed control plane
+
+Introduce a strict typed/validated control plane (JEV TypeSafe or an equivalent implementation) at metadata boundaries. It does **not** process image pixels and does not directly improve visual quality; it prevents malformed AI/provider data from propagating through the job.
+
+Version and validate at least:
+
+```text
+DesignSpec
+RouteDecision
+ProviderRequest
+ProviderResult
+JudgeResult
+QCResult
+RetryDecision
+ArtifactManifest
+UserFeedback
+JobExperience
+LearningRecommendation
+```
+
+Validation includes schema version, required fields, enums/ranges and cross-field constraints. Invalid output follows bounded deterministic repair, structured-model repair/retry, fallback or manual review instead of silently entering later stages.
+
+Policy decisions should consume validated observations. Models may estimate complexity/confidence; deterministic policy decides provider, retry, rescue and escalation unless an explicitly benchmarked learned policy is promoted.
+
+## 23. Observability and logger architecture
+
+Logging is a core production subsystem from the first benchmark job. A stable `job_id` and trace/correlation IDs must follow the job across VPS, remote providers and compute workers.
+
+Separate three concerns:
+
+- **Operational logs:** errors, debug events, worker/API/GPU failures and infrastructure diagnostics.
+- **Telemetry:** stage latency, queue time, provider/model/version, cost, retries, QC scores, GPU/VRAM where available and throughput.
+- **Experience Store:** normalized long-lived evidence used for retrieval and learning: source fingerprint, DesignSpec, route, candidate/result, QC, corrections and user outcome.
+
+Every important stage records its input/output artifact IDs, model/provider and version, prompt/policy/schema versions, attempt, timing, failure/retry reason and applicable cost. Secrets and credentials must never be stored in logs.
+
+Images/binaries belong in artifact/object storage; the database stores references, hashes and metadata. Temporary candidates and debug logs have bounded retention, while selected approved/rejected/corrected examples may be retained according to dataset/rights policy.
+
+## 24. Experience memory and continuous learning
+
+The system should improve from completed work, but production behavior must not self-modify immediately from individual jobs.
+
+### 24.1 Learning levels
+
+1. **Experience retrieval:** find similar past jobs and expose their routes, failures, accepted results and costs as evidence for the current router.
+2. **Policy learning:** learn which provider/route/retry strategy performs best by artwork class, complexity, worker state, quality mode and cost/latency target.
+3. **Prompt/parameter learning:** version prompts and parameters; compare approval, QC, retry, cost and latency before promotion.
+4. **Model learning:** only after a sufficiently clean dataset exists, evaluate fine-tuning/LoRA or domain-specific local models.
+
+Do not begin with fine-tuning. First accumulate reproducible high-quality evidence.
+
+### 24.2 Feedback signals
+
+Review supports at least approve, reject, regenerate and corrected/final-selected outcomes. Rejection/correction reasons should be structured, for example wrong text/layout/object/color, lost or fake texture, blur, bad edge/alpha or excessive source deviation.
+
+A corrected result is especially valuable because it creates a preference pair:
+
+```text
+failed/undesired candidate → approved corrected result
+```
+
+Retry history is also training evidence. If repeated full regeneration does not improve a failure class, the learned policy can propose region rescue, a different provider or manual review.
+
+### 24.3 Safe optimization: champion/challenger
+
+Router, prompt, QC thresholds and model/provider policies use versioned **champion/challenger** evaluation. Challengers run in benchmark/shadow mode or controlled traffic first.
+
+Promotion requires measured evidence across relevant cohorts: quality/approval must not regress beyond defined bounds, failure/retry behavior must remain acceptable, and cost/latency trade-offs must satisfy policy. Self-evaluation by an AI judge alone is never sufficient to promote production behavior.
+
+## 25. Dataset registry
+
+Production history is not automatically training data. A Dataset Builder filters Experience Store records for:
+
+- rights/usage eligibility;
+- user feedback/approval signal;
+- deduplication;
+- corruption/incomplete artifacts;
+- schema compatibility;
+- minimum source/result quality;
+- useful positive, negative and corrected examples.
+
+Datasets are immutable/versioned releases (for example POD Dataset v1/v2/v3) so every benchmark, learned policy and future fine-tune can identify its exact source dataset.
+
+## 26. Deployment topology: VPS control plane + disposable compute workers
+
+The preferred deployment is hybrid.
+
+### VPS / always-on control plane
+
+Keep online coordination on the existing VPS:
+
+```text
+Web/API + auth
+job table/state
+queue/orchestrator
+typed control plane
+smart router/policy
+logger + telemetry
+Experience Store metadata
+Dataset Registry metadata
+learning/analytics
+remote GPT/image-provider orchestration
+artifact metadata
+```
+
+Remote GPT/image inference does not require the VPS to own a GPU.
+
+### Mini PC / compute worker
+
+Treat the Mini PC as a replaceable capability-advertising worker, especially when it has useful GPU resources:
+
+```text
+local Qwen/FLUX-class reconstruction
+local VLM where benchmarked
+OCR / OpenCV
+segmentation/matting
+vector tracing/rendering
+SR/detail restoration
+texture processing
+alpha/edge refinement
+6K–8K working compositor
+temporary model/artifact cache
+```
+
+The exact local model and GPU/VRAM target remain benchmark decisions.
+
+### Worker protocol
+
+Workers connect outward to the control plane, register capabilities, heartbeat, claim leased jobs, process them, upload artifacts and report telemetry. Do not make one Mini PC a single point of failure.
+
+```text
+Central Queue
+   ├─ pod-mini-01
+   ├─ future local GPU worker
+   └─ optional cloud GPU worker
+```
+
+On heartbeat/lease loss, unfinished work returns to a recoverable state and can wait, move to another compatible worker or use an allowed remote fallback.
+
+The router considers worker availability/load as well as artwork complexity. Quick 2D may use the remote fast path without waiting for a busy/offline local GPU; Max Fidelity may wait for stronger local compute or combine local/remote candidates according to policy.
+
+### Storage placement
+
+Mini PC storage is for models, caches, current jobs and temporary intermediates. Durable job state, artifact references, approved masters and learning metadata remain centralized. Large final/source artifacts should use durable artifact/object storage rather than depending on the worker disk.
+
+## 27. Updated end-to-end architecture
+
+```text
+                         INPUT
+                           │
+                           ▼
+                  Analyzer / DesignSpec
+                           │
+                     Typed validation
+                           │
+                           ▼
+                     SMART ROUTER
+              ┌────────────┼─────────────┐
+              │            │             │
+              ▼            ▼             ▼
+         LOCAL WORKER   FAST REMOTE   PRECISION REMOTE
+         Qwen/FLUX*      Quick 2D*      difficult/rescue*
+              │            │             │
+              └────────────┼─────────────┘
+                           ▼
+                  Reconstruction Result
+                           │
+                     Typed validation
+                           │
+                           ▼
+                   LOCAL PRECISION
+              vector / raster / texture
+                 SR / alpha / edge
+                           │
+                           ▼
+                     QC + JUDGE
+                           │
+                     Typed result
+                           │
+                 ┌─────────┼─────────┐
+                 ▼         ▼         ▼
+               PASS    REGION     RETRY /
+                       RESCUE     FALLBACK
+                 │         │         │
+                 └─────────┴─────────┘
+                           ▼
+                       FINAL MASTER
+                           │
+                    USER FEEDBACK
+                           │
+                           ▼
+                    EXPERIENCE STORE
+                           │
+                    DATASET REGISTRY
+                           │
+                           ▼
+                    LEARNING ENGINE
+                           │
+             router/prompt/QC challengers
+                           │
+                    SHADOW/BENCHMARK
+                           │
+                    controlled promote
+```
+
+`*` Concrete provider/model names are implementation mappings selected by benchmark, not permanent architecture.
+
+The long-term optimization objective is not simply to reconstruct an artwork once. Every eligible completed job should add evidence that can make future jobs more accurate, faster, cheaper or easier to recover, without allowing uncontrolled self-modification.
+
+## 28. Updated implementation priorities
+
+1. **Phase 0A — Contracts + telemetry first:** typed schemas, job/trace IDs, artifact manifest, structured stage events, provider/policy/prompt versioning and benchmark harness.
+2. **Phase 0B — Baseline providers:** benchmark fast remote 2D, precision remote and at least one local reconstruction route on the same POD corpus.
+3. **Phase 1 — Smart reconstruction V1:** DesignSpec, capability router, Quick 2D, Print Ready path, local precision finish, QC and bounded fallback.
+4. **Phase 2 — Worker architecture:** Mini PC agent, heartbeat/capability registry, job leases, retry/requeue and worker telemetry.
+5. **Phase 3 — Rescue + reliability:** region rescue, independent judge, confidence maps, multi-candidate only where justified and manual review.
+6. **Phase 4 — Experience learning:** retrieval of similar cases, structured feedback, policy/prompt analytics, champion/challenger shadow evaluation.
+7. **Phase 5 — Domain learning/productization:** Dataset Registry, justified fine-tune/LoRA experiments, batch processing and wider Creative Asset Manager integration.
+
+Before locking local inference choices, record the Mini PC CPU, RAM, GPU and VRAM and benchmark representative jobs. Before promoting any GPT/local provider mapping, measure it against the same versioned corpus and QC contract.
