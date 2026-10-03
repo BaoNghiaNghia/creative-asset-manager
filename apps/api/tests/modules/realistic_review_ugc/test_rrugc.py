@@ -836,6 +836,35 @@ def test_scout_retry_delay_is_error_class_aware(monkeypatch):
     ) == 720
 
 
+def test_auto_scout_backfill_rearms_missing_capacity_without_erasing_scout_backoff(database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Backfill campaign",
+            query="candid cap photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=180,
+        )
+        service = RrugcService(session)
+        now = datetime.now(timezone.utc)
+        future = now + timedelta(minutes=5)
+
+        campaign.scout_status = "ready"
+        campaign.scan_next_at = future
+        assert service.ensure_scout_backfill(campaign, now=now) is True
+        assert campaign.status == "running"
+        assert campaign.scan_next_at == now
+
+        campaign.scout_status = "error"
+        campaign.scan_next_at = future
+        assert service.ensure_scout_backfill(campaign, now=now) is True
+        assert campaign.scan_next_at == future
+
+
 def test_auto_scout_failure_streak_grows_then_resets(database, monkeypatch):
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.scout_automation.random.uniform",

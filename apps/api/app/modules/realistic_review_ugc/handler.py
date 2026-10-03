@@ -576,6 +576,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 ):
                     service.enqueue_import(candidate)
                 service.refresh_campaign_completion(campaign)
+                service.ensure_scout_backfill(campaign)
                 session.commit()
 
         context.logger.info(
@@ -718,11 +719,24 @@ class RrugcCandidateAnalyzeJobHandler:
                 candidate.status = "approved"
                 signal["reference_manual_pending_analysis"] = True
                 candidate.ai_signal_json = signal
-            else:
-                # Keep the durable UI state truthful even when the Processing
-                # Job will retry automatically.
+            elif terminal:
+                # A terminal analysis failure frees this slot so auto Scout can
+                # backfill it with another candidate.
                 candidate.status = "analysis_failed"
+            else:
+                # Processing will retry this exact job. Keep it counted as
+                # in-flight so Scout does not overfill the target while the
+                # retry is pending.
+                candidate.status = "analysis_queued"
             candidate.last_error_code = code[:100]
+
+            if terminal:
+                campaign = RrugcRepository(session).get_campaign(
+                    context.job.tenant_id,
+                    campaign_id,
+                )
+                if campaign is not None:
+                    RrugcService(session).ensure_scout_backfill(campaign)
             session.commit()
 
 

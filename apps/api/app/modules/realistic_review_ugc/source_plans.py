@@ -421,7 +421,10 @@ def _ensure_source_campaign_capacity(
         campaign.status = "running"
         campaign.auto_scout = True
         campaign.completed_at = None
-        if campaign.scan_lease_expires_at is None:
+        # Do not erase a future retry/backoff chosen by Scout automation.
+        # Capacity is re-armed by candidate state changes; UI/source-plan
+        # reconciliation should only initialize scheduling when none exists.
+        if campaign.scan_lease_expires_at is None and campaign.scan_next_at is None:
             campaign.scan_next_at = datetime.now(timezone.utc)
     return progress
 

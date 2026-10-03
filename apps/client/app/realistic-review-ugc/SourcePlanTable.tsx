@@ -41,6 +41,18 @@ function planTone(plan: SourcePlan): string {
   return "neutral";
 }
 
+function scoutStatusPresentation(plan: SourcePlan): { label: string; tone: string } {
+  const status = plan.scout_status || "offline";
+  if (
+    status === "error"
+    && plan.auto_scout
+    && plan.progress_count < plan.target_count
+  ) {
+    return { label: "retrying", tone: "busy" };
+  }
+  return { label: status.replaceAll("_", " "), tone: status };
+}
+
 function sourceMeta(plan: SourcePlan): string {
   const dimensions = plan.source_width && plan.source_height
     ? plan.source_width + "×" + plan.source_height
@@ -352,6 +364,7 @@ export function SourcePlanTable({
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
             const pickedCount = plan.reference_previews.filter(reference => reference.picked).length;
             const rejectedCount = plan.reference_previews.filter(reference => reference.rejected).length;
+            const scoutStatus = scoutStatusPresentation(plan);
             return <tr key={plan.id}>
               <td className="rrugc-source-cell"><div className="rrugc-source-file rrugc-source-file-grouped">
                 <SourceImageGroup plan={plan} />
@@ -371,7 +384,7 @@ export function SourcePlanTable({
               <td className="rrugc-source-scout-cell">
                 <div className="rrugc-source-progress-copy"><strong>{plan.progress_count}<small>/{plan.target_count}</small></strong><span>{progress}%</span></div>
                 <span className="rrugc-progress rrugc-source-progress"><i style={{ width: progress + "%" }} /></span>
-                <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>{(plan.scout_status || "offline").replaceAll("_", " ")}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
+                <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + scoutStatus.tone}>{scoutStatus.label}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
                 <div className="rrugc-source-refs-head"><strong>{plan.approved_count} refs · {plan.pending_ai_count} pending AI · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Pending AI = waiting analysis · ✓ positive · × negative/remove · AI synthetic/remove + train AI · {plan.drive_ready_count} usable Drive ready</small></div>

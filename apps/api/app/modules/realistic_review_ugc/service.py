@@ -1154,6 +1154,67 @@ class RrugcService:
         self.session.refresh(candidate)
         return candidate
 
+    def ensure_scout_backfill(
+        self,
+        campaign: RrugcCampaignModel,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """Re-arm auto scouting whenever usable pipeline capacity falls below target.
+
+        Candidate analysis can reject or permanently fail rows after a Scout run
+        has already filled the pipeline. Those rows must stop consuming capacity
+        and the campaign should automatically search for replacements until the
+        requested usable-reference target is actually reached.
+
+        Existing Pinterest/login backoff is preserved so a UI refresh or an AI
+        failure cannot accidentally hammer Pinterest while the Scout is cooling
+        down after an access/rate-limit error.
+        """
+        if not campaign.auto_scout or campaign.status == "archived":
+            return False
+
+        counts = self.repository.campaign_usable_counts(
+            campaign.tenant_id,
+            campaign.id,
+        )
+        progress = (
+            counts.get("drive_ready", 0)
+            if campaign.auto_import
+            else counts.get("approved", 0)
+        )
+        if progress >= campaign.target_count:
+            self.refresh_campaign_completion(campaign)
+            return False
+
+        analysis_in_flight = counts.get("analysis_queued", 0) + counts.get("analyzing", 0)
+        if campaign.auto_import:
+            pipeline_count = (
+                analysis_in_flight
+                + counts.get("approved", 0)
+                + counts.get("import_queued", 0)
+                + counts.get("importing", 0)
+                + counts.get("drive_ready", 0)
+            )
+        else:
+            pipeline_count = analysis_in_flight + counts.get("approved", 0)
+
+        if pipeline_count >= campaign.target_count:
+            return False
+
+        campaign.status = "running"
+        campaign.completed_at = None
+        current = now or datetime.now(timezone.utc)
+
+        # Preserve explicit Scout cooldown/backoff after Pinterest/login errors.
+        # Normal ready/busy campaigns can refill immediately when AI rejects a
+        # candidate or a terminal analysis failure frees capacity.
+        if campaign.scout_status not in {"error", "needs_login"}:
+            campaign.scan_next_at = current
+        elif campaign.scan_next_at is None:
+            campaign.scan_next_at = current
+        return True
+
     def refresh_campaign_completion(self, campaign: RrugcCampaignModel) -> None:
         counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
         progress = (
