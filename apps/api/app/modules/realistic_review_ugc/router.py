@@ -176,6 +176,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutClaimResponse,
     ScoutRunCompleteRequest,
     ScoutRunResponse,
+    ScoutRelatedSeed,
     ScoutHeartbeatRequest,
     ScoutTaskResponse,
     SourcePlanReferencePreviewResponse,
@@ -4189,6 +4190,24 @@ def auto_scout_agent_claim(
             RrugcSourcePlanModel.campaign_id == claim.campaign.id,
         )
     )
+    approved_related_seeds = list(
+        session.scalars(
+            select(RrugcCandidateModel)
+            .where(
+                RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
+                RrugcCandidateModel.campaign_id == claim.campaign.id,
+                RrugcCandidateModel.status.in_(ANALYSIS_APPROVED_STATUSES),
+                RrugcCandidateModel.pin_url.is_not(None),
+                RrugcCandidateModel.image_url.is_not(None),
+            )
+            .order_by(
+                RrugcCandidateModel.analyzed_at.desc(),
+                RrugcCandidateModel.final_score.desc(),
+                RrugcCandidateModel.created_at.desc(),
+            )
+            .limit(12)
+        )
+    )
     return ScoutClaimResponse(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,
@@ -4206,6 +4225,14 @@ def auto_scout_agent_claim(
         ),
         source_name=source_plan.source_name if source_plan is not None else None,
         source_context=dict(claim.campaign.product_context_json or {}) or None,
+        related_seeds=[
+            ScoutRelatedSeed(
+                pin_url=row.pin_url,
+                image_url=row.image_url,
+                alt_text=row.alt_text,
+            )
+            for row in approved_related_seeds
+        ],
     )
 
 

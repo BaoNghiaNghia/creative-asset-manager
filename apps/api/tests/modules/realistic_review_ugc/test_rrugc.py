@@ -1140,6 +1140,65 @@ def test_auto_scout_needs_login_releases_lease_and_requeues(database):
         assert agent.status == "needs_login"
 
 
+
+def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
+    agent_response = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Related Seed Agent"},
+    )
+    assert agent_response.status_code == 201
+    agent = agent_response.json()
+
+    campaign_response = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Related seed campaign",
+            "query": "candid lifestyle",
+            "target_count": 10,
+            "max_scroll_batches": 1,
+            "auto_import": False,
+            "auto_scout": True,
+            "scan_interval_seconds": 180,
+        },
+    )
+    assert campaign_response.status_code == 201
+    campaign_id = campaign_response.json()["id"]
+
+    with database.begin() as session:
+        session.add(
+            RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=campaign_id,
+                source_key="approved-related-seed",
+                pin_url="https://www.pinterest.com/pin/approved-related-seed/",
+                image_url="https://i.pinimg.com/736x/approved-related-seed.jpg",
+                alt_text="approved seed",
+                status="approved",
+                analysis_revision=1,
+                final_score=0.93,
+                analyzed_at=datetime.now(timezone.utc),
+            )
+        )
+
+    claim = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent['id']}/claim",
+        headers={
+            "Authorization": "Bearer " + agent["agent_token"],
+            # Generic campaign in this fixture: use a pre-source-plan client
+            # version so claim selection does not require a Source Plan row.
+            "X-Scout-Version": "rrugc-scout-v3",
+            "X-Scout-Machine": "related-seed-test",
+        },
+    )
+    assert claim.status_code == 200
+    payload = claim.json()
+    assert payload["related_seeds"] == [{
+        "pin_url": "https://www.pinterest.com/pin/approved-related-seed/",
+        "image_url": "https://i.pinimg.com/736x/approved-related-seed.jpg",
+        "alt_text": "approved seed",
+    }]
+
+
 def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database):
     created = api.post(
         "/api/v1/realistic-review-ugc/scout-agents",

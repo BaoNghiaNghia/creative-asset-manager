@@ -19,9 +19,11 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v18"
+CLIENT_VERSION = "rrugc-scout-v19"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
+PIN_RELATED_SCAN_LIMIT = 20
+PIN_RELATED_MAX_SCROLL_STEPS = 5
 PIN_DETAIL_TIMEOUT_MS = 15_000
 PIN_DETAIL_SETTLE_MS = 650
 PIN_DETAIL_NAVIGATION_PAUSE_MS = 2_500
@@ -505,6 +507,51 @@ class ScoutHistory:
             if isinstance(value, str) and value.strip()
         }
 
+    def expanded_seed_keys(self, campaign_id: str) -> set[str]:
+        campaigns = self.data.get("campaigns")
+        if not isinstance(campaigns, dict):
+            return set()
+        row = campaigns.get(str(campaign_id))
+        if not isinstance(row, dict):
+            return set()
+        seeds = row.get("expanded_related_seeds")
+        if not isinstance(seeds, list):
+            return set()
+        return {
+            pin_history_key(value)
+            for value in seeds
+            if isinstance(value, str) and value.strip()
+        }
+
+    def remember_expanded_seed(self, campaign_id: str, pin_url: str) -> bool:
+        campaigns = self.data.setdefault("campaigns", {})
+        if not isinstance(campaigns, dict):
+            campaigns = {}
+            self.data["campaigns"] = campaigns
+        key = str(campaign_id)
+        campaign = campaigns.setdefault(
+            key,
+            {"seen_pins": [], "expanded_related_seeds": []},
+        )
+        if not isinstance(campaign, dict):
+            campaign = {"seen_pins": [], "expanded_related_seeds": []}
+            campaigns[key] = campaign
+        seeds = campaign.get("expanded_related_seeds")
+        if not isinstance(seeds, list):
+            seeds = []
+        normalized = pin_history_key(pin_url)
+        known = {
+            pin_history_key(value)
+            for value in seeds
+            if isinstance(value, str) and value.strip()
+        }
+        if not normalized or normalized in known:
+            return False
+        seeds.append(normalized)
+        campaign["expanded_related_seeds"] = seeds[-2000:]
+        self.save()
+        return True
+
     def remember(self, campaign_id: str, rows: list[Candidate]) -> int:
         if not rows:
             return 0
@@ -870,6 +917,45 @@ async def extract_pin_detail_candidate(page: Any, seed: Candidate) -> Candidate:
     return choose_pin_detail_candidate(seed, rows if isinstance(rows, list) else [])
 
 
+async def extract_related_candidates(
+    page: Any,
+    seed: Candidate,
+    *,
+    pace: ScoutPace,
+    limit: int = PIN_RELATED_SCAN_LIMIT,
+) -> list[Candidate]:
+    """Collect the first related Pins shown under one approved Pin detail page."""
+    wanted = max(1, min(int(limit), PIN_RELATED_SCAN_LIMIT))
+    response = await page.goto(
+        seed.pin_url,
+        wait_until="domcontentloaded",
+        timeout=PIN_DETAIL_TIMEOUT_MS,
+    )
+    guard_pinterest_response(response)
+    await page.wait_for_timeout(PIN_DETAIL_SETTLE_MS)
+    gate = await access_gate(page)
+    if gate is not None:
+        raise PinterestAccessGateError(gate)
+
+    seed_key = pin_history_key(seed.pin_url)
+    collected: dict[str, Candidate] = {}
+    for step in range(PIN_RELATED_MAX_SCROLL_STEPS + 1):
+        visible = await extract_visible(page)
+        for row in visible:
+            key = pin_history_key(row.pin_url)
+            if not key or key == seed_key or key in collected:
+                continue
+            collected[key] = row
+            if len(collected) >= wanted:
+                break
+        if len(collected) >= wanted or step >= PIN_RELATED_MAX_SCROLL_STEPS:
+            break
+        await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
+        await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
+
+    return list(collected.values())[:wanted]
+
+
 async def resolve_pin_details(
     search_page: Any,
     rows: list[Candidate],
@@ -1229,6 +1315,30 @@ def task_search_queries(task: dict[str, Any]) -> list[str]:
     return search_queries
 
 
+def related_seed_candidates(task: dict[str, Any]) -> list[Candidate]:
+    seeds: list[Candidate] = []
+    seen: set[str] = set()
+    for raw in task.get("related_seeds") or []:
+        if not isinstance(raw, dict):
+            continue
+        candidate = Candidate(
+            str(raw.get("pin_url") or "").strip(),
+            str(raw.get("image_url") or "").strip(),
+            str(raw.get("alt_text") or "").strip() or None,
+        )
+        key = pin_history_key(candidate.pin_url)
+        if (
+            not key
+            or key in seen
+            or not allowed_pin(candidate.pin_url)
+            or not allowed_image(candidate.image_url)
+        ):
+            continue
+        seen.add(key)
+        seeds.append(candidate)
+    return seeds
+
+
 async def scan_auto_run(
     page: Any,
     client: AutoScoutClient,
@@ -1247,6 +1357,7 @@ async def scan_auto_run(
     source_relative_path = str(task.get("source_relative_path") or "").strip()
     source_name = str(task.get("source_name") or "").strip()
     history_key = source_plan_id or campaign_id
+    related_history_key = campaign_id
     persistent_seen = history.seen_pin_keys(history_key) if history else set()
     search_queries = task_search_queries(task)
     if not search_queries:
@@ -1276,6 +1387,123 @@ async def scan_auto_run(
     if run_candidate_cap <= 0:
         await client.complete(run_id, "completed")
         return
+
+    approved_seeds = related_seed_candidates(task)
+    expanded_seed_keys = (
+        history.expanded_seed_keys(related_history_key) if history else set()
+    )
+    related_page = detail_page or page
+    for seed in approved_seeds:
+        seed_key = pin_history_key(seed.pin_url)
+        if seed_key in expanded_seed_keys:
+            continue
+
+        await heartbeat_if_due(force=True)
+        related_rows = await extract_related_candidates(
+            related_page,
+            seed,
+            pace=pace,
+            limit=PIN_RELATED_SCAN_LIMIT,
+        )
+        unseen_related = [
+            row
+            for row in related_rows
+            if pin_history_key(row.pin_url) not in persistent_seen
+        ]
+        filtered_related = [
+            row
+            for row in unseen_related
+            if synthetic_metadata_reason(row) is not None
+        ]
+        fresh_related, related_metadata_filtered = quality_prefilter(
+            unseen_related
+        )
+        if history and filtered_related:
+            history.remember(history_key, filtered_related)
+            persistent_seen.update(
+                pin_history_key(row.pin_url) for row in filtered_related
+            )
+
+        related_budget = max(0, target - pipeline_count)
+        selected_related = fresh_related[:related_budget]
+        print(
+            "campaign="
+            + campaign_id
+            + " related_seed="
+            + seed.pin_url
+            + " related_scanned="
+            + str(len(related_rows))
+            + "/"
+            + str(PIN_RELATED_SCAN_LIMIT)
+            + " related_unseen="
+            + str(len(unseen_related))
+            + " related_quality_candidates="
+            + str(len(fresh_related))
+            + " related_metadata_filtered="
+            + str(related_metadata_filtered)
+        )
+
+        related_created = 0
+        related_existing = 0
+        for start in range(0, len(selected_related), pace.submit_batch_size):
+            chunk = selected_related[start:start + pace.submit_batch_size]
+            if not chunk:
+                continue
+            resolved_chunk = await resolve_pin_details(
+                page,
+                chunk,
+                detail_page=related_page,
+                concurrency=1,
+            )
+            result = await client.submit(
+                run_id,
+                resolved_chunk,
+                source_query=None,
+            )
+            if history:
+                history.remember(history_key, resolved_chunk)
+                persistent_seen.update(
+                    pin_history_key(row.pin_url) for row in resolved_chunk
+                )
+            related_created += int(result.get("created") or 0)
+            related_existing += int(result.get("existing") or 0)
+            progress = int(result.get("progress") or 0)
+            pipeline_count = int(result.get("pipeline_count") or progress)
+            await heartbeat_if_due()
+            if (
+                result.get("campaign_status") != "running"
+                or progress >= target
+                or pipeline_count >= target
+            ):
+                if history and len(selected_related) == len(fresh_related):
+                    history.remember_expanded_seed(
+                        related_history_key,
+                        seed.pin_url,
+                    )
+                await client.complete(run_id, "completed")
+                return
+            await paced_wait(page, pace.submit_pause_ms)
+
+        if history and len(selected_related) == len(fresh_related):
+            history.remember_expanded_seed(
+                related_history_key,
+                seed.pin_url,
+            )
+        print(
+            "campaign="
+            + campaign_id
+            + " related_seed_complete created="
+            + str(related_created)
+            + " existing="
+            + str(related_existing)
+            + " pipeline="
+            + str(pipeline_count)
+            + "/"
+            + str(target)
+        )
+        # Expand at most one approved Pin per run to keep Pinterest access
+        # low-footprint. Keyword discovery continues in the same run.
+        break
 
     search_queries = search_queries[
         :min(len(search_queries), MAX_KEYWORDS_PER_RUN, run_candidate_cap)

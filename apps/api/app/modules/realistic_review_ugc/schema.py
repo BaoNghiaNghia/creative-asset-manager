@@ -532,6 +532,12 @@ class ScoutRunResponse(BaseModel):
     updated_at: datetime
 
 
+class ScoutRelatedSeed(BaseModel):
+    pin_url: str = Field(min_length=1, max_length=2048)
+    image_url: str = Field(min_length=1, max_length=4096)
+    alt_text: str | None = Field(default=None, max_length=2000)
+
+
 class ScoutClaimResponse(BaseModel):
     run: ScoutRunResponse
     campaign_id: str
@@ -547,6 +553,7 @@ class ScoutClaimResponse(BaseModel):
     source_relative_path: str | None = None
     source_name: str | None = None
     source_context: dict | None = None
+    related_seeds: list[ScoutRelatedSeed] = Field(default_factory=list)
 
 
 class ScoutRunCompleteRequest(BaseModel):

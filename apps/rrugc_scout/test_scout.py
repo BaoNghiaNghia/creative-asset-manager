@@ -16,6 +16,7 @@ from scout import (
     allowed_image,
     allowed_pin,
     choose_pin_detail_candidate,
+    extract_related_candidates,
     extract_visible,
     idle_diagnostic_message,
     keyword_candidate_budgets,
@@ -26,6 +27,7 @@ from scout import (
     pinimg_rendition_score,
     quality_prefilter,
     quality_search_query,
+    related_seed_candidates,
     resolve_pin_details,
     scan_auto_run,
     task_search_queries,
@@ -113,7 +115,7 @@ def test_recover_windows_profile_only_closes_dedicated_root_chrome(
 def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v18"}',
+        '{"pid":21668,"version":"rrugc-scout-v19"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -133,7 +135,7 @@ def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
 def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v18"}',
+        '{"pid":21668,"version":"rrugc-scout-v19"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -148,7 +150,7 @@ def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
 
     payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
     assert payload["pid"] == scout_module.os.getpid()
-    assert payload["version"] == "rrugc-scout-v18"
+    assert payload["version"] == "rrugc-scout-v19"
 
     lock.release()
     assert not lock_path.exists()
@@ -649,6 +651,197 @@ def test_scan_auto_run_skips_persisted_pin_history(tmp_path):
     assert client.completed == ["run-history:completed"]
 
 
+
+def test_related_seed_history_is_persistent_and_normalized(tmp_path):
+    history = ScoutHistory(tmp_path / "history.json")
+    seed = "https://pinterest.com/pin/12345/?utm_source=feed"
+
+    assert history.expanded_seed_keys("plan-1") == set()
+    assert history.remember_expanded_seed("plan-1", seed) is True
+    assert history.remember_expanded_seed("plan-1", seed) is False
+
+    reloaded = ScoutHistory(tmp_path / "history.json")
+    assert reloaded.expanded_seed_keys("plan-1") == {
+        "https://www.pinterest.com/pin/12345/"
+    }
+
+
+def test_extract_related_candidates_keeps_first_20_and_excludes_seed():
+    class FakeMouse:
+        async def wheel(self, _x, _y):
+            raise AssertionError("no scroll should be needed when 20 related Pins are loaded")
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+            self.mouse = FakeMouse()
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            return None
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "const out = []" in script:
+                rows = [{
+                    "pin_url": "https://www.pinterest.com/pin/seed/",
+                    "image_url": "https://i.pinimg.com/736x/seed.jpg",
+                    "alt_text": "seed",
+                }]
+                rows.extend({
+                    "pin_url": f"https://www.pinterest.com/pin/related-{index}/",
+                    "image_url": f"https://i.pinimg.com/736x/related-{index}.jpg",
+                    "alt_text": f"related {index}",
+                } for index in range(25))
+                return rows
+            return False
+
+    seed = Candidate(
+        "https://www.pinterest.com/pin/seed/",
+        "https://i.pinimg.com/736x/seed.jpg",
+    )
+    rows = asyncio.run(extract_related_candidates(
+        FakePage(),
+        seed,
+        pace=SCOUT_PACES["careful"],
+    ))
+
+    assert len(rows) == 20
+    assert rows[0].pin_url.endswith("/related-0/")
+    assert rows[-1].pin_url.endswith("/related-19/")
+    assert all(row.pin_url != seed.pin_url for row in rows)
+
+
+def test_auto_scout_expands_approved_seed_before_keyword_search(tmp_path, monkeypatch):
+    related = [
+        Candidate(
+            f"https://www.pinterest.com/pin/related-{index}/",
+            f"https://i.pinimg.com/736x/related-{index}.jpg",
+            f"related {index}",
+        )
+        for index in range(20)
+    ]
+
+    async def fake_extract_related(_page, seed, *, pace, limit):
+        assert seed.pin_url == "https://www.pinterest.com/pin/approved-seed/"
+        assert limit == 20
+        assert pace.name == "careful"
+        return related
+
+    async def fake_resolve(_page, rows, **_kwargs):
+        return list(rows)
+
+    monkeypatch.setattr(
+        scout_module,
+        "extract_related_candidates",
+        fake_extract_related,
+    )
+    monkeypatch.setattr(scout_module, "resolve_pin_details", fake_resolve)
+
+    class FakeMouse:
+        async def wheel(self, _x, _y):
+            return None
+
+    class FakePage:
+        def __init__(self):
+            self.visited = []
+            self.mouse = FakeMouse()
+
+        async def goto(self, url, **_kwargs):
+            self.visited.append(url)
+            return None
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+    class FakeClient:
+        def __init__(self):
+            self.submitted = []
+            self.source_queries = []
+            self.completed = []
+
+        async def heartbeat(self, *_args, **_kwargs):
+            return {}
+
+        async def submit(self, _run_id, rows, *, source_query=None):
+            self.submitted.extend(row.pin_url for row in rows)
+            self.source_queries.append(source_query)
+            count = len(self.submitted)
+            return {
+                "created": len(rows),
+                "existing": 0,
+                "progress": 0,
+                "pipeline_count": count,
+                "target_count": 20,
+                "campaign_status": "running",
+            }
+
+        async def complete(self, run_id, status, **_kwargs):
+            self.completed.append(run_id + ":" + status)
+            return {}
+
+    history = ScoutHistory(tmp_path / "history.json")
+    page = FakePage()
+    client = FakeClient()
+    asyncio.run(scan_auto_run(
+        page,
+        client,
+        {
+            "run": {"id": "run-related"},
+            "campaign_id": "campaign-related",
+            "source_plan_id": "plan-related",
+            "query": "fallback keyword",
+            "search_queries": ["fallback keyword"],
+            "related_seeds": [{
+                "pin_url": "https://www.pinterest.com/pin/approved-seed/",
+                "image_url": "https://i.pinimg.com/736x/approved-seed.jpg",
+                "alt_text": "approved",
+            }],
+            "target_count": 20,
+            "max_scroll_batches": 1,
+            "progress": 0,
+            "pipeline_count": 0,
+        },
+        login_wait_seconds=60,
+        history=history,
+    ))
+
+    assert client.submitted == [row.pin_url for row in related]
+    assert all(source_query is None for source_query in client.source_queries)
+    assert client.completed == ["run-related:completed"]
+    assert page.visited == []
+    assert history.expanded_seed_keys("campaign-related") == {
+        "https://www.pinterest.com/pin/approved-seed/"
+    }
+
+
+def test_related_seed_candidates_reject_invalid_and_dedupe():
+    task = {
+        "related_seeds": [
+            {
+                "pin_url": "https://www.pinterest.com/pin/1/",
+                "image_url": "https://i.pinimg.com/736x/one.jpg",
+                "alt_text": "one",
+            },
+            {
+                "pin_url": "https://www.pinterest.com/pin/1/?duplicate=1",
+                "image_url": "https://i.pinimg.com/originals/one.jpg",
+            },
+            {
+                "pin_url": "https://example.com/not-pinterest",
+                "image_url": "https://i.pinimg.com/736x/bad.jpg",
+            },
+        ]
+    }
+    rows = related_seed_candidates(task)
+    assert len(rows) == 1
+    assert rows[0].pin_url == "https://www.pinterest.com/pin/1/"
+
+
 def test_keyword_candidate_budgets_cap_keywords_and_share_capacity():
     assert keyword_candidate_budgets(24, 10) == [6, 6, 6, 6]
     assert keyword_candidate_budgets(12, 10) == [3, 3, 3, 3]
@@ -754,7 +947,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v18"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v19"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})
