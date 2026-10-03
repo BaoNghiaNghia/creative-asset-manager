@@ -264,6 +264,33 @@ class RateLimitedClaimTest(unittest.TestCase):
             self.assertIsNotNone(backup_state)
             self.assertIsNone(primary_state)
 
+
+    def test_failover_selector_without_model_uses_configured_backup_safely(self):
+        key = base64.urlsafe_b64encode(b"D" * 32).decode().rstrip("=")
+        self.settings = Settings(
+            GEMINI_API_KEY="primary-key",
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=key,
+        )
+        with self.sessions.begin() as session:
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(self.settings)
+            ).replace("tenant", secret="backup-key", provider="gemini_backup_1")
+
+        with patch(
+            "app.modules.ai_operations.gemini_failover.backup_is_active",
+            return_value=True,
+        ):
+            with self.sessions() as session:
+                selected = rate_limit_provider_key(
+                    session,
+                    self.settings,
+                    "tenant",
+                    "gemini",
+                    now=NOW,
+                )
+
+        self.assertEqual(selected, "gemini_backup_1")
+
     def test_active_active_selector_uses_backup_when_primary_slot_is_busy(self):
         key = base64.urlsafe_b64encode(b"B" * 32).decode().rstrip("=")
         self.settings = Settings(

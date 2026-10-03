@@ -672,17 +672,20 @@ class TenantAwareJobClaimer:
         # to one candidate every two minutes. The provider-level quota
         # coordinator still atomically enforces the shared project RPD while the
         # hard RRUGC concurrency cap and this lane bound RRUGC to a low RPM.
-        credential_provider = rate_limit_provider_key(
-            self.session,
-            self.settings,
-            job.tenant_id,
-            provider,
-            now=now,
-        )
-        rrugc_model_gate_provider = (
-            RRUGC_GEMINI_MODEL_GATE_PREFIX + credential_provider
-        )
         for model, rpm in model_rates:
+            credential_provider = rate_limit_provider_key(
+                self.session,
+                self.settings,
+                job.tenant_id,
+                provider,
+                model=model,
+                rpm=rpm,
+                minimum_interval_seconds=rrugc_min_interval_seconds,
+                now=now,
+            )
+            rrugc_model_gate_provider = (
+                RRUGC_GEMINI_MODEL_GATE_PREFIX + credential_provider
+            )
             decision = limiter.reserve_start(
                 tenant_id=job.tenant_id,
                 provider=rrugc_model_gate_provider,

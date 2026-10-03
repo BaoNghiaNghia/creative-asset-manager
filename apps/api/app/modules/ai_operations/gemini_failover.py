@@ -42,11 +42,15 @@ def rate_limit_provider_key(
     """Select primary/backup by availability, keeping primary as tie-breaker."""
     if provider != "gemini" or not _backup_is_configured(session, tenant_id):
         return provider
+    repository = CreativeAiCredentialRepository(session, None)
     if not model or not rpm or not minimum_interval_seconds:
-        return repo.list_active_backup_providers(tenant_id)[0] if backup_is_active(session, settings, tenant_id, now) else provider
+        return (
+            repository.list_active_backup_providers(tenant_id)[0]
+            if backup_is_active(session, settings, tenant_id, now)
+            else provider
+        )
     from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
     limiter = AiModelRateLimitRepository(session)
-    repository = CreativeAiCredentialRepository(session, None)
     candidates = ("gemini",) + repository.list_active_backup_providers(tenant_id)
     decisions = {
         candidate: limiter.next_start(
