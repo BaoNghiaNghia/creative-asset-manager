@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v16"
+CLIENT_VERSION = "rrugc-scout-v17"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -36,6 +36,7 @@ MAX_KEYWORDS_PER_RUN = 4
 QUALITY_QUERY_SUFFIX = "authentic smartphone candid photo real people"
 HEARTBEAT_INTERVAL_SECONDS = 10
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
+SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
 SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
 
 
@@ -267,6 +268,93 @@ def _looks_like_profile_launch_collision(error: BaseException) -> bool:
     )
 
 
+
+
+class ScoutProfileLock:
+    """Atomic local ownership for the dedicated persistent Scout profile."""
+
+    def __init__(self, profile_dir: str | Path) -> None:
+        self.profile_dir = Path(profile_dir).expanduser().resolve()
+        self.path = self.profile_dir / SCOUT_INSTANCE_LOCK_FILENAME
+        self.acquired = False
+
+    def _owner_pid(self) -> int | None:
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            pid = int(payload.get("pid") or 0)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+        return pid if pid > 0 else None
+
+    def _owner_is_live_scout(self, pid: int | None) -> bool:
+        if pid is None:
+            return False
+        if pid == os.getpid():
+            return True
+        if sys.platform != "win32":
+            return False
+        owners = _windows_profile_owners(self.profile_dir)
+        return owners is not None and pid in owners[1]
+
+    def acquire(self) -> None:
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {
+                "pid": os.getpid(),
+                "version": CLIENT_VERSION,
+                "profile": str(self.profile_dir),
+                "started_at": time.time(),
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        for _attempt in range(2):
+            try:
+                fd = os.open(
+                    self.path,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+            except FileExistsError:
+                owner_pid = self._owner_pid()
+                if self._owner_is_live_scout(owner_pid):
+                    raise RuntimeError(
+                        "Another Pinterest Auto Scout already owns this profile lock "
+                        "(PID " + str(owner_pid) + "). Use the existing Scout instance "
+                        "or close it before starting another one."
+                    )
+                try:
+                    self.path.unlink()
+                    print("Removed stale Pinterest Scout instance lock.")
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    raise RuntimeError(
+                        "Could not replace stale Pinterest Scout instance lock: "
+                        + str(self.path)
+                    ) from exc
+                continue
+
+            try:
+                os.write(fd, payload)
+            finally:
+                os.close(fd)
+            self.acquired = True
+            return
+
+        raise RuntimeError("Could not acquire the Pinterest Scout profile lock.")
+
+    def release(self) -> None:
+        if not self.acquired:
+            return
+        try:
+            if self._owner_pid() == os.getpid():
+                self.path.unlink(missing_ok=True)
+        finally:
+            self.acquired = False
+
+
+
 def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
     owners = _windows_profile_owners(profile_dir)
     if owners is None:
@@ -278,46 +366,34 @@ def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
 
     chrome_pids, scout_pids = owners
 
-    if scout_pids and chrome_pids:
-        raise RuntimeError(
-            "Another Pinterest Auto Scout appears to still be active with this profile "
-            "(Scout PID " + ", ".join(str(pid) for pid in scout_pids)
-            + "; Chrome PID " + ", ".join(str(pid) for pid in chrome_pids) + "). "
-            "Use the existing Scout instance or close it before starting another one."
-        )
-
-    if scout_pids and not chrome_pids:
+    if scout_pids:
         print(
-            "Found stale Pinterest Scout process(es) without a live Scout Chrome: "
+            "Replacing legacy/stale Pinterest Scout process(es) bound to this profile: "
             + ", ".join(str(pid) for pid in scout_pids)
-            + ". Closing only those stale Scout process trees."
         )
         _terminate_windows_process_trees(scout_pids)
-        time.sleep(0.75)
-        remaining = _windows_profile_owners(profile_dir)
-        if remaining is not None and remaining[1]:
-            raise RuntimeError(
-                "Stale Pinterest Scout process(es) could not be closed: "
-                + ", ".join(str(pid) for pid in remaining[1])
-                + ". End those Scout processes in Task Manager and run START_SCOUT.bat again."
-            )
-        if remaining is not None:
-            chrome_pids = remaining[0]
 
     if chrome_pids:
         print(
-            "Scout profile is held by Chrome PID(s) "
+            "Closing Chrome process tree(s) bound to the dedicated Pinterest Scout profile: "
             + ", ".join(str(pid) for pid in chrome_pids)
-            + "; closing only the dedicated Pinterest Scout Chrome process tree."
         )
         _terminate_windows_profile_chrome(chrome_pids)
+
+    if scout_pids or chrome_pids:
         time.sleep(0.75)
         remaining = _windows_profile_owners(profile_dir)
-        if remaining is not None and remaining[0]:
+        if remaining is not None and (remaining[0] or remaining[1]):
+            parts: list[str] = []
+            if remaining[1]:
+                parts.append("Scout PID " + ", ".join(str(pid) for pid in remaining[1]))
+            if remaining[0]:
+                parts.append("Chrome PID " + ", ".join(str(pid) for pid in remaining[0]))
             raise RuntimeError(
-                "The dedicated Pinterest Scout Chrome profile is still in use by PID(s) "
-                + ", ".join(str(pid) for pid in remaining[0])
-                + ". Close those Scout-profile Chrome windows and start again."
+                "The dedicated Pinterest Scout profile is still owned after cleanup ("
+                + "; ".join(parts)
+                + "). End only those Scout-profile processes in Task Manager and run "
+                "START_SCOUT.bat again."
             )
 
     removed = _clear_stale_profile_runtime_files(profile_dir)
@@ -334,8 +410,6 @@ def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
         )
     profile = str(Path(profile_dir).expanduser().resolve())
     Path(profile).mkdir(parents=True, exist_ok=True)
-    if sys.platform == "win32":
-        _recover_windows_scout_profile(profile)
     print("Opening a normal Chrome window for manual Pinterest sign-in.")
     print("Profile: " + profile)
     print(
@@ -1963,12 +2037,19 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(args: argparse.Namespace) -> None:
-    if args.bootstrap_login:
-        bootstrap_login(args.profile_dir, args.chrome_executable)
-    elif args.agent_id:
-        await run_agent(args)
-    else:
-        await run_legacy(args)
+    profile_lock = ScoutProfileLock(args.profile_dir)
+    profile_lock.acquire()
+    try:
+        if sys.platform == "win32":
+            _recover_windows_scout_profile(args.profile_dir)
+        if args.bootstrap_login:
+            bootstrap_login(args.profile_dir, args.chrome_executable)
+        elif args.agent_id:
+            await run_agent(args)
+        else:
+            await run_legacy(args)
+    finally:
+        profile_lock.release()
 
 
 if __name__ == "__main__":

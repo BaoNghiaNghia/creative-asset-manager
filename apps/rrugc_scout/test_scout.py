@@ -81,12 +81,12 @@ def test_clear_stale_profile_runtime_files_preserves_unrelated_files(tmp_path):
 
 
 
-def test_recover_windows_profile_closes_stale_scouts_without_live_chrome(
+def test_recover_windows_profile_replaces_legacy_scout_and_chrome_processes(
     monkeypatch,
     tmp_path,
 ):
     owner_snapshots = [
-        ((), (21668, 42800, 43412)),
+        ((10204, 10820, 14540), (13416, 21668, 42800)),
         ((), ()),
     ]
     killed: list[tuple[int, ...]] = []
@@ -106,32 +106,55 @@ def test_recover_windows_profile_closes_stale_scouts_without_live_chrome(
 
     scout_module._recover_windows_scout_profile(tmp_path)
 
-    assert killed == [(21668, 42800, 43412)]
+    assert killed == [
+        (13416, 21668, 42800),
+        (10204, 10820, 14540),
+    ]
     assert owner_snapshots == []
 
 
-def test_recover_windows_profile_protects_genuinely_active_scout(
-    monkeypatch,
-    tmp_path,
-):
-    killed: list[tuple[int, ...]] = []
-
+def test_profile_lock_blocks_another_live_v17_scout(monkeypatch, tmp_path):
+    lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
+    lock_path.write_text(
+        '{"pid":21668,"version":"rrugc-scout-v17"}',
+        encoding="utf-8",
+    )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
     monkeypatch.setattr(
         scout_module,
         "_windows_profile_owners",
-        lambda _profile: ((40768,), (21668,)),
+        lambda _profile: ((), (21668,)),
     )
+
+    lock = scout_module.ScoutProfileLock(tmp_path)
+    with pytest.raises(RuntimeError, match="already owns this profile lock"):
+        lock.acquire()
+
+    assert lock_path.exists()
+
+
+def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
+    lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
+    lock_path.write_text(
+        '{"pid":21668,"version":"rrugc-scout-v17"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
     monkeypatch.setattr(
         scout_module,
-        "_terminate_windows_process_trees",
-        lambda pids: killed.append(tuple(pids)) or len(pids),
+        "_windows_profile_owners",
+        lambda _profile: ((), ()),
     )
 
-    with pytest.raises(RuntimeError, match="appears to still be active"):
-        scout_module._recover_windows_scout_profile(tmp_path)
+    lock = scout_module.ScoutProfileLock(tmp_path)
+    lock.acquire()
 
-    assert killed == []
+    payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
+    assert payload["pid"] == scout_module.os.getpid()
+    assert payload["version"] == "rrugc-scout-v17"
+
+    lock.release()
+    assert not lock_path.exists()
 
 
 def test_url_allowlists():
@@ -734,7 +757,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v16"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v17"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})
