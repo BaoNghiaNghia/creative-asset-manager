@@ -227,7 +227,7 @@ export function SourcePlanTable({
               <td className="rrugc-source-plan-context">
                 <div className="rrugc-source-context-head"><span className={"rrugc-source-plan-status tone-" + planTone(plan)}>{planStatusLabel(plan)}</span>{plan.analyzed_at && <small>Analyzed {new Date(plan.analyzed_at).toLocaleString()}</small>}</div>
                 <p title={context}>{context}</p>
-                {themes.length > 0 && <div className="rrugc-source-theme-chips">{themes.map(theme => <span key={theme}>{theme}</span>)}</div>}
+                {(plan.embroidery_group_size > 1 || themes.length > 0) && <div className="rrugc-source-theme-chips">{plan.embroidery_group_size > 1 && <span>Shared refs · {plan.embroidery_group_size} colors</span>}{themes.map(theme => <span key={theme}>{theme}</span>)}</div>}
                 <div className="rrugc-source-query-chips">{plan.search_queries.slice(0, 4).map(keyword => <span key={keyword} title={keyword}>{keyword}</span>)}{plan.search_queries.length > 4 && <span>+{plan.search_queries.length - 4}</span>}{plan.search_queries.length === 0 && <small>{plan.status === "ready" ? "No search query" : "Waiting for AI search plan…"}</small>}</div>
                 {plan.last_error_code && <small className="rrugc-source-error">{plan.last_error_code}</small>}
               </td>

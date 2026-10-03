@@ -22,9 +22,11 @@ from app.modules.realistic_review_ugc.router import (
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
+    _reconcile_embroidery_groups,
     _synthetic_product_snapshot,
     _synthetic_reference_snapshot,
     discover_source_images,
+    embroidery_signature,
     sync_source_plans,
 )
 from app.modules.realistic_review_ugc.product_context import (
@@ -162,6 +164,147 @@ def test_source_plan_visual_binding_uses_numeric_revision_and_hash_content():
     assert len(product_visual_binding_fingerprint(product, references)) == 64
 
 
+
+def test_embroidery_signature_ignores_hat_color_but_keeps_distinct_motifs():
+    navy = {
+        "embroidery_text": ["Bad Day To Be A Hotdog"],
+        "themes": ["humor"],
+        "product_cues": ["navy cap with hotdog motif and embroidered wording"],
+        "summary": "Navy hat with a hotdog graphic and funny text.",
+    }
+    red = {
+        "embroidery_text": ["Bad Day To Be A Hotdog"],
+        "themes": ["humor"],
+        "product_cues": ["red hat with hotdog artwork and stitched wording"],
+        "summary": "Red cap with the same hotdog graphic and phrase.",
+    }
+    golf = {
+        "embroidery_text": ["Bad Day To Be A Hotdog"],
+        "themes": ["golf"],
+        "product_cues": ["black cap with golf ball and club artwork"],
+        "summary": "Black cap with a golf motif and the phrase.",
+    }
+
+    assert embroidery_signature(navy) == embroidery_signature(red)
+    assert embroidery_signature(navy) != embroidery_signature(golf)
+
+
+def test_reconcile_embroidery_groups_shares_best_campaign_and_reopens_to_fifty():
+    factory = make_database()
+    signature = embroidery_signature({
+        "embroidery_text": ["Best Grandpa By Par"],
+        "themes": ["golf", "grandparent"],
+        "product_cues": ["golf club and ball motif"],
+    })
+    assert signature is not None
+
+    with factory() as session:
+        sparse = RrugcCampaignModel(
+            tenant_id="tenant-a",
+            name="Sparse Navy",
+            query="grandpa golf candid",
+            target_count=20,
+            auto_import=True,
+            auto_scout=True,
+            status="completed",
+            scout_token_hash="1" * 64,
+            created_by_user_id="user-a",
+        )
+        richer = RrugcCampaignModel(
+            tenant_id="tenant-a",
+            name="Richer Black",
+            query="grandpa golf phone photo",
+            target_count=20,
+            auto_import=True,
+            auto_scout=True,
+            status="completed",
+            scout_token_hash="2" * 64,
+            created_by_user_id="user-a",
+        )
+        session.add_all([sparse, richer])
+        session.flush()
+
+        navy_plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="navy-source",
+            source_relative_path="Grandpa/Navy.jpg",
+            source_name="Navy.jpg",
+            source_mime_type="image/jpeg",
+            source_revision="a" * 64,
+            analysis_revision=1,
+            embroidery_signature=signature,
+            target_count=20,
+            status="ready",
+            visual_context_json={"status": "ready", "embroidery_text": ["Best Grandpa By Par"]},
+            campaign_id=sparse.id,
+            created_by_user_id="user-a",
+        )
+        black_plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="black-source",
+            source_relative_path="Grandpa/Black.jpg",
+            source_name="Black.jpg",
+            source_mime_type="image/jpeg",
+            source_revision="b" * 64,
+            analysis_revision=1,
+            embroidery_signature=signature,
+            target_count=20,
+            status="ready",
+            visual_context_json={"status": "ready", "embroidery_text": ["Best Grandpa By Par"]},
+            campaign_id=richer.id,
+            created_by_user_id="user-a",
+        )
+        session.add_all([navy_plan, black_plan])
+        session.flush()
+
+        session.add(
+            RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=sparse.id,
+                source_key="sparse-ref",
+                pin_url="https://www.pinterest.com/pin/sparse/",
+                image_url="https://i.pinimg.com/736x/sparse.jpg",
+                status="drive_ready",
+            )
+        )
+        for index in range(2):
+            session.add(
+                RrugcCandidateModel(
+                    tenant_id="tenant-a",
+                    campaign_id=richer.id,
+                    source_key=f"rich-ref-{index}",
+                    pin_url=f"https://www.pinterest.com/pin/rich-{index}/",
+                    image_url=f"https://i.pinimg.com/736x/rich-{index}.jpg",
+                    status="drive_ready",
+                )
+            )
+        session.commit()
+
+        _reconcile_embroidery_groups(
+            session,
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+        )
+        session.commit()
+        session.refresh(navy_plan)
+        session.refresh(black_plan)
+        session.refresh(sparse)
+        session.refresh(richer)
+
+        assert navy_plan.campaign_id == richer.id
+        assert black_plan.campaign_id == richer.id
+        assert navy_plan.target_count == RRUGC_SOURCE_TARGET_COUNT == 50
+        assert black_plan.target_count == 50
+        assert richer.target_count == 50
+        assert richer.status == "running"
+        assert richer.auto_scout is True
+        assert sparse.auto_scout is False
+        assert sparse.status == "archived"
+
+
+
 def test_source_plan_reference_preview_exposes_positive_negative_and_neutral_feedback():
     created_at = datetime(2026, 10, 3, tzinfo=timezone.utc)
     picked = _source_plan_reference_preview(SimpleNamespace(
@@ -241,7 +384,24 @@ def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usa
             campaign_id=campaign.id,
             created_by_user_id="user-a",
         )
-        session.add(plan)
+        sibling_plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="feedback-image-red",
+            source_parent_folder_id="feedback-folder",
+            source_relative_path="Feedback/alternate-color.jpg",
+            source_name="alternate-color.jpg",
+            source_mime_type="image/jpeg",
+            source_revision="e" * 64,
+            analysis_revision=1,
+            embroidery_signature="shared-signature",
+            target_count=50,
+            status="ready",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        plan.embroidery_signature = "shared-signature"
+        session.add_all([plan, sibling_plan])
         session.add_all([
             RrugcCandidateModel(
                 tenant_id="tenant-a",
@@ -279,6 +439,8 @@ def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usa
         item = page.items[0]
         assert item.drive_ready_count == 1
         assert item.progress_count == 1
+        assert item.embroidery_signature == "shared-signature"
+        assert item.embroidery_group_size == 2
         assert len(item.reference_previews) == 2
         assert sum(reference.rejected for reference in item.reference_previews) == 1
 
@@ -388,7 +550,7 @@ def test_discover_source_images_recurses_child_folders_and_ignores_root_images()
     assert all(len(row.revision) == 64 for row in rows)
 
 
-def test_sync_source_plans_creates_one_twenty_ref_plan_per_source_image_idempotently():
+def test_sync_source_plans_creates_one_fifty_ref_plan_per_source_image_idempotently():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -438,7 +600,7 @@ def test_sync_source_plans_creates_one_twenty_ref_plan_per_source_image_idempote
         assert len(list(session.scalars(select(ProcessingJobModel)))) == 3
 
 
-def test_sync_source_plans_marks_removed_source_missing_and_archives_campaign():
+def test_sync_source_plans_deletes_removed_source_plan_and_only_its_jobs():
     factory = make_database()
 
     with factory() as session:
@@ -457,6 +619,7 @@ def test_sync_source_plans_marks_removed_source_missing_and_archives_campaign():
             )
         )
         assert plan is not None
+        plan_id = plan.id
         campaign = RrugcCampaignModel(
             tenant_id="tenant-a",
             name="Teacher reference campaign",
@@ -467,7 +630,15 @@ def test_sync_source_plans_marks_removed_source_missing_and_archives_campaign():
             scout_token_hash="a" * 64,
             created_by_user_id="user-a",
         )
-        session.add(campaign)
+        unrelated_job = ProcessingJobModel(
+            tenant_id="tenant-a",
+            job_type="asset_analyze",
+            entity_type="asset",
+            entity_id="asset-unrelated",
+            idempotency_key="unrelated-job",
+            priority=10,
+        )
+        session.add_all([campaign, unrelated_job])
         session.flush()
         plan.campaign_id = campaign.id
         session.commit()
@@ -481,16 +652,86 @@ def test_sync_source_plans_marks_removed_source_missing_and_archives_campaign():
                 drive_client_factory=FakeDriveMissingTeacher,
             )
         )
-        session.refresh(plan)
         session.refresh(campaign)
 
         assert result.images_found == 2
         assert result.plans_missing == 1
-        assert plan.status == "missing"
-        assert plan.last_error_code == "rrugc_source_missing"
+        assert session.get(RrugcSourcePlanModel, plan_id) is None
+        assert session.scalar(
+            select(ProcessingJobModel.id).where(
+                ProcessingJobModel.entity_type == "rrugc_source_plan",
+                ProcessingJobModel.entity_id == plan_id,
+            )
+        ) is None
+        assert session.get(ProcessingJobModel, unrelated_job.id) is not None
         assert campaign.status == "archived"
         assert campaign.auto_scout is False
         assert campaign.scan_next_at is None
+
+
+
+def test_missing_color_does_not_archive_campaign_shared_by_another_source_plan():
+    factory = make_database()
+
+    with factory() as session:
+        asyncio.run(
+            sync_source_plans(
+                session,
+                tenant_id="tenant-a",
+                user_id="user-a",
+                storage=FakeStorage.__new__(FakeStorage),
+                drive_client_factory=FakeDrive,
+            )
+        )
+        missing_plan = session.scalar(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.source_file_id == "image-c"
+            )
+        )
+        remaining_plan = session.scalar(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.source_file_id == "image-a"
+            )
+        )
+        assert missing_plan is not None
+        assert remaining_plan is not None
+        missing_plan_id = missing_plan.id
+
+        campaign = RrugcCampaignModel(
+            tenant_id="tenant-a",
+            name="Shared embroidery campaign",
+            query="shared embroidery candid",
+            target_count=50,
+            auto_scout=True,
+            status="running",
+            scan_next_at=datetime.now(timezone.utc),
+            scout_token_hash="c" * 64,
+            created_by_user_id="user-a",
+        )
+        session.add(campaign)
+        session.flush()
+        missing_plan.campaign_id = campaign.id
+        remaining_plan.campaign_id = campaign.id
+        session.commit()
+
+        result = asyncio.run(
+            sync_source_plans(
+                session,
+                tenant_id="tenant-a",
+                user_id="user-a",
+                storage=FakeStorage.__new__(FakeStorage),
+                drive_client_factory=FakeDriveMissingTeacher,
+            )
+        )
+        session.refresh(campaign)
+        session.refresh(remaining_plan)
+
+        assert result.plans_missing == 1
+        assert session.get(RrugcSourcePlanModel, missing_plan_id) is None
+        assert remaining_plan.campaign_id == campaign.id
+        assert campaign.auto_scout is True
+        assert campaign.status == "running"
+
 
 
 def test_old_visual_context_version_requeues_source_for_text_aware_analysis():

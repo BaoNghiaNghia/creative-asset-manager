@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections import deque
+import json
+import re
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any, Callable
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -23,6 +25,7 @@ from app.domain.providers.contracts import (
     StorageProviderError,
 )
 from app.domain.providers.registry import AiProviderUnavailableError
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
@@ -46,7 +49,7 @@ from app.providers.google.drive import GoogleDriveClient
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 RRUGC_SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX"
-RRUGC_SOURCE_TARGET_COUNT = 20
+RRUGC_SOURCE_TARGET_COUNT = 50
 RRUGC_SOURCE_PLAN_JOB_TYPE = "rrugc_source_plan_analyze"
 RRUGC_SOURCE_MAX_FOLDERS = 5_000
 RRUGC_SOURCE_MAX_IMAGES = 20_000
@@ -223,6 +226,299 @@ def list_source_plans(
         )
     )
 
+_EMBROIDERY_COLOR_WORDS = frozenset({
+    "black", "white", "navy", "blue", "red", "green", "pink", "brown",
+    "tan", "beige", "natural", "khaki", "gray", "grey", "charcoal",
+    "orange", "yellow", "purple", "maroon", "cream", "teal",
+})
+_EMBROIDERY_GENERIC_WORDS = frozenset({
+    "hat", "cap", "fabric", "cotton", "thread", "threads", "embroidery",
+    "embroidered", "stitch", "stitched", "stitching", "design", "artwork",
+    "front", "center", "centered", "visible", "product",
+})
+_EMBROIDERY_MOTIF_WORDS = frozenset({
+    "dog", "dogs", "cat", "cats", "paw", "paws", "pet", "heart", "hearts",
+    "bow", "bows", "flower", "flowers", "rose", "golf", "golfer", "club",
+    "clubs", "ball", "bike", "bicycle", "motorcycle", "hotdog", "hotdogs",
+    "sausage", "teacher", "apple", "grandpa", "grandma", "dad", "mom",
+    "baby", "wedding", "bride", "groom", "mountain", "tree", "forest",
+    "fish", "fishing", "beer", "coffee", "book", "books", "sun", "moon",
+    "star", "stars", "skull", "cowboy", "horse", "truck", "tractor",
+})
+
+
+def _normalized_embroidery_tokens(value: Any, *, drop_generic: bool = False) -> list[str]:
+    tokens = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+    if drop_generic:
+        tokens = [
+            token
+            for token in tokens
+            if token not in _EMBROIDERY_COLOR_WORDS
+            and token not in _EMBROIDERY_GENERIC_WORDS
+        ]
+    return tokens
+
+
+def embroidery_signature(visual_context: dict[str, Any] | None) -> str | None:
+    """Return a color-invariant key for sharing Scout discovery across hat variants."""
+
+    context = dict(visual_context or {})
+    text_rows = [
+        " ".join(_normalized_embroidery_tokens(value))
+        for value in list(context.get("embroidery_text") or [])[:6]
+    ]
+    text_rows = sorted({value for value in text_rows if value})
+
+    semantic_blob = " ".join(
+        [
+            str(context.get("embroidery_identity") or ""),
+            str(context.get("summary") or ""),
+            *[str(value) for value in list(context.get("product_cues") or [])[:10]],
+        ]
+    )
+    semantic_tokens = _normalized_embroidery_tokens(
+        semantic_blob,
+        drop_generic=True,
+    )
+    motifs = sorted({
+        token for token in semantic_tokens if token in _EMBROIDERY_MOTIF_WORDS
+    })
+    identity_value = str(context.get("embroidery_identity") or "").strip()
+    identity_tokens = (
+        sorted(set(_normalized_embroidery_tokens(identity_value, drop_generic=True)))[:24]
+        if identity_value
+        else []
+    )
+
+    # Readable embroidery text is the strongest stable identity signal.
+    # Concrete motif tokens distinguish common same-wording designs without
+    # making the key sensitive to hat color or free-form scene wording. For
+    # text-free embroidery, the dedicated color-invariant identity is used;
+    # older analyzed rows fall back to their color-stripped semantic cues.
+    if text_rows:
+        payload = {
+            "text": text_rows,
+            "motifs": motifs,
+        }
+    else:
+        fallback_tokens = identity_tokens or sorted(set(semantic_tokens))[:24]
+        if not motifs and not fallback_tokens:
+            return None
+        payload = {
+            "text": [],
+            "motifs": motifs,
+            "identity": fallback_tokens,
+        }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _lock_embroidery_group(
+    session: Session,
+    *,
+    tenant_id: str,
+    signature: str,
+) -> None:
+    bind = session.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    digest = hashlib.sha256(f"{tenant_id}:{signature}".encode("utf-8")).digest()
+    lock_key = int.from_bytes(digest[:8], byteorder="big", signed=True)
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": lock_key},
+    )
+
+
+def _campaign_has_source_plan(
+    session: Session,
+    *,
+    tenant_id: str,
+    campaign_id: str,
+    exclude_plan_id: str | None = None,
+) -> bool:
+    statement = select(RrugcSourcePlanModel.id).where(
+        RrugcSourcePlanModel.tenant_id == tenant_id,
+        RrugcSourcePlanModel.campaign_id == campaign_id,
+    )
+    if exclude_plan_id:
+        statement = statement.where(RrugcSourcePlanModel.id != exclude_plan_id)
+    return session.scalar(statement.limit(1)) is not None
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _retire_source_campaign_if_unreferenced(
+    session: Session,
+    *,
+    tenant_id: str,
+    campaign_id: str | None,
+) -> None:
+    if not campaign_id or _campaign_has_source_plan(
+        session,
+        tenant_id=tenant_id,
+        campaign_id=campaign_id,
+    ):
+        return
+    campaign = session.scalar(
+        select(RrugcCampaignModel).where(
+            RrugcCampaignModel.tenant_id == tenant_id,
+            RrugcCampaignModel.id == campaign_id,
+        )
+    )
+    if campaign is None:
+        return
+    campaign.auto_scout = False
+    campaign.scan_next_at = None
+    now = datetime.now(timezone.utc)
+    lease_expires_at = _as_utc(campaign.scan_lease_expires_at)
+    active_lease = (
+        lease_expires_at is not None
+        and lease_expires_at > now
+    )
+    if not active_lease:
+        campaign.status = "archived"
+
+
+def _source_campaign_progress(
+    service: RrugcService,
+    campaign: RrugcCampaignModel,
+) -> int:
+    counts = service.repository.campaign_usable_counts(
+        campaign.tenant_id,
+        campaign.id,
+    )
+    return int(
+        counts.get("drive_ready", 0)
+        if campaign.auto_import
+        else counts.get("approved", 0)
+    )
+
+
+def _ensure_source_campaign_capacity(
+    service: RrugcService,
+    campaign: RrugcCampaignModel,
+) -> int:
+    campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
+    progress = _source_campaign_progress(service, campaign)
+    if progress >= RRUGC_SOURCE_TARGET_COUNT:
+        campaign.status = "completed"
+        campaign.scout_status = "ready"
+        campaign.scan_next_at = None
+    else:
+        campaign.status = "running"
+        campaign.auto_scout = True
+        campaign.completed_at = None
+        if campaign.scan_lease_expires_at is None:
+            campaign.scan_next_at = datetime.now(timezone.utc)
+    return progress
+
+
+def _reconcile_embroidery_groups(
+    session: Session,
+    *,
+    tenant_id: str,
+    root_folder_id: str,
+) -> None:
+    plans = list(
+        session.scalars(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.tenant_id == tenant_id,
+                RrugcSourcePlanModel.root_folder_id == root_folder_id,
+                RrugcSourcePlanModel.status == "ready",
+            )
+        )
+    )
+    groups: dict[str, list[RrugcSourcePlanModel]] = defaultdict(list)
+    service = RrugcService(session)
+    campaign_cache: dict[str, RrugcCampaignModel] = {}
+    for plan in plans:
+        if plan.campaign_id:
+            campaign = campaign_cache.get(plan.campaign_id)
+            if campaign is None:
+                campaign = session.scalar(
+                    select(RrugcCampaignModel).where(
+                        RrugcCampaignModel.tenant_id == tenant_id,
+                        RrugcCampaignModel.id == plan.campaign_id,
+                    )
+                )
+                if campaign is not None:
+                    campaign_cache[campaign.id] = campaign
+            if campaign is not None:
+                _ensure_source_campaign_capacity(service, campaign)
+                plan.target_count = RRUGC_SOURCE_TARGET_COUNT
+
+        if not plan.embroidery_signature and isinstance(plan.visual_context_json, dict):
+            plan.embroidery_signature = embroidery_signature(plan.visual_context_json)
+        if plan.embroidery_signature:
+            groups[plan.embroidery_signature].append(plan)
+
+    for signature, members in groups.items():
+        campaign_ids = sorted({
+            str(plan.campaign_id)
+            for plan in members
+            if plan.campaign_id
+        })
+        if not campaign_ids:
+            continue
+
+        campaigns = list(
+            session.scalars(
+                select(RrugcCampaignModel).where(
+                    RrugcCampaignModel.tenant_id == tenant_id,
+                    RrugcCampaignModel.id.in_(campaign_ids),
+                )
+            )
+        )
+        if not campaigns:
+            continue
+
+        _lock_embroidery_group(
+            session,
+            tenant_id=tenant_id,
+            signature=signature,
+        )
+        active_now = datetime.now(timezone.utc)
+        campaigns.sort(
+            key=lambda campaign: (
+                -int(
+                    (_as_utc(campaign.scan_lease_expires_at) or active_now)
+                    > active_now
+                    if campaign.scan_lease_expires_at is not None
+                    else False
+                ),
+                -_source_campaign_progress(service, campaign),
+                campaign.created_at,
+                campaign.id,
+            )
+        )
+        canonical = campaigns[0]
+        _ensure_source_campaign_capacity(service, canonical)
+
+        retired_ids: set[str] = set()
+        for plan in members:
+            if plan.campaign_id and plan.campaign_id != canonical.id:
+                retired_ids.add(plan.campaign_id)
+            plan.campaign_id = canonical.id
+            plan.target_count = RRUGC_SOURCE_TARGET_COUNT
+        session.flush()
+
+        for campaign_id in retired_ids:
+            _retire_source_campaign_if_unreferenced(
+                session,
+                tenant_id=tenant_id,
+                campaign_id=campaign_id,
+            )
+
 
 async def sync_source_plans(
     session: Session,
@@ -327,6 +623,7 @@ async def sync_source_plans(
                 plan.status = "queued"
                 plan.last_error_code = None
                 plan.visual_context_json = None
+                plan.embroidery_signature = None
                 plan.analyzed_at = None
                 updated += 1
             elif requires_context_upgrade:
@@ -334,6 +631,7 @@ async def sync_source_plans(
                 plan.status = "queued"
                 plan.last_error_code = None
                 plan.visual_context_json = None
+                plan.embroidery_signature = None
                 plan.analyzed_at = None
                 updated += 1
 
@@ -392,22 +690,31 @@ async def sync_source_plans(
         )
     )
     for plan in existing_plans:
-        if plan.source_file_id in seen_file_ids or plan.status == "missing":
+        if plan.source_file_id in seen_file_ids:
             continue
-        plan.status = "missing"
-        plan.last_error_code = "rrugc_source_missing"
-        missing += 1
-        if plan.campaign_id:
-            campaign = session.scalar(
-                select(RrugcCampaignModel).where(
-                    RrugcCampaignModel.tenant_id == tenant_id,
-                    RrugcCampaignModel.id == plan.campaign_id,
-                )
+
+        campaign_id = plan.campaign_id
+        session.execute(
+            delete(ProcessingJobModel).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.entity_type == "rrugc_source_plan",
+                ProcessingJobModel.entity_id == plan.id,
             )
-            if campaign is not None:
-                campaign.auto_scout = False
-                campaign.scan_next_at = None
-                campaign.status = "archived"
+        )
+        session.delete(plan)
+        session.flush()
+        missing += 1
+        _retire_source_campaign_if_unreferenced(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+        )
+
+    _reconcile_embroidery_groups(
+        session,
+        tenant_id=tenant_id,
+        root_folder_id=root_folder_id,
+    )
 
     session.commit()
     return SourcePlanSyncResult(
@@ -691,25 +998,67 @@ class RrugcSourcePlanAnalyzeJobHandler:
             ):
                 return JobHandlerResult.completed()
 
+            signature = embroidery_signature(visual_context)
+            old_campaign_id = plan.campaign_id
+            plan.embroidery_signature = signature
+            if signature:
+                _lock_embroidery_group(
+                    session,
+                    tenant_id=context.job.tenant_id,
+                    signature=signature,
+                )
+
+            shared_plan = None
+            if signature:
+                shared_plan = session.scalar(
+                    select(RrugcSourcePlanModel)
+                    .where(
+                        RrugcSourcePlanModel.tenant_id == context.job.tenant_id,
+                        RrugcSourcePlanModel.embroidery_signature == signature,
+                        RrugcSourcePlanModel.id != plan.id,
+                        RrugcSourcePlanModel.campaign_id.is_not(None),
+                        RrugcSourcePlanModel.status == "ready",
+                    )
+                    .order_by(
+                        RrugcSourcePlanModel.created_at.asc(),
+                        RrugcSourcePlanModel.id.asc(),
+                    )
+                    .limit(1)
+                )
+
+            service = RrugcService(session)
             campaign: RrugcCampaignModel | None = None
-            if plan.campaign_id:
+            shared_campaign = False
+            if shared_plan is not None and shared_plan.campaign_id:
                 campaign = session.scalar(
                     select(RrugcCampaignModel).where(
                         RrugcCampaignModel.tenant_id == context.job.tenant_id,
-                        RrugcCampaignModel.id == plan.campaign_id,
+                        RrugcCampaignModel.id == shared_plan.campaign_id,
                     )
                 )
                 if campaign is not None:
-                    campaign_revision = str(
-                        dict(campaign.product_snapshot_json or {}).get("revision") or ""
-                    )
-                    if campaign_revision and campaign_revision != plan.source_revision:
-                        campaign.auto_scout = False
-                        campaign.scan_next_at = None
-                        campaign.status = "archived"
-                        campaign = None
+                    shared_campaign = True
+                    plan.campaign_id = campaign.id
 
-            service = RrugcService(session)
+            if campaign is None and old_campaign_id:
+                old_campaign = session.scalar(
+                    select(RrugcCampaignModel).where(
+                        RrugcCampaignModel.tenant_id == context.job.tenant_id,
+                        RrugcCampaignModel.id == old_campaign_id,
+                    )
+                )
+                if (
+                    old_campaign is not None
+                    and not _campaign_has_source_plan(
+                        session,
+                        tenant_id=context.job.tenant_id,
+                        campaign_id=old_campaign.id,
+                        exclude_plan_id=plan.id,
+                    )
+                ):
+                    campaign = old_campaign
+                    plan.campaign_id = campaign.id
+
             if campaign is None:
                 campaign, _token = service.create_campaign(
                     tenant_id=context.job.tenant_id,
@@ -726,29 +1075,41 @@ class RrugcSourcePlanAnalyzeJobHandler:
                 )
                 plan.campaign_id = campaign.id
 
-            campaign.name = _source_campaign_name(plan)
-            campaign.discovery_mode = "product_context"
-            campaign.product_snapshot_json = product_snapshot
-            campaign.product_reference_snapshot_json = reference_snapshot
-            campaign.product_context_json = profile
-            campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
-            campaign.query = queries[0]
-            campaign.search_queries_json = queries
-            campaign.search_query_anchors_json = anchors
-            campaign.auto_import = True
-            campaign.auto_scout = True
-            campaign.scan_next_at = datetime.now(timezone.utc)
-            campaign.scan_empty_streak = 0
-            campaign.scan_failure_streak = 0
-            campaign.scan_last_error_code = None
-            campaign.status = "running"
-            service.refresh_campaign_discovery(campaign, commit=False)
+            if shared_campaign:
+                _ensure_source_campaign_capacity(service, campaign)
+            else:
+                campaign.name = _source_campaign_name(plan)
+                campaign.discovery_mode = "product_context"
+                campaign.product_snapshot_json = product_snapshot
+                campaign.product_reference_snapshot_json = reference_snapshot
+                campaign.product_context_json = profile
+                campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
+                campaign.query = queries[0]
+                campaign.search_queries_json = queries
+                campaign.search_query_anchors_json = anchors
+                campaign.auto_import = True
+                campaign.auto_scout = True
+                campaign.scan_next_at = datetime.now(timezone.utc)
+                campaign.scan_empty_streak = 0
+                campaign.scan_failure_streak = 0
+                campaign.scan_last_error_code = None
+                campaign.status = "running"
+                campaign.completed_at = None
+                service.refresh_campaign_discovery(campaign, commit=False)
 
             plan.visual_context_json = visual_context
             plan.target_count = RRUGC_SOURCE_TARGET_COUNT
             plan.status = "ready"
             plan.last_error_code = None
             plan.analyzed_at = datetime.now(timezone.utc)
+            session.flush()
+
+            if old_campaign_id and old_campaign_id != plan.campaign_id:
+                _retire_source_campaign_if_unreferenced(
+                    session,
+                    tenant_id=context.job.tenant_id,
+                    campaign_id=old_campaign_id,
+                )
             session.commit()
 
         return JobHandlerResult.completed()

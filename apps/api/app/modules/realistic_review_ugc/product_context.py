@@ -37,6 +37,7 @@ class ProductVisualContextDocument(BaseModel):
 
     themes: list[ProductContextTheme] = Field(default_factory=list, max_length=6)
     embroidery_text: list[str] = Field(default_factory=list, max_length=6)
+    embroidery_identity: str | None = Field(default=None, max_length=300)
     scene_hints: list[str] = Field(default_factory=list, max_length=8)
     audience_hints: list[str] = Field(default_factory=list, max_length=6)
     occasion_hints: list[str] = Field(default_factory=list, max_length=6)
@@ -832,6 +833,9 @@ Guidance:
 - embroidery_text: transcribe only clearly visible embroidered wording verbatim, preserving word order.
   Use one list item per distinct phrase. Do not paraphrase, infer missing letters, or include decorative symbols alone.
   Leave empty when no readable embroidered text is visible.
+- embroidery_identity: a concise description of the embroidery/artwork itself that is stable across product color variants.
+  Include wording, icon/motif, composition and distinctive layout when visible. Ignore hat/fabric/background color,
+  lighting and generic cap construction. This field is used to group the same embroidery across different hat colors.
 - scene_hints: short Pinterest-search scene concepts, 2-6 words each, such as
   "dog owner park", "dad bike ride", "teacher classroom", "couple weekend outing".
   Describe likely lifestyle context, not studio product photography.
@@ -898,6 +902,7 @@ def merge_product_visual_context(
             "status": "not_analyzed",
             "themes": [],
             "embroidery_text": [],
+            "embroidery_identity": None,
             "scene_hints": [],
             "audience_hints": [],
             "occasion_hints": [],
@@ -915,6 +920,7 @@ def merge_product_visual_context(
 
     theme_scores: dict[str, float] = {}
     embroidery_text_rows: list[str] = []
+    embroidery_identity_rows: list[tuple[float, str]] = []
     scene_rows: list[str] = []
     audience_rows: list[str] = []
     occasion_rows: list[str] = []
@@ -933,6 +939,9 @@ def merge_product_visual_context(
         for theme in document.themes:
             theme_scores[theme] = theme_scores.get(theme, 0.0) + max(0.15, confidence)
         embroidery_text_rows.extend(document.embroidery_text)
+        embroidery_identity = str(document.embroidery_identity or "").strip()
+        if embroidery_identity:
+            embroidery_identity_rows.append((confidence, embroidery_identity))
         scene_rows.extend(document.scene_hints)
         audience_rows.extend(document.audience_hints)
         occasion_rows.extend(document.occasion_hints)
@@ -960,11 +969,17 @@ def merge_product_visual_context(
         )
     ][:6]
     summaries.sort(key=lambda item: -item[0])
+    embroidery_identity_rows.sort(key=lambda item: -item[0])
 
     return {
         "status": "ready",
         "themes": ranked_themes,
         "embroidery_text": _clean_list(embroidery_text_rows, limit=6),
+        "embroidery_identity": (
+            embroidery_identity_rows[0][1][:300]
+            if embroidery_identity_rows
+            else None
+        ),
         "scene_hints": _clean_list(scene_rows, limit=8),
         "audience_hints": _clean_list(audience_rows, limit=6),
         "occasion_hints": _clean_list(occasion_rows, limit=6),

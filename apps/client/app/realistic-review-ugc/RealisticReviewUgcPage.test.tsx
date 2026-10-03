@@ -32,10 +32,14 @@ function makePlan(referenceCount = 0): SourcePlan {
     source_preview_url: "/api/v1/realistic-review-ugc/source-plans/plan-1/image",
     source_revision: "rev-1",
     analysis_revision: 1,
-    target_count: 20,
+    embroidery_signature: "signature-hotdog",
+    embroidery_group_size: 3,
+    target_count: 50,
     status: "ready",
     visual_context: {
       themes: ["summer", "funny food"],
+      embroidery_text: ["Bad Day To Be A Hotdog"],
+      embroidery_identity: "Bad Day To Be A Hotdog wording with hotdog motif",
       scene_hints: ["backyard cookout"],
       summary: "Playful cookout context",
     },
@@ -45,7 +49,7 @@ function makePlan(referenceCount = 0): SourcePlan {
     scout_status: "ready",
     auto_scout: true,
     search_queries: ["friends backyard cookout wearing caps"],
-    progress_count: Math.min(referenceCount, 20),
+    progress_count: Math.min(referenceCount, 50),
     pipeline_count: 2,
     candidate_count: referenceCount,
     approved_count: referenceCount,
@@ -140,12 +144,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("is-rejected");
     expect(markup).toContain("Unrated = usable");
     expect(markup).toContain("train negative");
+    expect(markup).toContain("Shared refs · 3 colors");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
   });
 
   it("keeps progress capped at 100 percent when refs exceed the target", () => {
-    expect(sourcePlanProgressPercent({ progress_count: 30, target_count: 20 })).toBe(100);
+    expect(sourcePlanProgressPercent({ progress_count: 60, target_count: 50 })).toBe(100);
   });
 
   it("requires the text-aware context-first v14 Scout client", () => {

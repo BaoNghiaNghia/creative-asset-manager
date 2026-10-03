@@ -26,6 +26,7 @@ export type ProductContextProfile = {
     status: "not_analyzed" | "ready" | "stale" | string;
     themes?: string[];
     embroidery_text?: string[];
+    embroidery_identity?: string | null;
     scene_hints?: string[];
     audience_hints?: string[];
     occasion_hints?: string[];
@@ -169,12 +170,15 @@ export type SourcePlan = {
   source_preview_url: string;
   source_revision: string;
   analysis_revision: number;
+  embroidery_signature: string | null;
+  embroidery_group_size: number;
   target_count: number;
   status: "queued" | "analyzing" | "ready" | "retry" | "failed" | "missing" | string;
   visual_context: {
     status?: string;
     themes?: string[];
     embroidery_text?: string[];
+    embroidery_identity?: string | null;
     scene_hints?: string[];
     audience_hints?: string[];
     occasion_hints?: string[];

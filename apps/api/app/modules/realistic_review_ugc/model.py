@@ -122,6 +122,11 @@ class RrugcSourcePlanModel(Base):
             "tenant_id",
             "campaign_id",
         ),
+        Index(
+            "ix_rrugc_source_plan_embroidery_signature",
+            "tenant_id",
+            "embroidery_signature",
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -141,7 +146,8 @@ class RrugcSourcePlanModel(Base):
     source_web_url: Mapped[str | None] = mapped_column(Text)
     source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
     analysis_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    embroidery_signature: Mapped[str | None] = mapped_column(String(64))
+    target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     visual_context_json: Mapped[dict | None] = mapped_column(JSON)
     campaign_id: Mapped[str | None] = mapped_column(String(36))

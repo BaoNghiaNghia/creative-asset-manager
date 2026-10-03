@@ -2462,6 +2462,7 @@ def _source_plan_response(
     counts: Counter | None = None,
     excluded_counts: Counter | None = None,
     previews: list[RrugcCandidateModel] | None = None,
+    embroidery_group_size: int = 1,
 ) -> SourcePlanResponse:
     campaign_counts = counts or Counter()
     campaign_excluded_counts = excluded_counts or Counter()
@@ -2513,6 +2514,8 @@ def _source_plan_response(
         ),
         source_revision=row.source_revision,
         analysis_revision=row.analysis_revision,
+        embroidery_signature=row.embroidery_signature,
+        embroidery_group_size=max(1, int(embroidery_group_size)),
         target_count=row.target_count,
         status=row.status,
         visual_context=dict(row.visual_context_json or {}) or None,
@@ -2587,6 +2590,7 @@ def get_source_plans(
     counts_by_campaign: dict[str, Counter] = {}
     excluded_counts_by_campaign: dict[str, Counter] = {}
     previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
+    group_sizes_by_campaign: dict[str, int] = {}
     if campaign_ids:
         campaigns = {
             row.id: row
@@ -2596,6 +2600,21 @@ def get_source_plans(
                     RrugcCampaignModel.id.in_(campaign_ids),
                 )
             )
+        }
+        group_sizes_by_campaign = {
+            campaign_id: int(count)
+            for campaign_id, count in session.execute(
+                select(
+                    RrugcSourcePlanModel.campaign_id,
+                    func.count(RrugcSourcePlanModel.id),
+                )
+                .where(
+                    RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+                    RrugcSourcePlanModel.campaign_id.in_(campaign_ids),
+                )
+                .group_by(RrugcSourcePlanModel.campaign_id)
+            )
+            if campaign_id
         }
         for campaign_id, status, count in session.execute(
             select(
@@ -2648,6 +2667,10 @@ def get_source_plans(
                 Counter(),
             ),
             previews=previews_by_campaign.get(row.campaign_id or "", []),
+            embroidery_group_size=group_sizes_by_campaign.get(
+                row.campaign_id or "",
+                1,
+            ),
         )
         for row in plans
     ]

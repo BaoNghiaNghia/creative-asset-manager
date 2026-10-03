@@ -432,6 +432,8 @@ class SourcePlanResponse(BaseModel):
     source_preview_url: str
     source_revision: str
     analysis_revision: int
+    embroidery_signature: str | None = None
+    embroidery_group_size: int = 1
     target_count: int
     status: str
     visual_context: dict | None = None
@@ -464,7 +466,7 @@ class SourcePlanPageResponse(BaseModel):
 
 class SourcePlanSyncResponse(BaseModel):
     root_folder_id: str
-    target_count: int = 20
+    target_count: int = 50
     folders_scanned: int
     images_found: int
     plans_created: int
