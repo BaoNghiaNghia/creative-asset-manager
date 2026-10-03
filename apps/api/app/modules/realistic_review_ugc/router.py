@@ -43,6 +43,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
+    RrugcStage2JobModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
@@ -184,6 +185,9 @@ from app.modules.realistic_review_ugc.schema import (
     SourcePlanResponse,
     SourcePlanPageResponse,
     SourcePlanSyncResponse,
+    Stage2JobCreateRequest,
+    Stage2JobCreatedResponse,
+    Stage2JobResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -205,6 +209,10 @@ from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
     campaign_token_matches,
+)
+from app.modules.realistic_review_ugc.stage2 import (
+    RrugcStage2Error,
+    RrugcStage2Service,
 )
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_TARGET_COUNT,
@@ -828,6 +836,40 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
         catalog_asset_id=row.catalog_asset_id,
         exported_by_user_id=row.exported_by_user_id,
         exported_at=row.exported_at,
+        last_error_code=row.last_error_code,
+        last_error_message=row.last_error_message,
+        queued_at=row.queued_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+
+def _stage2_job(row: RrugcStage2JobModel) -> Stage2JobResponse:
+    selected_ids = [
+        str(value)
+        for value in (row.selected_candidate_ids_json or [])
+        if str(value).strip()
+    ]
+    return Stage2JobResponse(
+        id=row.id,
+        source_plan_id=row.source_plan_id,
+        campaign_id=row.campaign_id,
+        source_revision=row.source_revision,
+        skill_name=row.skill_name,
+        selected_candidate_ids=selected_ids,
+        reference_count=len(selected_ids),
+        status=row.status,
+        processing_job_id=row.processing_job_id,
+        provider_request_id=row.provider_request_id,
+        output_content_type=row.output_content_type,
+        output_size_bytes=row.output_size_bytes,
+        output_width=row.output_width,
+        output_height=row.output_height,
+        output_remote_file_id=row.output_remote_file_id,
+        output_web_url=row.output_web_url,
         last_error_code=row.last_error_code,
         last_error_message=row.last_error_message,
         queued_at=row.queued_at,
@@ -2901,6 +2943,113 @@ async def get_source_plan_image(
             "Cache-Control": "private, max-age=3600",
             "ETag": f'"{source_revision}"',
         },
+    )
+
+
+
+@router.get("/stage2-jobs", response_model=list[Stage2JobResponse])
+def list_stage2_jobs(
+    source_plan_id: str | None = Query(default=None, max_length=36),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    return [
+        _stage2_job(row)
+        for row in RrugcRepository(session).list_stage2_jobs(
+            principal.active_tenant_id,
+            source_plan_id=source_plan_id,
+            limit=limit,
+        )
+    ]
+
+
+@router.post(
+    "/source-plans/{source_plan_id}/stage2-jobs",
+    response_model=Stage2JobCreatedResponse,
+    status_code=202,
+)
+def create_stage2_job(
+    source_plan_id: str,
+    request: Stage2JobCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, created = RrugcStage2Service(session).create_job(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            source_plan_id=source_plan_id,
+            selected_candidate_ids=request.selected_candidate_ids,
+            skill_name=request.skill_name,
+            prompt=request.prompt,
+        )
+    except RrugcStage2Error as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2JobCreatedResponse(created=created, job=_stage2_job(row))
+
+
+@router.get("/stage2-jobs/{stage2_job_id}/output")
+async def get_stage2_job_output(
+    stage2_job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    row = RrugcRepository(session).get_stage2_job(
+        principal.active_tenant_id,
+        stage2_job_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage 2 job not found")
+    if row.status != "completed" or not row.output_remote_file_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "stage2_output_not_ready",
+                "message": "Stage 2 generated output is not ready.",
+            },
+        )
+    output_remote_file_id = row.output_remote_file_id
+    output_content_type = row.output_content_type
+    output_size_bytes = row.output_size_bytes
+    row_id = row.id
+    session.close()
+
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "managed_storage_unavailable",
+                "message": "Managed Google Drive is unavailable.",
+            },
+        )
+    try:
+        stream = await storage.open_asset(
+            OpenStoredAssetInput(
+                tenant_id=principal.active_tenant_id,
+                asset_id=f"rrugc-stage2:{row_id}",
+                remote_file_id=output_remote_file_id,
+                content_type=output_content_type,
+                size_bytes=output_size_bytes,
+            )
+        )
+    except StorageProviderError as exc:
+        raise HTTPException(
+            status_code=503 if exc.retryable else 502,
+            detail={
+                "code": exc.code,
+                "message": "Stage 2 generated output could not be opened.",
+            },
+        ) from exc
+    return StreamingResponse(
+        stream.body,
+        media_type=output_content_type or stream.content_type,
+        background=BackgroundTask(stream.close),
+        headers={"Cache-Control": "private, max-age=300"},
     )
 
 

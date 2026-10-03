@@ -30,6 +30,7 @@ class JobType(str, Enum):
     RRUGC_CANDIDATE_ANALYZE = "rrugc_candidate_analyze"
     RRUGC_CANDIDATE_IMPORT = "rrugc_candidate_import"
     RRUGC_GENERATE = "rrugc_generate"
+    RRUGC_STAGE2_GENERATE = "rrugc_stage2_generate"
     RRUGC_SUPERVISOR_QA = "rrugc_supervisor_qa"
     RRUGC_DELIVERY_MAINTENANCE = "rrugc_delivery_maintenance"
 

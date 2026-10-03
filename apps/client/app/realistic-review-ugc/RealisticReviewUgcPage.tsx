@@ -3,7 +3,9 @@ import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
+  createStage2Job,
   listSourcePlans,
+  listStage2Jobs,
   markCandidateReferenceFeedback,
   syncSourcePlans,
   type SourcePlanSortBy,
@@ -11,7 +13,8 @@ import {
 } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { SourcePlanTable } from "./SourcePlanTable";
-import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview } from "./types";
+import { Stage2JobTable } from "./Stage2JobTable";
+import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job } from "./types";
 import "./ui-overhaul.css";
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
@@ -32,6 +35,9 @@ export function RealisticReviewUgcPage() {
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
   const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
+  const [stage2Jobs, setStage2Jobs] = useState<Stage2Job[]>([]);
+  const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
+  const [stage2Message, setStage2Message] = useState("");
   const [error, setError] = useState("");
 
   const sourcePageCount = useMemo(
@@ -51,6 +57,34 @@ export function RealisticReviewUgcPage() {
       signal,
     );
     setSourcePage(result);
+  }
+
+  async function refreshStage2Jobs(signal?: AbortSignal) {
+    setStage2Jobs(await listStage2Jobs(undefined, signal));
+  }
+
+  async function queueStage2Job(plan: SourcePlan, candidateIds: string[]) {
+    if (creatingStage2PlanIds.has(plan.id) || candidateIds.length === 0) return;
+    setCreatingStage2PlanIds(current => new Set(current).add(plan.id));
+    setStage2Message("");
+    setError("");
+    try {
+      const result = await createStage2Job(plan.id, candidateIds);
+      setStage2Message(
+        result.created
+          ? "Stage 2 job queued with " + candidateIds.length + " Pinterest refs. The master will appear when the skill finishes."
+          : "An identical Stage 2 job already exists; showing its current status.",
+      );
+      await refreshStage2Jobs();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to queue Stage 2 generation.");
+    } finally {
+      setCreatingStage2PlanIds(current => {
+        const next = new Set(current);
+        next.delete(plan.id);
+        return next;
+      });
+    }
   }
 
   async function syncDriveSourcePlans() {
@@ -170,6 +204,22 @@ export function RealisticReviewUgcPage() {
     };
   }, [sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshStage2Jobs(controller.signal).catch(reason => {
+      if (!controller.signal.aborted) {
+        setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 jobs.");
+      }
+    });
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refreshStage2Jobs().catch(() => undefined);
+    }, 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, []);
+
   return <main className="rrugc-shell rrugc-source-first-shell">
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>UGC reference automation</small></span></div>
@@ -217,6 +267,14 @@ export function RealisticReviewUgcPage() {
             setSourceSortDirection(value);
           }}
           onSetReferenceFeedback={(plan, reference, label) => void setSourceReferenceFeedback(plan, reference, label)}
+        />
+
+        <Stage2JobTable
+          plans={sourcePage.items}
+          jobs={stage2Jobs}
+          creatingPlanIds={creatingStage2PlanIds}
+          message={stage2Message}
+          onCreateJob={(plan, candidateIds) => void queueStage2Job(plan, candidateIds)}
         />
       </div>
     </section>

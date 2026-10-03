@@ -570,6 +570,61 @@ class ScoutClaimResponse(BaseModel):
     related_seeds: list[ScoutRelatedSeed] = Field(default_factory=list)
 
 
+
+class Stage2JobCreateRequest(BaseModel):
+    selected_candidate_ids: list[str] = Field(min_length=1, max_length=10)
+    skill_name: str | None = Field(default=None, min_length=1, max_length=128)
+    prompt: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_selected_candidates(self):
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in self.selected_candidate_ids:
+            value = str(raw or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            cleaned.append(value)
+        if not cleaned:
+            raise ValueError("Pick at least one Pinterest reference")
+        if len(cleaned) > 10:
+            raise ValueError("Pick at most 10 Pinterest references")
+        self.selected_candidate_ids = cleaned
+        return self
+
+
+class Stage2JobResponse(BaseModel):
+    id: str
+    source_plan_id: str
+    campaign_id: str
+    source_revision: str
+    skill_name: str
+    selected_candidate_ids: list[str] = Field(default_factory=list)
+    reference_count: int = 0
+    status: Literal["queued", "running", "completed", "failed"]
+    processing_job_id: str | None = None
+    provider_request_id: str | None = None
+    output_content_type: str | None = None
+    output_size_bytes: int | None = None
+    output_width: int | None = None
+    output_height: int | None = None
+    output_remote_file_id: str | None = None
+    output_web_url: str | None = None
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    queued_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class Stage2JobCreatedResponse(BaseModel):
+    created: bool
+    job: Stage2JobResponse
+
+
 class ScoutRunCompleteRequest(BaseModel):
     status: Literal["completed", "needs_login", "failed"]
     error_code: str | None = Field(default=None, max_length=100)

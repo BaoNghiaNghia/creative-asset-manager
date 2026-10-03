@@ -11,6 +11,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcVisualFingerprintModel,
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
+    RrugcStage2JobModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
@@ -1177,6 +1178,67 @@ class RrugcRepository:
             .where(
                 RrugcCampaignModel.tenant_id == tenant_id,
                 RrugcCampaignModel.id == campaign_id,
+            )
+            .with_for_update()
+        )
+
+    def stage2_job_by_key(
+        self,
+        tenant_id: str,
+        idempotency_key: str,
+    ) -> RrugcStage2JobModel | None:
+        return self.session.scalar(
+            select(RrugcStage2JobModel).where(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.idempotency_key == idempotency_key,
+            )
+        )
+
+    def list_stage2_jobs(
+        self,
+        tenant_id: str,
+        *,
+        source_plan_id: str | None = None,
+        limit: int = 200,
+    ) -> list[RrugcStage2JobModel]:
+        statement = select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id
+        )
+        if source_plan_id:
+            statement = statement.where(
+                RrugcStage2JobModel.source_plan_id == source_plan_id
+            )
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    RrugcStage2JobModel.created_at.desc(),
+                    RrugcStage2JobModel.id.desc(),
+                ).limit(limit)
+            )
+        )
+
+    def get_stage2_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+    ) -> RrugcStage2JobModel | None:
+        return self.session.scalar(
+            select(RrugcStage2JobModel).where(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.id == job_id,
+            )
+        )
+
+    def lock_stage2_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+    ) -> RrugcStage2JobModel | None:
+        return self.session.scalar(
+            select(RrugcStage2JobModel)
+            .where(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.id == job_id,
             )
             .with_for_update()
         )

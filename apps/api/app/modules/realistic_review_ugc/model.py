@@ -779,6 +779,77 @@ class RrugcAiFeedbackModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class RrugcStage2JobModel(Base):
+    __tablename__ = "rrugc_stage2_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source_plan_id"],
+            ["rrugc_source_plans.id"],
+            name="fk_rrugc_stage2_job_source_plan",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "campaign_id"],
+            ["rrugc_campaigns.tenant_id", "rrugc_campaigns.id"],
+            name="fk_rrugc_stage2_job_campaign",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_rrugc_stage2_job_idempotency",
+        ),
+        Index(
+            "ix_rrugc_stage2_job_source_created",
+            "tenant_id",
+            "source_plan_id",
+            "created_at",
+        ),
+        Index(
+            "ix_rrugc_stage2_job_status_created",
+            "tenant_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    selected_candidate_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    selected_reference_snapshot_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    prompt_text: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    provider_request_id: Mapped[str | None] = mapped_column(String(255))
+    output_content_hash: Mapped[str | None] = mapped_column(String(64))
+    output_content_type: Mapped[str | None] = mapped_column(String(128))
+    output_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    output_width: Mapped[int | None] = mapped_column(Integer)
+    output_height: Mapped[int | None] = mapped_column(Integer)
+    output_remote_file_id: Mapped[str | None] = mapped_column(String(255))
+    output_remote_folder_id: Mapped[str | None] = mapped_column(String(255))
+    output_web_url: Mapped[str | None] = mapped_column(Text)
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class RrugcGenerationAttemptModel(Base):
     __tablename__ = "rrugc_generation_attempts"
     __table_args__ = (

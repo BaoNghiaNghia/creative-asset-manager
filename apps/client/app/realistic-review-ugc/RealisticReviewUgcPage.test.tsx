@@ -8,6 +8,7 @@ import {
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
 import { RealisticReviewUgcPage } from "./RealisticReviewUgcPage";
+import { Stage2JobTable } from "./Stage2JobTable";
 import {
   ReferenceReviewModal,
   SourcePlanTable,
@@ -110,6 +111,22 @@ function makePlan(referenceCount = 0): SourcePlan {
 }
 
 describe("Realistic Review UGC source-first workspace", () => {
+  it("renders Stage 2 as a max-10 Pinterest ref skill job table", () => {
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[makePlan(12)]}
+        jobs={[]}
+        creatingPlanIds={new Set()}
+        onCreateJob={() => undefined}
+      />,
+    );
+    expect(markup).toContain("STAGE 2");
+    expect(markup).toContain("Max 10 refs / job");
+    expect(markup).toContain("$gatorhats-8869-image-studio");
+    expect(markup).toContain("11 Drive-ready refs available");
+    expect(markup).toContain("Generate master");
+  });
+
   it("routes the dedicated top-level workspace", () => {
     expect(routeForPath("/realistic-review-ugc")).toBe("realistic-review-ugc");
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");

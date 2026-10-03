@@ -228,6 +228,37 @@ export type SourcePlanPage = {
   total: number;
 };
 
+export type Stage2Job = {
+  id: string;
+  source_plan_id: string;
+  campaign_id: string;
+  source_revision: string;
+  skill_name: string;
+  selected_candidate_ids: string[];
+  reference_count: number;
+  status: "queued" | "running" | "completed" | "failed";
+  processing_job_id: string | null;
+  provider_request_id: string | null;
+  output_content_type: string | null;
+  output_size_bytes: number | null;
+  output_width: number | null;
+  output_height: number | null;
+  output_remote_file_id: string | null;
+  output_web_url: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Stage2JobCreated = {
+  created: boolean;
+  job: Stage2Job;
+};
+
 export type SourcePlanSyncResult = {
   root_folder_id: string;
   target_count: number;

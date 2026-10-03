@@ -40,6 +40,8 @@ import type {
   ScoutRun,
   SourcePlanPage,
   SourcePlanSyncResult,
+  Stage2Job,
+  Stage2JobCreated,
   SupervisorResult,
 } from "./types";
 
@@ -237,6 +239,42 @@ export const archiveScoutAgent = (agentId: string) =>
     "/api/v1/realistic-review-ugc/scout-agents/" + encodeURIComponent(agentId),
     { method: "DELETE" },
   );
+
+export const listStage2Jobs = (
+  sourcePlanId?: string,
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200" });
+  if (sourcePlanId) params.set("source_plan_id", sourcePlanId);
+  return request<Stage2Job[]>(
+    "/api/v1/realistic-review-ugc/stage2-jobs?" + params.toString(),
+    { signal },
+  );
+};
+
+export const createStage2Job = (
+  sourcePlanId: string,
+  selectedCandidateIds: string[],
+  prompt?: string,
+) =>
+  request<Stage2JobCreated>(
+    "/api/v1/realistic-review-ugc/source-plans/"
+      + encodeURIComponent(sourcePlanId)
+      + "/stage2-jobs",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        selected_candidate_ids: selectedCandidateIds,
+        skill_name: "gatorhats-8869-image-studio",
+        ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
+      }),
+    },
+  );
+
+export const stage2JobOutputUrl = (jobId: string) =>
+  "/api/v1/realistic-review-ugc/stage2-jobs/"
+  + encodeURIComponent(jobId)
+  + "/output";
 
 export const listScoutRuns = (
   campaignId?: string,

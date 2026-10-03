@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings
 from app.core.database import get_db
 from app.domain.processing.handlers import (
     ClaimedJob,
@@ -67,12 +68,14 @@ from app.modules.realistic_review_ugc.keyword_strategy import (
 from app.modules.realistic_review_ugc.generation import RrugcGenerationFoundation
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
+from app.modules.realistic_review_ugc.stage2 import RrugcStage2Error, RrugcStage2Service
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcVisualFingerprintModel,
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
+    RrugcStage2JobModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
@@ -177,6 +180,7 @@ def database():
     RrugcVisualFingerprintModel.__table__.create(engine)
     RrugcAiFeedbackModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
+    RrugcStage2JobModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
     RrugcReviewTaskModel.__table__.create(engine)
     AssetModel.__table__.create(engine)
@@ -998,6 +1002,104 @@ def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
         assert row["source_plan_ready"] is True
         assert row["source_plan_statuses"] == {"ready": 1}
         assert diagnostics["claimable"] == 1
+
+
+def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database):
+    codex_home = (Path(__file__).resolve().parents[5] / "deploy" / "codex").resolve()
+    settings = Settings(
+        CODEX_IMAGE_HOME=str(codex_home),
+        CODEX_IMAGE_GENERATION_ENABLED=True,
+        IMAGE_GENERATION_ENABLED=True,
+        MANAGED_ASSET_STORAGE_ENABLED=True,
+    )
+    with database() as session:
+        campaign, _token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Stage 2 embroidery",
+            query="embroidered hat context",
+            search_queries=["embroidered hat context"],
+            target_count=50,
+            max_scroll_batches=3,
+            auto_import=True,
+            auto_scout=True,
+        )
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id="root",
+            source_file_id="source-stage2",
+            source_relative_path="Hats/design.png",
+            source_name="design.png",
+            source_mime_type="image/png",
+            source_size_bytes=1024,
+            source_revision="c" * 64,
+            analysis_revision=1,
+            embroidery_signature="d" * 64,
+            status="ready",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        session.add(plan)
+        session.flush()
+
+        candidates = []
+        for index in range(11):
+            candidate = RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                source_key=f"stage2-{index}",
+                pin_url=f"https://www.pinterest.com/pin/{1000 + index}/",
+                image_url=f"https://i.pinimg.com/736x/ref-{index}.jpg",
+                status="drive_ready",
+                image_format="JPEG",
+                remote_file_id=f"drive-ref-{index}",
+                content_hash=f"{index + 1:064x}",
+                ai_signal_json={"reference_manual_label": "good"},
+            )
+            session.add(candidate)
+            candidates.append(candidate)
+        session.commit()
+
+        service = RrugcStage2Service(session, settings)
+        selected = [row.id for row in candidates[:3]]
+        row, created = service.create_job(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            source_plan_id=plan.id,
+            selected_candidate_ids=selected,
+        )
+
+        assert created is True
+        assert row.skill_name == "gatorhats-8869-image-studio"
+        assert row.status == "queued"
+        assert row.selected_candidate_ids_json == selected
+        assert len(row.selected_reference_snapshot_json) == 3
+        assert all(
+            item["remote_file_id"].startswith("drive-ref-")
+            for item in row.selected_reference_snapshot_json
+        )
+        processing_job = session.get(ProcessingJobModel, row.processing_job_id)
+        assert processing_job is not None
+        assert processing_job.job_type == "rrugc_stage2_generate"
+        assert processing_job.entity_id == row.id
+
+        same, duplicate_created = service.create_job(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            source_plan_id=plan.id,
+            selected_candidate_ids=selected,
+        )
+        assert duplicate_created is False
+        assert same.id == row.id
+
+        with pytest.raises(RrugcStage2Error) as exc:
+            service.create_job(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                source_plan_id=plan.id,
+                selected_candidate_ids=[candidate.id for candidate in candidates],
+            )
+        assert exc.value.code == "stage2_reference_limit_exceeded"
 
 
 def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):
