@@ -1,5 +1,9 @@
 from app.modules.realistic_review_ugc.analysis import (
+    ReferenceAnalysisDocument,
+    ReferenceFilterPolicy,
     analysis_prompt,
+    evaluate_reference,
+    hand_holding_hat_context_active,
     product_context_matching_active,
 )
 from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
@@ -132,6 +136,117 @@ def test_visual_embroidery_text_builds_dedicated_text_search_cluster():
         "Bad Day To Be A Hotdog photo",
         "text_match",
     ) in product_context_search_queries(profile)
+
+
+def test_hat_product_adds_hand_holding_reference_context_and_queries():
+    product = {
+        "id": "whiskey-cap",
+        "revision": 1,
+        "name": "Whiskey Hell Bound",
+        "product_type": "trucker hat",
+        "source_category": "embroidered cap",
+    }
+    visual = {
+        "status": "ready",
+        "binding_fingerprint": product_visual_binding_fingerprint(product, None),
+        "themes": [],
+        "embroidery_text": ["WHISKEY HELL BOUND"],
+        "scene_hints": [],
+        "audience_hints": [],
+        "occasion_hints": [],
+        "product_cues": ["front embroidery"],
+        "avoid_hints": [],
+        "confidence": 0.95,
+        "summary": "Readable front embroidery.",
+    }
+
+    profile = derive_product_context_profile(
+        product_snapshot=product,
+        config={"auto_context": True, "visual_context": visual},
+    )
+
+    assert profile["reference_contexts"] == ["hand_holding_hat"]
+    hand_queries = profile["search_clusters"]["hand_holding_hat"]
+    assert hand_queries
+    assert hand_queries[0] == (
+        "WHISKEY HELL BOUND embroidered hat held in hand front view"
+    )
+    assert any("hand holding" in query.casefold() for query in hand_queries)
+    contextual = product_context_search_queries(profile)
+    assert (
+        "WHISKEY HELL BOUND embroidered hat held in hand front view",
+        "hand_holding_hat",
+    ) in contextual
+    wrapped = {**product, "discovery_context": profile}
+    assert hand_holding_hat_context_active(wrapped) is True
+    assert "hand_visible" in analysis_prompt(wrapped)
+    assert "hat_held_in_hand" in analysis_prompt(wrapped)
+
+
+def test_non_hat_product_does_not_add_hand_holding_hat_context():
+    profile = derive_product_context_profile(
+        product_snapshot={
+            "name": "Personalized canvas tote",
+            "product_type": "tote bag",
+            "source_category": "embroidered bag",
+        },
+        config={"auto_context": True},
+    )
+
+    assert profile["reference_contexts"] == []
+    assert profile["search_clusters"]["hand_holding_hat"] == []
+
+
+def test_hand_held_hat_reference_can_pass_without_visible_head():
+    document = ReferenceAnalysisDocument(
+        people_count=0,
+        primary_head_ratio=None,
+        smile_score=0.0,
+        head_visible=False,
+        existing_headwear=False,
+        head_occlusion=0.0,
+        mobile_ugc_score=0.9,
+        phone_authenticity_score=0.9,
+        artistic_editorial_risk=0.05,
+        quality_score=0.9,
+        ai_risk_score=0.05,
+        ai_detector_confidence=0.9,
+        product_fit_score=0.95,
+        hand_visible=True,
+        hat_held_in_hand=True,
+        front_panel_visible=True,
+        embroidery_visible=True,
+        context_match_score=0.95,
+        context_match_evidence=[
+            "A hand holds one hat toward the camera.",
+            "The front embroidery is readable.",
+        ],
+        product_shape_score=0.9,
+        scene_type="home",
+        framing_type="product_close",
+        camera_angle="eye_level",
+        pose_type="product_in_hand",
+        summary="Realistic hand-held hat photo with clear front embroidery.",
+    )
+    policy = ReferenceFilterPolicy()
+
+    rejected = evaluate_reference(
+        document,
+        policy,
+        context_matching_required=True,
+        allow_hand_held_hat=False,
+    )
+    accepted = evaluate_reference(
+        document,
+        policy,
+        context_matching_required=True,
+        allow_hand_held_hat=True,
+    )
+
+    assert rejected.status == "rejected_no_person"
+    assert accepted.status == "approved"
+    assert accepted.reject_reason is None
+
 
 
 def test_product_context_detects_pet_owner_and_builds_scene_clusters():

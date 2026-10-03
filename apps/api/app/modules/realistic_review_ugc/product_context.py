@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterable
 from typing import Any, Literal
 
@@ -10,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v2-text-aware"
-PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v4-embroidery-text-search"
+PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v3-hand-held-hat"
+PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v5-hand-held-hat"
 CONTEXT_FEEDBACK_MIN_MATCHES = 2
 CONTEXT_FEEDBACK_PROMOTION_SCORE = 0.20
 CONTEXT_FEEDBACK_RANKING_SCALE = 0.08
@@ -324,6 +325,23 @@ _GENERIC_CONTEXT_QUERIES = (
     "family weekend candid natural light",
 )
 
+_HAT_PRODUCT_TERMS = (
+    "hat",
+    "cap",
+    "baseball cap",
+    "trucker hat",
+    "snapback",
+    "dad hat",
+    "embroidered hat",
+    "custom hat",
+)
+
+_HAND_HOLDING_HAT_BASE_QUERIES = (
+    "hand holding embroidered hat front view phone photo",
+    "hand holding trucker hat front embroidery close up",
+    "cap held in hand front view natural indoor phone photo",
+)
+
 
 def _clean_list(values: Iterable[Any] | None, *, limit: int = 12) -> list[str]:
     result: list[str] = []
@@ -338,6 +356,43 @@ def _clean_list(values: Iterable[Any] | None, *, limit: int = 12) -> list[str]:
         if len(result) >= limit:
             break
     return result
+
+
+def _contains_context_term(text: str, term: str) -> bool:
+    return re.search(
+        r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)",
+        text.casefold(),
+    ) is not None
+
+
+def is_hat_product(
+    product_snapshot: dict[str, Any] | None,
+    *,
+    campaign_name: str = "",
+    queries: Iterable[str] = (),
+) -> bool:
+    text = _product_context_text(
+        product_snapshot,
+        campaign_name=campaign_name,
+        queries=queries,
+    )
+    return any(_contains_context_term(text, term) for term in _HAT_PRODUCT_TERMS)
+
+
+def _hand_holding_hat_search_queries(
+    embroidery_text: Iterable[Any] | None,
+) -> list[str]:
+    rows: list[str] = []
+    for value in _clean_list(embroidery_text, limit=3):
+        phrase = " ".join(value.replace("\n", " ").split()).strip(" \t\r\n\"'")
+        if len(phrase) < 2:
+            continue
+        rows.extend((
+            f"{phrase} embroidered hat held in hand front view",
+            f"{phrase} hand holding cap embroidery close up phone photo",
+        ))
+    rows.extend(_HAND_HOLDING_HAT_BASE_QUERIES)
+    return _clean_list(rows, limit=10)
 
 
 def _embroidery_text_search_queries(values: Iterable[Any] | None) -> list[str]:
@@ -673,6 +728,16 @@ def derive_product_context_profile(
         queries=queries,
         notes=notes,
     )
+    hat_product = auto_context and any(
+        _contains_context_term(text, term)
+        for term in _HAT_PRODUCT_TERMS
+    )
+    reference_contexts = ["hand_holding_hat"] if hat_product else []
+    hand_holding_hat = (
+        _hand_holding_hat_search_queries(visual_embroidery_text)
+        if hat_product
+        else []
+    )
     text_themes = _detect_themes(text) if auto_context else []
     detected_themes = _clean_list(
         [*visual_themes, *text_themes],
@@ -713,6 +778,11 @@ def derive_product_context_profile(
     # clusters but manual anchor queries remain protected by the caller.
     direct = [*promoted_queries, *direct]
     search_clusters = {
+        "hand_holding_hat": [
+            value
+            for value in _clean_list(hand_holding_hat, limit=10)
+            if value.casefold() not in suppressed_query_keys
+        ][:8],
         "direct": [
             value
             for value in _clean_list(direct, limit=20)
@@ -750,6 +820,7 @@ def derive_product_context_profile(
         "avoid": avoid,
         "notes": notes,
         "visual_context": visual_context,
+        "reference_contexts": reference_contexts,
         "feedback_learning": feedback_learning,
         "search_clusters": search_clusters,
         "source": {
@@ -771,7 +842,7 @@ def product_context_search_queries(profile: dict[str, Any] | None) -> list[tuple
         return []
     rows: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for level in ("direct", "text_match", "adjacent", "generic"):
+    for level in ("text_match", "hand_holding_hat", "direct", "adjacent", "generic"):
         values = clusters.get(level)
         if not isinstance(values, list):
             continue

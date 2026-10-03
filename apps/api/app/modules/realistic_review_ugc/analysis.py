@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v9-product-context"
+ANALYZER_VERSION = "rrugc-reference-v10-hand-held-hat"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -45,6 +45,10 @@ class ReferenceAnalysisDocument(BaseModel):
     ai_background_consistency_risk: float = Field(default=0.0, ge=0.0, le=1.0)
     ai_detector_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     product_fit_score: float = Field(ge=0.0, le=1.0)
+    hand_visible: bool = False
+    hat_held_in_hand: bool = False
+    front_panel_visible: bool = False
+    embroidery_visible: bool = False
     context_match_score: float = Field(default=0.5, ge=0.0, le=1.0)
     context_match_evidence: list[str] = Field(default_factory=list, max_length=6)
     matched_variant_id: str | None = Field(default=None, max_length=36)
@@ -412,6 +416,7 @@ def evaluate_reference(
     reference_preference_score: float = 0.0,
     variant_matching_required: bool = False,
     context_matching_required: bool = False,
+    allow_hand_held_hat: bool = False,
 ) -> ReferenceDecision:
     ai_risk = (
         document.ai_risk_score
@@ -443,6 +448,17 @@ def evaluate_reference(
         if context_matching_required
         else 0.0
     )
+    hand_held_hat_reference = bool(
+        allow_hand_held_hat
+        and document.hand_visible
+        and document.hat_held_in_hand
+        and document.front_panel_visible
+    )
+    hand_held_hat_adjustment = (
+        0.08 + (0.04 if document.embroidery_visible else 0.0)
+        if hand_held_hat_reference
+        else 0.0
+    )
     final_score = round(_bounded(
         0.30 * document.phone_authenticity_score
         + 0.20 * document.mobile_ugc_score
@@ -452,21 +468,23 @@ def evaluate_reference(
         + 0.10 * (1.0 - document.artistic_editorial_risk)
         + variant_priority_adjustment
         + context_priority_adjustment
+        + hand_held_hat_adjustment
         + max(-0.12, min(0.12, reference_preference_score))
     ), 4)
 
-    if document.people_count < 1:
-        return ReferenceDecision("rejected_no_person", "NO_PERSON", final_score)
-    if policy.require_head_visible and not document.head_visible:
-        return ReferenceDecision("rejected_head_occlusion", "HEAD_NOT_VISIBLE", final_score)
-    if document.primary_head_ratio is None:
-        return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_UNAVAILABLE", final_score)
-    if not policy.min_head_ratio <= document.primary_head_ratio <= policy.max_head_ratio:
-        return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE", final_score)
-    if policy.reject_headwear and document.existing_headwear:
-        return ReferenceDecision("rejected_existing_headwear", "EXISTING_HEADWEAR", final_score)
-    if document.head_occlusion > policy.max_head_occlusion:
-        return ReferenceDecision("rejected_head_occlusion", "HEAD_OCCLUSION", final_score)
+    if not hand_held_hat_reference:
+        if document.people_count < 1:
+            return ReferenceDecision("rejected_no_person", "NO_PERSON", final_score)
+        if policy.require_head_visible and not document.head_visible:
+            return ReferenceDecision("rejected_head_occlusion", "HEAD_NOT_VISIBLE", final_score)
+        if document.primary_head_ratio is None:
+            return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_UNAVAILABLE", final_score)
+        if not policy.min_head_ratio <= document.primary_head_ratio <= policy.max_head_ratio:
+            return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE", final_score)
+        if policy.reject_headwear and document.existing_headwear:
+            return ReferenceDecision("rejected_existing_headwear", "EXISTING_HEADWEAR", final_score)
+        if document.head_occlusion > policy.max_head_occlusion:
+            return ReferenceDecision("rejected_head_occlusion", "HEAD_OCCLUSION", final_score)
 
     if manual_ai_label == "ai":
         return ReferenceDecision("rejected_ai_risk", "MANUAL_AI_LABEL", final_score)
@@ -553,6 +571,11 @@ def product_context_matching_active(product_context: dict | None) -> bool:
     )
     if not profile:
         return False
+    if any(
+        str(value or "").strip()
+        for value in profile.get("reference_contexts") or []
+    ):
+        return True
     if any(str(value or "").strip() for value in profile.get("themes") or []):
         return True
     if any(str(value or "").strip() for value in profile.get("preferred_scenes") or []):
@@ -577,6 +600,20 @@ def product_context_matching_active(product_context: dict | None) -> bool:
             for value in visual.get(key) or []
         )
     )
+
+
+def hand_holding_hat_context_active(product_context: dict | None) -> bool:
+    product = dict(product_context or {})
+    profile = (
+        dict(product.get("discovery_context"))
+        if isinstance(product.get("discovery_context"), dict)
+        else {}
+    )
+    return "hand_holding_hat" in {
+        str(value or "").strip()
+        for value in profile.get("reference_contexts") or []
+        if str(value or "").strip()
+    }
 
 
 def _product_context_prompt_block(product_context: dict | None) -> str:
@@ -604,6 +641,7 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
         return rows
 
     themes = clean(profile.get("themes"), limit=8)
+    reference_contexts = clean(profile.get("reference_contexts"), limit=6)
     preferred = clean(profile.get("preferred_scenes"), limit=6)
     avoid = clean(profile.get("avoid"), limit=6)
     clusters = (
@@ -611,6 +649,7 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
         if isinstance(profile.get("search_clusters"), dict)
         else {}
     )
+    hand_holding_hat = clean(clusters.get("hand_holding_hat"), limit=6)
     direct = clean(clusters.get("direct"), limit=6)
     feedback = (
         dict(profile.get("feedback_learning"))
@@ -658,6 +697,12 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
     )
 
     sections: list[str] = []
+    if reference_contexts:
+        sections.append("- preferred reference contexts: " + ", ".join(reference_contexts))
+    if hand_holding_hat:
+        sections.append(
+            "- hand-held hat targets: " + " | ".join(hand_holding_hat)
+        )
     if themes:
         sections.append("- themes: " + ", ".join(themes))
     if preferred:
@@ -737,8 +782,12 @@ Definitions:
 - ai_lighting_reflection_risk: physically inconsistent shadows, highlights, mirrors, reflections, or light direction.
 - ai_background_consistency_risk: duplicated people/objects, melted details, impossible depth, bokeh, or background transitions.
 - ai_detector_confidence: 0..1 confidence that the visible evidence is sufficient to judge authenticity. Use LOW confidence when resolution/crop/compression hides evidence.
-- product_fit_score: 0..1 suitability for preserving the candid photo while adding a cap to a bare head or replacing existing casual headwear. Score existing baseball/corduroy caps highly when the crown, brim direction, head angle, and overall placement are readable enough for a natural replacement. Wide full-body/lifestyle frames where the primary head is too small to retain useful headwear detail should score lower even if the scene is otherwise attractive.
-- context_match_score: 0..1 match between the visible lifestyle scene and the supplied PRODUCT CONTEXT TARGETS. Use 0.5 when context evidence is absent or genuinely ambiguous. Raise only for visible scene/activity/object/relationship cues that support the target. Lower for clear visible conflict. Do not infer protected traits, identity, occupation, family status, or relationships from appearance alone.
+- product_fit_score: 0..1 suitability for the bound hat product workflow. For worn-hat/person references, score readable crown, brim direction, head angle, and placement highly. When PRODUCT CONTEXT TARGETS include hand_holding_hat, also score a realistic hand-held hat highly when the hat form, front panel, brim and embroidery/logo area are clearly readable. Wide frames where the usable hat/head detail is tiny should score lower.
+- hand_visible: true when a real human hand is visibly holding/supporting the featured hat/cap. A tiny unrelated hand in the background is false.
+- hat_held_in_hand: true when the featured hat/cap is physically being held in a hand rather than worn on a head, lying flat, on a mannequin, or isolated as a catalog cutout.
+- front_panel_visible: true when the front crown/panel and main brim orientation are clearly readable enough to use as a product reference.
+- embroidery_visible: true when the front embroidery/logo/text/detail on the hat is clearly visible enough to understand placement and appearance.
+- context_match_score: 0..1 match between the visible lifestyle scene and the supplied PRODUCT CONTEXT TARGETS. When hand_holding_hat is a preferred context, strongly raise the score for a real hand holding one featured hat in a natural phone-photo setting with the front panel and embroidery visible; lower it for flat lays, mannequins, catalog cutouts, multi-hat displays, or a hat worn on a head when the query specifically targets hand-held composition. Use 0.5 when context evidence is absent or genuinely ambiguous.
 - context_match_evidence: at most 6 short factual visible observations that support the context score. Use [] when no reliable context evidence is visible.
 - matched_variant_id: when existing_headwear is true and a bound product variant is visibly the closest match, return exactly that variant's supplied internal id. Otherwise null. Never invent an id.
 - matched_variant_name: visible closest bound variant name, or null when no confident variant match exists.
@@ -757,7 +806,8 @@ head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_r
 quality_score, ai_risk_score,
 ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
 ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
-product_fit_score, context_match_score, context_match_evidence,
+product_fit_score, hand_visible, hat_held_in_hand, front_panel_visible,
+embroidery_visible, context_match_score, context_match_evidence,
 matched_variant_id, matched_variant_name, matched_color,
 color_match_score, product_shape_score,
 scene_type, framing_type, camera_angle, pose_type, summary.

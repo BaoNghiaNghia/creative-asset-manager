@@ -29,6 +29,7 @@ from app.modules.realistic_review_ugc.analysis import (
     build_reference_preference_model,
     confirm_ai_authenticity,
     evaluate_reference,
+    hand_holding_hat_context_active,
     reference_preference_adjustment,
     reference_preference_features,
     policy_from_campaign,
@@ -253,6 +254,9 @@ class RrugcCandidateAnalyzeJobHandler:
                     campaign.product_context_json
                 )
             context_matching_required = product_context_matching_active(
+                product_context
+            )
+            hand_holding_hat_context = hand_holding_hat_context_active(
                 product_context
             )
             discovery_context = (
@@ -635,6 +639,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 reference_preference_score=preference_adjustment,
                 variant_matching_required=bool(product_variants),
                 context_matching_required=context_matching_required,
+                allow_hand_held_hat=hand_holding_hat_context,
             )
 
             with context.dependencies.session_factory() as session:
@@ -825,6 +830,12 @@ class RrugcCandidateAnalyzeJobHandler:
                 "score": document.context_match_score,
                 "evidence": list(document.context_match_evidence),
                 "binding_fingerprint": context_binding_fingerprint,
+            },
+            "composition": {
+                "hand_visible": document.hand_visible,
+                "hat_held_in_hand": document.hat_held_in_hand,
+                "front_panel_visible": document.front_panel_visible,
+                "embroidery_visible": document.embroidery_visible,
             },
         }
         candidate.product_fit_score = document.product_fit_score

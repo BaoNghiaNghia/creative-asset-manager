@@ -775,10 +775,20 @@ def _source_campaign_name(plan: RrugcSourcePlanModel) -> str:
 
 def _search_anchors(profile: dict[str, Any]) -> list[str]:
     contextual = product_context_search_queries(profile)
+    text_match = [query for query, level in contextual if level == "text_match"]
+    hand_holding_hat = [
+        query for query, level in contextual if level == "hand_holding_hat"
+    ]
     direct = [query for query, level in contextual if level == "direct"]
     adjacent = [query for query, level in contextual if level == "adjacent"]
     generic = [query for query, level in contextual if level == "generic"]
-    rows = list(dict.fromkeys([*direct, *adjacent, *generic]))
+    rows = list(dict.fromkeys([
+        *hand_holding_hat[:1],
+        *text_match[:1],
+        *direct,
+        *adjacent,
+        *generic,
+    ]))
     return rows[:2] or ["casual lifestyle candid phone photo"]
 
 
@@ -1088,6 +1098,18 @@ class RrugcSourcePlanAnalyzeJobHandler:
                 plan.campaign_id = campaign.id
 
             if shared_campaign:
+                # A source-plan profile version bump must also refresh the
+                # already-shared campaign. Otherwise grouped embroidery rows
+                # would keep stale search contexts/queries indefinitely.
+                campaign.discovery_mode = "product_context"
+                campaign.product_snapshot_json = product_snapshot
+                campaign.product_reference_snapshot_json = reference_snapshot
+                campaign.product_context_json = profile
+                campaign.query = queries[0]
+                campaign.search_queries_json = queries
+                campaign.search_query_anchors_json = anchors
+                campaign.auto_scout = True
+                service.refresh_campaign_discovery(campaign, commit=False)
                 _ensure_source_campaign_capacity(service, campaign)
             else:
                 campaign.name = _source_campaign_name(plan)

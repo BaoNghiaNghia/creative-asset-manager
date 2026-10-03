@@ -917,7 +917,7 @@ def test_old_visual_context_version_requeues_source_for_text_aware_analysis():
         )
         session.refresh(plan)
 
-        assert PRODUCT_VISUAL_CONTEXT_VERSION == "rrugc-product-visual-context-v2-text-aware"
+        assert PRODUCT_VISUAL_CONTEXT_VERSION == "rrugc-product-visual-context-v3-hand-held-hat"
         assert result.plans_updated == 1
         assert result.jobs_queued == 1
         assert plan.analysis_revision == original_analysis_revision + 1

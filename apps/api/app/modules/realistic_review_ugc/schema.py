@@ -449,6 +449,7 @@ class SourcePlanResponse(BaseModel):
     target_count: int
     status: str
     visual_context: dict | None = None
+    reference_contexts: list[str] = Field(default_factory=list)
     campaign_id: str | None = None
     campaign_name: str | None = None
     campaign_status: str | None = None

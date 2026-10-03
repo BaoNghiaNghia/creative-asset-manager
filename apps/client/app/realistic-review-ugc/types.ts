@@ -199,6 +199,7 @@ export type SourcePlan = {
     confidence?: number;
     summary?: string | null;
   } | null;
+  reference_contexts?: string[];
   campaign_id: string | null;
   campaign_name: string | null;
   campaign_status: Campaign["status"] | null;

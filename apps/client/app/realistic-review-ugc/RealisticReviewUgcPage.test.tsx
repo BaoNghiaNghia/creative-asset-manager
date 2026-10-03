@@ -163,6 +163,26 @@ describe("Realistic Review UGC source-first workspace", () => {
   });
 
 
+  it("shows the hand-holding-hat context for hat source plans", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[{ ...makePlan(), reference_contexts: ["hand_holding_hat"] }]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Hand holding hat");
+  });
+
+
   it("lazy-loads source thumbnails behind a stable skeleton", () => {
     const markup = renderToStaticMarkup(
       <SourcePlanTable

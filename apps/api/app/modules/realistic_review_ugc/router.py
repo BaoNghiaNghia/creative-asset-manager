@@ -2554,6 +2554,19 @@ def _source_plan_response(
         target_count=row.target_count,
         status=row.status,
         visual_context=dict(row.visual_context_json or {}) or None,
+        reference_contexts=[
+            str(value).strip()
+            for value in (
+                (
+                    campaign.product_context_json.get("reference_contexts")
+                    if campaign is not None
+                    and isinstance(campaign.product_context_json, dict)
+                    else []
+                )
+                or []
+            )
+            if str(value).strip()
+        ],
         campaign_id=row.campaign_id,
         campaign_name=campaign.name if campaign is not None else None,
         campaign_status=campaign.status if campaign is not None else None,
