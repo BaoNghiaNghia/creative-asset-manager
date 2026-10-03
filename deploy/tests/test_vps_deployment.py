@@ -188,6 +188,21 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertNotIn("media-src *", config)
         self.assertNotIn("https://*.workers.dev", config)
 
+    def test_google_avatars_are_allowed_only_as_images(self) -> None:
+        import re
+
+        policy = re.search(r'add_header Content-Security-Policy "([^"]+)"', NGINX_CONFIG.read_text()).group(1)
+        directives = dict((parts[0], parts[1:]) for directive in policy.split(";") if (parts := directive.split()))
+        self.assertEqual(set(directives["img-src"]), {
+            "'self'", "data:", "blob:", "https://i.pinimg.com", "https://lh3.googleusercontent.com",
+        })
+        for directive in ("script-src", "connect-src", "default-src"):
+            self.assertEqual(directives[directive], ["'self'"])
+        self.assertEqual(directives["object-src"], ["'none'"])
+        self.assertEqual(directives["frame-ancestors"], ["'none'"])
+
+    # Keep production topology checks separate from browser image permissions.
+
     def test_production_compose_is_elasticsearch_only(self) -> None:
         config = yaml.safe_load(COMPOSE.read_text())
         self.assertEqual(set(config["services"]), {"elasticsearch"})
