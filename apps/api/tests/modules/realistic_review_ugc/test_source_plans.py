@@ -30,9 +30,11 @@ from app.modules.realistic_review_ugc.source_plans import (
     sync_source_plans,
 )
 from app.modules.realistic_review_ugc.product_context import (
+    PRODUCT_CONTEXT_PROFILE_VERSION,
     PRODUCT_VISUAL_CONTEXT_VERSION,
     product_visual_binding_fingerprint,
 )
+from app.modules.realistic_review_ugc.service import RrugcService
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 
@@ -163,6 +165,81 @@ def test_source_plan_visual_binding_uses_numeric_revision_and_hash_content():
     assert references[0]["content_hash"] == plan.source_revision
     assert len(product_visual_binding_fingerprint(product, references)) == 64
 
+
+
+def test_reconcile_refreshes_stale_source_campaign_profile_without_gemini():
+    factory = make_database()
+    with factory() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Old hat source campaign",
+            query="old query",
+            target_count=RRUGC_SOURCE_TARGET_COUNT,
+            max_scroll_batches=2,
+            auto_import=True,
+            discovery_mode="product_context",
+            auto_scout=True,
+            commit=False,
+        )
+        campaign.product_context_json = {
+            "version": "product-context-v4-embroidery-text-search",
+            "auto_context": True,
+        }
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="hat-refresh",
+            source_parent_folder_id="folder-a",
+            source_relative_path="Hats/Whiskey/whiskey-cap.jpg",
+            source_name="whiskey-cap.jpg",
+            source_mime_type="image/jpeg",
+            source_revision="d" * 64,
+            analysis_revision=3,
+            target_count=RRUGC_SOURCE_TARGET_COUNT,
+            status="ready",
+            created_by_user_id="user-a",
+            campaign_id=campaign.id,
+            embroidery_signature="whiskey-signature",
+            visual_context_json={},
+            analyzed_at=datetime.now(timezone.utc),
+        )
+        plan.visual_context_json = {
+            "version": PRODUCT_VISUAL_CONTEXT_VERSION,
+            "status": "ready",
+            "binding_fingerprint": product_visual_binding_fingerprint(
+                _synthetic_product_snapshot(plan),
+                _synthetic_reference_snapshot(plan),
+            ),
+            "themes": [],
+            "embroidery_text": ["WHISKEY HELL BOUND"],
+            "scene_hints": [],
+            "audience_hints": [],
+            "occasion_hints": [],
+            "product_cues": ["front embroidery"],
+            "avoid_hints": [],
+            "confidence": 0.95,
+            "summary": "Readable embroidered hat front.",
+        }
+        session.add(plan)
+        session.flush()
+
+        _reconcile_embroidery_groups(
+            session,
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+        )
+        session.flush()
+
+        assert campaign.product_context_json["version"] == PRODUCT_CONTEXT_PROFILE_VERSION
+        assert campaign.product_context_json["reference_contexts"] == ["hand_holding_hat"]
+        assert any(
+            "held in hand" in query.casefold()
+            for query in campaign.search_queries_json
+        )
+        assert campaign.search_query_anchors_json[0] == (
+            "WHISKEY HELL BOUND embroidered hat held in hand front view"
+        )
 
 
 def test_embroidery_signature_ignores_hat_color_but_keeps_distinct_motifs():

@@ -39,6 +39,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel,
 )
 from app.modules.realistic_review_ugc.product_context import (
+    PRODUCT_CONTEXT_PROFILE_VERSION,
     PRODUCT_VISUAL_CONTEXT_VERSION,
     analyze_product_visual_reference,
     derive_product_context_profile,
@@ -430,6 +431,53 @@ def _ensure_source_campaign_capacity(
     return progress
 
 
+def _refresh_source_campaign_profile_if_stale(
+    service: RrugcService,
+    *,
+    plan: RrugcSourcePlanModel,
+    campaign: RrugcCampaignModel,
+) -> bool:
+    existing_profile = (
+        dict(campaign.product_context_json or {})
+        if isinstance(campaign.product_context_json, dict)
+        else {}
+    )
+    if existing_profile.get("version") == PRODUCT_CONTEXT_PROFILE_VERSION:
+        return False
+    visual_context = (
+        dict(plan.visual_context_json or {})
+        if isinstance(plan.visual_context_json, dict)
+        else {}
+    )
+    if not visual_context:
+        return False
+
+    product_snapshot = _synthetic_product_snapshot(plan)
+    reference_snapshot = _synthetic_reference_snapshot(plan)
+    profile = derive_product_context_profile(
+        product_snapshot=product_snapshot,
+        campaign_name=product_snapshot["name"],
+        config={"auto_context": True, "visual_context": visual_context},
+        reference_snapshot=reference_snapshot,
+    )
+    anchors = _search_anchors(profile)
+    campaign.name = _source_campaign_name(plan)
+    campaign.discovery_mode = "product_context"
+    campaign.product_snapshot_json = product_snapshot
+    campaign.product_reference_snapshot_json = reference_snapshot
+    campaign.product_context_json = profile
+    campaign.search_query_anchors_json = anchors
+    campaign.query = anchors[0]
+    campaign.search_queries_json = anchors
+    campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
+    campaign.auto_import = True
+    campaign.auto_scout = True
+    if campaign.scan_lease_expires_at is None:
+        campaign.scan_next_at = datetime.now(timezone.utc)
+    service.refresh_campaign_discovery(campaign, commit=False)
+    return True
+
+
 def _reconcile_embroidery_groups(
     session: Session,
     *,
@@ -448,6 +496,7 @@ def _reconcile_embroidery_groups(
     groups: dict[str, list[RrugcSourcePlanModel]] = defaultdict(list)
     service = RrugcService(session)
     campaign_cache: dict[str, RrugcCampaignModel] = {}
+    refreshed_campaign_ids: set[str] = set()
     for plan in plans:
         if plan.campaign_id:
             campaign = campaign_cache.get(plan.campaign_id)
@@ -461,6 +510,13 @@ def _reconcile_embroidery_groups(
                 if campaign is not None:
                     campaign_cache[campaign.id] = campaign
             if campaign is not None:
+                if campaign.id not in refreshed_campaign_ids:
+                    _refresh_source_campaign_profile_if_stale(
+                        service,
+                        plan=plan,
+                        campaign=campaign,
+                    )
+                    refreshed_campaign_ids.add(campaign.id)
                 _ensure_source_campaign_capacity(service, campaign)
                 plan.target_count = RRUGC_SOURCE_TARGET_COUNT
 
