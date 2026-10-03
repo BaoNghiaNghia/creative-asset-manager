@@ -1016,6 +1016,20 @@ class RrugcService:
 
         if campaign is not None:
             self.refresh_campaign_completion(campaign)
+            if label == "bad" and campaign.auto_scout and campaign.status == "completed":
+                usable_counts = self.repository.campaign_usable_counts(
+                    campaign.tenant_id,
+                    campaign.id,
+                )
+                usable_progress = (
+                    usable_counts.get("drive_ready", 0)
+                    if campaign.auto_import
+                    else usable_counts.get("approved", 0)
+                )
+                if usable_progress < campaign.target_count:
+                    campaign.status = "running"
+                    campaign.scout_status = "ready"
+                    campaign.scan_next_at = now
         self.session.commit()
         self.session.refresh(candidate)
         return candidate
@@ -1108,7 +1122,7 @@ class RrugcService:
         return candidate
 
     def refresh_campaign_completion(self, campaign: RrugcCampaignModel) -> None:
-        counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
+        counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
         progress = (
             counts.get("drive_ready", 0)
             if campaign.auto_import

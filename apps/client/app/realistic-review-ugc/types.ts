@@ -146,6 +146,7 @@ export type SourcePlanReferencePreview = {
   image_url: string;
   status: CandidateStatus;
   picked: boolean;
+  rejected: boolean;
   source_query: string | null;
   width: number | null;
   height: number | null;

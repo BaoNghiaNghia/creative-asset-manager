@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { SourcePlan, SourcePlanReferencePreview } from "./types";
+import type { ReferenceManualLabel, SourcePlan, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -72,12 +72,16 @@ function SourceImageThumb({ plan }: { plan: SourcePlan }) {
 
 function ReferenceSlider({
   plan,
-  pickingReferenceIds,
-  onToggleReferencePick,
+  reviewingReferenceIds,
+  onSetReferenceFeedback,
 }: {
   plan: SourcePlan;
-  pickingReferenceIds: ReadonlySet<string>;
-  onToggleReferencePick: (plan: SourcePlan, reference: SourcePlanReferencePreview) => void;
+  reviewingReferenceIds: ReadonlySet<string>;
+  onSetReferenceFeedback: (
+    plan: SourcePlan,
+    reference: SourcePlanReferencePreview,
+    label: ReferenceManualLabel,
+  ) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const references = plan.reference_previews;
@@ -90,20 +94,38 @@ function ReferenceSlider({
     <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} disabled={references.length === 0} onClick={() => move(-1)}>‹</button>
     <div ref={trackRef} className="rrugc-source-ref-track" aria-label={references.length + " reference images for " + plan.source_name}>
       {references.map((reference, index) => (
-        <div key={reference.id} className={"rrugc-source-ref-card status-" + reference.status + (reference.picked ? " is-picked" : "")}>
+        <div
+          key={reference.id}
+          className={
+            "rrugc-source-ref-card status-" + reference.status
+            + (reference.picked ? " is-picked" : "")
+            + (reference.rejected ? " is-rejected" : "")
+          }
+        >
           <a href={reference.pin_url} target="_blank" rel="noreferrer" className="rrugc-source-ref-link" title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}>
             <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
             <span>{index + 1}</span>
           </a>
-          <button
-            type="button"
-            className="rrugc-source-ref-pick"
-            aria-label={(reference.picked ? "Unpick " : "Pick ") + "reference " + (index + 1) + " for " + plan.source_name}
-            aria-pressed={reference.picked}
-            disabled={!plan.campaign_id || pickingReferenceIds.has(reference.id)}
-            title={reference.picked ? "Unpick training reference" : "Pick as a positive training reference"}
-            onClick={() => onToggleReferencePick(plan, reference)}
-          >{pickingReferenceIds.has(reference.id) ? "…" : reference.picked ? "✓" : "+"}</button>
+          <div className="rrugc-source-ref-feedback" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
+            <button
+              type="button"
+              className="rrugc-source-ref-vote is-good"
+              aria-label={(reference.picked ? "Clear suitable mark for " : "Mark suitable ") + "reference " + (index + 1)}
+              aria-pressed={reference.picked}
+              disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
+              title={reference.picked ? "Clear suitable mark" : "Suitable / preferred training reference"}
+              onClick={() => onSetReferenceFeedback(plan, reference, "good")}
+            >{reviewingReferenceIds.has(reference.id) ? "…" : "✓"}</button>
+            <button
+              type="button"
+              className="rrugc-source-ref-vote is-bad"
+              aria-label={(reference.rejected ? "Clear unsuitable mark for " : "Mark unsuitable ") + "reference " + (index + 1)}
+              aria-pressed={reference.rejected}
+              disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
+              title={reference.rejected ? "Clear unsuitable mark" : "Unsuitable / do not use / train negative"}
+              onClick={() => onSetReferenceFeedback(plan, reference, "bad")}
+            >{reviewingReferenceIds.has(reference.id) ? "…" : "×"}</button>
+          </div>
         </div>
       ))}
       {references.length === 0 && <div className="rrugc-source-ref-empty"><strong>No refs yet</strong><small>Auto Scout will add qualified Pinterest references here.</small></div>}
@@ -119,13 +141,13 @@ export function SourcePlanTable({
   pageSize,
   query,
   syncing,
-  pickingReferenceIds = new Set<string>(),
+  reviewingReferenceIds = new Set<string>(),
   message,
   onSync,
   onPageChange,
   onPageSizeChange,
   onQueryChange,
-  onToggleReferencePick = () => undefined,
+  onSetReferenceFeedback = () => undefined,
 }: {
   plans: SourcePlan[];
   total: number;
@@ -133,13 +155,17 @@ export function SourcePlanTable({
   pageSize: number;
   query: string;
   syncing: boolean;
-  pickingReferenceIds?: ReadonlySet<string>;
+  reviewingReferenceIds?: ReadonlySet<string>;
   message: string;
   onSync: () => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
-  onToggleReferencePick?: (plan: SourcePlan, reference: SourcePlanReferencePreview) => void;
+  onSetReferenceFeedback?: (
+    plan: SourcePlan,
+    reference: SourcePlanReferencePreview,
+    label: ReferenceManualLabel,
+  ) => void;
 }) {
   const pageCount = sourcePlanPageCount(total, pageSize);
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -192,6 +218,7 @@ export function SourcePlanTable({
             const context = sourcePlanContextSummary(plan);
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
             const pickedCount = plan.reference_previews.filter(reference => reference.picked).length;
+            const rejectedCount = plan.reference_previews.filter(reference => reference.rejected).length;
             return <tr key={plan.id}>
               <td className="rrugc-source-cell"><div className="rrugc-source-file">
                 <SourceImageThumb plan={plan} />
@@ -210,8 +237,8 @@ export function SourcePlanTable({
                 <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>{(plan.scout_status || "offline").replaceAll("_", " ")}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
-                <div className="rrugc-source-refs-head"><strong>{plan.reference_previews.length} refs · {pickedCount} picked</strong><small>Pick = train this row · {plan.drive_ready_count} Drive ready</small></div>
-                <ReferenceSlider plan={plan} pickingReferenceIds={pickingReferenceIds} onToggleReferencePick={onToggleReferencePick} />
+                <div className="rrugc-source-refs-head"><strong>{plan.reference_previews.length} refs · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Unrated = usable · ✓ positive · × unusable/train negative · {plan.drive_ready_count} usable Drive ready</small></div>
+                <ReferenceSlider plan={plan} reviewingReferenceIds={reviewingReferenceIds} onSetReferenceFeedback={onSetReferenceFeedback} />
               </td>
             </tr>;
           })}

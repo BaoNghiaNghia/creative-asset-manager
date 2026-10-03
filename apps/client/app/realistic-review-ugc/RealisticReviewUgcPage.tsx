@@ -5,7 +5,7 @@ import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/Worksp
 import { listSourcePlans, markCandidateReferenceFeedback, syncSourcePlans } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { SourcePlanTable } from "./SourcePlanTable";
-import type { SourcePlan, SourcePlanPage, SourcePlanReferencePreview } from "./types";
+import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview } from "./types";
 import "./ui-overhaul.css";
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
@@ -22,7 +22,7 @@ export function RealisticReviewUgcPage() {
   const [sourceQuery, setSourceQuery] = useState("");
   const [debouncedSourceQuery, setDebouncedSourceQuery] = useState("");
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
-  const [pickingReferenceIds, setPickingReferenceIds] = useState<Set<string>>(new Set());
+  const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -64,20 +64,29 @@ export function RealisticReviewUgcPage() {
     }
   }
 
-  async function toggleSourceReferencePick(
+  async function setSourceReferenceFeedback(
     plan: SourcePlan,
     reference: SourcePlanReferencePreview,
+    requestedLabel: ReferenceManualLabel,
   ) {
-    if (!plan.campaign_id || pickingReferenceIds.has(reference.id)) return;
-    const nextPicked = !reference.picked;
-    setPickingReferenceIds(current => new Set(current).add(reference.id));
+    if (!plan.campaign_id || reviewingReferenceIds.has(reference.id)) return;
+    const nextLabel = (
+      (requestedLabel === "good" && reference.picked)
+      || (requestedLabel === "bad" && reference.rejected)
+    ) ? "clear" : requestedLabel;
+    const nextPicked = nextLabel === "good";
+    const nextRejected = nextLabel === "bad";
+
+    setReviewingReferenceIds(current => new Set(current).add(reference.id));
     setError("");
     setSourcePage(current => ({
       ...current,
       items: current.items.map(item => item.id !== plan.id ? item : {
         ...item,
         reference_previews: item.reference_previews.map(row => (
-          row.id === reference.id ? { ...row, picked: nextPicked } : row
+          row.id === reference.id
+            ? { ...row, picked: nextPicked, rejected: nextRejected }
+            : row
         )),
       }),
     }));
@@ -85,15 +94,19 @@ export function RealisticReviewUgcPage() {
       await markCandidateReferenceFeedback(
         plan.campaign_id,
         reference.id,
-        nextPicked ? "good" : "clear",
-        nextPicked
-          ? "Picked as a positive reference from source row " + plan.source_relative_path
-          : "Removed from picked references for source row " + plan.source_relative_path,
+        nextLabel,
+        nextLabel === "good"
+          ? "Marked suitable as a preferred reference from source row " + plan.source_relative_path
+          : nextLabel === "bad"
+            ? "Marked unsuitable and unusable from source row " + plan.source_relative_path
+            : "Cleared explicit reference feedback for source row " + plan.source_relative_path,
       );
       setSourcePlanMessage(
-        nextPicked
-          ? "Reference picked. Future Scout runs for this source row will learn from this positive example."
-          : "Reference unpicked. Its positive training signal was removed.",
+        nextLabel === "good"
+          ? "Reference marked suitable. Future Scout runs will learn from this positive example."
+          : nextLabel === "bad"
+            ? "Reference marked unsuitable. It will train negative preference and no longer count toward this row's usable target."
+            : "Reference feedback cleared. Unreviewed references remain usable by default without a strong training signal.",
       );
       await refreshSourcePlans();
     } catch (reason) {
@@ -102,13 +115,15 @@ export function RealisticReviewUgcPage() {
         items: current.items.map(item => item.id !== plan.id ? item : {
           ...item,
           reference_previews: item.reference_previews.map(row => (
-            row.id === reference.id ? { ...row, picked: reference.picked } : row
+            row.id === reference.id
+              ? { ...row, picked: reference.picked, rejected: reference.rejected }
+              : row
           )),
         }),
       }));
-      setError(reason instanceof Error ? reason.message : "Unable to update the picked reference.");
+      setError(reason instanceof Error ? reason.message : "Unable to update reference feedback.");
     } finally {
-      setPickingReferenceIds(current => {
+      setReviewingReferenceIds(current => {
         const next = new Set(current);
         next.delete(reference.id);
         return next;
@@ -174,7 +189,7 @@ export function RealisticReviewUgcPage() {
           pageSize={sourcePageSize}
           query={sourceQuery}
           syncing={syncingSourcePlans}
-          pickingReferenceIds={pickingReferenceIds}
+          reviewingReferenceIds={reviewingReferenceIds}
           message={sourcePlanMessage}
           onSync={() => void syncDriveSourcePlans()}
           onPageChange={setSourcePageNumber}
@@ -183,7 +198,7 @@ export function RealisticReviewUgcPage() {
             setSourcePageSize(value);
           }}
           onQueryChange={setSourceQuery}
-          onToggleReferencePick={(plan, reference) => void toggleSourceReferencePick(plan, reference)}
+          onSetReferenceFeedback={(plan, reference, label) => void setSourceReferenceFeedback(plan, reference, label)}
         />
       </div>
     </section>

@@ -409,6 +409,7 @@ class SourcePlanReferencePreviewResponse(BaseModel):
     image_url: str
     status: str
     picked: bool = False
+    rejected: bool = False
     source_query: str | None = None
     width: int | None = None
     height: int | None = None

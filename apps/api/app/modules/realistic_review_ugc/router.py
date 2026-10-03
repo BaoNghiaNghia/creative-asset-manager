@@ -2432,6 +2432,9 @@ def generation_skills(
 SOURCE_PLAN_REFERENCE_STATUSES = frozenset(
     {"approved", "import_queued", "importing", "drive_ready"}
 )
+SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES = frozenset(
+    {*SOURCE_PLAN_REFERENCE_STATUSES, "rejected_context"}
+)
 SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT = 100
 
 
@@ -2444,6 +2447,7 @@ def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanRefere
         image_url=row.image_url,
         status=row.status,
         picked=signal.get("reference_manual_label") == "good",
+        rejected=signal.get("reference_manual_label") == "bad",
         source_query=source_query,
         width=row.width,
         height=row.height,
@@ -2456,14 +2460,22 @@ def _source_plan_response(
     *,
     campaign: RrugcCampaignModel | None = None,
     counts: Counter | None = None,
+    excluded_counts: Counter | None = None,
     previews: list[RrugcCandidateModel] | None = None,
 ) -> SourcePlanResponse:
     campaign_counts = counts or Counter()
+    campaign_excluded_counts = excluded_counts or Counter()
+    usable_campaign_counts = Counter(campaign_counts)
+    for status, excluded in campaign_excluded_counts.items():
+        usable_campaign_counts[status] = max(
+            0,
+            usable_campaign_counts.get(status, 0) - int(excluded),
+        )
     approved_count = sum(
-        campaign_counts.get(status, 0)
+        usable_campaign_counts.get(status, 0)
         for status in SOURCE_PLAN_REFERENCE_STATUSES
     )
-    drive_ready_count = campaign_counts.get("drive_ready", 0)
+    drive_ready_count = usable_campaign_counts.get("drive_ready", 0)
     progress_count = (
         drive_ready_count
         if campaign is not None and campaign.auto_import
@@ -2471,7 +2483,7 @@ def _source_plan_response(
     )
     pipeline_count = (
         quality_pipeline_count(
-            campaign_counts,
+            usable_campaign_counts,
             auto_import=campaign.auto_import,
         )
         if campaign is not None
@@ -2573,6 +2585,7 @@ def get_source_plans(
     campaign_ids = [row.campaign_id for row in plans if row.campaign_id]
     campaigns: dict[str, RrugcCampaignModel] = {}
     counts_by_campaign: dict[str, Counter] = {}
+    excluded_counts_by_campaign: dict[str, Counter] = {}
     previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
     if campaign_ids:
         campaigns = {
@@ -2605,13 +2618,22 @@ def get_source_plans(
             .where(
                 RrugcCandidateModel.tenant_id == principal.active_tenant_id,
                 RrugcCandidateModel.campaign_id.in_(campaign_ids),
-                RrugcCandidateModel.status.in_(SOURCE_PLAN_REFERENCE_STATUSES),
+                RrugcCandidateModel.status.in_(SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES),
             )
             .order_by(
                 RrugcCandidateModel.campaign_id.asc(),
                 RrugcCandidateModel.created_at.desc(),
             )
         ):
+            signal = dict(candidate.ai_signal_json or {})
+            manually_rejected = signal.get("reference_manual_label") == "bad"
+            if manually_rejected:
+                excluded_counts_by_campaign.setdefault(
+                    candidate.campaign_id,
+                    Counter(),
+                )[candidate.status] += 1
+            if candidate.status == "rejected_context" and not manually_rejected:
+                continue
             rows = previews_by_campaign.setdefault(candidate.campaign_id, [])
             if len(rows) < SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT:
                 rows.append(candidate)
@@ -2621,6 +2643,10 @@ def get_source_plans(
             row,
             campaign=campaigns.get(row.campaign_id or ""),
             counts=counts_by_campaign.get(row.campaign_id or "", Counter()),
+            excluded_counts=excluded_counts_by_campaign.get(
+                row.campaign_id or "",
+                Counter(),
+            ),
             previews=previews_by_campaign.get(row.campaign_id or "", []),
         )
         for row in plans

@@ -12,6 +12,7 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
+    RrugcCandidateModel,
     RrugcSourcePlanModel,
 )
 from app.modules.realistic_review_ugc.router import (
@@ -131,6 +132,7 @@ def make_database():
     TenantProcessingPolicyModel.__table__.create(engine)
     ProcessingJobModel.__table__.create(engine)
     RrugcCampaignModel.__table__.create(engine)
+    RrugcCandidateModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
     return sessionmaker(engine, expire_on_commit=False)
 
@@ -160,7 +162,7 @@ def test_source_plan_visual_binding_uses_numeric_revision_and_hash_content():
     assert len(product_visual_binding_fingerprint(product, references)) == 64
 
 
-def test_source_plan_reference_preview_exposes_human_pick_signal():
+def test_source_plan_reference_preview_exposes_positive_negative_and_neutral_feedback():
     created_at = datetime(2026, 10, 3, tzinfo=timezone.utc)
     picked = _source_plan_reference_preview(SimpleNamespace(
         id="candidate-picked",
@@ -175,6 +177,19 @@ def test_source_plan_reference_preview_exposes_human_pick_signal():
             "reference_manual_label": "good",
         },
     ))
+    rejected = _source_plan_reference_preview(SimpleNamespace(
+        id="candidate-rejected",
+        pin_url="https://www.pinterest.com/pin/234/",
+        image_url="https://i.pinimg.com/736x/example-bad.jpg",
+        status="drive_ready",
+        width=900,
+        height=1200,
+        created_at=created_at,
+        ai_signal_json={
+            "scout_query": "grandpa golf course candid phone photo",
+            "reference_manual_label": "bad",
+        },
+    ))
     neutral = _source_plan_reference_preview(SimpleNamespace(
         id="candidate-neutral",
         pin_url="https://www.pinterest.com/pin/456/",
@@ -187,8 +202,85 @@ def test_source_plan_reference_preview_exposes_human_pick_signal():
     ))
 
     assert picked.picked is True
+    assert picked.rejected is False
     assert picked.source_query == "grandpa golf course candid phone photo"
+    assert rejected.picked is False
+    assert rejected.rejected is True
     assert neutral.picked is False
+    assert neutral.rejected is False
+
+
+def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usable_progress():
+    factory = make_database()
+
+    with factory() as session:
+        campaign = RrugcCampaignModel(
+            tenant_id="tenant-a",
+            name="Source row feedback campaign",
+            query="casual cookout phone photo",
+            target_count=20,
+            auto_import=True,
+            auto_scout=True,
+            scout_token_hash="c" * 64,
+            created_by_user_id="user-a",
+        )
+        session.add(campaign)
+        session.flush()
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="feedback-image",
+            source_parent_folder_id="feedback-folder",
+            source_relative_path="Feedback/cookout-cap.jpg",
+            source_name="cookout-cap.jpg",
+            source_mime_type="image/jpeg",
+            source_revision="f" * 64,
+            analysis_revision=1,
+            target_count=20,
+            status="ready",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        session.add(plan)
+        session.add_all([
+            RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                source_key="1" * 64,
+                pin_url="https://www.pinterest.com/pin/1001/",
+                image_url="https://i.pinimg.com/736x/usable.jpg",
+                status="drive_ready",
+                ai_signal_json={"scout_query": "casual cookout phone photo"},
+            ),
+            RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                source_key="2" * 64,
+                pin_url="https://www.pinterest.com/pin/1002/",
+                image_url="https://i.pinimg.com/736x/rejected.jpg",
+                status="drive_ready",
+                ai_signal_json={
+                    "scout_query": "casual cookout phone photo",
+                    "reference_manual_label": "bad",
+                },
+            ),
+        ])
+        session.commit()
+
+        page = get_source_plans(
+            page=1,
+            page_size=20,
+            q="cookout-cap",
+            session=session,
+            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+
+        assert page.total == 1
+        item = page.items[0]
+        assert item.drive_ready_count == 1
+        assert item.progress_count == 1
+        assert len(item.reference_previews) == 2
+        assert sum(reference.rejected for reference in item.reference_previews) == 1
 
 
 def test_source_plan_list_is_server_paginated_and_searchable():

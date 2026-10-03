@@ -801,7 +801,7 @@ class RrugcAutoScoutService:
         campaigns = self.repository.list_campaigns(agent.tenant_id, limit=50)
         rows: list[dict] = []
         for campaign in campaigns:
-            counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
+            counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
             progress = (
                 counts.get("drive_ready", 0)
                 if campaign.auto_import
@@ -884,7 +884,7 @@ class RrugcAutoScoutService:
         progress = 0
         pipeline_count = 0
         for campaign in campaigns:
-            counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
+            counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
             progress = (
                 counts.get("drive_ready", 0)
                 if campaign.auto_import
@@ -1057,7 +1057,7 @@ class RrugcAutoScoutService:
                 status_code=409,
             )
 
-        counts_before = self.repository.campaign_counts(
+        counts_before = self.repository.campaign_usable_counts(
             campaign.tenant_id,
             campaign.id,
         )
@@ -1107,7 +1107,7 @@ class RrugcAutoScoutService:
         campaign.scout_last_seen_at = now
         agent.status = "busy"
         agent.last_seen_at = now
-        counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
+        counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
         progress = (
             counts.get("drive_ready", 0)
             if campaign.auto_import
@@ -1159,7 +1159,7 @@ class RrugcAutoScoutService:
         run.last_heartbeat_at = now
 
         if campaign is not None:
-            counts = self.repository.campaign_counts(campaign.tenant_id, campaign.id)
+            counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
             progress = (
                 counts.get("drive_ready", 0)
                 if campaign.auto_import

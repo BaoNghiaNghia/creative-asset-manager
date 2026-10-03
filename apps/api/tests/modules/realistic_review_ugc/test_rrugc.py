@@ -1438,6 +1438,73 @@ def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, data
         assert RrugcRepository(session).reference_feedback_training_rows("tenant-a") == []
 
 
+def test_bad_reference_is_excluded_from_usable_target_and_reopens_completed_scout(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="source row replacement feedback",
+            query="casual family cookout",
+            target_count=1,
+            max_scroll_batches=2,
+            auto_import=True,
+            auto_scout=True,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/717171/",
+                image_url="https://i.pinimg.com/736x/7/1/7.jpg",
+                alt_text="casual family cookout",
+            )],
+            source_query="casual family cookout",
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "drive_ready"
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        candidate.ai_signal_json = {
+            "scout_query": "casual family cookout",
+        }
+        campaign.status = "completed"
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    marked_bad = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "bad", "note": "Not usable for this source row."},
+    )
+    assert marked_bad.status_code == 200
+    assert marked_bad.json()["candidate"]["reference_manual_label"] == "bad"
+    assert marked_bad.json()["candidate"]["status"] == "drive_ready"
+
+    with database() as session:
+        repository = RrugcRepository(session)
+        raw_counts = repository.campaign_counts("tenant-a", campaign_id)
+        usable_counts = repository.campaign_usable_counts("tenant-a", campaign_id)
+        campaign = repository.get_campaign("tenant-a", campaign_id)
+        assert raw_counts["drive_ready"] == 1
+        assert usable_counts["drive_ready"] == 0
+        assert campaign is not None
+        assert campaign.status == "running"
+        assert campaign.scan_next_at is not None
+
+    cleared = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "clear"},
+    )
+    assert cleared.status_code == 200
+
+    with database() as session:
+        repository = RrugcRepository(session)
+        campaign = repository.get_campaign("tenant-a", campaign_id)
+        assert repository.campaign_usable_counts("tenant-a", campaign_id)["drive_ready"] == 1
+        assert campaign is not None
+        assert campaign.status == "completed"
+
+
+
 def test_reference_feedback_learning_is_profile_scoped(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(

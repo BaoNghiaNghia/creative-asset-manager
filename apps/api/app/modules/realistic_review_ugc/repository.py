@@ -69,6 +69,25 @@ class RrugcRepository:
         ).all()
         return Counter({str(status): int(count) for status, count in rows})
 
+    def campaign_usable_counts(self, tenant_id: str, campaign_id: str) -> Counter:
+        manual_label = (
+            RrugcCandidateModel.ai_signal_json["reference_manual_label"].as_string()
+        )
+        rows = self.session.execute(
+            select(RrugcCandidateModel.status, func.count())
+            .where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id == campaign_id,
+                or_(
+                    RrugcCandidateModel.ai_signal_json.is_(None),
+                    manual_label.is_(None),
+                    manual_label != "bad",
+                ),
+            )
+            .group_by(RrugcCandidateModel.status)
+        ).all()
+        return Counter({str(status): int(count) for status, count in rows})
+
     def list_candidates(
         self, tenant_id: str, campaign_id: str, *, limit: int = 100, offset: int = 0
     ) -> list[RrugcCandidateModel]:
