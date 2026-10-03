@@ -22,7 +22,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v19"
+CLIENT_VERSION = "rrugc-scout-v20"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_RELATED_SCAN_LIMIT = 20
@@ -43,6 +43,7 @@ HEARTBEAT_INTERVAL_SECONDS = 10
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
 SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
+HISTORY_REPLAY_EXTRA_SCROLL_BATCHES = 12
 SCOUT_DEBUG_LOG_FILENAME = "pinterest-scout.jsonl"
 SCOUT_DEBUG_LOG_RETENTION_DAYS = 10
 
@@ -546,7 +547,7 @@ class ScoutHistory:
     ) -> None:
         self.path = Path(path)
         self.max_pins_per_campaign = max(100, int(max_pins_per_campaign))
-        self.data: dict[str, Any] = {"version": 1, "campaigns": {}}
+        self.data: dict[str, Any] = {"version": 2, "campaigns": {}}
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(payload, dict) and isinstance(payload.get("campaigns"), dict):
@@ -567,6 +568,22 @@ class ScoutHistory:
         return {
             pin_history_key(value)
             for value in pins
+            if isinstance(value, str) and value.strip()
+        }
+
+    def seen_asset_keys(self, campaign_id: str) -> set[str]:
+        campaigns = self.data.get("campaigns")
+        if not isinstance(campaigns, dict):
+            return set()
+        row = campaigns.get(str(campaign_id))
+        if not isinstance(row, dict):
+            return set()
+        assets = row.get("seen_assets")
+        if not isinstance(assets, list):
+            return set()
+        return {
+            str(value).strip()
+            for value in assets
             if isinstance(value, str) and value.strip()
         }
 
@@ -623,29 +640,49 @@ class ScoutHistory:
             campaigns = {}
             self.data["campaigns"] = campaigns
         key = str(campaign_id)
-        campaign = campaigns.setdefault(key, {"seen_pins": []})
+        campaign = campaigns.setdefault(
+            key,
+            {"seen_pins": [], "seen_assets": []},
+        )
         if not isinstance(campaign, dict):
-            campaign = {"seen_pins": []}
+            campaign = {"seen_pins": [], "seen_assets": []}
             campaigns[key] = campaign
         pins = campaign.get("seen_pins")
         if not isinstance(pins, list):
             pins = []
-        ordered = [
+        assets = campaign.get("seen_assets")
+        if not isinstance(assets, list):
+            assets = []
+        ordered_pins = [
             pin_history_key(value)
             for value in pins
             if isinstance(value, str) and value.strip()
         ]
-        known = set(ordered)
+        ordered_assets = [
+            str(value).strip()
+            for value in assets
+            if isinstance(value, str) and value.strip()
+        ]
+        known_pins = set(ordered_pins)
+        known_assets = set(ordered_assets)
         added = 0
+        changed = False
         for row in rows:
             pin = pin_history_key(row.pin_url)
-            if not pin or pin in known:
-                continue
-            known.add(pin)
-            ordered.append(pin)
-            added += 1
-        campaign["seen_pins"] = ordered[-self.max_pins_per_campaign:]
-        if added:
+            asset = pinimg_asset_key(row.image_url)
+            if pin and pin not in known_pins:
+                known_pins.add(pin)
+                ordered_pins.append(pin)
+                added += 1
+                changed = True
+            if asset and asset not in known_assets:
+                known_assets.add(asset)
+                ordered_assets.append(asset)
+                changed = True
+        campaign["seen_pins"] = ordered_pins[-self.max_pins_per_campaign:]
+        campaign["seen_assets"] = ordered_assets[-self.max_pins_per_campaign:]
+        self.data["version"] = 2
+        if changed:
             self.save()
         return added
 
@@ -1517,9 +1554,31 @@ async def scan_auto_run(
     source_plan_id = str(task.get("source_plan_id") or "").strip()
     source_relative_path = str(task.get("source_relative_path") or "").strip()
     source_name = str(task.get("source_name") or "").strip()
-    history_key = source_plan_id or campaign_id
+    history_keys = list(dict.fromkeys(
+        key for key in (campaign_id, source_plan_id) if key
+    ))
     related_history_key = campaign_id
-    persistent_seen = history.seen_pin_keys(history_key) if history else set()
+    persistent_seen: set[str] = set()
+    persistent_seen_assets: set[str] = set()
+    if history:
+        for history_key in history_keys:
+            persistent_seen.update(history.seen_pin_keys(history_key))
+            persistent_seen_assets.update(history.seen_asset_keys(history_key))
+
+    def remember_history(rows: list[Candidate]) -> None:
+        if not history or not rows:
+            return
+        for history_key in history_keys:
+            history.remember(history_key, rows)
+        persistent_seen.update(
+            pin_history_key(row.pin_url) for row in rows if pin_history_key(row.pin_url)
+        )
+        persistent_seen_assets.update(
+            pinimg_asset_key(row.image_url)
+            for row in rows
+            if pinimg_asset_key(row.image_url)
+        )
+
     search_queries = task_search_queries(task)
     if not search_queries:
         search_queries = [str(task["query"])]
@@ -1535,6 +1594,7 @@ async def scan_auto_run(
             last_heartbeat = now
 
     seen_pins: set[str] = set()
+    seen_assets: set[str] = set()
     target = int(task["target_count"])
     max_scroll_batches = int(task["max_scroll_batches"])
     progress = int(task.get("progress") or 0)
@@ -1569,7 +1629,10 @@ async def scan_auto_run(
         unseen_related = [
             row
             for row in related_rows
-            if pin_history_key(row.pin_url) not in persistent_seen
+            if (
+                pin_history_key(row.pin_url) not in persistent_seen
+                and pinimg_asset_key(row.image_url) not in persistent_seen_assets
+            )
         ]
         filtered_related = [
             row
@@ -1579,11 +1642,8 @@ async def scan_auto_run(
         fresh_related, related_metadata_filtered = quality_prefilter(
             unseen_related
         )
-        if history and filtered_related:
-            history.remember(history_key, filtered_related)
-            persistent_seen.update(
-                pin_history_key(row.pin_url) for row in filtered_related
-            )
+        if filtered_related:
+            remember_history(filtered_related)
 
         related_budget = max(0, target - pipeline_count)
         selected_related = fresh_related[:related_budget]
@@ -1621,11 +1681,7 @@ async def scan_auto_run(
                 resolved_chunk,
                 source_query=None,
             )
-            if history:
-                history.remember(history_key, resolved_chunk)
-                persistent_seen.update(
-                    pin_history_key(row.pin_url) for row in resolved_chunk
-                )
+            remember_history(resolved_chunk)
             related_created += int(result.get("created") or 0)
             related_existing += int(result.get("existing") or 0)
             progress = int(result.get("progress") or 0)
@@ -1743,37 +1799,68 @@ async def scan_auto_run(
             + str(initial_dwell)
         )
 
-        for batch in range(max_scroll_batches):
+        max_batch_attempts = max_scroll_batches + HISTORY_REPLAY_EXTRA_SCROLL_BATCHES
+        discovery_batches = 0
+        for batch in range(max_batch_attempts):
             await heartbeat_if_due()
             inspect_dwell = await paced_wait(page, pace.inspect_dwell_ms)
             visible = await extract_visible(page)
-            visible_once = [
+            visible_once: list[Candidate] = []
+            for row in visible:
+                pin_key = pin_history_key(row.pin_url)
+                asset_key = pinimg_asset_key(row.image_url)
+                if pin_key in seen_pins or (asset_key and asset_key in seen_assets):
+                    continue
+                seen_pins.add(pin_key)
+                if asset_key:
+                    seen_assets.add(asset_key)
+                visible_once.append(row)
+            legacy_asset_backfill = [
                 row
-                for row in visible
-                if pin_history_key(row.pin_url) not in seen_pins
+                for row in visible_once
+                if (
+                    pin_history_key(row.pin_url) in persistent_seen
+                    and pinimg_asset_key(row.image_url)
+                    and pinimg_asset_key(row.image_url) not in persistent_seen_assets
+                )
             ]
+            if legacy_asset_backfill:
+                remember_history(legacy_asset_backfill)
             persistent_skipped = sum(
                 1
                 for row in visible_once
-                if pin_history_key(row.pin_url) in persistent_seen
+                if (
+                    pin_history_key(row.pin_url) in persistent_seen
+                    or pinimg_asset_key(row.image_url) in persistent_seen_assets
+                )
             )
             unseen = [
                 row
                 for row in visible_once
-                if pin_history_key(row.pin_url) not in persistent_seen
+                if (
+                    pin_history_key(row.pin_url) not in persistent_seen
+                    and pinimg_asset_key(row.image_url) not in persistent_seen_assets
+                )
             ]
-            for row in visible_once:
-                seen_pins.add(pin_history_key(row.pin_url))
+            if unseen:
+                discovery_batches += 1
+            elif visible_once or persistent_skipped:
+                scout_debug_event(
+                    "pinterest_history_replay_batch",
+                    campaign_id=str(task["campaign_id"]),
+                    run_id=run_id,
+                    keyword_index=query_index + 1,
+                    batch_index=batch + 1,
+                    persistent_skipped=persistent_skipped,
+                    replay_budget=HISTORY_REPLAY_EXTRA_SCROLL_BATCHES,
+                )
             filtered_rows = [
                 row for row in unseen
                 if synthetic_metadata_reason(row) is not None
             ]
             fresh, metadata_filtered = quality_prefilter(unseen)
-            if history and filtered_rows:
-                history.remember(history_key, filtered_rows)
-                persistent_seen.update(
-                    pin_history_key(row.pin_url) for row in filtered_rows
-                )
+            if filtered_rows:
+                remember_history(filtered_rows)
             scout_debug_event(
                 "pinterest_batch_inspected",
                 campaign_id=str(task["campaign_id"]),
@@ -1781,7 +1868,9 @@ async def scan_auto_run(
                 keyword_index=query_index + 1,
                 keyword_count=len(search_queries),
                 batch_index=batch + 1,
-                batch_count=max_scroll_batches,
+                batch_count=max_batch_attempts,
+                discovery_batches=discovery_batches,
+                discovery_batch_budget=max_scroll_batches,
                 inspect_dwell_ms=inspect_dwell,
                 visible=len(visible),
                 unseen=len(unseen),
@@ -1796,8 +1885,12 @@ async def scan_auto_run(
                 + str(query_index + 1)
                 + "/"
                 + str(len(search_queries))
-                + " batch="
+                + " batch_attempt="
                 + str(batch + 1)
+                + "/"
+                + str(max_batch_attempts)
+                + " discovery_batches="
+                + str(discovery_batches)
                 + "/"
                 + str(max_scroll_batches)
                 + " inspect_dwell_ms="
@@ -1876,11 +1969,7 @@ async def scan_auto_run(
                     resolved_chunk,
                     source_query=raw_query,
                 )
-                if history:
-                    history.remember(history_key, resolved_chunk)
-                    persistent_seen.update(
-                        pin_history_key(row.pin_url) for row in resolved_chunk
-                    )
+                remember_history(resolved_chunk)
                 created_now = int(result.get("created") or 0)
                 created_this_run += created_now
                 created_for_keyword += created_now
@@ -1909,10 +1998,10 @@ async def scan_auto_run(
                     + str(query_index + 1)
                     + "/"
                     + str(len(search_queries))
-                    + " batch="
+                    + " batch_attempt="
                     + str(batch + 1)
                     + "/"
-                    + str(max_scroll_batches)
+                    + str(max_batch_attempts)
                     + " submitted="
                     + str(len(resolved_chunk))
                     + " created="
@@ -1950,6 +2039,8 @@ async def scan_auto_run(
 
             if keyword_budget_reached or created_for_keyword >= keyword_candidate_cap:
                 break
+            if discovery_batches >= max_scroll_batches:
+                break
 
             gate = await access_gate(page)
             if gate is not None:
@@ -1967,7 +2058,10 @@ async def scan_auto_run(
                     )
                     return
 
-            if batch + 1 < max_scroll_batches:
+            if (
+                batch + 1 < max_batch_attempts
+                and discovery_batches < max_scroll_batches
+            ):
                 before_scroll_count = max(
                     loaded_count,
                     await loaded_pin_count(page),

@@ -117,7 +117,7 @@ def test_recover_windows_profile_only_closes_dedicated_root_chrome(
 def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v19"}',
+        '{"pid":21668,"version":"rrugc-scout-v20"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -137,7 +137,7 @@ def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
 def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v19"}',
+        '{"pid":21668,"version":"rrugc-scout-v20"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -152,7 +152,7 @@ def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
 
     payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
     assert payload["pid"] == scout_module.os.getpid()
-    assert payload["version"] == "rrugc-scout-v19"
+    assert payload["version"] == "rrugc-scout-v20"
 
     lock.release()
     assert not lock_path.exists()
@@ -183,10 +183,12 @@ def test_scout_history_persists_seen_pins(tmp_path):
     assert history.remember("campaign-a", rows) == 2
     assert history.remember("campaign-a", rows) == 0
     assert pin_history_key(rows[0].pin_url) == "https://www.pinterest.com/pin/123/"
-    assert ScoutHistory(path).seen_pin_keys("campaign-a") == {
+    reloaded = ScoutHistory(path)
+    assert reloaded.seen_pin_keys("campaign-a") == {
         "https://www.pinterest.com/pin/123/",
         "https://www.pinterest.com/pin/456/",
     }
+    assert reloaded.seen_asset_keys("campaign-a") == {"a.jpg", "b.jpg"}
 
 
 def test_quality_first_query_and_metadata_prefilter():
@@ -581,9 +583,9 @@ def test_scan_auto_run_skips_persisted_pin_history(tmp_path):
             if "const out = []" in script:
                 return [
                     {
-                        "pin_url": "https://www.pinterest.com/pin/old/",
-                        "image_url": "https://i.pinimg.com/736x/old.jpg",
-                        "alt_text": "old result",
+                        "pin_url": "https://www.pinterest.com/pin/reposted-old/",
+                        "image_url": "https://i.pinimg.com/originals/old.jpg",
+                        "alt_text": "same old image reposted under another Pin",
                     },
                     {
                         "pin_url": "https://www.pinterest.com/pin/new/",
@@ -649,9 +651,112 @@ def test_scan_auto_run_skips_persisted_pin_history(tmp_path):
     assert "https://www.pinterest.com/pin/new/" in history.seen_pin_keys(
         "source-plan-history"
     )
-    assert not history.seen_pin_keys("campaign-history")
+    assert "https://www.pinterest.com/pin/new/" in history.seen_pin_keys(
+        "campaign-history"
+    )
+    assert "new.jpg" in history.seen_asset_keys("source-plan-history")
+    assert "new.jpg" in history.seen_asset_keys("campaign-history")
     assert client.completed == ["run-history:completed"]
 
+
+def test_scan_auto_run_scrolls_past_history_only_results(tmp_path):
+    class FakeMouse:
+        def __init__(self, page):
+            self.page = page
+
+        async def wheel(self, _x, _y):
+            self.page.scrolled = True
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+            self.scrolled = False
+            self.mouse = FakeMouse(self)
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            self.scrolled = False
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "querySelectorAll('a[href*=\"/pin/\"] img')" in script:
+                return 2 if self.scrolled else 1
+            if "const out = []" in script:
+                rows = [
+                    {
+                        "pin_url": "https://www.pinterest.com/pin/old/",
+                        "image_url": "https://i.pinimg.com/736x/old.jpg",
+                        "alt_text": "old result",
+                    }
+                ]
+                if self.scrolled:
+                    rows.append({
+                        "pin_url": "https://www.pinterest.com/pin/new-after-scroll/",
+                        "image_url": "https://i.pinimg.com/736x/new-after-scroll.jpg",
+                        "alt_text": "new result after old history",
+                    })
+                return rows
+            return False
+
+    class FakeClient:
+        def __init__(self):
+            self.submitted = []
+            self.completed = []
+
+        async def heartbeat(self, *_args, **_kwargs):
+            return {}
+
+        async def submit(self, _run_id, rows, *, source_query=None):
+            self.submitted.extend(row.pin_url for row in rows)
+            return {
+                "created": len(rows),
+                "existing": 0,
+                "progress": 0,
+                "pipeline_count": len(self.submitted),
+                "target_count": 10,
+                "campaign_status": "running",
+            }
+
+        async def complete(self, run_id, status, **_kwargs):
+            self.completed.append(run_id + ":" + status)
+            return {}
+
+    history = ScoutHistory(tmp_path / "history.json")
+    history.remember(
+        "campaign-history-scroll",
+        [Candidate(
+            "https://www.pinterest.com/pin/old/",
+            "https://i.pinimg.com/originals/old.jpg",
+        )],
+    )
+    page = FakePage()
+    client = FakeClient()
+    asyncio.run(scan_auto_run(
+        page,
+        client,
+        {
+            "run": {"id": "run-history-scroll"},
+            "campaign_id": "campaign-history-scroll",
+            "query": "phone candid",
+            "search_queries": ["phone candid"],
+            "target_count": 10,
+            "max_scroll_batches": 1,
+            "progress": 0,
+            "pipeline_count": 0,
+        },
+        login_wait_seconds=60,
+        history=history,
+    ))
+
+    assert page.scrolled is True
+    assert client.submitted == [
+        "https://www.pinterest.com/pin/new-after-scroll/"
+    ]
+    assert client.completed == ["run-history-scroll:completed"]
 
 
 def test_related_seed_history_is_persistent_and_normalized(tmp_path):
@@ -987,11 +1092,11 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v19"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v20"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         if request.url.path.endswith("/diagnostics"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v19"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v20"
             assert request.headers["x-scout-machine"] == "studio-pc"
         return httpx.Response(200, json={"status": "ready"})
 
