@@ -36,6 +36,7 @@ from app.modules.realistic_review_ugc.analysis import (
     should_confirm_ai_risk,
 )
 from app.modules.realistic_review_ugc.gemini_safety import (
+    deferred_rrugc_ai_retry,
     scheduled_rrugc_gemini_slot,
 )
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
@@ -138,14 +139,13 @@ class RrugcCandidateAnalyzeJobHandler:
                 "Reference analyzer provider is unavailable.",
             )
         except AiProviderError as exc:
-            retry_at = getattr(exc, "earliest_retry_at", None)
             self._mark_error(context, exc.code, terminal=not exc.retryable)
-            if exc.retryable and isinstance(retry_at, datetime):
-                return DeferredJobOutcome(
-                    exc.code,
-                    "Reference analyzer is temporarily unavailable.",
-                    retry_at,
-                )
+            deferred = deferred_rrugc_ai_retry(
+                exc,
+                message="Reference analyzer is temporarily unavailable.",
+            )
+            if deferred is not None:
+                return deferred
             outcome = JobHandlerResult.retryable if exc.retryable else JobHandlerResult.non_retryable
             return outcome(exc.code, "Reference analyzer failed.")
         except Exception:

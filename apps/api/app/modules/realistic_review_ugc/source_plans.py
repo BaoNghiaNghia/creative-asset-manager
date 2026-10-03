@@ -31,6 +31,7 @@ from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
 )
 from app.modules.realistic_review_ugc.gemini_safety import (
+    deferred_rrugc_ai_retry,
     scheduled_rrugc_gemini_slot,
 )
 from app.modules.realistic_review_ugc.model import (
@@ -798,14 +799,13 @@ class RrugcSourcePlanAnalyzeJobHandler:
                 "Embroidery context analyzer is unavailable.",
             )
         except AiProviderError as exc:
-            retry_at = getattr(exc, "earliest_retry_at", None)
             self._mark_error(context, exc.code, terminal=not exc.retryable)
-            if exc.retryable and isinstance(retry_at, datetime):
-                return DeferredJobOutcome(
-                    exc.code,
-                    "Embroidery context analyzer is temporarily unavailable.",
-                    retry_at,
-                )
+            deferred = deferred_rrugc_ai_retry(
+                exc,
+                message="Embroidery context analyzer is temporarily unavailable.",
+            )
+            if deferred is not None:
+                return deferred
             outcome = (
                 JobHandlerResult.retryable
                 if exc.retryable

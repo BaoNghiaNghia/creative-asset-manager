@@ -20,9 +20,16 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
-from app.domain.processing.handlers import ClaimedJob, JobHandlerContext, JobOutcome, WorkerDependencies
+from app.domain.processing.handlers import (
+    ClaimedJob,
+    DeferredJobOutcome,
+    JobHandlerContext,
+    JobOutcome,
+    WorkerDependencies,
+)
 from app.domain.providers.contracts import (
     AiMetadataAnalysisResult,
+    AiProviderError,
     StorageProviderError,
     StoredAsset,
     StoredAssetReadStream,
@@ -51,6 +58,7 @@ from app.modules.realistic_review_ugc.handler import (
     RrugcCandidateAnalyzeJobHandler,
     reference_qualification_resolution,
 )
+from app.modules.realistic_review_ugc.gemini_safety import deferred_rrugc_ai_retry
 from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
     detect_campaign_keyword_intent,
@@ -1877,6 +1885,42 @@ def test_reference_good_stays_approved_when_background_analysis_fails(api, datab
             == "gemini_model_pool_temporarily_unavailable"
         )
         assert candidate.ai_signal_json["reference_manual_pending_analysis"] is True
+
+
+
+def test_gemini_pool_unavailable_is_deferred_even_without_provider_retry_timestamp():
+    now = datetime(2026, 10, 3, 5, 30, tzinfo=timezone.utc)
+    error = AiProviderError(
+        "No Gemini model is currently available.",
+        code="gemini_model_pool_temporarily_unavailable",
+        retryable=True,
+    )
+
+    result = deferred_rrugc_ai_retry(
+        error,
+        message="Embroidery context analyzer is temporarily unavailable.",
+        now=now,
+    )
+
+    assert isinstance(result, DeferredJobOutcome)
+    assert result.reason_code == "gemini_model_pool_temporarily_unavailable"
+    assert result.retry_at == now + timedelta(seconds=60)
+
+
+def test_generic_retryable_ai_error_without_retry_timestamp_uses_normal_attempt_policy():
+    error = AiProviderError(
+        "Transient provider error.",
+        code="ai_provider_transient_error",
+        retryable=True,
+    )
+
+    assert (
+        deferred_rrugc_ai_retry(
+            error,
+            message="AI provider is temporarily unavailable.",
+        )
+        is None
+    )
 
 
 def test_reference_good_is_authoritative_for_soft_and_ai_rejections(api, database):
