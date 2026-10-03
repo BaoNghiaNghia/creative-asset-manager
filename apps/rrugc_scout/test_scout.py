@@ -7,6 +7,9 @@ from scout import (
     Candidate,
     SCOUT_PACES,
     ScoutHistory,
+    _clear_stale_profile_runtime_files,
+    _looks_like_profile_launch_collision,
+    _parse_windows_profile_owners,
     access_gate,
     allowed_image,
     allowed_pin,
@@ -26,6 +29,53 @@ from scout import (
     task_search_queries,
     wait_for_pin_growth,
 )
+
+
+def test_windows_profile_owner_output_parser_filters_invalid_rows():
+    chrome_pids, scout_pids = _parse_windows_profile_owners(
+        "chrome|41360\n"
+        "scout|1224\n"
+        "chrome|41360\n"
+        "other|900\n"
+        "chrome|not-a-pid\n"
+    )
+    assert chrome_pids == (41360,)
+    assert scout_pids == (1224,)
+
+
+def test_profile_launch_collision_detection_matches_windows_target_closed_log():
+    assert _looks_like_profile_launch_collision(
+        RuntimeError(
+            "BrowserType.launch_persistent_context: Target page, context or browser "
+            "has been closed; process did exit: exitCode=21"
+        )
+    )
+    assert _looks_like_profile_launch_collision(
+        RuntimeError("profile is already in use by another instance of Chromium")
+    )
+    assert not _looks_like_profile_launch_collision(RuntimeError("Pinterest HTTP 429"))
+
+
+def test_clear_stale_profile_runtime_files_preserves_unrelated_files(tmp_path):
+    stale_names = (
+        "SingletonCookie",
+        "SingletonLock",
+        "SingletonSocket",
+        "lockfile",
+        "DevToolsActivePort",
+    )
+    for name in stale_names:
+        (tmp_path / name).write_text("stale", encoding="utf-8")
+    keep = tmp_path / "Cookies"
+    keep.write_text("keep", encoding="utf-8")
+
+    removed = _clear_stale_profile_runtime_files(tmp_path)
+
+    assert set(removed) == set(stale_names)
+    assert keep.read_text(encoding="utf-8") == "keep"
+    for name in stale_names:
+        assert not (tmp_path / name).exists()
+
 
 
 def test_url_allowlists():
@@ -628,7 +678,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v14"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v15"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

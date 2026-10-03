@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v14"
+CLIENT_VERSION = "rrugc-scout-v15"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -134,6 +134,174 @@ def resolve_chrome_executable(explicit: str = "") -> str:
     return ""
 
 
+def _powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _parse_windows_profile_owners(raw: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    chrome_pids: list[int] = []
+    scout_pids: list[int] = []
+    for line in str(raw or "").splitlines():
+        kind, separator, pid_text = line.strip().partition("|")
+        if not separator:
+            continue
+        try:
+            pid = int(pid_text.strip())
+        except ValueError:
+            continue
+        if pid <= 0:
+            continue
+        if kind.strip().casefold() == "chrome":
+            chrome_pids.append(pid)
+        elif kind.strip().casefold() == "scout":
+            scout_pids.append(pid)
+    return tuple(sorted(set(chrome_pids))), tuple(sorted(set(scout_pids)))
+
+
+def _windows_profile_owners(
+    profile_dir: str | Path,
+) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+    if sys.platform != "win32":
+        return (), ()
+
+    profile = str(Path(profile_dir).expanduser().resolve())
+    profile_literal = _powershell_literal(profile)
+    scout_marker = _powershell_literal(r"rrugc_scout\scout.py")
+    script = (
+        "$needle = (" + profile_literal + ").ToLowerInvariant(); "
+        "$scoutMarker = (" + scout_marker + ").ToLowerInvariant(); "
+        "$currentPid = " + str(os.getpid()) + "; "
+        "Get-CimInstance Win32_Process | ForEach-Object { "
+        "$name = [string]$_.Name; "
+        "$cmd = [string]$_.CommandLine; "
+        "$pidValue = [int]$_.ProcessId; "
+        "if ($pidValue -ne $currentPid -and -not [string]::IsNullOrWhiteSpace($cmd)) { "
+        "$lower = $cmd.ToLowerInvariant(); "
+        "if ($name -ieq 'chrome.exe' -and $lower.Contains($needle)) { "
+        "Write-Output ('chrome|' + $pidValue) "
+        "} elseif (($name -ieq 'python.exe' -or $name -ieq 'pythonw.exe') "
+        "-and $lower.Contains($scoutMarker) -and $lower.Contains($needle)) { "
+        "Write-Output ('scout|' + $pidValue) "
+        "} "
+        "} "
+        "}"
+    )
+    try:
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return _parse_windows_profile_owners(result.stdout)
+
+
+def _terminate_windows_profile_chrome(pids: tuple[int, ...]) -> int:
+    if sys.platform != "win32":
+        return 0
+    terminated = 0
+    for pid in pids:
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            terminated += 1
+    return terminated
+
+
+def _clear_stale_profile_runtime_files(profile_dir: str | Path) -> tuple[str, ...]:
+    profile = Path(profile_dir).expanduser().resolve()
+    removed: list[str] = []
+    for name in (
+        "SingletonCookie",
+        "SingletonLock",
+        "SingletonSocket",
+        "lockfile",
+        "DevToolsActivePort",
+    ):
+        path = profile / name
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+                removed.append(name)
+        except OSError:
+            continue
+    return tuple(removed)
+
+
+def _looks_like_profile_launch_collision(error: BaseException) -> bool:
+    message = str(error).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "target page, context or browser has been closed",
+            "profile is already in use",
+            "exitcode=21",
+            "processsingleton",
+        )
+    )
+
+
+def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
+    owners = _windows_profile_owners(profile_dir)
+    if owners is None:
+        print(
+            "Could not inspect Windows Chrome profile ownership; "
+            "retrying launch without process cleanup."
+        )
+        return
+
+    chrome_pids, scout_pids = owners
+    if scout_pids:
+        raise RuntimeError(
+            "Another Pinterest Auto Scout is already running with this profile "
+            "(PID " + ", ".join(str(pid) for pid in scout_pids) + "). "
+            "Use the existing Scout instance or close it before starting another one."
+        )
+
+    if chrome_pids:
+        print(
+            "Scout profile is held by Chrome PID(s) "
+            + ", ".join(str(pid) for pid in chrome_pids)
+            + "; closing only the dedicated Pinterest Scout Chrome process tree."
+        )
+        _terminate_windows_profile_chrome(chrome_pids)
+        time.sleep(0.75)
+        remaining = _windows_profile_owners(profile_dir)
+        if remaining is not None and remaining[0]:
+            raise RuntimeError(
+                "The dedicated Pinterest Scout Chrome profile is still in use by PID(s) "
+                + ", ".join(str(pid) for pid in remaining[0])
+                + ". Close those Scout-profile Chrome windows and start again."
+            )
+
+    removed = _clear_stale_profile_runtime_files(profile_dir)
+    if removed:
+        print("Cleared stale Scout profile runtime files: " + ", ".join(removed))
+
+
+
 def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
     chrome = resolve_chrome_executable(chrome_executable)
     if not chrome:
@@ -142,6 +310,8 @@ def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
         )
     profile = str(Path(profile_dir).expanduser().resolve())
     Path(profile).mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        _recover_windows_scout_profile(profile)
     print("Opening a normal Chrome window for manual Pinterest sign-in.")
     print("Profile: " + profile)
     print(
@@ -1378,9 +1548,11 @@ async def scan_page(
 async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
     from playwright.async_api import async_playwright
 
+    profile = Path(args.profile_dir).expanduser().resolve()
+    profile.mkdir(parents=True, exist_ok=True)
     playwright = await async_playwright().start()
     options: dict[str, Any] = {
-        "user_data_dir": str(Path(args.profile_dir).expanduser().resolve()),
+        "user_data_dir": str(profile),
         "headless": args.headless,
         "viewport": {"width": 1440, "height": 1000},
     }
@@ -1390,8 +1562,38 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
         print("Using local Chrome: " + chrome)
     else:
         print("Local Chrome not found; using Playwright Chromium.")
-    context = await playwright.chromium.launch_persistent_context(**options)
-    return playwright, context
+
+    try:
+        context = await playwright.chromium.launch_persistent_context(**options)
+        return playwright, context
+    except Exception as first_error:
+        if sys.platform != "win32" or not _looks_like_profile_launch_collision(first_error):
+            await playwright.stop()
+            raise
+
+        print(
+            "Chrome closed during Scout startup. "
+            "Checking the dedicated Pinterest profile for an existing/stale owner..."
+        )
+        try:
+            _recover_windows_scout_profile(profile)
+        except Exception:
+            await playwright.stop()
+            raise
+
+        await asyncio.sleep(0.75)
+        try:
+            context = await playwright.chromium.launch_persistent_context(**options)
+            print("Pinterest Scout Chrome recovered and started successfully.")
+            return playwright, context
+        except Exception as retry_error:
+            await playwright.stop()
+            raise RuntimeError(
+                "Pinterest Scout Chrome could not start after automatic profile recovery. "
+                "Only the dedicated Scout profile was touched. Close any Chrome window using "
+                + str(profile)
+                + " and run START_SCOUT.bat again."
+            ) from retry_error
 
 
 async def run_legacy(args: argparse.Namespace) -> None:
