@@ -16,6 +16,7 @@ import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job } from "./types";
 import "./ui-overhaul.css";
+import "./tablet-mobile-density.css";
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   items: [],

@@ -1,0 +1,125 @@
+/* RRUGC tablet/mobile density overrides.
+   Loaded after ui-overhaul.css so iPad and phone layouts stay visually compact
+   instead of inheriting desktop-sized typography and spacing. */
+
+@media (min-width:761px) and (max-width:1180px){
+  .rrugc-main{padding:14px 12px 30px}
+  .rrugc-header{margin-bottom:10px;padding-bottom:10px}
+  .rrugc-header h1{font-size:25.2px;line-height:1.12}
+  .rrugc-header .workspace-page-header-description{max-width:680px;font-size:11.4px;line-height:1.42}
+  .rrugc-page-live-pill{gap:5px;padding:4px 7px;font-size:8.8px}
+  .rrugc-page-live-pill i{width:5px;height:5px;box-shadow:0 0 0 2px #dff2e5}
+
+  .rrugc-page-body{gap:9px}
+  .rrugc-card{padding:10px;border-radius:10px}
+  .rrugc-section-heading{gap:8px}
+  .rrugc-section-heading small{font-size:8.2px;letter-spacing:.09em}
+  .rrugc-section-heading h2{margin-top:2px;font-size:15.6px;line-height:1.2}
+  .rrugc-section-heading p{margin-top:2px;font-size:9.8px;line-height:1.38}
+  .rrugc-safe-badge,.rrugc-count-badge,.rrugc-section-heading>span{min-height:24px;padding:3px 6px;font-size:8.2px}
+
+  .rrugc-auto-scout-panel,.rrugc-campaign-manager{padding:10px}
+  .rrugc-auto-scout-status>span{padding:5px 6px}
+  .rrugc-auto-scout-status small,.rrugc-pipeline-health small{font-size:7.8px}
+  .rrugc-auto-scout-status b,.rrugc-pipeline-health strong,.rrugc-pipeline-metrics b{font-size:9.6px}
+  .rrugc-pipeline-health{gap:6px;padding:6px 7px}
+  .rrugc-pipeline-health p{font-size:7.8px}
+
+  .rrugc-source-plan-kpis{gap:5px;margin-top:8px}
+  .rrugc-source-plan-kpis article{min-height:46px;padding:6px 8px}
+  .rrugc-source-plan-kpis span{font-size:7.6px}
+  .rrugc-source-plan-kpis strong{font-size:17.4px}
+  .rrugc-source-plan-toolbar{gap:6px;margin-top:7px;padding:5px}
+  .rrugc-source-plan-toolbar input,.rrugc-source-plan-toolbar select{min-height:29px;padding:4px 7px;font-size:9.4px}
+  .rrugc-source-plan-sort-direction{min-height:29px;padding:4px 8px;font-size:8.4px}
+  .rrugc-source-plan-sort-title,.rrugc-source-plan-sort-count{font-size:7.8px}
+  .rrugc-source-plan-filters button{min-height:26px;padding:4px 7px;font-size:8.4px}
+
+  .rrugc-source-plan-table-wrap{margin-top:7px;border-radius:8px}
+  .rrugc-source-plan-table{min-width:980px}
+  .rrugc-source-plan-table th{padding:6px 7px;font-size:7.6px}
+  .rrugc-source-plan-table td{padding:6px 7px}
+  .rrugc-source-file{grid-template-columns:58px minmax(0,1fr);gap:7px}
+  .rrugc-source-thumb{width:58px;height:58px}
+  .rrugc-source-file strong{font-size:9.4px}
+  .rrugc-source-file small{font-size:8.2px}
+  .rrugc-source-file em{font-size:7.4px}
+  .rrugc-source-context-head>small,.rrugc-source-plan-status,.rrugc-source-error{font-size:7.4px}
+  .rrugc-source-plan-status{min-height:20px;padding:2px 5px}
+  .rrugc-source-plan-context>p{margin-top:4px;font-size:8.2px}
+  .rrugc-source-theme-chips span,.rrugc-source-query-chips span{font-size:7.4px}
+  .rrugc-source-refs-head{margin-bottom:4px}
+  .rrugc-source-refs-head strong{font-size:8.2px}
+  .rrugc-source-refs-head small{font-size:7.2px}
+  .rrugc-source-ref-card{flex-basis:62px;width:62px;height:62px}
+  .rrugc-source-ref-arrow{width:22px;height:62px;font-size:15px}
+  .rrugc-source-ref-slider{grid-template-columns:22px minmax(0,1fr) 22px}
+
+  .rrugc-stage2{margin-top:10px}
+  .rrugc-stage2-table{min-width:940px}
+  .rrugc-stage2 .rrugc-source-file{grid-template-columns:58px minmax(0,1fr)}
+  .rrugc-stage2 .rrugc-source-file>img{width:58px;height:58px;max-width:58px;min-width:58px}
+  .rrugc-stage2-ref-head{margin-bottom:5px}
+  .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:9.2px}
+  .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small{font-size:7.8px}
+  .rrugc-stage2-ref-grid{min-height:58px;gap:4px;padding-bottom:5px}
+  .rrugc-stage2-ref{flex-basis:52px;width:52px;height:52px;border-radius:7px}
+  .rrugc-stage2-ref>span{min-width:17px;height:17px;padding:0 4px;font-size:10px}
+  .rrugc-stage2-skill .rrugc-primary{min-height:29px;padding:5px 8px;font-size:8.8px}
+  .rrugc-stage2-output img{width:68px;height:68px}
+  .rrugc-stage2-output span{font-size:9px}
+}
+
+@media (max-width:760px){
+  .rrugc-main{padding:10px 8px 26px}
+  .rrugc-header{margin-bottom:8px;padding-bottom:9px}
+  .rrugc-header h1{font-size:22px;line-height:1.1}
+  .rrugc-header .workspace-page-header-description{font-size:10.5px;line-height:1.38}
+  .rrugc-page-live-pill{gap:4px;padding:3px 6px;font-size:8px}
+
+  .rrugc-page-body{gap:9px}
+  .rrugc-card{padding:10px;border-radius:10px}
+  .rrugc-section-heading{gap:7px}
+  .rrugc-section-heading small{font-size:7.8px}
+  .rrugc-section-heading h2{font-size:15px}
+  .rrugc-section-heading p{font-size:9.4px}
+  .rrugc-safe-badge,.rrugc-count-badge,.rrugc-section-heading>span{min-height:24px;padding:3px 6px;font-size:8px}
+
+  .rrugc-overview .rrugc-kpis{gap:6px;padding:7px}
+  .rrugc-kpis article{min-height:50px;padding:7px 8px}
+  .rrugc-kpis span{font-size:8px}
+  .rrugc-kpis strong{font-size:20px}
+
+  .rrugc-workflow-rail{gap:0;padding:0 7px 7px}
+  .rrugc-workflow-rail a{min-width:96px;padding:7px 8px}
+  .rrugc-workflow-rail b{width:21px;height:21px;flex-basis:21px;font-size:8px}
+  .rrugc-workflow-rail strong{font-size:9.8px}
+  .rrugc-workflow-rail small{font-size:7.8px}
+
+  .rrugc-source-plan-kpis{gap:5px;margin-top:7px}
+  .rrugc-source-plan-kpis article{min-height:44px;padding:6px 7px}
+  .rrugc-source-plan-kpis span{font-size:7.2px}
+  .rrugc-source-plan-kpis strong{font-size:16.5px}
+  .rrugc-source-plan-toolbar{gap:5px;padding:5px}
+  .rrugc-source-plan-toolbar input,.rrugc-source-plan-toolbar select{min-height:32px;padding:5px 7px;font-size:9.4px}
+  .rrugc-source-plan-filters button{min-height:30px;padding:4px 7px;font-size:8.2px}
+  .rrugc-source-plan-table{min-width:860px}
+  .rrugc-source-plan-table th{padding:6px;font-size:7.2px}
+  .rrugc-source-plan-table td{padding:6px}
+  .rrugc-source-file strong{font-size:9px}
+  .rrugc-source-file small{font-size:7.8px}
+  .rrugc-source-file em{font-size:7.2px}
+  .rrugc-source-ref-card{flex-basis:56px;width:56px;height:56px}
+  .rrugc-source-ref-arrow{height:56px}
+
+  .rrugc-stage2-table{min-width:820px}
+  .rrugc-stage2 .rrugc-source-file{grid-template-columns:50px minmax(0,1fr)}
+  .rrugc-stage2 .rrugc-source-file>img{width:50px;height:50px;max-width:50px;min-width:50px}
+  .rrugc-stage2-ref{flex-basis:48px;width:48px;height:48px}
+  .rrugc-stage2-ref-grid{min-height:54px;gap:4px}
+  .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:8.8px}
+  .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small{font-size:7.6px}
+  .rrugc-stage2-skill .rrugc-primary{min-height:32px;padding:5px 8px;font-size:8.6px}
+  .rrugc-stage2-output img{width:62px;height:62px}
+  .rrugc-stage2-output span{font-size:8.6px}
+}
