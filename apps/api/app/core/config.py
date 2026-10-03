@@ -34,6 +34,7 @@ FEATURE_FLAG_NAMES = (
     "AI_BATCH_ANALYSIS_ENABLED",
     "AI_AUTO_ANALYZE_ENABLED",
     "JEV_ENABLED",
+    "JEV_SCOUT_QUERY_ENABLED",
     "OPENAI_AI_ENABLED",
     "OPENAI_BATCH_ENABLED",
     "SEARCH_PROJECTION_ENABLED",
@@ -318,6 +319,9 @@ class Settings(BaseSettings):
     # required for pipeline completion; when disabled, unconfigured, out of
     # credit, rate-limited, or unavailable, callers fall back to existing logic.
     JEV_ENABLED: bool = False
+    # RRUGC/Pinterest Scout query-controller rollout is separately gated so
+    # enabling Jev for another workflow cannot create Scout traffic.
+    JEV_SCOUT_QUERY_ENABLED: bool = False
     JEV_API_KEY: SecretStr = SecretStr("")
     JEV_BASE_URL: str = "https://api.typesafe.ai"
     JEV_MODEL: str = "jev-latest"

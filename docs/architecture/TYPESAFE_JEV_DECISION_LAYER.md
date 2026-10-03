@@ -618,6 +618,7 @@ The code scaffold adds:
 
 ```env
 JEV_ENABLED=false
+JEV_SCOUT_QUERY_ENABLED=false
 JEV_API_KEY=
 JEV_BASE_URL=https://api.typesafe.ai
 JEV_MODEL=jev-latest
@@ -638,7 +639,9 @@ JEV_MONTHLY_BUDGET_USD=10
 JEV_INPUT_PRICE_PER_MILLION_USD=0.042
 ```
 
-Defaults keep Jev completely disabled.
+Defaults keep Jev completely disabled. The Scout query-controller has its
+own `JEV_SCOUT_QUERY_ENABLED` gate so enabling Jev for a different workflow
+cannot create Pinterest Scout traffic.
 
 Missing `JEV_API_KEY` also leaves existing pipelines untouched.
 
@@ -714,14 +717,28 @@ Status after this change:
 
 ### Phase 1 — Scout shadow
 
-Add a Jev call at the search-round decision boundary.
+Implementation status: code complete, rollout disabled.
 
-Requirements:
+The Scout claim path now builds compact state from existing campaign/query
+health, calls Jev at most once per search decision, and stores the shadow result
+under the reserved `_jev_shadow` key on the Scout run. The current
+`adaptive_search_queries()` result remains the actual query sent to the Scout.
+
+The shadow request explicitly overrides retries to zero, so one provider outage
+cannot multiply the configured timeout on the claim path. Unexpected Jev client
+exceptions are caught and recorded as fallback observations.
+
+Requirements to activate a production shadow canary:
 
 - `JEV_ENABLED=true`
+- `JEV_SCOUT_QUERY_ENABLED=true`
 - `JEV_MODE=shadow`
 - TypeSafe key installed as a production secret.
 - No change to actual query choice.
+
+The Scout diagnostics endpoint now aggregates the latest shadow observations per
+campaign: completed/fallback/invalid counts, agreement rate, average latency,
+input tokens, and estimated cost.
 
 Collect at least several thousand decisions if possible.
 
@@ -884,29 +901,27 @@ fallback completion rate        100%
 
 1. The scaffold's cache is process-local.
 2. The scaffold's budget guard is process-local.
-3. No durable shadow-decision table exists yet.
+3. Shadow observations currently live in the existing Scout run JSON instead
+   of a dedicated durable decision table.
 4. No Jev API key is configured by this change.
-5. No Scout/RRUGC production path calls Jev yet.
+5. The Scout path is wired but remains deny-by-default until both Jev and the
+   Scout-specific flag are enabled.
 6. TypeSafe is an external early-access dependency; fallback remains mandatory.
 7. Billing HTTP semantics may evolve; the adapter intentionally treats billing
    detection conservatively and never exposes response bodies.
 
 ## 24. Recommended next implementation
 
-Next code change should be only:
+The next step is a bounded production shadow canary, not assisted routing yet:
 
-```text
-Scout Query Controller — shadow mode
-```
-
-It should:
-
-1. build a compact state from existing campaign/search metrics,
-2. call Jev once per search decision point, not once per image,
-3. record Jev Choice/confidence/usage/latency,
-4. still execute the current `keyword_strategy.py` decision,
-5. never delay a Scout job beyond the configured Jev timeout,
-6. prove the fallback invariant before assisted/active rollout.
+1. configure the TypeSafe API key as a production secret,
+2. enable `JEV_ENABLED=true`,
+3. enable `JEV_SCOUT_QUERY_ENABLED=true`,
+4. keep `JEV_MODE=shadow`,
+5. monitor the Scout diagnostics aggregate and provider metrics,
+6. collect enough observations to compare Jev recommendation vs baseline vs
+   downstream human `(v)/(x)/(AI)` labels,
+7. only then add a durable decision table and an assisted-mode confidence gate.
 
 ## 25. References
 

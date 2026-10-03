@@ -122,6 +122,7 @@ from app.modules.realistic_review_ugc.supervisor import (
 from app.modules.realistic_review_ugc.router import router
 from app.modules.realistic_review_ugc.schema import CandidateSubmission, ProductCreateRequest
 from app.providers.ai.codex_image import CodexSkillManifest
+from app.providers.decision.jev import JevCallResult, JevUsage
 from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
@@ -462,6 +463,176 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         assert row["ref_bad"] == 0
         assert row["approved_yield"] == pytest.approx(1.0)
         assert row["reference_yield"] == pytest.approx(1.0)
+
+
+def test_auto_scout_jev_shadow_records_recommendation_without_changing_query(
+    database,
+    monkeypatch,
+):
+    class FakeJevClient:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate(self, **kwargs):
+            self.calls.append(kwargs)
+            return JevCallResult(
+                ok=True,
+                source="provider",
+                model="jev-latest",
+                answers={
+                    "next_query": {
+                        "type": "choice",
+                        "choice": "q2",
+                        "confidence": 0.96,
+                        "probabilities": {"q1": 0.04, "q2": 0.96},
+                    }
+                },
+                usage=JevUsage(input_tokens=500, output_tokens=5),
+                latency_ms=123,
+                estimated_cost_micros=21,
+                http_status=200,
+            )
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.adaptive_search_queries",
+        lambda *args, **kwargs: [
+            "baseline realistic hat query",
+            "hand holding hat candid photo",
+        ],
+    )
+
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Jev shadow",
+            query="baseline realistic hat query",
+            search_queries=[
+                "baseline realistic hat query",
+                "hand holding hat candid photo",
+            ],
+            target_count=20,
+            max_scroll_batches=3,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        jev = FakeJevClient()
+        service = RrugcAutoScoutService(
+            session,
+            jev_client=jev,
+            jev_scout_query_enabled=True,
+            jev_mode="shadow",
+        )
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Jev Shadow Scout",
+        )
+
+        claim = service.claim(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v3",
+            machine_label="shadow-pc",
+        )
+
+        assert claim is not None
+        assert claim.campaign.id == campaign.id
+        assert claim.run.query == "baseline realistic hat query"
+        shadow = claim.run.keyword_stats_json["_jev_shadow"]
+        assert shadow["status"] == "completed"
+        assert shadow["mode"] == "shadow"
+        assert shadow["baseline_query"] == "baseline realistic hat query"
+        assert shadow["recommended_query"] == "hand holding hat candid photo"
+        assert shadow["agreed_with_baseline"] is False
+        assert shadow["confidence"] == pytest.approx(0.96)
+        assert shadow["input_tokens"] == 500
+        assert shadow["estimated_cost_micros"] == 21
+        assert len(jev.calls) == 1
+        assert jev.calls[0]["max_retries"] == 0
+        assert jev.calls[0]["state"]["search"]["baseline_choice"] == "q1"
+        assert jev.calls[0]["questions"]["next_query"]["criteria"]["q2"] == (
+            "hand holding hat candid photo"
+        )
+        diagnostics = service.diagnostics(
+            agent_id=agent.id,
+            raw_token=token,
+        )
+        campaign_diagnostics = next(
+            row
+            for row in diagnostics["campaigns"]
+            if row["campaign_id"] == campaign.id
+        )
+        assert campaign_diagnostics["jev_shadow"] == {
+            "observations": 1,
+            "completed": 1,
+            "fallback": 0,
+            "invalid_answer": 0,
+            "agreed": 0,
+            "disagreed": 1,
+            "agreement_rate": 0.0,
+            "avg_latency_ms": 123.0,
+            "input_tokens": 500,
+            "estimated_cost_micros": 21,
+        }
+
+
+def test_auto_scout_jev_shadow_exception_fails_open(database, monkeypatch):
+    class FailingJevClient:
+        def evaluate(self, **kwargs):
+            raise RuntimeError("provider bug")
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.adaptive_search_queries",
+        lambda *args, **kwargs: [
+            "baseline realistic hat query",
+            "hand holding hat candid photo",
+        ],
+    )
+
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Jev fail open",
+            query="baseline realistic hat query",
+            search_queries=[
+                "baseline realistic hat query",
+                "hand holding hat candid photo",
+            ],
+            target_count=20,
+            max_scroll_batches=3,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        service = RrugcAutoScoutService(
+            session,
+            jev_client=FailingJevClient(),
+            jev_scout_query_enabled=True,
+            jev_mode="shadow",
+        )
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Jev Fail Open Scout",
+        )
+
+        claim = service.claim(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v3",
+            machine_label="fallback-pc",
+        )
+
+        assert claim is not None
+        assert claim.campaign.id == campaign.id
+        assert claim.run.query == "baseline realistic hat query"
+        shadow = claim.run.keyword_stats_json["_jev_shadow"]
+        assert shadow["status"] == "fallback"
+        assert shadow["baseline_query"] == "baseline realistic hat query"
+        assert shadow["fallback_reason"] == "unexpected_error"
 
 
 def test_tenant_exact_source_dedupe_skips_repeat_ai_but_not_cross_tenant(database):

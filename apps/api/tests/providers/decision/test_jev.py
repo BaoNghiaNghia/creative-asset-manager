@@ -241,6 +241,28 @@ def test_jev_retries_one_server_error_then_succeeds():
     assert calls == 2
 
 
+def test_jev_call_can_disable_retries_for_latency_sensitive_shadow_path():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503, text="temporarily unavailable")
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    client = JevClient("test-key", client=http, max_retries=3)
+
+    result = client.evaluate(
+        state={"x": 1},
+        questions=_questions(),
+        max_retries=0,
+    )
+
+    assert result.ok is False
+    assert result.fallback_reason == "provider_unavailable"
+    assert calls == 1
+
+
 def test_jev_credit_marker_on_forbidden_response_enters_billing_block():
     calls = 0
 

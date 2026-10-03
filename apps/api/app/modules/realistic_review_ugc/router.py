@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -4325,12 +4325,19 @@ def auto_scout_agent_diagnostics(
 )
 def auto_scout_agent_claim(
     agent_id: str,
+    request: Request,
     authorization: str | None = Header(default=None),
     x_scout_version: str | None = Header(default=None, alias="X-Scout-Version"),
     x_scout_machine: str | None = Header(default=None, alias="X-Scout-Machine"),
     session: Session = Depends(get_db),
 ):
-    service = RrugcAutoScoutService(session)
+    settings = get_settings()
+    service = RrugcAutoScoutService(
+        session,
+        jev_client=getattr(request.app.state, "jev_client", None),
+        jev_scout_query_enabled=settings.JEV_SCOUT_QUERY_ENABLED,
+        jev_mode=settings.JEV_MODE,
+    )
     token = _bearer_token(authorization)
     try:
         claim = service.claim(

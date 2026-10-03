@@ -100,6 +100,7 @@ class JevClient:
         *,
         state: str | Mapping[str, Any] | list[Any],
         questions: Mapping[str, Mapping[str, Any]],
+        max_retries: int | None = None,
     ) -> JevCallResult:
         now_monotonic = time.monotonic()
         if not self.api_key:
@@ -129,7 +130,8 @@ class JevClient:
             return self._fallback(budget_reason)
 
         payload = {"state": state, "model": self.model, "questions": questions}
-        attempts = self.max_retries + 1
+        retries = self.max_retries if max_retries is None else max(0, int(max_retries))
+        attempts = retries + 1
         started = time.monotonic()
         for attempt in range(attempts):
             try:

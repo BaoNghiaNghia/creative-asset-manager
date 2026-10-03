@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import random
 import secrets
 from dataclasses import dataclass
@@ -21,7 +22,12 @@ from app.modules.realistic_review_ugc.service import (
     RrugcService,
     token_digest,
 )
+from app.providers.decision.jev import JevClient
 
+
+_LOGGER = logging.getLogger("cam.rrugc.scout")
+_JEV_SHADOW_KEY = "_jev_shadow"
+_JEV_SHADOW_POLICY_VERSION = "rrugc-scout-query-shadow-v1"
 
 SCOUT_AGENT_VERSION = "rrugc-scout-v15"
 SCOUT_LEASE_SECONDS = 15 * 60
@@ -540,9 +546,195 @@ def effective_agent_status(
 
 
 class RrugcAutoScoutService:
-    def __init__(self, session: Session):
+    def __init__(
+        self,
+        session: Session,
+        *,
+        jev_client: JevClient | None = None,
+        jev_scout_query_enabled: bool = False,
+        jev_mode: str = "shadow",
+    ):
         self.session = session
         self.repository = RrugcRepository(session)
+        self.jev_client = jev_client
+        self.jev_scout_query_enabled = bool(jev_scout_query_enabled)
+        self.jev_mode = str(jev_mode or "shadow").strip().casefold()
+
+    def _jev_query_shadow_snapshot(
+        self,
+        *,
+        campaign: RrugcCampaignModel,
+        ordered_queries: list[str],
+        runs: list[RrugcScoutRunModel],
+        outcomes: list[
+            tuple[str, str]
+            | tuple[str, str, str | None]
+            | tuple[str, str, str | None, str | None]
+        ],
+        protected_queries: list[str],
+        progress: int,
+        pipeline_count: int,
+    ) -> dict | None:
+        if (
+            not self.jev_scout_query_enabled
+            or self.jev_mode != "shadow"
+            or self.jev_client is None
+            or len(ordered_queries) < 2
+        ):
+            return None
+
+        candidates = ordered_queries[:10]
+        health_rows = keyword_health_rows(
+            candidates,
+            runs,
+            outcomes,
+            protected_queries=protected_queries,
+        )
+        health_by_query = {
+            str(row.get("query") or ""): row
+            for row in health_rows
+            if str(row.get("query") or "")
+        }
+        choice_to_query = {
+            f"q{index + 1}": query
+            for index, query in enumerate(candidates)
+        }
+        candidate_state = []
+        for choice_id, query in choice_to_query.items():
+            health = health_by_query.get(query, {})
+            candidate_state.append({
+                "id": choice_id,
+                "query": query,
+                "lifecycle": str(health.get("state") or "explore"),
+                "protected": bool(health.get("protected") or False),
+                "scans": int(health.get("scans") or 0),
+                "found": int(health.get("found") or 0),
+                "new": int(health.get("new") or 0),
+                "duplicate": int(health.get("duplicate") or 0),
+                "approved": int(health.get("approved") or 0),
+                "ref_good": int(health.get("ref_good") or 0),
+                "ref_bad": int(health.get("ref_bad") or 0),
+                "context_good": int(health.get("context_good") or 0),
+                "context_wrong": int(health.get("context_wrong") or 0),
+                "approved_yield": float(health.get("approved_yield") or 0.0),
+                "reference_yield": float(health.get("reference_yield") or 0.0),
+                "duplicate_rate": float(health.get("duplicate_rate") or 0.0),
+            })
+
+        baseline_query = candidates[0]
+        state = {
+            "policy_version": _JEV_SHADOW_POLICY_VERSION,
+            "campaign": {
+                "target_count": int(campaign.target_count),
+                "progress": int(progress),
+                "pipeline_count": int(pipeline_count),
+                "remaining_pipeline": max(
+                    0,
+                    int(campaign.target_count) - int(pipeline_count),
+                ),
+                "scan_attempt_count": int(campaign.scan_attempt_count or 0),
+                "scan_empty_streak": int(campaign.scan_empty_streak or 0),
+                "scan_failure_streak": int(campaign.scan_failure_streak or 0),
+                "discovery_mode": str(campaign.discovery_mode or "keyword"),
+            },
+            "search": {
+                "baseline_choice": "q1",
+                "candidate_count": len(candidate_state),
+            },
+            "candidates": candidate_state,
+        }
+        questions = {
+            "next_query": {
+                "type": "choice",
+                "instructions": (
+                    "Choose the existing Scout query most likely to improve "
+                    "approved realistic-reference yield without drifting away "
+                    "from the product context. Do not invent a new query."
+                ),
+                "criteria": choice_to_query,
+            }
+        }
+
+        try:
+            # Shadow mode gets one bounded request only. A TypeSafe outage must
+            # not turn one Scout claim into a multi-timeout blocking path.
+            result = self.jev_client.evaluate(
+                state=state,
+                questions=questions,
+                max_retries=0,
+            )
+        except Exception as exc:  # defensive: provider bugs must fail open
+            _LOGGER.warning(
+                "rrugc_scout_jev_shadow_exception",
+                extra={"error_type": type(exc).__name__},
+            )
+            return {
+                "policy_version": _JEV_SHADOW_POLICY_VERSION,
+                "mode": "shadow",
+                "status": "fallback",
+                "baseline_query": baseline_query,
+                "fallback_reason": "unexpected_error",
+            }
+
+        snapshot = {
+            "policy_version": _JEV_SHADOW_POLICY_VERSION,
+            "mode": "shadow",
+            "status": "completed" if result.ok else "fallback",
+            "baseline_query": baseline_query,
+            "source": result.source,
+            "model": result.model,
+            "input_tokens": int(result.usage.input_tokens),
+            "output_tokens": int(result.usage.output_tokens),
+            "latency_ms": int(result.latency_ms),
+            "estimated_cost_micros": int(result.estimated_cost_micros),
+            "fallback_reason": result.fallback_reason,
+        }
+        if not result.ok:
+            return snapshot
+
+        answers = result.answers if isinstance(result.answers, dict) else {}
+        answer = answers.get("next_query")
+        if not isinstance(answer, dict):
+            snapshot["status"] = "invalid_answer"
+            snapshot["fallback_reason"] = "missing_next_query_answer"
+            return snapshot
+
+        choice_id = str(answer.get("choice") or "")
+        recommended_query = choice_to_query.get(choice_id)
+        if recommended_query is None:
+            snapshot["status"] = "invalid_answer"
+            snapshot["fallback_reason"] = "unknown_query_choice"
+            return snapshot
+
+        confidence = answer.get("confidence")
+        try:
+            normalized_confidence = max(0.0, min(1.0, float(confidence)))
+        except (TypeError, ValueError):
+            normalized_confidence = None
+
+        raw_probabilities = answer.get("probabilities")
+        probabilities: dict[str, float] = {}
+        if isinstance(raw_probabilities, dict):
+            for key, value in raw_probabilities.items():
+                normalized_key = str(key)
+                if normalized_key not in choice_to_query:
+                    continue
+                try:
+                    probabilities[normalized_key] = max(
+                        0.0,
+                        min(1.0, float(value)),
+                    )
+                except (TypeError, ValueError):
+                    continue
+
+        snapshot.update({
+            "recommended_choice": choice_id,
+            "recommended_query": recommended_query,
+            "confidence": normalized_confidence,
+            "probabilities": probabilities,
+            "agreed_with_baseline": recommended_query == baseline_query,
+        })
+        return snapshot
 
     def _release_agent_runtime(
         self,
@@ -831,6 +1023,69 @@ class RrugcAutoScoutService:
                 reason = "scheduled_later"
             else:
                 reason = "claimable"
+            recent_runs = self.repository.list_scout_runs(
+                campaign.tenant_id,
+                campaign_id=campaign.id,
+                limit=50,
+            )
+            shadow_rows = []
+            for run in recent_runs:
+                stats = (
+                    run.keyword_stats_json
+                    if isinstance(run.keyword_stats_json, dict)
+                    else {}
+                )
+                shadow = stats.get(_JEV_SHADOW_KEY)
+                if isinstance(shadow, dict):
+                    shadow_rows.append(shadow)
+            shadow_completed = [
+                shadow
+                for shadow in shadow_rows
+                if shadow.get("status") == "completed"
+            ]
+            shadow_agreed = sum(
+                1
+                for shadow in shadow_completed
+                if shadow.get("agreed_with_baseline") is True
+            )
+            shadow_latency = [
+                int(shadow.get("latency_ms") or 0)
+                for shadow in shadow_completed
+            ]
+            jev_shadow_summary = {
+                "observations": len(shadow_rows),
+                "completed": len(shadow_completed),
+                "fallback": sum(
+                    1
+                    for shadow in shadow_rows
+                    if shadow.get("status") == "fallback"
+                ),
+                "invalid_answer": sum(
+                    1
+                    for shadow in shadow_rows
+                    if shadow.get("status") == "invalid_answer"
+                ),
+                "agreed": shadow_agreed,
+                "disagreed": len(shadow_completed) - shadow_agreed,
+                "agreement_rate": (
+                    round(shadow_agreed / len(shadow_completed), 4)
+                    if shadow_completed
+                    else None
+                ),
+                "avg_latency_ms": (
+                    round(sum(shadow_latency) / len(shadow_latency), 1)
+                    if shadow_latency
+                    else None
+                ),
+                "input_tokens": sum(
+                    int(shadow.get("input_tokens") or 0)
+                    for shadow in shadow_rows
+                ),
+                "estimated_cost_micros": sum(
+                    int(shadow.get("estimated_cost_micros") or 0)
+                    for shadow in shadow_rows
+                ),
+            }
             rows.append({
                 "campaign_id": campaign.id,
                 "name": campaign.name,
@@ -847,6 +1102,7 @@ class RrugcAutoScoutService:
                     else None
                 ),
                 "counts": counts,
+                "jev_shadow": jev_shadow_summary,
             })
         return {
             "agent_id": agent.id,
@@ -945,17 +1201,27 @@ class RrugcAutoScoutService:
             if selected.discovery_mode == "product_context"
             else anchor_queries
         )
+        history_runs = self.repository.list_scout_runs(
+            agent.tenant_id,
+            campaign_id=selected.id,
+            limit=KEYWORD_HISTORY_RUNS,
+        )
         ordered_queries = adaptive_search_queries(
             refreshed_queries or current_queries,
-            self.repository.list_scout_runs(
-                agent.tenant_id,
-                campaign_id=selected.id,
-                limit=KEYWORD_HISTORY_RUNS,
-            ),
+            history_runs,
             outcomes,
             protected_queries=protected_queries,
         )
         selected_query = ordered_queries[0] if ordered_queries else selected.query
+        jev_shadow = self._jev_query_shadow_snapshot(
+            campaign=selected,
+            ordered_queries=ordered_queries,
+            runs=history_runs,
+            outcomes=outcomes,
+            protected_queries=protected_queries,
+            progress=progress,
+            pipeline_count=pipeline_count,
+        )
         effective_scroll_batches = adaptive_scroll_batch_budget(
             selected.max_scroll_batches,
             scan_attempt_count=int(selected.scan_attempt_count or 0),
@@ -971,6 +1237,11 @@ class RrugcAutoScoutService:
             max_scroll_batches=effective_scroll_batches,
             auto_import=selected.auto_import,
             progress_before=progress,
+            keyword_stats_json=(
+                {_JEV_SHADOW_KEY: jev_shadow}
+                if jev_shadow is not None
+                else None
+            ),
             last_heartbeat_at=now,
             started_at=now,
         )
