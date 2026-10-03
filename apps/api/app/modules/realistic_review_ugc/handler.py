@@ -35,6 +35,9 @@ from app.modules.realistic_review_ugc.analysis import (
     product_context_matching_active,
     should_confirm_ai_risk,
 )
+from app.modules.realistic_review_ugc.gemini_safety import (
+    scheduled_rrugc_gemini_slot,
+)
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.seed_similarity import (
@@ -360,6 +363,7 @@ class RrugcCandidateAnalyzeJobHandler:
             if registry is None:
                 raise AiProviderUnavailableError("gemini")
             provider = registry.require("gemini")
+            gemini_slot = scheduled_rrugc_gemini_slot(context.job)
             image_bytes = image.path.read_bytes()
             image_mime_type = _image_mime(image.image_format)
             seed_visual_signal = await compute_seed_visual_signal(
@@ -382,6 +386,10 @@ class RrugcCandidateAnalyzeJobHandler:
                 width=image.width,
                 height=image.height,
                 product_context=product_context,
+                preferred_model=(gemini_slot.model if gemini_slot else None),
+                preferred_credential_provider=(
+                    gemini_slot.credential_provider if gemini_slot else None
+                ),
             )
             variant_by_id = {
                 str(item.get("id") or ""): item
@@ -421,6 +429,10 @@ class RrugcCandidateAnalyzeJobHandler:
                     image_mime_type=image_mime_type,
                     width=image.width,
                     height=image.height,
+                    preferred_model=(gemini_slot.model if gemini_slot else None),
+                    preferred_credential_provider=(
+                        gemini_slot.credential_provider if gemini_slot else None
+                    ),
                 )
             ai_assessment = assess_ai_risk(
                 document,

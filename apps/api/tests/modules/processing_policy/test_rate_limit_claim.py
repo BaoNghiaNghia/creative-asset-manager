@@ -21,6 +21,8 @@ from app.modules.processing.service import ProcessingJobService
 from app.modules.processing_policy.claim import (
     AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE,
     AI_MODEL_SLOT_PAYLOAD_KEY,
+    RRUGC_GEMINI_LANE_MODEL,
+    RRUGC_GEMINI_LANE_PROVIDER,
 )
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 
@@ -83,6 +85,32 @@ class RateLimitedClaimTest(unittest.TestCase):
                 entity_id=f"pipeline-{key}",
                 idempotency_key=f"analyze:{key}",
                 payload={"analysis_id": analysis.id},
+                priority=priority,
+                next_attempt_at=NOW,
+                provider_key="gemini",
+                provider_scope="ai",
+            ).id
+
+    def _rrugc_job(
+        self,
+        key: str,
+        *,
+        job_type: str = "rrugc_candidate_analyze",
+        priority: int = 0,
+    ) -> str:
+        entity_type = (
+            "rrugc_source_plan"
+            if job_type == "rrugc_source_plan_analyze"
+            else "rrugc_candidate"
+        )
+        with self.sessions.begin() as session:
+            return ProcessingRepository(session).create_job(
+                tenant_id="tenant",
+                job_type=job_type,
+                entity_type=entity_type,
+                entity_id=f"rrugc-{key}",
+                idempotency_key=f"{job_type}:{key}",
+                payload={"candidate_id": f"rrugc-{key}"},
                 priority=priority,
                 next_attempt_at=NOW,
                 provider_key="gemini",
@@ -432,6 +460,123 @@ class RateLimitedClaimTest(unittest.TestCase):
             self.assertEqual(len(untouched), 100 - len(claimed_ids))
             self.assertTrue(all(job.attempt_count == 0 for job in untouched))
             self.assertTrue(all(job.claimed_by is None for job in untouched))
+
+
+    def test_rrugc_claim_reserves_shared_lane_and_gemini_model_slot(self):
+        first_id = self._rrugc_job("first")
+        self._rrugc_job("second")
+
+        claimed = self._claim(
+            "rrugc-worker-1",
+            allowed_job_types=("rrugc_candidate_analyze",),
+        )
+
+        self.assertEqual(claimed.id, first_id)
+        marker = claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        self.assertEqual(marker["provider"], "gemini")
+        self.assertTrue(marker["model"])
+        with self.sessions() as session:
+            lane = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": RRUGC_GEMINI_LANE_PROVIDER,
+                    "model": RRUGC_GEMINI_LANE_MODEL,
+                },
+            )
+            self.assertIsNotNone(lane)
+            self.assertEqual(
+                lane.next_eligible_at.replace(tzinfo=timezone.utc),
+                NOW + timedelta(
+                    seconds=self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS
+                ),
+            )
+
+        # A second worker cannot burst another RRUGC job through a different
+        # Gemini model while the shared RRUGC lane is cooling down.
+        self.assertIsNone(
+            self._claim(
+                "rrugc-worker-2",
+                allowed_job_types=("rrugc_candidate_analyze",),
+            )
+        )
+
+    def test_rrugc_lane_block_does_not_block_normal_image_analysis(self):
+        self._rrugc_job("background", priority=100)
+        image_job_id = self._analysis_job("foreground", priority=0)
+        with self.sessions.begin() as session:
+            session.add(
+                AiModelRateLimitStateModel(
+                    tenant_id="tenant",
+                    provider=RRUGC_GEMINI_LANE_PROVIDER,
+                    model=RRUGC_GEMINI_LANE_MODEL,
+                    last_started_at=NOW,
+                    next_eligible_at=NOW + timedelta(minutes=5),
+                    blocked_until=None,
+                    updated_at=NOW,
+                )
+            )
+
+        claimed = self._claim(
+            "image-worker",
+            allowed_job_types=("rrugc_candidate_analyze", "asset_analyze"),
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, image_job_id)
+        self.assertEqual(claimed.job_type, "asset_analyze")
+
+
+    def test_rrugc_hard_concurrency_cap_yields_to_image_analysis(self):
+        first_id = self._rrugc_job("active")
+        first = self._claim(
+            "rrugc-worker-1",
+            allowed_job_types=("rrugc_candidate_analyze",),
+        )
+        self.assertEqual(first.id, first_id)
+
+        # The pacing interval has elapsed, but the first RRUGC job is still
+        # processing. The hard cap must prevent overlap and let foreground
+        # image analysis use the shared Gemini pool instead.
+        self._rrugc_job("waiting", priority=100)
+        image_job_id = self._analysis_job("foreground-after-active", priority=0)
+        next_time = NOW + timedelta(
+            seconds=self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS
+        )
+        claimed = self._claim(
+            "image-worker",
+            now=next_time,
+            allowed_job_types=("rrugc_candidate_analyze", "asset_analyze"),
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, image_job_id)
+        self.assertEqual(claimed.job_type, "asset_analyze")
+
+    def test_rrugc_lane_reopens_after_interval(self):
+        first_id = self._rrugc_job("one")
+        second_id = self._rrugc_job("two")
+        first = self._claim(
+            "rrugc-worker-1",
+            allowed_job_types=("rrugc_candidate_analyze",),
+        )
+        self.assertEqual(first.id, first_id)
+
+        with self.sessions.begin() as session:
+            job = session.get(ProcessingJobModel, first.id)
+            job.status = "completed"
+            job.concurrency_accounted = False
+
+        next_time = NOW + timedelta(
+            seconds=self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS
+        )
+        second = self._claim(
+            "rrugc-worker-2",
+            now=next_time,
+            allowed_job_types=("rrugc_candidate_analyze",),
+        )
+        self.assertIsNotNone(second)
+        self.assertEqual(second.id, second_id)
 
     def test_blocked_primary_uses_next_pool_model(self):
         job_id = self._analysis_job("fallback")

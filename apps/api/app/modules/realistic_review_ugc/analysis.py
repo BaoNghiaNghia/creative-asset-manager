@@ -849,6 +849,8 @@ async def analyze_reference_image(
     width: int,
     height: int,
     product_context: dict | None = None,
+    preferred_model: str | None = None,
+    preferred_credential_provider: str | None = None,
 ) -> tuple[ReferenceAnalysisDocument, str, str | None]:
     result = await provider.analyze_single(
         AiMetadataAnalysisInput(
@@ -863,6 +865,8 @@ async def analyze_reference_image(
             image_height=height,
             json_schema=ReferenceAnalysisDocument.model_json_schema(),
             analysis_id=candidate_id,
+            preferred_model=preferred_model,
+            preferred_credential_provider=preferred_credential_provider,
         )
     )
     document = ReferenceAnalysisDocument.model_validate(dict(result.metadata))
@@ -878,6 +882,8 @@ async def confirm_ai_authenticity(
     image_mime_type: str,
     width: int,
     height: int,
+    preferred_model: str | None = None,
+    preferred_credential_provider: str | None = None,
 ) -> AiAuthenticityConfirmationDocument:
     result = await provider.analyze_single(
         AiMetadataAnalysisInput(
@@ -892,6 +898,8 @@ async def confirm_ai_authenticity(
             image_height=height,
             json_schema=AiAuthenticityConfirmationDocument.model_json_schema(),
             analysis_id=candidate_id + ":ai-confirmation",
+            preferred_model=preferred_model,
+            preferred_credential_provider=preferred_credential_provider,
         )
     )
     return AiAuthenticityConfirmationDocument.model_validate(dict(result.metadata))

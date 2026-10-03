@@ -860,6 +860,8 @@ async def analyze_product_visual_reference(
     height: int | None,
     product_snapshot: dict[str, Any] | None,
     view_type: str,
+    preferred_model: str | None = None,
+    preferred_credential_provider: str | None = None,
 ) -> tuple[ProductVisualContextDocument, str, str | None]:
     result = await provider.analyze_single(
         AiMetadataAnalysisInput(
@@ -877,6 +879,8 @@ async def analyze_product_visual_reference(
             image_height=height,
             json_schema=ProductVisualContextDocument.model_json_schema(),
             analysis_id=reference_id + ":product-context",
+            preferred_model=preferred_model,
+            preferred_credential_provider=preferred_credential_provider,
         )
     )
     document = ProductVisualContextDocument.model_validate(dict(result.metadata))

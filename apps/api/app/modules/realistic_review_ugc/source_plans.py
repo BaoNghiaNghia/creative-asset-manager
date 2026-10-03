@@ -30,6 +30,9 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
 )
+from app.modules.realistic_review_ugc.gemini_safety import (
+    scheduled_rrugc_gemini_slot,
+)
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcSourcePlanModel,
@@ -671,7 +674,8 @@ async def sync_source_plans(
             provider_key="gemini",
             provider_scope="ai",
             max_attempts=5,
-            priority=58,
+            # RRUGC shares Image Gemini capacity and must remain background work.
+            priority=0,
         )
         if was_created:
             queued += 1
@@ -918,6 +922,7 @@ class RrugcSourcePlanAnalyzeJobHandler:
         if context.is_cancelled:
             return JobHandlerResult.cancelled()
 
+        gemini_slot = scheduled_rrugc_gemini_slot(context.job)
         registry = build_ai_provider_registry(
             settings,
             session_factory=context.dependencies.session_factory,
@@ -951,6 +956,10 @@ class RrugcSourcePlanAnalyzeJobHandler:
                 height=source_height,
                 product_snapshot=product_snapshot,
                 view_type="embroidery_closeup",
+                preferred_model=(gemini_slot.model if gemini_slot else None),
+                preferred_credential_provider=(
+                    gemini_slot.credential_provider if gemini_slot else None
+                ),
             )
         finally:
             await registry.aclose()

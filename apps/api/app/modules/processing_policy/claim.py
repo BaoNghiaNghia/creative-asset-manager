@@ -43,7 +43,15 @@ SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_s
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export", "rrugc_candidate_import")
 AI_MODEL_SLOT_PAYLOAD_KEY = "_ai_model_start_slot"
 AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE = "ai_analysis_model_gate_unresolvable"
+RRUGC_GEMINI_ANALYZE_JOB_TYPES = (
+    "rrugc_source_plan_analyze",
+    "rrugc_candidate_analyze",
+)
+MODEL_GATED_AI_JOB_TYPES = ("asset_analyze", *RRUGC_GEMINI_ANALYZE_JOB_TYPES)
+RRUGC_GEMINI_LANE_PROVIDER = "gemini_rrugc_lane"
+RRUGC_GEMINI_LANE_MODEL = "__rrugc_shared__"
 _ANALYSIS_MODEL_GATE_UNRESOLVABLE = object()
+_RRUGC_GEMINI_LANE_UNAVAILABLE = object()
 
 # Keep a sustained stream of newly-created high-priority jobs from starving
 # already-due work forever. Fifteen minutes preserves the normal new-content
@@ -99,9 +107,13 @@ class TenantAwareJobClaimer:
         if not allowed_job_types:
             return None
         excluded_ai_scopes: set[tuple[str, str | None]] = set()
+        excluded_rrugc_scopes: set[tuple[str, str | None]] = set()
         while True:
             eligibility = self._eligibility(
-                now, allowed_job_types, excluded_ai_scopes=excluded_ai_scopes,
+                now,
+                allowed_job_types,
+                excluded_ai_scopes=excluded_ai_scopes,
+                excluded_rrugc_scopes=excluded_rrugc_scopes,
                 worker_role=worker_role,
             )
             candidate = self._next_candidate(
@@ -114,15 +126,27 @@ class TenantAwareJobClaimer:
 
             already_accounted = candidate.concurrency_accounted
             if not already_accounted and not self._reserve(candidate):
+                if candidate.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
+                    excluded_rrugc_scopes.add(
+                        (candidate.tenant_id, candidate.provider_key)
+                    )
+                    continue
                 return None
 
             model_slot = None
-            if candidate.job_type == "asset_analyze":
-                model_slot = self._reserve_analysis_model(candidate, now)
+            if candidate.job_type in MODEL_GATED_AI_JOB_TYPES:
+                model_slot = self._reserve_model_slot(candidate, now)
                 if model_slot is _ANALYSIS_MODEL_GATE_UNRESOLVABLE:
                     if candidate.concurrency_accounted:
                         self.release(candidate)
                     self._terminalize_unresolvable_analysis(candidate, now)
+                    continue
+                if model_slot is _RRUGC_GEMINI_LANE_UNAVAILABLE:
+                    if not already_accounted:
+                        self.release(candidate)
+                    excluded_rrugc_scopes.add(
+                        (candidate.tenant_id, candidate.provider_key)
+                    )
                     continue
                 if model_slot is None:
                     if not already_accounted:
@@ -208,24 +232,7 @@ class TenantAwareJobClaimer:
     def release(self, job: ProcessingJobModel) -> None:
         if not job.concurrency_accounted:
             return
-        category = self._category(job.job_type)
-        # Counters can be out of sync after an interrupted legacy worker. A
-        # release must repair that state, never drive a CHECK-constrained
-        # counter negative and block every subsequent worker poll.
-        total = TenantProcessingPolicyModel.total_active_jobs
-        values = {
-            "total_active_jobs": case((total > 0, total - 1), else_=0),
-            "updated_at": datetime.now(timezone.utc),
-        }
-        if category:
-            column = getattr(TenantProcessingPolicyModel, f"{category}_active_jobs")
-            values[f"{category}_active_jobs"] = case((column > 0, column - 1), else_=0)
-        self.session.execute(
-            update(TenantProcessingPolicyModel)
-            .where(TenantProcessingPolicyModel.tenant_id == job.tenant_id)
-            .values(**values)
-            .execution_options(synchronize_session=False)
-        )
+        self._release_tenant_reservation(job)
         if job.provider_key and job.provider_scope:
             self.session.execute(
                 update(TenantProviderPolicyModel)
@@ -239,6 +246,29 @@ class TenantAwareJobClaimer:
             )
         job.concurrency_accounted = False
         self.session.flush()
+
+    def _release_tenant_reservation(self, job: ProcessingJobModel) -> None:
+        category = self._category(job.job_type)
+        # Counters can be out of sync after an interrupted legacy worker. A
+        # release must repair that state, never drive a CHECK-constrained
+        # counter negative and block every subsequent worker poll.
+        total = TenantProcessingPolicyModel.total_active_jobs
+        values = {
+            "total_active_jobs": case((total > 0, total - 1), else_=0),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if category:
+            column = getattr(TenantProcessingPolicyModel, f"{category}_active_jobs")
+            values[f"{category}_active_jobs"] = case(
+                (column > 0, column - 1),
+                else_=0,
+            )
+        self.session.execute(
+            update(TenantProcessingPolicyModel)
+            .where(TenantProcessingPolicyModel.tenant_id == job.tenant_id)
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
 
     def release_exhausted(self, now: datetime) -> None:
         jobs = list(self.session.scalars(select(ProcessingJobModel).where(
@@ -276,6 +306,26 @@ class TenantAwareJobClaimer:
         )
         if tenant_reserved is None:
             return False
+
+        if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
+            active_rrugc = int(
+                self.session.scalar(
+                    select(func.count(ProcessingJobModel.id)).where(
+                        ProcessingJobModel.tenant_id == job.tenant_id,
+                        ProcessingJobModel.id != job.id,
+                        ProcessingJobModel.job_type.in_(
+                            RRUGC_GEMINI_ANALYZE_JOB_TYPES
+                        ),
+                        ProcessingJobModel.status == JobStatus.PROCESSING.value,
+                        ProcessingJobModel.concurrency_accounted.is_(True),
+                    )
+                )
+                or 0
+            )
+            if active_rrugc >= self.settings.RRUGC_GEMINI_MAX_CONCURRENCY:
+                self._release_tenant_reservation(job)
+                return False
+
         if job.provider_key and job.provider_scope:
             provider = self.session.scalar(select(TenantProviderPolicyModel).where(
                 TenantProviderPolicyModel.tenant_id == job.tenant_id,
@@ -306,7 +356,9 @@ class TenantAwareJobClaimer:
 
     def _eligibility(
         self, now: datetime, allowed_job_types: tuple[str, ...],
-        *, excluded_ai_scopes: set[tuple[str, str | None]] | None = None,
+        *,
+        excluded_ai_scopes: set[tuple[str, str | None]] | None = None,
+        excluded_rrugc_scopes: set[tuple[str, str | None]] | None = None,
         worker_role: str = "all",
     ):
         policy_conditions = [
@@ -339,15 +391,24 @@ class TenantAwareJobClaimer:
             ),
         ))
         excluded_ai_scopes = excluded_ai_scopes or set()
+        excluded_rrugc_scopes = excluded_rrugc_scopes or set()
         scope_available = and_(
             true(),
             *[
                 ~and_(
-                    ProcessingJobModel.job_type == "asset_analyze",
+                    ProcessingJobModel.job_type.in_(MODEL_GATED_AI_JOB_TYPES),
                     ProcessingJobModel.tenant_id == tenant_id,
                     ProcessingJobModel.provider_key == provider_key,
                 )
                 for tenant_id, provider_key in excluded_ai_scopes
+            ],
+            *[
+                ~and_(
+                    ProcessingJobModel.job_type.in_(RRUGC_GEMINI_ANALYZE_JOB_TYPES),
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.provider_key == provider_key,
+                )
+                for tenant_id, provider_key in excluded_rrugc_scopes
             ],
         )
         return and_(
@@ -570,6 +631,69 @@ class TenantAwareJobClaimer:
             ),
         ))
         return or_(~ProcessingJobModel.job_type.in_(AI_JOB_TYPES), ~stopped)
+
+    def _reserve_model_slot(
+        self, job: ProcessingJobModel, now: datetime
+    ) -> dict[str, object] | object | None:
+        if job.job_type == "asset_analyze":
+            return self._reserve_analysis_model(job, now)
+        if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
+            return self._reserve_rrugc_model(job, now)
+        return None
+
+    def _reserve_rrugc_model(
+        self, job: ProcessingJobModel, now: datetime
+    ) -> dict[str, object] | object | None:
+        provider = (job.provider_key or "").strip() or "gemini"
+        if provider != "gemini":
+            return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
+
+        limiter = AiModelRateLimitRepository(self.session)
+        lane = limiter.reserve_start(
+            tenant_id=job.tenant_id,
+            provider=RRUGC_GEMINI_LANE_PROVIDER,
+            model=RRUGC_GEMINI_LANE_MODEL,
+            rpm=60,
+            minimum_interval_seconds=self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS,
+            now=now,
+        )
+        if not lane.allowed:
+            return _RRUGC_GEMINI_LANE_UNAVAILABLE
+
+        model_rates = configured_model_rates(self.settings, provider, None)
+        if not model_rates:
+            return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
+
+        # RRUGC uses the same credential/model buckets as normal image analysis.
+        # The extra RRUGC lane above only slows background starts; it does not
+        # create a separate quota universe or hide usage from the shared key.
+        for model, rpm in model_rates:
+            limiter_provider = rate_limit_provider_key(
+                self.session,
+                self.settings,
+                job.tenant_id,
+                provider,
+                model=model,
+                rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+                now=now,
+            )
+            decision = limiter.reserve_start(
+                tenant_id=job.tenant_id,
+                provider=limiter_provider,
+                model=model,
+                rpm=rpm,
+                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+                now=now,
+            )
+            if decision.allowed:
+                return {
+                    "provider": provider,
+                    "credential_provider": limiter_provider,
+                    "model": model,
+                    "next_eligible_at": decision.next_eligible_at,
+                }
+        return None
 
     def _reserve_analysis_model(
         self, job: ProcessingJobModel, now: datetime

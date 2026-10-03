@@ -305,6 +305,11 @@ class Settings(BaseSettings):
     AI_MODEL_RPM_GEMINI_2_5_FLASH: int | None = None
     AI_MODEL_RPM_GPT_4_1_MINI: int | None = None
     AI_JOB_MIN_INTERVAL_SECONDS: float = 10.0
+    # RRUGC/Pinterest shares the Creative/Image Gemini keys but runs as a
+    # deliberately slower background lane so reference discovery cannot flood
+    # the same provider pool used by normal image analysis.
+    RRUGC_GEMINI_MIN_INTERVAL_SECONDS: float = 20.0
+    RRUGC_GEMINI_MAX_CONCURRENCY: int = 1
     AI_JOB_RATE_LIMIT_SAFETY_SECONDS: float = 0.5
     AI_RATE_LIMIT_429_MAX_RETRIES: int = 8
     AI_RATE_LIMIT_BACKOFF_MAX_SECONDS: float = 300.0
@@ -1425,6 +1430,13 @@ class Settings(BaseSettings):
             raise ValueError("VIDEO AI versions must be non-empty strings")
         if self.AI_JOB_MIN_INTERVAL_SECONDS < 10:
             raise ValueError("AI_JOB_MIN_INTERVAL_SECONDS must be at least 10 seconds")
+        if self.RRUGC_GEMINI_MIN_INTERVAL_SECONDS < self.AI_JOB_MIN_INTERVAL_SECONDS:
+            raise ValueError(
+                "RRUGC_GEMINI_MIN_INTERVAL_SECONDS cannot be lower than "
+                "AI_JOB_MIN_INTERVAL_SECONDS"
+            )
+        if not 1 <= self.RRUGC_GEMINI_MAX_CONCURRENCY <= 8:
+            raise ValueError("RRUGC_GEMINI_MAX_CONCURRENCY must be between 1 and 8")
         if self.AI_JOB_RATE_LIMIT_SAFETY_SECONDS < 0:
             raise ValueError("AI_JOB_RATE_LIMIT_SAFETY_SECONDS cannot be negative")
         if self.AI_RATE_LIMIT_429_MAX_RETRIES < 0:

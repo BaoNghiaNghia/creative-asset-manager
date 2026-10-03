@@ -584,7 +584,8 @@ class RrugcService:
             provider_key="gemini",
             provider_scope="ai",
             max_attempts=3,
-            priority=55,
+            # Pinterest reference enrichment yields to normal image analysis.
+            priority=0,
         )
 
     def enqueue_import(
