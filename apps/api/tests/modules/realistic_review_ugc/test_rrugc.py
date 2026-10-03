@@ -907,6 +907,99 @@ def test_auto_scout_v12_claims_only_ready_source_plan_campaigns(database):
         assert claim.campaign.id != legacy.id
 
 
+def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
+    database,
+    monkeypatch,
+):
+    with database() as session:
+        campaign, _token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Queued source plan",
+            query="embroidered hat candid",
+            search_queries=["embroidered hat candid"],
+            target_count=20,
+            max_scroll_batches=3,
+            auto_import=True,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id="root",
+            source_file_id="queued-source",
+            source_parent_folder_id="source-folder",
+            source_relative_path="Queued/design.webp",
+            source_name="design.webp",
+            source_mime_type="image/webp",
+            source_revision="b" * 64,
+            analysis_revision=1,
+            target_count=20,
+            status="queued",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        session.add(plan)
+        session.commit()
+
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Source plan diagnostics Scout",
+        )
+
+        monkeypatch.setattr(
+            RrugcRepository,
+            "recent_scout_shadow_stats",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Jev shadow history must not be queried while disabled")
+            ),
+        )
+
+        diagnostics = service.diagnostics(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v19",
+        )
+        row = next(
+            item
+            for item in diagnostics["campaigns"]
+            if item["campaign_id"] == campaign.id
+        )
+        assert row["reason"] == "source_plan_not_ready"
+        assert row["source_plan_required"] is True
+        assert row["source_plan_ready"] is False
+        assert row["source_plan_statuses"] == {"queued": 1}
+        assert row["jev_shadow"] is None
+        assert diagnostics["claimable"] == 0
+
+        assert service.claim(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v19",
+            machine_label="studio-pc",
+        ) is None
+
+        plan.status = "ready"
+        session.commit()
+
+        diagnostics = service.diagnostics(
+            agent_id=agent.id,
+            raw_token=token,
+            client_version="rrugc-scout-v19",
+        )
+        row = next(
+            item
+            for item in diagnostics["campaigns"]
+            if item["campaign_id"] == campaign.id
+        )
+        assert row["reason"] == "claimable"
+        assert row["source_plan_ready"] is True
+        assert row["source_plan_statuses"] == {"ready": 1}
+        assert diagnostics["claimable"] == 1
+
+
 def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.scout_automation.random.uniform",

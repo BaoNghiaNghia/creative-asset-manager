@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import random
 import re
@@ -12,6 +13,8 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
@@ -40,6 +43,66 @@ HEARTBEAT_INTERVAL_SECONDS = 10
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
 SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
+SCOUT_DEBUG_LOG_FILENAME = "pinterest-scout.jsonl"
+SCOUT_DEBUG_LOG_RETENTION_DAYS = 10
+
+_SCOUT_DEBUG_LOGGER = logging.getLogger("rrugc_scout.debug")
+_SCOUT_DEBUG_LOGGER.setLevel(logging.INFO)
+_SCOUT_DEBUG_LOGGER.propagate = False
+_SCOUT_DEBUG_LOG_PATH: Path | None = None
+
+
+def configure_scout_debug_log(profile_dir: Path) -> Path:
+    global _SCOUT_DEBUG_LOG_PATH
+    log_dir = profile_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / SCOUT_DEBUG_LOG_FILENAME
+    for handler in list(_SCOUT_DEBUG_LOGGER.handlers):
+        _SCOUT_DEBUG_LOGGER.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+    handler = TimedRotatingFileHandler(
+        log_path,
+        when="midnight",
+        interval=1,
+        backupCount=SCOUT_DEBUG_LOG_RETENTION_DAYS,
+        encoding="utf-8",
+        utc=True,
+    )
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    _SCOUT_DEBUG_LOGGER.addHandler(handler)
+    _SCOUT_DEBUG_LOG_PATH = log_path
+    scout_debug_event(
+        "logging_started",
+        log_path=str(log_path),
+        retention_days=SCOUT_DEBUG_LOG_RETENTION_DAYS,
+    )
+    return log_path
+
+
+def scout_debug_event(event: str, **fields: Any) -> None:
+    if not _SCOUT_DEBUG_LOGGER.handlers:
+        return
+    payload = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "event": str(event),
+        "client_version": CLIENT_VERSION,
+        **fields,
+    }
+    try:
+        _SCOUT_DEBUG_LOGGER.info(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
+    except Exception:
+        # Debug logging must never interrupt Pinterest scouting.
+        pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -1136,6 +1199,43 @@ class AutoScoutClient:
     async def close(self) -> None:
         await self.client.aclose()
 
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        operation: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        started = time.monotonic()
+        try:
+            response = await self.client.request(method, path, **kwargs)
+        except Exception as exc:
+            scout_debug_event(
+                "cam_request_failed",
+                operation=operation,
+                method=method,
+                path=path,
+                duration_ms=max(
+                    0,
+                    round((time.monotonic() - started) * 1000),
+                ),
+                error_type=exc.__class__.__name__,
+            )
+            raise
+        scout_debug_event(
+            "cam_request",
+            operation=operation,
+            method=method,
+            path=path,
+            status_code=response.status_code,
+            duration_ms=max(
+                0,
+                round((time.monotonic() - started) * 1000),
+            ),
+        )
+        return response
+
     async def heartbeat(
         self,
         status: str,
@@ -1143,8 +1243,10 @@ class AutoScoutClient:
         run_id: str | None = None,
         error_code: str | None = None,
     ) -> dict[str, Any]:
-        response = await self.client.post(
+        response = await self._request(
+            "POST",
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/heartbeat",
+            operation="heartbeat",
             json={
                 "status": status,
                 "client_version": CLIENT_VERSION,
@@ -1157,8 +1259,10 @@ class AutoScoutClient:
         return response.json()
 
     async def claim(self) -> dict[str, Any] | None:
-        response = await self.client.post(
+        response = await self._request(
+            "POST",
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/claim",
+            operation="claim",
             headers={
                 "X-Scout-Version": CLIENT_VERSION,
                 "X-Scout-Machine": self.machine_label,
@@ -1166,14 +1270,55 @@ class AutoScoutClient:
         )
         response.raise_for_status()
         payload = response.json()
+        if payload:
+            scout_debug_event(
+                "claim_result",
+                claimed=True,
+                campaign_id=str(payload.get("campaign_id") or ""),
+                run_id=str((payload.get("run") or {}).get("id") or ""),
+                query=str(payload.get("query") or ""),
+                progress=int(payload.get("progress") or 0),
+                pipeline_count=int(payload.get("pipeline_count") or 0),
+                target_count=int(payload.get("target_count") or 0),
+            )
+        else:
+            scout_debug_event("claim_result", claimed=False)
         return payload or None
 
     async def diagnostics(self) -> dict[str, Any]:
-        response = await self.client.get(
-            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/diagnostics"
+        response = await self._request(
+            "GET",
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/diagnostics",
+            operation="diagnostics",
+            headers={
+                "X-Scout-Version": CLIENT_VERSION,
+                "X-Scout-Machine": self.machine_label,
+            },
         )
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        campaigns = payload.get("campaigns") if isinstance(payload, dict) else None
+        first = campaigns[0] if isinstance(campaigns, list) and campaigns else {}
+        scout_debug_event(
+            "idle_diagnostics",
+            claimable=int(payload.get("claimable") or 0) if isinstance(payload, dict) else 0,
+            server_duration_ms=int(payload.get("duration_ms") or 0) if isinstance(payload, dict) else 0,
+            first_campaign_id=str(first.get("campaign_id") or "") if isinstance(first, dict) else "",
+            first_campaign_reason=str(first.get("reason") or "") if isinstance(first, dict) else "",
+            first_campaign_progress=int(first.get("progress") or 0) if isinstance(first, dict) else 0,
+            first_campaign_pipeline=int(first.get("pipeline_count") or 0) if isinstance(first, dict) else 0,
+            first_campaign_source_plan_ready=(
+                first.get("source_plan_ready")
+                if isinstance(first, dict)
+                else None
+            ),
+            first_campaign_source_plan_statuses=(
+                first.get("source_plan_statuses")
+                if isinstance(first, dict)
+                else None
+            ),
+        )
+        return payload
 
     async def submit(
         self,
@@ -1182,8 +1327,16 @@ class AutoScoutClient:
         *,
         source_query: str | None = None,
     ) -> dict[str, Any]:
-        response = await self.client.post(
+        scout_debug_event(
+            "candidate_submit_start",
+            run_id=run_id,
+            item_count=len(rows),
+            source_query=source_query,
+        )
+        response = await self._request(
+            "POST",
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/runs/{run_id}/candidates",
+            operation="submit_candidates",
             json={
                 "items": [row.as_json() for row in rows],
                 "source_query": source_query,
@@ -1199,8 +1352,16 @@ class AutoScoutClient:
         *,
         error_code: str | None = None,
     ) -> dict[str, Any]:
-        response = await self.client.post(
+        scout_debug_event(
+            "run_complete_start",
+            run_id=run_id,
+            status=status,
+            error_code=error_code,
+        )
+        response = await self._request(
+            "POST",
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/runs/{run_id}/complete",
+            operation="complete_run",
             json={"status": status, "error_code": error_code},
         )
         response.raise_for_status()
@@ -1554,6 +1715,17 @@ async def scan_auto_run(
         if gate is not None:
             raise PinterestAccessGateError(gate)
 
+        scout_debug_event(
+            "pinterest_query_start",
+            campaign_id=str(task["campaign_id"]),
+            run_id=run_id,
+            keyword_index=query_index + 1,
+            keyword_count=len(search_queries),
+            raw_query=raw_query,
+            pinterest_query=search_query,
+            pace=pace.name,
+            initial_dwell_ms=initial_dwell,
+        )
         print(
             "campaign="
             + str(task["campaign_id"])
@@ -1602,6 +1774,21 @@ async def scan_auto_run(
                 persistent_seen.update(
                     pin_history_key(row.pin_url) for row in filtered_rows
                 )
+            scout_debug_event(
+                "pinterest_batch_inspected",
+                campaign_id=str(task["campaign_id"]),
+                run_id=run_id,
+                keyword_index=query_index + 1,
+                keyword_count=len(search_queries),
+                batch_index=batch + 1,
+                batch_count=max_scroll_batches,
+                inspect_dwell_ms=inspect_dwell,
+                visible=len(visible),
+                unseen=len(unseen),
+                persistent_skipped=persistent_skipped,
+                quality_candidates=len(fresh),
+                metadata_filtered=metadata_filtered,
+            )
             print(
                 "campaign="
                 + str(task["campaign_id"])
@@ -1669,6 +1856,13 @@ async def scan_auto_run(
                     if before.image_url != after.image_url
                 )
                 if upgraded:
+                    scout_debug_event(
+                        "pin_detail_upgraded",
+                        campaign_id=str(task["campaign_id"]),
+                        run_id=run_id,
+                        upgraded=upgraded,
+                        resolved=len(resolved_chunk),
+                    )
                     print(
                         "campaign="
                         + str(task["campaign_id"])
@@ -1692,6 +1886,22 @@ async def scan_auto_run(
                 created_for_keyword += created_now
                 progress = int(result.get("progress") or 0)
                 pipeline_count = int(result.get("pipeline_count") or progress)
+                scout_debug_event(
+                    "pinterest_submit_result",
+                    campaign_id=str(task["campaign_id"]),
+                    run_id=run_id,
+                    source_query=raw_query,
+                    keyword_index=query_index + 1,
+                    batch_index=batch + 1,
+                    submitted=len(resolved_chunk),
+                    created=int(result.get("created") or 0),
+                    existing=int(result.get("existing") or 0),
+                    new_this_run=created_this_run,
+                    run_candidate_cap=run_candidate_cap,
+                    progress=progress,
+                    pipeline_count=pipeline_count,
+                    target=target,
+                )
                 print(
                     "campaign="
                     + str(task["campaign_id"])
@@ -1921,6 +2131,9 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
 
 
 async def run_legacy(args: argparse.Namespace) -> None:
+    profile_dir = Path(args.profile_dir).expanduser().resolve()
+    log_path = configure_scout_debug_log(profile_dir)
+    print("Pinterest Scout debug log: " + str(log_path))
     client = CamClient(args.base_url, args.campaign_id, args.token)
     playwright = None
     context = None
@@ -1972,6 +2185,7 @@ def idle_diagnostic_message(payload: dict[str, Any]) -> str:
         "campaign_leased": "campaign is currently leased by another run",
         "auto_scout_disabled": "Auto Scout is disabled for this campaign",
         "campaign_not_running": "campaign is not running",
+        "source_plan_not_ready": "source plan is waiting for AI Context analysis",
         "claimable": "campaign is claimable; retrying claim",
     }
     name = str(campaign.get("name") or campaign.get("campaign_id") or "campaign")
@@ -1994,7 +2208,17 @@ def idle_diagnostic_message(payload: dict[str, Any]) -> str:
 
 
 async def run_agent(args: argparse.Namespace) -> None:
+    profile_dir = Path(args.profile_dir).expanduser().resolve()
+    log_path = configure_scout_debug_log(profile_dir)
+    print("Pinterest Scout debug log: " + str(log_path))
     machine_label = args.machine_label or socket.gethostname()
+    scout_debug_event(
+        "agent_start",
+        agent_id=args.agent_id,
+        machine_label=machine_label,
+        base_url=args.base_url,
+        pace=args.pace,
+    )
     client = AutoScoutClient(
         args.base_url,
         args.agent_id,
@@ -2004,7 +2228,7 @@ async def run_agent(args: argparse.Namespace) -> None:
     playwright = None
     context = None
     history = ScoutHistory(
-        Path(args.profile_dir).expanduser().resolve() / SCOUT_HISTORY_FILENAME
+        profile_dir / SCOUT_HISTORY_FILENAME
     )
     idle_failures = 0
     last_idle_diagnostic_at = 0.0
@@ -2042,6 +2266,10 @@ async def run_agent(args: argparse.Namespace) -> None:
                         try:
                             print(idle_diagnostic_message(await client.diagnostics()))
                         except Exception as exc:
+                            scout_debug_event(
+                                "idle_diagnostics_failed",
+                                error_type=exc.__class__.__name__,
+                            )
                             print(
                                 "Scout idle: no campaign claimed; diagnostics unavailable: "
                                 + exc.__class__.__name__
@@ -2122,6 +2350,12 @@ async def run_agent(args: argparse.Namespace) -> None:
                     60,
                     max(args.poll_interval_seconds, 2 ** min(idle_failures, 6)),
                 )
+                scout_debug_event(
+                    "cam_connection_retry",
+                    error_type=exc.__class__.__name__,
+                    failure_streak=idle_failures,
+                    retry_delay_seconds=delay,
+                )
                 print(
                     "CAM connection unavailable; retrying in "
                     + str(delay)
@@ -2138,6 +2372,12 @@ async def run_agent(args: argparse.Namespace) -> None:
                     raise
                 idle_failures += 1
                 delay = min(60, 2 ** min(idle_failures, 6))
+                scout_debug_event(
+                    "cam_http_retry",
+                    status_code=exc.response.status_code,
+                    failure_streak=idle_failures,
+                    retry_delay_seconds=delay,
+                )
                 await asyncio.sleep(delay)
             except Exception as exc:
                 idle_failures += 1
@@ -2149,6 +2389,12 @@ async def run_agent(args: argparse.Namespace) -> None:
                 except Exception:
                     pass
                 delay = min(60, max(5, 2 ** min(idle_failures, 6)))
+                scout_debug_event(
+                    "scout_runtime_retry",
+                    error_type=exc.__class__.__name__,
+                    failure_streak=idle_failures,
+                    retry_delay_seconds=delay,
+                )
                 print(
                     "Scout run failed; keeping the persistent browser alive and retrying in "
                     + str(delay)

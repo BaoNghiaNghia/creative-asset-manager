@@ -34,6 +34,33 @@ START_SCOUT.bat
 
 Do not commit `scout.local.env`; it is intentionally ignored by Git.
 
+## Debug logs
+
+Every Scout start now creates a structured JSONL debug log inside the persistent
+Pinterest profile:
+
+```text
+<pinterest-profile>\logs\pinterest-scout.jsonl
+```
+
+The file rotates daily and retains 10 days of history. It records the client
+version and timestamp plus operational events such as CAM request latency/status,
+claim/no-claim results, idle diagnostics, source-plan readiness, candidate
+submission starts, run completion, connection timeouts, HTTP retries, and Scout
+runtime retries. Authentication tokens and request bodies are not written.
+
+Examples:
+
+```json
+{"ts":"...","event":"cam_request","operation":"claim","status_code":200,"duration_ms":184}
+{"ts":"...","event":"idle_diagnostics","first_campaign_reason":"source_plan_not_ready","first_campaign_source_plan_statuses":{"queued":1}}
+{"ts":"...","event":"cam_request_failed","operation":"diagnostics","error_type":"ReadTimeout","duration_ms":45008}
+```
+
+When reporting a Scout issue, include this JSONL file together with the terminal
+output. The server also emits structured Scout claim events and warns when the
+diagnostics endpoint itself takes at least one second.
+
 ## Auto Scout v14 text-aware source-plan setup
 
 1. Create a Python virtual environment and install `apps/rrugc_scout/requirements.txt`.

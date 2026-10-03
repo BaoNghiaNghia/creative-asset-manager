@@ -88,6 +88,121 @@ class RrugcRepository:
         ).all()
         return Counter({str(status): int(count) for status, count in rows})
 
+    def campaign_usable_counts_many(
+        self,
+        tenant_id: str,
+        campaign_ids: list[str],
+    ) -> dict[str, Counter]:
+        if not campaign_ids:
+            return {}
+        manual_label = (
+            RrugcCandidateModel.ai_signal_json["reference_manual_label"].as_string()
+        )
+        rows = self.session.execute(
+            select(
+                RrugcCandidateModel.campaign_id,
+                RrugcCandidateModel.status,
+                func.count(),
+            )
+            .where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.campaign_id.in_(campaign_ids),
+                or_(
+                    RrugcCandidateModel.ai_signal_json.is_(None),
+                    manual_label.is_(None),
+                    manual_label.notin_(("bad", "ai")),
+                ),
+            )
+            .group_by(
+                RrugcCandidateModel.campaign_id,
+                RrugcCandidateModel.status,
+            )
+        ).all()
+        result: dict[str, Counter] = {
+            campaign_id: Counter() for campaign_id in campaign_ids
+        }
+        for campaign_id, status, count in rows:
+            result[str(campaign_id)][str(status)] = int(count)
+        return result
+
+    def source_plan_status_counts(
+        self,
+        tenant_id: str,
+        campaign_ids: list[str],
+    ) -> dict[str, Counter]:
+        if not campaign_ids:
+            return {}
+        rows = self.session.execute(
+            select(
+                RrugcSourcePlanModel.campaign_id,
+                RrugcSourcePlanModel.status,
+                func.count(),
+            )
+            .where(
+                RrugcSourcePlanModel.tenant_id == tenant_id,
+                RrugcSourcePlanModel.campaign_id.in_(campaign_ids),
+            )
+            .group_by(
+                RrugcSourcePlanModel.campaign_id,
+                RrugcSourcePlanModel.status,
+            )
+        ).all()
+        result: dict[str, Counter] = {
+            campaign_id: Counter() for campaign_id in campaign_ids
+        }
+        for campaign_id, status, count in rows:
+            if campaign_id is None:
+                continue
+            result[str(campaign_id)][str(status)] = int(count)
+        return result
+
+    def recent_scout_shadow_stats(
+        self,
+        tenant_id: str,
+        campaign_ids: list[str],
+        *,
+        per_campaign_limit: int = 50,
+    ) -> dict[str, list[dict]]:
+        if not campaign_ids:
+            return {}
+        row_number = func.row_number().over(
+            partition_by=RrugcScoutRunModel.campaign_id,
+            order_by=(
+                RrugcScoutRunModel.created_at.desc(),
+                RrugcScoutRunModel.id.desc(),
+            ),
+        ).label("row_number")
+        ranked = (
+            select(
+                RrugcScoutRunModel.campaign_id.label("campaign_id"),
+                RrugcScoutRunModel.keyword_stats_json.label("keyword_stats_json"),
+                row_number,
+            )
+            .where(
+                RrugcScoutRunModel.tenant_id == tenant_id,
+                RrugcScoutRunModel.campaign_id.in_(campaign_ids),
+                RrugcScoutRunModel.keyword_stats_json.is_not(None),
+            )
+            .subquery()
+        )
+        rows = self.session.execute(
+            select(
+                ranked.c.campaign_id,
+                ranked.c.keyword_stats_json,
+            )
+            .where(ranked.c.row_number <= max(1, int(per_campaign_limit)))
+        ).all()
+        result: dict[str, list[dict]] = {
+            campaign_id: [] for campaign_id in campaign_ids
+        }
+        for campaign_id, stats in rows:
+            if not isinstance(stats, dict):
+                continue
+            shadow = stats.get("_jev_shadow")
+            if isinstance(shadow, dict):
+                result[str(campaign_id)].append(dict(shadow))
+        return result
+
     def list_candidates(
         self, tenant_id: str, campaign_id: str, *, limit: int = 100, offset: int = 0
     ) -> list[RrugcCandidateModel]:

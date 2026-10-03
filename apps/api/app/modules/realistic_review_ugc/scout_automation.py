@@ -4,6 +4,7 @@ import hmac
 import logging
 import random
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -984,16 +985,46 @@ class RrugcAutoScoutService:
         *,
         agent_id: str,
         raw_token: str,
+        client_version: str | None = None,
     ) -> dict:
+        started = time.monotonic()
         agent = self.authenticate_agent(
             agent_id=agent_id,
             raw_token=raw_token,
         )
         now = datetime.now(timezone.utc)
         campaigns = self.repository.list_campaigns(agent.tenant_id, limit=50)
+        campaign_ids = [campaign.id for campaign in campaigns]
+        counts_by_campaign = self.repository.campaign_usable_counts_many(
+            agent.tenant_id,
+            campaign_ids,
+        )
+        source_plan_only = scout_client_supports_source_plans(client_version)
+        source_plan_counts = (
+            self.repository.source_plan_status_counts(
+                agent.tenant_id,
+                campaign_ids,
+            )
+            if source_plan_only
+            else {}
+        )
+        jev_shadow_enabled = (
+            self.jev_scout_query_enabled
+            and self.jev_mode == "shadow"
+        )
+        shadow_by_campaign = (
+            self.repository.recent_scout_shadow_stats(
+                agent.tenant_id,
+                campaign_ids,
+                per_campaign_limit=50,
+            )
+            if jev_shadow_enabled
+            else {}
+        )
+
         rows: list[dict] = []
         for campaign in campaigns:
-            counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
+            counts = counts_by_campaign.get(campaign.id, {})
             progress = (
                 counts.get("drive_ready", 0)
                 if campaign.auto_import
@@ -1002,6 +1033,12 @@ class RrugcAutoScoutService:
             pipeline_count = quality_pipeline_count(
                 counts,
                 auto_import=campaign.auto_import,
+            )
+            plan_counts = source_plan_counts.get(campaign.id, {})
+            source_plan_ready = (
+                int(plan_counts.get("ready", 0)) > 0
+                if source_plan_only
+                else None
             )
             if campaign.status != "running":
                 reason = "campaign_not_running"
@@ -1016,6 +1053,8 @@ class RrugcAutoScoutService:
                 reason = "target_reached"
             elif pipeline_count >= campaign.target_count:
                 reason = "pipeline_full"
+            elif source_plan_only and not source_plan_ready:
+                reason = "source_plan_not_ready"
             elif (
                 campaign.scan_next_at is not None
                 and _as_utc(campaign.scan_next_at) > now
@@ -1023,69 +1062,58 @@ class RrugcAutoScoutService:
                 reason = "scheduled_later"
             else:
                 reason = "claimable"
-            recent_runs = self.repository.list_scout_runs(
-                campaign.tenant_id,
-                campaign_id=campaign.id,
-                limit=50,
-            )
-            shadow_rows = []
-            for run in recent_runs:
-                stats = (
-                    run.keyword_stats_json
-                    if isinstance(run.keyword_stats_json, dict)
-                    else {}
+
+            jev_shadow_summary = None
+            if jev_shadow_enabled:
+                shadow_rows = shadow_by_campaign.get(campaign.id, [])
+                shadow_completed = [
+                    shadow
+                    for shadow in shadow_rows
+                    if shadow.get("status") == "completed"
+                ]
+                shadow_agreed = sum(
+                    1
+                    for shadow in shadow_completed
+                    if shadow.get("agreed_with_baseline") is True
                 )
-                shadow = stats.get(_JEV_SHADOW_KEY)
-                if isinstance(shadow, dict):
-                    shadow_rows.append(shadow)
-            shadow_completed = [
-                shadow
-                for shadow in shadow_rows
-                if shadow.get("status") == "completed"
-            ]
-            shadow_agreed = sum(
-                1
-                for shadow in shadow_completed
-                if shadow.get("agreed_with_baseline") is True
-            )
-            shadow_latency = [
-                int(shadow.get("latency_ms") or 0)
-                for shadow in shadow_completed
-            ]
-            jev_shadow_summary = {
-                "observations": len(shadow_rows),
-                "completed": len(shadow_completed),
-                "fallback": sum(
-                    1
-                    for shadow in shadow_rows
-                    if shadow.get("status") == "fallback"
-                ),
-                "invalid_answer": sum(
-                    1
-                    for shadow in shadow_rows
-                    if shadow.get("status") == "invalid_answer"
-                ),
-                "agreed": shadow_agreed,
-                "disagreed": len(shadow_completed) - shadow_agreed,
-                "agreement_rate": (
-                    round(shadow_agreed / len(shadow_completed), 4)
-                    if shadow_completed
-                    else None
-                ),
-                "avg_latency_ms": (
-                    round(sum(shadow_latency) / len(shadow_latency), 1)
-                    if shadow_latency
-                    else None
-                ),
-                "input_tokens": sum(
-                    int(shadow.get("input_tokens") or 0)
-                    for shadow in shadow_rows
-                ),
-                "estimated_cost_micros": sum(
-                    int(shadow.get("estimated_cost_micros") or 0)
-                    for shadow in shadow_rows
-                ),
-            }
+                shadow_latency = [
+                    int(shadow.get("latency_ms") or 0)
+                    for shadow in shadow_completed
+                ]
+                jev_shadow_summary = {
+                    "observations": len(shadow_rows),
+                    "completed": len(shadow_completed),
+                    "fallback": sum(
+                        1
+                        for shadow in shadow_rows
+                        if shadow.get("status") == "fallback"
+                    ),
+                    "invalid_answer": sum(
+                        1
+                        for shadow in shadow_rows
+                        if shadow.get("status") == "invalid_answer"
+                    ),
+                    "agreed": shadow_agreed,
+                    "disagreed": len(shadow_completed) - shadow_agreed,
+                    "agreement_rate": (
+                        round(shadow_agreed / len(shadow_completed), 4)
+                        if shadow_completed
+                        else None
+                    ),
+                    "avg_latency_ms": (
+                        round(sum(shadow_latency) / len(shadow_latency), 1)
+                        if shadow_latency
+                        else None
+                    ),
+                    "input_tokens": sum(
+                        int(shadow.get("input_tokens") or 0)
+                        for shadow in shadow_rows
+                    ),
+                    "estimated_cost_micros": sum(
+                        int(shadow.get("estimated_cost_micros") or 0)
+                        for shadow in shadow_rows
+                    ),
+                }
             rows.append({
                 "campaign_id": campaign.id,
                 "name": campaign.name,
@@ -1101,13 +1129,38 @@ class RrugcAutoScoutService:
                     if campaign.scan_lease_expires_at
                     else None
                 ),
-                "counts": counts,
+                "scan_lease_agent_id": campaign.scan_lease_agent_id,
+                "scan_lease_run_id": campaign.scan_lease_run_id,
+                "source_plan_required": source_plan_only,
+                "source_plan_ready": source_plan_ready,
+                "source_plan_statuses": dict(plan_counts),
+                "counts": dict(counts),
                 "jev_shadow": jev_shadow_summary,
             })
+
+        duration_ms = max(0, round((time.monotonic() - started) * 1000))
+        claimable_count = sum(
+            1 for row in rows if row["reason"] == "claimable"
+        )
+        log_extra = {
+            "agent_id": agent.id,
+            "tenant_id": agent.tenant_id,
+            "client_version": client_version,
+            "campaign_count": len(rows),
+            "claimable_count": claimable_count,
+            "source_plan_only": source_plan_only,
+            "jev_shadow_enabled": jev_shadow_enabled,
+            "duration_ms": duration_ms,
+        }
+        if duration_ms >= 1000:
+            _LOGGER.warning("rrugc_scout_diagnostics_slow", extra=log_extra)
+        else:
+            _LOGGER.debug("rrugc_scout_diagnostics_complete", extra=log_extra)
         return {
             "agent_id": agent.id,
             "campaigns": rows,
-            "claimable": sum(1 for row in rows if row["reason"] == "claimable"),
+            "claimable": claimable_count,
+            "duration_ms": duration_ms,
         }
 
     def claim(
@@ -1118,6 +1171,7 @@ class RrugcAutoScoutService:
         client_version: str | None = None,
         machine_label: str | None = None,
     ) -> ScoutClaim | None:
+        started = time.monotonic()
         agent = self.authenticate_agent(
             agent_id=agent_id,
             raw_token=raw_token,
@@ -1130,11 +1184,12 @@ class RrugcAutoScoutService:
         agent.machine_label = (machine_label or "").strip()[:160] or agent.machine_label
         agent.last_error_code = None
 
+        source_plan_only = scout_client_supports_source_plans(client_version)
         campaigns = self.repository.claimable_campaigns(
             agent.tenant_id,
             now=now,
             limit=25,
-            source_plan_only=scout_client_supports_source_plans(client_version),
+            source_plan_only=source_plan_only,
         )
         selected: RrugcCampaignModel | None = None
         progress = 0
@@ -1164,6 +1219,20 @@ class RrugcAutoScoutService:
 
         if selected is None:
             self.session.commit()
+            _LOGGER.debug(
+                "rrugc_scout_claim_empty",
+                extra={
+                    "agent_id": agent.id,
+                    "tenant_id": agent.tenant_id,
+                    "client_version": client_version,
+                    "source_plan_only": source_plan_only,
+                    "eligible_campaign_rows": len(campaigns),
+                    "duration_ms": max(
+                        0,
+                        round((time.monotonic() - started) * 1000),
+                    ),
+                },
+            )
             return None
 
         if selected.scan_lease_run_id:
@@ -1260,6 +1329,31 @@ class RrugcAutoScoutService:
         self.session.commit()
         self.session.refresh(run)
         self.session.refresh(selected)
+        duration_ms = max(
+            0,
+            round((time.monotonic() - started) * 1000),
+        )
+        _LOGGER.info(
+            "rrugc_scout_claim_created",
+            extra={
+                "agent_id": agent.id,
+                "tenant_id": agent.tenant_id,
+                "client_version": client_version,
+                "campaign_id": selected.id,
+                "run_id": run.id,
+                "source_plan_only": source_plan_only,
+                "progress": int(progress),
+                "pipeline_count": int(pipeline_count),
+                "target_count": int(selected.target_count),
+                "query": selected_query,
+                "jev_shadow_status": (
+                    jev_shadow.get("status")
+                    if isinstance(jev_shadow, dict)
+                    else None
+                ),
+                "duration_ms": duration_ms,
+            },
+        )
         return ScoutClaim(
             run=run,
             campaign=selected,

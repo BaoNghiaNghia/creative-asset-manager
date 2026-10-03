@@ -4306,14 +4306,21 @@ def auto_scout_agent_heartbeat(
 def auto_scout_agent_diagnostics(
     agent_id: str,
     authorization: str | None = Header(default=None),
+    x_scout_version: str | None = Header(default=None, alias="X-Scout-Version"),
     session: Session = Depends(get_db),
 ):
-    service = RrugcAutoScoutService(session)
+    settings = get_settings()
+    service = RrugcAutoScoutService(
+        session,
+        jev_scout_query_enabled=settings.JEV_SCOUT_QUERY_ENABLED,
+        jev_mode=settings.JEV_MODE,
+    )
     token = _bearer_token(authorization)
     try:
         return service.diagnostics(
             agent_id=agent_id,
             raw_token=token,
+            client_version=x_scout_version,
         )
     except RrugcError as exc:
         raise _error(exc) from exc

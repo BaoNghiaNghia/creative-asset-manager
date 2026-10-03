@@ -16,6 +16,7 @@ from scout import (
     allowed_image,
     allowed_pin,
     choose_pin_detail_candidate,
+    configure_scout_debug_log,
     extract_related_candidates,
     extract_visible,
     idle_diagnostic_message,
@@ -30,6 +31,7 @@ from scout import (
     related_seed_candidates,
     resolve_pin_details,
     scan_auto_run,
+    scout_debug_event,
     task_search_queries,
     wait_for_pin_growth,
 )
@@ -925,6 +927,44 @@ def test_careful_pace_uses_gradual_scrolls_and_longer_waits():
     assert pace.keyword_pause_ms == (3000, 5000)
 
 
+def test_scout_debug_log_writes_jsonl_and_keeps_secrets_out_of_events(tmp_path):
+    log_path = configure_scout_debug_log(tmp_path)
+    scout_debug_event(
+        "test_event",
+        operation="claim",
+        status_code=200,
+        duration_ms=42,
+    )
+    for handler in scout_module._SCOUT_DEBUG_LOGGER.handlers:
+        handler.flush()
+
+    rows = [
+        scout_module.json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows[-1]["event"] == "test_event"
+    assert rows[-1]["operation"] == "claim"
+    assert rows[-1]["duration_ms"] == 42
+    assert "secret-token" not in log_path.read_text(encoding="utf-8")
+
+
+def test_idle_diagnostic_message_explains_source_plan_wait():
+    message = idle_diagnostic_message({
+        "campaigns": [{
+            "name": "Hat source",
+            "reason": "source_plan_not_ready",
+            "target_count": 50,
+            "progress": 0,
+            "pipeline_count": 0,
+            "counts": {},
+            "source_plan_statuses": {"queued": 1},
+        }],
+    })
+    assert "waiting for AI Context analysis" in message
+    assert "claimable" not in message
+
+
 def test_idle_diagnostic_message_explains_pipeline_backpressure():
     message = idle_diagnostic_message({
         "campaigns": [{
@@ -950,6 +990,9 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
             assert request.headers["x-scout-version"] == "rrugc-scout-v19"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
+        if request.url.path.endswith("/diagnostics"):
+            assert request.headers["x-scout-version"] == "rrugc-scout-v19"
+            assert request.headers["x-scout-machine"] == "studio-pc"
         return httpx.Response(200, json={"status": "ready"})
 
     async def scenario():
