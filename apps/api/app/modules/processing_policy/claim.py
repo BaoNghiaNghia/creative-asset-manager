@@ -50,6 +50,7 @@ RRUGC_GEMINI_ANALYZE_JOB_TYPES = (
 MODEL_GATED_AI_JOB_TYPES = ("asset_analyze", *RRUGC_GEMINI_ANALYZE_JOB_TYPES)
 RRUGC_GEMINI_LANE_PROVIDER = "gemini_rrugc_lane"
 RRUGC_GEMINI_LANE_MODEL = "__rrugc_shared__"
+RRUGC_GEMINI_MODEL_GATE_PREFIX = "gemini_rrugc_model:"
 _ANALYSIS_MODEL_GATE_UNRESOLVABLE = object()
 _RRUGC_GEMINI_LANE_UNAVAILABLE = object()
 
@@ -649,10 +650,7 @@ class TenantAwareJobClaimer:
             return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
 
         limiter = AiModelRateLimitRepository(self.session)
-        rrugc_min_interval_seconds = max(
-            self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS,
-            self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
-        )
+        rrugc_min_interval_seconds = self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS
         lane = limiter.reserve_start(
             tenant_id=job.tenant_id,
             provider=RRUGC_GEMINI_LANE_PROVIDER,
@@ -668,32 +666,35 @@ class TenantAwareJobClaimer:
         if not model_rates:
             return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
 
-        # RRUGC uses the same credential/model buckets as normal image analysis.
-        # The extra RRUGC lane above only slows background starts; it does not
-        # create a separate quota universe or hide usage from the shared key.
+        # RRUGC shares the same real Gemini credential/project quota as Image
+        # Analysis, but keeps a separate scheduler pacing row. This prevents the
+        # conservative 120s image-analysis start interval from throttling RRUGC
+        # to one candidate every two minutes. The provider-level quota
+        # coordinator still atomically enforces the shared project RPD while the
+        # hard RRUGC concurrency cap and this lane bound RRUGC to a low RPM.
+        credential_provider = rate_limit_provider_key(
+            self.session,
+            self.settings,
+            job.tenant_id,
+            provider,
+            now=now,
+        )
+        rrugc_model_gate_provider = (
+            RRUGC_GEMINI_MODEL_GATE_PREFIX + credential_provider
+        )
         for model, rpm in model_rates:
-            limiter_provider = rate_limit_provider_key(
-                self.session,
-                self.settings,
-                job.tenant_id,
-                provider,
-                model=model,
-                rpm=rpm,
-                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
-                now=now,
-            )
             decision = limiter.reserve_start(
                 tenant_id=job.tenant_id,
-                provider=limiter_provider,
+                provider=rrugc_model_gate_provider,
                 model=model,
                 rpm=rpm,
-                minimum_interval_seconds=self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+                minimum_interval_seconds=rrugc_min_interval_seconds,
                 now=now,
             )
             if decision.allowed:
                 return {
                     "provider": provider,
-                    "credential_provider": limiter_provider,
+                    "credential_provider": credential_provider,
                     "model": model,
                     "next_eligible_at": decision.next_eligible_at,
                 }

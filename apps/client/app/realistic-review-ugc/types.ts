@@ -197,6 +197,7 @@ export type SourcePlan = {
   pipeline_count: number;
   candidate_count: number;
   approved_count: number;
+  pending_ai_count: number;
   drive_ready_count: number;
   scan_next_at: string | null;
   scan_last_completed_at: string | null;

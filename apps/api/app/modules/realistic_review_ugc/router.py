@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -2433,8 +2433,14 @@ def generation_skills(
 SOURCE_PLAN_REFERENCE_STATUSES = frozenset(
     {"approved", "import_queued", "importing", "drive_ready"}
 )
+SOURCE_PLAN_PENDING_AI_STATUSES = frozenset({"analysis_queued", "analyzing"})
 SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES = frozenset(
-    {*SOURCE_PLAN_REFERENCE_STATUSES, "rejected_context"}
+    {
+        *SOURCE_PLAN_REFERENCE_STATUSES,
+        *SOURCE_PLAN_PENDING_AI_STATUSES,
+        "analysis_failed",
+        "rejected_context",
+    }
 )
 SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT = 100
 
@@ -2476,6 +2482,10 @@ def _source_plan_response(
     approved_count = sum(
         usable_campaign_counts.get(status, 0)
         for status in SOURCE_PLAN_REFERENCE_STATUSES
+    )
+    pending_ai_count = sum(
+        usable_campaign_counts.get(status, 0)
+        for status in SOURCE_PLAN_PENDING_AI_STATUSES
     )
     drive_ready_count = usable_campaign_counts.get("drive_ready", 0)
     progress_count = (
@@ -2534,6 +2544,7 @@ def _source_plan_response(
         pipeline_count=int(pipeline_count),
         candidate_count=int(sum(campaign_counts.values())),
         approved_count=int(approved_count),
+        pending_ai_count=int(pending_ai_count),
         drive_ready_count=int(drive_ready_count),
         scan_next_at=campaign.scan_next_at if campaign is not None else None,
         scan_last_completed_at=(
@@ -2642,6 +2653,22 @@ def get_source_plans(
             )
             .order_by(
                 RrugcCandidateModel.campaign_id.asc(),
+                case(
+                    (
+                        RrugcCandidateModel.status.in_(
+                            SOURCE_PLAN_REFERENCE_STATUSES
+                        ),
+                        0,
+                    ),
+                    (
+                        RrugcCandidateModel.status.in_(
+                            SOURCE_PLAN_PENDING_AI_STATUSES
+                        ),
+                        1,
+                    ),
+                    (RrugcCandidateModel.status == "analysis_failed", 2),
+                    else_=3,
+                ),
                 RrugcCandidateModel.created_at.desc(),
             )
         ):

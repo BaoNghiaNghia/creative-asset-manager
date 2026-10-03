@@ -23,6 +23,7 @@ from app.modules.processing_policy.claim import (
     AI_MODEL_SLOT_PAYLOAD_KEY,
     RRUGC_GEMINI_LANE_MODEL,
     RRUGC_GEMINI_LANE_PROVIDER,
+    RRUGC_GEMINI_MODEL_GATE_PREFIX,
 )
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 
@@ -463,11 +464,24 @@ class RateLimitedClaimTest(unittest.TestCase):
 
 
 
-    def test_rrugc_interval_clamps_to_slower_global_ai_interval(self):
+    def test_rrugc_interval_stays_independent_from_slower_image_interval(self):
         settings = Settings(
-            AI_JOB_MIN_INTERVAL_SECONDS=30.0,
+            AI_JOB_MIN_INTERVAL_SECONDS=120.0,
             RRUGC_GEMINI_MIN_INTERVAL_SECONDS=20.0,
         )
+        model, _rpm = configured_model_rates(settings, "gemini", None)[0]
+        with self.sessions.begin() as session:
+            session.add(
+                AiModelRateLimitStateModel(
+                    tenant_id="tenant",
+                    provider="gemini",
+                    model=model,
+                    last_started_at=NOW,
+                    next_eligible_at=NOW + timedelta(seconds=120),
+                    blocked_until=None,
+                    updated_at=NOW,
+                )
+            )
         job_id = self._rrugc_job("production-interval")
 
         with self.sessions() as session:
@@ -483,6 +497,8 @@ class RateLimitedClaimTest(unittest.TestCase):
 
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, job_id)
+        marker = claimed.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        self.assertEqual(marker["credential_provider"], "gemini")
         with self.sessions() as session:
             lane = session.get(
                 AiModelRateLimitStateModel,
@@ -492,10 +508,35 @@ class RateLimitedClaimTest(unittest.TestCase):
                     "model": RRUGC_GEMINI_LANE_MODEL,
                 },
             )
+            rrugc_model_gate = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": RRUGC_GEMINI_MODEL_GATE_PREFIX + "gemini",
+                    "model": marker["model"],
+                },
+            )
+            image_gate = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": "gemini",
+                    "model": model,
+                },
+            )
             self.assertIsNotNone(lane)
+            self.assertIsNotNone(rrugc_model_gate)
             self.assertEqual(
                 lane.next_eligible_at.replace(tzinfo=timezone.utc),
-                NOW + timedelta(seconds=30),
+                NOW + timedelta(seconds=20),
+            )
+            self.assertEqual(
+                rrugc_model_gate.next_eligible_at.replace(tzinfo=timezone.utc),
+                NOW + timedelta(seconds=20),
+            )
+            self.assertEqual(
+                image_gate.next_eligible_at.replace(tzinfo=timezone.utc),
+                NOW + timedelta(seconds=120),
             )
 
     def test_rrugc_claim_reserves_shared_lane_and_gemini_model_slot(self):

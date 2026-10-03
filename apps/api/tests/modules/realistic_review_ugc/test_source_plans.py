@@ -424,6 +424,15 @@ def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usa
                     "reference_manual_label": "bad",
                 },
             ),
+            RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                source_key="3" * 64,
+                pin_url="https://www.pinterest.com/pin/1003/",
+                image_url="https://i.pinimg.com/736x/pending.jpg",
+                status="analysis_queued",
+                ai_signal_json={"scout_query": "casual cookout phone photo"},
+            ),
         ])
         session.commit()
 
@@ -439,10 +448,16 @@ def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usa
         item = page.items[0]
         assert item.drive_ready_count == 1
         assert item.progress_count == 1
+        assert item.pending_ai_count == 1
         assert item.embroidery_signature == "shared-signature"
         assert item.embroidery_group_size == 2
-        assert len(item.reference_previews) == 2
+        assert len(item.reference_previews) == 3
         assert sum(reference.rejected for reference in item.reference_previews) == 1
+        assert [row.status for row in item.reference_previews] == [
+            "drive_ready",
+            "drive_ready",
+            "analysis_queued",
+        ]
 
 
 def test_source_plan_list_is_server_paginated_and_searchable():

@@ -53,6 +53,7 @@ function makePlan(referenceCount = 0): SourcePlan {
     pipeline_count: 2,
     candidate_count: referenceCount,
     approved_count: referenceCount,
+    pending_ai_count: 0,
     drive_ready_count: referenceCount,
     scan_next_at: null,
     scan_last_completed_at: null,
@@ -137,16 +138,43 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("25 refs · 1 ✓ · 1 ×");
+    expect(markup).toContain("25 refs · 0 pending AI · 1 ✓ · 1 ×");
     expect(markup).toContain("rrugc-source-ref-slider");
     expect(markup).toContain("rrugc-source-ref-track");
     expect(markup).toContain("is-picked");
     expect(markup).toContain("is-rejected");
-    expect(markup).toContain("Unrated = usable");
+    expect(markup).toContain("Pending AI = Scout saved, waiting analysis");
     expect(markup).toContain("train negative");
     expect(markup).toContain("Shared refs · 3 colors");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
+  });
+
+  it("shows Scout-saved references while Gemini analysis is pending", () => {
+    const plan = makePlan(1);
+    plan.approved_count = 0;
+    plan.pending_ai_count = 1;
+    plan.drive_ready_count = 0;
+    plan.reference_previews[0].status = "analysis_queued";
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[plan]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("0 refs · 1 pending AI");
+    expect(markup).toContain("status-analysis_queued");
+    expect(markup).toContain("rrugc-source-ref-ai-state");
+    expect(markup).toContain(">AI<");
   });
 
   it("keeps progress capped at 100 percent when refs exceed the target", () => {

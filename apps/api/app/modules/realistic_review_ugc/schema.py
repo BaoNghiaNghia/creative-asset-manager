@@ -447,6 +447,7 @@ class SourcePlanResponse(BaseModel):
     pipeline_count: int = 0
     candidate_count: int = 0
     approved_count: int = 0
+    pending_ai_count: int = 0
     drive_ready_count: int = 0
     scan_next_at: datetime | None = None
     scan_last_completed_at: datetime | None = None

@@ -105,6 +105,8 @@ function ReferenceSlider({
           <a href={reference.pin_url} target="_blank" rel="noreferrer" className="rrugc-source-ref-link" title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}>
             <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
             <span>{index + 1}</span>
+            {(reference.status === "analysis_queued" || reference.status === "analyzing") && <i className="rrugc-source-ref-ai-state">AI</i>}
+            {reference.status === "analysis_failed" && <i className="rrugc-source-ref-ai-state is-failed">!</i>}
           </a>
           <div className="rrugc-source-ref-feedback" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
             <button
@@ -237,7 +239,7 @@ export function SourcePlanTable({
                 <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>{(plan.scout_status || "offline").replaceAll("_", " ")}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
-                <div className="rrugc-source-refs-head"><strong>{plan.reference_previews.length} refs · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Unrated = usable · ✓ positive · × unusable/train negative · {plan.drive_ready_count} usable Drive ready</small></div>
+                <div className="rrugc-source-refs-head"><strong>{plan.approved_count} refs · {plan.pending_ai_count} pending AI · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Pending AI = Scout saved, waiting analysis · ✓ positive · × unusable/train negative · {plan.drive_ready_count} usable Drive ready</small></div>
                 <ReferenceSlider plan={plan} reviewingReferenceIds={reviewingReferenceIds} onSetReferenceFeedback={onSetReferenceFeedback} />
               </td>
             </tr>;
