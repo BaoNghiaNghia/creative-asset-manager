@@ -2590,6 +2590,11 @@ def get_source_plans(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     q: str | None = Query(default=None, max_length=200),
+    sort_by: str = Query(
+        default="source",
+        pattern="^(source|updated|analyzed|group_size|status)$",
+    ),
+    sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -2633,19 +2638,11 @@ def get_source_plans(
                 member.id,
             )
         )
-    groups.sort(
-        key=lambda members: (
-            members[0].source_relative_path.lower(),
-            members[0].id,
-        )
-    )
 
-    total = len(groups)
-    page_groups = groups[(page - 1) * page_size : page * page_size]
-    plans: list[RrugcSourcePlanModel] = []
-    group_members_by_plan_id: dict[str, list[RrugcSourcePlanModel]] = {}
-    for members in page_groups:
-        representative = min(
+    def representative_for(
+        members: list[RrugcSourcePlanModel],
+    ) -> RrugcSourcePlanModel:
+        return min(
             members,
             key=lambda member: (
                 0 if member.campaign_id else 1,
@@ -2655,6 +2652,41 @@ def get_source_plans(
                 member.id,
             ),
         )
+
+    def group_sort_key(
+        members: list[RrugcSourcePlanModel],
+    ) -> tuple[object, str, str]:
+        representative = representative_for(members)
+        stable_path = members[0].source_relative_path.lower()
+        stable_id = members[0].id
+        if sort_by == "updated":
+            primary: object = max(member.updated_at.timestamp() for member in members)
+        elif sort_by == "analyzed":
+            analyzed_rows = [
+                member.analyzed_at.timestamp()
+                for member in members
+                if member.analyzed_at is not None
+            ]
+            primary = max(analyzed_rows) if analyzed_rows else float("-inf")
+        elif sort_by == "group_size":
+            primary = len(members)
+        elif sort_by == "status":
+            primary = representative.status.lower()
+        else:
+            primary = stable_path
+        return primary, stable_path, stable_id
+
+    groups.sort(
+        key=group_sort_key,
+        reverse=sort_dir == "desc",
+    )
+
+    total = len(groups)
+    page_groups = groups[(page - 1) * page_size : page * page_size]
+    plans: list[RrugcSourcePlanModel] = []
+    group_members_by_plan_id: dict[str, list[RrugcSourcePlanModel]] = {}
+    for members in page_groups:
+        representative = representative_for(members)
         plans.append(representative)
         group_members_by_plan_id[representative.id] = members
 

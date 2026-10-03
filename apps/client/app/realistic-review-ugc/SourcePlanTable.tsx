@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
@@ -51,6 +52,19 @@ function scoutStatusPresentation(plan: SourcePlan): { label: string; tone: strin
     return { label: "retrying", tone: "busy" };
   }
   return { label: status.replaceAll("_", " "), tone: status };
+}
+
+function sourcePlanSortDirectionLabel(
+  sortBy: SourcePlanSortBy,
+  direction: SourcePlanSortDirection,
+): string {
+  if (sortBy === "source" || sortBy === "status") {
+    return direction === "asc" ? "A → Z" : "Z → A";
+  }
+  if (sortBy === "group_size") {
+    return direction === "asc" ? "Small → large" : "Large → small";
+  }
+  return direction === "asc" ? "Oldest → newest" : "Newest → oldest";
 }
 
 function sourceMeta(plan: SourcePlan): string {
@@ -285,6 +299,8 @@ export function SourcePlanTable({
   page,
   pageSize,
   query,
+  sortBy = "source",
+  sortDirection = "asc",
   syncing,
   reviewingReferenceIds = new Set<string>(),
   message,
@@ -292,6 +308,8 @@ export function SourcePlanTable({
   onPageChange,
   onPageSizeChange,
   onQueryChange,
+  onSortByChange = () => undefined,
+  onSortDirectionChange = () => undefined,
   onSetReferenceFeedback = () => undefined,
 }: {
   plans: SourcePlan[];
@@ -299,6 +317,8 @@ export function SourcePlanTable({
   page: number;
   pageSize: number;
   query: string;
+  sortBy?: SourcePlanSortBy;
+  sortDirection?: SourcePlanSortDirection;
   syncing: boolean;
   reviewingReferenceIds?: ReadonlySet<string>;
   message: string;
@@ -306,6 +326,8 @@ export function SourcePlanTable({
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
+  onSortByChange?: (sortBy: SourcePlanSortBy) => void;
+  onSortDirectionChange?: (direction: SourcePlanSortDirection) => void;
   onSetReferenceFeedback?: (
     plan: SourcePlan,
     reference: SourcePlanReferencePreview,
@@ -342,7 +364,7 @@ export function SourcePlanTable({
     </div>
 
     <div className="rrugc-source-plan-toolbar rrugc-source-plan-toolbar-server">
-      <label>
+      <label className="rrugc-source-plan-search">
         <span className="sr-only">Search source plans</span>
         <input
           type="search"
@@ -351,7 +373,32 @@ export function SourcePlanTable({
           onChange={event => onQueryChange(event.target.value)}
         />
       </label>
-      <span>{total} embroidery groups</span>
+      <div className="rrugc-source-plan-sort" role="group" aria-label="Sort source plans">
+        <span className="rrugc-source-plan-sort-title">Sort</span>
+        <label>
+          <span className="sr-only">Sort source plans by</span>
+          <select
+            aria-label="Sort source plans by"
+            value={sortBy}
+            onChange={event => onSortByChange(event.target.value as SourcePlanSortBy)}
+          >
+            <option value="source">Source file / folder</option>
+            <option value="updated">Last updated</option>
+            <option value="analyzed">AI analyzed time</option>
+            <option value="group_size">Embroidery group size</option>
+            <option value="status">Status</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="rrugc-source-plan-sort-direction"
+          aria-label={"Sort direction: " + sourcePlanSortDirectionLabel(sortBy, sortDirection)}
+          onClick={() => onSortDirectionChange(sortDirection === "asc" ? "desc" : "asc")}
+        >
+          {sourcePlanSortDirectionLabel(sortBy, sortDirection)}
+        </button>
+        <span className="rrugc-source-plan-sort-count">{total} embroidery groups</span>
+      </div>
     </div>
 
     <div className="rrugc-source-plan-table-wrap">

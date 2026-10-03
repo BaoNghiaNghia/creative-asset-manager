@@ -145,13 +145,24 @@ export const archiveProductReference = (productId: string, referenceId: string) 
     { method: "DELETE" },
   );
 
+export type SourcePlanSortBy = "source" | "updated" | "analyzed" | "group_size" | "status";
+export type SourcePlanSortDirection = "asc" | "desc";
+
 export const listSourcePlans = (
-  filters: { page?: number; pageSize?: number; query?: string } = {},
+  filters: {
+    page?: number;
+    pageSize?: number;
+    query?: string;
+    sortBy?: SourcePlanSortBy;
+    sortDirection?: SourcePlanSortDirection;
+  } = {},
   signal?: AbortSignal,
 ) => {
   const params = new URLSearchParams({
     page: String(filters.page ?? 1),
     page_size: String(filters.pageSize ?? 20),
+    sort_by: filters.sortBy ?? "source",
+    sort_dir: filters.sortDirection ?? "asc",
   });
   if (filters.query?.trim()) params.set("q", filters.query.trim());
   return request<SourcePlanPage>(

@@ -572,6 +572,102 @@ def test_source_plan_list_is_server_paginated_and_searchable():
         assert [item.source_name for item in search.items] == ["teacher-cap.png"]
 
 
+def test_source_plan_list_supports_server_side_sorting_before_pagination():
+    factory = make_database()
+
+    with factory() as session:
+        rows = [
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="alpha-1",
+                source_parent_folder_id="folder-a",
+                source_relative_path="Alpha/front-navy.jpg",
+                source_name="front-navy.jpg",
+                source_mime_type="image/jpeg",
+                source_revision="1" * 64,
+                analysis_revision=1,
+                embroidery_signature="alpha-signature",
+                target_count=50,
+                status="ready",
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="alpha-2",
+                source_parent_folder_id="folder-a",
+                source_relative_path="Alpha/front-black.jpg",
+                source_name="front-black.jpg",
+                source_mime_type="image/jpeg",
+                source_revision="2" * 64,
+                analysis_revision=1,
+                embroidery_signature="alpha-signature",
+                target_count=50,
+                status="ready",
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="beta",
+                source_parent_folder_id="folder-b",
+                source_relative_path="Beta/front.jpg",
+                source_name="front.jpg",
+                source_mime_type="image/jpeg",
+                source_revision="3" * 64,
+                analysis_revision=1,
+                target_count=50,
+                status="queued",
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="gamma",
+                source_parent_folder_id="folder-c",
+                source_relative_path="Gamma/front.jpg",
+                source_name="front.jpg",
+                source_mime_type="image/jpeg",
+                source_revision="4" * 64,
+                analysis_revision=1,
+                target_count=50,
+                status="failed",
+                created_by_user_id="user-a",
+            ),
+        ]
+        session.add_all(rows)
+        session.commit()
+        principal = SimpleNamespace(active_tenant_id="tenant-a")
+
+        by_group_size = get_source_plans(
+            page=1,
+            page_size=1,
+            q=None,
+            sort_by="group_size",
+            sort_dir="desc",
+            session=session,
+            principal=principal,
+        )
+        assert by_group_size.total == 3
+        assert by_group_size.items[0].embroidery_signature == "alpha-signature"
+        assert by_group_size.items[0].embroidery_group_size == 2
+
+        by_source_desc = get_source_plans(
+            page=1,
+            page_size=20,
+            q=None,
+            sort_by="source",
+            sort_dir="desc",
+            session=session,
+            principal=principal,
+        )
+        assert [
+            item.source_relative_path.split("/", 1)[0]
+            for item in by_source_desc.items
+        ] == ["Gamma", "Beta", "Alpha"]
+
+
 def test_discover_source_images_recurses_child_folders_and_ignores_root_images():
     rows, folders = asyncio.run(discover_source_images(FakeDrive()))
 

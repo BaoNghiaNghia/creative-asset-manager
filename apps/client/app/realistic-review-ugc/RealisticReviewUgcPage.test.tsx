@@ -134,6 +134,35 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(sourcePlanPageCount(101, 50)).toBe(3);
   });
 
+  it("renders server-backed sort controls beside the source search", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan()]}
+        total={70}
+        page={1}
+        pageSize={20}
+        query=""
+        sortBy="group_size"
+        sortDirection="desc"
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+        onSortByChange={() => undefined}
+        onSortDirectionChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("rrugc-source-plan-search");
+    expect(markup).toContain("rrugc-source-plan-sort");
+    expect(markup).toContain('aria-label="Sort source plans by"');
+    expect(markup).toContain("Embroidery group size");
+    expect(markup).toContain("Large → small");
+    expect(markup).toContain("70 embroidery groups");
+  });
+
+
   it("lazy-loads source thumbnails behind a stable skeleton", () => {
     const markup = renderToStaticMarkup(
       <SourcePlanTable

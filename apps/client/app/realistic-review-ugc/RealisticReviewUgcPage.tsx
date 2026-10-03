@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
-import { listSourcePlans, markCandidateReferenceFeedback, syncSourcePlans } from "./api";
+import {
+  listSourcePlans,
+  markCandidateReferenceFeedback,
+  syncSourcePlans,
+  type SourcePlanSortBy,
+  type SourcePlanSortDirection,
+} from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { SourcePlanTable } from "./SourcePlanTable";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview } from "./types";
@@ -21,6 +27,8 @@ export function RealisticReviewUgcPage() {
   const [sourcePageSize, setSourcePageSize] = useState(20);
   const [sourceQuery, setSourceQuery] = useState("");
   const [debouncedSourceQuery, setDebouncedSourceQuery] = useState("");
+  const [sourceSortBy, setSourceSortBy] = useState<SourcePlanSortBy>("source");
+  const [sourceSortDirection, setSourceSortDirection] = useState<SourcePlanSortDirection>("asc");
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
   const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
@@ -37,6 +45,8 @@ export function RealisticReviewUgcPage() {
         page: sourcePageNumber,
         pageSize: sourcePageSize,
         query: debouncedSourceQuery,
+        sortBy: sourceSortBy,
+        sortDirection: sourceSortDirection,
       },
       signal,
     );
@@ -158,7 +168,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [sourcePageNumber, sourcePageSize, debouncedSourceQuery]);
+  }, [sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
 
   return <main className="rrugc-shell rrugc-source-first-shell">
     <aside className="ops-sidebar">
@@ -186,6 +196,8 @@ export function RealisticReviewUgcPage() {
           page={sourcePageNumber}
           pageSize={sourcePageSize}
           query={sourceQuery}
+          sortBy={sourceSortBy}
+          sortDirection={sourceSortDirection}
           syncing={syncingSourcePlans}
           reviewingReferenceIds={reviewingReferenceIds}
           message={sourcePlanMessage}
@@ -196,6 +208,14 @@ export function RealisticReviewUgcPage() {
             setSourcePageSize(value);
           }}
           onQueryChange={setSourceQuery}
+          onSortByChange={value => {
+            setSourcePageNumber(1);
+            setSourceSortBy(value);
+          }}
+          onSortDirectionChange={value => {
+            setSourcePageNumber(1);
+            setSourceSortDirection(value);
+          }}
           onSetReferenceFeedback={(plan, reference, label) => void setSourceReferenceFeedback(plan, reference, label)}
         />
       </div>
