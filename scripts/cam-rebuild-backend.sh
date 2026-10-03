@@ -17,7 +17,7 @@ SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"
 ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 
-KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-4}"
+KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-1}"
 KEEP_LOGS="${CAM_BACKEND_DEPLOY_LOG_KEEP:-20}"
 MIN_FREE_MIB="${CAM_BACKEND_MIN_FREE_MIB:-2048}"
 RELEASE_HEADROOM_PERCENT="${CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125}"
@@ -375,8 +375,8 @@ done
 [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]] \
   || die "--keep-releases must be an integer."
 
-((KEEP_RELEASES >= 2)) \
-  || die "--keep-releases must be at least 2."
+((KEEP_RELEASES >= 1)) \
+  || die "--keep-releases must be at least 1."
 
 [[ "$KEEP_LOGS" =~ ^[0-9]+$ ]] \
   || die "--keep-logs must be an integer."
@@ -2184,6 +2184,15 @@ progress 98 \
 
 
 cleanup_backend_disk "Post-deploy"
+
+# Once restarted services have passed validation, rollback no longer needs a
+# second immutable tree when single-release retention is requested. Removing
+# PREVIOUS here lets the final cleanup converge to CURRENT only without ever
+# deleting code from beneath a live pre-restart process.
+if ! $NO_RESTART && ((KEEP_RELEASES == 1)); then
+  rm -f -- "$PREVIOUS"
+  cleanup_old_releases
+fi
 
 
 #

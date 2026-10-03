@@ -117,5 +117,11 @@ if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
   CAM_PRODUCTION_EXPECTED_COMMIT="$COMMIT" \
     bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
 fi
+# Health checks have passed. Keep only the active immutable frontend release.
+rm -f -- "$WEB_ROOT/previous"
+for release in "$RELEASES"/*; do
+  [[ -d "$release" && ! -L "$release" ]] || continue
+  [[ "$release" == "$TARGET" ]] || rm -rf -- "$release"
+done
 printf "Frontend release %s activated.\n" "$RELEASE_ID"
 printf "Post-deploy UI smoke: set CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1 for an authenticated read-only Browser smoke during an explicitly authorized deploy.\n"
