@@ -597,11 +597,13 @@ def test_careful_pace_uses_gradual_scrolls_and_longer_waits():
 
     assert 3 <= len(page.mouse.wheels) <= 5
     assert all(420 <= value <= 700 for value in page.mouse.wheels)
-    assert all(650 <= value <= 1150 for value in page.waits)
+    assert all(550 <= value <= 950 for value in page.waits)
     assert total == sum(page.mouse.wheels)
     assert pace.submit_batch_size == 3
-    assert pace.initial_dwell_ms == (4500, 7000)
-    assert pace.keyword_pause_ms == (3500, 6000)
+    assert pace.initial_dwell_ms == (3800, 5800)
+    assert pace.inspect_dwell_ms == (1200, 2200)
+    assert pace.submit_pause_ms == (1250, 2300)
+    assert pace.keyword_pause_ms == (3000, 5000)
 
 
 def test_idle_diagnostic_message_explains_pipeline_backpressure():

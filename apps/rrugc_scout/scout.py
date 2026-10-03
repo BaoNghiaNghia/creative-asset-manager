@@ -66,14 +66,14 @@ SCOUT_PACES = {
     ),
     "careful": ScoutPace(
         name="careful",
-        initial_dwell_ms=(4_500, 7_000),
-        inspect_dwell_ms=(1_400, 2_600),
+        initial_dwell_ms=(3_800, 5_800),
+        inspect_dwell_ms=(1_200, 2_200),
         submit_batch_size=3,
-        submit_pause_ms=(1_500, 2_800),
+        submit_pause_ms=(1_250, 2_300),
         scroll_step_px=(420, 700),
         scroll_steps_per_batch=(3, 5),
-        scroll_step_pause_ms=(650, 1_150),
-        keyword_pause_ms=(3_500, 6_000),
+        scroll_step_pause_ms=(550, 950),
+        keyword_pause_ms=(3_000, 5_000),
     ),
 }
 
