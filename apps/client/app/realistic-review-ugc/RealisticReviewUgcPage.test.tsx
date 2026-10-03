@@ -235,6 +235,29 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain("rrugc-source-ref-grid");
   });
 
+  it("does not label a singleton source row as same embroidery", () => {
+    const plan = makePlan();
+    plan.embroidery_group_size = 1;
+    plan.source_group_images = [plan.source_group_images[0]];
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[plan]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("1 source image");
+    expect(markup).not.toContain("1 source image · same embroidery");
+  });
+
   it("shows Scout-saved references while Gemini analysis is pending", () => {
     const plan = makePlan(1);
     plan.approved_count = 0;

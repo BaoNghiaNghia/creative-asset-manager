@@ -693,8 +693,10 @@ async def sync_source_plans(
                 plan.analysis_revision = max(1, int(plan.analysis_revision or 0) + 1)
                 plan.status = "queued"
                 plan.last_error_code = None
-                plan.visual_context_json = None
-                plan.embroidery_signature = None
+                # Keep the last successful context/signature while the newer
+                # analyzer version is queued. They remain useful for grouping
+                # and the already-running shared Scout campaign, and are
+                # atomically replaced when the upgraded analysis completes.
                 plan.analyzed_at = None
                 updated += 1
 

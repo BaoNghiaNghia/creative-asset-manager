@@ -557,6 +557,80 @@ def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usab
         }
 
 
+def test_source_plan_list_groups_shared_campaign_when_signatures_drift():
+    factory = make_database()
+
+    with factory() as session:
+        campaign = RrugcCampaignModel(
+            tenant_id="tenant-a",
+            name="Shared embroidery Scout campaign",
+            query="grandpa golf course candid phone photo",
+            target_count=50,
+            auto_import=True,
+            auto_scout=True,
+            scout_token_hash="d" * 64,
+            created_by_user_id="user-a",
+        )
+        session.add(campaign)
+        session.flush()
+        session.add_all([
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="grandpa-a",
+                source_parent_folder_id="folder-a",
+                source_relative_path="Natural/BestGrandpa/front.jpg",
+                source_name="BestGrandpa-front.jpg",
+                source_mime_type="image/jpeg",
+                source_revision="a" * 64,
+                analysis_revision=2,
+                embroidery_signature="signature-before-upgrade-a",
+                target_count=50,
+                status="queued",
+                campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="grandpa-b",
+                source_parent_folder_id="folder-b",
+                source_relative_path="Navy/BestGrandpa/front.jpg",
+                source_name="BestGrandpa-front.jpg",
+                source_mime_type="image/jpeg",
+                source_revision="b" * 64,
+                analysis_revision=2,
+                embroidery_signature="signature-before-upgrade-b",
+                target_count=50,
+                status="queued",
+                campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ),
+        ])
+        session.commit()
+
+        page = get_source_plans(
+            page=1,
+            page_size=20,
+            q=None,
+            sort_by="source",
+            sort_dir="asc",
+            session=session,
+            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+
+        assert page.total == 1
+        assert len(page.items) == 1
+        assert page.items[0].embroidery_group_size == 2
+        assert {
+            source.source_relative_path
+            for source in page.items[0].source_group_images
+        } == {
+            "Natural/BestGrandpa/front.jpg",
+            "Navy/BestGrandpa/front.jpg",
+        }
+
+
 def test_source_plan_list_is_server_paginated_and_searchable():
     factory = make_database()
 
@@ -974,11 +1048,14 @@ def test_old_visual_context_version_requeues_source_for_text_aware_analysis():
         session.flush()
         plan.campaign_id = campaign.id
         plan.status = "ready"
-        plan.visual_context_json = {
+        legacy_visual_context = {
             "status": "ready",
             "version": "rrugc-product-visual-context-v1",
             "binding_fingerprint": "legacy",
+            "embroidery_text": ["Best Grandpa By Par"],
         }
+        plan.visual_context_json = legacy_visual_context
+        plan.embroidery_signature = "legacy-grandpa-signature"
         plan.analyzed_at = datetime.now(timezone.utc)
         original_analysis_revision = plan.analysis_revision
         session.commit()
@@ -999,7 +1076,8 @@ def test_old_visual_context_version_requeues_source_for_text_aware_analysis():
         assert result.jobs_queued == 1
         assert plan.analysis_revision == original_analysis_revision + 1
         assert plan.status == "queued"
-        assert plan.visual_context_json is None
+        assert plan.visual_context_json == legacy_visual_context
+        assert plan.embroidery_signature == "legacy-grandpa-signature"
 
 
 def test_changed_source_image_gets_new_analysis_revision_and_job():

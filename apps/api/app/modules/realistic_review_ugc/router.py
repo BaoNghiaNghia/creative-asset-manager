@@ -2598,6 +2598,53 @@ def _source_plan_response(
     )
 
 
+def _group_source_plan_rows(
+    rows: list[RrugcSourcePlanModel],
+) -> list[list[RrugcSourcePlanModel]]:
+    """Group one embroidery job even while its visual signature is being refreshed.
+
+    Source-plan rows can temporarily lose or drift their embroidery signature
+    during a context-model/version upgrade. Rows that already share the same
+    Scout campaign still represent one embroidery group because they share the
+    same discovery job and references. Group on either exact embroidery
+    signature or shared campaign, including transitive overlaps.
+    """
+
+    if not rows:
+        return []
+
+    parents = list(range(len(rows)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    by_signature: dict[str, int] = {}
+    by_campaign: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        if row.embroidery_signature:
+            signature = str(row.embroidery_signature)
+            previous = by_signature.setdefault(signature, index)
+            union(index, previous)
+        if row.campaign_id:
+            campaign_id = str(row.campaign_id)
+            previous = by_campaign.setdefault(campaign_id, index)
+            union(index, previous)
+
+    grouped: dict[int, list[RrugcSourcePlanModel]] = {}
+    for index, row in enumerate(rows):
+        grouped.setdefault(find(index), []).append(row)
+    return list(grouped.values())
+
+
 @router.get("/source-plans", response_model=SourcePlanPageResponse)
 def get_source_plans(
     page: int = Query(default=1, ge=1),
@@ -2622,17 +2669,8 @@ def get_source_plans(
         )
     )
 
-    grouped_plans: dict[str, list[RrugcSourcePlanModel]] = {}
-    for source_plan in all_plans:
-        group_key = (
-            f"embroidery:{source_plan.embroidery_signature}"
-            if source_plan.embroidery_signature
-            else f"source:{source_plan.id}"
-        )
-        grouped_plans.setdefault(group_key, []).append(source_plan)
-
     needle = str(q or "").strip().lower()
-    groups = list(grouped_plans.values())
+    groups = _group_source_plan_rows(all_plans)
     if needle:
         groups = [
             members

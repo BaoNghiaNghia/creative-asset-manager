@@ -418,7 +418,7 @@ export function SourcePlanTable({
                 <SourceImageGroup plan={plan} />
                 <span>
                   <strong title={plan.source_name}>{plan.source_name}</strong>
-                  <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"} · same embroidery</small>
+                  <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"}{plan.embroidery_group_size > 1 ? " · same embroidery" : ""}</small>
                   <em>{sourceMeta(plan) || "Image source"}</em>
                 </span>
               </div></td>
