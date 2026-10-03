@@ -1796,6 +1796,61 @@ def test_reference_good_approves_immediately_and_requeues_failed_analysis(api, d
         )
 
 
+def test_reference_good_requeues_local_prefilter_for_gemini_enrichment(database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="local prefilter override",
+            query="woman wearing cap candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/local-prefilter-override/",
+                image_url="https://i.pinimg.com/736x/local-prefilter-override.jpg",
+            )],
+            source_query=campaign.query,
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "rejected_context"
+        candidate.reject_reason = "SEED_VISUAL_HIGH_CONFIDENCE_NEGATIVE"
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        candidate.analyzer_provider = "local_vps"
+        candidate.ai_signal_json = {
+            "local_prefilter": {
+                "gate": "seed_visual_high_confidence_negative",
+                "provider_call_skipped": True,
+            }
+        }
+        original_revision = candidate.analysis_revision
+        session.commit()
+
+        row = RrugcService(session).mark_candidate_reference_label(
+            candidate,
+            label="good",
+            note="human override",
+            user_id="user-a",
+        )
+        assert row.status == "approved"
+        assert row.analysis_revision == original_revision + 1
+        assert row.ai_signal_json["reference_manual_pending_analysis"] is True
+        jobs = list(session.scalars(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                ProcessingJobModel.entity_id == candidate.id,
+            )
+        ))
+        assert any(
+            job.payload_json.get("analysis_revision") == row.analysis_revision
+            for job in jobs
+        )
+
+
 def test_reference_good_stays_approved_when_background_analysis_fails(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(
@@ -4520,6 +4575,161 @@ def test_analysis_worker_rejects_visual_duplicate_locally_before_gemini(database
                 "provider_call_skipped": True,
                 "fingerprint_count": 1,
             }
+
+
+def test_high_confidence_negative_seed_gate_is_conservative():
+    from app.modules.realistic_review_ugc.seed_similarity import (
+        high_confidence_negative_seed_gate,
+    )
+
+    strong = high_confidence_negative_seed_gate({
+        "active": True,
+        "positive_count": 2,
+        "negative_count": 3,
+        "positive_similarity": 0.50,
+        "negative_similarity": 0.82,
+    })
+    assert strong is not None
+    assert strong["mode"] == "negative_over_positive"
+    assert strong["margin"] == pytest.approx(0.32)
+
+    assert high_confidence_negative_seed_gate({
+        "active": True,
+        "positive_count": 2,
+        "negative_count": 3,
+        "positive_similarity": 0.70,
+        "negative_similarity": 0.82,
+    }) is None
+    assert high_confidence_negative_seed_gate({
+        "active": True,
+        "positive_count": 0,
+        "negative_count": 2,
+        "positive_similarity": None,
+        "negative_similarity": 0.87,
+    }) is None
+
+    negative_only = high_confidence_negative_seed_gate({
+        "active": True,
+        "positive_count": 0,
+        "negative_count": 2,
+        "positive_similarity": None,
+        "negative_similarity": 0.89,
+    })
+    assert negative_only is not None
+    assert negative_only["mode"] == "negative_only"
+
+
+def test_analysis_worker_skips_gemini_for_high_confidence_negative_seed(
+    database,
+    monkeypatch,
+):
+    class CountingAnalysisProvider(FakeAnalysisProvider):
+        def __init__(self):
+            self.calls = 0
+
+        async def analyze_single(self, input):
+            self.calls += 1
+            return await super().analyze_single(input)
+
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "seed-negative.jpg"
+        Image.new("RGB", (1000, 900), (90, 120, 70)).save(
+            path,
+            format="JPEG",
+            quality=90,
+        )
+        monkeypatch.setattr(
+            "app.modules.realistic_review_ugc.handler.build_reference_downloader",
+            lambda: FakeDownloader(path, width=1000, height=900),
+        )
+
+        async def strong_negative_seed_signal(**_kwargs):
+            return {
+                "active": True,
+                "profile_key": "realistic-person-ugc",
+                "positive_count": 2,
+                "negative_count": 3,
+                "positive_similarity": 0.50,
+                "negative_similarity": 0.82,
+                "score": -0.32,
+                "adjustment": -0.0192,
+            }
+
+        monkeypatch.setattr(
+            "app.modules.realistic_review_ugc.handler.compute_seed_visual_signal",
+            strong_negative_seed_signal,
+        )
+
+        with database() as session:
+            campaign, _ = RrugcService(session).create_campaign(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                name="local-seed-gate",
+                query="candid person outdoors",
+                target_count=2,
+                max_scroll_batches=1,
+                auto_import=False,
+            )
+            rows, created, _ = RrugcService(session).ingest_candidates(
+                campaign=campaign,
+                submissions=[CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/local-seed-negative/",
+                    image_url="https://i.pinimg.com/local-seed-negative.jpg",
+                )],
+            )
+            assert created == 1
+            candidate_id = rows[0].id
+            job = session.scalar(
+                select(ProcessingJobModel).where(
+                    ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                    ProcessingJobModel.entity_id == candidate_id,
+                )
+            )
+            assert job is not None
+            claimed = ClaimedJob(
+                id=job.id,
+                tenant_id=job.tenant_id,
+                job_type=job.job_type,
+                entity_type=job.entity_type,
+                entity_id=job.entity_id,
+                payload=job.payload_json,
+                attempt_count=job.attempt_count,
+                lease_owner="test-worker",
+                provider_key=job.provider_key,
+            )
+
+        provider = CountingAnalysisProvider()
+        registry = AiProviderRegistry()
+        registry.register("gemini", provider)
+        context = JobHandlerContext(
+            job=claimed,
+            dependencies=WorkerDependencies(
+                session_factory=database,
+                storage_provider=FakeStorage(),
+                ai_provider_registry=registry,
+            ),
+            shutdown_requested=Event(),
+            cancellation_requested=Event(),
+            logger=logging.LoggerAdapter(
+                logging.getLogger("rrugc-local-seed-gate-test"),
+                {},
+            ),
+        )
+
+        outcome = RrugcCandidateAnalyzeJobHandler()(context)
+
+        assert outcome.outcome == JobOutcome.COMPLETED
+        assert provider.calls == 0
+        with database() as session:
+            candidate = session.get(RrugcCandidateModel, candidate_id)
+            assert candidate is not None
+            assert candidate.status == "rejected_context"
+            assert candidate.reject_reason == "SEED_VISUAL_HIGH_CONFIDENCE_NEGATIVE"
+            assert candidate.analyzer_provider == "local_vps"
+            assert candidate.analyzer_model == "siglip2-seed-gate-v1"
+            assert candidate.ai_signal_json["local_prefilter"]["provider_call_skipped"] is True
+            assert candidate.ai_signal_json["local_prefilter"]["margin"] == pytest.approx(0.32)
+            assert candidate.ai_signal_json["seed_visual"]["negative_count"] == 3
 
 
 def test_analysis_worker_applies_scoped_seed_visual_ranking(api, database, monkeypatch):

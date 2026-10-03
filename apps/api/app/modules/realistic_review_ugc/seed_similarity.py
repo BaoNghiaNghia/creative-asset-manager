@@ -26,6 +26,15 @@ SEED_VISUAL_MAX_BYTES = 25_000_000
 SEED_VISUAL_MAX_RANKING_ADJUSTMENT = 0.06
 SEED_VISUAL_CACHE_SIZE = 64
 
+# Local-first rejection is deliberately conservative. The candidate must match
+# at least two negative seeds. When no positive comparator exists, similarity
+# must be exceptionally high. When positive seeds exist, the negative match
+# must still be strong and beat the positive match by a wide margin.
+SEED_VISUAL_LOCAL_REJECT_MIN_NEGATIVE_COUNT = 2
+SEED_VISUAL_LOCAL_REJECT_NEGATIVE_ONLY_MIN_SIMILARITY = 0.88
+SEED_VISUAL_LOCAL_REJECT_MIN_NEGATIVE_SIMILARITY = 0.76
+SEED_VISUAL_LOCAL_REJECT_MIN_MARGIN = 0.18
+
 
 @dataclass(frozen=True, slots=True)
 class SeedVisualAsset:
@@ -110,6 +119,54 @@ def build_seed_visual_signal(
         "negative_similarity": round(negative, 4) if negative is not None else None,
         "score": round(raw, 4),
         "adjustment": round(adjustment, 4),
+    }
+
+
+def high_confidence_negative_seed_gate(
+    signal: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Return details only for a very high-confidence local negative match."""
+    if not isinstance(signal, dict) or not bool(signal.get("active")):
+        return None
+    try:
+        negative_count = int(signal.get("negative_count") or 0)
+        positive_count = int(signal.get("positive_count") or 0)
+        negative_similarity = float(signal.get("negative_similarity"))
+    except (TypeError, ValueError):
+        return None
+    if negative_count < SEED_VISUAL_LOCAL_REJECT_MIN_NEGATIVE_COUNT:
+        return None
+
+    positive_similarity: float | None = None
+    if positive_count > 0:
+        try:
+            positive_similarity = float(signal.get("positive_similarity"))
+        except (TypeError, ValueError):
+            return None
+        margin = negative_similarity - positive_similarity
+        if (
+            negative_similarity < SEED_VISUAL_LOCAL_REJECT_MIN_NEGATIVE_SIMILARITY
+            or margin < SEED_VISUAL_LOCAL_REJECT_MIN_MARGIN
+        ):
+            return None
+        mode = "negative_over_positive"
+    else:
+        margin = negative_similarity
+        if negative_similarity < SEED_VISUAL_LOCAL_REJECT_NEGATIVE_ONLY_MIN_SIMILARITY:
+            return None
+        mode = "negative_only"
+
+    return {
+        "version": 1,
+        "gate": "seed_visual_high_confidence_negative",
+        "mode": mode,
+        "negative_count": negative_count,
+        "positive_count": positive_count,
+        "negative_similarity": round(negative_similarity, 4),
+        "positive_similarity": (
+            round(positive_similarity, 4) if positive_similarity is not None else None
+        ),
+        "margin": round(margin, 4),
     }
 
 

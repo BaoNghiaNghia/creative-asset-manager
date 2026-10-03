@@ -47,6 +47,7 @@ from app.modules.realistic_review_ugc.seed_similarity import (
     SeedEmbeddingCache,
     SeedVisualAsset,
     compute_seed_visual_signal,
+    high_confidence_negative_seed_gate,
 )
 from app.modules.realistic_review_ugc.service import (
     MIN_REFERENCE_PIXELS,
@@ -445,12 +446,10 @@ class RrugcCandidateAnalyzeJobHandler:
                             )
                             return JobHandlerResult.completed()
 
-            registry = context.dependencies.ai_provider_registry
-            if registry is None:
-                raise AiProviderUnavailableError("gemini")
-            provider = registry.require("gemini")
-            gemini_slot = scheduled_rrugc_gemini_slot(context.job)
-            image_mime_type = _image_mime(image.image_format)
+            # SigLIP2 seed similarity already runs on the VPS for ranking. Run it
+            # before acquiring Gemini so a very high-confidence negative match
+            # can finish locally. Weak/ambiguous/unavailable signals always fall
+            # through to Gemini.
             seed_visual_signal = await compute_seed_visual_signal(
                 tenant_id=context.job.tenant_id,
                 candidate_bytes=image_bytes,
@@ -462,6 +461,95 @@ class RrugcCandidateAnalyzeJobHandler:
                 cache=self.seed_embedding_cache,
                 profile_key=SEED_VISUAL_PROFILE,
             )
+            seed_gate = high_confidence_negative_seed_gate(seed_visual_signal)
+            if not manual_reference_good and seed_gate is not None:
+                with context.dependencies.session_factory() as session:
+                    repository = RrugcRepository(session)
+                    candidate = repository.get_candidate(
+                        context.job.tenant_id,
+                        campaign_id,
+                        candidate_id,
+                    )
+                    campaign = repository.get_campaign(
+                        context.job.tenant_id,
+                        campaign_id,
+                    )
+                    if candidate is None or campaign is None:
+                        return JobHandlerResult.non_retryable(
+                            "rrugc_candidate_not_found",
+                            "Reference candidate was not found.",
+                        )
+                    if candidate.analysis_revision != revision:
+                        return JobHandlerResult.completed()
+                    signal = (
+                        dict(candidate.ai_signal_json)
+                        if isinstance(candidate.ai_signal_json, dict)
+                        else {}
+                    )
+                    latest_manual_reference_good = (
+                        signal.get("reference_manual_label") == "good"
+                    )
+                    if not latest_manual_reference_good:
+                        local_prefilter = {
+                            **seed_gate,
+                            "runtime": "vps_siglip2",
+                            "provider_call_skipped": True,
+                        }
+                        candidate.status = "rejected_context"
+                        candidate.reject_reason = (
+                            "SEED_VISUAL_HIGH_CONFIDENCE_NEGATIVE"
+                        )
+                        candidate.image_url = image.source_url
+                        candidate.content_hash = image.content_hash
+                        candidate.width = image.width
+                        candidate.height = image.height
+                        candidate.size_bytes = image.size_bytes
+                        candidate.image_format = image.image_format
+                        candidate.final_score = 0.0
+                        candidate.analyzer_provider = "local_vps"
+                        candidate.analyzer_model = "siglip2-seed-gate-v1"
+                        candidate.analyzer_version = ANALYZER_VERSION
+                        candidate.analysis_summary = (
+                            "Rejected locally before Gemini because SigLIP2 "
+                            "matched multiple user-trained negative references "
+                            "with a high-confidence margin."
+                        )
+                        candidate.analyzed_at = datetime.now(timezone.utc)
+                        candidate.last_error_code = None
+                        candidate.ai_signal_json = {
+                            **signal,
+                            "visual_fingerprints": fingerprints,
+                            "seed_visual": seed_visual_signal,
+                            "local_prefilter": local_prefilter,
+                        }
+                        service = RrugcService(session)
+                        service.refresh_campaign_completion(campaign)
+                        service.ensure_scout_backfill(campaign)
+                        session.commit()
+                        context.logger.info(
+                            "rrugc_candidate_local_prefilter_rejected",
+                            extra={
+                                "candidate_id": candidate_id,
+                                "tenant_id": context.job.tenant_id,
+                                "gate": seed_gate["gate"],
+                                "gemini_skipped": True,
+                                "negative_similarity": seed_gate[
+                                    "negative_similarity"
+                                ],
+                                "positive_similarity": seed_gate[
+                                    "positive_similarity"
+                                ],
+                                "margin": seed_gate["margin"],
+                            },
+                        )
+                        return JobHandlerResult.completed()
+
+            registry = context.dependencies.ai_provider_registry
+            if registry is None:
+                raise AiProviderUnavailableError("gemini")
+            provider = registry.require("gemini")
+            gemini_slot = scheduled_rrugc_gemini_slot(context.job)
+            image_mime_type = _image_mime(image.image_format)
             document, provider_name, model = await analyze_reference_image(
                 provider=provider,
                 tenant_id=context.job.tenant_id,

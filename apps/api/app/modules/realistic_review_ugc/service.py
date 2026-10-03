@@ -992,9 +992,15 @@ class RrugcService:
         elif label == "good" and not locked:
             prior_status = candidate.status
             prior_reject_reason = candidate.reject_reason
+            local_prefilter = (
+                dict(signal.get("local_prefilter"))
+                if isinstance(signal.get("local_prefilter"), dict)
+                else {}
+            )
             needs_analysis = (
                 candidate.analyzed_at is None
                 or candidate.status == "analysis_failed"
+                or bool(local_prefilter.get("provider_call_skipped"))
             )
             signal["reference_manual_approval_override"] = True
             signal["reference_manual_auto_status"] = prior_status
