@@ -9,6 +9,7 @@ import {
 } from "./PinterestAutoScoutPanel";
 import { RealisticReviewUgcPage } from "./RealisticReviewUgcPage";
 import {
+  ReferenceReviewModal,
   SourcePlanTable,
   sourcePlanPageCount,
   sourcePlanProgressPercent,
@@ -173,8 +174,34 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain("0 refs · 1 pending AI");
     expect(markup).toContain("status-analysis_queued");
-    expect(markup).toContain("rrugc-source-ref-ai-state");
-    expect(markup).toContain(">AI<");
+    expect(markup).toContain("rrugc-source-ref-open");
+    expect(markup).not.toContain(">AI<");
+  });
+
+
+  it("renders all references in a large masonry review modal with direct feedback controls", () => {
+    const plan = makePlan(3);
+    plan.approved_count = 2;
+    plan.pending_ai_count = 1;
+    plan.reference_previews[2].status = "analysis_queued";
+    const markup = renderToStaticMarkup(
+      <ReferenceReviewModal
+        plan={plan}
+        reviewingReferenceIds={new Set<string>()}
+        onSetReferenceFeedback={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-modal="true"');
+    expect(markup).toContain("rrugc-source-review-masonry");
+    expect(markup).toContain("rrugc-source-review-card");
+    expect(markup).toContain("is-pending-ai");
+    expect(markup).toContain("Pending analysis");
+    expect(markup).toContain("Pinterest ↗");
+    expect(markup).toContain(">✓<");
+    expect(markup).toContain(">×<");
+    expect(markup).not.toContain(">AI<");
   });
 
   it("keeps progress capped at 100 percent when refs exceed the target", () => {

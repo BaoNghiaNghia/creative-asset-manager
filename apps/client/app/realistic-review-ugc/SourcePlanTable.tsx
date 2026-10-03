@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
@@ -70,6 +70,92 @@ function SourceImageThumb({ plan }: { plan: SourcePlan }) {
     : <span className="rrugc-source-thumb">{media}</span>;
 }
 
+
+export function ReferenceReviewModal({
+  plan,
+  reviewingReferenceIds,
+  onSetReferenceFeedback,
+  onClose,
+}: {
+  plan: SourcePlan;
+  reviewingReferenceIds: ReadonlySet<string>;
+  onSetReferenceFeedback: (
+    plan: SourcePlan,
+    reference: SourcePlanReferencePreview,
+    label: ReferenceManualLabel,
+  ) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-source-review-title-" + plan.id}>
+      <header className="rrugc-source-review-header">
+        <div>
+          <small>REFERENCE REVIEW</small>
+          <h2 id={"rrugc-source-review-title-" + plan.id}>{plan.source_name}</h2>
+          <p>{plan.reference_previews.length} images · {plan.approved_count} analyzed · {plan.pending_ai_count} pending AI</p>
+        </div>
+        <button type="button" className="rrugc-source-review-close" aria-label="Close reference review" onClick={onClose}>×</button>
+      </header>
+      <div className="rrugc-source-review-masonry">
+        {plan.reference_previews.map((reference, index) => {
+          const reviewing = reviewingReferenceIds.has(reference.id);
+          const pending = reference.status === "analysis_queued" || reference.status === "analyzing";
+          return <article
+            key={reference.id}
+            className={
+              "rrugc-source-review-card status-" + reference.status
+              + (pending ? " is-pending-ai" : "")
+              + (reference.picked ? " is-picked" : "")
+              + (reference.rejected ? " is-rejected" : "")
+            }
+          >
+            <div className="rrugc-source-review-image">
+              <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
+              <span className="rrugc-source-review-index">{index + 1}</span>
+              {reference.status === "analysis_failed" && <span className="rrugc-source-review-failed" title="AI analysis failed">!</span>}
+              <div className="rrugc-source-review-votes" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
+                <button
+                  type="button"
+                  className="rrugc-source-review-vote is-good"
+                  aria-label={(reference.picked ? "Clear suitable mark for " : "Mark suitable ") + "reference " + (index + 1)}
+                  aria-pressed={reference.picked}
+                  disabled={!plan.campaign_id || reviewing}
+                  onClick={() => onSetReferenceFeedback(plan, reference, "good")}
+                >{reviewing ? "…" : "✓"}</button>
+                <button
+                  type="button"
+                  className="rrugc-source-review-vote is-bad"
+                  aria-label={(reference.rejected ? "Clear unsuitable mark for " : "Mark unsuitable ") + "reference " + (index + 1)}
+                  aria-pressed={reference.rejected}
+                  disabled={!plan.campaign_id || reviewing}
+                  onClick={() => onSetReferenceFeedback(plan, reference, "bad")}
+                >{reviewing ? "…" : "×"}</button>
+              </div>
+            </div>
+            <footer>
+              <span>{pending ? "Pending analysis" : reference.status.replaceAll("_", " ")}</span>
+              <a href={reference.pin_url} target="_blank" rel="noreferrer">Pinterest ↗</a>
+            </footer>
+          </article>;
+        })}
+      </div>
+    </section>
+  </div>;
+}
+
 function ReferenceSlider({
   plan,
   reviewingReferenceIds,
@@ -84,6 +170,7 @@ function ReferenceSlider({
   ) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const references = plan.reference_previews;
 
   function move(direction: -1 | 1) {
@@ -102,12 +189,17 @@ function ReferenceSlider({
             + (reference.rejected ? " is-rejected" : "")
           }
         >
-          <a href={reference.pin_url} target="_blank" rel="noreferrer" className="rrugc-source-ref-link" title={(reference.source_query || "Pinterest reference") + " · " + reference.status.replaceAll("_", " ")}>
+          <button
+            type="button"
+            className="rrugc-source-ref-link rrugc-source-ref-open"
+            title={"Review all references · " + (reference.source_query || "Pinterest reference")}
+            aria-label={"Open all references for " + plan.source_name + ", starting from reference " + (index + 1)}
+            onClick={() => setReviewOpen(true)}
+          >
             <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
             <span>{index + 1}</span>
-            {(reference.status === "analysis_queued" || reference.status === "analyzing") && <i className="rrugc-source-ref-ai-state">AI</i>}
             {reference.status === "analysis_failed" && <i className="rrugc-source-ref-ai-state is-failed">!</i>}
-          </a>
+          </button>
           <div className="rrugc-source-ref-feedback" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
             <button
               type="button"
@@ -133,6 +225,12 @@ function ReferenceSlider({
       {references.length === 0 && <div className="rrugc-source-ref-empty"><strong>No refs yet</strong><small>Auto Scout will add qualified Pinterest references here.</small></div>}
     </div>
     <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references right"} disabled={references.length === 0} onClick={() => move(1)}>›</button>
+    {reviewOpen && <ReferenceReviewModal
+      plan={plan}
+      reviewingReferenceIds={reviewingReferenceIds}
+      onSetReferenceFeedback={onSetReferenceFeedback}
+      onClose={() => setReviewOpen(false)}
+    />}
   </div>;
 }
 
