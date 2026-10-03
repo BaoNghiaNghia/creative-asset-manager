@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v17"
+CLIENT_VERSION = "rrugc-scout-v18"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -170,6 +170,8 @@ def _windows_profile_owners(
     scout_marker = _powershell_literal(r"rrugc_scout\scout.py")
     script = (
         "$needle = (" + profile_literal + ").ToLowerInvariant(); "
+        "$plainProfileArg = '--user-data-dir=' + $needle; "
+        "$quotedProfileArg = '--user-data-dir="' + $needle + '"'; "
         "$scoutMarker = (" + scout_marker + ").ToLowerInvariant(); "
         "$currentPid = " + str(os.getpid()) + "; "
         "Get-CimInstance Win32_Process | ForEach-Object { "
@@ -178,7 +180,9 @@ def _windows_profile_owners(
         "$pidValue = [int]$_.ProcessId; "
         "if ($pidValue -ne $currentPid -and -not [string]::IsNullOrWhiteSpace($cmd)) { "
         "$lower = $cmd.ToLowerInvariant(); "
-        "if ($name -ieq 'chrome.exe' -and $lower.Contains($needle)) { "
+        "if ($name -ieq 'chrome.exe' "
+        "-and ($lower.Contains($plainProfileArg) -or $lower.Contains($quotedProfileArg)) "
+        "-and -not $lower.Contains('--type=')) { "
         "Write-Output ('chrome|' + $pidValue) "
         "} elseif (($name -ieq 'python.exe' -or $name -ieq 'pythonw.exe') "
         "-and $lower.Contains($scoutMarker) -and $lower.Contains($needle)) { "
@@ -368,32 +372,26 @@ def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
 
     if scout_pids:
         print(
-            "Replacing legacy/stale Pinterest Scout process(es) bound to this profile: "
+            "Legacy Scout process(es) detected for this profile and left untouched: "
             + ", ".join(str(pid) for pid in scout_pids)
         )
-        _terminate_windows_process_trees(scout_pids)
 
     if chrome_pids:
         print(
-            "Closing Chrome process tree(s) bound to the dedicated Pinterest Scout profile: "
+            "Closing only root Chrome process tree(s) using the dedicated Pinterest "
+            "Scout profile: "
             + ", ".join(str(pid) for pid in chrome_pids)
         )
         _terminate_windows_profile_chrome(chrome_pids)
-
-    if scout_pids or chrome_pids:
         time.sleep(0.75)
         remaining = _windows_profile_owners(profile_dir)
-        if remaining is not None and (remaining[0] or remaining[1]):
-            parts: list[str] = []
-            if remaining[1]:
-                parts.append("Scout PID " + ", ".join(str(pid) for pid in remaining[1]))
-            if remaining[0]:
-                parts.append("Chrome PID " + ", ".join(str(pid) for pid in remaining[0]))
+        if remaining is not None and remaining[0]:
             raise RuntimeError(
-                "The dedicated Pinterest Scout profile is still owned after cleanup ("
-                + "; ".join(parts)
-                + "). End only those Scout-profile processes in Task Manager and run "
-                "START_SCOUT.bat again."
+                "The dedicated Pinterest Scout Chrome profile is still in use by root "
+                "Chrome PID(s) "
+                + ", ".join(str(pid) for pid in remaining[0])
+                + ". Other Chrome profiles were not touched. Close only the Pinterest "
+                "Scout profile window and run START_SCOUT.bat again."
             )
 
     removed = _clear_stale_profile_runtime_files(profile_dir)
