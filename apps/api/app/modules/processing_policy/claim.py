@@ -59,6 +59,16 @@ _RRUGC_GEMINI_LANE_UNAVAILABLE = object()
 # priority while bounding the wait for backlog.
 STARVATION_PREVENTION_AGE = timedelta(minutes=15)
 STARVATION_PREVENTION_PRIORITY = 50
+# Source-plan context analysis is prerequisite/background enrichment. It shares
+# the same paced RRUGC Gemini lane as candidate analysis, so letting a large
+# source-plan refresh backlog receive the global starvation boost can freeze
+# visible Pinterest candidates in "analysis pending" for a long time. Keep
+# source plans background-only; source downloads already have their own explicit
+# fairness path in the worker runtime.
+STARVATION_PREVENTION_EXCLUDED_JOB_TYPES = (
+    "source_asset_download",
+    "rrugc_source_plan_analyze",
+)
 
 STAGE_POLICY = {
     "source_sync": "source_sync_enabled",
@@ -204,7 +214,9 @@ class TenantAwareJobClaimer:
             (
                 and_(
                     ProcessingJobModel.next_attempt_at <= starvation_cutoff,
-                    ProcessingJobModel.job_type != "source_asset_download",
+                    ProcessingJobModel.job_type.notin_(
+                        STARVATION_PREVENTION_EXCLUDED_JOB_TYPES
+                    ),
                 ),
                 case(
                     (
@@ -216,11 +228,19 @@ class TenantAwareJobClaimer:
             ),
             else_=ProcessingJobModel.priority,
         )
+        background_rank = case(
+            (
+                ProcessingJobModel.job_type == "rrugc_source_plan_analyze",
+                1,
+            ),
+            else_=0,
+        )
         statement = (
             select(ProcessingJobModel)
             .where(*conditions)
             .order_by(
                 effective_priority.desc(),
+                background_rank.asc(),
                 ProcessingJobModel.next_attempt_at,
                 ProcessingJobModel.created_at,
             )

@@ -566,6 +566,50 @@ class RateLimitedClaimTest(unittest.TestCase):
                 NOW + timedelta(seconds=120),
             )
 
+    def test_rrugc_candidate_analysis_stays_ahead_of_old_source_plan_backlog(self):
+        source_plan_id = self._rrugc_job(
+            "old-source-plan",
+            job_type="rrugc_source_plan_analyze",
+        )
+        candidate_id = self._rrugc_job("new-candidate")
+        with self.sessions.begin() as session:
+            source_plan = session.get(ProcessingJobModel, source_plan_id)
+            source_plan.next_attempt_at = NOW - timedelta(hours=2)
+            source_plan.created_at = NOW - timedelta(hours=2)
+            candidate = session.get(ProcessingJobModel, candidate_id)
+            candidate.next_attempt_at = NOW
+            candidate.created_at = NOW
+
+        claimed = self._claim(
+            "rrugc-fairness-worker",
+            allowed_job_types=(
+                "rrugc_source_plan_analyze",
+                "rrugc_candidate_analyze",
+            ),
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, candidate_id)
+        self.assertEqual(claimed.job_type, "rrugc_candidate_analyze")
+
+    def test_rrugc_source_plan_still_runs_when_no_candidate_is_waiting(self):
+        source_plan_id = self._rrugc_job(
+            "source-plan-only",
+            job_type="rrugc_source_plan_analyze",
+        )
+
+        claimed = self._claim(
+            "rrugc-source-plan-worker",
+            allowed_job_types=(
+                "rrugc_source_plan_analyze",
+                "rrugc_candidate_analyze",
+            ),
+        )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, source_plan_id)
+        self.assertEqual(claimed.job_type, "rrugc_source_plan_analyze")
+
     def test_rrugc_claim_reserves_shared_lane_and_gemini_model_slot(self):
         first_id = self._rrugc_job("first")
         self._rrugc_job("second")
