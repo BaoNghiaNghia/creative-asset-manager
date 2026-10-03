@@ -143,6 +143,14 @@ export function ReferenceReviewModal({
                   disabled={!plan.campaign_id || reviewing}
                   onClick={() => onSetReferenceFeedback(plan, reference, "bad")}
                 >{reviewing ? "…" : "×"}</button>
+                <button
+                  type="button"
+                  className="rrugc-source-review-vote is-ai"
+                  aria-label={"Mark AI-generated reference " + (index + 1)}
+                  disabled={!plan.campaign_id || reviewing}
+                  title="AI-generated · reject from real refs · train AI + negative"
+                  onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
+                >{reviewing ? "…" : "AI"}</button>
               </div>
             </div>
             <footer>
@@ -216,9 +224,17 @@ function ReferenceSlider({
               aria-label={(reference.rejected ? "Clear unsuitable mark for " : "Mark unsuitable ") + "reference " + (index + 1)}
               aria-pressed={reference.rejected}
               disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
-              title={reference.rejected ? "Clear unsuitable mark" : "Unsuitable / do not use / train negative"}
+              title={reference.rejected ? "Clear unsuitable mark" : "Unsuitable / remove / train negative"}
               onClick={() => onSetReferenceFeedback(plan, reference, "bad")}
             >{reviewingReferenceIds.has(reference.id) ? "…" : "×"}</button>
+            <button
+              type="button"
+              className="rrugc-source-ref-vote is-ai"
+              aria-label={"Mark AI-generated reference " + (index + 1)}
+              disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
+              title="AI-generated · remove from real refs · train AI + negative"
+              onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
+            >{reviewingReferenceIds.has(reference.id) ? "…" : "AI"}</button>
           </div>
         </div>
       ))}
@@ -337,7 +353,7 @@ export function SourcePlanTable({
                 <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + (plan.scout_status || "offline")}>{(plan.scout_status || "offline").replaceAll("_", " ")}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
-                <div className="rrugc-source-refs-head"><strong>{plan.approved_count} refs · {plan.pending_ai_count} pending AI · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Pending AI = Scout saved, waiting analysis · ✓ positive · × unusable/train negative · {plan.drive_ready_count} usable Drive ready</small></div>
+                <div className="rrugc-source-refs-head"><strong>{plan.approved_count} refs · {plan.pending_ai_count} pending AI · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Pending AI = waiting analysis · ✓ positive · × negative/remove · AI synthetic/remove + train AI · {plan.drive_ready_count} usable Drive ready</small></div>
                 <ReferenceSlider plan={plan} reviewingReferenceIds={reviewingReferenceIds} onSetReferenceFeedback={onSetReferenceFeedback} />
               </td>
             </tr>;

@@ -2454,7 +2454,7 @@ def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanRefere
         image_url=row.image_url,
         status=row.status,
         picked=signal.get("reference_manual_label") == "good",
-        rejected=signal.get("reference_manual_label") == "bad",
+        rejected=signal.get("reference_manual_label") in {"bad", "ai"},
         source_query=source_query,
         width=row.width,
         height=row.height,
@@ -2673,13 +2673,16 @@ def get_source_plans(
             )
         ):
             signal = dict(candidate.ai_signal_json or {})
-            manually_rejected = signal.get("reference_manual_label") == "bad"
+            manually_rejected = signal.get("reference_manual_label") in {"bad", "ai"}
             if manually_rejected:
                 excluded_counts_by_campaign.setdefault(
                     candidate.campaign_id,
                     Counter(),
                 )[candidate.status] += 1
-            if candidate.status == "rejected_context" and not manually_rejected:
+                # Human-negative references remain durable training examples,
+                # but never stay in the active real-reference picker.
+                continue
+            if candidate.status == "rejected_context":
                 continue
             rows = previews_by_campaign.setdefault(candidate.campaign_id, [])
             if len(rows) < SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT:

@@ -288,7 +288,7 @@ export type CandidateStatus =
   | "rejected_duplicate";
 
 export type AiManualLabel = "real" | "ai" | "unsure";
-export type ReferenceManualLabel = "good" | "bad";
+export type ReferenceManualLabel = "good" | "bad" | "ai";
 export type ContextManualLabel = "good" | "wrong";
 
 export type AiFeedbackCalibration = {

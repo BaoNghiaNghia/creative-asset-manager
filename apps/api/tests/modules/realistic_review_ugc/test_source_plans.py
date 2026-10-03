@@ -353,7 +353,7 @@ def test_source_plan_reference_preview_exposes_positive_negative_and_neutral_fee
     assert neutral.rejected is False
 
 
-def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usable_progress():
+def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usable_progress():
     factory = make_database()
 
     with factory() as session:
@@ -433,6 +433,19 @@ def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usa
                 status="analysis_queued",
                 ai_signal_json={"scout_query": "casual cookout phone photo"},
             ),
+            RrugcCandidateModel(
+                tenant_id="tenant-a",
+                campaign_id=campaign.id,
+                source_key="4" * 64,
+                pin_url="https://www.pinterest.com/pin/1004/",
+                image_url="https://i.pinimg.com/736x/ai-rejected.jpg",
+                status="drive_ready",
+                ai_signal_json={
+                    "scout_query": "casual cookout phone photo",
+                    "reference_manual_label": "ai",
+                },
+                ai_manual_label="ai",
+            ),
         ])
         session.commit()
 
@@ -451,13 +464,16 @@ def test_source_plan_list_keeps_negative_refs_visible_but_excludes_them_from_usa
         assert item.pending_ai_count == 1
         assert item.embroidery_signature == "shared-signature"
         assert item.embroidery_group_size == 2
-        assert len(item.reference_previews) == 3
-        assert sum(reference.rejected for reference in item.reference_previews) == 1
+        assert len(item.reference_previews) == 2
+        assert all(reference.rejected is False for reference in item.reference_previews)
         assert [row.status for row in item.reference_previews] == [
-            "drive_ready",
             "drive_ready",
             "analysis_queued",
         ]
+        assert {row.image_url for row in item.reference_previews} == {
+            "https://i.pinimg.com/736x/usable.jpg",
+            "https://i.pinimg.com/736x/pending.jpg",
+        }
 
 
 def test_source_plan_list_is_server_paginated_and_searchable():

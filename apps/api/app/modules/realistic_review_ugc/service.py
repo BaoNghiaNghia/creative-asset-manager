@@ -775,7 +775,7 @@ class RrugcService:
                 if isinstance(candidate.ai_signal_json, dict)
                 else {}
             )
-            if signal.get("reference_manual_label") == "bad":
+            if signal.get("reference_manual_label") in {"bad", "ai"}:
                 continue
             context_match = (
                 dict(signal.get("context_match"))
@@ -858,10 +858,10 @@ class RrugcService:
         user_id: str,
         profile_key: str = REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
     ) -> RrugcCandidateModel:
-        if label not in {"good", "bad", "clear"}:
+        if label not in {"good", "bad", "ai", "clear"}:
             raise RrugcError(
                 "invalid_reference_feedback_label",
-                "Reference feedback label must be good, bad, or clear.",
+                "Reference feedback label must be good, bad, ai, or clear.",
                 status_code=422,
             )
         now = datetime.now(timezone.utc)
@@ -902,6 +902,7 @@ class RrugcService:
         ledger_label = {
             "good": "ref_good",
             "bad": "ref_bad",
+            "ai": "ref_bad",
             "clear": "ref_clear",
         }[label]
         self.repository.add_ai_feedback(
@@ -923,11 +924,38 @@ class RrugcService:
                     "scout_query": signal.get("scout_query"),
                     "learning_intent": learning_intent,
                     "reference_profile_key": normalized_profile,
+                    "reference_feedback_kind": label,
                 },
                 created_by_user_id=user_id,
                 created_at=now,
             )
         )
+        if label == "ai":
+            # A manual AI tag is both a negative reference preference and a
+            # dedicated AI-detector training signal.
+            self.repository.add_ai_feedback(
+                RrugcAiFeedbackModel(
+                    tenant_id=candidate.tenant_id,
+                    campaign_id=candidate.campaign_id,
+                    candidate_id=candidate.id,
+                    label="ai",
+                    note=clean_note,
+                    ai_risk_raw_score=candidate.ai_risk_raw_score,
+                    ai_risk_score=candidate.ai_risk_score,
+                    detector_confidence=candidate.ai_detector_confidence,
+                    analyzer_version=candidate.analyzer_version,
+                    signal_json={
+                        **signal,
+                        "feedback_source": "reference_review_ai_tag",
+                    },
+                    created_by_user_id=user_id,
+                    created_at=now,
+                )
+            )
+            candidate.ai_manual_label = "ai"
+            candidate.ai_manual_note = clean_note
+            candidate.ai_manual_reviewed_by_user_id = user_id
+            candidate.ai_manual_reviewed_at = now
 
         for key in (
             "reference_manual_label",
@@ -985,15 +1013,19 @@ class RrugcService:
             candidate.last_error_code = None
             if campaign is not None and campaign.auto_import:
                 self.enqueue_import(candidate)
-        elif label == "bad" and not locked:
+        elif label in {"bad", "ai"} and not locked:
             signal.pop("reference_manual_pending_approval", None)
             signal.pop("reference_manual_pending_analysis", None)
             signal.pop("reference_manual_approval_override", None)
             signal.pop("reference_manual_auto_status", None)
             signal.pop("reference_manual_auto_reject_reason", None)
             candidate.ai_signal_json = signal
-            candidate.status = "rejected_context"
-            candidate.reject_reason = "MANUAL_REFERENCE_BAD"
+            if label == "ai":
+                candidate.status = "rejected_ai_risk"
+                candidate.reject_reason = "MANUAL_AI_LABEL"
+            else:
+                candidate.status = "rejected_context"
+                candidate.reject_reason = "MANUAL_REFERENCE_BAD"
             candidate.last_error_code = None
         elif label == "clear" and not locked:
             had_override = bool(signal.pop("reference_manual_approval_override", None))
@@ -1017,7 +1049,7 @@ class RrugcService:
 
         if campaign is not None:
             self.refresh_campaign_completion(campaign)
-            if label == "bad" and campaign.auto_scout and campaign.status == "completed":
+            if label in {"bad", "ai"} and campaign.auto_scout and campaign.status == "completed":
                 usable_counts = self.repository.campaign_usable_counts(
                     campaign.tenant_id,
                     campaign.id,

@@ -24,7 +24,7 @@ ProductReferenceView = Literal[
     "material_closeup",
 ]
 AiManualLabel = Literal["real", "ai", "unsure"]
-ReferenceManualLabel = Literal["good", "bad"]
+ReferenceManualLabel = Literal["good", "bad", "ai"]
 ReferenceSeedLabel = Literal["positive", "negative"]
 CandidateStatus = Literal[
     "discovered",
@@ -1154,7 +1154,7 @@ class CandidateAiFeedbackResponse(BaseModel):
 
 
 class CandidateReferenceFeedbackRequest(BaseModel):
-    label: Literal["good", "bad", "clear"]
+    label: Literal["good", "bad", "ai", "clear"]
     profile_key: str = Field(
         default="realistic-person-ugc",
         min_length=1,

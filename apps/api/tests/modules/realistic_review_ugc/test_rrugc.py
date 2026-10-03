@@ -1564,6 +1564,67 @@ def test_bad_reference_is_excluded_from_usable_target_and_reopens_completed_scou
 
 
 
+
+
+def test_ai_reference_feedback_trains_negative_and_ai_detector_and_excludes_ref(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="manual ai reference feedback",
+            query="realistic candid person",
+            target_count=1,
+            max_scroll_batches=2,
+            auto_import=True,
+            auto_scout=True,
+        )
+        rows, created, _ = RrugcService(session).ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/manual-ai-ref/",
+                image_url="https://i.pinimg.com/736x/manual-ai-ref.jpg",
+                alt_text="synthetic looking portrait",
+            )],
+            source_query=campaign.query,
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "drive_ready"
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        candidate.ai_signal_json = {"scout_query": campaign.query}
+        campaign.status = "completed"
+        session.commit()
+        campaign_id = campaign.id
+        candidate_id = candidate.id
+
+    marked_ai = api.post(
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}/candidates/{candidate_id}/reference-feedback",
+        json={"label": "ai", "note": "Clearly AI-generated; never use as a real ref."},
+    )
+    assert marked_ai.status_code == 200
+    payload = marked_ai.json()["candidate"]
+    assert payload["reference_manual_label"] == "ai"
+    assert payload["ai_manual_label"] == "ai"
+    assert payload["status"] == "drive_ready"
+
+    with database() as session:
+        repository = RrugcRepository(session)
+        assert repository.campaign_counts("tenant-a", campaign_id)["drive_ready"] == 1
+        assert repository.campaign_usable_counts("tenant-a", campaign_id)["drive_ready"] == 0
+        campaign = repository.get_campaign("tenant-a", campaign_id)
+        assert campaign is not None
+        assert campaign.status == "running"
+        feedback = list(session.scalars(
+            select(RrugcAiFeedbackModel)
+            .where(RrugcAiFeedbackModel.candidate_id == candidate_id)
+            .order_by(RrugcAiFeedbackModel.created_at.asc(), RrugcAiFeedbackModel.id.asc())
+        ))
+        feedback_by_label = {row.label: row for row in feedback}
+        assert set(feedback_by_label) == {"ref_bad", "ai"}
+        assert feedback_by_label["ref_bad"].signal_json["reference_feedback_kind"] == "ai"
+        assert feedback_by_label["ai"].signal_json["feedback_source"] == "reference_review_ai_tag"
+
+
 def test_reference_feedback_learning_is_profile_scoped(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(

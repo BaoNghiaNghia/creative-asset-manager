@@ -81,7 +81,7 @@ class RrugcRepository:
                 or_(
                     RrugcCandidateModel.ai_signal_json.is_(None),
                     manual_label.is_(None),
-                    manual_label != "bad",
+                    manual_label.notin_(("bad", "ai")),
                 ),
             )
             .group_by(RrugcCandidateModel.status)

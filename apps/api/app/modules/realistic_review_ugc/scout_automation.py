@@ -261,7 +261,7 @@ def adaptive_search_queries(
             outcome_stats[query][0] += 1
         if reference_label == "good":
             outcome_stats[query][2] += 1
-        elif reference_label == "bad":
+        elif reference_label in {"bad", "ai"}:
             outcome_stats[query][3] += 1
         if context_label == "good":
             outcome_stats[query][4] += 1
@@ -423,7 +423,7 @@ def keyword_health_rows(
             row["approved"] = int(row["approved"]) + 1
         if label == "good":
             row["ref_good"] = int(row["ref_good"]) + 1
-        elif label == "bad":
+        elif label in {"bad", "ai"}:
             row["ref_bad"] = int(row["ref_bad"]) + 1
         if context_label == "good":
             row["context_good"] = int(row["context_good"]) + 1

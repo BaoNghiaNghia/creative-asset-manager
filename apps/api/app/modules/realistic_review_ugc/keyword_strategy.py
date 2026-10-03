@@ -256,7 +256,7 @@ def _keyword_feedback_scores(
             row[1] += 1
         if reference_label == "good":
             row[2] += 1
-        elif reference_label == "bad":
+        elif reference_label in {"bad", "ai"}:
             row[3] += 1
         if context_label == "good":
             row[4] += 1

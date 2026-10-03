@@ -144,8 +144,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("rrugc-source-ref-track");
     expect(markup).toContain("is-picked");
     expect(markup).toContain("is-rejected");
-    expect(markup).toContain("Pending AI = Scout saved, waiting analysis");
-    expect(markup).toContain("train negative");
+    expect(markup).toContain("Pending AI = waiting analysis");
+    expect(markup).toContain("AI synthetic/remove + train AI");
+    expect(markup).toContain("rrugc-source-ref-vote is-ai");
     expect(markup).toContain("Shared refs · 3 colors");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
@@ -175,7 +176,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("0 refs · 1 pending AI");
     expect(markup).toContain("status-analysis_queued");
     expect(markup).toContain("rrugc-source-ref-open");
-    expect(markup).not.toContain(">AI<");
+    expect(markup).toContain("rrugc-source-ref-vote is-ai");
+    expect(markup).not.toContain("rrugc-source-ref-ai-state");
   });
 
 
@@ -201,7 +203,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Pinterest ↗");
     expect(markup).toContain(">✓<");
     expect(markup).toContain(">×<");
-    expect(markup).not.toContain(">AI<");
+    expect(markup).toContain("rrugc-source-review-vote is-ai");
+    expect(markup).toContain(">AI<");
   });
 
   it("keeps progress capped at 100 percent when refs exceed the target", () => {

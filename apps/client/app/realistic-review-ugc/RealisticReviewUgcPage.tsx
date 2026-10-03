@@ -75,7 +75,8 @@ export function RealisticReviewUgcPage() {
       || (requestedLabel === "bad" && reference.rejected)
     ) ? "clear" : requestedLabel;
     const nextPicked = nextLabel === "good";
-    const nextRejected = nextLabel === "bad";
+    const nextRejected = nextLabel === "bad" || nextLabel === "ai";
+    const removeFromPicker = nextLabel === "bad" || nextLabel === "ai";
 
     setReviewingReferenceIds(current => new Set(current).add(reference.id));
     setError("");
@@ -83,11 +84,13 @@ export function RealisticReviewUgcPage() {
       ...current,
       items: current.items.map(item => item.id !== plan.id ? item : {
         ...item,
-        reference_previews: item.reference_previews.map(row => (
-          row.id === reference.id
-            ? { ...row, picked: nextPicked, rejected: nextRejected }
-            : row
-        )),
+        reference_previews: removeFromPicker
+          ? item.reference_previews.filter(row => row.id !== reference.id)
+          : item.reference_previews.map(row => (
+            row.id === reference.id
+              ? { ...row, picked: nextPicked, rejected: nextRejected }
+              : row
+          )),
       }),
     }));
     try {
@@ -104,22 +107,17 @@ export function RealisticReviewUgcPage() {
       setSourcePlanMessage(
         nextLabel === "good"
           ? "Reference marked suitable. Future Scout runs will learn from this positive example."
-          : nextLabel === "bad"
-            ? "Reference marked unsuitable. It will train negative preference and no longer count toward this row's usable target."
-            : "Reference feedback cleared. Unreviewed references remain usable by default without a strong training signal.",
+          : nextLabel === "ai"
+            ? "Reference marked AI-generated. It was removed from real refs and will train both AI detection and negative reference preference."
+            : nextLabel === "bad"
+              ? "Reference marked unsuitable. It was removed from the picker and will train negative preference."
+              : "Reference feedback cleared. Unreviewed references remain usable by default without a strong training signal.",
       );
       await refreshSourcePlans();
     } catch (reason) {
       setSourcePage(current => ({
         ...current,
-        items: current.items.map(item => item.id !== plan.id ? item : {
-          ...item,
-          reference_previews: item.reference_previews.map(row => (
-            row.id === reference.id
-              ? { ...row, picked: reference.picked, rejected: reference.rejected }
-              : row
-          )),
-        }),
+        items: current.items.map(item => item.id !== plan.id ? item : plan),
       }));
       setError(reason instanceof Error ? reason.message : "Unable to update reference feedback.");
     } finally {
