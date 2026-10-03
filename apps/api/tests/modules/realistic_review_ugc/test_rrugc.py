@@ -4406,6 +4406,122 @@ def test_analysis_worker_persists_metrics_and_queues_auto_import(database, monke
             assert len(import_jobs) == 1
 
 
+def test_analysis_worker_rejects_visual_duplicate_locally_before_gemini(database, monkeypatch):
+    from app.modules.realistic_review_ugc.visual_dedupe import visual_fingerprints
+
+    class CountingAnalysisProvider(FakeAnalysisProvider):
+        def __init__(self):
+            self.calls = 0
+
+        async def analyze_single(self, input):
+            self.calls += 1
+            return await super().analyze_single(input)
+
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "duplicate.jpg"
+        Image.new("RGB", (1000, 900), (120, 80, 40)).save(
+            path,
+            format="JPEG",
+            quality=90,
+        )
+        payload = path.read_bytes()
+        monkeypatch.setattr(
+            "app.modules.realistic_review_ugc.handler.build_reference_downloader",
+            lambda: FakeDownloader(path, width=1000, height=900),
+        )
+
+        with database() as session:
+            campaign, _ = RrugcService(session).create_campaign(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                name="local-dedupe",
+                query="candid person outdoors",
+                target_count=2,
+                max_scroll_batches=1,
+                auto_import=False,
+            )
+            rows, created, _ = RrugcService(session).ingest_candidates(
+                campaign=campaign,
+                submissions=[
+                    CandidateSubmission(
+                        pin_url="https://www.pinterest.com/pin/local-dedupe-source/",
+                        image_url="https://i.pinimg.com/local-dedupe-source.jpg",
+                    ),
+                    CandidateSubmission(
+                        pin_url="https://www.pinterest.com/pin/local-dedupe-copy/",
+                        image_url="https://i.pinimg.com/local-dedupe-copy.jpg",
+                    ),
+                ],
+            )
+            assert created == 2
+            source, duplicate = rows
+            source.status = "approved"
+            source.analyzed_at = datetime.now(timezone.utc)
+            source.content_hash = "b" * 64
+            RrugcRepository(session).replace_visual_fingerprints(
+                source,
+                visual_fingerprints(payload),
+            )
+            session.commit()
+
+            job = session.scalar(
+                select(ProcessingJobModel).where(
+                    ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                    ProcessingJobModel.entity_id == duplicate.id,
+                )
+            )
+            assert job is not None
+            claimed = ClaimedJob(
+                id=job.id,
+                tenant_id=job.tenant_id,
+                job_type=job.job_type,
+                entity_type=job.entity_type,
+                entity_id=job.entity_id,
+                payload=job.payload_json,
+                attempt_count=job.attempt_count,
+                lease_owner="test-worker",
+                provider_key=job.provider_key,
+            )
+            duplicate_id = duplicate.id
+
+        provider = CountingAnalysisProvider()
+        registry = AiProviderRegistry()
+        registry.register("gemini", provider)
+        context = JobHandlerContext(
+            job=claimed,
+            dependencies=WorkerDependencies(
+                session_factory=database,
+                storage_provider=FakeStorage(),
+                ai_provider_registry=registry,
+            ),
+            shutdown_requested=Event(),
+            cancellation_requested=Event(),
+            logger=logging.LoggerAdapter(
+                logging.getLogger("rrugc-local-dedupe-test"),
+                {},
+            ),
+        )
+
+        outcome = RrugcCandidateAnalyzeJobHandler()(context)
+
+        assert outcome.outcome == JobOutcome.COMPLETED
+        assert provider.calls == 0
+        with database() as session:
+            row = session.get(RrugcCandidateModel, duplicate_id)
+            assert row is not None
+            assert row.status == "rejected_duplicate"
+            assert row.reject_reason == "visual_near_duplicate"
+            assert row.analyzer_provider == "local_vps"
+            assert row.analyzer_model == "dhash16"
+            assert row.analyzed_at is not None
+            assert row.ai_signal_json["local_prefilter"] == {
+                "gate": "visual_near_duplicate",
+                "runtime": "vps",
+                "provider_call_skipped": True,
+                "fingerprint_count": 1,
+            }
+
+
 def test_analysis_worker_applies_scoped_seed_visual_ranking(api, database, monkeypatch):
     with TemporaryDirectory() as temp:
         path = Path(temp) / "sample.jpg"

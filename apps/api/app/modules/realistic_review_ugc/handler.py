@@ -359,12 +359,97 @@ class RrugcCandidateAnalyzeJobHandler:
                     session.commit()
                 return JobHandlerResult.completed()
 
+            image_bytes = image.path.read_bytes()
+            fingerprints = visual_fingerprints(image_bytes)
+
+            # Perceptual duplicate detection is a deterministic VPS-local gate.
+            # Run it before Gemini so reposts/cropped copies of an already
+            # approved reference do not consume model capacity. Keep human
+            # REF approvals authoritative: those still continue to Gemini for
+            # metadata enrichment.
+            if not manual_reference_good and fingerprints:
+                with context.dependencies.session_factory() as session:
+                    repository = RrugcRepository(session)
+                    candidate = repository.get_candidate(
+                        context.job.tenant_id,
+                        campaign_id,
+                        candidate_id,
+                    )
+                    campaign = repository.get_campaign(
+                        context.job.tenant_id,
+                        campaign_id,
+                    )
+                    if candidate is None or campaign is None:
+                        return JobHandlerResult.non_retryable(
+                            "rrugc_candidate_not_found",
+                            "Reference candidate was not found.",
+                        )
+                    if candidate.analysis_revision != revision:
+                        return JobHandlerResult.completed()
+                    signal = (
+                        dict(candidate.ai_signal_json)
+                        if isinstance(candidate.ai_signal_json, dict)
+                        else {}
+                    )
+                    latest_manual_reference_good = (
+                        signal.get("reference_manual_label") == "good"
+                    )
+                    if not latest_manual_reference_good:
+                        existing_fingerprints = repository.visual_fingerprint_rows(
+                            context.job.tenant_id,
+                            candidate_id,
+                        )
+                        if is_visual_near_duplicate(
+                            fingerprints,
+                            existing_fingerprints,
+                        ):
+                            signal["visual_fingerprints"] = fingerprints
+                            signal["local_prefilter"] = {
+                                "gate": "visual_near_duplicate",
+                                "runtime": "vps",
+                                "provider_call_skipped": True,
+                                "fingerprint_count": len(fingerprints),
+                            }
+                            candidate.status = "rejected_duplicate"
+                            candidate.reject_reason = "visual_near_duplicate"
+                            candidate.image_url = image.source_url
+                            candidate.content_hash = image.content_hash
+                            candidate.width = image.width
+                            candidate.height = image.height
+                            candidate.size_bytes = image.size_bytes
+                            candidate.image_format = image.image_format
+                            candidate.final_score = 0.0
+                            candidate.analyzer_provider = "local_vps"
+                            candidate.analyzer_model = "dhash16"
+                            candidate.analyzer_version = ANALYZER_VERSION
+                            candidate.analysis_summary = (
+                                "Rejected locally before Gemini because this image "
+                                "is a perceptual duplicate of an existing approved "
+                                "reference."
+                            )
+                            candidate.analyzed_at = datetime.now(timezone.utc)
+                            candidate.last_error_code = None
+                            candidate.ai_signal_json = signal
+                            service = RrugcService(session)
+                            service.refresh_campaign_completion(campaign)
+                            service.ensure_scout_backfill(campaign)
+                            session.commit()
+                            context.logger.info(
+                                "rrugc_candidate_local_prefilter_rejected",
+                                extra={
+                                    "candidate_id": candidate_id,
+                                    "tenant_id": context.job.tenant_id,
+                                    "gate": "visual_near_duplicate",
+                                    "gemini_skipped": True,
+                                },
+                            )
+                            return JobHandlerResult.completed()
+
             registry = context.dependencies.ai_provider_registry
             if registry is None:
                 raise AiProviderUnavailableError("gemini")
             provider = registry.require("gemini")
             gemini_slot = scheduled_rrugc_gemini_slot(context.job)
-            image_bytes = image.path.read_bytes()
             image_mime_type = _image_mime(image.image_format)
             seed_visual_signal = await compute_seed_visual_signal(
                 tenant_id=context.job.tenant_id,
@@ -451,7 +536,6 @@ class RrugcCandidateAnalyzeJobHandler:
                 preference_features,
                 reference_preference_model,
             )
-            fingerprints = visual_fingerprints(image_bytes)
             decision = evaluate_reference(
                 document,
                 policy,
