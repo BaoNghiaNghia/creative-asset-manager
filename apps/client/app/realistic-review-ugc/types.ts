@@ -25,6 +25,7 @@ export type ProductContextProfile = {
   visual_context?: {
     status: "not_analyzed" | "ready" | "stale" | string;
     themes?: string[];
+    embroidery_text?: string[];
     scene_hints?: string[];
     audience_hints?: string[];
     occasion_hints?: string[];
@@ -43,6 +44,7 @@ export type ProductContextProfile = {
   };
   search_clusters?: {
     direct?: string[];
+    text_match?: string[];
     adjacent?: string[];
     generic?: string[];
   };
@@ -171,6 +173,7 @@ export type SourcePlan = {
   visual_context: {
     status?: string;
     themes?: string[];
+    embroidery_text?: string[];
     scene_hints?: string[];
     audience_hints?: string[];
     occasion_hints?: string[];

@@ -544,15 +544,21 @@ def test_source_plan_search_queries_prioritize_image_context_over_legacy_queries
                     "grandpa golf course candid phone photo",
                     "grandfather tee time candid phone photo",
                 ],
+                "text_match": [
+                    "Best Grandpa By Par photo",
+                    "Best Grandpa By Par candid photo",
+                ],
                 "adjacent": ["family golf outing candid phone photo"],
                 "generic": ["casual lifestyle candid phone photo"],
             }
         },
     }
 
-    assert task_search_queries(task)[:4] == [
+    assert task_search_queries(task)[:6] == [
         "grandpa golf course candid phone photo",
         "grandfather tee time candid phone photo",
+        "Best Grandpa By Par photo",
+        "Best Grandpa By Par candid photo",
         "family golf outing candid phone photo",
         "generic candid lifestyle",
     ]
@@ -620,7 +626,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v13"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v14"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

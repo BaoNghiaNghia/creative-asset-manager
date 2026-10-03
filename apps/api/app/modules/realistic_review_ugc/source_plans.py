@@ -32,6 +32,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel,
 )
 from app.modules.realistic_review_ugc.product_context import (
+    PRODUCT_VISUAL_CONTEXT_VERSION,
     analyze_product_visual_reference,
     derive_product_context_profile,
     merge_product_visual_context,
@@ -275,6 +276,17 @@ async def sync_source_plans(
         )
         is_new = plan is None
         previous_revision = plan.source_revision if plan is not None else None
+        existing_visual_context = (
+            dict(plan.visual_context_json or {})
+            if plan is not None and isinstance(plan.visual_context_json, dict)
+            else {}
+        )
+        requires_context_upgrade = (
+            plan is not None
+            and plan.status == "ready"
+            and bool(existing_visual_context)
+            and str(existing_visual_context.get("version") or "") != PRODUCT_VISUAL_CONTEXT_VERSION
+        )
         if plan is None:
             plan = RrugcSourcePlanModel(
                 tenant_id=tenant_id,
@@ -311,6 +323,13 @@ async def sync_source_plans(
             plan.target_count = RRUGC_SOURCE_TARGET_COUNT
             if previous_revision != image.revision:
                 plan.source_revision = image.revision
+                plan.analysis_revision = max(1, int(plan.analysis_revision or 0) + 1)
+                plan.status = "queued"
+                plan.last_error_code = None
+                plan.visual_context_json = None
+                plan.analyzed_at = None
+                updated += 1
+            elif requires_context_upgrade:
                 plan.analysis_revision = max(1, int(plan.analysis_revision or 0) + 1)
                 plan.status = "queued"
                 plan.last_error_code = None

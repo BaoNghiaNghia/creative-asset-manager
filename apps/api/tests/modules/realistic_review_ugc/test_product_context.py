@@ -9,6 +9,7 @@ from app.modules.realistic_review_ugc.product_context import (
     derive_context_feedback_learning,
     derive_product_context_profile,
     merge_product_visual_context,
+    product_context_search_queries,
     product_visual_binding_fingerprint,
     select_product_visual_references,
 )
@@ -95,6 +96,42 @@ def test_visual_scene_hints_rank_ahead_of_generic_theme_templates():
         "dad golfing weekend candid phone photo",
         "golf course lifestyle candid phone photo",
     ]
+
+
+def test_visual_embroidery_text_builds_dedicated_text_search_cluster():
+    product = {
+        "id": "hotdog-cap",
+        "revision": 1,
+        "name": "Hotdog embroidered cap",
+        "product_type": "cap",
+    }
+    visual = {
+        "status": "ready",
+        "binding_fingerprint": product_visual_binding_fingerprint(product, None),
+        "themes": [],
+        "embroidery_text": ["Bad Day To Be A Hotdog"],
+        "scene_hints": ["backyard cookout friends"],
+        "audience_hints": [],
+        "occasion_hints": [],
+        "product_cues": ["embroidered wording Bad Day To Be A Hotdog"],
+        "avoid_hints": [],
+        "confidence": 0.96,
+        "summary": "Readable embroidered wording appears on the cap.",
+    }
+
+    profile = derive_product_context_profile(
+        product_snapshot=product,
+        config={"auto_context": True, "visual_context": visual},
+    )
+
+    assert profile["search_clusters"]["text_match"] == [
+        "Bad Day To Be A Hotdog photo",
+        "Bad Day To Be A Hotdog candid photo",
+    ]
+    assert (
+        "Bad Day To Be A Hotdog photo",
+        "text_match",
+    ) in product_context_search_queries(profile)
 
 
 def test_product_context_detects_pet_owner_and_builds_scene_clusters():
@@ -378,6 +415,7 @@ def test_visual_context_merge_uses_confidence_and_keeps_provenance():
             (
                 ProductVisualContextDocument(
                     themes=["pet_owner"],
+                    embroidery_text=["My Dog Is My Best Friend"],
                     scene_hints=["dog owner park"],
                     audience_hints=["dog owner"],
                     occasion_hints=["pet gift"],
@@ -412,6 +450,7 @@ def test_visual_context_merge_uses_confidence_and_keeps_provenance():
 
     assert merged["status"] == "ready"
     assert merged["themes"][0] == "pet_owner"
+    assert merged["embroidery_text"] == ["My Dog Is My Best Friend"]
     assert merged["references_analyzed"] == 2
     assert merged["reference_ids"] == ["r1", "r2"]
     assert merged["reference_views"] == ["embroidery_closeup", "front"]

@@ -27,6 +27,7 @@ from app.modules.realistic_review_ugc.source_plans import (
     sync_source_plans,
 )
 from app.modules.realistic_review_ugc.product_context import (
+    PRODUCT_VISUAL_CONTEXT_VERSION,
     product_visual_binding_fingerprint,
 )
 from app.providers.google.storage import GoogleDriveAssetStorage
@@ -398,6 +399,66 @@ def test_sync_source_plans_marks_removed_source_missing_and_archives_campaign():
         assert campaign.status == "archived"
         assert campaign.auto_scout is False
         assert campaign.scan_next_at is None
+
+
+def test_old_visual_context_version_requeues_source_for_text_aware_analysis():
+    factory = make_database()
+
+    with factory() as session:
+        asyncio.run(
+            sync_source_plans(
+                session,
+                tenant_id="tenant-a",
+                user_id="user-a",
+                storage=FakeStorage.__new__(FakeStorage),
+                drive_client_factory=FakeDrive,
+            )
+        )
+        plan = session.scalar(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.source_file_id == "image-a"
+            )
+        )
+        assert plan is not None
+        campaign = RrugcCampaignModel(
+            tenant_id="tenant-a",
+            name="Legacy source campaign",
+            query="legacy context",
+            target_count=20,
+            auto_scout=True,
+            scout_token_hash="b" * 64,
+            created_by_user_id="user-a",
+        )
+        session.add(campaign)
+        session.flush()
+        plan.campaign_id = campaign.id
+        plan.status = "ready"
+        plan.visual_context_json = {
+            "status": "ready",
+            "version": "rrugc-product-visual-context-v1",
+            "binding_fingerprint": "legacy",
+        }
+        plan.analyzed_at = datetime.now(timezone.utc)
+        original_analysis_revision = plan.analysis_revision
+        session.commit()
+
+        result = asyncio.run(
+            sync_source_plans(
+                session,
+                tenant_id="tenant-a",
+                user_id="user-a",
+                storage=FakeStorage.__new__(FakeStorage),
+                drive_client_factory=FakeDrive,
+            )
+        )
+        session.refresh(plan)
+
+        assert PRODUCT_VISUAL_CONTEXT_VERSION == "rrugc-product-visual-context-v2-text-aware"
+        assert result.plans_updated == 1
+        assert result.jobs_queued == 1
+        assert plan.analysis_revision == original_analysis_revision + 1
+        assert plan.status == "queued"
+        assert plan.visual_context_json is None
 
 
 def test_changed_source_image_gets_new_analysis_revision_and_job():

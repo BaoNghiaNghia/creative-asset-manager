@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v13"
+CLIENT_VERSION = "rrugc-scout-v14"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -937,7 +937,7 @@ def task_search_queries(task: dict[str, Any]) -> list[str]:
     if source_plan_id and isinstance(source_context, dict):
         clusters = source_context.get("search_clusters")
         if isinstance(clusters, dict):
-            for level in ("direct", "adjacent"):
+            for level in ("direct", "text_match", "adjacent"):
                 values = clusters.get(level)
                 if isinstance(values, list):
                     raw_queries.extend(values)

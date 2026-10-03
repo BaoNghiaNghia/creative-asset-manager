@@ -314,7 +314,7 @@ def build_campaign_search_queries(
         # Reserve most slots for server-derived semantic scene searches.
         protected = protected[:2]
         feedback_scores = _keyword_feedback_scores(outcomes)
-        level_weight = {"direct": 0.30, "adjacent": 0.18, "generic": 0.08}
+        level_weight = {"direct": 0.30, "text_match": 0.27, "adjacent": 0.18, "generic": 0.08}
         contextual = product_context_search_queries(product_context)
         protected_keys = {query.casefold() for query in protected}
         selected: list[str] = []

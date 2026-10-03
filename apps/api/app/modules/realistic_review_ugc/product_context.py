@@ -10,8 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v1"
-PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v3-feedback-learning"
+PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v2-text-aware"
+PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v4-embroidery-text-search"
 CONTEXT_FEEDBACK_MIN_MATCHES = 2
 CONTEXT_FEEDBACK_PROMOTION_SCORE = 0.20
 CONTEXT_FEEDBACK_RANKING_SCALE = 0.08
@@ -36,6 +36,7 @@ class ProductVisualContextDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     themes: list[ProductContextTheme] = Field(default_factory=list, max_length=6)
+    embroidery_text: list[str] = Field(default_factory=list, max_length=6)
     scene_hints: list[str] = Field(default_factory=list, max_length=8)
     audience_hints: list[str] = Field(default_factory=list, max_length=6)
     occasion_hints: list[str] = Field(default_factory=list, max_length=6)
@@ -336,6 +337,19 @@ def _clean_list(values: Iterable[Any] | None, *, limit: int = 12) -> list[str]:
         if len(result) >= limit:
             break
     return result
+
+
+def _embroidery_text_search_queries(values: Iterable[Any] | None) -> list[str]:
+    queries: list[str] = []
+    for value in _clean_list(values, limit=6):
+        phrase = " ".join(value.replace("\n", " ").split()).strip(" \t\r\n\"'")
+        if len(phrase) < 2:
+            continue
+        queries.extend((
+            f"{phrase} photo",
+            f"{phrase} candid photo",
+        ))
+    return _clean_list(queries, limit=10)
 
 
 def _product_context_text(
@@ -646,6 +660,11 @@ def derive_product_context_profile(
         if visual_ready
         else []
     )
+    visual_embroidery_text = (
+        _clean_list(raw_visual.get("embroidery_text"), limit=6)
+        if visual_ready
+        else []
+    )
 
     text = _product_context_text(
         product_snapshot,
@@ -680,6 +699,7 @@ def derive_product_context_profile(
         f"{scene} candid phone photo"
         for scene in [*visual_scene_hints, *preferred_scenes]
     ]
+    text_match = _embroidery_text_search_queries(visual_embroidery_text)
     adjacent: list[str] = []
     for theme in themes:
         templates = _CONTEXT_QUERY_TEMPLATES.get(theme, {})
@@ -697,6 +717,11 @@ def derive_product_context_profile(
             for value in _clean_list(direct, limit=20)
             if value.casefold() not in suppressed_query_keys
         ][:16],
+        "text_match": [
+            value
+            for value in _clean_list(text_match, limit=10)
+            if value.casefold() not in suppressed_query_keys
+        ][:8],
         "adjacent": [
             value
             for value in _clean_list(adjacent, limit=16)
@@ -745,7 +770,7 @@ def product_context_search_queries(profile: dict[str, Any] | None) -> list[tuple
         return []
     rows: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for level in ("direct", "adjacent", "generic"):
+    for level in ("direct", "text_match", "adjacent", "generic"):
         values = clusters.get(level)
         if not isinstance(values, list):
             continue
@@ -804,6 +829,9 @@ Allowed theme ids:
 
 Guidance:
 - themes: only allowed ids with meaningful visual/text evidence.
+- embroidery_text: transcribe only clearly visible embroidered wording verbatim, preserving word order.
+  Use one list item per distinct phrase. Do not paraphrase, infer missing letters, or include decorative symbols alone.
+  Leave empty when no readable embroidered text is visible.
 - scene_hints: short Pinterest-search scene concepts, 2-6 words each, such as
   "dog owner park", "dad bike ride", "teacher classroom", "couple weekend outing".
   Describe likely lifestyle context, not studio product photography.
@@ -869,6 +897,7 @@ def merge_product_visual_context(
         return {
             "status": "not_analyzed",
             "themes": [],
+            "embroidery_text": [],
             "scene_hints": [],
             "audience_hints": [],
             "occasion_hints": [],
@@ -885,6 +914,7 @@ def merge_product_visual_context(
         }
 
     theme_scores: dict[str, float] = {}
+    embroidery_text_rows: list[str] = []
     scene_rows: list[str] = []
     audience_rows: list[str] = []
     occasion_rows: list[str] = []
@@ -902,6 +932,7 @@ def merge_product_visual_context(
         confidence_total += confidence
         for theme in document.themes:
             theme_scores[theme] = theme_scores.get(theme, 0.0) + max(0.15, confidence)
+        embroidery_text_rows.extend(document.embroidery_text)
         scene_rows.extend(document.scene_hints)
         audience_rows.extend(document.audience_hints)
         occasion_rows.extend(document.occasion_hints)
@@ -933,6 +964,7 @@ def merge_product_visual_context(
     return {
         "status": "ready",
         "themes": ranked_themes,
+        "embroidery_text": _clean_list(embroidery_text_rows, limit=6),
         "scene_hints": _clean_list(scene_rows, limit=8),
         "audience_hints": _clean_list(audience_rows, limit=6),
         "occasion_hints": _clean_list(occasion_rows, limit=6),

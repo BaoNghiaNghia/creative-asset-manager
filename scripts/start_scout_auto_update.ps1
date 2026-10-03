@@ -391,7 +391,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Starting Pinterest Auto Scout"
 Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-Write-Host "Scout mode          : source-plan context-first (v13)" -ForegroundColor Green
+Write-Host "Scout mode          : source-plan context + embroidery-text (v14)" -ForegroundColor Green
 Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
 Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
 Write-Host ("Pace                : " + $pace) -ForegroundColor Green
