@@ -462,6 +462,42 @@ class RateLimitedClaimTest(unittest.TestCase):
             self.assertTrue(all(job.claimed_by is None for job in untouched))
 
 
+
+    def test_rrugc_interval_clamps_to_slower_global_ai_interval(self):
+        settings = Settings(
+            AI_JOB_MIN_INTERVAL_SECONDS=30.0,
+            RRUGC_GEMINI_MIN_INTERVAL_SECONDS=20.0,
+        )
+        job_id = self._rrugc_job("production-interval")
+
+        with self.sessions() as session:
+            claimed = ProcessingJobService(
+                ProcessingRepository(session, settings)
+            ).claim_next(
+                worker_id="rrugc-production-worker",
+                lease_seconds=60,
+                now=NOW,
+                enforce_tenant_policy=True,
+                allowed_job_types=("rrugc_candidate_analyze",),
+            )
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, job_id)
+        with self.sessions() as session:
+            lane = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": RRUGC_GEMINI_LANE_PROVIDER,
+                    "model": RRUGC_GEMINI_LANE_MODEL,
+                },
+            )
+            self.assertIsNotNone(lane)
+            self.assertEqual(
+                lane.next_eligible_at.replace(tzinfo=timezone.utc),
+                NOW + timedelta(seconds=30),
+            )
+
     def test_rrugc_claim_reserves_shared_lane_and_gemini_model_slot(self):
         first_id = self._rrugc_job("first")
         self._rrugc_job("second")

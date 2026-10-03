@@ -649,12 +649,16 @@ class TenantAwareJobClaimer:
             return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
 
         limiter = AiModelRateLimitRepository(self.session)
+        rrugc_min_interval_seconds = max(
+            self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS,
+            self.settings.AI_JOB_MIN_INTERVAL_SECONDS,
+        )
         lane = limiter.reserve_start(
             tenant_id=job.tenant_id,
             provider=RRUGC_GEMINI_LANE_PROVIDER,
             model=RRUGC_GEMINI_LANE_MODEL,
             rpm=60,
-            minimum_interval_seconds=self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS,
+            minimum_interval_seconds=rrugc_min_interval_seconds,
             now=now,
         )
         if not lane.allowed:

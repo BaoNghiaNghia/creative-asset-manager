@@ -1430,11 +1430,8 @@ class Settings(BaseSettings):
             raise ValueError("VIDEO AI versions must be non-empty strings")
         if self.AI_JOB_MIN_INTERVAL_SECONDS < 10:
             raise ValueError("AI_JOB_MIN_INTERVAL_SECONDS must be at least 10 seconds")
-        if self.RRUGC_GEMINI_MIN_INTERVAL_SECONDS < self.AI_JOB_MIN_INTERVAL_SECONDS:
-            raise ValueError(
-                "RRUGC_GEMINI_MIN_INTERVAL_SECONDS cannot be lower than "
-                "AI_JOB_MIN_INTERVAL_SECONDS"
-            )
+        if self.RRUGC_GEMINI_MIN_INTERVAL_SECONDS <= 0:
+            raise ValueError("RRUGC_GEMINI_MIN_INTERVAL_SECONDS must be positive")
         if not 1 <= self.RRUGC_GEMINI_MAX_CONCURRENCY <= 8:
             raise ValueError("RRUGC_GEMINI_MAX_CONCURRENCY must be between 1 and 8")
         if self.AI_JOB_RATE_LIMIT_SAFETY_SECONDS < 0:
