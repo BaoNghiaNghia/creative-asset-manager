@@ -1,6 +1,8 @@
 import asyncio
 
 import httpx
+import pytest
+import scout as scout_module
 
 from scout import (
     AutoScoutClient,
@@ -76,6 +78,60 @@ def test_clear_stale_profile_runtime_files_preserves_unrelated_files(tmp_path):
     for name in stale_names:
         assert not (tmp_path / name).exists()
 
+
+
+
+def test_recover_windows_profile_closes_stale_scouts_without_live_chrome(
+    monkeypatch,
+    tmp_path,
+):
+    owner_snapshots = [
+        ((), (21668, 42800, 43412)),
+        ((), ()),
+    ]
+    killed: list[tuple[int, ...]] = []
+
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scout_module,
+        "_windows_profile_owners",
+        lambda _profile: owner_snapshots.pop(0),
+    )
+    monkeypatch.setattr(
+        scout_module,
+        "_terminate_windows_process_trees",
+        lambda pids: killed.append(tuple(pids)) or len(pids),
+    )
+    monkeypatch.setattr(scout_module.time, "sleep", lambda _seconds: None)
+
+    scout_module._recover_windows_scout_profile(tmp_path)
+
+    assert killed == [(21668, 42800, 43412)]
+    assert owner_snapshots == []
+
+
+def test_recover_windows_profile_protects_genuinely_active_scout(
+    monkeypatch,
+    tmp_path,
+):
+    killed: list[tuple[int, ...]] = []
+
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scout_module,
+        "_windows_profile_owners",
+        lambda _profile: ((40768,), (21668,)),
+    )
+    monkeypatch.setattr(
+        scout_module,
+        "_terminate_windows_process_trees",
+        lambda pids: killed.append(tuple(pids)) or len(pids),
+    )
+
+    with pytest.raises(RuntimeError, match="appears to still be active"):
+        scout_module._recover_windows_scout_profile(tmp_path)
+
+    assert killed == []
 
 
 def test_url_allowlists():
@@ -678,7 +734,7 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v15"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v16"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         return httpx.Response(200, json={"status": "ready"})

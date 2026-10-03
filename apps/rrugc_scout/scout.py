@@ -19,7 +19,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v15"
+CLIENT_VERSION = "rrugc-scout-v16"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_DETAIL_TIMEOUT_MS = 15_000
@@ -209,7 +209,7 @@ def _windows_profile_owners(
     return _parse_windows_profile_owners(result.stdout)
 
 
-def _terminate_windows_profile_chrome(pids: tuple[int, ...]) -> int:
+def _terminate_windows_process_trees(pids: tuple[int, ...]) -> int:
     if sys.platform != "win32":
         return 0
     terminated = 0
@@ -228,6 +228,10 @@ def _terminate_windows_profile_chrome(pids: tuple[int, ...]) -> int:
         if result.returncode == 0:
             terminated += 1
     return terminated
+
+
+def _terminate_windows_profile_chrome(pids: tuple[int, ...]) -> int:
+    return _terminate_windows_process_trees(pids)
 
 
 def _clear_stale_profile_runtime_files(profile_dir: str | Path) -> tuple[str, ...]:
@@ -273,12 +277,32 @@ def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
         return
 
     chrome_pids, scout_pids = owners
-    if scout_pids:
+
+    if scout_pids and chrome_pids:
         raise RuntimeError(
-            "Another Pinterest Auto Scout is already running with this profile "
-            "(PID " + ", ".join(str(pid) for pid in scout_pids) + "). "
+            "Another Pinterest Auto Scout appears to still be active with this profile "
+            "(Scout PID " + ", ".join(str(pid) for pid in scout_pids)
+            + "; Chrome PID " + ", ".join(str(pid) for pid in chrome_pids) + "). "
             "Use the existing Scout instance or close it before starting another one."
         )
+
+    if scout_pids and not chrome_pids:
+        print(
+            "Found stale Pinterest Scout process(es) without a live Scout Chrome: "
+            + ", ".join(str(pid) for pid in scout_pids)
+            + ". Closing only those stale Scout process trees."
+        )
+        _terminate_windows_process_trees(scout_pids)
+        time.sleep(0.75)
+        remaining = _windows_profile_owners(profile_dir)
+        if remaining is not None and remaining[1]:
+            raise RuntimeError(
+                "Stale Pinterest Scout process(es) could not be closed: "
+                + ", ".join(str(pid) for pid in remaining[1])
+                + ". End those Scout processes in Task Manager and run START_SCOUT.bat again."
+            )
+        if remaining is not None:
+            chrome_pids = remaining[0]
 
     if chrome_pids:
         print(
