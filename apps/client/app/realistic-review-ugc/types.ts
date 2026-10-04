@@ -228,12 +228,44 @@ export type SourcePlanPage = {
   total: number;
 };
 
+export type Stage2Skill = {
+  source: "local" | "openai";
+  skill_id: string | null;
+  skill_name: string;
+  display_name: string;
+  description: string;
+  default_version: string | null;
+  latest_version: string | null;
+  local_version: string | null;
+  synced_version: string | null;
+  ready: boolean;
+  sync_state: "ready" | "not_synced" | "update_available" | "local_conflict";
+  version_options: string[];
+};
+
+export type Stage2SkillCatalog = {
+  openai_configured: boolean;
+  openai_status: "not_configured" | "connected" | "error";
+  error_code: string | null;
+  items: Stage2Skill[];
+};
+
+export type Stage2SkillSelection = {
+  source: "local" | "openai";
+  skill_id: string | null;
+  skill_name: string;
+  skill_version: string | null;
+};
+
 export type Stage2Job = {
   id: string;
   source_plan_id: string;
   campaign_id: string;
   source_revision: string;
   skill_name: string;
+  skill_source: "local" | "openai";
+  skill_id: string | null;
+  skill_version: string | null;
   selected_candidate_ids: string[];
   reference_count: number;
   status: "queued" | "running" | "completed" | "failed";

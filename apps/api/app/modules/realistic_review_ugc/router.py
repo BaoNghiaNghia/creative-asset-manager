@@ -185,6 +185,9 @@ from app.modules.realistic_review_ugc.schema import (
     SourcePlanResponse,
     SourcePlanPageResponse,
     SourcePlanSyncResponse,
+    Stage2SkillCatalogResponse,
+    Stage2SkillResponse,
+    Stage2SkillSyncRequest,
     Stage2JobCreateRequest,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
@@ -213,6 +216,12 @@ from app.modules.realistic_review_ugc.service import (
 from app.modules.realistic_review_ugc.stage2 import (
     RrugcStage2Error,
     RrugcStage2Service,
+)
+from app.modules.realistic_review_ugc.stage2_skills import (
+    Stage2SkillItem,
+    Stage2SkillRegistryError,
+    list_stage2_skill_catalog,
+    sync_openai_stage2_skill,
 )
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_TARGET_COUNT,
@@ -847,6 +856,23 @@ def _generation_attempt(row: RrugcGenerationAttemptModel) -> GenerationAttemptRe
 
 
 
+def _stage2_skill(item: Stage2SkillItem) -> Stage2SkillResponse:
+    return Stage2SkillResponse(
+        source=item.source,
+        skill_id=item.skill_id,
+        skill_name=item.skill_name,
+        display_name=item.display_name,
+        description=item.description,
+        default_version=item.default_version,
+        latest_version=item.latest_version,
+        local_version=item.local_version,
+        synced_version=item.synced_version,
+        ready=item.ready,
+        sync_state=item.sync_state,
+        version_options=list(item.version_options),
+    )
+
+
 def _stage2_job(row: RrugcStage2JobModel) -> Stage2JobResponse:
     selected_ids = [
         str(value)
@@ -859,6 +885,9 @@ def _stage2_job(row: RrugcStage2JobModel) -> Stage2JobResponse:
         campaign_id=row.campaign_id,
         source_revision=row.source_revision,
         skill_name=row.skill_name,
+        skill_source=row.skill_source or "local",
+        skill_id=row.skill_id,
+        skill_version=row.skill_version,
         selected_candidate_ids=selected_ids,
         reference_count=len(selected_ids),
         status=row.status,
@@ -2947,6 +2976,62 @@ async def get_source_plan_image(
 
 
 
+@router.get("/stage2-skills", response_model=Stage2SkillCatalogResponse)
+def list_stage2_skills(
+    refresh: bool = Query(default=False),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    del principal
+    catalog = list_stage2_skill_catalog(refresh=refresh)
+    return Stage2SkillCatalogResponse(
+        openai_configured=catalog.openai_configured,
+        openai_status=catalog.openai_status,
+        error_code=catalog.error_code,
+        items=[_stage2_skill(item) for item in catalog.items],
+    )
+
+
+@router.post(
+    "/stage2-skills/{skill_id}/sync",
+    response_model=Stage2SkillResponse,
+)
+def sync_stage2_skill(
+    skill_id: str,
+    request: Stage2SkillSyncRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    del principal
+    active_jobs = int(
+        session.scalar(
+            select(func.count())
+            .select_from(RrugcStage2JobModel)
+            .where(
+                RrugcStage2JobModel.skill_source == "openai",
+                RrugcStage2JobModel.skill_id == skill_id,
+                RrugcStage2JobModel.status.in_(("queued", "running")),
+            )
+        )
+        or 0
+    )
+    if active_jobs:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "stage2_skill_sync_blocked_by_active_jobs",
+                "message": "Wait for active jobs using this OpenAI skill to finish before syncing another version.",
+            },
+        )
+    try:
+        item = sync_openai_stage2_skill(skill_id, version=request.version)
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return _stage2_skill(item)
+
+
 @router.get("/stage2-jobs", response_model=list[Stage2JobResponse])
 def list_stage2_jobs(
     source_plan_id: str | None = Query(default=None, max_length=36),
@@ -2981,7 +3066,10 @@ def create_stage2_job(
             user_id=principal.user_id,
             source_plan_id=source_plan_id,
             selected_candidate_ids=request.selected_candidate_ids,
+            skill_source=request.skill_source,
+            skill_id=request.skill_id,
             skill_name=request.skill_name,
+            skill_version=request.skill_version,
             prompt=request.prompt,
         )
     except RrugcStage2Error as exc:

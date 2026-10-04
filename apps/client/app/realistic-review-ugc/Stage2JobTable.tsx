@@ -1,9 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
-import { stage2JobOutputUrl } from "./api";
-import type { SourcePlan, SourcePlanReferencePreview, Stage2Job } from "./types";
+import {
+  listStage2Skills,
+  stage2JobOutputUrl,
+  syncStage2Skill,
+} from "./api";
+import type {
+  SourcePlan,
+  SourcePlanReferencePreview,
+  Stage2Job,
+  Stage2Skill,
+  Stage2SkillCatalog,
+  Stage2SkillSelection,
+} from "./types";
 
 const MAX_REFS = 10;
-const SKILL_NAME = "gatorhats-8869-image-studio";
+const FALLBACK_SKILL_NAME = "gatorhats-8869-image-studio";
+
+const FALLBACK_SKILL: Stage2Skill = {
+  source: "local",
+  skill_id: null,
+  skill_name: FALLBACK_SKILL_NAME,
+  display_name: "GatorHats 8869 Image Studio",
+  description: "Local Stage 2 image studio skill.",
+  default_version: null,
+  latest_version: null,
+  local_version: null,
+  synced_version: null,
+  ready: true,
+  sync_state: "ready",
+  version_options: [],
+};
+
+const INITIAL_CATALOG: Stage2SkillCatalog = {
+  openai_configured: false,
+  openai_status: "not_configured",
+  error_code: null,
+  items: [FALLBACK_SKILL],
+};
 
 function eligibleReference(reference: SourcePlanReferencePreview) {
   return reference.status === "drive_ready" && !reference.rejected;
@@ -25,6 +58,45 @@ function jobLabel(job: Stage2Job | undefined) {
   return "Failed";
 }
 
+function skillKey(skill: Stage2Skill) {
+  return skill.source + ":" + (skill.skill_id || skill.skill_name);
+}
+
+function skillStatus(skill: Stage2Skill) {
+  if (skill.source === "local") return "Local · ready";
+  if (skill.sync_state === "ready") return "OpenAI · synced";
+  if (skill.sync_state === "update_available") return "OpenAI · update available";
+  if (skill.sync_state === "local_conflict") return "OpenAI · local name conflict";
+  return "OpenAI · needs sync";
+}
+
+function defaultSkill(catalog: Stage2SkillCatalog) {
+  return (
+    catalog.items.find(skill => skill.ready && skill.skill_name === FALLBACK_SKILL_NAME)
+    || catalog.items.find(skill => skill.ready)
+    || catalog.items[0]
+    || FALLBACK_SKILL
+  );
+}
+
+function defaultVersion(skill: Stage2Skill) {
+  return (
+    skill.synced_version
+    || skill.default_version
+    || skill.latest_version
+    || skill.local_version
+    || null
+  );
+}
+
+function versionLabel(skill: Stage2Skill, version: string) {
+  const badges: string[] = [];
+  if (version === skill.default_version) badges.push("default");
+  if (version === skill.latest_version && version !== skill.default_version) badges.push("latest");
+  if (version === skill.synced_version) badges.push("synced");
+  return "v" + version + (badges.length ? " · " + badges.join(" / ") : "");
+}
+
 export function Stage2JobTable({
   plans,
   jobs,
@@ -36,9 +108,19 @@ export function Stage2JobTable({
   jobs: Stage2Job[];
   creatingPlanIds: ReadonlySet<string>;
   message?: string;
-  onCreateJob: (plan: SourcePlan, candidateIds: string[]) => void;
+  onCreateJob: (
+    plan: SourcePlan,
+    candidateIds: string[],
+    skill: Stage2SkillSelection,
+  ) => void;
 }) {
   const [selectedByPlan, setSelectedByPlan] = useState<Record<string, string[]>>({});
+  const [catalog, setCatalog] = useState<Stage2SkillCatalog>(INITIAL_CATALOG);
+  const [skillKeyByPlan, setSkillKeyByPlan] = useState<Record<string, string>>({});
+  const [skillVersionByPlan, setSkillVersionByPlan] = useState<Record<string, string>>({});
+  const [refreshingSkills, setRefreshingSkills] = useState(false);
+  const [syncingSkillKey, setSyncingSkillKey] = useState("");
+  const [skillMessage, setSkillMessage] = useState("");
   const latest = useMemo(() => latestJobsByPlan(jobs), [jobs]);
   const stage2Plans = useMemo(
     () => plans.filter(plan => (
@@ -52,6 +134,14 @@ export function Stage2JobTable({
     )),
     [plans],
   );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void listStage2Skills(false, controller.signal)
+      .then(setCatalog)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     setSelectedByPlan(current => {
@@ -69,6 +159,33 @@ export function Stage2JobTable({
     });
   }, [stage2Plans]);
 
+  function selectedSkill(planId: string) {
+    const requestedKey = skillKeyByPlan[planId];
+    return (
+      catalog.items.find(skill => skillKey(skill) === requestedKey)
+      || defaultSkill(catalog)
+    );
+  }
+
+  function selectedVersion(planId: string, skill: Stage2Skill) {
+    return skillVersionByPlan[planId] || defaultVersion(skill);
+  }
+
+  function selectSkill(planId: string, nextKey: string) {
+    const nextSkill = catalog.items.find(skill => skillKey(skill) === nextKey);
+    setSkillKeyByPlan(current => ({ ...current, [planId]: nextKey }));
+    setSkillVersionByPlan(current => {
+      const next = { ...current };
+      if (nextSkill) {
+        const version = defaultVersion(nextSkill);
+        if (version) next[planId] = version;
+        else delete next[planId];
+      }
+      return next;
+    });
+    setSkillMessage("");
+  }
+
   function toggleReference(planId: string, referenceId: string) {
     setSelectedByPlan(current => {
       const selected = current[planId] || [];
@@ -83,17 +200,73 @@ export function Stage2JobTable({
     });
   }
 
+  async function refreshSkills() {
+    if (refreshingSkills) return;
+    setRefreshingSkills(true);
+    setSkillMessage("");
+    try {
+      setCatalog(await listStage2Skills(true));
+      setSkillMessage("Skill registry refreshed.");
+    } catch (reason) {
+      setSkillMessage(reason instanceof Error ? reason.message : "Unable to refresh skills.");
+    } finally {
+      setRefreshingSkills(false);
+    }
+  }
+
+  async function syncSkill(planId: string, skill: Stage2Skill, version: string | null) {
+    if (!skill.skill_id || syncingSkillKey) return;
+    const key = skillKey(skill);
+    setSyncingSkillKey(key);
+    setSkillMessage("");
+    try {
+      await syncStage2Skill(skill.skill_id, version);
+      const refreshed = await listStage2Skills(true);
+      setCatalog(refreshed);
+      setSkillKeyByPlan(current => ({ ...current, [planId]: key }));
+      if (version) {
+        setSkillVersionByPlan(current => ({ ...current, [planId]: version }));
+      }
+      setSkillMessage(
+        "$" + skill.skill_name + (version ? " v" + version : "") + " synced to Stage 2.",
+      );
+    } catch (reason) {
+      setSkillMessage(reason instanceof Error ? reason.message : "Unable to sync skill.");
+    } finally {
+      setSyncingSkillKey("");
+    }
+  }
+
   return <section className="rrugc-card rrugc-stage2">
     <div className="rrugc-section-heading rrugc-stage2-heading">
       <div>
         <small>STAGE 2 · EMBROIDERY → SELECT REFS → SKILL</small>
         <h2>Generation jobs</h2>
-        <p>Pick up to 10 Drive-ready Pinterest references for each embroidered hat, then generate one master image with the GatorHats Image Studio skill.</p>
+        <p>Pick up to 10 Drive-ready Pinterest references, choose a pinned skill/version, then generate one master image.</p>
       </div>
-      <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} refs / job</span>
+      <div className="rrugc-stage2-registry-actions">
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} refs / job</span>
+        <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
+          <i aria-hidden="true" />
+          {catalog.openai_status === "connected"
+            ? "OpenAI + local skills"
+            : catalog.openai_status === "error"
+              ? "OpenAI unavailable · local fallback"
+              : "Local skills"}
+        </span>
+        <button
+          type="button"
+          className="rrugc-stage2-refresh"
+          disabled={refreshingSkills}
+          onClick={() => void refreshSkills()}
+        >
+          {refreshingSkills ? "Refreshing…" : "Refresh skills"}
+        </button>
+      </div>
     </div>
 
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
+    {skillMessage && <p className="rrugc-editor-product-result" role="status">{skillMessage}</p>}
 
     <div className="rrugc-source-plan-table-wrap">
       <table className="rrugc-source-plan-table rrugc-stage2-table">
@@ -101,7 +274,7 @@ export function Stage2JobTable({
           <tr>
             <th>Embroidery source</th>
             <th>Pinterest refs · pick up to 10</th>
-            <th>Skill</th>
+            <th>Skill / pinned version</th>
             <th>Job / output</th>
           </tr>
         </thead>
@@ -111,6 +284,13 @@ export function Stage2JobTable({
             const selected = selectedByPlan[plan.id] || [];
             const job = latest.get(plan.id);
             const busy = creatingPlanIds.has(plan.id) || job?.status === "queued" || job?.status === "running";
+            const skill = selectedSkill(plan.id);
+            const version = selectedVersion(plan.id, skill);
+            const canGenerate = skill.ready
+              && (skill.source === "local" || version === skill.synced_version);
+            const versionOptions = skill.version_options.length
+              ? skill.version_options
+              : version ? [version] : [];
             return <tr key={plan.id}>
               <td className="rrugc-source-cell">
                 <div className="rrugc-source-file">
@@ -148,13 +328,62 @@ export function Stage2JobTable({
                 </div>
               </td>
               <td className="rrugc-stage2-skill">
-                <strong>{"$" + SKILL_NAME}</strong>
-                <small>Master-first · source embroidery locked · Pinterest refs = context/style only</small>
+                <label>
+                  <small>Skill</small>
+                  <select
+                    value={skillKey(skill)}
+                    disabled={busy}
+                    onChange={event => selectSkill(plan.id, event.target.value)}
+                  >
+                    {catalog.items.map(item => <option
+                      key={skillKey(item)}
+                      value={skillKey(item)}
+                    >
+                      {item.source === "openai" ? "OpenAI · " : "Local · "}
+                      {item.display_name || item.skill_name}
+                      {!item.ready ? " · needs sync" : ""}
+                    </option>)}
+                  </select>
+                </label>
+                <label>
+                  <small>Version</small>
+                  <select
+                    value={version || ""}
+                    disabled={busy || versionOptions.length <= 1}
+                    onChange={event => setSkillVersionByPlan(current => ({
+                      ...current,
+                      [plan.id]: event.target.value,
+                    }))}
+                  >
+                    {versionOptions.length === 0 && <option value="">Local current</option>}
+                    {versionOptions.map(value => <option key={value} value={value}>
+                      {versionLabel(skill, value)}
+                    </option>)}
+                  </select>
+                </label>
+                <strong>{"$" + skill.skill_name}</strong>
+                <small>{skillStatus(skill)}</small>
+                {skill.source === "openai" && !canGenerate && skill.sync_state !== "local_conflict" && <button
+                  type="button"
+                  className="rrugc-stage2-sync"
+                  disabled={busy || syncingSkillKey === skillKey(skill)}
+                  onClick={() => void syncSkill(plan.id, skill, version)}
+                >
+                  {syncingSkillKey === skillKey(skill)
+                    ? "Syncing…"
+                    : "Sync " + (version ? "v" + version : "skill")}
+                </button>}
+                {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Local skill with the same name is project-managed; rename one before syncing.</small>}
                 <button
                   type="button"
                   className="rrugc-primary"
-                  disabled={busy || selected.length === 0}
-                  onClick={() => onCreateJob(plan, selected)}
+                  disabled={busy || selected.length === 0 || !canGenerate}
+                  onClick={() => onCreateJob(plan, selected, {
+                    source: skill.source,
+                    skill_id: skill.skill_id,
+                    skill_name: skill.skill_name,
+                    skill_version: version,
+                  })}
                 >
                   {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate master"}
                 </button>
@@ -166,6 +395,7 @@ export function Stage2JobTable({
                       : job ? "working" : "muted"
                 )}>{jobLabel(job)}</span>
                 {job && <small>{job.reference_count} refs · {new Date(job.created_at).toLocaleString()}</small>}
+                {job && <small>{job.skill_source === "openai" ? "OpenAI" : "Local"} · {"$" + job.skill_name}{job.skill_version ? " · v" + job.skill_version : ""}</small>}
                 {job?.last_error_code && <small className="rrugc-source-error">{job.last_error_code}</small>}
                 {job?.status === "completed" && <a
                   className="rrugc-stage2-output"

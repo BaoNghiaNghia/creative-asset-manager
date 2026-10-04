@@ -14,7 +14,7 @@ import {
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
-import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job } from "./types";
+import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
 
@@ -64,13 +64,17 @@ export function RealisticReviewUgcPage() {
     setStage2Jobs(await listStage2Jobs(undefined, signal));
   }
 
-  async function queueStage2Job(plan: SourcePlan, candidateIds: string[]) {
+  async function queueStage2Job(
+    plan: SourcePlan,
+    candidateIds: string[],
+    skill: Stage2SkillSelection,
+  ) {
     if (creatingStage2PlanIds.has(plan.id) || candidateIds.length === 0) return;
     setCreatingStage2PlanIds(current => new Set(current).add(plan.id));
     setStage2Message("");
     setError("");
     try {
-      const result = await createStage2Job(plan.id, candidateIds);
+      const result = await createStage2Job(plan.id, candidateIds, skill);
       setStage2Message(
         result.created
           ? "Stage 2 job queued with " + candidateIds.length + " Pinterest refs. The master will appear when the skill finishes."
@@ -275,7 +279,7 @@ export function RealisticReviewUgcPage() {
           jobs={stage2Jobs}
           creatingPlanIds={creatingStage2PlanIds}
           message={stage2Message}
-          onCreateJob={(plan, candidateIds) => void queueStage2Job(plan, candidateIds)}
+          onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
         />
       </div>
     </section>

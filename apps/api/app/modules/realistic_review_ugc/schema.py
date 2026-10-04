@@ -571,9 +571,38 @@ class ScoutClaimResponse(BaseModel):
 
 
 
+class Stage2SkillResponse(BaseModel):
+    source: Literal["local", "openai"]
+    skill_id: str | None = None
+    skill_name: str
+    display_name: str
+    description: str
+    default_version: str | None = None
+    latest_version: str | None = None
+    local_version: str | None = None
+    synced_version: str | None = None
+    ready: bool
+    sync_state: Literal["ready", "not_synced", "update_available", "local_conflict"]
+    version_options: list[str] = Field(default_factory=list)
+
+
+class Stage2SkillCatalogResponse(BaseModel):
+    openai_configured: bool
+    openai_status: Literal["not_configured", "connected", "error"]
+    error_code: str | None = None
+    items: list[Stage2SkillResponse] = Field(default_factory=list)
+
+
+class Stage2SkillSyncRequest(BaseModel):
+    version: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class Stage2JobCreateRequest(BaseModel):
     selected_candidate_ids: list[str] = Field(min_length=1, max_length=10)
+    skill_source: Literal["local", "openai"] | None = None
+    skill_id: str | None = Field(default=None, min_length=1, max_length=255)
     skill_name: str | None = Field(default=None, min_length=1, max_length=128)
+    skill_version: str | None = Field(default=None, min_length=1, max_length=64)
     prompt: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
@@ -600,6 +629,9 @@ class Stage2JobResponse(BaseModel):
     campaign_id: str
     source_revision: str
     skill_name: str
+    skill_source: Literal["local", "openai"] = "local"
+    skill_id: str | None = None
+    skill_version: str | None = None
     selected_candidate_ids: list[str] = Field(default_factory=list)
     reference_count: int = 0
     status: Literal["queued", "running", "completed", "failed"]

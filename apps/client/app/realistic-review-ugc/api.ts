@@ -42,6 +42,9 @@ import type {
   SourcePlanSyncResult,
   Stage2Job,
   Stage2JobCreated,
+  Stage2Skill,
+  Stage2SkillCatalog,
+  Stage2SkillSelection,
   SupervisorResult,
 } from "./types";
 
@@ -252,9 +255,29 @@ export const listStage2Jobs = (
   );
 };
 
+export const listStage2Skills = (refresh = false, signal?: AbortSignal) =>
+  request<Stage2SkillCatalog>(
+    "/api/v1/realistic-review-ugc/stage2-skills?refresh=" + String(refresh),
+    { signal },
+  );
+
+export const syncStage2Skill = (skillId: string, version?: string | null) =>
+  request<Stage2Skill>(
+    "/api/v1/realistic-review-ugc/stage2-skills/"
+      + encodeURIComponent(skillId)
+      + "/sync",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...(version ? { version } : {}),
+      }),
+    },
+  );
+
 export const createStage2Job = (
   sourcePlanId: string,
   selectedCandidateIds: string[],
+  skill: Stage2SkillSelection,
   prompt?: string,
 ) =>
   request<Stage2JobCreated>(
@@ -265,7 +288,10 @@ export const createStage2Job = (
       method: "POST",
       body: JSON.stringify({
         selected_candidate_ids: selectedCandidateIds,
-        skill_name: "gatorhats-8869-image-studio",
+        skill_source: skill.source,
+        ...(skill.skill_id ? { skill_id: skill.skill_id } : {}),
+        skill_name: skill.skill_name,
+        ...(skill.skill_version ? { skill_version: skill.skill_version } : {}),
         ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
       }),
     },

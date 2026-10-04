@@ -27,6 +27,10 @@ from app.modules.realistic_review_ugc.model import (
     RrugcStage2JobModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.stage2_skills import (
+    Stage2SkillRegistryError,
+    resolve_stage2_skill,
+)
 from app.providers.ai.codex_image import (
     CodexImageGenRunner,
     CodexImageProviderError,
@@ -61,7 +65,10 @@ class RrugcStage2Service:
         user_id: str,
         source_plan_id: str,
         selected_candidate_ids: list[str],
+        skill_source: str | None = None,
+        skill_id: str | None = None,
         skill_name: str | None = None,
+        skill_version: str | None = None,
         prompt: str | None = None,
     ) -> tuple[RrugcStage2JobModel, bool]:
         plan = self.session.get(RrugcSourcePlanModel, source_plan_id)
@@ -90,7 +97,22 @@ class RrugcStage2Service:
                 status_code=422,
             )
 
-        resolved_skill = str(skill_name or DEFAULT_STAGE2_SKILL).strip() or DEFAULT_STAGE2_SKILL
+        try:
+            resolved = resolve_stage2_skill(
+                settings=self.settings,
+                skill_source=skill_source,
+                skill_id=skill_id,
+                skill_name=skill_name,
+                skill_version=skill_version,
+                fallback_skill_name=DEFAULT_STAGE2_SKILL,
+            )
+        except Stage2SkillRegistryError as exc:
+            raise RrugcStage2Error(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+            ) from exc
+        resolved_skill = resolved.skill_name
         codex_home = str(
             getattr(
                 self.settings,
@@ -164,7 +186,10 @@ class RrugcStage2Service:
             [
                 plan.id,
                 plan.source_revision,
+                resolved.source,
+                resolved.skill_id or "",
                 resolved_skill,
+                resolved.skill_version or "",
                 *ids,
                 (prompt or "").strip(),
             ]
@@ -181,6 +206,9 @@ class RrugcStage2Service:
             campaign_id=plan.campaign_id,
             source_revision=plan.source_revision,
             skill_name=resolved_skill,
+            skill_source=resolved.source,
+            skill_id=resolved.skill_id,
+            skill_version=resolved.skill_version,
             selected_candidate_ids_json=ids,
             selected_reference_snapshot_json=snapshot,
             prompt_text=(prompt or "").strip() or None,
