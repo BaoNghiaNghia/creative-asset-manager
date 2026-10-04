@@ -975,3 +975,123 @@
   .public-review-backdrop .public-media-nav,
   .public-review-backdrop .public-video-play{transition:none}
 }
+
+/* Instagram-style vertical audio control for Shared viewer. */
+.public-review-backdrop .public-video-volume{
+  position:absolute;
+  z-index:9;
+  right:18px;
+  bottom:18px;
+  display:flex;
+  width:34px;
+  height:132px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-direction:column;
+  gap:7px;
+  padding:10px 5px 6px;
+  border:0;
+  border-radius:18px;
+  background:rgba(22,18,20,.88);
+  color:#fff;
+  box-shadow:none;
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+.public-review-backdrop .public-video-volume-slider{
+  --public-volume-level:0%;
+  position:relative;
+  width:20px;
+  height:82px;
+  flex:0 0 82px;
+}
+.public-review-backdrop .public-video-volume-track,
+.public-review-backdrop .public-video-volume-fill{
+  position:absolute;
+  left:50%;
+  bottom:0;
+  width:7px;
+  height:100%;
+  border-radius:999px;
+  transform:translateX(-50%);
+  pointer-events:none;
+}
+.public-review-backdrop .public-video-volume-track{background:rgba(255,255,255,.34)}
+.public-review-backdrop .public-video-volume-fill{height:var(--public-volume-level);background:#fff}
+.public-review-backdrop .public-video-volume-thumb{
+  position:absolute;
+  z-index:2;
+  left:50%;
+  bottom:var(--public-volume-level);
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:#fff;
+  transform:translate(-50%,50%);
+  pointer-events:none;
+}
+.public-review-backdrop .public-video-volume-slider input{
+  position:absolute;
+  z-index:3;
+  inset:0;
+  width:100%;
+  height:100%;
+  margin:0;
+  opacity:0;
+  cursor:pointer;
+  writing-mode:vertical-lr;
+  direction:rtl;
+}
+.public-review-backdrop .public-video-volume-slider:focus-within .public-video-volume-thumb{
+  box-shadow:0 0 0 3px rgba(255,255,255,.28);
+}
+.public-review-backdrop .public-video-volume .public-video-mute{
+  position:static;
+  display:grid;
+  width:24px;
+  height:24px;
+  min-height:24px;
+  place-items:center;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:#fff;
+  box-shadow:none;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  cursor:pointer;
+}
+.public-review-backdrop .public-video-volume .public-video-mute:hover{
+  border:0;
+  background:rgba(255,255,255,.1);
+  color:#fff;
+}
+.public-review-backdrop .public-video-volume .public-video-mute:focus-visible{
+  outline:2px solid rgba(255,255,255,.9);
+  outline-offset:2px;
+}
+.public-review-backdrop .public-video-volume .public-video-mute svg{
+  width:17px;
+  height:17px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+@media(max-width:560px){
+  .public-review-backdrop .public-video-volume{
+    right:12px;
+    bottom:12px;
+    width:32px;
+    height:120px;
+    padding:9px 4px 5px;
+    border-radius:17px;
+  }
+  .public-review-backdrop .public-video-volume-slider{height:73px;flex-basis:73px}
+  .public-review-backdrop .public-video-volume-track,
+  .public-review-backdrop .public-video-volume-fill{width:6px}
+  .public-review-backdrop .public-video-volume-thumb{width:15px;height:15px}
+  .public-review-backdrop .public-video-volume .public-video-mute{width:23px;height:23px;min-height:23px}
+}
