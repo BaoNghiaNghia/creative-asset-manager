@@ -18,6 +18,9 @@ describe("video search UI wiring", () => {
     expect(source).toContain('{showVideoSearchSection && <section className="mixed-search-section"');
     expect(source).toContain('hidden={hasSearchQuery && (!showImageSearchSection || !imageResultsExpanded)}');
     expect(source).toContain('<VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />');
+    expect(source).toContain('>{videoSearch.loadingMore ? "Đang tải…" : "Hiển thị thêm"}</button>');
+    expect(source).toContain('>{explorer.searchV3.loadingMore ? "Đang tải…" : "Hiển thị thêm"}</button>');
+    expect(source).not.toContain('resetKey={`${paginationResetKey}:${explorer.searchV3.items.length}`}');
     expect(source).not.toContain('searchMediaMode === "videos"');
   });
 

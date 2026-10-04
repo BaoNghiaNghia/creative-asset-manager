@@ -89,6 +89,14 @@ class VideoSearchQueryTest(unittest.TestCase):
             query["query"]["bool"]["filter"],
         )
 
+    def test_query_uses_offset_for_explicit_video_pagination(self):
+        first = build_video_search_query(query="horse riding", tenant_id="tenant-a", limit=10)
+        second = build_video_search_query(query="horse riding", tenant_id="tenant-a", limit=10, offset=10)
+        self.assertEqual(first["size"], 10)
+        self.assertNotIn("from", first)
+        self.assertEqual(second["size"], 10)
+        self.assertEqual(second["from"], 10)
+
     def test_query_limits_top_level_source_and_preserves_inner_hits(self):
         query = build_video_search_query(query="horse riding", tenant_id="tenant-a", limit=20)
         self.assertEqual(

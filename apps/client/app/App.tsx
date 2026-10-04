@@ -870,6 +870,12 @@ export default function App() {
       : videoSearch.items.length
         ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />
         : null}
+    {videoSearch.hasMore && <button
+      type="button"
+      className="search-load-more-button"
+      onClick={videoSearch.loadMore}
+      disabled={videoSearch.loadingMore}
+    >{videoSearch.loadingMore ? "Đang tải…" : "Hiển thị thêm"}</button>}
   </>;
 
   return <main
@@ -1210,14 +1216,12 @@ export default function App() {
             onRefreshReviewLink={refreshReviewLink}
           />}
 
-          {!visualSearchOpen && explorer.searchV3.active && <LoadMoreSentinel
-            enabled={explorer.searchV3.hasMore}
-            loading={explorer.searchV3.loadingMore}
-            onLoadMore={explorer.searchV3.loadMore}
-            root={resultContainerRef.current}
-            resetKey={`${paginationResetKey}:${explorer.searchV3.items.length}`}
-          />}
-          {!visualSearchOpen && explorer.searchV3.active && explorer.searchV3.hasMore && <button type="button" className="search-load-more-button" onClick={explorer.searchV3.loadMore} disabled={explorer.searchV3.loadingMore}>Load more results</button>}
+          {!visualSearchOpen && explorer.searchV3.active && explorer.searchV3.hasMore && <button
+            type="button"
+            className="search-load-more-button"
+            onClick={explorer.searchV3.loadMore}
+            disabled={explorer.searchV3.loadingMore}
+          >{explorer.searchV3.loadingMore ? "Đang tải…" : "Hiển thị thêm"}</button>}
           {visualSearchOpen && visualSearch.hasMore && <button type="button" className="search-load-more-button" onClick={() => visualSearch.loadMore()} disabled={visualSearch.loading}>Load more similar images</button>}
           {!explorer.query.trim() && !explorer.searchV3.active && <LoadMoreSentinel
             enabled={explorer.hasMoreFolderItems}

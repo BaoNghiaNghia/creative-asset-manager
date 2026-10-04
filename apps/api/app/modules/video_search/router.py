@@ -26,7 +26,8 @@ VIDEO_SEARCH_READ = require_permission("search.read")
 
 class VideoSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
-    limit: int = Field(default=20, ge=1, le=100)
+    limit: int = Field(default=10, ge=1, le=100)
+    offset: int = Field(default=0, ge=0, le=9_900)
     external_source_id: str | None = Field(default=None, min_length=1, max_length=36)
     design_types: list[DesignType] = Field(default_factory=list, max_length=3)
 
@@ -158,6 +159,7 @@ async def video_search(
             query=query,
             tenant_id=principal.active_tenant_id,
             limit=body.limit,
+            offset=body.offset,
             external_source_id=external_source_id,
             allowed_source_asset_ids=allowed_source_asset_ids,
             design_types=body.design_types,

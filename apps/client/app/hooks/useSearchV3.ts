@@ -21,7 +21,7 @@ const emptyCapabilities: SearchCapabilities = {
 };
 const SUGGESTION_DEBOUNCE_MS = 60;
 const SUGGESTION_CACHE_TTL_MS = 20_000;
-export const SEARCH_PAGE_SIZE = 60;
+export const SEARCH_PAGE_SIZE = 40;
 
 export function isSearchV3Active(capabilitiesResolved: boolean, capabilities: SearchCapabilities): boolean {
   return capabilitiesResolved && capabilities.selected_version === "v3" && capabilities.search_available;

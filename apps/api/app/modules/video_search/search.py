@@ -41,6 +41,7 @@ def build_video_search_query(
     query: str,
     tenant_id: str,
     limit: int,
+    offset: int = 0,
     external_source_id: str | None = None,
     allowed_source_asset_ids: set[str] | None = None,
     design_types: Sequence[str] = (),
@@ -92,6 +93,7 @@ def build_video_search_query(
 
     return {
         "size": limit,
+        **({"from": offset} if offset else {}),
         "track_total_hits": True,
         "_source": {
             "includes": [
