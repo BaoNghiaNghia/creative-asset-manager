@@ -288,6 +288,7 @@ export default function App() {
 
   const [imageResultsExpanded, setImageResultsExpanded] = useState(true);
   const [videoResultsExpanded, setVideoResultsExpanded] = useState(true);
+  const [assetViewMode, setAssetViewMode] = useState<"grid" | "list">("grid");
   const explorer = useDriveExplorer(true);
   const canManageReviewLinks = explorer.applicationPermissions.includes("public_review.manage");
   const canSearchAllResources = explorer.pureViewer === null
@@ -1158,10 +1159,24 @@ export default function App() {
             </span>
             <div className="title-actions">
               <div className="view-tools" role="group" aria-label="View options">
-                <span className="layout-option-icons" aria-label="Layout options">
-                  <span title="Grid view"><GridViewIcon /></span>
-                  <span title="List view"><ListViewIcon /></span>
-                </span>
+                <div className="layout-option-icons" role="group" aria-label="Layout options">
+                  <button
+                    type="button"
+                    className={"layout-view-button " + (assetViewMode === "grid" ? "active" : "")}
+                    aria-label="Grid view"
+                    aria-pressed={assetViewMode === "grid"}
+                    title="Grid view"
+                    onClick={() => setAssetViewMode("grid")}
+                  ><GridViewIcon /></button>
+                  <button
+                    type="button"
+                    className={"layout-view-button " + (assetViewMode === "list" ? "active" : "")}
+                    aria-label="List view"
+                    aria-pressed={assetViewMode === "list"}
+                    title="List view"
+                    onClick={() => setAssetViewMode("list")}
+                  ><ListViewIcon /></button>
+                </div>
                 {explorer.selected.size > 0 && <button
                   type="button"
                   className={"details-toggle " + (detailsOpen ? "active" : "")}
@@ -1204,8 +1219,9 @@ export default function App() {
             <span>{explorer.searchError} Showing the current folder contents.</span>
             <button type="button" onClick={explorer.retrySearch}>Retry Search V3</button>
           </div>}
-          {visualSearchOpen && visualSearch.reference && visualSearch.loading ? <AssetGridSkeleton /> : explorer.loading || explorer.searching ? <AssetGridSkeleton /> : <AssetGrid
+          {visualSearchOpen && visualSearch.reference && visualSearch.loading ? <AssetGridSkeleton viewMode={assetViewMode} /> : explorer.loading || explorer.searching ? <AssetGridSkeleton viewMode={assetViewMode} /> : <AssetGrid
             items={visualSearchOpen && visualSearch.reference ? visualSearch.items : explorer.visibleItems}
+            viewMode={assetViewMode}
             path={explorer.path}
             selected={explorer.selected}
             metadataByItem={explorer.metadataByItem}

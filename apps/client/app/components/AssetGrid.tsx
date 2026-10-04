@@ -201,6 +201,29 @@ function AssetPreview({ item, fetchPriority }: { item: Asset; fetchPriority: "hi
   </span>;
 }
 
+function formatAssetListSize(item: Asset): string {
+  if (item.kind === "folder") return "—";
+  const size = Number(item.size);
+  if (!Number.isFinite(size) || size < 0) return "—";
+  if (size < 1024) return size + " B";
+  if (size < 1024 * 1024) return (size / 1024).toFixed(size >= 10 * 1024 ? 0 : 1) + " KB";
+  if (size < 1024 * 1024 * 1024) return (size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1) + " MB";
+  return (size / (1024 * 1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 * 1024 ? 0 : 1) + " GB";
+}
+
+function assetListType(item: Asset): string {
+  return item.kind === "folder"
+    ? "Folder"
+    : fileTypeLabel(getFileType(item.mime_type, item.kind, item.name));
+}
+
+function assetListModified(item: Asset): string {
+  if (!item.modified_at) return "—";
+  const value = new Date(item.modified_at);
+  if (Number.isNaN(value.getTime())) return "—";
+  return value.toLocaleDateString();
+}
+
 function AssetMetadataBar({
   item,
   metadata,
@@ -348,8 +371,9 @@ export const SEARCH_RESULT_SKELETON_COUNT = 18;
 export function AssetGridSkeleton({
   count = SEARCH_RESULT_SKELETON_COUNT,
   label = "Loading search results",
-}: { count?: number; label?: string }) {
-  return <div className="grid grid-skeleton" role="status" aria-live="polite" aria-label={label}>
+  viewMode = "grid",
+}: { count?: number; label?: string; viewMode?: "grid" | "list" }) {
+  return <div className={"grid grid-skeleton asset-" + viewMode + "-view"} role="status" aria-live="polite" aria-label={label}>
     {Array.from({ length: count }, (_, index) => <article key={index} aria-hidden="true">
       <span className="asset-card-skeleton-preview" />
       <div className="asset-card-skeleton-details">
@@ -363,6 +387,7 @@ export function AssetGridSkeleton({
 
 type Props = {
   items: Asset[];
+  viewMode?: "grid" | "list";
   path: Asset[];
   selected: Set<string>;
   metadataByItem: AssetMetadataMap;
@@ -391,6 +416,7 @@ type FolderShareMenuState = {
 
 export function AssetGrid({
   items,
+  viewMode = "grid",
   path,
   selected,
   metadataByItem,
@@ -688,7 +714,7 @@ export function AssetGrid({
 
   return <div
     ref={gridRef}
-    className="grid"
+    className={"grid asset-" + viewMode + "-view"}
     onPointerDown={startMarquee}
     onPointerMove={updateMarquee}
     onPointerUp={finishMarquee}
@@ -696,9 +722,15 @@ export function AssetGrid({
     onDragOverCapture={blockInternalDrop}
     onDropCapture={blockInternalDrop}
   >
+    {viewMode === "list" && <div className="asset-list-header" aria-hidden="true">
+      <span>Name</span>
+      <span>Type</span>
+      <span>Size</span>
+      <span>Modified</span>
+    </div>}
     {marquee && <span className="asset-selection-marquee" style={marqueeStyle} aria-hidden="true" />}
     {items.map((item, index) => <article
-      className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "")}
+      className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "") + (viewMode === "list" ? " asset-list-row" : "")}
       key={item.id}
       data-asset-id={item.id}
       draggable={item.kind !== "folder"}
@@ -752,6 +784,11 @@ export function AssetGrid({
         </div>
         <AssetMetadataBar item={item} metadata={metadataByItem[item.id]} />
       </div>
+      {viewMode === "list" && <>
+        <span className="asset-list-type">{assetListType(item)}</span>
+        <span className="asset-list-size">{formatAssetListSize(item)}</span>
+        <span className="asset-list-modified">{assetListModified(item)}</span>
+      </>}
     </article>)}
     {shareMenu && createPortal(<div
       className="folder-share-menu"

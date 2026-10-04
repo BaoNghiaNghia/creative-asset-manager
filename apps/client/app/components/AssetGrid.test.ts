@@ -136,6 +136,46 @@ describe("AssetGrid search skeleton", () => {
 });
 
 
+describe("AssetGrid file-list view", () => {
+  it("renders a real file list with desktop columns when list mode is selected", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(AssetGrid, {
+      viewMode: "list",
+      items: [
+        { provider: "google-drive", id: "folder-1", name: "Campaign assets", kind: "folder", mime_type: "application/vnd.google-apps.folder" },
+        { provider: "google-drive", id: "image-1", name: "hero.png", kind: "image", mime_type: "image/png", size: 1024 * 1024, modified_at: "2026-10-04T04:30:00Z" },
+      ],
+      path: [],
+      selected: new Set<string>(),
+      metadataByItem: {},
+      onOpen: noop,
+      onReplaceSelection: noop,
+      onPrefetch: noop,
+      onCancelPrefetch: noop,
+      onPreview: noop,
+      onDetails: noop,
+      onFocus: noop,
+      onContextMenu: noop,
+    }));
+
+    expect(markup).toContain("asset-list-view");
+    expect(markup).toContain("asset-list-header");
+    expect(markup).toContain("asset-list-row");
+    expect(markup).toContain(">Name<");
+    expect(markup).toContain(">Type<");
+    expect(markup).toContain(">Size<");
+    expect(markup).toContain(">Modified<");
+    expect(markup).toContain("1.0 MB");
+  });
+
+  it("keeps grid as the AssetGrid default", () => {
+    const markup = renderToStaticMarkup(createElement(AssetGridSkeleton));
+    expect(markup).toContain("asset-grid-view");
+    expect(markup).not.toContain("asset-list-view");
+  });
+});
+
+
 describe("AssetGrid marquee selection and drag-out", () => {
   it("selects every card intersecting a drag rectangle", () => {
     const ids = assetIdsInSelectionRectangle(
