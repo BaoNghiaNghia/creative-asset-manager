@@ -281,6 +281,15 @@ export function curateSearchSuggestions(query: string, values: SearchSuggestion[
   return result;
 }
 
+export function reviewFolderTarget(
+  item: Asset | undefined,
+  activeExternalSourceId: string | null | undefined,
+): Asset | null {
+  if (!item || item.kind !== "folder") return null;
+  const externalSourceId = item.external_source_id || activeExternalSourceId;
+  return externalSourceId ? { ...item, external_source_id: externalSourceId } : null;
+}
+
 export default function App() {
   useEffect(() => {
     return window.camDesktop?.onAuthComplete(() => window.location.reload());
@@ -400,6 +409,9 @@ export default function App() {
     && (explorer.searchV3.suggestionsLoading || suggestions.length > 0 || Boolean(explorer.searchV3.suggestionsError));
   const showSearchHistory = searchHistoryOpen && !showSuggestions && !explorer.query.trim() && searchHistory.length > 0;
   const currentFolder = explorer.path.at(-1);
+  const currentReviewFolder = canManageReviewLinks
+    ? reviewFolderTarget(currentFolder, explorer.activeExternalSourceId)
+    : null;
   const currentFolderReviewShareId = canManageReviewLinks
     ? reviewShareIdForFolder(
         currentFolder,
@@ -1167,6 +1179,21 @@ export default function App() {
                 : explorer.visibleItems.length + " images / " + videoSearch.total + " videos"}</small>}
             </span>
             <div className="title-actions">
+              {currentReviewFolder && <button
+                type="button"
+                className="review-share-button"
+                onClick={() => setReviewFolder(currentReviewFolder)}
+                aria-label={currentFolderReviewShareId ? "Manage share links" : "Create share link"}
+                title={currentFolderReviewShareId ? "Manage share links" : "Create share link"}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="18" cy="5" r="2.5" />
+                  <circle cx="6" cy="12" r="2.5" />
+                  <circle cx="18" cy="19" r="2.5" />
+                  <path d="m8.2 10.8 7.5-4.4M8.2 13.2l7.5 4.4" />
+                </svg>
+                <span>{currentFolderReviewShareId ? "Share links" : "Create share link"}</span>
+              </button>}
               <div className="view-tools" role="group" aria-label="View options">
                 <div className="layout-option-icons" role="group" aria-label="Layout options">
                   <button
@@ -1307,7 +1334,12 @@ export default function App() {
       onRename={() => renameContextItem(assetContextMenu.item)}
       onMove={() => moveContextItem(assetContextMenu.item)}
       onGenerate={assetContextMenu.item.kind === "image" && Boolean(assetContextMenu.item.internal_asset_id) ? () => openGenerator(assetContextMenu.item) : undefined}
-      onShareForReview={assetContextMenu.item.kind === "folder" && explorer.applicationPermissions.includes("public_review.manage") && Boolean(assetContextMenu.item.external_source_id) ? () => setReviewFolder(assetContextMenu.item) : undefined}
+      onShareForReview={assetContextMenu.item.kind === "folder" && canManageReviewLinks && Boolean(assetContextMenu.item.external_source_id || explorer.activeExternalSourceId)
+        ? () => {
+          const target = reviewFolderTarget(assetContextMenu.item, explorer.activeExternalSourceId);
+          if (target) setReviewFolder(target);
+        }
+        : undefined}
       onDetails={() => openDetails(assetContextMenu.item)}
       onDelete={() => deleteContextItem(assetContextMenu.item)}
       onClose={() => setAssetContextMenu(null)}

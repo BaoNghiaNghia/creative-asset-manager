@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountAvatarLabel, explorerSourceBootstrapPending, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, toggleVisualSearchOpen } from "./App";
+import { accountAvatarLabel, explorerSourceBootstrapPending, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, reviewFolderTarget, toggleVisualSearchOpen } from "./App";
 import { ASSET_DRAG_OUT_MIME } from "./components/AssetGrid";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
@@ -41,6 +41,19 @@ describe("External file drag detection", () => {
 
   it("still rejects CAM internal drag-out payloads inside the desktop shell", () => {
     expect(isExternalFileDrag(dragTransfer(["Files", ASSET_DRAG_OUT_MIME], ["file"]), true)).toBe(false);
+  });
+});
+
+describe("Review share target", () => {
+  it("uses the active source for the current folder when the path item omits external_source_id", () => {
+    const folder = asset({ kind: "folder", id: "folder-1", external_source_id: undefined });
+    expect(reviewFolderTarget(folder, "source-1")?.external_source_id).toBe("source-1");
+  });
+
+  it("preserves a folder's explicit source and rejects files", () => {
+    const folder = asset({ kind: "folder", external_source_id: "source-folder" });
+    expect(reviewFolderTarget(folder, "source-active")?.external_source_id).toBe("source-folder");
+    expect(reviewFolderTarget(asset({ kind: "image" }), "source-active")).toBeNull();
   });
 });
 
