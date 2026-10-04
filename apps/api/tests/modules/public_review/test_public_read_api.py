@@ -178,6 +178,45 @@ def test_public_search_suggestions_use_share_scope_and_exclude_private_assets(ct
  assert scope_filter["bool"]["should"]==[{"bool":{"filter":[{"term":{"source_id":"source-a"}},{"terms":{"ancestor_ids":["root"]}}]}}]
 
 
+def test_public_visual_search_is_limited_to_shared_scope(ctx):
+ assert exchange(ctx).status_code==201
+ captured={}
+ class Service:
+  def __init__(self,_settings): pass
+  def require_operation(self,_operation): return None
+ class Index:
+  def __init__(self,*_args,**_kwargs): pass
+  async def search(self,_embedding,*,scope,limit,num_candidates):
+   captured["filters"]=list(scope.access_filters)
+   assert limit==100 and num_candidates==100
+   return [
+    SimpleNamespace(document_id="visual-good",score=.93,asset_id="asset-good",source_id="source-a"),
+    SimpleNamespace(document_id="visual-private",score=.88,asset_id="asset-private",source_id="source-a"),
+   ]
+  async def aclose(self): return None
+ async def read_bytes(_file): return b"query-image"
+ async def upload_embedding(_request,_content,*,crop=None):
+  captured["crop"]=crop
+  return SimpleNamespace(descriptor=SimpleNamespace(embedding_schema_version="siglip-v1"),values=(.1,.2))
+ configured=SimpleNamespace(
+  ELASTICSEARCH_URL="http://search.test:9200",
+  ELASTICSEARCH_INDEX_PREFIX="creative-assets",
+ )
+ with patch("app.modules.public_review.public_router.get_settings",return_value=configured), \
+      patch("app.modules.public_review.public_router.visual_search_tenant_eligible",return_value=True), \
+      patch("app.modules.public_review.public_router.VisualSearchService",Service), \
+      patch("app.modules.public_review.public_router.VisualSearchElasticsearchIndex",Index), \
+      patch("app.modules.public_review.public_router._read_upload_bytes",read_bytes), \
+      patch("app.modules.public_review.public_router._upload_embedding",upload_embedding):
+  found=request(
+   ctx,"POST","/api/public/review/share-a/visual-search",
+   files={"file":("query.jpg",b"fake-image","image/jpeg")},
+  )
+ assert found.status_code==200
+ assert [item["asset_id"] for item in found.json()["items"]]==["asset-good"]
+ assert captured["filters"]==[{"bool":{"should":[{"bool":{"filter":[{"term":{"source_id":"source-a"}},{"terms":{"ancestor_ids":["root"]}}]}}],"minimum_should_match":1}}]
+
+
 def test_anonymous_annotation_origin_and_ownership(ctx):
  assert exchange(ctx).status_code==201
  path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"

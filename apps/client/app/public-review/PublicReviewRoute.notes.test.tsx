@@ -102,6 +102,35 @@ describe("Public Review folder deep links", () => {
   });
 });
 
+describe("Public Review visual search", () => {
+  it("opens image search from the Shared search bar", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: true, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({ items: [assets[0], assets[1]], next_offset: null });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const visualButton = host.querySelector<HTMLButtonElement>('button[aria-label="Search by image"]');
+    expect(visualButton).not.toBeNull();
+    await click(visualButton);
+    expect(visualButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector(".public-visual-search .visual-search-upload-card")).not.toBeNull();
+    expect(host.textContent).toContain("Search with an image");
+    expect(host.querySelector(".public-folder-header h2")?.textContent).toBe("Visual search");
+
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Public Review card comment badges", () => {
   it("shows counts on image and video comment actions and caps the visible badge at 99+", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });

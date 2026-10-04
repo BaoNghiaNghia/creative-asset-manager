@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 from secrets import token_urlsafe
 from urllib.parse import quote, urlsplit
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
@@ -26,6 +26,10 @@ from app.modules.search.query_builder import ElasticsearchQueryBuilder
 from app.modules.search.query_parser import SearchQueryParser
 from app.modules.search.runtime import API_SEARCH_INDEX_POOL
 from app.modules.search.router import _search_generation, _require_v3, _suggestion_values, search_config
+from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
+from app.modules.visual_search.eligibility import visual_search_tenant_eligible
+from app.modules.visual_search.router import _parse_crop, _read_upload_bytes, _upload_embedding
+from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
 router=APIRouter(prefix="/api/public/review",tags=["public-review"])
 COOKIE="cam_public_review_session"; TTL=timedelta(days=7)
 # Public media streams must not exhaust the small production database/provider pool.
@@ -402,6 +406,61 @@ async def search(public_share_id:str,request:Request,q:str=Query(...,min_length=
   fallback_scope=PublicShareScopeService(s)
   items=_legacy_public_search(s,fallback_scope,p,public_share_id,value,limit_value)
   s.commit();return safe({"items":items,"query":q,"search_version":"filename_fallback"})
+
+@router.post("/{public_share_id}/visual-search")
+async def visual_search(
+ public_share_id:str,
+ request:Request,
+ file:UploadFile=File(...),
+ crop:str|None=Query(default=None,max_length=512),
+ limit_value:int=Query(40,ge=1,le=40),
+):
+ p=user(request,public_share_id)
+ settings=get_settings()
+ if not visual_search_tenant_eligible(settings,p.tenant_id):
+  raise HTTPException(503,detail={"code":"visual_search_not_enabled_for_tenant","message":"Visual search is not enabled for this shared review.","retryable":False})
+ parsed_crop=_parse_crop(crop)
+ try:
+  service=VisualSearchService(settings)
+  service.require_operation("crop" if parsed_crop is not None else "upload")
+ except VisualSearchDisabledError as exc:
+  raise HTTPException(503,detail={"code":exc.code,"message":"Visual search is unavailable for this shared review.","retryable":False}) from exc
+ if not settings.ELASTICSEARCH_URL:
+  raise HTTPException(503,detail={"code":"visual_search_unavailable","message":"Visual search is temporarily unavailable.","retryable":True})
+ with SessionLocal() as s:
+  principal=user(request,public_share_id,s)
+  limit(s,request,"visual_search",30)
+  scope_service=PublicShareScopeService(s)
+  access_filter=_public_search_scope_filter(scope_service,principal)
+  s.commit()
+ try:
+  content=await _read_upload_bytes(file)
+ finally:
+  await file.close()
+ embedding=await _upload_embedding(request,content,crop=parsed_crop)
+ index=VisualSearchElasticsearchIndex(
+  ElasticsearchV3Config(settings.ELASTICSEARCH_URL,settings.ELASTICSEARCH_INDEX_PREFIX,index_generation="v3"),
+  embedding.descriptor,
+ )
+ try:
+  hits=await index.search(
+   embedding,
+   scope=VisualSearchScope(p.tenant_id,(access_filter,)),
+   limit=100,
+   num_candidates=100,
+  )
+ except ElasticsearchV3RequestError as exc:
+  raise HTTPException(503,detail={"code":"visual_search_unavailable","message":"Visual search is temporarily unavailable.","retryable":True}) from exc
+ finally:
+  await index.aclose()
+ raw_hits=[{"_id":hit.document_id,"_score":hit.score,"_source":{"asset_id":hit.asset_id,"source_id":hit.source_id}} for hit in hits]
+ with SessionLocal() as s:
+  scope_service=PublicShareScopeService(s)
+  principal=user(request,public_share_id,s)
+  items=_hydrate_public_search_hits(s,scope_service,principal,raw_hits,public_share_id,limit_value)
+  s.commit()
+ return safe({"query_kind":"upload","items":items,"limit":limit_value})
+
 async def media(public_share_id,asset_id,request,source_id,force_download:bool=False):
  # Authorization and the optional R2/CDN decision do not consume a long-lived
  # provider-stream slot. Only a real Google/OneDrive fallback occupies one.
