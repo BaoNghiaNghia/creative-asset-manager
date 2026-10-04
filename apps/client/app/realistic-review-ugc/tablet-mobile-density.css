@@ -10,7 +10,13 @@
   .rrugc-page-live-pill{gap:5px;padding:4px 7px;font-size:8.8px}
   .rrugc-page-live-pill i{width:5px;height:5px;box-shadow:0 0 0 2px #dff2e5}
 
+  .rrugc-stage-tabs{padding-inline:12px}
+  .rrugc-stage-tabs button{min-width:170px;gap:7px;padding:8px 12px}
+  .rrugc-stage-tab-number{width:22px;height:22px;flex-basis:22px;font-size:9px}
+  .rrugc-stage-tab-copy strong{font-size:9.6px}
+  .rrugc-stage-tab-copy small{font-size:7.4px}
   .rrugc-page-body{gap:9px}
+  .rrugc-stage-panel{gap:9px}
   .rrugc-card{padding:10px;border-radius:10px}
   .rrugc-section-heading{gap:8px}
   .rrugc-section-heading small{font-size:8.2px;letter-spacing:.09em}
@@ -77,7 +83,13 @@
   .rrugc-header .workspace-page-header-description{font-size:10.5px;line-height:1.38}
   .rrugc-page-live-pill{gap:4px;padding:3px 6px;font-size:8px}
 
+  .rrugc-stage-tabs{padding-inline:8px;overflow:visible}
+  .rrugc-stage-tabs button{flex:1 1 0;min-width:0;gap:6px;padding:8px 7px;justify-content:center}
+  .rrugc-stage-tab-number{width:20px;height:20px;flex-basis:20px;font-size:8px}
+  .rrugc-stage-tab-copy strong{font-size:9px}
+  .rrugc-stage-tab-copy small{font-size:6.8px}
   .rrugc-page-body{gap:9px}
+  .rrugc-stage-panel{gap:9px}
   .rrugc-card{padding:10px;border-radius:10px}
   .rrugc-section-heading{gap:7px}
   .rrugc-section-heading small{font-size:7.8px}

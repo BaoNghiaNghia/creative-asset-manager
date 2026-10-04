@@ -132,6 +132,20 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
+  it("renders Stage 1 and Stage 2 as accessible AI Operations-style tabs", () => {
+    const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain('aria-label="Realistic Review UGC stages"');
+    expect(markup).toContain('id="rrugc-tab-stage1"');
+    expect(markup).toContain('id="rrugc-tab-stage2"');
+    expect(markup).toContain("Pinterest References");
+    expect(markup).toContain("Image Generation");
+    expect(markup).toContain('aria-selected="true"');
+    expect(markup).toContain('id="rrugc-panel-stage1"');
+    expect(markup).toContain('id="rrugc-panel-stage2"');
+    expect(markup).toContain("hidden");
+  });
+
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain("Source auto scan");

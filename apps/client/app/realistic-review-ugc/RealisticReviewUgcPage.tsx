@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -25,6 +25,13 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   total: 0,
 };
 
+type RrugcStageTab = "stage1" | "stage2";
+
+const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string }> = [
+  { id: "stage1", label: "Stage 1", description: "Pinterest References" },
+  { id: "stage2", label: "Stage 2", description: "Image Generation" },
+];
+
 export function RealisticReviewUgcPage() {
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
@@ -40,6 +47,7 @@ export function RealisticReviewUgcPage() {
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
   const [error, setError] = useState("");
+  const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage1");
 
   const sourcePageCount = useMemo(
     () => Math.max(1, Math.ceil(sourcePage.total / Math.max(1, sourcePageSize))),
@@ -225,6 +233,25 @@ export function RealisticReviewUgcPage() {
     };
   }, []);
 
+  function selectStage(nextStage: RrugcStageTab) {
+    setActiveStage(nextStage);
+    window.requestAnimationFrame?.(() => {
+      document.getElementById("rrugc-tab-" + nextStage)?.focus();
+    });
+  }
+
+  function handleStageTabsKeyDown(event: KeyboardEvent<HTMLElement>) {
+    const currentIndex = RRUGC_STAGE_TABS.findIndex(item => item.id === activeStage);
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % RRUGC_STAGE_TABS.length;
+    else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + RRUGC_STAGE_TABS.length) % RRUGC_STAGE_TABS.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = RRUGC_STAGE_TABS.length - 1;
+    else return;
+    event.preventDefault();
+    selectStage(RRUGC_STAGE_TABS[nextIndex].id);
+  }
+
   return <main className="rrugc-shell rrugc-source-first-shell">
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>UGC reference automation</small></span></div>
@@ -238,49 +265,93 @@ export function RealisticReviewUgcPage() {
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Source auto scan</span>}
         actions={<WorkspaceBackToAssets />}
       />
+      <div className="rrugc-stage-tabs-shell">
+        <nav
+          className="ops-tabs rrugc-stage-tabs"
+          aria-label="Realistic Review UGC stages"
+          role="tablist"
+          onKeyDown={handleStageTabsKeyDown}
+        >
+          {RRUGC_STAGE_TABS.map(item => (
+            <button
+              key={item.id}
+              id={"rrugc-tab-" + item.id}
+              type="button"
+              role="tab"
+              aria-selected={activeStage === item.id}
+              aria-controls={"rrugc-panel-" + item.id}
+              tabIndex={activeStage === item.id ? 0 : -1}
+              className={activeStage === item.id ? "active" : ""}
+              onClick={() => selectStage(item.id)}
+            >
+              <span className="rrugc-stage-tab-number" aria-hidden="true">{item.id === "stage1" ? "1" : "2"}</span>
+              <span className="rrugc-stage-tab-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
+            </button>
+          ))}
+        </nav>
+      </div>
+
       <div className="rrugc-page-body rrugc-source-first-body">
         {error && <div className="rrugc-error" role="alert">{error}</div>}
 
-        <div id="rrugc-scout" className="rrugc-anchor-section rrugc-source-scout-panel">
-          <PinterestAutoScoutPanel onError={setError} />
-        </div>
+        <section
+          id="rrugc-panel-stage1"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-stage1"
+          tabIndex={activeStage === "stage1" ? 0 : -1}
+          hidden={activeStage !== "stage1"}
+        >
+          <div id="rrugc-scout" className="rrugc-anchor-section rrugc-source-scout-panel">
+            <PinterestAutoScoutPanel onError={setError} />
+          </div>
 
-        <SourcePlanTable
-          plans={sourcePage.items}
-          total={sourcePage.total}
-          page={sourcePageNumber}
-          pageSize={sourcePageSize}
-          query={sourceQuery}
-          sortBy={sourceSortBy}
-          sortDirection={sourceSortDirection}
-          syncing={syncingSourcePlans}
-          reviewingReferenceIds={reviewingReferenceIds}
-          message={sourcePlanMessage}
-          onSync={() => void syncDriveSourcePlans()}
-          onPageChange={setSourcePageNumber}
-          onPageSizeChange={value => {
-            setSourcePageNumber(1);
-            setSourcePageSize(value);
-          }}
-          onQueryChange={setSourceQuery}
-          onSortByChange={value => {
-            setSourcePageNumber(1);
-            setSourceSortBy(value);
-          }}
-          onSortDirectionChange={value => {
-            setSourcePageNumber(1);
-            setSourceSortDirection(value);
-          }}
-          onSetReferenceFeedback={(plan, reference, label) => void setSourceReferenceFeedback(plan, reference, label)}
-        />
+          <SourcePlanTable
+            plans={sourcePage.items}
+            total={sourcePage.total}
+            page={sourcePageNumber}
+            pageSize={sourcePageSize}
+            query={sourceQuery}
+            sortBy={sourceSortBy}
+            sortDirection={sourceSortDirection}
+            syncing={syncingSourcePlans}
+            reviewingReferenceIds={reviewingReferenceIds}
+            message={sourcePlanMessage}
+            onSync={() => void syncDriveSourcePlans()}
+            onPageChange={setSourcePageNumber}
+            onPageSizeChange={value => {
+              setSourcePageNumber(1);
+              setSourcePageSize(value);
+            }}
+            onQueryChange={setSourceQuery}
+            onSortByChange={value => {
+              setSourcePageNumber(1);
+              setSourceSortBy(value);
+            }}
+            onSortDirectionChange={value => {
+              setSourcePageNumber(1);
+              setSourceSortDirection(value);
+            }}
+            onSetReferenceFeedback={(plan, reference, label) => void setSourceReferenceFeedback(plan, reference, label)}
+          />
+        </section>
 
-        <Stage2JobTable
-          plans={sourcePage.items}
-          jobs={stage2Jobs}
-          creatingPlanIds={creatingStage2PlanIds}
-          message={stage2Message}
-          onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
-        />
+        <section
+          id="rrugc-panel-stage2"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-stage2"
+          tabIndex={activeStage === "stage2" ? 0 : -1}
+          hidden={activeStage !== "stage2"}
+        >
+          <Stage2JobTable
+            plans={sourcePage.items}
+            jobs={stage2Jobs}
+            creatingPlanIds={creatingStage2PlanIds}
+            message={stage2Message}
+            onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
+          />
+        </section>
       </div>
     </section>
   </main>;
