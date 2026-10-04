@@ -14,7 +14,7 @@
   --cam-primary-soft:#edf3ff;
   --cam-radius:12px;
   --cam-shadow:0 8px 24px rgb(30 51 89 / 5%);
-  --cam-asset-card-width:148px;
+  --cam-asset-card-width:136px;
   --cam-asset-grid-gap:12px;
 }
 
@@ -50,9 +50,9 @@ button,a{-webkit-tap-highlight-color:transparent}
   background:#fff;
 }
 .product-shell .grid{
-  grid-template-columns:repeat(auto-fill,var(--cam-asset-card-width));
+  grid-template-columns:repeat(auto-fill,minmax(min(var(--cam-asset-card-width),100%),1fr));
   gap:var(--cam-asset-grid-gap);
-  justify-content:start;
+  justify-content:stretch;
   align-content:start;
 }
 .product-shell .brand{
@@ -308,7 +308,7 @@ button,a{-webkit-tap-highlight-color:transparent}
   .product-shell .search-tools{width:100%}
   .product-shell .search-box{width:100%;max-width:none}
   .product-shell .header-sources{max-width:100%;overflow-x:auto}
-  .product-shell .grid{grid-template-columns:repeat(auto-fill,var(--cam-asset-card-width));gap:var(--cam-asset-grid-gap);padding:0 18px 90px}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(min(var(--cam-asset-card-width),100%),1fr));gap:var(--cam-asset-grid-gap);padding:0 18px 90px}
   .product-shell .title{padding-inline:18px}
   .product-shell nav{padding-inline:18px}
   .product-shell .source-onboarding{margin:14px 18px 20px;padding:26px 24px 30px}
@@ -445,7 +445,7 @@ button,a{-webkit-tap-highlight-color:transparent}
   .rrugc-page-body,.video-generation-page-body{padding-left:max(20px,env(safe-area-inset-left))!important;padding-right:max(20px,env(safe-area-inset-right))!important}
   .product-shell .explorer-content>header{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
   .product-shell .source-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .product-shell .grid{grid-template-columns:repeat(auto-fill,var(--cam-asset-card-width))}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(min(var(--cam-asset-card-width),100%),1fr))}
   .ops-kpis,.ops-cost-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ops-charts{grid-template-columns:1fr}
   .ops-provider-grid,.ops-config-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -460,7 +460,7 @@ button,a{-webkit-tap-highlight-color:transparent}
 
 @media(min-width:900px) and (max-width:1024px) and (orientation:landscape){
   .product-shell .source-cards{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .product-shell .grid{grid-template-columns:repeat(auto-fill,var(--cam-asset-card-width))}
+  .product-shell .grid{grid-template-columns:repeat(auto-fill,minmax(min(var(--cam-asset-card-width),100%),1fr))}
 }
 
 /* On phones the workspace nav becomes an app-style bottom rail. */
