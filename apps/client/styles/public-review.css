@@ -895,3 +895,83 @@
   .public-card-copy b,.public-folder-card .public-card-copy b{font-size:12px}
   .public-card-copy small,.public-folder-card .public-card-copy small{font-size:9.5px}
 }
+
+/* Instagram-style media controls for Shared viewer. */
+.public-review-backdrop .public-media-nav{
+  width:56px;
+  height:56px;
+  min-height:56px!important;
+  border:0!important;
+  border-radius:50%!important;
+  background:rgba(35,38,44,.9)!important;
+  color:#fff!important;
+  box-shadow:none;
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  cursor:pointer;
+  transition:background .16s ease,opacity .16s ease,transform .16s ease;
+}
+.public-review-backdrop .public-media-nav:hover:not(:disabled){
+  background:rgba(47,51,58,.96)!important;
+  transform:translateY(-50%) scale(1.035);
+}
+.public-review-backdrop .public-media-nav:active:not(:disabled){
+  transform:translateY(-50%) scale(.96);
+}
+.public-review-backdrop .public-media-nav:focus-visible{
+  outline:2px solid rgba(255,255,255,.9);
+  outline-offset:3px;
+}
+.public-review-backdrop .public-media-nav svg{
+  width:24px;
+  height:24px;
+  fill:none;
+  stroke:#fff;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.public-review-backdrop .public-media-nav-previous{left:20px}
+.public-review-backdrop .public-media-nav-next{right:20px}
+.public-review-backdrop .public-video-play{
+  width:76px;
+  height:76px;
+  border:0;
+  border-radius:50%;
+  background:rgba(39,31,27,.72);
+  color:#fff;
+  box-shadow:none;
+  backdrop-filter:blur(7px);
+  -webkit-backdrop-filter:blur(7px);
+  transition:background .16s ease,transform .16s ease;
+}
+.public-review-backdrop .public-video-play:hover{
+  background:rgba(39,31,27,.84);
+  transform:scale(1.035);
+}
+.public-review-backdrop .public-video-play:active{transform:scale(.96)}
+.public-review-backdrop .public-video-play:focus-visible{
+  outline:2px solid rgba(255,255,255,.9);
+  outline-offset:4px;
+}
+.public-review-backdrop .public-video-play svg{
+  width:31px;
+  height:31px;
+  margin-left:4px;
+  fill:#fff;
+}
+@media(max-width:560px){
+  .public-review-backdrop .public-media-nav{
+    width:48px;
+    height:48px;
+    min-height:48px!important;
+  }
+  .public-review-backdrop .public-media-nav-previous{left:12px}
+  .public-review-backdrop .public-media-nav-next{right:12px}
+  .public-review-backdrop .public-video-play{width:68px;height:68px}
+  .public-review-backdrop .public-video-play svg{width:28px;height:28px}
+}
+@media(prefers-reduced-motion:reduce){
+  .public-review-backdrop .public-media-nav,
+  .public-review-backdrop .public-video-play{transition:none}
+}
