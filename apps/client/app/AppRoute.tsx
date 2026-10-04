@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { fetchAccessIdentity } from "../features/access_management";
 import App from "./App";
+import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
 import type { WorkspaceRoute } from "./components/WorkspaceNavigation";
@@ -72,7 +73,11 @@ export function AppRoute() {
   const workspaceRoute = workspaceRouteForApplicationRoute(route);
   const routeAllowed = !requiredPermission || Boolean(routePermissions?.includes(requiredPermission));
   const page = requiredPermission && routePermissions === null
-    ? <main className="state" aria-busy="true">Checking permissions...</main>
+    ? <CenteredLoadingState
+      kind="permissions"
+      title="Checking permissions…"
+      detail="Verifying your workspace access before opening this page."
+    />
     : !routeAllowed
       ? <main className="state"><p>This workspace is not available for your role.</p><a href="/">Return to Asset Explorer</a></main>
       : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
@@ -83,5 +88,9 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}<Suspense fallback={<main className="state" aria-busy="true">Loading application...</main>}>{page}</Suspense><DesktopUpdateNotice /></>;
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}<Suspense fallback={<CenteredLoadingState
+    kind="application"
+    title="Loading application…"
+    detail="Preparing the workspace and interface."
+  />}>{page}</Suspense><DesktopUpdateNotice /></>;
 }

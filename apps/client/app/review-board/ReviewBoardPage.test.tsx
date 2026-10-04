@@ -124,7 +124,7 @@ describe("Review Board boundary", () => {
 
   it("shows an identity loading state before rendering board data", () => {
     expect(renderToStaticMarkup(<ReviewBoardPage />)).toContain(
-      "Loading your Review Board access",
+      "Checking Review Board access",
     );
   });
 });

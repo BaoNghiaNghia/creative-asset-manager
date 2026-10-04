@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAccessIdentity } from "../../features/access_management";
+import { CenteredLoadingState } from "../components/CenteredLoadingState";
 import { BrandIcon } from "../components/Icons";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
@@ -595,11 +596,11 @@ export function ReviewBoardPage() {
   );
 
   if (permissions === null && !identityError) {
-    return (
-      <main className="review-board-state" aria-busy="true">
-        Loading your Review Board access…
-      </main>
-    );
+    return <CenteredLoadingState
+      kind="permissions"
+      title="Checking Review Board access…"
+      detail="Verifying your review permissions and workspace membership."
+    />;
   }
 
   if (identityError) {

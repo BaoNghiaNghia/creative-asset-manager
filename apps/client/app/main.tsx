@@ -9,6 +9,7 @@ import "@fontsource/be-vietnam-pro/800.css";
 import "@fontsource/be-vietnam-pro/900.css";
 import { AppRoute } from "./AppRoute";
 import "../styles/global.css";
+import "../styles/centered-loading.css";
 import "../styles/ai-operations.css";
 import "../styles/access-management.css";
 import "../styles/inventory.css";

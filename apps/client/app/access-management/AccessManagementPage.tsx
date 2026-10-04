@@ -6,6 +6,7 @@ import {
   type AccessFilters, type AccessIdentity, type AccessMember, type AccessPermission,
   type AccessRole, type Page,
 } from "../../features/access_management";
+import { CenteredLoadingState } from "../components/CenteredLoadingState";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -117,7 +118,12 @@ export function accessStateForError(error: unknown): AccessPageState {
 }
 
 function AccessState({ state, message, onRetry }: { state: AccessPageState; message?: string; onRetry: () => void }) {
-  if (state === "loading") return <div className="access-state" aria-busy="true"><i /><i /><span>Loading access settings…</span></div>;
+  if (state === "loading") return <CenteredLoadingState
+    kind="permissions"
+    layout="panel"
+    title="Loading access settings…"
+    detail="Checking workspace membership, roles, and effective permissions."
+  />;
   const copy = {
     unauthenticated: ["Sign in required", "Sign in to manage workspace access."],
     "no-tenant": ["No active tenant", "Ask an administrator to add you to a tenant, then sign in again."],
