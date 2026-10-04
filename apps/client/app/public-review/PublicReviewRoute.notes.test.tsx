@@ -93,6 +93,7 @@ describe("Public Review folder deep links", () => {
       await Promise.resolve();
     });
     expect(host.querySelector(".public-folder-header h2")?.textContent).toBe("Root");
+    expect(host.querySelector(".public-folder-card .asset-file-icon--folder")?.textContent).toBe("📁");
 
     await click(host.querySelector(".public-folder-card"));
     expect(pushState).toHaveBeenLastCalledWith(null, "", "/share/share-1/folder/nested");

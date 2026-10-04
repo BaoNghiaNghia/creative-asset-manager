@@ -853,6 +853,7 @@
   font-weight:400;
 }
 .public-folder-card .public-status{display:none}
+.public-folder-card .asset-file-icon--folder{font-size:36px}
 .public-grid>article.public-card.public-media-card{
   min-height:0;
   aspect-ratio:1/1;
