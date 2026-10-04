@@ -18,7 +18,7 @@ import { VisualSearchPanel } from "./components/VisualSearchPanel";
 import { VisualSearchIcon } from "./components/VisualSearchIcon";
 import { DriveEmpty } from "./components/DriveEmpty";
 import { EmptyAssets } from "./components/EmptyAssets";
-import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, SidebarIcon, sourceFolderBrand } from "./components/Icons";
+import { AmazonLogo, amazonAsin, EtsyLogo, etsyListingId, GridViewIcon, ListViewIcon, SidebarIcon, sourceFolderBrand } from "./components/Icons";
 import { MediaViewer } from "./components/MediaViewer";
 import { FolderNoteDrawer } from "./components/FolderNoteDrawer";
 import { Sidebar } from "./components/Sidebar";
@@ -1138,7 +1138,10 @@ export default function App() {
             </span>
             <div className="title-actions">
               <div className="view-tools" role="group" aria-label="View options">
-                <b aria-label="Layout options">▦　☷</b>
+                <span className="layout-option-icons" aria-label="Layout options">
+                  <span title="Grid view"><GridViewIcon /></span>
+                  <span title="List view"><ListViewIcon /></span>
+                </span>
                 {explorer.selected.size > 0 && <button
                   type="button"
                   className={"details-toggle " + (detailsOpen ? "active" : "")}

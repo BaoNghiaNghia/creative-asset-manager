@@ -939,7 +939,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 /* Google Drive-style file information inspector */
 .shell>section{transition:margin-right .2s ease}
 .shell.details-open>section{margin-right:400px}
-.view-tools{display:flex;align-items:center;gap:8px;color:#243244;font-size:13px;white-space:nowrap}
+.view-tools{display:flex;align-items:center;gap:8px;color:#243244;font-size:13px;white-space:nowrap}.layout-option-icons{display:inline-flex;align-items:center;gap:4px}.layout-option-icons>span{display:grid;width:28px;height:28px;place-items:center;border:1px solid transparent;border-radius:7px;color:#56657a;transition:background .15s ease,border-color .15s ease,color .15s ease}.layout-option-icons>span:hover{border-color:#d6e2f4;background:#f3f7ff;color:#245bd0}.layout-view-icon{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .details-toggle{display:grid;width:30px;height:30px;place-items:center;padding:0;border:1px solid #d6dee9;border-radius:50%;background:#fff;color:#506176;cursor:pointer;font-weight:800;font-family:Georgia,serif;transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease}
 .details-toggle:hover{border-color:#9eb4dc;background:#f3f7ff;color:#2457b8}
 .details-toggle.active{border-color:#b6cbf5;background:#dceafe;color:#1e55ba;box-shadow:0 0 0 3px #dceafe88}

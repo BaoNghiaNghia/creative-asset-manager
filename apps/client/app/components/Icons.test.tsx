@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { amazonAsin, BrandIcon, etsyListingId, sourceFolderBrand } from "./Icons";
+import { amazonAsin, BrandIcon, etsyListingId, GridViewIcon, ListViewIcon, SidebarIcon, sourceFolderBrand } from "./Icons";
 
 describe("BrandIcon", () => {
   it("renders the bundled Creative Asset Manager artwork without a remote dependency", () => {
@@ -8,6 +8,24 @@ describe("BrandIcon", () => {
     expect(markup).toContain('class="brand-logo"');
     expect(markup).toContain("<img");
     expect(markup).toContain("/assets/logos/creative-assets-icon.png");
+  });
+});
+
+describe("system UI icons", () => {
+  it("renders the redesigned sidebar collapse icon with panel and chevron geometry", () => {
+    const markup = renderToStaticMarkup(<SidebarIcon open />);
+    expect(markup).toContain('viewBox="0 0 24 24"');
+    expect(markup).toContain('width="17.5"');
+    expect(markup).toContain("15.2 8.4");
+  });
+
+  it("renders vector grid and list view icons instead of text glyphs", () => {
+    const grid = renderToStaticMarkup(<GridViewIcon />);
+    const list = renderToStaticMarkup(<ListViewIcon />);
+    expect(grid).toContain('class="layout-view-icon"');
+    expect(grid).toContain("<rect");
+    expect(list).toContain('class="layout-view-icon"');
+    expect((list.match(/<circle/g) || []).length).toBe(3);
   });
 });
 

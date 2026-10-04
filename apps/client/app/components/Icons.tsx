@@ -73,9 +73,25 @@ export function SourceFolderIcon({ name }: { name: string }) {
 }
 
 export function SidebarIcon({ open }: { open: boolean }) {
-  return <svg viewBox="0 0 18 18" aria-hidden="true">
-    <rect x="2.25" y="3" width="13.5" height="12" rx="1.5" />
-    <path d="M6.25 3v12" />
-    <path d={open ? "m11 6-3 3 3 3" : "m9 6 3 3-3 3"} />
+  return <svg viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3.25" y="4" width="17.5" height="16" rx="3" />
+    <path d="M8.2 4.25v15.5" />
+    <path d={open ? "m15.2 8.4-3.6 3.6 3.6 3.6" : "m12.8 8.4 3.6 3.6-3.6 3.6"} />
+  </svg>;
+}
+
+export function GridViewIcon() {
+  return <svg className="layout-view-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3.5" y="3.5" width="17" height="17" rx="2.6" />
+    <path d="M8.7 3.8v16.4M15.3 3.8v16.4M3.8 8.7h16.4M3.8 15.3h16.4" />
+  </svg>;
+}
+
+export function ListViewIcon() {
+  return <svg className="layout-view-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9.2 6.5h10.3M9.2 12h10.3M9.2 17.5h10.3" />
+    <circle cx="5.25" cy="6.5" r="1.15" />
+    <circle cx="5.25" cy="12" r="1.15" />
+    <circle cx="5.25" cy="17.5" r="1.15" />
   </svg>;
 }
