@@ -1342,6 +1342,7 @@ class RrugcAutoScoutService:
                 "campaign_id": selected.id,
                 "run_id": run.id,
                 "source_plan_only": source_plan_only,
+                "priority_policy": "scarcity_first_v1",
                 "progress": int(progress),
                 "pipeline_count": int(pipeline_count),
                 "target_count": int(selected.target_count),

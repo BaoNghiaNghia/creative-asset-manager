@@ -1544,6 +1544,80 @@ def test_auto_scout_needs_login_releases_lease_and_requeues(database):
 
 
 
+def test_auto_scout_claim_prioritizes_campaign_with_scarcer_pipeline(api, database):
+    agent_response = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Scarcity Priority Agent"},
+    )
+    assert agent_response.status_code == 201
+    agent = agent_response.json()
+
+    richer_response = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Richer campaign",
+            "query": "embroidered cap lifestyle",
+            "target_count": 10,
+            "max_scroll_batches": 1,
+            "auto_import": True,
+            "auto_scout": True,
+            "scan_interval_seconds": 180,
+        },
+    )
+    assert richer_response.status_code == 201
+    richer_id = richer_response.json()["id"]
+
+    sparse_response = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Sparse campaign",
+            "query": "embroidered cap candid",
+            "target_count": 10,
+            "max_scroll_batches": 1,
+            "auto_import": True,
+            "auto_scout": True,
+            "scan_interval_seconds": 180,
+        },
+    )
+    assert sparse_response.status_code == 201
+    sparse_id = sparse_response.json()["id"]
+
+    with database.begin() as session:
+        richer = session.get(RrugcCampaignModel, richer_id)
+        sparse = session.get(RrugcCampaignModel, sparse_id)
+        assert richer is not None
+        assert sparse is not None
+        due = datetime.now(timezone.utc) - timedelta(minutes=5)
+        richer.scan_next_at = due - timedelta(minutes=1)
+        sparse.scan_next_at = due
+        for index in range(3):
+            session.add(
+                RrugcCandidateModel(
+                    tenant_id="tenant-a",
+                    campaign_id=richer_id,
+                    source_key=f"richer-{index}",
+                    pin_url=f"https://www.pinterest.com/pin/richer-{index}/",
+                    image_url=f"https://i.pinimg.com/736x/richer-{index}.jpg",
+                    status="drive_ready",
+                    analysis_revision=1,
+                )
+            )
+
+    claim = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent['id']}/claim",
+        headers={
+            "Authorization": "Bearer " + agent["agent_token"],
+            "X-Scout-Version": "rrugc-scout-v3",
+            "X-Scout-Machine": "scarcity-priority-test",
+        },
+    )
+    assert claim.status_code == 200
+    payload = claim.json()
+    assert payload["campaign_id"] == sparse_id
+    assert payload["progress"] == 0
+    assert payload["pipeline_count"] == 0
+
+
 def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
     agent_response = api.post(
         "/api/v1/realistic-review-ugc/scout-agents",

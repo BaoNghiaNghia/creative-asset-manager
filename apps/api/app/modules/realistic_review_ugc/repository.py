@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from sqlalchemy import delete, exists, func, or_, select, true
+from sqlalchemy import case, delete, exists, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import (
@@ -943,6 +943,57 @@ class RrugcRepository:
             if source_plan_only
             else true()
         )
+        manual_label = (
+            RrugcCandidateModel.ai_signal_json["reference_manual_label"].as_string()
+        )
+        usable_candidate = or_(
+            RrugcCandidateModel.ai_signal_json.is_(None),
+            manual_label.is_(None),
+            manual_label.notin_(("bad", "ai")),
+        )
+
+        def usable_count_for(statuses: tuple[str, ...]):
+            return (
+                select(func.count(RrugcCandidateModel.id))
+                .where(
+                    RrugcCandidateModel.tenant_id == tenant_id,
+                    RrugcCandidateModel.campaign_id == RrugcCampaignModel.id,
+                    RrugcCandidateModel.status.in_(statuses),
+                    usable_candidate,
+                )
+                .correlate(RrugcCampaignModel)
+                .scalar_subquery()
+            )
+
+        # Scarcity-first scheduling prevents a small set of campaigns from
+        # repeatedly consuming Scout runs while other source groups still have
+        # zero references. Pipeline count is the primary signal because rows
+        # already waiting for AI/import are real in-flight capacity and should
+        # not trigger more Pinterest work until sparser groups are served.
+        auto_import_pipeline = usable_count_for(
+            (
+                "analysis_queued",
+                "analyzing",
+                "approved",
+                "import_queued",
+                "importing",
+                "drive_ready",
+            )
+        )
+        manual_pipeline = usable_count_for(
+            ("analysis_queued", "analyzing", "approved")
+        )
+        drive_ready_count = usable_count_for(("drive_ready",))
+        approved_count = usable_count_for(("approved",))
+        pipeline_count = case(
+            (RrugcCampaignModel.auto_import.is_(True), auto_import_pipeline),
+            else_=manual_pipeline,
+        )
+        progress_count = case(
+            (RrugcCampaignModel.auto_import.is_(True), drive_ready_count),
+            else_=approved_count,
+        )
+
         return list(
             self.session.scalars(
                 select(RrugcCampaignModel)
@@ -961,6 +1012,9 @@ class RrugcRepository:
                     ),
                 )
                 .order_by(
+                    pipeline_count.asc(),
+                    progress_count.asc(),
+                    RrugcCampaignModel.scan_last_started_at.asc().nullsfirst(),
                     RrugcCampaignModel.scan_next_at.asc().nullsfirst(),
                     RrugcCampaignModel.updated_at.asc(),
                     RrugcCampaignModel.id.asc(),
