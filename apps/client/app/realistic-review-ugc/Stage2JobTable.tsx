@@ -16,6 +16,7 @@ import type {
 } from "./types";
 
 const MAX_REFS = 10;
+const MAX_OUTPUT_SLOTS = 10;
 const FALLBACK_SKILL_NAME = "gatorhats-8869-image-studio";
 
 const FALLBACK_SKILL: Stage2Skill = {
@@ -75,20 +76,37 @@ function eligibleReference(reference: SourcePlanReferencePreview) {
   return reference.status === "drive_ready" && !reference.rejected;
 }
 
-function latestJobsByPlan(jobs: Stage2Job[]) {
-  const result = new Map<string, Stage2Job>();
+function recentJobsByPlan(jobs: Stage2Job[]) {
+  const result = new Map<string, Stage2Job[]>();
   for (const job of jobs) {
-    if (!result.has(job.source_plan_id)) result.set(job.source_plan_id, job);
+    const current = result.get(job.source_plan_id) || [];
+    if (current.length >= MAX_OUTPUT_SLOTS) continue;
+    current.push(job);
+    result.set(job.source_plan_id, current);
+  }
+  for (const [planId, planJobs] of result) {
+    result.set(planId, [...planJobs].reverse());
   }
   return result;
 }
 
-function jobLabel(job: Stage2Job | undefined) {
-  if (!job) return "Not queued";
+function jobLabel(job: Stage2Job) {
   if (job.status === "queued") return "Queued";
   if (job.status === "running") return "Generating";
   if (job.status === "completed") return "Completed";
   return "Failed";
+}
+
+function outputSummary(jobs: Stage2Job[]) {
+  const completed = jobs.filter(job => job.status === "completed").length;
+  const failed = jobs.filter(job => job.status === "failed").length;
+  const active = jobs.filter(job => job.status === "queued" || job.status === "running").length;
+  return {
+    completed,
+    failed,
+    active,
+    remaining: Math.max(0, MAX_OUTPUT_SLOTS - jobs.length),
+  };
 }
 
 function skillKey(skill: Stage2Skill) {
@@ -156,7 +174,7 @@ export function Stage2JobTable({
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [syncingSkillKey, setSyncingSkillKey] = useState("");
   const [skillMessage, setSkillMessage] = useState("");
-  const latest = useMemo(() => latestJobsByPlan(jobs), [jobs]);
+  const recentJobs = useMemo(() => recentJobsByPlan(jobs), [jobs]);
   const stage2Plans = useMemo(
     () => plans.filter(plan => (
       plan.status === "ready"
@@ -275,8 +293,8 @@ export function Stage2JobTable({
     <div className="rrugc-section-heading rrugc-stage2-heading">
       <div>
         <small>EMBROIDERY GROUP → PINTEREST REFS → SKILL</small>
-        <h2>Embroidery groups → generation jobs</h2>
-        <p>The same embroidery grouping from Stage 1 is preserved here. Pick up to 10 Drive-ready Pinterest references per group, choose a pinned skill/version, then generate one master image.</p>
+        <h2>Embroidery groups → image generation</h2>
+        <p>Stage 1 grouping is preserved. Pick up to 10 Drive-ready references, confirm the skill, then track the latest 10 generation runs per embroidery group.</p>
       </div>
       <div className="rrugc-stage2-registry-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} refs / job</span>
@@ -315,20 +333,29 @@ export function Stage2JobTable({
           <tr>
             <th>Embroidery group</th>
             <th>Pinterest refs · pick up to 10</th>
-            <th>Skill / pinned version</th>
-            <th>Job / output</th>
+            <th>Skill</th>
+            <th>Generation runs · latest 10</th>
           </tr>
         </thead>
         <tbody>
           {stage2Plans.map(plan => {
             const available = plan.reference_previews.filter(eligibleReference);
             const selected = selectedByPlan[plan.id] || [];
-            const job = latest.get(plan.id);
-            const busy = creatingPlanIds.has(plan.id) || job?.status === "queued" || job?.status === "running";
+            const planJobs = recentJobs.get(plan.id) || [];
+            const runs = outputSummary(planJobs);
+            const busy = creatingPlanIds.has(plan.id)
+              || planJobs.some(job => job.status === "queued" || job.status === "running");
             const skill = selectedSkill(plan.id);
             const version = selectedVersion(plan.id, skill);
             const canGenerate = skill.ready
               && (skill.source === "local" || version === skill.synced_version);
+            const skillIssue = skill.sync_state === "local_conflict"
+              ? "Local skill name conflict"
+              : !skill.ready
+                ? "Skill needs sync"
+                : skill.source === "openai" && version !== skill.synced_version
+                  ? "Selected version is not synced"
+                  : "";
             const versionOptions = skill.version_options.length
               ? skill.version_options
               : version ? [version] : [];
@@ -369,41 +396,49 @@ export function Stage2JobTable({
                 </div>
               </td>
               <td className="rrugc-stage2-skill">
-                <label>
-                  <small>Skill</small>
-                  <select
-                    value={skillKey(skill)}
-                    disabled={busy}
-                    onChange={event => selectSkill(plan.id, event.target.value)}
-                  >
-                    {catalog.items.map(item => <option
-                      key={skillKey(item)}
-                      value={skillKey(item)}
+                <div className={"rrugc-stage2-skill-state " + (canGenerate ? "is-ready" : "is-error")}>
+                  <span aria-hidden="true">{canGenerate ? "✓" : "!"}</span>
+                  <div>
+                    <strong>{skill.display_name || skill.skill_name}</strong>
+                    <small>{canGenerate ? "Skill ready" : skillIssue || "Skill unavailable"}</small>
+                  </div>
+                </div>
+                <div className="rrugc-stage2-skill-controls">
+                  <label>
+                    <small>Skill</small>
+                    <select
+                      value={skillKey(skill)}
+                      disabled={busy}
+                      onChange={event => selectSkill(plan.id, event.target.value)}
                     >
-                      {item.source === "openai" ? "OpenAI · " : "Local · "}
-                      {item.display_name || item.skill_name}
-                      {!item.ready ? " · needs sync" : ""}
-                    </option>)}
-                  </select>
-                </label>
-                <label>
-                  <small>Version</small>
-                  <select
-                    value={version || ""}
-                    disabled={busy || versionOptions.length <= 1}
-                    onChange={event => setSkillVersionByPlan(current => ({
-                      ...current,
-                      [plan.id]: event.target.value,
-                    }))}
-                  >
-                    {versionOptions.length === 0 && <option value="">Local current</option>}
-                    {versionOptions.map(value => <option key={value} value={value}>
-                      {versionLabel(skill, value)}
-                    </option>)}
-                  </select>
-                </label>
-                <strong>{"$" + skill.skill_name}</strong>
-                <small>{skillStatus(skill)}</small>
+                      {catalog.items.map(item => <option
+                        key={skillKey(item)}
+                        value={skillKey(item)}
+                      >
+                        {item.source === "openai" ? "OpenAI · " : "Local · "}
+                        {item.display_name || item.skill_name}
+                        {!item.ready ? " · needs sync" : ""}
+                      </option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <small>Version</small>
+                    <select
+                      value={version || ""}
+                      disabled={busy || versionOptions.length <= 1}
+                      onChange={event => setSkillVersionByPlan(current => ({
+                        ...current,
+                        [plan.id]: event.target.value,
+                      }))}
+                    >
+                      {versionOptions.length === 0 && <option value="">Local current</option>}
+                      {versionOptions.map(value => <option key={value} value={value}>
+                        {versionLabel(skill, value)}
+                      </option>)}
+                    </select>
+                  </label>
+                </div>
+                <small className="rrugc-stage2-skill-id">{"$" + skill.skill_name} · {skillStatus(skill)}</small>
                 {skill.source === "openai" && !canGenerate && skill.sync_state !== "local_conflict" && <button
                   type="button"
                   className="rrugc-stage2-sync"
@@ -414,7 +449,7 @@ export function Stage2JobTable({
                     ? "Syncing…"
                     : "Sync " + (version ? "v" + version : "skill")}
                 </button>}
-                {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Local skill with the same name is project-managed; rename one before syncing.</small>}
+                {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Rename the conflicting local skill before syncing.</small>}
                 <button
                   type="button"
                   className="rrugc-primary"
@@ -426,27 +461,67 @@ export function Stage2JobTable({
                     skill_version: version,
                   })}
                 >
-                  {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate master"}
+                  {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate next"}
                 </button>
               </td>
               <td className="rrugc-stage2-status">
-                <span className={"rrugc-source-plan-status tone-" + (
-                  job?.status === "completed" ? "positive"
-                    : job?.status === "failed" ? "negative"
-                      : job ? "working" : "muted"
-                )}>{jobLabel(job)}</span>
-                {job && <small>{job.reference_count} refs · {new Date(job.created_at).toLocaleString()}</small>}
-                {job && <small>{job.skill_source === "openai" ? "OpenAI" : "Local"} · {"$" + job.skill_name}{job.skill_version ? " · v" + job.skill_version : ""}</small>}
-                {job?.last_error_code && <small className="rrugc-source-error">{job.last_error_code}</small>}
-                {job?.status === "completed" && <a
-                  className="rrugc-stage2-output"
-                  href={stage2JobOutputUrl(job.id)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <img src={stage2JobOutputUrl(job.id)} alt="Generated Stage 2 master" loading="lazy" />
-                  <span>Open master ↗</span>
-                </a>}
+                <div className="rrugc-stage2-output-head">
+                  <strong>{planJobs.length}/{MAX_OUTPUT_SLOTS} runs</strong>
+                  <small>
+                    {runs.completed} done
+                    {runs.failed ? " · " + runs.failed + " failed" : ""}
+                    {runs.active ? " · " + runs.active + " active" : ""}
+                    {runs.remaining ? " · " + runs.remaining + " not run" : ""}
+                  </small>
+                </div>
+                <div className="rrugc-stage2-output-grid" aria-label={"Latest generation runs for " + plan.source_name}>
+                  {Array.from({ length: MAX_OUTPUT_SLOTS }, (_, index) => {
+                    const run = planJobs[index];
+                    if (!run) {
+                      return <div className="rrugc-stage2-run is-empty" key={"empty-" + index}>
+                        <b>{index + 1}</b>
+                        <small>Not run</small>
+                      </div>;
+                    }
+                    if (run.status === "completed") {
+                      return <a
+                        key={run.id}
+                        className="rrugc-stage2-run is-completed"
+                        href={stage2JobOutputUrl(run.id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={"Completed · " + new Date(run.created_at).toLocaleString()}
+                      >
+                        <img src={stage2JobOutputUrl(run.id)} alt={"Generated output " + (index + 1)} loading="lazy" />
+                        <span aria-hidden="true">✓</span>
+                      </a>;
+                    }
+                    if (run.status === "failed") {
+                      return <div
+                        className="rrugc-stage2-run is-failed"
+                        key={run.id}
+                        title={run.last_error_message || run.last_error_code || "Generation failed"}
+                      >
+                        <span aria-hidden="true">!</span>
+                        <small>{run.last_error_code || "Failed"}</small>
+                      </div>;
+                    }
+                    return <div
+                      className={"rrugc-stage2-run is-" + run.status}
+                      key={run.id}
+                      title={jobLabel(run) + " · " + new Date(run.created_at).toLocaleString()}
+                    >
+                      <span className="rrugc-stage2-run-spinner" aria-hidden="true" />
+                      <small>{jobLabel(run)}</small>
+                    </div>;
+                  })}
+                </div>
+                <div className="rrugc-stage2-run-legend" aria-label="Generation run status">
+                  <span className="is-empty"><i />Not run</span>
+                  <span className="is-active"><i />Running</span>
+                  <span className="is-done"><i />Done</span>
+                  <span className="is-failed"><i />Failed</span>
+                </div>
               </td>
             </tr>;
           })}

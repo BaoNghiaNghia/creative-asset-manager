@@ -15,7 +15,7 @@ import {
   sourcePlanPageCount,
   sourcePlanProgressPercent,
 } from "./SourcePlanTable";
-import type { SourcePlan, SourcePlanOverview } from "./types";
+import type { SourcePlan, SourcePlanOverview, Stage2Job } from "./types";
 
 function makePlan(referenceCount = 0): SourcePlan {
   return {
@@ -110,6 +110,43 @@ function makePlan(referenceCount = 0): SourcePlan {
   };
 }
 
+
+function makeStage2Job(
+  id: string,
+  status: Stage2Job["status"],
+  overrides: Partial<Stage2Job> = {},
+): Stage2Job {
+  return {
+    id,
+    source_plan_id: "plan-1",
+    campaign_id: "campaign-1",
+    source_revision: "rev-1",
+    skill_name: "gatorhats-8869-image-studio",
+    skill_source: "local",
+    skill_id: null,
+    skill_version: null,
+    selected_candidate_ids: ["ref-0"],
+    reference_count: 1,
+    status,
+    processing_job_id: status === "queued" ? null : "processing-" + id,
+    provider_request_id: null,
+    output_content_type: status === "completed" ? "image/png" : null,
+    output_size_bytes: status === "completed" ? 1024 : null,
+    output_width: status === "completed" ? 1024 : null,
+    output_height: status === "completed" ? 1024 : null,
+    output_remote_file_id: status === "completed" ? "remote-" + id : null,
+    output_web_url: null,
+    last_error_code: status === "failed" ? "IMAGE_GENERATION_FAILED" : null,
+    last_error_message: status === "failed" ? "Generation failed." : null,
+    queued_at: "2026-10-04T01:00:00Z",
+    started_at: status === "queued" ? null : "2026-10-04T01:01:00Z",
+    completed_at: status === "completed" || status === "failed" ? "2026-10-04T01:02:00Z" : null,
+    created_at: "2026-10-04T01:00:00Z",
+    updated_at: "2026-10-04T01:02:00Z",
+    ...overrides,
+  };
+}
+
 const GLOBAL_OVERVIEW: SourcePlanOverview = {
   embroidery_groups: 79,
   source_images: 133,
@@ -133,8 +170,12 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
     expect(markup).toContain("EMBROIDERY GROUP");
-    expect(markup).toContain("Embroidery groups → generation jobs");
+    expect(markup).toContain("Embroidery groups → image generation");
     expect(markup).toContain("Max 10 refs / job");
+    expect(markup).toContain("Generation runs · latest 10");
+    expect(markup).toContain("Skill ready");
+    expect(markup).toContain("0/10 runs");
+    expect(markup).toContain("10 not run");
     expect(markup).toContain("$gatorhats-8869-image-studio");
     expect(markup).toContain("11 Drive-ready refs available");
     expect(markup).toContain('aria-label="3 source images with the same embroidery"');
@@ -146,7 +187,32 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">99<");
     expect(markup).toContain(">302<");
     expect(markup).toContain(">7<");
-    expect(markup).toContain("Generate master");
+    expect(markup).toContain("Generate next");
+  });
+
+  it("shows completed, active, failed, and not-run generation slots separately", () => {
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[makePlan(4)]}
+        overview={GLOBAL_OVERVIEW}
+        jobs={[
+          makeStage2Job("job-done", "completed", { created_at: "2026-10-04T01:04:00Z" }),
+          makeStage2Job("job-running", "running", { created_at: "2026-10-04T01:03:00Z" }),
+          makeStage2Job("job-failed", "failed"),
+        ]}
+        creatingPlanIds={new Set()}
+        onCreateJob={() => undefined}
+      />,
+    );
+    expect(markup).toContain("3/10 runs");
+    expect(markup).toContain("1 done");
+    expect(markup).toContain("1 failed");
+    expect(markup).toContain("1 active");
+    expect(markup).toContain("7 not run");
+    expect(markup).toContain("IMAGE_GENERATION_FAILED");
+    expect(markup).toContain("Generating");
+    expect(markup).toContain("Generated output 3");
+    expect(markup).toContain(">Not run<");
   });
 
   it("uses server overview totals instead of current-page rows for Stage 1 KPIs", () => {
