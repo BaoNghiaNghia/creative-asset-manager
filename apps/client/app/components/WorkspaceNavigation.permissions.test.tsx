@@ -47,4 +47,22 @@ describe("WorkspaceNavigation permissions", () => {
     expect(markup).toContain("Realistic Review UGC");
     expect(markup).toContain("Access Management");
   });
+
+  it("renders the redesigned AI Operations submenu icon system and vector expander", () => {
+    const markup = renderToStaticMarkup(
+      <WorkspaceNavigation
+        active="operations"
+        aiOperationsTab="processing"
+        showOperations
+        showReviewBoard={false}
+        permissions={["ai_operations.read", "realistic_review_ugc.read", "tenant_members.read"]}
+      />,
+    );
+
+    expect(markup).toContain('class="workspace-nav-expander-icon"');
+    expect(markup).toContain("Pipeline overview");
+    expect(markup).toContain("Configuration");
+    expect((markup.match(/workspace-nav-submenu-icon/g) || []).length).toBe(9);
+    expect(markup).toContain('aria-current="location"');
+  });
 });

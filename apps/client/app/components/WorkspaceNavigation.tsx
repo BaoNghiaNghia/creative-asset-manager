@@ -106,7 +106,9 @@ export function WorkspaceNavigation({
           aria-controls="workspace-ai-operations-submenu"
           onClick={() => setOperationsOpen(value => !value)}
         >
-          <span aria-hidden="true">⌄</span>
+          <svg className="workspace-nav-expander-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m5.5 7.5 4.5 4.5 4.5-4.5" />
+          </svg>
         </button>
       </div>
       {operationsOpen ? <div id="workspace-ai-operations-submenu" className="workspace-nav-submenu" aria-label="AI Operations sections">
