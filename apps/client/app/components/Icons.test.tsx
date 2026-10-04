@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { amazonAsin, BrandIcon, etsyListingId, GridViewIcon, ListViewIcon, SidebarIcon, sourceFolderBrand } from "./Icons";
+import { AmazonCompactIcon, AmazonLogo, amazonAsin, BrandIcon, EtsyCompactIcon, EtsyLogo, etsyListingId, GridViewIcon, ListViewIcon, SidebarIcon, SourceFolderIcon, sourceFolderBrand } from "./Icons";
 
 describe("BrandIcon", () => {
   it("renders the bundled Creative Asset Manager artwork without a remote dependency", () => {
@@ -26,6 +26,30 @@ describe("system UI icons", () => {
     expect(grid).toContain("<rect");
     expect(list).toContain('class="layout-view-icon"');
     expect((list.match(/<circle/g) || []).length).toBe(3);
+  });
+});
+
+describe("marketplace branding", () => {
+  it("renders full Amazon and Etsy logos from the shared icon system", () => {
+    const amazon = renderToStaticMarkup(<AmazonLogo />);
+    const etsy = renderToStaticMarkup(<EtsyLogo />);
+    expect(amazon).toContain('class="amazon-logo marketplace-logo marketplace-logo-full"');
+    expect(amazon).toContain("#FF9900");
+    expect(etsy).toContain('class="etsy-logo marketplace-logo marketplace-logo-full"');
+    expect(etsy).toContain("#F1641E");
+  });
+
+  it("renders the new compact one-character marks for marketplace folders", () => {
+    const amazon = renderToStaticMarkup(<AmazonCompactIcon />);
+    const etsy = renderToStaticMarkup(<EtsyCompactIcon />);
+    const amazonFolder = renderToStaticMarkup(<SourceFolderIcon name="Amazon - Collection" />);
+    const etsyFolder = renderToStaticMarkup(<SourceFolderIcon name="Etsy - Shop" />);
+    expect(amazon).toContain("marketplace-compact-icon");
+    expect(amazon).toContain("#FF9900");
+    expect(etsy).toContain("#F1641E");
+    expect(etsy).toContain(">E<");
+    expect(amazonFolder).toContain("source-folder-brand-amazon");
+    expect(etsyFolder).toContain("source-folder-brand-etsy");
   });
 });
 

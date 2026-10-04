@@ -1,5 +1,4 @@
 import brandIconUrl from "../../assets/logos/creative-assets-icon.png";
-import amazonLogoUrl from "../../assets/logos/amazon-logo.svg";
 
 export function BrandIcon() {
   return <img className="brand-logo" src={brandIconUrl} alt="" aria-hidden="true" />;
@@ -33,8 +32,15 @@ export function FolderTreeIcon() {
 }
 
 export function EtsyLogo() {
-  return <svg className="etsy-logo" viewBox="0 0 64 30" aria-hidden="true">
-    <text x="1" y="22" fontFamily="Georgia, serif" fontSize="25" fill="currentColor">Etsy</text>
+  return <svg className="etsy-logo marketplace-logo marketplace-logo-full" viewBox="0 0 110 46" aria-hidden="true" focusable="false">
+    <text x="3" y="34" fontFamily="Georgia, 'Times New Roman', serif" fontSize="39" fontWeight="700" fill="#F1641E">Etsy</text>
+  </svg>;
+}
+
+export function EtsyCompactIcon() {
+  return <svg className="source-folder-brand source-folder-brand-etsy marketplace-compact-icon" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+    <rect x="2" y="2" width="44" height="44" rx="11" fill="#F1641E" />
+    <text x="24" y="36" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontSize="37" fontWeight="700" fill="#fff">E</text>
   </svg>;
 }
 
@@ -44,7 +50,19 @@ export function etsyListingId(name: string): string | null {
 }
 
 export function AmazonLogo() {
-  return <img className="amazon-logo" src={amazonLogoUrl} alt="" aria-hidden="true" />;
+  return <svg className="amazon-logo marketplace-logo marketplace-logo-full" viewBox="0 0 132 48" aria-hidden="true" focusable="false">
+    <text x="4" y="31" fontFamily="Arial, Helvetica, sans-serif" fontSize="34" fontWeight="700" letterSpacing="-1.1" fill="#131A22">amazon</text>
+    <path d="M24 36.5C48 45 82 45.4 108 35.6" fill="none" stroke="#FF9900" strokeWidth="4.3" strokeLinecap="round" />
+    <path d="m103.5 33.7 9.2.9-5.4 7.2" fill="none" stroke="#FF9900" strokeWidth="4.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>;
+}
+
+export function AmazonCompactIcon() {
+  return <svg className="source-folder-brand source-folder-brand-amazon marketplace-compact-icon" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+    <text x="8" y="31" fontFamily="Arial, Helvetica, sans-serif" fontSize="32" fontWeight="800" fill="#131A22">a</text>
+    <path d="M9.5 36.2c8.6 4.2 19.6 4.6 29.4.2" fill="none" stroke="#FF9900" strokeWidth="3.4" strokeLinecap="round" />
+    <path d="m35.2 34.9 6.1.5-3.7 5" fill="none" stroke="#FF9900" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>;
 }
 
 export function amazonAsin(name: string): string | null {
@@ -63,12 +81,8 @@ export function sourceFolderBrand(name: string): SourceFolderBrand {
 export function SourceFolderIcon({ name }: { name: string }) {
   const brand = sourceFolderBrand(name);
 
-  if (brand === "etsy") {
-    return <span className="source-folder-brand source-folder-brand-etsy" aria-hidden="true">e</span>;
-  }
-  if (brand === "amazon") {
-    return <span className="source-folder-brand source-folder-brand-amazon" aria-hidden="true">a</span>;
-  }
+  if (brand === "etsy") return <EtsyCompactIcon />;
+  if (brand === "amazon") return <AmazonCompactIcon />;
   return <FolderTreeIcon />;
 }
 

@@ -100,11 +100,11 @@
 .tree-label span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .folder-tree-icon{flex:0 0 auto;width:16px;height:16px;fill:#f5b83d;stroke:#c88b17;stroke-width:1.05;stroke-linejoin:round}
 .tree-row.active .folder-tree-icon{fill:#6e9ff7;stroke:#2f65c8}
-.source-folder-brand{display:grid;place-items:center;flex:0 0 auto;width:17px;height:17px;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;font-weight:800;line-height:1;color:#fff;text-transform:lowercase}
-.source-folder-brand-etsy{background:#f1641e;font-family:Georgia,serif;font-style:italic}
-.source-folder-brand-amazon{background:#232f3e}
-.tree-row.active .source-folder-brand-etsy{box-shadow:0 0 0 2px #f1641e2b}
-.tree-row.active .source-folder-brand-amazon{box-shadow:0 0 0 2px #232f3e2b}
+.source-folder-brand{display:block;flex:0 0 auto;width:18px;height:18px;overflow:visible}
+.source-folder-brand-etsy{border-radius:5px}
+.source-folder-brand-amazon{border-radius:0}
+.tree-row.active .source-folder-brand-etsy{filter:drop-shadow(0 0 2px #f1641e3d)}
+.tree-row.active .source-folder-brand-amazon{filter:drop-shadow(0 0 2px #ff99004a)}
 .tree-children{margin-left:14px;padding-left:7px}
 
 @media(max-width:760px){
@@ -1136,9 +1136,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .grid.asset-list-view article.media-card:hover>div,.grid.asset-list-view article.media-card:focus-within>div{transform:none}
 @media(max-width:640px){.grid.asset-list-view article.media-card{min-height:54px}.grid.asset-list-view article.media-card .preview{width:40px;height:40px;flex-basis:40px}}
 
-.amazon-redirect{display:inline-flex;align-items:center;gap:5px;margin-left:10px;padding:4px 8px;border:1px solid #d7dee8;border-radius:7px;background:#fff;color:#232f3e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:background .15s ease,border-color .15s ease,transform .15s ease}.amazon-redirect:hover{background:#f3f6fa;border-color:#aeb9c8;transform:translateY(-1px)}.amazon-logo{display:block;width:70px;color:#161e2a; padding: 3px;}.amazon-external-mark{font-size:20px;color:#5f6b7a;padding:0px 7px;font-weight:200;}
+.amazon-redirect{display:inline-flex;align-items:center;gap:5px;margin-left:10px;padding:4px 8px;border:1px solid #d7dee8;border-radius:7px;background:#fff;color:#232f3e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:background .15s ease,border-color .15s ease,transform .15s ease}.amazon-redirect:hover{background:#f3f6fa;border-color:#aeb9c8;transform:translateY(-1px)}.amazon-logo{display:block;width:72px;height:auto;overflow:visible}.amazon-external-mark{font-size:20px;color:#5f6b7a;padding:0 7px;font-weight:200}
 
-.etsy-redirect{display:inline-flex;align-items:center;margin-left:10px;padding:4px 8px;border:0;border-radius:0;background:transparent;color:#f1641e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:opacity .15s ease}.etsy-redirect:hover{background:transparent;opacity:.78}.etsy-logo{display:block;width:62px;height:29px;color:#f1641e}
+.etsy-redirect{display:inline-flex;align-items:center;margin-left:10px;padding:4px 8px;border:0;border-radius:0;background:transparent;color:#f1641e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:opacity .15s ease}.etsy-redirect:hover{background:transparent;opacity:.78}.etsy-logo{display:block;width:64px;height:auto;overflow:visible}
 @keyframes upload-spin{to{transform:rotate(360deg)}}@keyframes upload-check-pop{0%{opacity:0;transform:scale(.5)}70%{transform:scale(1.15)}100%{opacity:1;transform:scale(1)}}
 .location-breadcrumb{display:inline;max-width:100%;overflow-wrap:anywhere;line-height:1.5}.location-breadcrumb-node{display:inline}.location-breadcrumb-separator{padding:0 5px;color:#8a96a8}.location-breadcrumb button{padding:0;border:0;background:transparent;color:#263447;font:inherit;text-align:left;text-decoration:underline;text-decoration-color:#d6deea;text-underline-offset:2px;cursor:pointer}.location-breadcrumb button:hover{color:#2458bd;text-decoration-color:#9fb7df}.location-unavailable{color:#8a95a5;font-style:italic}
 
