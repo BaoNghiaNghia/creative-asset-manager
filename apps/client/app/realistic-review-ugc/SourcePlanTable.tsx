@@ -1,9 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
-import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanReferencePreview } from "./types";
+import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanOverview, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+
+function fallbackSourcePlanOverview(plans: SourcePlan[], total: number): SourcePlanOverview {
+  return {
+    embroidery_groups: total,
+    source_images: plans.reduce(
+      (sum, plan) => sum + Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1),
+      0,
+    ),
+    working_groups: plans.filter(
+      plan => plan.progress_count < plan.target_count && !["failed", "missing"].includes(plan.status),
+    ).length,
+    refs_loaded: plans.reduce((sum, plan) => sum + plan.reference_previews.length, 0),
+    stage2_groups: 0,
+    stage2_source_images: 0,
+    stage2_drive_ready_refs: 0,
+    stage2_active_jobs: 0,
+  };
+}
 
 export function sourcePlanProgressPercent(plan: Pick<SourcePlan, "progress_count" | "target_count">): number {
   if (plan.target_count <= 0) return 0;
@@ -296,6 +314,7 @@ function ReferenceSlider({
 export function SourcePlanTable({
   plans,
   total,
+  overview = fallbackSourcePlanOverview(plans, total),
   page,
   pageSize,
   query,
@@ -314,6 +333,7 @@ export function SourcePlanTable({
 }: {
   plans: SourcePlan[];
   total: number;
+  overview?: SourcePlanOverview;
   page: number;
   pageSize: number;
   query: string;
@@ -337,8 +357,6 @@ export function SourcePlanTable({
   const pageCount = sourcePlanPageCount(total, pageSize);
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = total === 0 ? 0 : Math.min((page - 1) * pageSize + plans.length, total);
-  const working = plans.filter(plan => plan.progress_count < plan.target_count && !["failed", "missing"].includes(plan.status)).length;
-  const loadedRefs = plans.reduce((sum, plan) => sum + plan.reference_previews.length, 0);
 
   return <section id="rrugc-source-plans" className="rrugc-card rrugc-source-plans">
     <div className="rrugc-section-heading rrugc-source-plans-heading">
@@ -357,10 +375,10 @@ export function SourcePlanTable({
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
 
     <div className="rrugc-source-plan-kpis">
-      <article><span>Embroidery groups</span><strong>{total}</strong></article>
-      <article><span>This page</span><strong>{plans.length}</strong></article>
-      <article><span>Working here</span><strong>{working}</strong></article>
-      <article><span>Refs loaded</span><strong>{loadedRefs}</strong></article>
+      <article><span>Embroidery groups</span><strong>{overview.embroidery_groups}</strong></article>
+      <article><span>Source images</span><strong>{overview.source_images}</strong></article>
+      <article><span>Working groups</span><strong>{overview.working_groups}</strong></article>
+      <article><span>Refs loaded</span><strong>{overview.refs_loaded}</strong></article>
     </div>
 
     <div className="rrugc-source-plan-toolbar rrugc-source-plan-toolbar-server">

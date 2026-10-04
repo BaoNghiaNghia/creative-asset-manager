@@ -23,6 +23,16 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   page: 1,
   page_size: 20,
   total: 0,
+  overview: {
+    embroidery_groups: 0,
+    source_images: 0,
+    working_groups: 0,
+    refs_loaded: 0,
+    stage2_groups: 0,
+    stage2_source_images: 0,
+    stage2_drive_ready_refs: 0,
+    stage2_active_jobs: 0,
+  },
 };
 
 type RrugcStageTab = "stage1" | "stage2" | "settings";
@@ -306,6 +316,7 @@ export function RealisticReviewUgcPage() {
           <SourcePlanTable
             plans={sourcePage.items}
             total={sourcePage.total}
+            overview={sourcePage.overview}
             page={sourcePageNumber}
             pageSize={sourcePageSize}
             query={sourceQuery}
@@ -343,6 +354,7 @@ export function RealisticReviewUgcPage() {
         >
           <Stage2JobTable
             plans={sourcePage.items}
+            overview={sourcePage.overview}
             jobs={stage2Jobs}
             creatingPlanIds={creatingStage2PlanIds}
             message={stage2Message}

@@ -471,11 +471,23 @@ class SourcePlanResponse(BaseModel):
     updated_at: datetime
 
 
+class SourcePlanOverviewResponse(BaseModel):
+    embroidery_groups: int = 0
+    source_images: int = 0
+    working_groups: int = 0
+    refs_loaded: int = 0
+    stage2_groups: int = 0
+    stage2_source_images: int = 0
+    stage2_drive_ready_refs: int = 0
+    stage2_active_jobs: int = 0
+
+
 class SourcePlanPageResponse(BaseModel):
     items: list[SourcePlanResponse] = Field(default_factory=list)
     page: int
     page_size: int
     total: int
+    overview: SourcePlanOverviewResponse = Field(default_factory=SourcePlanOverviewResponse)
 
 
 class SourcePlanSyncResponse(BaseModel):

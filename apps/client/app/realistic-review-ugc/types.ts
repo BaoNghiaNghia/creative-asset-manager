@@ -221,11 +221,23 @@ export type SourcePlan = {
   updated_at: string;
 };
 
+export type SourcePlanOverview = {
+  embroidery_groups: number;
+  source_images: number;
+  working_groups: number;
+  refs_loaded: number;
+  stage2_groups: number;
+  stage2_source_images: number;
+  stage2_drive_ready_refs: number;
+  stage2_active_jobs: number;
+};
+
 export type SourcePlanPage = {
   items: SourcePlan[];
   page: number;
   page_size: number;
   total: number;
+  overview: SourcePlanOverview;
 };
 
 export type Stage2Skill = {

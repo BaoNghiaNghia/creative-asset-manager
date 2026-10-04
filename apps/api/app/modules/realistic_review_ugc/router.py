@@ -183,6 +183,7 @@ from app.modules.realistic_review_ugc.schema import (
     SourcePlanReferencePreviewResponse,
     SourcePlanGroupImageResponse,
     SourcePlanResponse,
+    SourcePlanOverviewResponse,
     SourcePlanPageResponse,
     SourcePlanSyncResponse,
     Stage2SkillCatalogResponse,
@@ -2804,6 +2805,108 @@ def get_source_plans(
     )
 
     total = len(groups)
+
+    # Overview numbers are computed from every filtered embroidery group before
+    # pagination. Changing page must never change the dashboard KPIs.
+    overview_groups = [
+        (representative_for(members), members)
+        for members in groups
+    ]
+    overview_campaign_ids = sorted({
+        str(representative.campaign_id)
+        for representative, _members in overview_groups
+        if representative.campaign_id
+    })
+    overview_campaigns = {
+        row.id: row
+        for row in session.scalars(
+            select(RrugcCampaignModel).where(
+                RrugcCampaignModel.tenant_id == principal.active_tenant_id,
+                RrugcCampaignModel.id.in_(overview_campaign_ids),
+            )
+        )
+    } if overview_campaign_ids else {}
+    overview_counts = RrugcRepository(session).campaign_usable_counts_many(
+        principal.active_tenant_id,
+        overview_campaign_ids,
+    )
+
+    overview_working_groups = 0
+    overview_refs_loaded = 0
+    overview_stage2_groups: list[
+        tuple[RrugcSourcePlanModel, list[RrugcSourcePlanModel]]
+    ] = []
+    overview_ref_statuses = (
+        SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES - {"rejected_context"}
+    )
+    for representative, members in overview_groups:
+        campaign_id = str(representative.campaign_id or "")
+        campaign = overview_campaigns.get(campaign_id)
+        counts = overview_counts.get(campaign_id, Counter())
+        approved_count = sum(
+            counts.get(status, 0)
+            for status in SOURCE_PLAN_REFERENCE_STATUSES
+        )
+        progress_count = (
+            counts.get("drive_ready", 0)
+            if campaign is not None and campaign.auto_import
+            else approved_count
+        )
+        if (
+            representative.status not in {"failed", "missing"}
+            and progress_count < representative.target_count
+        ):
+            overview_working_groups += 1
+        overview_refs_loaded += sum(
+            counts.get(status, 0)
+            for status in overview_ref_statuses
+        )
+
+        visual_context = dict(representative.visual_context_json or {})
+        if (
+            representative.status == "ready"
+            and bool(representative.campaign_id)
+            and bool(
+                representative.embroidery_signature
+                or visual_context.get("embroidery_identity")
+                or visual_context.get("embroidery_text")
+            )
+        ):
+            overview_stage2_groups.append((representative, members))
+
+    stage2_source_plan_ids = [
+        member.id
+        for _representative, members in overview_stage2_groups
+        for member in members
+    ]
+    stage2_active_jobs = int(
+        session.scalar(
+            select(func.count(RrugcStage2JobModel.id)).where(
+                RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+                RrugcStage2JobModel.status.in_(("queued", "running")),
+                RrugcStage2JobModel.source_plan_id.in_(stage2_source_plan_ids),
+            )
+        ) or 0
+    ) if stage2_source_plan_ids else 0
+    overview = SourcePlanOverviewResponse(
+        embroidery_groups=total,
+        source_images=sum(len(members) for _representative, members in overview_groups),
+        working_groups=overview_working_groups,
+        refs_loaded=overview_refs_loaded,
+        stage2_groups=len(overview_stage2_groups),
+        stage2_source_images=sum(
+            len(members) for _representative, members in overview_stage2_groups
+        ),
+        stage2_drive_ready_refs=sum(
+            overview_counts.get(
+                str(representative.campaign_id or ""),
+                Counter(),
+            ).get("drive_ready", 0)
+            for representative, _members in overview_stage2_groups
+        ),
+        stage2_active_jobs=stage2_active_jobs,
+    )
+
     page_groups = groups[(page - 1) * page_size : page * page_size]
     plans: list[RrugcSourcePlanModel] = []
     group_members_by_plan_id: dict[str, list[RrugcSourcePlanModel]] = {}
@@ -2911,6 +3014,7 @@ def get_source_plans(
         page=page,
         page_size=page_size,
         total=total,
+        overview=overview,
     )
 
 

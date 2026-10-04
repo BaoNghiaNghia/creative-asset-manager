@@ -14,6 +14,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcSourcePlanModel,
+    RrugcStage2JobModel,
 )
 from app.modules.realistic_review_ugc.router import (
     _source_plan_reference_preview,
@@ -138,6 +139,7 @@ def make_database():
     RrugcCampaignModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
+    RrugcStage2JobModel.__table__.create(engine)
     return sessionmaker(engine, expire_on_commit=False)
 
 
@@ -535,6 +537,14 @@ def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usab
         )
 
         assert page.total == 1
+        assert page.overview.embroidery_groups == 1
+        assert page.overview.source_images == 2
+        assert page.overview.working_groups == 1
+        assert page.overview.refs_loaded == 2
+        assert page.overview.stage2_groups == 1
+        assert page.overview.stage2_source_images == 2
+        assert page.overview.stage2_drive_ready_refs == 1
+        assert page.overview.stage2_active_jobs == 0
         item = page.items[0]
         assert item.drive_ready_count == 1
         assert item.progress_count == 1
@@ -708,6 +718,11 @@ def test_source_plan_list_is_server_paginated_and_searchable():
         assert page.total == 3
         assert page.page == 2
         assert page.page_size == 1
+        assert page.overview.embroidery_groups == 3
+        assert page.overview.source_images == 3
+        assert page.overview.working_groups == 3
+        assert page.overview.refs_loaded == 0
+        assert page.overview.stage2_groups == 0
         assert [item.source_relative_path for item in page.items] == [
             "Teachers/teacher-cap.png"
         ]
@@ -720,6 +735,9 @@ def test_source_plan_list_is_server_paginated_and_searchable():
             principal=principal,
         )
         assert search.total == 1
+        assert search.overview.embroidery_groups == 1
+        assert search.overview.source_images == 1
+        assert search.overview.working_groups == 1
         assert [item.source_name for item in search.items] == ["teacher-cap.png"]
 
 

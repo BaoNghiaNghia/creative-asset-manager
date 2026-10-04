@@ -7,6 +7,7 @@ import {
 import { SourceImageGroup } from "./SourcePlanTable";
 import type {
   SourcePlan,
+  SourcePlanOverview,
   SourcePlanReferencePreview,
   Stage2Job,
   Stage2Skill,
@@ -38,6 +39,37 @@ const INITIAL_CATALOG: Stage2SkillCatalog = {
   error_code: null,
   items: [FALLBACK_SKILL],
 };
+
+function fallbackStage2Overview(plans: SourcePlan[], jobs: Stage2Job[]): SourcePlanOverview {
+  const eligiblePlans = plans.filter(plan => (
+    plan.status === "ready"
+    && Boolean(plan.campaign_id)
+    && Boolean(
+      plan.embroidery_signature
+      || plan.visual_context?.embroidery_identity
+      || plan.visual_context?.embroidery_text?.length
+    )
+  ));
+  return {
+    embroidery_groups: plans.length,
+    source_images: plans.reduce(
+      (sum, plan) => sum + Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1),
+      0,
+    ),
+    working_groups: 0,
+    refs_loaded: 0,
+    stage2_groups: eligiblePlans.length,
+    stage2_source_images: eligiblePlans.reduce(
+      (sum, plan) => sum + Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1),
+      0,
+    ),
+    stage2_drive_ready_refs: eligiblePlans.reduce(
+      (sum, plan) => sum + plan.reference_previews.filter(eligibleReference).length,
+      0,
+    ),
+    stage2_active_jobs: jobs.filter(job => job.status === "queued" || job.status === "running").length,
+  };
+}
 
 function eligibleReference(reference: SourcePlanReferencePreview) {
   return reference.status === "drive_ready" && !reference.rejected;
@@ -101,11 +133,13 @@ function versionLabel(skill: Stage2Skill, version: string) {
 export function Stage2JobTable({
   plans,
   jobs,
+  overview = fallbackStage2Overview(plans, jobs),
   creatingPlanIds,
   message,
   onCreateJob,
 }: {
   plans: SourcePlan[];
+  overview?: SourcePlanOverview;
   jobs: Stage2Job[];
   creatingPlanIds: ReadonlySet<string>;
   message?: string;
@@ -135,16 +169,6 @@ export function Stage2JobTable({
     )),
     [plans],
   );
-  const groupedSourceImages = stage2Plans.reduce(
-    (sum, plan) => sum + Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1),
-    0,
-  );
-  const usableReferences = stage2Plans.reduce(
-    (sum, plan) => sum + plan.reference_previews.filter(eligibleReference).length,
-    0,
-  );
-  const activeJobs = jobs.filter(job => job.status === "queued" || job.status === "running").length;
-
   useEffect(() => {
     const controller = new AbortController();
     void listStage2Skills(false, controller.signal)
@@ -279,10 +303,10 @@ export function Stage2JobTable({
     {skillMessage && <p className="rrugc-editor-product-result" role="status">{skillMessage}</p>}
 
     <div className="rrugc-source-plan-kpis rrugc-stage2-kpis">
-      <article><span>Embroidery groups</span><strong>{stage2Plans.length}</strong></article>
-      <article><span>Source images</span><strong>{groupedSourceImages}</strong></article>
-      <article><span>Drive-ready refs</span><strong>{usableReferences}</strong></article>
-      <article><span>Active jobs</span><strong>{activeJobs}</strong></article>
+      <article><span>Embroidery groups</span><strong>{overview.stage2_groups}</strong></article>
+      <article><span>Source images</span><strong>{overview.stage2_source_images}</strong></article>
+      <article><span>Drive-ready refs</span><strong>{overview.stage2_drive_ready_refs}</strong></article>
+      <article><span>Active jobs</span><strong>{overview.stage2_active_jobs}</strong></article>
     </div>
 
     <div className="rrugc-source-plan-table-wrap">

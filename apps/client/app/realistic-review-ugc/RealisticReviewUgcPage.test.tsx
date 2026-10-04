@@ -15,7 +15,7 @@ import {
   sourcePlanPageCount,
   sourcePlanProgressPercent,
 } from "./SourcePlanTable";
-import type { SourcePlan } from "./types";
+import type { SourcePlan, SourcePlanOverview } from "./types";
 
 function makePlan(referenceCount = 0): SourcePlan {
   return {
@@ -110,11 +110,23 @@ function makePlan(referenceCount = 0): SourcePlan {
   };
 }
 
+const GLOBAL_OVERVIEW: SourcePlanOverview = {
+  embroidery_groups: 79,
+  source_images: 133,
+  working_groups: 61,
+  refs_loaded: 420,
+  stage2_groups: 57,
+  stage2_source_images: 99,
+  stage2_drive_ready_refs: 302,
+  stage2_active_jobs: 7,
+};
+
 describe("Realistic Review UGC source-first workspace", () => {
   it("renders Stage 2 as a max-10 Pinterest ref skill job table", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable
         plans={[makePlan(12)]}
+        overview={GLOBAL_OVERVIEW}
         jobs={[]}
         creatingPlanIds={new Set()}
         onCreateJob={() => undefined}
@@ -130,7 +142,40 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("front-red.png");
     expect(markup).toContain("same embroidery");
     expect(markup).toContain("Source images");
+    expect(markup).toContain(">57<");
+    expect(markup).toContain(">99<");
+    expect(markup).toContain(">302<");
+    expect(markup).toContain(">7<");
     expect(markup).toContain("Generate master");
+  });
+
+  it("uses server overview totals instead of current-page rows for Stage 1 KPIs", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan(3)]}
+        total={79}
+        overview={GLOBAL_OVERVIEW}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Embroidery groups");
+    expect(markup).toContain("Source images");
+    expect(markup).toContain("Working groups");
+    expect(markup).toContain("Refs loaded");
+    expect(markup).toContain(">79<");
+    expect(markup).toContain(">133<");
+    expect(markup).toContain(">61<");
+    expect(markup).toContain(">420<");
+    expect(markup).not.toContain("This page");
+    expect(markup).not.toContain("Working here");
   });
 
   it("routes the dedicated top-level workspace", () => {
