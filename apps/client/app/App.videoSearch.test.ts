@@ -11,11 +11,22 @@ describe("video search UI wiring", () => {
     expect(source).not.toContain("Advanced filters apply to image results.");
   });
 
-  it("renders image and video result groups together", () => {
-    expect(source).toContain('explorer.query.trim() && <section className="mixed-search-section"');
-    expect(source).toContain('mixed-search-section');
+  it("renders only result groups that are relevant to the current search", () => {
+    expect(source).toContain("showImageSearchSection");
+    expect(source).toContain("showVideoSearchSection");
+    expect(source).toContain("showMixedSearchEmpty");
+    expect(source).toContain('{showVideoSearchSection && <section className="mixed-search-section"');
+    expect(source).toContain('hidden={hasSearchQuery && (!showImageSearchSection || !imageResultsExpanded)}');
     expect(source).toContain('<VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />');
     expect(source).not.toContain('searchMediaMode === "videos"');
+  });
+
+  it("uses one shared empty state when image and video searches both settle with zero results", () => {
+    expect(source).toContain("const showMixedSearchEmpty = hasSearchQuery");
+    expect(source).toContain("&& !showImageSearchSection");
+    expect(source).toContain("&& !showVideoSearchSection");
+    expect(source).toContain("{showMixedSearchEmpty && <EmptyAssets");
+    expect(source).toContain("{hasSearchQuery && showImageSearchSection && <SearchCategoryFilter");
   });
   it("keeps the selected video analysis payload available to the details panel", () => {
     expect(source).toContain("detailsVideoAnalysis");

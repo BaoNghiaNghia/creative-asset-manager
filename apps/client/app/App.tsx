@@ -296,8 +296,18 @@ export default function App() {
     externalSourceId: null,
     designTypes: explorer.searchV3.selectedFacets.__design_type || [],
   });
-  const searchBusy = explorer.query.trim().length > 0
-    && (explorer.searching || videoSearch.loading);
+  const hasSearchQuery = explorer.query.trim().length > 0;
+  const searchBusy = hasSearchQuery && (explorer.searching || videoSearch.loading);
+  const hasImageSearchResults = explorer.searchV3.total > 0 || explorer.visibleItems.length > 0;
+  const hasVideoSearchResults = videoSearch.total > 0 || videoSearch.items.length > 0;
+  const showImageSearchSection = hasSearchQuery
+    && (explorer.searching || hasImageSearchResults || Boolean(explorer.searchError));
+  const showVideoSearchSection = hasSearchQuery
+    && (videoSearch.loading || hasVideoSearchResults || Boolean(videoSearch.error));
+  const showMixedSearchEmpty = hasSearchQuery
+    && !searchBusy
+    && !showImageSearchSection
+    && !showVideoSearchSection;
   const sidebar = useResizableSidebar();
   const [previewItem, setPreviewItem] = useState<Asset | null>(null);
   const [playbackItem, setPlaybackItem] = useState<VideoSearchItem | null>(null);
@@ -859,12 +869,7 @@ export default function App() {
       ? <AssetGridSkeleton />
       : videoSearch.items.length
         ? <VideoSearchResults items={videoSearch.items} onOpen={setPlaybackItem} onDetails={openVideoDetails} />
-        : <EmptyAssets
-          query={explorer.query}
-          path={explorer.path}
-          onClearSearch={() => explorer.setQuery("")}
-          onOpen={explorer.openFolder}
-        />}
+        : null}
   </>;
 
   return <main
@@ -1169,14 +1174,14 @@ export default function App() {
             onRetry={visualSearch.retry}
             onClose={() => { visualSearch.clear(); setVisualSearchOpen(false); }}
           />}
-          <div className={explorer.query.trim() ? "search-results-layout has-category-filter" : "search-results-layout"}>
-          {explorer.query.trim() && <SearchCategoryFilter
+          <div className={hasSearchQuery && showImageSearchSection ? "search-results-layout has-category-filter" : "search-results-layout"}>
+          {hasSearchQuery && showImageSearchSection && <SearchCategoryFilter
             selected={explorer.searchV3.selectedFacets}
             onChange={explorer.searchV3.setFacetValues}
           />}
           <div id="search-results">
-          {explorer.query.trim() && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span></button></h2>}
-          <div id="mixed-image-results" hidden={Boolean(explorer.query.trim()) && !imageResultsExpanded}>
+          {showImageSearchSection && <h2 className="mixed-search-heading"><button type="button" className="mixed-search-toggle" aria-expanded={imageResultsExpanded} aria-controls="mixed-image-results" onClick={() => setImageResultsExpanded(value => !value)}><i aria-hidden="true">{imageResultsExpanded ? "−" : "+"}</i><span>Images <small>{explorer.searching ? "Searching..." : explorer.searchV3.total + " results"}</small></span></button></h2>}
+          <div id="mixed-image-results" hidden={hasSearchQuery && (!showImageSearchSection || !imageResultsExpanded)}>
                     {explorer.searchV3.active && <SearchControls capabilities={explorer.searchV3.capabilities} facets={explorer.searchV3.facets} selected={explorer.searchV3.selectedFacets} parsed={explorer.searchV3.parsed} onToggle={explorer.searchV3.toggleFacet} />}
 
           {explorer.searchError && <div className="search-warning" role="alert">
@@ -1233,7 +1238,13 @@ export default function App() {
             onOpen={explorer.openFolder}
           />}
           </div>
-          {explorer.query.trim() && <section className="mixed-search-section" aria-label="Video results">
+          {showMixedSearchEmpty && <EmptyAssets
+            query={explorer.query}
+            path={explorer.path}
+            onClearSearch={() => explorer.setQuery("")}
+            onOpen={explorer.openFolder}
+          />}
+          {showVideoSearchSection && <section className="mixed-search-section" aria-label="Video results">
             <h2><button type="button" className="mixed-search-toggle" aria-expanded={videoResultsExpanded} aria-controls="mixed-video-results" onClick={() => setVideoResultsExpanded(value => !value)}><i aria-hidden="true">{videoResultsExpanded ? "−" : "+"}</i><span>Videos <small>{videoSearch.loading ? "Searching..." : videoSearch.total + " results"}</small></span></button></h2>
             <div id="mixed-video-results" hidden={!videoResultsExpanded}>{videoResults}</div>
           </section>}
