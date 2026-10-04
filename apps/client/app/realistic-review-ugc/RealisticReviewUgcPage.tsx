@@ -25,11 +25,12 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   total: 0,
 };
 
-type RrugcStageTab = "stage1" | "stage2";
+type RrugcStageTab = "stage1" | "stage2" | "settings";
 
-const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string }> = [
-  { id: "stage1", label: "Stage 1", description: "Pinterest References" },
-  { id: "stage2", label: "Stage 2", description: "Image Generation" },
+const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
+  { id: "stage1", label: "Stage 1", description: "Pinterest References", marker: "1" },
+  { id: "stage2", label: "Stage 2", description: "Image Generation", marker: "2" },
+  { id: "settings", label: "Settings", description: "Auto Scout", marker: "⚙" },
 ];
 
 export function RealisticReviewUgcPage() {
@@ -268,7 +269,7 @@ export function RealisticReviewUgcPage() {
       <div className="rrugc-stage-tabs-shell">
         <nav
           className="ops-tabs rrugc-stage-tabs"
-          aria-label="Realistic Review UGC stages"
+          aria-label="Realistic Review UGC sections"
           role="tablist"
           onKeyDown={handleStageTabsKeyDown}
         >
@@ -284,7 +285,7 @@ export function RealisticReviewUgcPage() {
               className={activeStage === item.id ? "active" : ""}
               onClick={() => selectStage(item.id)}
             >
-              <span className="rrugc-stage-tab-number" aria-hidden="true">{item.id === "stage1" ? "1" : "2"}</span>
+              <span className="rrugc-stage-tab-number" aria-hidden="true">{item.marker}</span>
               <span className="rrugc-stage-tab-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
             </button>
           ))}
@@ -302,10 +303,6 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage1" ? 0 : -1}
           hidden={activeStage !== "stage1"}
         >
-          <div id="rrugc-scout" className="rrugc-anchor-section rrugc-source-scout-panel">
-            <PinterestAutoScoutPanel onError={setError} />
-          </div>
-
           <SourcePlanTable
             plans={sourcePage.items}
             total={sourcePage.total}
@@ -351,6 +348,19 @@ export function RealisticReviewUgcPage() {
             message={stage2Message}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
           />
+        </section>
+
+        <section
+          id="rrugc-panel-settings"
+          className="rrugc-stage-panel rrugc-settings-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-settings"
+          tabIndex={activeStage === "settings" ? 0 : -1}
+          hidden={activeStage !== "settings"}
+        >
+          <div id="rrugc-scout" className="rrugc-anchor-section rrugc-source-scout-panel">
+            <PinterestAutoScoutPanel onError={setError} />
+          </div>
         </section>
       </div>
     </section>

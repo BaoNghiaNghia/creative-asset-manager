@@ -132,17 +132,28 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders Stage 1 and Stage 2 as accessible AI Operations-style tabs", () => {
+  it("renders Stage 1, Stage 2, and Settings as accessible AI Operations-style tabs", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
-    expect(markup).toContain('aria-label="Realistic Review UGC stages"');
+    expect(markup).toContain('aria-label="Realistic Review UGC sections"');
     expect(markup).toContain('id="rrugc-tab-stage1"');
     expect(markup).toContain('id="rrugc-tab-stage2"');
+    expect(markup).toContain('id="rrugc-tab-settings"');
     expect(markup).toContain("Pinterest References");
     expect(markup).toContain("Image Generation");
+    expect(markup).toContain("Settings");
+    expect(markup).toContain("Auto Scout");
     expect(markup).toContain('aria-selected="true"');
     expect(markup).toContain('id="rrugc-panel-stage1"');
     expect(markup).toContain('id="rrugc-panel-stage2"');
+    expect(markup).toContain('id="rrugc-panel-settings"');
+    expect(markup.indexOf('id="rrugc-tab-settings"')).toBeGreaterThan(markup.indexOf('id="rrugc-tab-stage2"'));
+
+    const stage1Start = markup.indexOf('id="rrugc-panel-stage1"');
+    const stage2Start = markup.indexOf('id="rrugc-panel-stage2"');
+    const settingsStart = markup.indexOf('id="rrugc-panel-settings"');
+    expect(markup.slice(stage1Start, stage2Start)).not.toContain('aria-label="Pinterest Auto Scout"');
+    expect(markup.indexOf('aria-label="Pinterest Auto Scout"')).toBeGreaterThan(settingsStart);
     expect(markup).toContain("hidden");
   });
 
