@@ -79,6 +79,13 @@ export function accountAvatarLabel(name: string | undefined, provider: string): 
   return initials || (provider === "sharepoint" ? "S" : "G");
 }
 
+export function explorerSourceBootstrapPending(
+  applicationAuthenticated: boolean | null,
+  providerAuth: { authenticated: boolean; checking: boolean },
+): boolean {
+  return applicationAuthenticated === true && providerAuth.checking;
+}
+
 function AccountAvatar({
   picture,
   name,
@@ -1063,6 +1070,8 @@ export default function App() {
           onSelectProvider={explorer.selectProvider}
           applicationAuthenticated={explorer.applicationAuthenticated}
         />
+        : explorerSourceBootstrapPending(explorer.applicationAuthenticated, explorer.auth)
+          ? <AssetGridSkeleton label="Loading creative library" />
         : !explorer.auth.authenticated ? <DriveEmpty
           oauthError={explorer.oauthError}
           activeProvider={explorer.provider}

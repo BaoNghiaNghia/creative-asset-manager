@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountAvatarLabel, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, toggleVisualSearchOpen } from "./App";
+import { accountAvatarLabel, explorerSourceBootstrapPending, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, toggleVisualSearchOpen } from "./App";
 import { ASSET_DRAG_OUT_MIME } from "./components/AssetGrid";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
@@ -52,6 +52,19 @@ describe("Visual image search toggle", () => {
     expect(cleared).toBe(0);
     expect(toggleVisualSearchOpen(true, clear)).toBe(false);
     expect(cleared).toBe(1);
+  });
+});
+
+describe("Asset Explorer source bootstrap", () => {
+  it("keeps the loading state while connected sources are still resolving", () => {
+    expect(explorerSourceBootstrapPending(true, { authenticated: false, checking: true })).toBe(true);
+    expect(explorerSourceBootstrapPending(true, { authenticated: true, checking: true })).toBe(true);
+  });
+
+  it("allows the empty/connect state only after source bootstrap has settled", () => {
+    expect(explorerSourceBootstrapPending(true, { authenticated: false, checking: false })).toBe(false);
+    expect(explorerSourceBootstrapPending(false, { authenticated: false, checking: true })).toBe(false);
+    expect(explorerSourceBootstrapPending(null, { authenticated: false, checking: true })).toBe(false);
   });
 });
 
