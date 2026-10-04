@@ -101,7 +101,7 @@ function SourceImageThumb({ source }: { source: SourceThumbItem }) {
     : <span className="rrugc-source-thumb" title={source.source_name}>{media}</span>;
 }
 
-function SourceImageGroup({ plan }: { plan: SourcePlan }) {
+export function SourceImageGroup({ plan }: { plan: SourcePlan }) {
   const sources: SourceThumbItem[] = plan.source_group_images?.length
     ? plan.source_group_images
     : [plan];

@@ -4,6 +4,7 @@ import {
   stage2JobOutputUrl,
   syncStage2Skill,
 } from "./api";
+import { SourceImageGroup } from "./SourcePlanTable";
 import type {
   SourcePlan,
   SourcePlanReferencePreview,
@@ -134,6 +135,15 @@ export function Stage2JobTable({
     )),
     [plans],
   );
+  const groupedSourceImages = stage2Plans.reduce(
+    (sum, plan) => sum + Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1),
+    0,
+  );
+  const usableReferences = stage2Plans.reduce(
+    (sum, plan) => sum + plan.reference_previews.filter(eligibleReference).length,
+    0,
+  );
+  const activeJobs = jobs.filter(job => job.status === "queued" || job.status === "running").length;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -240,9 +250,9 @@ export function Stage2JobTable({
   return <section className="rrugc-card rrugc-stage2">
     <div className="rrugc-section-heading rrugc-stage2-heading">
       <div>
-        <small>STAGE 2 · EMBROIDERY → SELECT REFS → SKILL</small>
-        <h2>Generation jobs</h2>
-        <p>Pick up to 10 Drive-ready Pinterest references, choose a pinned skill/version, then generate one master image.</p>
+        <small>EMBROIDERY GROUP → PINTEREST REFS → SKILL</small>
+        <h2>Embroidery groups → generation jobs</h2>
+        <p>The same embroidery grouping from Stage 1 is preserved here. Pick up to 10 Drive-ready Pinterest references per group, choose a pinned skill/version, then generate one master image.</p>
       </div>
       <div className="rrugc-stage2-registry-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} refs / job</span>
@@ -268,11 +278,18 @@ export function Stage2JobTable({
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
     {skillMessage && <p className="rrugc-editor-product-result" role="status">{skillMessage}</p>}
 
+    <div className="rrugc-source-plan-kpis rrugc-stage2-kpis">
+      <article><span>Embroidery groups</span><strong>{stage2Plans.length}</strong></article>
+      <article><span>Source images</span><strong>{groupedSourceImages}</strong></article>
+      <article><span>Drive-ready refs</span><strong>{usableReferences}</strong></article>
+      <article><span>Active jobs</span><strong>{activeJobs}</strong></article>
+    </div>
+
     <div className="rrugc-source-plan-table-wrap">
       <table className="rrugc-source-plan-table rrugc-stage2-table">
         <thead>
           <tr>
-            <th>Embroidery source</th>
+            <th>Embroidery group</th>
             <th>Pinterest refs · pick up to 10</th>
             <th>Skill / pinned version</th>
             <th>Job / output</th>
@@ -293,11 +310,11 @@ export function Stage2JobTable({
               : version ? [version] : [];
             return <tr key={plan.id}>
               <td className="rrugc-source-cell">
-                <div className="rrugc-source-file">
-                  <img src={plan.source_preview_url} alt="" loading="lazy" />
+                <div className="rrugc-source-file rrugc-source-file-grouped rrugc-stage2-source-group">
+                  <SourceImageGroup plan={plan} />
                   <span>
                     <strong title={plan.source_name}>{plan.source_name}</strong>
-                    <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"}</small>
+                    <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"}{plan.embroidery_group_size > 1 ? " · same embroidery" : ""}</small>
                     <em>{plan.visual_context?.embroidery_text?.join(" · ") || plan.visual_context?.embroidery_identity || "Embroidery detected"}</em>
                   </span>
                 </div>

@@ -120,10 +120,16 @@ describe("Realistic Review UGC source-first workspace", () => {
         onCreateJob={() => undefined}
       />,
     );
-    expect(markup).toContain("STAGE 2");
+    expect(markup).toContain("EMBROIDERY GROUP");
+    expect(markup).toContain("Embroidery groups → generation jobs");
     expect(markup).toContain("Max 10 refs / job");
     expect(markup).toContain("$gatorhats-8869-image-studio");
     expect(markup).toContain("11 Drive-ready refs available");
+    expect(markup).toContain('aria-label="3 source images with the same embroidery"');
+    expect(markup).toContain("front-black.png");
+    expect(markup).toContain("front-red.png");
+    expect(markup).toContain("same embroidery");
+    expect(markup).toContain("Source images");
     expect(markup).toContain("Generate master");
   });
 

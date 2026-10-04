@@ -61,10 +61,9 @@
   .rrugc-source-ref-arrow{width:22px;height:62px;font-size:15px}
   .rrugc-source-ref-slider{grid-template-columns:22px minmax(0,1fr) 22px}
 
-  .rrugc-stage2{margin-top:10px}
+  .rrugc-stage2{margin-top:0}
   .rrugc-stage2-table{min-width:940px}
-  .rrugc-stage2 .rrugc-source-file{grid-template-columns:58px minmax(0,1fr)}
-  .rrugc-stage2 .rrugc-source-file>img{width:58px;height:58px;max-width:58px;min-width:58px}
+  .rrugc-stage2 .rrugc-source-file-grouped{grid-template-columns:minmax(0,1fr)}
   .rrugc-stage2-ref-head{margin-bottom:5px}
   .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:9.2px}
   .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small{font-size:7.8px}
@@ -125,8 +124,7 @@
   .rrugc-source-ref-arrow{height:56px}
 
   .rrugc-stage2-table{min-width:820px}
-  .rrugc-stage2 .rrugc-source-file{grid-template-columns:50px minmax(0,1fr)}
-  .rrugc-stage2 .rrugc-source-file>img{width:50px;height:50px;max-width:50px;min-width:50px}
+  .rrugc-stage2 .rrugc-source-file-grouped{grid-template-columns:minmax(0,1fr)}
   .rrugc-stage2-ref{flex-basis:48px;width:48px;height:48px}
   .rrugc-stage2-ref-grid{min-height:54px;gap:4px}
   .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:8.8px}
