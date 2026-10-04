@@ -173,7 +173,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Embroidery groups → image generation");
     expect(markup).toContain("Max 10 refs / job");
     expect(markup).toContain("Run status · latest 10");
-    expect(markup).toContain(">Results<");
+    expect(markup).toContain(">Output<");
+    expect(markup).toContain("Skill &amp; generate");
     expect(markup).toContain("Skill ready");
     expect(markup).toContain("0/10 runs");
     expect(markup).toContain("10 not run");
@@ -216,6 +217,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("IMAGE_GENERATION_FAILED");
     expect(markup).toContain("Generating");
     expect(markup).toContain("Generated output 3");
+    expect(markup).toContain("1 output");
+    expect(markup).toContain('class="rrugc-stage2-results"');
     expect(markup).toContain(">Not run<");
   });
 

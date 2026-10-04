@@ -351,10 +351,10 @@ export function Stage2JobTable({
         <thead>
           <tr>
             <th>Embroidery group</th>
-            <th>Pinterest refs · pick up to 10</th>
-            <th>Skill</th>
+            <th>References · pick up to 10</th>
+            <th>Skill & generate</th>
             <th>Run status · latest 10</th>
-            <th>Results</th>
+            <th>Output</th>
           </tr>
         </thead>
         <tbody>
@@ -416,6 +416,7 @@ export function Stage2JobTable({
                 </div>
               </td>
               <td className="rrugc-stage2-skill">
+                <div className="rrugc-stage2-cell-stack">
                 <div className={"rrugc-stage2-skill-state " + (canGenerate ? "is-ready" : "is-error")}>
                   <span aria-hidden="true">{canGenerate ? "✓" : "!"}</span>
                   <div>
@@ -483,8 +484,10 @@ export function Stage2JobTable({
                 >
                   {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate next"}
                 </button>
+                </div>
               </td>
               <td className="rrugc-stage2-status">
+                <div className="rrugc-stage2-cell-stack">
                 <div className="rrugc-stage2-output-head">
                   <strong>{planJobs.length}/{MAX_OUTPUT_SLOTS} runs</strong>
                   <small>
@@ -546,8 +549,14 @@ export function Stage2JobTable({
                   <span className="is-done"><i />Done</span>
                   <span className="is-failed"><i />Failed</span>
                 </div>
+                </div>
               </td>
               <td className="rrugc-stage2-results">
+                <div className="rrugc-stage2-cell-stack">
+                <div className="rrugc-stage2-results-head">
+                  <strong>{runs.completed} {runs.completed === 1 ? "output" : "outputs"}</strong>
+                  <small>{runs.completed ? "Open a thumbnail to view full size." : "Waiting for a completed generation."}</small>
+                </div>
                 {runs.completed ? <div className="rrugc-stage2-result-grid" aria-label={"Generated results for " + plan.source_name}>
                   {planJobs.map((run, index) => run.status === "completed" ? <a
                     key={run.id}
@@ -564,6 +573,7 @@ export function Stage2JobTable({
                   <strong>No results yet</strong>
                   <small>Completed generations will appear here.</small>
                 </div>}
+                </div>
               </td>
             </tr>;
           })}
