@@ -741,6 +741,113 @@ def test_source_plan_list_is_server_paginated_and_searchable():
         assert [item.source_name for item in search.items] == ["teacher-cap.png"]
 
 
+def test_source_plan_list_stage2_only_filters_before_pagination():
+    factory = make_database()
+
+    with factory() as session:
+        campaigns = [
+            RrugcCampaignModel(
+                tenant_id="tenant-a",
+                name=f"{label} campaign",
+                query=label,
+                scout_token_hash=(label[0] * 64),
+                created_by_user_id="user-a",
+            )
+            for label in ("alpha", "beta", "gamma")
+        ]
+        session.add_all(campaigns)
+        session.flush()
+        session.add_all(
+            [
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="stage2-alpha",
+                    source_parent_folder_id="folder-a",
+                    source_relative_path="Alpha/front.jpg",
+                    source_name="front.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision="a" * 64,
+                    analysis_revision=1,
+                    embroidery_signature="alpha-signature",
+                    target_count=20,
+                    status="ready",
+                    visual_context_json={"embroidery_text": ["ALPHA"]},
+                    campaign_id=campaigns[0].id,
+                    created_by_user_id="user-a",
+                ),
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="stage2-beta",
+                    source_parent_folder_id="folder-b",
+                    source_relative_path="Beta/front.jpg",
+                    source_name="front.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision="b" * 64,
+                    analysis_revision=1,
+                    embroidery_signature="beta-signature",
+                    target_count=20,
+                    status="queued",
+                    visual_context_json={"embroidery_text": ["BETA"]},
+                    campaign_id=campaigns[1].id,
+                    created_by_user_id="user-a",
+                ),
+                RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id="stage2-gamma",
+                    source_parent_folder_id="folder-c",
+                    source_relative_path="Gamma/front.jpg",
+                    source_name="front.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision="c" * 64,
+                    analysis_revision=1,
+                    embroidery_signature="gamma-signature",
+                    target_count=20,
+                    status="ready",
+                    visual_context_json={"embroidery_identity": "Gamma embroidery"},
+                    campaign_id=campaigns[2].id,
+                    created_by_user_id="user-a",
+                ),
+            ]
+        )
+        session.commit()
+        principal = SimpleNamespace(active_tenant_id="tenant-a")
+
+        first_page = get_source_plans(
+            page=1,
+            page_size=1,
+            q=None,
+            sort_by="source",
+            sort_dir="asc",
+            stage2_only=True,
+            session=session,
+            principal=principal,
+        )
+        assert first_page.total == 2
+        assert first_page.overview.stage2_groups == 2
+        assert first_page.overview.stage2_source_images == 2
+        assert [item.source_relative_path for item in first_page.items] == [
+            "Alpha/front.jpg"
+        ]
+
+        second_page = get_source_plans(
+            page=2,
+            page_size=1,
+            q=None,
+            sort_by="source",
+            sort_dir="asc",
+            stage2_only=True,
+            session=session,
+            principal=principal,
+        )
+        assert second_page.total == 2
+        assert [item.source_relative_path for item in second_page.items] == [
+            "Gamma/front.jpg"
+        ]
+
+
 def test_source_plan_list_supports_server_side_sorting_before_pagination():
     factory = make_database()
 

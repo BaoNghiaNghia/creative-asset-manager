@@ -4,7 +4,7 @@ import {
   stage2JobOutputUrl,
   syncStage2Skill,
 } from "./api";
-import { SourceImageGroup } from "./SourcePlanTable";
+import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import type {
   SourcePlan,
   SourcePlanOverview,
@@ -17,6 +17,7 @@ import type {
 
 const MAX_REFS = 10;
 const MAX_OUTPUT_SLOTS = 10;
+const STAGE2_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const FALLBACK_SKILL_NAME = "gatorhats-8869-image-studio";
 
 const FALLBACK_SKILL: Stage2Skill = {
@@ -152,12 +153,20 @@ export function Stage2JobTable({
   plans,
   jobs,
   overview = fallbackStage2Overview(plans, jobs),
+  total,
+  page = 1,
+  pageSize = 10,
   creatingPlanIds,
   message,
   onCreateJob,
+  onPageChange = () => undefined,
+  onPageSizeChange = () => undefined,
 }: {
   plans: SourcePlan[];
   overview?: SourcePlanOverview;
+  total?: number;
+  page?: number;
+  pageSize?: number;
   jobs: Stage2Job[];
   creatingPlanIds: ReadonlySet<string>;
   message?: string;
@@ -166,6 +175,8 @@ export function Stage2JobTable({
     candidateIds: string[],
     skill: Stage2SkillSelection,
   ) => void;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
 }) {
   const [selectedByPlan, setSelectedByPlan] = useState<Record<string, string[]>>({});
   const [catalog, setCatalog] = useState<Stage2SkillCatalog>(INITIAL_CATALOG);
@@ -187,6 +198,14 @@ export function Stage2JobTable({
     )),
     [plans],
   );
+  const stage2Total = total ?? stage2Plans.length;
+  const pageCount = sourcePlanPageCount(stage2Total, pageSize);
+  const currentPage = Math.min(Math.max(1, page), pageCount);
+  const pageStart = stage2Total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = stage2Total === 0
+    ? 0
+    : Math.min((currentPage - 1) * pageSize + stage2Plans.length, stage2Total);
+
   useEffect(() => {
     const controller = new AbortController();
     void listStage2Skills(false, controller.signal)
@@ -474,6 +493,13 @@ export function Stage2JobTable({
                     {runs.remaining ? " · " + runs.remaining + " not run" : ""}
                   </small>
                 </div>
+                {!canGenerate && <div className="rrugc-stage2-output-blocked" role="status">
+                  <span aria-hidden="true">!</span>
+                  <div>
+                    <strong>Generation blocked by skill</strong>
+                    <small>{skillIssue || "Skill unavailable"}</small>
+                  </div>
+                </div>}
                 <div className="rrugc-stage2-output-grid" aria-label={"Latest generation runs for " + plan.source_name}>
                   {Array.from({ length: MAX_OUTPUT_SLOTS }, (_, index) => {
                     const run = planJobs[index];
@@ -528,6 +554,27 @@ export function Stage2JobTable({
           {stage2Plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">Stage 2 jobs will appear here after Stage 1 finishes embroidery context analysis.</td></tr>}
         </tbody>
       </table>
+    </div>
+
+    <div className="rrugc-source-pagination rrugc-stage2-pagination">
+      <span>{pageStart}–{pageEnd} of {stage2Total}</span>
+      <div className="rrugc-source-page-controls">
+        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 2 page">«</button>
+        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 2 page">‹</button>
+        <strong>Page {currentPage} / {pageCount}</strong>
+        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 2 page">›</button>
+        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 2 page">»</button>
+      </div>
+      <label>
+        Rows
+        <select
+          value={pageSize}
+          onChange={event => onPageSizeChange(Number(event.target.value))}
+          aria-label="Stage 2 rows per page"
+        >
+          {STAGE2_PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
+        </select>
+      </label>
     </div>
   </section>;
 }

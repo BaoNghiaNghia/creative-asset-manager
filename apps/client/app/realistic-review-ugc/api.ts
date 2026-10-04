@@ -160,6 +160,7 @@ export const listSourcePlans = (
     query?: string;
     sortBy?: SourcePlanSortBy;
     sortDirection?: SourcePlanSortDirection;
+    stage2Only?: boolean;
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -170,6 +171,7 @@ export const listSourcePlans = (
     sort_dir: filters.sortDirection ?? "asc",
   });
   if (filters.query?.trim()) params.set("q", filters.query.trim());
+  if (filters.stage2Only) params.set("stage2_only", "true");
   return request<SourcePlanPage>(
     "/api/v1/realistic-review-ugc/source-plans?" + params.toString(),
     { signal },

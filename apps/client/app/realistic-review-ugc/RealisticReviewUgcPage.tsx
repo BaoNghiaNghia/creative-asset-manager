@@ -54,6 +54,9 @@ export function RealisticReviewUgcPage() {
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
   const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
+  const [stage2Page, setStage2Page] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
+  const [stage2PageNumber, setStage2PageNumber] = useState(1);
+  const [stage2PageSize, setStage2PageSize] = useState(10);
   const [stage2Jobs, setStage2Jobs] = useState<Stage2Job[]>([]);
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
@@ -63,6 +66,10 @@ export function RealisticReviewUgcPage() {
   const sourcePageCount = useMemo(
     () => Math.max(1, Math.ceil(sourcePage.total / Math.max(1, sourcePageSize))),
     [sourcePage.total, sourcePageSize],
+  );
+  const stage2PageCount = useMemo(
+    () => Math.max(1, Math.ceil(stage2Page.total / Math.max(1, stage2PageSize))),
+    [stage2Page.total, stage2PageSize],
   );
 
   async function refreshSourcePlans(signal?: AbortSignal) {
@@ -77,6 +84,20 @@ export function RealisticReviewUgcPage() {
       signal,
     );
     setSourcePage(result);
+  }
+
+  async function refreshStage2Plans(signal?: AbortSignal) {
+    const result = await listSourcePlans(
+      {
+        page: stage2PageNumber,
+        pageSize: stage2PageSize,
+        sortBy: "source",
+        sortDirection: "asc",
+        stage2Only: true,
+      },
+      signal,
+    );
+    setStage2Page(result);
   }
 
   async function refreshStage2Jobs(signal?: AbortSignal) {
@@ -99,7 +120,10 @@ export function RealisticReviewUgcPage() {
           ? "Stage 2 job queued with " + candidateIds.length + " Pinterest refs. The master will appear when the skill finishes."
           : "An identical Stage 2 job already exists; showing its current status.",
       );
-      await refreshStage2Jobs();
+      await Promise.all([
+        refreshStage2Jobs(),
+        refreshStage2Plans(),
+      ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to queue Stage 2 generation.");
     } finally {
@@ -212,6 +236,12 @@ export function RealisticReviewUgcPage() {
   }, [sourcePageCount, sourcePageNumber]);
 
   useEffect(() => {
+    if (stage2PageNumber > stage2PageCount) {
+      setStage2PageNumber(stage2PageCount);
+    }
+  }, [stage2PageCount, stage2PageNumber]);
+
+  useEffect(() => {
     const controller = new AbortController();
     setError("");
     void refreshSourcePlans(controller.signal).catch(reason => {
@@ -227,6 +257,22 @@ export function RealisticReviewUgcPage() {
       window.clearInterval(timer);
     };
   }, [sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshStage2Plans(controller.signal).catch(reason => {
+      if (!controller.signal.aborted) {
+        setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 groups.");
+      }
+    });
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refreshStage2Plans().catch(() => undefined);
+    }, 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [stage2PageNumber, stage2PageSize]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -353,11 +399,19 @@ export function RealisticReviewUgcPage() {
           hidden={activeStage !== "stage2"}
         >
           <Stage2JobTable
-            plans={sourcePage.items}
-            overview={sourcePage.overview}
+            plans={stage2Page.items}
+            total={stage2Page.total}
+            overview={stage2Page.overview}
+            page={stage2PageNumber}
+            pageSize={stage2PageSize}
             jobs={stage2Jobs}
             creatingPlanIds={creatingStage2PlanIds}
             message={stage2Message}
+            onPageChange={setStage2PageNumber}
+            onPageSizeChange={value => {
+              setStage2PageNumber(1);
+              setStage2PageSize(value);
+            }}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
           />
         </section>

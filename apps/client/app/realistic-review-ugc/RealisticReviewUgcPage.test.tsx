@@ -188,6 +188,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">302<");
     expect(markup).toContain(">7<");
     expect(markup).toContain("Generate next");
+    expect(markup).toContain("Page 1 / 1");
+    expect(markup).toContain('aria-label="Stage 2 rows per page"');
+    expect(markup).toContain("1–1 of 1");
   });
 
   it("shows completed, active, failed, and not-run generation slots separately", () => {

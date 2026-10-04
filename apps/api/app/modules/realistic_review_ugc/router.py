@@ -2727,6 +2727,7 @@ def get_source_plans(
         pattern="^(source|updated|analyzed|group_size|status)$",
     ),
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
+    stage2_only: bool = False,
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -2775,6 +2776,24 @@ def get_source_plans(
                 member.id,
             ),
         )
+
+    def stage2_eligible(
+        members: list[RrugcSourcePlanModel],
+    ) -> bool:
+        representative = representative_for(members)
+        visual_context = dict(representative.visual_context_json or {})
+        return (
+            representative.status == "ready"
+            and bool(representative.campaign_id)
+            and bool(
+                representative.embroidery_signature
+                or visual_context.get("embroidery_identity")
+                or visual_context.get("embroidery_text")
+            )
+        )
+
+    if stage2_only:
+        groups = [members for members in groups if stage2_eligible(members)]
 
     def group_sort_key(
         members: list[RrugcSourcePlanModel],
@@ -2862,16 +2881,7 @@ def get_source_plans(
             for status in overview_ref_statuses
         )
 
-        visual_context = dict(representative.visual_context_json or {})
-        if (
-            representative.status == "ready"
-            and bool(representative.campaign_id)
-            and bool(
-                representative.embroidery_signature
-                or visual_context.get("embroidery_identity")
-                or visual_context.get("embroidery_text")
-            )
-        ):
+        if stage2_eligible(members):
             overview_stage2_groups.append((representative, members))
 
     stage2_source_plan_ids = [
