@@ -952,7 +952,18 @@ Remote providers receive only required artifacts. Credentials are stored securel
 
 ## 27. Standalone local deployment
 
-The Mini PC/local machine is the primary runtime.
+The local Windows machine is the primary runtime and the architecture is optimized for the current hardware profile:
+
+```text
+CPU        Intel Xeon E5-2680 v4
+Sockets    2
+Cores      28 physical / 56 logical
+RAM        64 GB
+GPU        Radeon RX 470 8 GB
+Storage    SSD
+```
+
+This machine is strong for highly parallel CPU work and large in-memory image processing, but the RX 470 8 GB must **not** be treated as the primary engine for modern large image-generation models. The production default is therefore **CPU-first + lightweight GPU acceleration + remote AI for semantic reconstruction**.
 
 Suggested product components:
 
@@ -960,28 +971,193 @@ Suggested product components:
 PODArtworkTool.exe
   ├─ Desktop UI
   ├─ Engine Service/Process
-  ├─ Local model runtime
-  ├─ Logger
+  ├─ CPU image-processing runtime
+  ├─ Lightweight GPU acceleration layer
+  ├─ Remote AI provider adapters
+  ├─ JEV/typed control plane
+  ├─ Logger + Telemetry
   ├─ Auto Updater
   ├─ Checkpoint/cache manager
+  ├─ Storage Manager
   └─ Dataset/Harness management
 ```
 
 The tool should not require users to manually start Python or PowerShell in normal use.
 
-Heavy local work may include:
+### 27.1 Canonical execution policy for the current machine
 
-- local reconstruction models;
+Default routing:
+
+```text
+INPUT
+  ↓
+CPU PRE-FLIGHT
+hash / quality / crop / OCR
+  ↓
+TYPED VALIDATION
+  ↓
+SMART ROUTER
+  ├─ CPU deterministic path
+  │    OCR / OpenCV / dewarp / vector / compositor / QC
+  │
+  ├─ lightweight RX470 path
+  │    only stages that benchmark faster through DirectML/Vulkan-class acceleration
+  │
+  └─ remote AI path
+       semantic analysis
+       difficult reconstruction
+       Quick 2D
+       region rescue
+       fallback
+  ↓
+LOCAL PRECISION FINISH
+  ↓
+QC #1 + QC #2
+  ↓
+OUTPUT
+```
+
+Do not make local Qwen/FLUX-class large reconstruction models a required production dependency on this hardware. They may be benchmarked experimentally, but the default install must remain usable without them.
+
+### 27.2 CPU utilization policy
+
+The engine should exploit the 28-core/56-thread CPU without starving Windows or the desktop UI.
+
+Recommended initial scheduler limits:
+
+```text
+Engine CPU soft budget     32–40 logical threads
+UI/system reserve          remaining threads
+RAM soft budget            ~32 GB
+RAM hard budget            44–48 GB
+```
+
+Typical CPU responsibilities:
+
 - OCR;
-- OpenCV;
-- segmentation/matting;
-- vector tracing/rendering;
-- SR;
-- texture/material processing;
-- alpha/edge refinement;
-- 6K–8K working composition.
+- pre-flight and deduplication;
+- OpenCV transforms;
+- perspective/dewarp;
+- vector/text reconstruction;
+- image compositing;
+- masks and alpha processing where CPU wins;
+- QC and benchmark metrics;
+- dataset indexing and background preparation.
 
-If hardware is insufficient or the user chooses a remote-capable mode, the Router can use configured remote providers.
+Independent CPU work should overlap remote-provider wait time. For example, OCR, masks, layout reconstruction and output-canvas preparation can run while a remote reconstruction request is in flight.
+
+### 27.3 RX 470 policy
+
+The RX 470 is an optional accelerator, not a mandatory dependency.
+
+Benchmark lightweight tasks through available Windows acceleration backends such as DirectML/Vulkan-class paths where practical:
+
+- lightweight segmentation/matting;
+- selected SR models;
+- image filters;
+- narrowly scoped inference that fits comfortably in 8 GB VRAM.
+
+If the GPU implementation is unstable or slower than CPU, the Router must automatically use the CPU path.
+
+Do not make the following normal production requirements on this GPU:
+
+```text
+large local diffusion reconstruction
+large local VLM
+multiple resident AI models
+VRAM-heavy Max Fidelity pipelines
+```
+
+### 27.4 Remote AI policy
+
+Remote AI is used as elastic compute to avoid turning the RX 470 into the system bottleneck.
+
+Use remote reasoning/vision for:
+
+- DesignSpec generation when local evidence is insufficient;
+- ambiguous or heavily occluded artwork;
+- multi-reference reasoning;
+- difficult semantic understanding;
+- Judge assistance where deterministic metrics are insufficient.
+
+Use remote image reconstruction for:
+
+- Quick 2D;
+- complex semantic reconstruction;
+- difficult-region rescue;
+- fallback after bounded local failure;
+- Max Fidelity paths when evidence shows quality benefit.
+
+Remote output is still an intermediate reconstruction. Final exact text, vector-capable geometry, alpha, edges, export profile and technical QC remain controlled by the local precision pipeline.
+
+### 27.5 JEV / typed-control optimization
+
+JEV/TypeSafe does not make image inference faster directly. Its performance value is preventing invalid structured output and bad routing decisions from wasting expensive stages.
+
+The typed control plane validates:
+
+```text
+DesignSpec
+RouteDecision
+ProviderResult
+QCResult
+RetryDecision
+ArtifactManifest
+```
+
+A malformed or incomplete result should fail within milliseconds/seconds at the contract boundary instead of continuing through reconstruction, SR, compositing and QC.
+
+### 27.6 Hard storage budget
+
+The entire installed tool footprint must stay within a **40 GB absolute cap**, excluding user-controlled historical source/final datasets stored outside the tool directory.
+
+Target normal footprint:
+
+```text
+Core app/runtime               2–3 GB
+OCR/matting/SR lightweight     2–4 GB
+Pinned production models       0–6 GB
+Persistent cache               ≤5 GB
+Temporary jobs                 ≤6 GB
+Harness/Golden subset          ≤2 GB
+Logs                           ≤1 GB
+Updater/rollback               ≤2 GB
+Reserved headroom              ≥4 GB
+--------------------------------------
+Normal operating target        ~18–28 GB
+Soft warning                   32 GB
+Absolute hard limit            40 GB
+```
+
+Storage Manager automatically:
+
+1. removes completed-job temporary artifacts no longer needed for resume;
+2. evicts unpinned LRU model/cache data;
+3. compresses/rotates logs;
+4. deletes superseded update packages;
+5. refuses optional model downloads that would exceed the hard cap;
+6. uses a remote provider instead of downloading another large fallback model when appropriate.
+
+Historical datasets are referenced by path/hash/metadata and are not copied into the tool installation by default.
+
+### 27.7 Performance targets for this hardware profile
+
+Initial engineering targets, to be replaced by Harness measurements:
+
+```text
+Typography/logo deterministic    8–20 s
+Quick 2D                         15–45 s
+Print Ready simple               20–45 s
+Print Ready typical              30–90 s
+Complex hybrid                   1–2 min
+Region rescue                    +15–45 s
+Max Fidelity                     1.5–4 min typical
+Hard job ceiling                 6–8 min
+```
+
+These are SLO targets, not guaranteed benchmark results. Actual values depend on remote-provider latency, network, source complexity and the final selected algorithms.
+
+The engine should stop unproductive retries before the hard ceiling and preserve artifacts for manual review or fallback.
 
 ## 28. Optional VPS role
 
@@ -1106,10 +1282,13 @@ Build:
 - artwork detection;
 - DesignSpec;
 - deterministic text/logo route;
-- one local/remote reconstruction route;
+- remote-first semantic reconstruction path;
+- lightweight CPU/GPU local precision stages;
+- JEV validation at provider and QC boundaries;
 - alpha;
 - final export;
-- two-stage QC.
+- two-stage QC;
+- storage-budget enforcement and resource telemetry.
 
 ### Phase 2 — Hybrid quality
 
@@ -1177,19 +1356,32 @@ Optional:
 
 ## 32. Open benchmark decisions
 
-Keep these configurable until evidence is available:
+The current hardware and deployment profile are now fixed inputs for V1:
 
-- exact local reconstruction model/version;
-- exact remote provider mappings;
-- local VLM/OCR stack;
-- SR/restoration implementation;
+```text
+Xeon E5-2680 v4
+28 cores / 56 logical processors
+64 GB RAM
+Radeon RX 470 8 GB
+SSD
+Standalone Windows tool
+Remote-first semantic reconstruction
+40 GB absolute tool-storage cap
+```
+
+Keep these configurable until Harness evidence is available:
+
+- exact remote reasoning/image-provider mappings;
+- exact OCR stack;
+- which lightweight SR/matting stages benefit from CPU vs RX 470 acceleration;
 - vectorization/tracing engine;
-- hardware/VRAM requirements;
+- optional experimental local reconstruction model, if any;
 - candidate count by quality mode;
 - retry/fallback limits;
 - QC thresholds;
 - provider budget limits;
-- per-job latency/cost targets;
-- when region rescue is preferable to full retry.
+- exact P50/P90 latency targets after real benchmark runs;
+- when region rescue is preferable to full retry;
+- whether any local model provides enough quality/latency benefit to justify permanent disk space under the 40 GB cap.
 
 Any validated decision that changes production behavior should update this document so the repository retains one canonical technical history.
