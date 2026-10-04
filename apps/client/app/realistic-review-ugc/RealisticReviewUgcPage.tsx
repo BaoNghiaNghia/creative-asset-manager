@@ -52,11 +52,13 @@ export function RealisticReviewUgcPage() {
   const [sourceSortBy, setSourceSortBy] = useState<SourcePlanSortBy>("source");
   const [sourceSortDirection, setSourceSortDirection] = useState<SourcePlanSortDirection>("asc");
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
+  const [sourcePageLoading, setSourcePageLoading] = useState(true);
   const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
   const [stage2Page, setStage2Page] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [stage2PageNumber, setStage2PageNumber] = useState(1);
   const [stage2PageSize, setStage2PageSize] = useState(10);
+  const [stage2PageLoading, setStage2PageLoading] = useState(true);
   const [stage2Jobs, setStage2Jobs] = useState<Stage2Job[]>([]);
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
@@ -242,13 +244,19 @@ export function RealisticReviewUgcPage() {
   }, [stage2PageCount, stage2PageNumber]);
 
   useEffect(() => {
+    if (activeStage !== "stage1") return;
     const controller = new AbortController();
     setError("");
-    void refreshSourcePlans(controller.signal).catch(reason => {
-      if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "Unable to load source plans.");
-      }
-    });
+    setSourcePageLoading(true);
+    void refreshSourcePlans(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load source plans.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSourcePageLoading(false);
+      });
     const timer = window.setInterval(() => {
       if (!document.hidden) void refreshSourcePlans().catch(() => undefined);
     }, 5000);
@@ -256,15 +264,21 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
+  }, [activeStage, sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
 
   useEffect(() => {
+    if (activeStage !== "stage2") return;
     const controller = new AbortController();
-    void refreshStage2Plans(controller.signal).catch(reason => {
-      if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 groups.");
-      }
-    });
+    setStage2PageLoading(true);
+    void refreshStage2Plans(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 groups.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setStage2PageLoading(false);
+      });
     const timer = window.setInterval(() => {
       if (!document.hidden) void refreshStage2Plans().catch(() => undefined);
     }, 5000);
@@ -272,9 +286,10 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [stage2PageNumber, stage2PageSize]);
+  }, [activeStage, stage2PageNumber, stage2PageSize]);
 
   useEffect(() => {
+    if (activeStage !== "stage2") return;
     const controller = new AbortController();
     void refreshStage2Jobs(controller.signal).catch(reason => {
       if (!controller.signal.aborted) {
@@ -288,9 +303,13 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, []);
+  }, [activeStage]);
 
   function selectStage(nextStage: RrugcStageTab) {
+    if (nextStage !== activeStage) {
+      if (nextStage === "stage1") setSourcePageLoading(true);
+      if (nextStage === "stage2") setStage2PageLoading(true);
+    }
     setActiveStage(nextStage);
     window.requestAnimationFrame?.(() => {
       document.getElementById("rrugc-tab-" + nextStage)?.focus();
@@ -369,20 +388,27 @@ export function RealisticReviewUgcPage() {
             sortBy={sourceSortBy}
             sortDirection={sourceSortDirection}
             syncing={syncingSourcePlans}
+            loading={sourcePageLoading}
             reviewingReferenceIds={reviewingReferenceIds}
             message={sourcePlanMessage}
             onSync={() => void syncDriveSourcePlans()}
-            onPageChange={setSourcePageNumber}
+            onPageChange={value => {
+              setSourcePageLoading(true);
+              setSourcePageNumber(value);
+            }}
             onPageSizeChange={value => {
+              setSourcePageLoading(true);
               setSourcePageNumber(1);
               setSourcePageSize(value);
             }}
             onQueryChange={setSourceQuery}
             onSortByChange={value => {
+              setSourcePageLoading(true);
               setSourcePageNumber(1);
               setSourceSortBy(value);
             }}
             onSortDirectionChange={value => {
+              setSourcePageLoading(true);
               setSourcePageNumber(1);
               setSourceSortDirection(value);
             }}
@@ -406,9 +432,14 @@ export function RealisticReviewUgcPage() {
             pageSize={stage2PageSize}
             jobs={stage2Jobs}
             creatingPlanIds={creatingStage2PlanIds}
+            loading={stage2PageLoading}
             message={stage2Message}
-            onPageChange={setStage2PageNumber}
+            onPageChange={value => {
+              setStage2PageLoading(true);
+              setStage2PageNumber(value);
+            }}
             onPageSizeChange={value => {
+              setStage2PageLoading(true);
               setStage2PageNumber(1);
               setStage2PageSize(value);
             }}

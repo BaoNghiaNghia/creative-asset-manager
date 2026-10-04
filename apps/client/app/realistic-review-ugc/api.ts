@@ -304,6 +304,11 @@ export const stage2JobOutputUrl = (jobId: string) =>
   + encodeURIComponent(jobId)
   + "/output";
 
+export const stage2JobOutputThumbnailUrl = (jobId: string, size = 192) =>
+  stage2JobOutputUrl(jobId)
+  + "?thumbnail=true&size="
+  + Math.min(1024, Math.max(128, Math.round(size)));
+
 export const listScoutRuns = (
   campaignId?: string,
   signal?: AbortSignal,

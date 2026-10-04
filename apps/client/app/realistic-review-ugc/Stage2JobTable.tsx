@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   listStage2Skills,
+  stage2JobOutputThumbnailUrl,
   stage2JobOutputUrl,
   syncStage2Skill,
 } from "./api";
+import { DeferredImage } from "./DeferredImage";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import type {
   SourcePlan,
@@ -149,6 +151,19 @@ function versionLabel(skill: Stage2Skill, version: string) {
   return "v" + version + (badges.length ? " · " + badges.join(" / ") : "");
 }
 
+function Stage2SkeletonRows({ count }: { count: number }) {
+  const rows = Math.min(8, Math.max(3, count));
+  return <>
+    {Array.from({ length: rows }, (_, index) => <tr key={"stage2-skeleton-" + index} className="rrugc-table-skeleton-row" aria-hidden="true">
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-source" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-refs" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-copy" /><span className="rrugc-table-skeleton rrugc-table-skeleton-copy is-short" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-status" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-results" /></td>
+    </tr>)}
+  </>;
+}
+
 export function Stage2JobTable({
   plans,
   jobs,
@@ -157,6 +172,7 @@ export function Stage2JobTable({
   page = 1,
   pageSize = 10,
   creatingPlanIds,
+  loading = false,
   message,
   onCreateJob,
   onPageChange = () => undefined,
@@ -169,6 +185,7 @@ export function Stage2JobTable({
   pageSize?: number;
   jobs: Stage2Job[];
   creatingPlanIds: ReadonlySet<string>;
+  loading?: boolean;
   message?: string;
   onCreateJob: (
     plan: SourcePlan,
@@ -347,7 +364,7 @@ export function Stage2JobTable({
     </div>
 
     <div className="rrugc-source-plan-table-wrap">
-      <table className="rrugc-source-plan-table rrugc-stage2-table">
+      <table className="rrugc-source-plan-table rrugc-stage2-table" aria-busy={loading}>
         <thead>
           <tr>
             <th>Embroidery group</th>
@@ -358,7 +375,7 @@ export function Stage2JobTable({
           </tr>
         </thead>
         <tbody>
-          {stage2Plans.map(plan => {
+          {loading ? <Stage2SkeletonRows count={pageSize} /> : stage2Plans.map(plan => {
             const available = plan.reference_previews.filter(eligibleReference);
             const selected = selectedByPlan[plan.id] || [];
             const planJobs = recentJobs.get(plan.id) || [];
@@ -408,7 +425,7 @@ export function Stage2JobTable({
                       title={checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
                       onClick={() => toggleReference(plan.id, reference.id)}
                     >
-                      <img src={reference.image_url} alt="" loading="lazy" />
+                      <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
                       <span>{checked ? "✓" : "+"}</span>
                     </button>;
                   })}
@@ -566,7 +583,11 @@ export function Stage2JobTable({
                     rel="noreferrer"
                     title={"Result " + (index + 1) + " · " + new Date(run.created_at).toLocaleString()}
                   >
-                    <img src={stage2JobOutputUrl(run.id)} alt={"Generated output " + (index + 1)} loading="lazy" />
+                    <DeferredImage
+                      src={stage2JobOutputThumbnailUrl(run.id)}
+                      alt={"Generated output " + (index + 1)}
+                      rootMargin="180px"
+                    />
                     <span>{index + 1}</span>
                   </a> : null)}
                 </div> : <div className="rrugc-stage2-results-empty">
@@ -577,7 +598,7 @@ export function Stage2JobTable({
               </td>
             </tr>;
           })}
-          {stage2Plans.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">Stage 2 jobs will appear here after Stage 1 finishes embroidery context analysis.</td></tr>}
+          {!loading && stage2Plans.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">Stage 2 jobs will appear here after Stage 1 finishes embroidery context analysis.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -585,16 +606,17 @@ export function Stage2JobTable({
     <div className="rrugc-source-pagination rrugc-stage2-pagination">
       <span>{pageStart}–{pageEnd} of {stage2Total}</span>
       <div className="rrugc-source-page-controls">
-        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 2 page">«</button>
-        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 2 page">‹</button>
+        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 2 page">«</button>
+        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 2 page">‹</button>
         <strong>Page {currentPage} / {pageCount}</strong>
-        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 2 page">›</button>
-        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 2 page">»</button>
+        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 2 page">›</button>
+        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 2 page">»</button>
       </div>
       <label>
         Rows
         <select
           value={pageSize}
+          disabled={loading}
           onChange={event => onPageSizeChange(Number(event.target.value))}
           aria-label="Stage 2 rows per page"
         >

@@ -231,6 +231,7 @@ from app.modules.realistic_review_ugc.source_plans import (
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.ai.factory import build_ai_provider_registry
+from app.providers.google.drive import close_thumbnail_stream, open_thumbnail_stream
 from app.providers.google.storage import GoogleDriveAssetStorage
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
@@ -2503,6 +2504,40 @@ def generation_skills(
     )
 
 
+async def _managed_drive_thumbnail_response(
+    storage,
+    *,
+    tenant_id: str,
+    remote_file_id: str,
+    size_pixels: int,
+    cache_control: str,
+    etag: str | None = None,
+) -> StreamingResponse | None:
+    """Serve a compact managed-Drive thumbnail and fall back to the original."""
+    if not isinstance(storage, GoogleDriveAssetStorage):
+        return None
+    try:
+        access_token = await storage.get_access_token()
+        client, upstream = await open_thumbnail_stream(
+            access_token,
+            remote_file_id,
+            cache_key=("rrugc-managed", tenant_id, remote_file_id),
+            size_pixels=size_pixels,
+        )
+    except Exception:
+        return None
+
+    headers = {"Cache-Control": cache_control}
+    if etag:
+        headers["ETag"] = etag
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        media_type=upstream.headers.get("content-type") or "image/jpeg",
+        background=BackgroundTask(close_thumbnail_stream, client, upstream),
+        headers=headers,
+    )
+
+
 SOURCE_PLAN_REFERENCE_STATUSES = frozenset(
     {"approved", "import_queued", "importing", "drive_ready"}
 )
@@ -2544,7 +2579,7 @@ def _source_plan_group_image_response(
         source_relative_path=row.source_relative_path,
         source_preview_url=(
             f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
-            f"?v={row.source_revision[:16]}"
+            f"?thumbnail=true&size=320&v={row.source_revision[:16]}"
         ),
         source_web_url=row.source_web_url,
         source_width=row.source_width,
@@ -2613,7 +2648,7 @@ def _source_plan_response(
         source_web_url=row.source_web_url,
         source_preview_url=(
             f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
-            f"?v={row.source_revision[:16]}"
+            f"?thumbnail=true&size=320&v={row.source_revision[:16]}"
         ),
         source_revision=row.source_revision,
         analysis_revision=row.analysis_revision,
@@ -3031,6 +3066,8 @@ def get_source_plans(
 @router.get("/source-plans/{source_plan_id}/image")
 async def get_source_plan_image(
     source_plan_id: str,
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=320, ge=128, le=1024),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3060,6 +3097,17 @@ async def get_source_plan_image(
                 "message": "Managed Google Drive is unavailable.",
             },
         )
+    if thumbnail:
+        compact = await _managed_drive_thumbnail_response(
+            storage,
+            tenant_id=principal.active_tenant_id,
+            remote_file_id=remote_file_id,
+            size_pixels=size,
+            cache_control="private, max-age=86400",
+            etag=f'"{source_revision}"',
+        )
+        if compact is not None:
+            return compact
     try:
         stream = await storage.open_asset(
             OpenStoredAssetInput(
@@ -3197,6 +3245,8 @@ def create_stage2_job(
 @router.get("/stage2-jobs/{stage2_job_id}/output")
 async def get_stage2_job_output(
     stage2_job_id: str,
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=192, ge=128, le=1024),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3229,6 +3279,16 @@ async def get_stage2_job_output(
                 "message": "Managed Google Drive is unavailable.",
             },
         )
+    if thumbnail:
+        compact = await _managed_drive_thumbnail_response(
+            storage,
+            tenant_id=principal.active_tenant_id,
+            remote_file_id=output_remote_file_id,
+            size_pixels=size,
+            cache_control="private, max-age=86400",
+        )
+        if compact is not None:
+            return compact
     try:
         stream = await storage.open_asset(
             OpenStoredAssetInput(

@@ -365,9 +365,48 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("rrugc-source-thumb-skeleton");
+    expect(markup).toContain("rrugc-deferred-img");
     expect(markup).toContain('loading="lazy"');
     expect(markup).toContain('decoding="async"');
+  });
+
+  it("renders table skeleton rows while a Stage 1 page is loading", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan()]}
+        total={79}
+        page={2}
+        pageSize={20}
+        query=""
+        syncing={false}
+        loading
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain("rrugc-table-skeleton-row");
+    expect(markup).not.toContain("Playful cookout context");
+  });
+
+  it("renders table skeleton rows while a Stage 2 page is loading", () => {
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[makePlan()]}
+        jobs={[]}
+        total={57}
+        page={2}
+        pageSize={10}
+        creatingPlanIds={new Set()}
+        loading
+        onCreateJob={() => undefined}
+      />,
+    );
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain("rrugc-table-skeleton-results");
   });
 
   it("renders more than twenty references in one horizontal slider", () => {

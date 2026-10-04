@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
+import { DeferredImage } from "./DeferredImage";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanOverview, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
@@ -101,16 +102,11 @@ type SourceThumbItem = Pick<
 >;
 
 function SourceImageThumb({ source }: { source: SourceThumbItem }) {
-  const [loaded, setLoaded] = useState(false);
-  const media = <span className={"rrugc-source-thumb-media " + (loaded ? "is-loaded" : "is-loading")}>
-    {!loaded && <span className="rrugc-source-thumb-skeleton" aria-hidden="true" />}
-    <img
+  const media = <span className="rrugc-source-thumb-media">
+    <DeferredImage
       src={source.source_preview_url}
       alt={source.source_name}
-      loading="lazy"
-      decoding="async"
-      onLoad={() => setLoaded(true)}
-      onError={() => setLoaded(true)}
+      rootMargin="180px"
     />
   </span>;
 
@@ -182,7 +178,7 @@ export function ReferenceReviewModal({
             }
           >
             <div className="rrugc-source-review-image">
-              <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
+              <DeferredImage src={reference.image_url} alt="" rootMargin="320px 0px" referrerPolicy="no-referrer" />
               <span className="rrugc-source-review-index">{index + 1}</span>
               {reference.status === "analysis_failed" && <span className="rrugc-source-review-failed" title="AI analysis failed">!</span>}
               <div className="rrugc-source-review-votes" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
@@ -276,7 +272,7 @@ function ReferenceSlider({
             aria-label={"Open all references for " + plan.source_name + ", starting from reference " + (index + 1)}
             onClick={() => setReviewOpen(true)}
           >
-            <img src={reference.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" />
+            <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
             <span>{index + 1}</span>
             {reference.status === "analysis_failed" && <i className="rrugc-source-ref-ai-state is-failed">!</i>}
           </button>
@@ -322,6 +318,18 @@ function ReferenceSlider({
   </div>;
 }
 
+function SourcePlanSkeletonRows({ count }: { count: number }) {
+  const rows = Math.min(8, Math.max(3, count));
+  return <>
+    {Array.from({ length: rows }, (_, index) => <tr key={"source-skeleton-" + index} className="rrugc-table-skeleton-row" aria-hidden="true">
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-source" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-copy" /><span className="rrugc-table-skeleton rrugc-table-skeleton-copy is-short" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-status" /><span className="rrugc-table-skeleton rrugc-table-skeleton-copy is-short" /></td>
+      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-refs" /></td>
+    </tr>)}
+  </>;
+}
+
 export function SourcePlanTable({
   plans,
   total,
@@ -332,6 +340,7 @@ export function SourcePlanTable({
   sortBy = "source",
   sortDirection = "asc",
   syncing,
+  loading = false,
   reviewingReferenceIds = new Set<string>(),
   message,
   onSync,
@@ -351,6 +360,7 @@ export function SourcePlanTable({
   sortBy?: SourcePlanSortBy;
   sortDirection?: SourcePlanSortDirection;
   syncing: boolean;
+  loading?: boolean;
   reviewingReferenceIds?: ReadonlySet<string>;
   message: string;
   onSync: () => void;
@@ -431,10 +441,10 @@ export function SourcePlanTable({
     </div>
 
     <div className="rrugc-source-plan-table-wrap">
-      <table className="rrugc-source-plan-table">
+      <table className="rrugc-source-plan-table" aria-busy={loading}>
         <thead><tr><th>Source image</th><th>AI context & Pinterest plan</th><th>Scout</th><th>References</th></tr></thead>
         <tbody>
-          {plans.map(plan => {
+          {loading ? <SourcePlanSkeletonRows count={pageSize} /> : plans.map(plan => {
             const progress = sourcePlanProgressPercent(plan);
             const context = sourcePlanContextSummary(plan);
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
@@ -482,7 +492,7 @@ export function SourcePlanTable({
               </td>
             </tr>;
           })}
-          {plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">{query.trim() ? "No embroidery group matches this search." : "No source images yet. Auto scan will create embroidery groups when images appear in the configured Drive folders."}</td></tr>}
+          {!loading && plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">{query.trim() ? "No embroidery group matches this search." : "No source images yet. Auto scan will create embroidery groups when images appear in the configured Drive folders."}</td></tr>}
         </tbody>
       </table>
     </div>
@@ -490,13 +500,13 @@ export function SourcePlanTable({
     <div className="rrugc-source-pagination">
       <span>{start}–{end} of {total}</span>
       <div className="rrugc-source-page-controls">
-        <button type="button" disabled={page <= 1} onClick={() => onPageChange(1)} aria-label="First page">«</button>
-        <button type="button" disabled={page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))} aria-label="Previous page">‹</button>
+        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(1)} aria-label="First page">«</button>
+        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))} aria-label="Previous page">‹</button>
         <strong>Page {page} / {pageCount}</strong>
-        <button type="button" disabled={page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))} aria-label="Next page">›</button>
-        <button type="button" disabled={page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page">»</button>
+        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))} aria-label="Next page">›</button>
+        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page">»</button>
       </div>
-      <label>Rows<select value={pageSize} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+      <label>Rows<select value={pageSize} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>
   </section>;
 }
