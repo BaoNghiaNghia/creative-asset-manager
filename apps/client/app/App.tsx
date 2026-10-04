@@ -1058,10 +1058,19 @@ export default function App() {
         <span>{explorer.metadataIndex.error || "Check the API terminal for the detailed traceback."}</span>
       </div>}
 
-      {explorer.applicationAuthenticated === null && explorer.error ? <div className="state" role="alert">
-          <strong>Unable to verify application session</strong>
-          <p>{explorer.error}</p>
-          <button type="button" onClick={() => window.location.reload()}>Retry</button>
+      {explorer.applicationAuthenticated === null && explorer.error ? <div className="state application-session-error" role="alert">
+          <div className="application-session-error-content">
+            <span className="application-session-error-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7.5v5.25" />
+                <path d="M12 16.5h.01" />
+              </svg>
+            </span>
+            <strong>Unable to verify application session</strong>
+            <p>{explorer.error}</p>
+            <button type="button" onClick={() => window.location.reload()}>Retry</button>
+          </div>
         </div>
         : explorer.applicationAuthenticated === null ? <div className="state">Checking application session...</div>
         : explorer.applicationAuthenticated === false ? <DriveEmpty
