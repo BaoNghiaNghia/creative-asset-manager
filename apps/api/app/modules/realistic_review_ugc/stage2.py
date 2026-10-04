@@ -30,6 +30,7 @@ from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError,
     resolve_stage2_skill,
+    verify_stage2_skill_runtime,
 )
 from app.providers.ai.codex_image import (
     CodexImageGenRunner,
@@ -356,6 +357,32 @@ class RrugcStage2GenerateJobHandler:
                     "stage2_source_changed",
                     row.last_error_message,
                 )
+            try:
+                verify_stage2_skill_runtime(
+                    settings=settings,
+                    skill_source=row.skill_source or "local",
+                    skill_id=row.skill_id,
+                    skill_name=row.skill_name,
+                    skill_version=row.skill_version,
+                )
+            except Stage2SkillRegistryError as exc:
+                row.status = "failed"
+                row.last_error_code = exc.code
+                row.last_error_message = exc.message
+                session.commit()
+                context.logger.error(
+                    "rrugc_stage2_skill_pin_mismatch",
+                    extra={
+                        "stage2_job_id": job_id,
+                        "tenant_id": context.job.tenant_id,
+                        "skill_source": row.skill_source or "local",
+                        "skill_id": row.skill_id,
+                        "skill_name": row.skill_name,
+                        "skill_version": row.skill_version,
+                        "error_code": exc.code,
+                    },
+                )
+                return JobHandlerResult.non_retryable(exc.code, exc.message)
             row.status = "running"
             row.started_at = row.started_at or datetime.now(timezone.utc)
             row.last_error_code = None
@@ -365,8 +392,24 @@ class RrugcStage2GenerateJobHandler:
             source_size_bytes = plan.source_size_bytes
             references = list(row.selected_reference_snapshot_json or [])
             skill_name = row.skill_name
+            skill_source = row.skill_source or "local"
+            skill_id = row.skill_id
+            skill_version = row.skill_version
             prompt = row.prompt_text or ""
             session.commit()
+
+        context.logger.info(
+            "rrugc_stage2_generation_started",
+            extra={
+                "stage2_job_id": job_id,
+                "tenant_id": context.job.tenant_id,
+                "skill_source": skill_source,
+                "skill_id": skill_id,
+                "skill_name": skill_name,
+                "skill_version": skill_version,
+                "reference_count": len(references[:MAX_STAGE2_REFERENCES]),
+            },
+        )
 
         source = await self._open_prepared(
             storage,
@@ -509,7 +552,10 @@ class RrugcStage2GenerateJobHandler:
             extra={
                 "stage2_job_id": job_id,
                 "tenant_id": context.job.tenant_id,
+                "skill_source": skill_source,
+                "skill_id": skill_id,
                 "skill_name": skill_name,
+                "skill_version": skill_version,
                 "reference_count": len(reference_inputs),
                 "output_width": width,
                 "output_height": height,

@@ -136,3 +136,70 @@ def test_stage2_unsynced_openai_skill_cannot_queue(tmp_path, monkeypatch):
         )
 
     assert exc_info.value.code == "stage2_skill_not_synced"
+
+
+def test_verify_stage2_local_skill_runtime_rejects_version_drift(tmp_path):
+    _write_image_studio_skill(tmp_path, version="3.0.0")
+    settings = _settings(tmp_path)
+
+    stage2_skills.verify_stage2_skill_runtime(
+        settings=settings,
+        skill_source="local",
+        skill_id=None,
+        skill_name="gatorhats-8869-image-studio",
+        skill_version="3.0.0",
+    )
+
+    with pytest.raises(stage2_skills.Stage2SkillRegistryError) as exc_info:
+        stage2_skills.verify_stage2_skill_runtime(
+            settings=settings,
+            skill_source="local",
+            skill_id=None,
+            skill_name="gatorhats-8869-image-studio",
+            skill_version="2.9.0",
+        )
+
+    assert exc_info.value.code == "stage2_skill_runtime_version_mismatch"
+
+
+def test_verify_stage2_openai_skill_runtime_rejects_id_or_version_drift(tmp_path):
+    root = _write_image_studio_skill(tmp_path, name="remote-hat-skill", version="4")
+    (root / ".openai-skill.json").write_text(
+        json.dumps(
+            {
+                "skill_id": "skill_123",
+                "skill_name": "remote-hat-skill",
+                "version": "4",
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = _settings(tmp_path, api_key="test-key")
+
+    stage2_skills.verify_stage2_skill_runtime(
+        settings=settings,
+        skill_source="openai",
+        skill_id="skill_123",
+        skill_name="remote-hat-skill",
+        skill_version="4",
+    )
+
+    with pytest.raises(stage2_skills.Stage2SkillRegistryError) as exc_info:
+        stage2_skills.verify_stage2_skill_runtime(
+            settings=settings,
+            skill_source="openai",
+            skill_id="skill_other",
+            skill_name="remote-hat-skill",
+            skill_version="4",
+        )
+    assert exc_info.value.code == "stage2_skill_runtime_id_mismatch"
+
+    with pytest.raises(stage2_skills.Stage2SkillRegistryError) as exc_info:
+        stage2_skills.verify_stage2_skill_runtime(
+            settings=settings,
+            skill_source="openai",
+            skill_id="skill_123",
+            skill_name="remote-hat-skill",
+            skill_version="5",
+        )
+    assert exc_info.value.code == "stage2_skill_runtime_version_mismatch"

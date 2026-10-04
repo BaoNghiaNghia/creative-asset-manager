@@ -277,6 +277,67 @@ def list_stage2_skill_catalog(
     return catalog
 
 
+def verify_stage2_skill_runtime(
+    *,
+    settings: Settings | None = None,
+    skill_source: str,
+    skill_id: str | None,
+    skill_name: str,
+    skill_version: str | None,
+) -> CodexSkillManifest:
+    settings = settings or get_settings()
+    source = str(skill_source or "local").strip().lower()
+    if source not in {"local", "openai"}:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_source_invalid",
+            "The pinned Stage 2 skill source is invalid.",
+            status_code=422,
+        )
+
+    home = _codex_home(settings)
+    manifest = load_codex_skill_manifest(home, skill_name)
+    if manifest is None or "image_studio" not in manifest.workflows:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_runtime_missing",
+            "The pinned Stage 2 skill is not installed on this worker.",
+            status_code=409,
+        )
+
+    pinned_version = str(skill_version or "").strip() or None
+    if source == "openai":
+        meta = _sync_metadata(home, skill_name)
+        if meta is None:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_runtime_not_synced",
+                "The pinned OpenAI skill is no longer synced on this worker.",
+                status_code=409,
+            )
+        synced_id = str(meta.get("skill_id") or "").strip() or None
+        synced_version = str(meta.get("version") or "").strip() or None
+        if not skill_id or synced_id != skill_id:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_runtime_id_mismatch",
+                "The installed OpenAI skill does not match the skill pinned by this job.",
+                status_code=409,
+            )
+        if pinned_version and synced_version != pinned_version:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_runtime_version_mismatch",
+                "The installed OpenAI skill version changed after this job was queued.",
+                status_code=409,
+            )
+        return manifest
+
+    current_version = _skill_md_version(home, skill_name)
+    if pinned_version and current_version != pinned_version:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_runtime_version_mismatch",
+            "The installed local skill version changed after this job was queued.",
+            status_code=409,
+        )
+    return manifest
+
+
 def resolve_stage2_skill(
     *,
     settings: Settings | None = None,
