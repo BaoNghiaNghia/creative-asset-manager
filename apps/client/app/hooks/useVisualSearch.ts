@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Asset, Provider } from "../types";
+import { prepareVisualSearchUpload } from "../utils/visualUpload";
 
 export type VisualCrop = { x: number; y: number; width: number; height: number };
 type VisualResponse = { query_kind: "asset" | "upload"; items: Asset[]; next_cursor?: string | null };
-type VisualReference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string };
+type VisualReference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string; prepared: boolean };
 export type VisualSearchScope = "all" | "source" | "folder";
 export const DEFAULT_VISUAL_SEARCH_SCOPE: VisualSearchScope = "all";
 export function defaultVisualSearchScope(canSearchAllResources: boolean | null, hasCurrentSource: boolean, hasCurrentFolder: boolean): VisualSearchScope | null {
@@ -45,7 +46,7 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
   const safeDefaultScope = defaultVisualSearchScope(canSearchAllResources, hasCurrentSource, hasCurrentFolder);
   const [reference, setReference] = useState<VisualReference | null>(null);
   const [items, setItems] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(false), [error, setError] = useState(""), [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false), [preparingUpload, setPreparingUpload] = useState(false), [error, setError] = useState(""), [nextCursor, setNextCursor] = useState<string | null>(null);
   const [refinement, setRefinement] = useState(""), [scope, setScope] = useState<VisualSearchScope | null>(() => safeDefaultScope), [committedQuery, setCommittedQuery] = useState<CommittedVisualQuery | null>(null);
   const requestRef = useRef(0), committedReferenceRef = useRef<VisualReference | null>(null), committedQueryRef = useRef<CommittedVisualQuery | null>(null);
 
@@ -64,7 +65,7 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
     requestRef.current += 1;
     setReference(current => { if (current?.kind === "upload") URL.revokeObjectURL(current.previewUrl); return null; });
     committedReferenceRef.current = null; committedQueryRef.current = null;
-    setItems([]); setError(""); setLoading(false); setNextCursor(null); setRefinement(""); setCommittedQuery(null); setScope(safeDefaultScope);
+    setItems([]); setError(""); setLoading(false); setPreparingUpload(false); setNextCursor(null); setRefinement(""); setCommittedQuery(null); setScope(safeDefaultScope);
   }, [safeDefaultScope]);
 
   const run = useCallback(async (nextReference: VisualReference, query: CommittedVisualQuery, cursor?: string | null) => {
@@ -94,8 +95,42 @@ export function useVisualSearch(provider: Provider | null, externalSourceId: str
     void run(nextReference, committedVisualQuery(crop, text, scope, provider, externalSourceId, folderId));
   }, [externalSourceId, folderId, provider, run, scope]);
   const chooseAsset = useCallback((asset: Asset, crop?: VisualCrop) => { const next = { kind: "asset" as const, asset }; setReference(next); setRefinement(""); start(next, crop); }, [start]);
-  const chooseUpload = useCallback((file: File, crop?: VisualCrop) => { const next = { kind: "upload" as const, file, previewUrl: URL.createObjectURL(file) }; setReference(current => { if (current?.kind === "upload") URL.revokeObjectURL(current.previewUrl); return next; }); setRefinement(""); start(next, crop); }, [start]);
-  const retry = useCallback((crop?: VisualCrop, text?: string) => { if (reference) start(reference, crop, text ?? refinement); }, [reference, refinement, start]);
+  const chooseUpload = useCallback((file: File, crop?: VisualCrop) => {
+    if (!scope) { setError("Choose an authorized source or folder before searching."); return; }
+    const epoch = ++requestRef.current;
+    const previewUrl = URL.createObjectURL(file);
+    const initial = { kind: "upload" as const, file, previewUrl, prepared: false };
+    setReference(current => {
+      if (current?.kind === "upload") URL.revokeObjectURL(current.previewUrl);
+      return initial;
+    });
+    setRefinement("");
+    setError("");
+    setLoading(true);
+    setPreparingUpload(true);
+    void prepareVisualSearchUpload(file)
+      .then(prepared => {
+        if (epoch !== requestRef.current) return;
+        const next = { kind: "upload" as const, file: prepared.file, previewUrl, prepared: true };
+        setReference(current => current?.kind === "upload" && current.previewUrl === previewUrl ? next : current);
+        setPreparingUpload(false);
+        start(next, crop);
+      })
+      .catch(reason => {
+        if (epoch !== requestRef.current) return;
+        setPreparingUpload(false);
+        setLoading(false);
+        setError(reason instanceof Error ? reason.message : "Could not optimize this image for visual search.");
+      });
+  }, [scope, start]);
+  const retry = useCallback((crop?: VisualCrop, text?: string) => {
+    if (!reference) return;
+    if (reference.kind === "upload" && !reference.prepared) {
+      chooseUpload(reference.file, crop);
+      return;
+    }
+    start(reference, crop, text ?? refinement);
+  }, [chooseUpload, reference, refinement, start]);
   const loadMore = useCallback(() => { const activeReference = committedReferenceRef.current, activeQuery = committedQueryRef.current; if (!activeReference || !activeQuery || !nextCursor || loading) return; void run(activeReference, activeQuery, nextCursor); }, [loading, nextCursor, run]);
-  return { reference, items, loading, error, refinement, setRefinement, scope, setScope, committedQuery, hasMore: Boolean(nextCursor), chooseAsset, chooseUpload, retry, loadMore, clear };
+  return { reference, items, loading, preparingUpload, error, refinement, setRefinement, scope, setScope, committedQuery, hasMore: Boolean(nextCursor), chooseAsset, chooseUpload, retry, loadMore, clear };
 }

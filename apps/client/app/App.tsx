@@ -1166,6 +1166,7 @@ export default function App() {
             hasCurrentFolder={Boolean(explorer.activeExternalSourceId && explorer.currentFolderId)}
             reference={visualSearch.reference}
             loading={visualSearch.loading}
+            preparingUpload={visualSearch.preparingUpload}
             error={visualSearch.error}
             refinement={visualSearch.refinement}
             onRefinementChange={visualSearch.setRefinement} scope={visualSearch.scope} onScopeChange={visualSearch.setScope}

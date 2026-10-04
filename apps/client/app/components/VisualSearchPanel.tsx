@@ -4,7 +4,7 @@ import type { Asset } from "../types";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
-type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
+type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
 type DragMode = "create" | "nw" | "ne" | "sw" | "se";
 type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop; changed: boolean };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
@@ -27,7 +27,7 @@ function point(event: ReactPointerEvent<HTMLElement>, element: HTMLElement) {
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function sameCrop(left: VisualCrop, right: VisualCrop) { return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height; }
 
-export function VisualSearchPanel({ scope, reference, loading, error, onUpload, onApplyCrop, onRetry, onClose }: Props) {
+export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [crop, setCrop] = useState<VisualCrop>(fullCrop);
@@ -102,7 +102,7 @@ export function VisualSearchPanel({ scope, reference, loading, error, onUpload, 
           <i className="visual-direct-handle nw" onPointerDown={event => begin(event, "nw")} /><i className="visual-direct-handle ne" onPointerDown={event => begin(event, "ne")} /><i className="visual-direct-handle sw" onPointerDown={event => begin(event, "sw")} /><i className="visual-direct-handle se" onPointerDown={event => begin(event, "se")} />
         </div>
       </div>
-      <div className="visual-direct-caption"><small>{loading ? "Searching…" : "Drag anywhere on the image to crop · Drag a corner to resize · Double-click for full image"}</small></div>
+      <div className="visual-direct-caption"><small>{preparingUpload ? "Optimizing large image for search…" : loading ? "Searching…" : "Drag anywhere on the image to crop · Drag a corner to resize · Double-click for full image"}</small></div>
       {!scope && <p className="visual-search-context" role="status">Choose an authorized source or folder before searching.</p>}
     </div>
     {error && <div className="visual-search-error" role="alert"><span>{error}</span><button type="button" onClick={() => onRetry(crop)} disabled={loading}>Retry</button></div>}
