@@ -245,8 +245,20 @@ function ReferenceSlider({
     trackRef.current?.scrollBy({ left: direction * 360, behavior: "smooth" });
   }
 
+  if (references.length === 0) {
+    return <div className="rrugc-source-ref-slider is-empty">
+      <div className="rrugc-source-ref-empty" role="status">
+        <span className="rrugc-source-ref-empty-icon" aria-hidden="true">↗</span>
+        <span>
+          <strong>Waiting for Pinterest refs</strong>
+          <small>Auto Scout will add qualified references here automatically.</small>
+        </span>
+      </div>
+    </div>;
+  }
+
   return <div className="rrugc-source-ref-slider">
-    <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} disabled={references.length === 0} onClick={() => move(-1)}>‹</button>
+    <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} onClick={() => move(-1)}>‹</button>
     <div ref={trackRef} className="rrugc-source-ref-track" aria-label={references.length + " reference images for " + plan.source_name}>
       {references.map((reference, index) => (
         <div
@@ -299,9 +311,8 @@ function ReferenceSlider({
           </div>
         </div>
       ))}
-      {references.length === 0 && <div className="rrugc-source-ref-empty"><strong>No refs yet</strong><small>Auto Scout will add qualified Pinterest references here.</small></div>}
     </div>
-    <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references right"} disabled={references.length === 0} onClick={() => move(1)}>›</button>
+    <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references right"} onClick={() => move(1)}>›</button>
     {reviewOpen && <ReferenceReviewModal
       plan={plan}
       reviewingReferenceIds={reviewingReferenceIds}
@@ -453,7 +464,20 @@ export function SourcePlanTable({
                 <div className="rrugc-source-scout-meta"><span className={"rrugc-agent status-" + scoutStatus.tone}>{scoutStatus.label}</span><small>{plan.pipeline_count} in pipeline · {plan.candidate_count} found</small></div>
               </td>
               <td className="rrugc-source-refs-cell">
-                <div className="rrugc-source-refs-head"><strong>{plan.approved_count} refs · {plan.pending_ai_count} pending AI · {pickedCount} ✓ · {rejectedCount} ×</strong><small>Pending AI = waiting analysis · ✓ positive · × negative/remove · AI synthetic/remove + train AI · {plan.drive_ready_count} usable Drive ready</small></div>
+                <div className="rrugc-source-refs-head">
+                  <div className="rrugc-source-ref-stats" aria-label="Reference summary">
+                    <span><b>{plan.approved_count}</b> refs</span>
+                    <span className={plan.pending_ai_count > 0 ? "is-pending" : ""}><b>{plan.pending_ai_count}</b> pending AI</span>
+                    <span className="is-good"><b>{pickedCount}</b> ✓</span>
+                    <span className="is-bad"><b>{rejectedCount}</b> ×</span>
+                  </div>
+                  <div className="rrugc-source-ref-legend" aria-label="Reference labels">
+                    <span className="is-good">✓ Good</span>
+                    <span className="is-bad">× Reject</span>
+                    <span className="is-ai">AI Synthetic</span>
+                    <span className="is-drive"><b>{plan.drive_ready_count}</b> Drive-ready</span>
+                  </div>
+                </div>
                 <ReferenceSlider plan={plan} reviewingReferenceIds={reviewingReferenceIds} onSetReferenceFeedback={onSetReferenceFeedback} />
               </td>
             </tr>;

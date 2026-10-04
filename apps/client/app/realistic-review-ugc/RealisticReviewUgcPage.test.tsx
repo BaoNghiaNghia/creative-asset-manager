@@ -313,19 +313,47 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("25 refs · 0 pending AI · 1 ✓ · 1 ×");
+    expect(markup).toContain("<b>25</b> refs");
+    expect(markup).toContain("<b>0</b> pending AI");
+    expect(markup).toContain("<b>1</b> ✓");
+    expect(markup).toContain("<b>1</b> ×");
     expect(markup).toContain("rrugc-source-ref-slider");
     expect(markup).toContain("rrugc-source-ref-track");
     expect(markup).toContain("is-picked");
     expect(markup).toContain("is-rejected");
-    expect(markup).toContain("Pending AI = waiting analysis");
-    expect(markup).toContain("AI synthetic/remove + train AI");
+    expect(markup).toContain("✓ Good");
+    expect(markup).toContain("× Reject");
+    expect(markup).toContain("AI Synthetic");
+    expect(markup).toContain("Drive-ready");
     expect(markup).toContain("rrugc-source-ref-vote is-ai");
     expect(markup).toContain("Same embroidery · 3 images");
     expect(markup).toContain("rrugc-source-group-track");
     expect(markup).toContain("3 source images · same embroidery");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
+  });
+
+  it("renders a compact centered empty reference state without carousel arrows", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan(0)]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("rrugc-source-ref-slider is-empty");
+    expect(markup).toContain("Waiting for Pinterest refs");
+    expect(markup).toContain("Auto Scout will add qualified references here automatically.");
+    expect(markup).not.toContain("Scroll front-black.png references left");
+    expect(markup).not.toContain("Scroll front-black.png references right");
   });
 
   it("does not label a singleton source row as same embroidery", () => {
@@ -372,7 +400,8 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("0 refs · 1 pending AI");
+    expect(markup).toContain("<b>0</b> refs");
+    expect(markup).toContain("<b>1</b> pending AI");
     expect(markup).toContain("status-analysis_queued");
     expect(markup).toContain("rrugc-source-ref-open");
     expect(markup).toContain("rrugc-source-ref-vote is-ai");
