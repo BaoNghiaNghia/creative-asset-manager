@@ -30,24 +30,25 @@ describe("system UI icons", () => {
 });
 
 describe("marketplace branding", () => {
-  it("renders full Amazon and Etsy logos from the shared icon system", () => {
+  it("renders the approved full Amazon and Etsy artwork instead of font approximations", () => {
     const amazon = renderToStaticMarkup(<AmazonLogo />);
     const etsy = renderToStaticMarkup(<EtsyLogo />);
     expect(amazon).toContain('class="amazon-logo marketplace-logo marketplace-logo-full"');
-    expect(amazon).toContain("#FF9900");
+    expect(amazon).toContain("amazon-full-approved.webp");
+    expect(amazon).toContain("<img");
     expect(etsy).toContain('class="etsy-logo marketplace-logo marketplace-logo-full"');
-    expect(etsy).toContain("#F1641E");
+    expect(etsy).toContain("etsy-full-approved.webp");
+    expect(etsy).toContain("<img");
   });
 
-  it("renders the new compact one-character marks for marketplace folders", () => {
+  it("renders the approved compact marketplace artwork for source folders", () => {
     const amazon = renderToStaticMarkup(<AmazonCompactIcon />);
     const etsy = renderToStaticMarkup(<EtsyCompactIcon />);
     const amazonFolder = renderToStaticMarkup(<SourceFolderIcon name="Amazon - Collection" />);
     const etsyFolder = renderToStaticMarkup(<SourceFolderIcon name="Etsy - Shop" />);
     expect(amazon).toContain("marketplace-compact-icon");
-    expect(amazon).toContain("#FF9900");
-    expect(etsy).toContain("#F1641E");
-    expect(etsy).toContain(">E<");
+    expect(amazon).toContain("amazon-compact-approved.webp");
+    expect(etsy).toContain("etsy-compact-approved.webp");
     expect(amazonFolder).toContain("source-folder-brand-amazon");
     expect(etsyFolder).toContain("source-folder-brand-etsy");
   });

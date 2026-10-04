@@ -149,7 +149,7 @@
 .public-folder-card .public-card-copy b{font-size:14px;font-weight:700;color:#111827}
 .public-folder-card .public-card-copy small{margin-top:4px;font-size:11px;font-weight:600}
 .public-folder-card .public-status{display:none}
-.public-folder-card .marketplace-compact-icon{width:57px;height:57px;flex:0 0 57px;transform:none;filter:none}
+.public-folder-card .marketplace-compact-icon{width:57px;height:57px;flex:0 0 57px;transform:none;filter:none;object-fit:contain;object-position:center}
 .public-folder-card .public-folder-glyph .public-folder-icon{transform:scale(2.15)}
 .public-folder-card .public-folder-glyph .marketplace-compact-icon{transform:none}
 
