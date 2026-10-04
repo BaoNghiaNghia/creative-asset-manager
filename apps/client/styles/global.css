@@ -1123,6 +1123,15 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .grid article.media-card:hover>div small,.grid article.media-card:hover>div .asset-metadata,.grid article.media-card:focus-within>div small,.grid article.media-card:focus-within>div .asset-metadata{opacity:1}
 @media(prefers-reduced-motion:reduce){.grid article.media-card>div{transition:none}}
 
+/* List view must never inherit the square/overlay media-card treatment used by Grid view. */
+.grid.asset-list-view article.media-card{min-height:58px;aspect-ratio:auto;overflow:visible}
+.grid.asset-list-view article.media-card .preview{position:relative;inset:auto;z-index:auto;width:44px;height:44px;flex:0 0 44px}
+.grid.asset-list-view article.media-card>div{position:relative;z-index:auto;left:auto;right:auto;bottom:auto;min-height:0;padding:0 4px;background:transparent;transform:none;transition:none}
+.grid.asset-list-view article.media-card .asset-name-row .name{display:block;min-height:0;white-space:nowrap;-webkit-box-orient:initial;-webkit-line-clamp:initial}
+.grid.asset-list-view article.media-card>div small,.grid.asset-list-view article.media-card>div .asset-metadata{display:flex;opacity:1;transition:none}
+.grid.asset-list-view article.media-card:hover>div,.grid.asset-list-view article.media-card:focus-within>div{transform:none}
+@media(max-width:640px){.grid.asset-list-view article.media-card{min-height:54px}.grid.asset-list-view article.media-card .preview{width:40px;height:40px;flex-basis:40px}}
+
 .amazon-redirect{display:inline-flex;align-items:center;gap:5px;margin-left:10px;padding:4px 8px;border:1px solid #d7dee8;border-radius:7px;background:#fff;color:#232f3e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:background .15s ease,border-color .15s ease,transform .15s ease}.amazon-redirect:hover{background:#f3f6fa;border-color:#aeb9c8;transform:translateY(-1px)}.amazon-logo{display:block;width:70px;color:#161e2a; padding: 3px;}.amazon-external-mark{font-size:20px;color:#5f6b7a;padding:0px 7px;font-weight:200;}
 
 .etsy-redirect{display:inline-flex;align-items:center;margin-left:10px;padding:4px 8px;border:0;border-radius:0;background:transparent;color:#f1641e;font-size:12px;font-weight:800;line-height:1;text-decoration:none;vertical-align:middle;transition:opacity .15s ease}.etsy-redirect:hover{background:transparent;opacity:.78}.etsy-logo{display:block;width:62px;height:29px;color:#f1641e}
