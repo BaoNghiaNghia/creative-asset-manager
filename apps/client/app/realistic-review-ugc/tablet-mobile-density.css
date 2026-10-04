@@ -62,17 +62,17 @@
   .rrugc-source-ref-slider{grid-template-columns:22px minmax(0,1fr) 22px}
 
   .rrugc-stage2{margin-top:0}
-  .rrugc-stage2-table{min-width:940px}
+  .rrugc-stage2-table{min-width:1320px}
   .rrugc-stage2 .rrugc-source-file-grouped{grid-template-columns:minmax(0,1fr)}
   .rrugc-stage2-ref-head{margin-bottom:5px}
   .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:9.2px}
-  .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small{font-size:7.8px}
+  .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small,.rrugc-stage2-results small{font-size:7.8px}
   .rrugc-stage2-ref-grid{min-height:58px;gap:4px;padding-bottom:5px}
   .rrugc-stage2-ref{flex-basis:52px;width:52px;height:52px;border-radius:7px}
   .rrugc-stage2-ref>span{min-width:17px;height:17px;padding:0 4px;font-size:10px}
-  .rrugc-stage2-skill .rrugc-primary{min-height:29px;padding:5px 8px;font-size:8.8px}
-  .rrugc-stage2-output img{width:68px;height:68px}
-  .rrugc-stage2-output span{font-size:9px}
+  .rrugc-stage2-skill .rrugc-stage2-generate{min-height:25px;padding:3px 7px;font-size:8.2px}
+  .rrugc-stage2-result-grid{grid-template-columns:repeat(5,48px);gap:4px}
+  .rrugc-stage2-result{width:48px;height:48px}
 }
 
 @media (max-width:760px){
@@ -123,13 +123,13 @@
   .rrugc-source-ref-card{flex-basis:56px;width:56px;height:56px}
   .rrugc-source-ref-arrow{height:56px}
 
-  .rrugc-stage2-table{min-width:820px}
+  .rrugc-stage2-table{min-width:1180px}
   .rrugc-stage2 .rrugc-source-file-grouped{grid-template-columns:minmax(0,1fr)}
   .rrugc-stage2-ref{flex-basis:48px;width:48px;height:48px}
   .rrugc-stage2-ref-grid{min-height:54px;gap:4px}
   .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:8.8px}
-  .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small{font-size:7.6px}
-  .rrugc-stage2-skill .rrugc-primary{min-height:32px;padding:5px 8px;font-size:8.6px}
-  .rrugc-stage2-output img{width:62px;height:62px}
-  .rrugc-stage2-output span{font-size:8.6px}
+  .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small,.rrugc-stage2-results small{font-size:7.6px}
+  .rrugc-stage2-skill .rrugc-stage2-generate{min-height:26px;padding:3px 7px;font-size:8.2px}
+  .rrugc-stage2-result-grid{grid-template-columns:repeat(5,44px);gap:4px}
+  .rrugc-stage2-result{width:44px;height:44px}
 }

@@ -172,7 +172,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("EMBROIDERY GROUP");
     expect(markup).toContain("Embroidery groups → image generation");
     expect(markup).toContain("Max 10 refs / job");
-    expect(markup).toContain("Generation runs · latest 10");
+    expect(markup).toContain("Run status · latest 10");
+    expect(markup).toContain(">Results<");
     expect(markup).toContain("Skill ready");
     expect(markup).toContain("0/10 runs");
     expect(markup).toContain("10 not run");

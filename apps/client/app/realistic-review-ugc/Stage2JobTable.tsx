@@ -353,7 +353,8 @@ export function Stage2JobTable({
             <th>Embroidery group</th>
             <th>Pinterest refs · pick up to 10</th>
             <th>Skill</th>
-            <th>Generation runs · latest 10</th>
+            <th>Run status · latest 10</th>
+            <th>Results</th>
           </tr>
         </thead>
         <tbody>
@@ -471,7 +472,7 @@ export function Stage2JobTable({
                 {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Rename the conflicting local skill before syncing.</small>}
                 <button
                   type="button"
-                  className="rrugc-primary"
+                  className="rrugc-primary rrugc-stage2-generate"
                   disabled={busy || selected.length === 0 || !canGenerate}
                   onClick={() => onCreateJob(plan, selected, {
                     source: skill.source,
@@ -510,17 +511,14 @@ export function Stage2JobTable({
                       </div>;
                     }
                     if (run.status === "completed") {
-                      return <a
-                        key={run.id}
+                      return <div
                         className="rrugc-stage2-run is-completed"
-                        href={stage2JobOutputUrl(run.id)}
-                        target="_blank"
-                        rel="noreferrer"
+                        key={run.id}
                         title={"Completed · " + new Date(run.created_at).toLocaleString()}
                       >
-                        <img src={stage2JobOutputUrl(run.id)} alt={"Generated output " + (index + 1)} loading="lazy" />
                         <span aria-hidden="true">✓</span>
-                      </a>;
+                        <small>Done</small>
+                      </div>;
                     }
                     if (run.status === "failed") {
                       return <div
@@ -549,9 +547,27 @@ export function Stage2JobTable({
                   <span className="is-failed"><i />Failed</span>
                 </div>
               </td>
+              <td className="rrugc-stage2-results">
+                {runs.completed ? <div className="rrugc-stage2-result-grid" aria-label={"Generated results for " + plan.source_name}>
+                  {planJobs.map((run, index) => run.status === "completed" ? <a
+                    key={run.id}
+                    className="rrugc-stage2-result"
+                    href={stage2JobOutputUrl(run.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={"Result " + (index + 1) + " · " + new Date(run.created_at).toLocaleString()}
+                  >
+                    <img src={stage2JobOutputUrl(run.id)} alt={"Generated output " + (index + 1)} loading="lazy" />
+                    <span>{index + 1}</span>
+                  </a> : null)}
+                </div> : <div className="rrugc-stage2-results-empty">
+                  <strong>No results yet</strong>
+                  <small>Completed generations will appear here.</small>
+                </div>}
+              </td>
             </tr>;
           })}
-          {stage2Plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">Stage 2 jobs will appear here after Stage 1 finishes embroidery context analysis.</td></tr>}
+          {stage2Plans.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">Stage 2 jobs will appear here after Stage 1 finishes embroidery context analysis.</td></tr>}
         </tbody>
       </table>
     </div>
