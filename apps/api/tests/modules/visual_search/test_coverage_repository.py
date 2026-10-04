@@ -9,7 +9,7 @@ def row(id,source,mime,tenant="t"): return SourceAssetModel(id=id,tenant_id=tena
 def test_resource_reader_preserves_source_resources_and_eligibility():
  e=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool);Base.metadata.create_all(e)
  with Session(e) as s:
-  s.add_all([ExternalSourceModel(id="s1",tenant_id="t",source_key="1",source_type="google_drive",display_name="One"),ExternalSourceModel(id="s2",tenant_id="t",source_key="2",source_type="onedrive"),row("a","s1","image/jpeg"),row("b","s2","image/jpeg"),row("u","s1","image/gif"),row("v","s1","video/mp4"),AssetModel(id="x",tenant_id="t",content_hash="a"*64)])
+  s.add_all([ExternalSourceModel(id="s1",tenant_id="t",source_key="1",source_type="google_drive",display_name="One",oauth_connection_id="conn-1"),ExternalSourceModel(id="s2",tenant_id="t",source_key="2",source_type="onedrive",oauth_connection_id="conn-2"),row("a","s1","image/jpeg"),row("b","s2","image/jpeg"),row("u","s1","image/gif"),row("v","s1","video/mp4"),AssetModel(id="x",tenant_id="t",content_hash="a"*64)])
   s.add_all([AssetSourceLinkModel(id="la",tenant_id="t",asset_id="x",source_asset_id="a"),AssetSourceLinkModel(id="lb",tenant_id="t",asset_id="x",source_asset_id="b")]);s.commit()
   rows=VisualCoverageResourceReader(s).resources("t")
   assert [r.source_asset_id for r in rows]==["a","b","u"]
@@ -19,7 +19,7 @@ def test_resource_reader_preserves_source_resources_and_eligibility():
 def test_eligible_resources_page_is_asset_cursor_bounded_and_deduplicated():
  e=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool);Base.metadata.create_all(e)
  with Session(e) as s:
-  s.add(ExternalSourceModel(id="s1",tenant_id="t",source_key="1",source_type="google_drive"))
+  s.add(ExternalSourceModel(id="s1",tenant_id="t",source_key="1",source_type="google_drive",oauth_connection_id="conn-1"))
   s.add_all([
    SourceAssetModel(id="sa-0",tenant_id="t",external_source_id="s1",external_asset_id="sa-0",filename="a.gif",mime_type="image/gif"),
    SourceAssetModel(id="sa",tenant_id="t",external_source_id="s1",external_asset_id="sa",filename="a.jpg",mime_type="image/jpeg"),
@@ -42,4 +42,24 @@ def test_eligible_resources_page_is_asset_cursor_bounded_and_deduplicated():
   assert has_more is True
   second,has_more=reader.eligible_resources_page("t",after_asset_id="asset-a",limit=1)
   assert [item.asset_id for item in second]==["asset-b"]
+  assert has_more is False
+
+def test_disconnected_or_unbound_sources_are_not_visual_eligible():
+ e=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool);Base.metadata.create_all(e)
+ with Session(e) as s:
+  s.add_all([
+   ExternalSourceModel(id="ready",tenant_id="t",source_key="ready",source_type="google_drive",status="active",oauth_connection_id="conn"),
+   ExternalSourceModel(id="reconnect",tenant_id="t",source_key="reconnect",source_type="google_drive",status="reconnect_required",oauth_connection_id="old"),
+   ExternalSourceModel(id="unbound",tenant_id="t",source_key="unbound",source_type="onedrive",status="active",oauth_connection_id=None),
+  ])
+  for key, source in (("a","ready"),("b","reconnect"),("c","unbound")):
+   s.add(SourceAssetModel(id="s"+key,tenant_id="t",external_source_id=source,external_asset_id="s"+key,filename=key+".jpg",mime_type="image/jpeg"))
+   s.add(AssetModel(id="asset-"+key,tenant_id="t",content_hash=key*64))
+   s.flush()
+   s.add(AssetSourceLinkModel(id="l"+key,tenant_id="t",asset_id="asset-"+key,source_asset_id="s"+key))
+  s.commit()
+  rows=VisualCoverageResourceReader(s).resources("t")
+  assert {item.asset_id for item in rows if item.eligible}=={"asset-a"}
+  page,has_more=VisualCoverageResourceReader(s).eligible_resources_page("t",limit=10)
+  assert [item.asset_id for item in page]==["asset-a"]
   assert has_more is False

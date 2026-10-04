@@ -12,6 +12,8 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.visual_search.backfill_control import VisualSearchBackfillController
 from app.modules.visual_search.backfill_executor import VisualSearchBackfillExecutor
 from app.modules.visual_search.backfill_repository import VisualSearchBackfillRunRepository
+from app.modules.visual_search.backfill_policy import VisualBackfillPolicy, active_visual_queue_depth
+from app.modules.visual_search.failed_job_recovery import recover_failed_visual_jobs
 from app.modules.visual_search.lifecycle import VISUAL_EMBEDDING_SCHEMA_VERSION
 
 
@@ -22,6 +24,7 @@ class VisualBackfillScheduleResult:
     status: str
     scanned: int = 0
     enqueued: int = 0
+    recovered: int = 0
     throttled: bool = False
 
 
@@ -118,11 +121,24 @@ class VisualSearchBackfillScheduler:
 
     def _tick_tenant(self, tenant_id: str) -> VisualBackfillScheduleResult:
         with self.session_factory() as session:
+            policy = VisualBackfillPolicy.from_settings(self.settings)
+            queue_depth = active_visual_queue_depth(session, tenant_id=tenant_id)
+            recovery_capacity = max(0, policy.max_queued_jobs - queue_depth)
+            recovered = recover_failed_visual_jobs(
+                session,
+                tenant_id=tenant_id,
+                limit=min(policy.max_slice_assets, recovery_capacity),
+            )
+            if recovered:
+                session.commit()
+
             runs = VisualSearchBackfillRunRepository(session)
             run = runs.active(tenant_id=tenant_id)
             if run is not None and run.status == "paused":
                 session.rollback()
-                return VisualBackfillScheduleResult(tenant_id, run.id, "paused")
+                return VisualBackfillScheduleResult(
+                    tenant_id, run.id, "paused", recovered=recovered
+                )
 
             if run is None:
                 latest = runs.latest(tenant_id=tenant_id)
@@ -136,6 +152,7 @@ class VisualSearchBackfillScheduler:
                         tenant_id,
                         latest.id,
                         latest.status,
+                        recovered=recovered,
                     )
                 run = VisualSearchBackfillController(session).start_or_resume(
                     tenant_id=tenant_id,
@@ -160,6 +177,7 @@ class VisualSearchBackfillScheduler:
                 saved.status,
                 scanned=int(result.scanned) if result is not None else 0,
                 enqueued=int(result.enqueued) if result is not None else 0,
+                recovered=recovered,
                 throttled=bool(result.throttled) if result is not None else False,
             )
 
@@ -172,7 +190,7 @@ class VisualSearchBackfillScheduler:
             try:
                 results = self.tick()
                 for result in results:
-                    if result.status == "running" or result.enqueued or result.throttled:
+                    if result.status == "running" or result.enqueued or result.recovered or result.throttled:
                         self.logger.info(
                             "visual_backfill_scheduler_tick",
                             extra={
@@ -181,6 +199,7 @@ class VisualSearchBackfillScheduler:
                                 "status": result.status,
                                 "scanned": result.scanned,
                                 "enqueued": result.enqueued,
+                                "recovered": result.recovered,
                                 "throttled": result.throttled,
                             },
                         )

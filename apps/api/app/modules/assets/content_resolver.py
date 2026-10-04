@@ -96,6 +96,10 @@ class SourceAssetContentResolver:
                     )
                 access_token = resolved.access_token
         except Exception as exc:
+            if self._is_transient_provider_error(exc):
+                raise SourceAssetContentTransient(
+                    "source OAuth connection is temporarily unavailable"
+                ) from exc
             raise SourceAssetContentUnavailable("source OAuth connection is unavailable") from exc
 
         media_http_client = None

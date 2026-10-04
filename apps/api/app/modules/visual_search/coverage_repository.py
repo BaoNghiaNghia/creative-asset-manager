@@ -15,6 +15,18 @@ from app.modules.assets.model import (
 from app.modules.pipeline.mime_types import is_eligible_image_source_asset
 
 
+VISUAL_STREAMABLE_SOURCE_TYPES = frozenset({"google_drive", "onedrive", "sharepoint"})
+
+
+def visual_source_streamable(source: ExternalSourceModel) -> bool:
+    """Whether Visual Search can currently open bytes from this source."""
+    return bool(
+        source.source_type in VISUAL_STREAMABLE_SOURCE_TYPES
+        and source.status == "active"
+        and source.oauth_connection_id
+    )
+
+
 @dataclass(frozen=True)
 class CoverageResource:
     source_asset_id: str
@@ -67,7 +79,7 @@ class VisualCoverageResourceReader:
             asset.id if imported else None,
             asset.content_hash if imported else None,
             imported,
-            imported and supported and valid_hash,
+            imported and supported and valid_hash and visual_source_streamable(external),
             not supported,
             activity_at,
         )
@@ -141,7 +153,7 @@ class VisualCoverageResourceReader:
                     asset.id if imported else None,
                     asset.content_hash if imported else None,
                     imported,
-                    imported and supported and valid_hash,
+                    imported and supported and valid_hash and visual_source_streamable(external),
                     not supported,
                     activity_at,
                 )
@@ -220,6 +232,9 @@ class VisualCoverageResourceReader:
                 .where(
                     SourceAssetModel.tenant_id == tenant_id,
                     SourceAssetModel.deleted_at.is_(None),
+                    ExternalSourceModel.source_type.in_(tuple(VISUAL_STREAMABLE_SOURCE_TYPES)),
+                    ExternalSourceModel.status == "active",
+                    ExternalSourceModel.oauth_connection_id.is_not(None),
                     or_(*image_predicates),
                 )
                 .order_by(AssetModel.id, SourceAssetModel.id)
