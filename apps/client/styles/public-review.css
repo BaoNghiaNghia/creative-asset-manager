@@ -1095,3 +1095,65 @@
   .public-review-backdrop .public-video-volume-thumb{width:15px;height:15px}
   .public-review-backdrop .public-video-volume .public-video-mute{width:23px;height:23px;min-height:23px}
 }
+
+/* Centered empty comment state for the Shared viewer. */
+.public-review-backdrop .public-review-feed.is-empty{
+  display:grid;
+  overflow:hidden;
+  padding:24px;
+  place-items:center;
+}
+.public-review-backdrop .public-review-feed.is-empty .public-empty-comment{
+  width:100%;
+  min-height:0;
+  padding:0;
+  border:0;
+  background:transparent;
+}
+.public-review-backdrop .public-review-feed.is-empty .public-empty-comment .public-empty-icon{
+  display:grid;
+  width:52px;
+  height:52px;
+  margin:0 0 14px;
+  place-items:center;
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:16px;
+  background:rgba(255,255,255,.035);
+  box-shadow:none;
+}
+.public-review-backdrop .public-review-feed.is-empty .public-empty-comment .public-empty-icon-svg{
+  width:32px;
+  height:32px;
+  stroke:#f2f4f8;
+  stroke-width:1.75;
+}
+.public-review-backdrop .public-review-feed.is-empty .public-empty-comment .public-empty-icon-svg .accent{
+  stroke:#f2f4f8;
+  stroke-width:3.2;
+  stroke-linecap:round;
+}
+.public-review-backdrop .public-review-feed.is-empty .public-empty-comment>strong{
+  color:#f4f5f7;
+  font-size:15px;
+  font-weight:650;
+  line-height:1.35;
+}
+.public-review-backdrop .public-review-feed.is-empty .public-empty-comment>span:last-child{
+  max-width:270px;
+  margin-top:6px;
+  color:#9ba3af;
+  font-size:12px;
+  line-height:1.55;
+}
+@media(max-width:560px){
+  .public-review-backdrop .public-review-feed.is-empty{padding:20px}
+  .public-review-backdrop .public-review-feed.is-empty .public-empty-comment .public-empty-icon{
+    width:48px;
+    height:48px;
+    margin-bottom:12px;
+  }
+  .public-review-backdrop .public-review-feed.is-empty .public-empty-comment .public-empty-icon-svg{
+    width:30px;
+    height:30px;
+  }
+}

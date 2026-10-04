@@ -178,6 +178,7 @@ describe("Review notes follow the selected asset", () => {
     expect(host.querySelector('[aria-label="Loading comments"]')).not.toBeNull();
     await act(async () => pending.c.resolve({ items: [] }));
     expect(host.textContent).toContain("No comments yet");
+    expect(host.querySelector(".public-review-feed.is-empty .public-empty-comment")).not.toBeNull();
     expect(annotations.mock.calls.map(([, asset]) => asset.asset_id)).toEqual(["a", "b", "c"]);
     expect(host.querySelectorAll(".public-media-position span.active")).toHaveLength(1);
 
