@@ -307,9 +307,13 @@ def test_normalize_candidates_dedupes_pin_and_keeps_best_search_rendition():
     assert rows[0].alt_text == "large"
 
 
-def test_extract_visible_uses_normalization_contract():
+def test_extract_visible_uses_normalization_contract_and_card_fallback():
     class FakePage:
-        async def evaluate(self, _script):
+        def __init__(self):
+            self.script = ""
+
+        async def evaluate(self, script):
+            self.script = script
             return [
                 {
                     "pin_url": "https://www.pinterest.com/pin/123/",
@@ -322,9 +326,12 @@ def test_extract_visible_uses_normalization_contract():
                 },
             ]
 
-    rows = asyncio.run(extract_visible(FakePage()))
+    page = FakePage()
+    rows = asyncio.run(extract_visible(page))
     assert len(rows) == 1
     assert rows[0].image_url.endswith("/736x/a.jpg")
+    assert 'img[src*="pinimg.com"]' in page.script
+    assert "card?.querySelector('a[href*=\"/pin/\"]')" in page.script
 
 
 def test_pin_detail_selection_prefers_same_asset_highest_rendition():

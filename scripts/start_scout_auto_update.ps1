@@ -476,10 +476,11 @@ if ($KeywordMode) {
     Write-Host ("Source commit       : " + $head) -ForegroundColor Green
     Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
     Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
-    Write-Host "Pinterest query      : saying trucker hat" -ForegroundColor Green
+    Write-Host "Pinterest query      : Saying Trucker hat" -ForegroundColor Green
     Write-Host ("Pinterest profile   : " + $keywordProfileDir) -ForegroundColor Green
     Write-Host ("Pace                : " + $pace) -ForegroundColor Green
     Write-Host "Mode                : autonomous Pinterest quote -> AEBrowse volume" -ForegroundColor Green
+    Write-Host "Loop                : continuous until this terminal is closed" -ForegroundColor Green
     Write-Host "Review Scout state  : separate profile + separate history" -ForegroundColor Green
     Write-Host "Stage 1 claim lane  : not used" -ForegroundColor Green
     Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
@@ -492,7 +493,7 @@ if ($KeywordMode) {
         "--base-url", $baseUrl,
         "--agent-id", $agentId,
         "--profile-dir", $keywordProfileDir,
-        "--seed-query", "saying trucker hat",
+        "--seed-query", "Saying Trucker hat",
         "--pace", $pace
     )
     if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {

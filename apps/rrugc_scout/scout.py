@@ -857,7 +857,6 @@ async def extract_visible(page: Any) -> list[Candidate]:
     rows = await page.evaluate(
         r"""() => {
           const out = [];
-          const anchors = Array.from(document.querySelectorAll('a[href*="/pin/"]'));
           const bestSrc = (image) => {
             const candidates = [];
             const srcset = image.getAttribute('srcset') || '';
@@ -871,13 +870,11 @@ async def extract_visible(page: Any) -> list[Candidate]:
               || image.src
               || '';
           };
-          for (const anchor of anchors) {
-            const href = anchor.href;
-            const images = Array.from(anchor.querySelectorAll('img'));
-            const card = anchor.closest('[data-grid-item="true"]')
-              || anchor.parentElement?.parentElement
-              || anchor.parentElement;
-            const contextText = (card?.textContent || '').trim().slice(0, 1200);
+          const seen = new Set();
+          const collect = (anchor, card, images) => {
+            if (!anchor) return;
+            const href = anchor.href || '';
+            if (!href.includes('/pin/')) return;
             const mediaRoot = card || anchor;
             const isVideo = Boolean(mediaRoot?.querySelector([
               'video',
@@ -886,10 +883,14 @@ async def extract_visible(page: Any) -> list[Candidate]:
               '[data-test-id*="idea-pin" i]',
               '[aria-label*="video" i]',
             ].join(',')));
-            if (isVideo) continue;
-            for (const image of images) {
+            if (isVideo) return;
+            const contextText = (card?.textContent || '').trim().slice(0, 1200);
+            for (const image of images || []) {
               const src = bestSrc(image);
-              if (!src) continue;
+              if (!src || !src.includes('pinimg.com')) continue;
+              const key = href + '\n' + src;
+              if (seen.has(key)) continue;
+              seen.add(key);
               out.push({
                 pin_url: href,
                 image_url: src,
@@ -900,6 +901,35 @@ async def extract_visible(page: Any) -> list[Candidate]:
                 context_text: contextText || null,
               });
             }
+          };
+
+          // Preferred path: image remains inside the Pin anchor.
+          for (const anchor of Array.from(document.querySelectorAll('a[href*="/pin/"]'))) {
+            const card = anchor.closest('[data-grid-item="true"]')
+              || anchor.closest('[data-test-id*="pin" i]')
+              || anchor.parentElement?.parentElement
+              || anchor.parentElement;
+            let images = Array.from(anchor.querySelectorAll('img'));
+            // Pinterest occasionally renders the media as a sibling of its
+            // clickable overlay. In that DOM, fall back to images in the card.
+            if (!images.length && card) {
+              images = Array.from(card.querySelectorAll('img'));
+            }
+            collect(anchor, card, images);
+          }
+
+          // Final fallback for newer card markup: start from Pinterest CDN
+          // images, find the nearest card and pair it with that card's Pin link.
+          for (const image of Array.from(document.querySelectorAll(
+            'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
+          ))) {
+            const card = image.closest('[data-grid-item="true"]')
+              || image.closest('[data-test-id*="pin" i]')
+              || image.parentElement?.parentElement?.parentElement
+              || image.parentElement?.parentElement;
+            const anchor = image.closest('a[href*="/pin/"]')
+              || card?.querySelector('a[href*="/pin/"]');
+            collect(anchor, card, [image]);
           }
           return out;
         }"""
@@ -1253,7 +1283,14 @@ async def access_gate(page: Any) -> str | None:
 
 async def loaded_pin_count(page: Any) -> int:
     value = await page.evaluate(
-        r"""() => document.querySelectorAll('a[href*="/pin/"] img').length"""
+        r"""() => {
+          const hrefs = new Set(
+            Array.from(document.querySelectorAll('a[href*="/pin/"]'))
+              .map((anchor) => anchor.href || anchor.getAttribute('href') || '')
+              .filter(Boolean)
+          );
+          return hrefs.size;
+        }"""
     )
     return int(value or 0)
 

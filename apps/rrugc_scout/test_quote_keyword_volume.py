@@ -9,6 +9,7 @@ from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
     KeywordScoutHistory,
     _dedupe,
+    _quote_extract_status_is_terminal,
     build_parser,
 )
 from scout import PinterestAccessGateError
@@ -23,8 +24,9 @@ def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
         "secret",
         "--auto-pinterest",
     ])
-    assert args.seed_query == DEFAULT_PINTEREST_QUERY == "saying trucker hat"
+    assert args.seed_query == DEFAULT_PINTEREST_QUERY == "Saying Trucker hat"
     assert args.profile_dir.endswith("pinterest-profile-keyword")
+    assert args.once is False
 
 
 def test_quote_dedupe_normalizes_case_and_whitespace():
@@ -105,3 +107,13 @@ def test_challenge_gate_can_be_resolved_in_open_browser(monkeypatch):
         )
     )
     assert page.waits == 1
+
+
+def test_quote_extract_http_status_retry_policy_preserves_transient_pins():
+    assert _quote_extract_status_is_terminal(400)
+    assert _quote_extract_status_is_terminal(413)
+    assert _quote_extract_status_is_terminal(422)
+    assert not _quote_extract_status_is_terminal(401)
+    assert not _quote_extract_status_is_terminal(404)
+    assert not _quote_extract_status_is_terminal(429)
+    assert not _quote_extract_status_is_terminal(500)

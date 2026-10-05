@@ -97,7 +97,7 @@ class ScoutLauncherContractTests(unittest.TestCase):
         self.assertIn('"--agent-id", $agentId', source)
         self.assertIn("$env:RRUGC_SCOUT_TOKEN = $token", source)
         self.assertIn('"--auto-pinterest"', source)
-        self.assertIn('"--seed-query", "saying trucker hat"', source)
+        self.assertIn('"--seed-query", "Saying Trucker hat"', source)
         self.assertIn('"--profile-dir", $keywordProfileDir', source)
         self.assertIn("RRUGC_KEYWORD_PROFILE_DIR", source)
         self.assertIn("Stage 1 claim lane  : not used", source)

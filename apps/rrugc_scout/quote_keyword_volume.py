@@ -34,12 +34,15 @@ from scout import (
 
 
 DEFAULT_BASE_URL = "https://creative-assets.ddns.net"
-DEFAULT_PINTEREST_QUERY = "saying trucker hat"
+DEFAULT_PINTEREST_QUERY = "Saying Trucker hat"
 DEFAULT_HISTORY_FILENAME = "keyword-scout-history.json"
 DEFAULT_CYCLE_SECONDS = 180
 DEFAULT_MAX_SCROLL_BATCHES = 10
 DEFAULT_MAX_PINS_PER_CYCLE = 40
 INITIAL_RESULTS_TIMEOUT_MS = 12_000
+EMPTY_BATCH_RELOAD_THRESHOLD = 3
+EMPTY_CYCLE_RETRY_SECONDS = 30
+RUNTIME_RECOVERY_SECONDS = 30
 
 
 def _keywords_from_file(path: str | None) -> list[str]:
@@ -73,6 +76,10 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(key)
         result.append(clean)
     return result
+
+
+def _quote_extract_status_is_terminal(status: int) -> bool:
+    return int(status) in {400, 413, 422}
 
 
 def resolve_keyword_volume(
@@ -330,6 +337,30 @@ async def _scroll_search_page(page: Any, pace) -> None:
         await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
 
 
+async def _search_page_diagnostics(page: Any) -> dict[str, Any]:
+    payload = await page.evaluate(
+        r"""() => ({
+          url: window.location.href,
+          title: document.title,
+          ready_state: document.readyState,
+          pin_links: new Set(
+            Array.from(document.querySelectorAll('a[href*="/pin/"]'))
+              .map((node) => node.href || node.getAttribute('href') || '')
+              .filter(Boolean)
+          ).size,
+          pinimg_images: document.querySelectorAll(
+            'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
+          ).length,
+          all_images: document.images.length,
+          body_text: (document.body?.innerText || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 500),
+        })"""
+    )
+    return payload if isinstance(payload, dict) else {}
+
+
 async def _flush_pending_quote_volumes(
     client: QuoteScoutClient,
     history: KeywordScoutHistory,
@@ -379,6 +410,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     print("Pinterest query       : " + args.seed_query)
     print("Pinterest profile     : " + str(profile_dir))
     print("Mode                  : autonomous quote extraction + Google Ads volume")
+    print("Loop                  : continuous until this terminal is closed")
     print("Review Scout state    : separate profile + separate history")
 
     playwright = None
@@ -460,6 +492,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 + quote_plus(args.seed_query)
             )
             try:
+                if page is None:
+                    await open_browser_runtime()
                 response = await page.goto(
                     search_url,
                     wait_until="domcontentloaded",
@@ -484,10 +518,49 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 processed = 0
                 extracted = 0
                 saved_quotes = 0
+                empty_batch_streak = 0
                 cycle_seen: set[str] = set()
                 for batch in range(args.max_scroll_batches):
                     await paced_wait(page, pace.inspect_dwell_ms)
                     visible = await extract_visible(page)
+                    if visible:
+                        empty_batch_streak = 0
+                    else:
+                        empty_batch_streak += 1
+                    if empty_batch_streak >= EMPTY_BATCH_RELOAD_THRESHOLD:
+                        diagnostics = await _search_page_diagnostics(page)
+                        gate = await access_gate(page)
+                        scout_debug_event(
+                            "keyword_scout_empty_search_reload",
+                            query=args.seed_query,
+                            batch_index=batch + 1,
+                            gate=gate,
+                            **diagnostics,
+                        )
+                        print(
+                            "Pinterest search has no extractable Pins; reloading. "
+                            + "url="
+                            + str(diagnostics.get("url") or page.url)
+                            + " pin_links="
+                            + str(diagnostics.get("pin_links") or 0)
+                            + " pinimg_images="
+                            + str(diagnostics.get("pinimg_images") or 0)
+                        )
+                        if gate is not None:
+                            raise PinterestAccessGateError(gate)
+                        response = await page.reload(
+                            wait_until="domcontentloaded",
+                            timeout=60_000,
+                        )
+                        guard_pinterest_response(response)
+                        await wait_for_pin_growth(
+                            page,
+                            previous_count=0,
+                            timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                        )
+                        empty_batch_streak = 0
+                        await paced_wait(page, pace.inspect_dwell_ms)
+                        visible = await extract_visible(page)
                     candidates = []
                     persistent_pins = history.seen_pins
                     persistent_assets = history.seen_assets
@@ -520,7 +593,13 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 result = await client.extract_quote(candidate)
                             except httpx.HTTPStatusError as exc:
                                 status = exc.response.status_code
-                                if 400 <= status < 500 and status != 429:
+                                # Only permanently skip a Pin when the request
+                                # itself is invalid/non-processable. Endpoint
+                                # absence, auth failures, throttling and server
+                                # failures must remain retryable so deployment
+                                # or transient outages never burn Pinterest
+                                # history.
+                                if _quote_extract_status_is_terminal(status):
                                     history.remember_candidate(
                                         candidate.pin_url,
                                         candidate.image_url,
@@ -528,6 +607,12 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 print(
                                     "quote_extract_failed status="
                                     + str(status)
+                                    + " retry="
+                                    + (
+                                        "no"
+                                        if _quote_extract_status_is_terminal(status)
+                                        else "yes"
+                                    )
                                     + " pin="
                                     + candidate.pin_url
                                 )
@@ -638,6 +723,11 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 )
                 if args.once:
                     return
+                next_cycle_seconds = (
+                    args.cycle_seconds
+                    if processed > 0
+                    else min(args.cycle_seconds, EMPTY_CYCLE_RETRY_SECONDS)
+                )
                 print(
                     "Keyword Scout cycle complete. "
                     + "processed="
@@ -645,10 +735,11 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     + " saved_quotes="
                     + str(saved_quotes)
                     + " next_cycle_in="
-                    + str(args.cycle_seconds)
+                    + str(next_cycle_seconds)
                     + "s"
+                    + (" (empty-search fast retry)" if processed == 0 else "")
                 )
-                await asyncio.sleep(args.cycle_seconds)
+                await asyncio.sleep(next_cycle_seconds)
             except PinterestRateLimitedError:
                 wait_seconds = max(args.cycle_seconds, 600)
                 print(
@@ -671,6 +762,26 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     await open_browser_runtime()
                     continue
                 await _wait_for_pinterest_access(page)
+            except Exception as exc:
+                if args.once:
+                    raise
+                scout_debug_event(
+                    "keyword_scout_cycle_recovering",
+                    query=args.seed_query,
+                    error_type=exc.__class__.__name__,
+                    error=str(exc)[:500],
+                    retry_seconds=RUNTIME_RECOVERY_SECONDS,
+                )
+                print(
+                    "Keyword Scout runtime error="
+                    + exc.__class__.__name__
+                    + "; recovering in "
+                    + str(RUNTIME_RECOVERY_SECONDS)
+                    + "s. The continuous loop remains active."
+                )
+                await close_browser_runtime()
+                await asyncio.sleep(RUNTIME_RECOVERY_SECONDS)
+                continue
     finally:
         await close_browser_runtime()
         await client.close()
@@ -680,7 +791,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Stage 0 Quote Scout. In --auto-pinterest mode it searches Pinterest "
-            "for saying trucker hat images, reads visible hat quotes through CAM "
+            "for Saying Trucker hat images, reads visible hat quotes through CAM "
             "vision analysis, resolves Google Ads volume through AEBrowse, and "
             "stores results in Stage 0."
         )
