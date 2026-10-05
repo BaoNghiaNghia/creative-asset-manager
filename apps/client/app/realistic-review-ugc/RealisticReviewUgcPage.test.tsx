@@ -711,8 +711,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain("SOURCE IMAGE PREVIEW");
-    expect(markup).toContain("rrugc-source-image-review-modal");
-    expect(markup).toContain("width:914px");
+    expect(markup).toContain("rrugc-source-image-review-modal is-cols-3");
     expect(markup).toContain("rrugc-source-review-masonry");
     expect(markup).toContain("rrugc-source-image-review-card");
     expect(sourceReviewImageUrl(sources[0])).toContain("thumbnail=true");
@@ -723,6 +722,22 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain("rrugc-source-review-vote is-bad");
     expect(markup).not.toContain("rrugc-source-review-vote is-ai");
     expect(markup).not.toContain(">AI<");
+  });
+
+  it("uses 1, 2, and 3 explicit source-image columns for small preview groups", () => {
+    const plan = makePlan();
+    const allSources = plan.source_group_images!;
+    for (const count of [1, 2, 3]) {
+      const markup = renderToStaticMarkup(
+        <SourceImageReviewModal
+          plan={plan}
+          sources={allSources.slice(0, count)}
+          onClose={() => undefined}
+        />,
+      );
+      expect(markup).toContain("rrugc-source-image-review-modal is-cols-" + count);
+      expect(markup).toContain("rrugc-source-image-review-masonry is-cols-" + count);
+    }
   });
 
   it("renders a compact centered empty reference state without carousel arrows", () => {

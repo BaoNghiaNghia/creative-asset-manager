@@ -167,12 +167,11 @@ export function SourceImageReviewModal({
   }, [onClose]);
 
   const previewColumns = Math.min(3, Math.max(1, sources.length));
-  const previewWidth = previewColumns * 290 + 44;
+  const previewColumnsClass = " is-cols-" + previewColumns;
 
   return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <section
-      className="rrugc-source-review-modal rrugc-source-image-review-modal"
-      style={{ width: previewWidth }}
+      className={"rrugc-source-review-modal rrugc-source-image-review-modal" + previewColumnsClass}
       role="dialog"
       aria-modal="true"
       aria-labelledby={"rrugc-source-image-review-title-" + plan.id}
@@ -185,7 +184,7 @@ export function SourceImageReviewModal({
         </div>
         <button type="button" className="rrugc-source-review-close" aria-label="Close source image preview" onClick={onClose}>×</button>
       </header>
-      <div className="rrugc-source-review-masonry rrugc-source-image-review-masonry">
+      <div className={"rrugc-source-review-masonry rrugc-source-image-review-masonry" + previewColumnsClass}>
         {sources.map((source, index) => (
           <article key={source.id} className="rrugc-source-review-card rrugc-source-image-review-card">
             <div className="rrugc-source-review-image">
