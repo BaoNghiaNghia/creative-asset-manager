@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 KEYWORD_VOLUME_URL = "https://aebrowse.com/mcp-google-ads/api_keyword_volume.php"
 KEYWORD_VOLUME_PROVIDER = "aebrowse_google_ads"
+KEYWORD_VOLUME_PENDING_PROVIDER = "pending"
 KEYWORD_VOLUME_CACHE_TTL = timedelta(hours=24)
 KEYWORD_VOLUME_MAX_BATCH = 50
 KEYWORD_VOLUME_MAX_LENGTH = 500
@@ -140,19 +141,39 @@ class RrugcKeywordVolumeService:
             for row in existing_rows
         }
 
+        # Persist every discovered quote before contacting the external
+        # volume provider. A provider outage must not make a scanned quote
+        # disappear from Stage 0 or from the database.
+        for clean, normalized in requested:
+            row = existing_by_key.get(normalized)
+            if row is None:
+                row = RrugcKeywordVolumeModel(
+                    tenant_id=tenant_id,
+                    keyword=clean,
+                    keyword_normalized=normalized,
+                    provider=KEYWORD_VOLUME_PENDING_PROVIDER,
+                    request_count=0,
+                    fetched_at=current_time,
+                    last_requested_at=current_time,
+                )
+                self.session.add(row)
+                existing_by_key[normalized] = row
+            row.keyword = clean
+            row.last_requested_at = current_time
+            row.request_count = int(row.request_count or 0) + 1
+        self.session.commit()
+
         provider_keywords: list[str] = []
         cached_rows: list[RrugcKeywordVolumeModel] = []
         for clean, normalized in requested:
-            row = existing_by_key.get(normalized)
-            fetched_at = _aware(row.fetched_at) if row is not None else None
+            row = existing_by_key[normalized]
+            fetched_at = _aware(row.fetched_at)
             if (
                 not force
-                and row is not None
+                and row.provider == KEYWORD_VOLUME_PROVIDER
                 and fetched_at is not None
                 and fetched_at >= fresh_after
             ):
-                row.last_requested_at = current_time
-                row.request_count = int(row.request_count or 0) + 1
                 cached_rows.append(row)
             else:
                 provider_keywords.append(clean)
@@ -181,13 +202,7 @@ class RrugcKeywordVolumeService:
                 item = provider_rows_by_key.get(normalized, {"keyword": clean})
                 row = existing_by_key.get(normalized)
                 if row is None:
-                    row = RrugcKeywordVolumeModel(
-                        tenant_id=tenant_id,
-                        keyword=clean,
-                        keyword_normalized=normalized,
-                    )
-                    self.session.add(row)
-                    existing_by_key[normalized] = row
+                    continue
                 row.keyword = clean
                 row.search_volume = _as_int(item.get("search_volume"))
                 competition = str(item.get("competition") or "").strip().upper()
@@ -204,7 +219,6 @@ class RrugcKeywordVolumeService:
                 row.provider_raw_json = dict(item)
                 row.fetched_at = current_time
                 row.last_requested_at = current_time
-                row.request_count = int(row.request_count or 0) + 1
 
         self.session.commit()
         rows = list(

@@ -102,7 +102,11 @@ from app.modules.realistic_review_ugc.model import (
     RrugcReferenceSetItemModel,
     RrugcReferenceSeedModel,
 )
-from app.modules.realistic_review_ugc.keyword_volume import RrugcKeywordVolumeService
+from app.modules.realistic_review_ugc.keyword_volume import (
+    KEYWORD_VOLUME_PENDING_PROVIDER,
+    KeywordVolumeError,
+    RrugcKeywordVolumeService,
+)
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
@@ -313,6 +317,54 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                     "bad day to be a hotdog hat",
                     "funny hotdog cap",
                 }
+
+    asyncio.run(scenario())
+
+
+def test_keyword_volume_persists_quote_before_provider_failure(database):
+    calls: list[list[str]] = []
+
+    async def provider(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content.decode())
+        calls.append(list(payload["keywords"]))
+        return httpx.Response(503, request=request, json={"success": False})
+
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+            with database() as session:
+                service = RrugcKeywordVolumeService(
+                    session,
+                    http_client=client,
+                    sleeper=no_sleep,
+                )
+                with pytest.raises(KeywordVolumeError) as exc_info:
+                    await service.resolve(
+                        tenant_id="tenant-a",
+                        keywords=["Bad Day To Be A Hotdog"],
+                        now=datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc),
+                    )
+                assert exc_info.value.code == "rrugc_keyword_volume_provider_unavailable"
+
+                persisted = session.scalar(
+                    select(RrugcKeywordVolumeModel).where(
+                        RrugcKeywordVolumeModel.tenant_id == "tenant-a",
+                        RrugcKeywordVolumeModel.keyword_normalized
+                        == "bad day to be a hotdog",
+                    )
+                )
+                assert persisted is not None
+                assert persisted.keyword == "Bad Day To Be A Hotdog"
+                assert persisted.search_volume == 0
+                assert persisted.provider == KEYWORD_VOLUME_PENDING_PROVIDER
+                assert persisted.request_count == 1
+                assert calls == [
+                    ["Bad Day To Be A Hotdog"],
+                    ["Bad Day To Be A Hotdog"],
+                    ["Bad Day To Be A Hotdog"],
+                ]
 
     asyncio.run(scenario())
 
