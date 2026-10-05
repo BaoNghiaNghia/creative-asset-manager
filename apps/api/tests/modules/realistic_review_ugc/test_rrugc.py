@@ -11,6 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from PIL import Image
 from fastapi import FastAPI
@@ -79,6 +80,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcVisualFingerprintModel,
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
+    RrugcKeywordVolumeModel,
     RrugcStage2JobModel,
     RrugcStage2SkillRegistryModel,
     RrugcStage2SkillVersionModel,
@@ -100,6 +102,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcReferenceSetItemModel,
     RrugcReferenceSeedModel,
 )
+from app.modules.realistic_review_ugc.keyword_volume import RrugcKeywordVolumeService
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
@@ -173,6 +176,7 @@ def database():
     ProcessingJobModel.__table__.create(engine)
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
+    RrugcKeywordVolumeModel.__table__.create(engine)
     RrugcScoutAgentModel.__table__.create(engine)
     RrugcScoutRunModel.__table__.create(engine)
     RrugcProductModel.__table__.create(engine)
@@ -218,6 +222,192 @@ def api(database):
     app.dependency_overrides[require_authenticated_principal] = principal
     with TestClient(app) as client:
         yield client
+
+
+def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
+    calls: list[list[str]] = []
+
+    async def provider(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content.decode())
+        keywords = list(payload["keywords"])
+        calls.append(keywords)
+        data = []
+        for keyword in keywords:
+            data.append({
+                "keyword": keyword,
+                "search_volume": 4400 if "hotdog" in keyword.casefold() else 260,
+                "competition": "HIGH",
+                "cpc_low": 0.56,
+                "cpc_high": 1.96,
+            })
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "success": True,
+                "account": "Test Ads Manager",
+                "customer_id": "1234567890",
+                "total_requested": len(keywords),
+                "total_with_volume": len(keywords),
+                "data": data,
+            },
+        )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+            with database() as session:
+                service = RrugcKeywordVolumeService(session, http_client=client)
+                now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
+                first = await service.resolve(
+                    tenant_id="tenant-a",
+                    keywords=[
+                        "Bad Day To Be A Hotdog hat",
+                        "funny hotdog cap",
+                        "BAD DAY TO BE A HOTDOG HAT",
+                    ],
+                    now=now,
+                )
+                assert first.requested == 2
+                assert first.provider_requested == 2
+                assert first.cached == 0
+                assert len(first.rows) == 2
+                assert first.rows[0].search_volume == 4400
+                assert first.rows[0].competition == "HIGH"
+                assert first.rows[0].cpc_low == 0.56
+                assert calls == [[
+                    "Bad Day To Be A Hotdog hat",
+                    "funny hotdog cap",
+                ]]
+
+                cached = await service.resolve(
+                    tenant_id="tenant-a",
+                    keywords=[
+                        "Bad Day To Be A Hotdog hat",
+                        "funny hotdog cap",
+                    ],
+                    now=now + timedelta(hours=1),
+                )
+                assert cached.provider_requested == 0
+                assert cached.cached == 2
+                assert len(calls) == 1
+
+                forced = await service.resolve(
+                    tenant_id="tenant-a",
+                    keywords=["Bad Day To Be A Hotdog hat"],
+                    force=True,
+                    now=now + timedelta(hours=2),
+                )
+                assert forced.provider_requested == 1
+                assert forced.cached == 0
+                assert len(calls) == 2
+
+                persisted = list(
+                    session.scalars(
+                        select(RrugcKeywordVolumeModel).where(
+                            RrugcKeywordVolumeModel.tenant_id == "tenant-a"
+                        )
+                    )
+                )
+                assert len(persisted) == 2
+                assert {row.keyword_normalized for row in persisted} == {
+                    "bad day to be a hotdog hat",
+                    "funny hotdog cap",
+                }
+
+    asyncio.run(scenario())
+
+
+def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
+    now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
+    with database() as session:
+        session.add_all([
+            RrugcKeywordVolumeModel(
+                tenant_id="tenant-a",
+                keyword="matching couple hoodies",
+                keyword_normalized="matching couple hoodies",
+                search_volume=4400,
+                competition="HIGH",
+                cpc_low=0.56,
+                cpc_high=1.96,
+                provider="aebrowse_google_ads",
+                fetched_at=now,
+                last_requested_at=now,
+            ),
+            RrugcKeywordVolumeModel(
+                tenant_id="tenant-a",
+                keyword="custom initial hoodie",
+                keyword_normalized="custom initial hoodie",
+                search_volume=0,
+                competition="LOW",
+                cpc_low=0.12,
+                cpc_high=0.44,
+                provider="aebrowse_google_ads",
+                fetched_at=now,
+                last_requested_at=now,
+            ),
+        ])
+        session.commit()
+
+    response = api.get("/api/v1/realistic-review-ugc/keyword-analysis")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert payload["overview"] == {
+        "total_keywords": 2,
+        "total_search_volume": 4400,
+        "high_competition": 1,
+        "zero_volume": 1,
+    }
+    assert [row["keyword"] for row in payload["items"]] == [
+        "matching couple hoodies",
+        "custom initial hoodie",
+    ]
+
+    searched = api.get(
+        "/api/v1/realistic-review-ugc/keyword-analysis",
+        params={"query": "initial"},
+    )
+    assert searched.status_code == 200
+    assert searched.json()["total"] == 1
+    assert searched.json()["items"][0]["keyword"] == "custom initial hoodie"
+
+
+def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Quote Scout terminal",
+        )
+        session.add(
+            RrugcKeywordVolumeModel(
+                tenant_id="tenant-a",
+                keyword="matching couple hoodies",
+                keyword_normalized="matching couple hoodies",
+                search_volume=4400,
+                competition="HIGH",
+                cpc_low=0.56,
+                cpc_high=1.96,
+                provider="aebrowse_google_ads",
+                fetched_at=now,
+                last_requested_at=now,
+            )
+        )
+        session.commit()
+        agent_id = agent.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/keyword-analysis/resolve",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"keywords": ["matching couple hoodies"]},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested"] == 1
+    assert payload["provider_requested"] == 0
+    assert payload["cached"] == 1
+    assert payload["items"][0]["search_volume"] == 4400
 
 
 def test_pinterest_url_allowlist_is_strict():

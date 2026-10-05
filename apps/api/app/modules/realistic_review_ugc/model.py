@@ -162,6 +162,57 @@ class RrugcSourcePlanModel(Base):
     )
 
 
+class RrugcKeywordVolumeModel(Base):
+    __tablename__ = "rrugc_keyword_volumes"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "keyword_normalized",
+            name="uq_rrugc_keyword_volume_keyword",
+        ),
+        Index(
+            "ix_rrugc_keyword_volume_search",
+            "tenant_id",
+            "search_volume",
+        ),
+        Index(
+            "ix_rrugc_keyword_volume_fetched",
+            "tenant_id",
+            "fetched_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    keyword: Mapped[str] = mapped_column(String(500), nullable=False)
+    keyword_normalized: Mapped[str] = mapped_column(String(500), nullable=False)
+    search_volume: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    competition: Mapped[str | None] = mapped_column(String(32))
+    cpc_low: Mapped[float | None] = mapped_column(Float)
+    cpc_high: Mapped[float | None] = mapped_column(Float)
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="aebrowse_google_ads"
+    )
+    provider_account: Mapped[str | None] = mapped_column(String(255))
+    provider_customer_id: Mapped[str | None] = mapped_column(String(64))
+    provider_raw_json: Mapped[dict | None] = mapped_column(JSON)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class RrugcScoutAgentModel(Base):
     __tablename__ = "rrugc_scout_agents"
     __table_args__ = (

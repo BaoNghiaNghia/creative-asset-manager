@@ -36,6 +36,10 @@ from app.modules.realistic_review_ugc.analysis import (
     build_reference_preference_model,
 )
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
+from app.modules.realistic_review_ugc.keyword_volume import (
+    KeywordVolumeError,
+    RrugcKeywordVolumeService,
+)
 from app.modules.realistic_review_ugc.generation import (
     RrugcGenerationFoundation,
     binding_is_generation_ready,
@@ -44,6 +48,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
+    RrugcKeywordVolumeModel,
     RrugcStage2JobModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
@@ -126,6 +131,11 @@ from app.modules.realistic_review_ugc.schema import (
     GenerationSkillCatalogResponse,
     GenerationSkillResponse,
     ImportResponse,
+    KeywordVolumeOverviewResponse,
+    KeywordVolumePageResponse,
+    KeywordVolumeResolveRequest,
+    KeywordVolumeResolveResponse,
+    KeywordVolumeResponse,
     ReferenceAssetResponse,
     ReferenceAssetPromotionResponse,
     ReferenceSeedRequest,
@@ -2694,6 +2704,19 @@ def _source_plan_group_image_response(
     )
 
 
+def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeResponse:
+    return KeywordVolumeResponse(
+        id=row.id,
+        keyword=row.keyword,
+        search_volume=int(row.search_volume or 0),
+        competition=row.competition,
+        cpc_low=row.cpc_low,
+        cpc_high=row.cpc_high,
+        provider=row.provider,
+        fetched_at=row.fetched_at,
+    )
+
+
 def _source_plan_response(
     row: RrugcSourcePlanModel,
     *,
@@ -3195,6 +3218,141 @@ def get_source_plans(
         total=total,
         overview=overview,
     )
+
+
+def _keyword_volume_resolve_response(result) -> KeywordVolumeResolveResponse:
+    return KeywordVolumeResolveResponse(
+        requested=result.requested,
+        provider_requested=result.provider_requested,
+        cached=result.cached,
+        items=[_keyword_volume_response(row) for row in result.rows],
+    )
+
+
+@router.get(
+    "/keyword-analysis",
+    response_model=KeywordVolumePageResponse,
+)
+def list_keyword_analysis(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    query: str = Query(default="", max_length=200),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    conditions = [RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id]
+    clean_query = query.strip()
+    if clean_query:
+        conditions.append(
+            RrugcKeywordVolumeModel.keyword.ilike(f"%{clean_query}%")
+        )
+
+    total = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(*conditions)
+        ) or 0
+    )
+    total_search_volume = int(
+        session.scalar(
+            select(func.coalesce(func.sum(RrugcKeywordVolumeModel.search_volume), 0))
+            .where(*conditions)
+        ) or 0
+    )
+    high_competition = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *conditions,
+                RrugcKeywordVolumeModel.competition == "HIGH",
+            )
+        ) or 0
+    )
+    zero_volume = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *conditions,
+                RrugcKeywordVolumeModel.search_volume <= 0,
+            )
+        ) or 0
+    )
+    rows = list(
+        session.scalars(
+            select(RrugcKeywordVolumeModel)
+            .where(*conditions)
+            .order_by(
+                RrugcKeywordVolumeModel.search_volume.desc(),
+                RrugcKeywordVolumeModel.fetched_at.desc(),
+                RrugcKeywordVolumeModel.keyword.asc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+    return KeywordVolumePageResponse(
+        items=[_keyword_volume_response(row) for row in rows],
+        page=page,
+        page_size=page_size,
+        total=total,
+        overview=KeywordVolumeOverviewResponse(
+            total_keywords=total,
+            total_search_volume=total_search_volume,
+            high_competition=high_competition,
+            zero_volume=zero_volume,
+        ),
+    )
+
+
+@router.post(
+    "/keyword-analysis/resolve",
+    response_model=KeywordVolumeResolveResponse,
+)
+async def resolve_keyword_analysis(
+    request: KeywordVolumeResolveRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        result = await RrugcKeywordVolumeService(session).resolve(
+            tenant_id=principal.active_tenant_id,
+            keywords=request.keywords,
+            force=request.force,
+        )
+    except KeywordVolumeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return _keyword_volume_resolve_response(result)
+
+
+@router.post(
+    "/scout-agents/{agent_id}/keyword-analysis/resolve",
+    response_model=KeywordVolumeResolveResponse,
+)
+async def quote_scout_resolve_keyword_analysis(
+    agent_id: str,
+    request: KeywordVolumeResolveRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id,
+            raw_token=token,
+        )
+        result = await RrugcKeywordVolumeService(session).resolve(
+            tenant_id=agent.tenant_id,
+            keywords=request.keywords,
+            force=request.force,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    except KeywordVolumeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return _keyword_volume_resolve_response(result)
 
 
 @router.get("/source-plans/{source_plan_id}/image")

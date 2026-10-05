@@ -165,6 +165,32 @@ export type SourcePlanGroupImage = {
   source_size_bytes: number | null;
 };
 
+export type KeywordVolume = {
+  id: string;
+  keyword: string;
+  search_volume: number;
+  competition: string | null;
+  cpc_low: number | null;
+  cpc_high: number | null;
+  provider: string;
+  fetched_at: string;
+};
+
+export type KeywordVolumeOverview = {
+  total_keywords: number;
+  total_search_volume: number;
+  high_competition: number;
+  zero_volume: number;
+};
+
+export type KeywordVolumePage = {
+  items: KeywordVolume[];
+  page: number;
+  page_size: number;
+  total: number;
+  overview: KeywordVolumeOverview;
+};
+
 export type SourcePlan = {
   id: string;
   root_folder_id: string;

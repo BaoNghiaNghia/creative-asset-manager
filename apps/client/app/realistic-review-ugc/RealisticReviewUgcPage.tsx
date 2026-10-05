@@ -5,6 +5,7 @@ import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/Worksp
 import {
   cancelStage2Jobs,
   createStage2Job,
+  listKeywordAnalysis,
   listSourcePlans,
   listStage2Jobs,
   markCandidateReferenceFeedback,
@@ -16,9 +17,22 @@ import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
-import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection } from "./types";
+import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
+
+const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
+  items: [],
+  page: 1,
+  page_size: 20,
+  total: 0,
+  overview: {
+    total_keywords: 0,
+    total_search_volume: 0,
+    high_competition: 0,
+    zero_volume: 0,
+  },
+};
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   items: [],
@@ -74,6 +88,12 @@ export function stage2JobsRenderFingerprint(jobs: Stage2Job[]): string {
 }
 
 export function RealisticReviewUgcPage() {
+  const [keywordPage, setKeywordPage] = useState<KeywordVolumePage>(EMPTY_KEYWORD_PAGE);
+  const [keywordPageNumber, setKeywordPageNumber] = useState(1);
+  const [keywordPageSize, setKeywordPageSize] = useState(20);
+  const [keywordQuery, setKeywordQuery] = useState("");
+  const [debouncedKeywordQuery, setDebouncedKeywordQuery] = useState("");
+  const [keywordLoading, setKeywordLoading] = useState(true);
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
   const [sourcePageSize, setSourcePageSize] = useState(10);
@@ -91,7 +111,7 @@ export function RealisticReviewUgcPage() {
   const [stage2Message, setStage2Message] = useState("");
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
-  const groupsStageActive = activeStage === "stage0" || activeStage === "stage1" || activeStage === "stage2";
+  const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
   const visibleStage2SourcePlanIds = useMemo(
     () => Array.from(new Set(
       sourcePage.items.flatMap(plan => [
@@ -107,6 +127,18 @@ export function RealisticReviewUgcPage() {
     () => Math.max(1, Math.ceil(sourcePage.total / Math.max(1, sourcePageSize))),
     [sourcePage.total, sourcePageSize],
   );
+
+  async function refreshKeywordAnalysis(signal?: AbortSignal) {
+    const result = await listKeywordAnalysis(
+      {
+        page: keywordPageNumber,
+        pageSize: keywordPageSize,
+        query: debouncedKeywordQuery,
+      },
+      signal,
+    );
+    setKeywordPage(result);
+  }
 
   async function refreshSourcePlans(signal?: AbortSignal) {
     const result = await listSourcePlans(
@@ -312,6 +344,14 @@ export function RealisticReviewUgcPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setKeywordPageNumber(1);
+      setDebouncedKeywordQuery(keywordQuery.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [keywordQuery]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
       setSourcePageNumber(1);
       setDebouncedSourceQuery(sourceQuery.trim());
     }, 250);
@@ -323,6 +363,36 @@ export function RealisticReviewUgcPage() {
       setSourcePageNumber(sourcePageCount);
     }
   }, [sourcePageCount, sourcePageNumber]);
+
+  useEffect(() => {
+    if (activeStage !== "stage0") return;
+    const controller = new AbortController();
+    let refreshInFlight = true;
+    setKeywordLoading(true);
+    void refreshKeywordAnalysis(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load Stage 0 keyword analysis.");
+        }
+      })
+      .finally(() => {
+        refreshInFlight = false;
+        if (!controller.signal.aborted) setKeywordLoading(false);
+      });
+    const timer = window.setInterval(() => {
+      if (document.hidden || refreshInFlight) return;
+      refreshInFlight = true;
+      void refreshKeywordAnalysis()
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
+    }, 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery]);
 
   useEffect(() => {
     if (!groupsStageActive) return;
@@ -455,23 +525,19 @@ export function RealisticReviewUgcPage() {
           hidden={activeStage !== "stage0"}
         >
           <KeywordAnalysisTable
-            plans={sourcePage.items}
-            total={sourcePage.total}
-            overview={sourcePage.overview}
-            page={sourcePageNumber}
-            pageSize={sourcePageSize}
-            query={sourceQuery}
-            loading={sourcePageLoading}
+            data={keywordPage}
+            query={keywordQuery}
+            loading={keywordLoading}
             onPageChange={value => {
-              setSourcePageLoading(true);
-              setSourcePageNumber(value);
+              setKeywordLoading(true);
+              setKeywordPageNumber(value);
             }}
             onPageSizeChange={value => {
-              setSourcePageLoading(true);
-              setSourcePageNumber(1);
-              setSourcePageSize(value);
+              setKeywordLoading(true);
+              setKeywordPageNumber(1);
+              setKeywordPageSize(value);
             }}
-            onQueryChange={setSourceQuery}
+            onQueryChange={setKeywordQuery}
           />
         </section>
 

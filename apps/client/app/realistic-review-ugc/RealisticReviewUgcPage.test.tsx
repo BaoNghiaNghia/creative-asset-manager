@@ -7,7 +7,7 @@ import {
   scoutClientIsCurrent,
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
-import { KeywordAnalysisTable, stage0DetectedQuote, stage0KeywordPlan } from "./KeywordAnalysisTable";
+import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import {
   RealisticReviewUgcPage,
   sourcePlanPageRenderFingerprint,
@@ -514,32 +514,42 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("hidden");
   });
 
-  it("builds a quote-focused Stage 0 keyword plan from embroidery text", () => {
-    const plan = makePlan();
-    expect(stage0DetectedQuote(plan)).toBe("Bad Day To Be A Hotdog");
-    expect(stage0KeywordPlan(plan)).toEqual([
-      "Bad Day To Be A Hotdog",
-      "Bad Day To Be A Hotdog embroidered hat",
-      "Bad Day To Be A Hotdog cap",
-      "Bad Day To Be A Hotdog trucker hat",
-    ]);
-
+  it("renders independent Stage 0 keyword-volume rows from the quote-scout terminal", () => {
     const markup = renderToStaticMarkup(
       <KeywordAnalysisTable
-        plans={[plan]}
-        total={1}
-        overview={{
-          embroidery_groups: 1,
-          source_images: 3,
-          working_groups: 1,
-          refs_loaded: 0,
-          stage2_groups: 0,
-          stage2_source_images: 0,
-          stage2_drive_ready_refs: 0,
-          stage2_active_jobs: 0,
+        data={{
+          items: [
+            {
+              id: "kv-1",
+              keyword: "Bad Day To Be A Hotdog hat",
+              search_volume: 4400,
+              competition: "HIGH",
+              cpc_low: 0.56,
+              cpc_high: 1.96,
+              provider: "aebrowse_google_ads",
+              fetched_at: "2026-10-05T10:00:00Z",
+            },
+            {
+              id: "kv-2",
+              keyword: "funny hotdog cap",
+              search_volume: 260,
+              competition: "MEDIUM",
+              cpc_low: 0.31,
+              cpc_high: 0.88,
+              provider: "aebrowse_google_ads",
+              fetched_at: "2026-10-05T10:00:00Z",
+            },
+          ],
+          page: 1,
+          page_size: 20,
+          total: 2,
+          overview: {
+            total_keywords: 2,
+            total_search_volume: 4660,
+            high_competition: 1,
+            zero_volume: 0,
+          },
         }}
-        page={1}
-        pageSize={10}
         query=""
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
@@ -548,10 +558,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
 
     expect(markup).toContain("Stage 0 · Analysis Keyword");
-    expect(markup).toContain("Quote Scout · parallel lane");
-    expect(markup).toContain("Bad Day To Be A Hotdog embroidered hat");
-    expect(markup).toContain("Ready for Quote Scout");
-    expect(markup).toContain("4 search queries");
+    expect(markup).toContain("Quote Scout · separate terminal");
+    expect(markup).toContain("Bad Day To Be A Hotdog hat");
+    expect(markup).toContain(">4,400<");
+    expect(markup).toContain("HIGH");
+    expect(markup).toContain("$0.56–$1.96");
+    expect(markup).toContain(">4,660<");
+    expect(markup).toContain("AEBrowse · Google Ads");
   });
 
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {

@@ -19,6 +19,7 @@ import type {
   GenerationAttempt,
   GenerationCapability,
   GenerationSkillCatalog,
+  KeywordVolumePage,
   ReferenceAsset,
   ReferenceSet,
   ReferenceSetRecommendation,
@@ -184,6 +185,21 @@ export const syncSourcePlans = () =>
   request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync", {
     method: "POST",
   });
+
+export const listKeywordAnalysis = (
+  filters: { page?: number; pageSize?: number; query?: string } = {},
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({
+    page: String(filters.page ?? 1),
+    page_size: String(filters.pageSize ?? 20),
+  });
+  if (filters.query?.trim()) params.set("query", filters.query.trim());
+  return request<KeywordVolumePage>(
+    "/api/v1/realistic-review-ugc/keyword-analysis?" + params.toString(),
+    { signal },
+  );
+};
 
 export const listCampaigns = (signal?: AbortSignal) =>
   request<Campaign[]>("/api/v1/realistic-review-ugc/campaigns", { signal });

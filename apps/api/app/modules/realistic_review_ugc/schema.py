@@ -427,6 +427,46 @@ class SourcePlanGroupImageResponse(BaseModel):
     source_size_bytes: int | None = None
 
 
+class KeywordVolumeResponse(BaseModel):
+    id: str
+    keyword: str
+    search_volume: int = 0
+    competition: str | None = None
+    cpc_low: float | None = None
+    cpc_high: float | None = None
+    provider: str
+    fetched_at: datetime
+
+
+class KeywordVolumeResolveRequest(BaseModel):
+    keywords: list[str] = Field(min_length=1, max_length=50)
+    force: bool = False
+
+
+class KeywordVolumeResolveResponse(BaseModel):
+    requested: int
+    provider_requested: int
+    cached: int
+    items: list[KeywordVolumeResponse] = Field(default_factory=list)
+
+
+class KeywordVolumeOverviewResponse(BaseModel):
+    total_keywords: int = 0
+    total_search_volume: int = 0
+    high_competition: int = 0
+    zero_volume: int = 0
+
+
+class KeywordVolumePageResponse(BaseModel):
+    items: list[KeywordVolumeResponse] = Field(default_factory=list)
+    page: int
+    page_size: int
+    total: int
+    overview: KeywordVolumeOverviewResponse = Field(
+        default_factory=KeywordVolumeOverviewResponse
+    )
+
+
 class SourcePlanResponse(BaseModel):
     id: str
     root_folder_id: str

@@ -34,6 +34,21 @@ START_SCOUT.bat
 
 Do not commit `scout.local.env`; it is intentionally ignored by Git.
 
+## Stage 0 quote-scout keyword volume
+
+A second terminal can reuse the same Scout Agent credentials without competing for the normal Pinterest reference claim lane. After the quote scout discovers keywords, submit them through Creative Asset Manager instead of calling AEBrowse directly. Stage 0 is an independent keyword table: CAM calls the AEBrowse Google Ads endpoint server-side, stores each normalized keyword once per tenant, and reuses fresh results for 24 hours.
+
+Example:
+
+```powershell
+python apps\rrugc_scout\quote_keyword_volume.py `
+  --keyword "matching couple hoodies" `
+  --keyword "embroidered anniversary hoodie" `
+  --keyword "custom initial hoodie"
+```
+
+The helper reads `RRUGC_AGENT_ID` and `RRUGC_SCOUT_TOKEN` from the environment. It accepts up to 50 unique keywords per request. Use `--keywords-file keywords.txt` for one keyword per line, `--json` for raw JSON output, and `--force` only when a fresh provider lookup is required. Stage 0 polls the stored results and displays monthly search volume, competition, CPC range, and last-check time automatically.
+
 ## Debug logs
 
 Every Scout start now creates a structured JSONL debug log inside the persistent
