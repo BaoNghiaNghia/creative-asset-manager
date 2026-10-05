@@ -317,7 +317,9 @@ export type Stage2Job = {
   skill_bundle_sha256: string | null;
   selected_candidate_ids: string[];
   reference_count: number;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  can_cancel: boolean;
+  cancel_available_until: string | null;
   processing_job_id: string | null;
   provider_request_id: string | null;
   output_content_type: string | null;
@@ -338,6 +340,11 @@ export type Stage2Job = {
 export type Stage2JobCreated = {
   created: boolean;
   job: Stage2Job;
+};
+
+export type Stage2JobsCancelled = {
+  cancelled: number;
+  job_ids: string[];
 };
 
 export type SourcePlanSyncResult = {

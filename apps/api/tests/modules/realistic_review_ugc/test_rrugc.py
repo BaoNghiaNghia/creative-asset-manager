@@ -1122,6 +1122,13 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypa
         assert processing_job is not None
         assert processing_job.job_type == "rrugc_stage2_generate"
         assert processing_job.entity_id == row.id
+        queued_at = row.queued_at
+        next_attempt_at = processing_job.next_attempt_at
+        if queued_at.tzinfo is None:
+            queued_at = queued_at.replace(tzinfo=timezone.utc)
+        if next_attempt_at.tzinfo is None:
+            next_attempt_at = next_attempt_at.replace(tzinfo=timezone.utc)
+        assert next_attempt_at - queued_at == timedelta(seconds=10)
 
         next_run, next_created = service.create_job(
             tenant_id="tenant-a",
@@ -1157,6 +1164,42 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypa
                 selected_candidate_ids=[candidate.id for candidate in candidates],
             )
         assert exc.value.code == "stage2_reference_limit_exceeded"
+
+        cancelled = service.cancel_recent_batch(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            source_plan_id=plan.id,
+        )
+        assert [item.id for item in cancelled] == [next_run.id]
+        assert next_run.status == "cancelled"
+        cancelled_processing = session.get(ProcessingJobModel, next_run.processing_job_id)
+        assert cancelled_processing is not None
+        assert cancelled_processing.status == "failed"
+        assert cancelled_processing.last_error_code == "operation_cancelled"
+
+        expired_run, expired_created = service.create_job(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            source_plan_id=plan.id,
+            selected_candidate_ids=[candidates[3].id],
+        )
+        assert expired_created is True
+        expired_queued_at = expired_run.queued_at
+        if expired_queued_at.tzinfo is None:
+            expired_queued_at = expired_queued_at.replace(tzinfo=timezone.utc)
+        with pytest.raises(RrugcStage2Error) as expired_exc:
+            service.cancel_recent_batch(
+                tenant_id="tenant-a",
+                user_id="user-a",
+                source_plan_id=plan.id,
+                now=expired_queued_at + timedelta(seconds=11),
+            )
+        assert expired_exc.value.code == "stage2_cancel_window_expired"
+        session.refresh(expired_run)
+        assert expired_run.status == "queued"
+        expired_processing = session.get(ProcessingJobModel, expired_run.processing_job_id)
+        assert expired_processing is not None
+        assert expired_processing.status == "pending"
 
 
 def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):

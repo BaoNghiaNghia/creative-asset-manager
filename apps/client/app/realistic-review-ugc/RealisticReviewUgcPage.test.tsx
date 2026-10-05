@@ -135,6 +135,8 @@ function makeStage2Job(
     selected_candidate_ids: ["ref-0"],
     reference_count: 1,
     status,
+    can_cancel: false,
+    cancel_available_until: null,
     processing_job_id: status === "queued" ? null : "processing-" + id,
     provider_request_id: null,
     output_content_type: status === "completed" ? "image/png" : null,
@@ -344,6 +346,25 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("is-generated");
     expect(markup).toContain('title="Already generated"');
     expect(markup).not.toContain("1/10 selected");
+  });
+
+  it("shows a 10-second cancel action before queued Stage 2 work is allowed to start", () => {
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[makePlan(4)]}
+        overview={GLOBAL_OVERVIEW}
+        jobs={[makeStage2Job("job-cancellable", "queued", {
+          can_cancel: true,
+          cancel_available_until: new Date(Date.now() + 9000).toISOString(),
+        })]}
+        creatingPlanIds={new Set()}
+        onCreateJob={() => undefined}
+        onCancelJobs={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Cancel · ");
+    expect(markup).toContain("Generation starts automatically when the 10-second cancel window ends.");
+    expect(markup).not.toContain(">Generate selected<");
   });
 
   it("shows completed, active, failed, and not-run generation slots separately", () => {

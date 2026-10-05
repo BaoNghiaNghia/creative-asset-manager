@@ -3,6 +3,7 @@ import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
+  cancelStage2Jobs,
   createStage2Job,
   listSourcePlans,
   listStage2Jobs,
@@ -84,6 +85,7 @@ export function RealisticReviewUgcPage() {
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
   const [stage2Jobs, setStage2Jobs] = useState<Stage2Job[]>([]);
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
+  const [cancellingStage2PlanIds, setCancellingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage1");
@@ -168,7 +170,7 @@ export function RealisticReviewUgcPage() {
         + " queued from " + candidateIds.length + " selected Pinterest ref"
         + (candidateIds.length === 1 ? "" : "s")
         + (existingCount ? "; " + existingCount + " already existed" : "")
-        + ".",
+        + ". You can cancel this batch for 10 seconds before generation starts.",
       );
       if (failed.length > 0) {
         setError(
@@ -185,6 +187,34 @@ export function RealisticReviewUgcPage() {
       setError(reason instanceof Error ? reason.message : "Unable to queue Stage 2 generation.");
     } finally {
       setCreatingStage2PlanIds(current => {
+        const next = new Set(current);
+        next.delete(plan.id);
+        return next;
+      });
+    }
+  }
+
+  async function cancelStage2Batch(plan: SourcePlan) {
+    if (cancellingStage2PlanIds.has(plan.id)) return;
+    setCancellingStage2PlanIds(current => new Set(current).add(plan.id));
+    setStage2Message("");
+    setError("");
+    try {
+      const result = await cancelStage2Jobs(plan.id);
+      setStage2Message(
+        "Cancelled " + result.cancelled + " queued output generation"
+        + (result.cancelled === 1 ? "" : "s")
+        + " during the 10-second cancel window.",
+      );
+      await Promise.all([
+        refreshStage2Jobs(),
+        refreshSourcePlans(),
+      ]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to cancel Stage 2 generation.");
+      await refreshStage2Jobs().catch(() => undefined);
+    } finally {
+      setCancellingStage2PlanIds(current => {
         const next = new Set(current);
         next.delete(plan.id);
         return next;
@@ -476,6 +506,7 @@ export function RealisticReviewUgcPage() {
             pageSize={sourcePageSize}
             jobs={stage2Jobs}
             creatingPlanIds={creatingStage2PlanIds}
+            cancellingPlanIds={cancellingStage2PlanIds}
             loading={sourcePageLoading}
             message={stage2Message}
             onPageChange={value => {
@@ -488,6 +519,7 @@ export function RealisticReviewUgcPage() {
               setSourcePageSize(value);
             }}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
+            onCancelJobs={plan => void cancelStage2Batch(plan)}
           />
         </section>
 

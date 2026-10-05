@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 import httpx
@@ -197,6 +197,7 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2JobCreateRequest,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
+    Stage2JobsCancelledResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -222,6 +223,7 @@ from app.modules.realistic_review_ugc.service import (
 from app.modules.realistic_review_ugc.stage2 import (
     RrugcStage2Error,
     RrugcStage2Service,
+    STAGE2_CANCEL_GRACE_SECONDS,
 )
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
@@ -913,12 +915,31 @@ def _stage2_skill(item: Stage2SkillItem) -> Stage2SkillResponse:
     )
 
 
-def _stage2_job(row: RrugcStage2JobModel) -> Stage2JobResponse:
+def _stage2_job(
+    row: RrugcStage2JobModel,
+    *,
+    current_user_id: str | None = None,
+) -> Stage2JobResponse:
     selected_ids = [
         str(value)
         for value in (row.selected_candidate_ids_json or [])
         if str(value).strip()
     ]
+    queued_at = row.queued_at
+    if queued_at is not None and queued_at.tzinfo is None:
+        queued_at = queued_at.replace(tzinfo=timezone.utc)
+    cancel_available_until = (
+        queued_at + timedelta(seconds=STAGE2_CANCEL_GRACE_SECONDS)
+        if row.status == "queued" and row.started_at is None and queued_at is not None
+        else None
+    )
+    now = datetime.now(timezone.utc)
+    can_cancel = bool(
+        cancel_available_until is not None
+        and cancel_available_until > now
+        and current_user_id
+        and row.created_by_user_id == current_user_id
+    )
     return Stage2JobResponse(
         id=row.id,
         source_plan_id=row.source_plan_id,
@@ -932,6 +953,8 @@ def _stage2_job(row: RrugcStage2JobModel) -> Stage2JobResponse:
         selected_candidate_ids=selected_ids,
         reference_count=len(selected_ids),
         status=row.status,
+        can_cancel=can_cancel,
+        cancel_available_until=cancel_available_until,
         processing_job_id=row.processing_job_id,
         provider_request_id=row.provider_request_id,
         output_content_type=row.output_content_type,
@@ -3569,7 +3592,7 @@ def list_stage2_jobs(
             },
         )
     return [
-        _stage2_job(row)
+        _stage2_job(row, current_user_id=principal.user_id)
         for row in RrugcRepository(session).list_stage2_jobs(
             principal.active_tenant_id,
             source_plan_ids=source_plan_ids,
@@ -3606,7 +3629,36 @@ def create_stage2_job(
             status_code=exc.status_code,
             detail={"code": exc.code, "message": exc.message},
         ) from exc
-    return Stage2JobCreatedResponse(created=created, job=_stage2_job(row))
+    return Stage2JobCreatedResponse(
+        created=created,
+        job=_stage2_job(row, current_user_id=principal.user_id),
+    )
+
+
+@router.post(
+    "/source-plans/{source_plan_id}/stage2-jobs/cancel",
+    response_model=Stage2JobsCancelledResponse,
+)
+def cancel_stage2_jobs(
+    source_plan_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        rows = RrugcStage2Service(session).cancel_recent_batch(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            source_plan_id=source_plan_id,
+        )
+    except RrugcStage2Error as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2JobsCancelledResponse(
+        cancelled=len(rows),
+        job_ids=[row.id for row in rows],
+    )
 
 
 @router.get("/stage2-jobs/{stage2_job_id}/output")

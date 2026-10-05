@@ -691,7 +691,9 @@ class Stage2JobResponse(BaseModel):
     skill_bundle_sha256: str | None = None
     selected_candidate_ids: list[str] = Field(default_factory=list)
     reference_count: int = 0
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    can_cancel: bool = False
+    cancel_available_until: datetime | None = None
     processing_job_id: str | None = None
     provider_request_id: str | None = None
     output_content_type: str | None = None
@@ -712,6 +714,11 @@ class Stage2JobResponse(BaseModel):
 class Stage2JobCreatedResponse(BaseModel):
     created: bool
     job: Stage2JobResponse
+
+
+class Stage2JobsCancelledResponse(BaseModel):
+    cancelled: int
+    job_ids: list[str] = Field(default_factory=list)
 
 
 class ScoutRunCompleteRequest(BaseModel):

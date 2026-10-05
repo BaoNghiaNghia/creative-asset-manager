@@ -50,6 +50,7 @@ from app.providers.ai.codex_image import (
 STAGE2_JOB_TYPE = "rrugc_stage2_generate"
 DEFAULT_STAGE2_SKILL = "gatorhats-8869-image-studio"
 MAX_STAGE2_REFERENCES = 10
+STAGE2_CANCEL_GRACE_SECONDS = 10
 DEFAULT_STAGE2_PROMPT = "8869 Five-Panel Twill Cap\nCenter"
 
 
@@ -382,6 +383,7 @@ class RrugcStage2Service:
                 payload={"stage2_job_id": row.id},
                 priority=25,
                 max_attempts=3,
+                next_attempt_at=now + timedelta(seconds=STAGE2_CANCEL_GRACE_SECONDS),
                 provider_key="codex",
                 provider_scope="ai",
             )
@@ -395,6 +397,100 @@ class RrugcStage2Service:
             raise
         self.session.refresh(row)
         return row, True
+
+    def cancel_recent_batch(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        source_plan_id: str,
+        now: datetime | None = None,
+    ) -> list[RrugcStage2JobModel]:
+        plan = self.session.get(RrugcSourcePlanModel, source_plan_id)
+        if plan is None or plan.tenant_id != tenant_id:
+            raise RrugcStage2Error(
+                "stage2_source_plan_not_found",
+                "Embroidery source plan was not found.",
+                status_code=404,
+            )
+
+        cancelled_at = now or datetime.now(timezone.utc)
+        cancel_cutoff = cancelled_at - timedelta(seconds=STAGE2_CANCEL_GRACE_SECONDS)
+        source_group_ids = [
+            member.id
+            for member in _stage2_source_group(
+                self.session,
+                tenant_id=tenant_id,
+                plan=plan,
+            )
+        ]
+        rows = list(
+            self.session.query(RrugcStage2JobModel)
+            .filter(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.source_plan_id.in_(source_group_ids),
+                RrugcStage2JobModel.created_by_user_id == user_id,
+                RrugcStage2JobModel.status == "queued",
+                RrugcStage2JobModel.queued_at.is_not(None),
+            )
+            .order_by(RrugcStage2JobModel.queued_at.asc())
+        )
+        if not rows:
+            self.session.rollback()
+            raise RrugcStage2Error(
+                "stage2_cancel_window_expired",
+                "Stage 2 jobs can only be cancelled during the first 10 seconds.",
+                status_code=409,
+            )
+        for row in rows:
+            queued_at = row.queued_at
+            if queued_at is not None and queued_at.tzinfo is None:
+                queued_at = queued_at.replace(tzinfo=timezone.utc)
+            if queued_at is None or queued_at <= cancel_cutoff:
+                self.session.rollback()
+                raise RrugcStage2Error(
+                    "stage2_cancel_window_expired",
+                    "Stage 2 jobs can only be cancelled during the first 10 seconds.",
+                    status_code=409,
+                )
+
+        processing = ProcessingRepository(self.session, self.settings)
+        cancelled: list[RrugcStage2JobModel] = []
+        for row in rows:
+            if not row.processing_job_id:
+                self.session.rollback()
+                raise RrugcStage2Error(
+                    "stage2_cancel_unavailable",
+                    "This Stage 2 batch has already started and can no longer be cancelled.",
+                    status_code=409,
+                )
+            processing_job = processing.cancel_unstarted_job(
+                tenant_id=tenant_id,
+                job_id=row.processing_job_id,
+                actor_id=user_id,
+                reason="Stage 2 cancelled during 10-second grace period",
+                now=cancelled_at,
+            )
+            if (
+                processing_job is None
+                or processing_job.last_error_code != "operation_cancelled"
+            ):
+                self.session.rollback()
+                raise RrugcStage2Error(
+                    "stage2_cancel_unavailable",
+                    "This Stage 2 batch has already started and can no longer be cancelled.",
+                    status_code=409,
+                )
+            row.status = "cancelled"
+            row.completed_at = cancelled_at
+            row.last_error_code = "stage2_cancelled"
+            row.last_error_message = "Cancelled during the 10-second grace period."
+            cancelled.append(row)
+
+        self.session.commit()
+        for row in cancelled:
+            self.session.refresh(row)
+        return cancelled
 
 
 class RrugcStage2GenerateJobHandler:
@@ -499,6 +595,11 @@ class RrugcStage2GenerateJobHandler:
                 )
             if row.status == "completed":
                 return JobHandlerResult.completed()
+            if row.status == "cancelled":
+                return JobHandlerResult.non_retryable(
+                    "stage2_cancelled",
+                    "Stage 2 generation was cancelled during the grace period.",
+                )
             plan = session.get(RrugcSourcePlanModel, row.source_plan_id)
             if plan is None or plan.source_revision != row.source_revision:
                 row.status = "failed"

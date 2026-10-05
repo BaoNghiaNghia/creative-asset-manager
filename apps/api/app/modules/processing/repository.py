@@ -511,12 +511,13 @@ class ProcessingRepository:
         now: datetime | None = None,
     ) -> ProcessingJobModel | None:
         cancelled_at = now or utcnow()
-        job = self.session.scalar(
-            select(ProcessingJobModel).where(
-                ProcessingJobModel.tenant_id == tenant_id,
-                ProcessingJobModel.id == job_id,
-            )
+        statement = select(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.id == job_id,
         )
+        if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
+            statement = statement.with_for_update()
+        job = self.session.scalar(statement)
         if job is None:
             return None
         if job.status not in {JobStatus.PENDING.value, JobStatus.RETRY.value}:

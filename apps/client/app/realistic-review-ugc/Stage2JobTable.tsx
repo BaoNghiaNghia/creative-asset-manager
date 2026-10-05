@@ -126,16 +126,19 @@ function jobLabel(job: Stage2Job) {
   if (job.status === "queued") return "Queued";
   if (job.status === "running") return "Generating";
   if (job.status === "completed") return "Completed";
+  if (job.status === "cancelled") return "Cancelled";
   return "Failed";
 }
 
 function outputSummary(jobs: Stage2Job[]) {
   const completed = jobs.filter(job => job.status === "completed").length;
   const failed = jobs.filter(job => job.status === "failed").length;
+  const cancelled = jobs.filter(job => job.status === "cancelled").length;
   const active = jobs.filter(job => job.status === "queued" || job.status === "running").length;
   return {
     completed,
     failed,
+    cancelled,
     active,
     remaining: Math.max(0, MAX_OUTPUT_SLOTS - jobs.length),
   };
@@ -358,9 +361,11 @@ export function Stage2JobTable({
   page = 1,
   pageSize = 10,
   creatingPlanIds,
+  cancellingPlanIds = new Set<string>(),
   loading = false,
   message,
   onCreateJob,
+  onCancelJobs = () => undefined,
   onPageChange = () => undefined,
   onPageSizeChange = () => undefined,
 }: {
@@ -371,6 +376,7 @@ export function Stage2JobTable({
   pageSize?: number;
   jobs: Stage2Job[];
   creatingPlanIds: ReadonlySet<string>;
+  cancellingPlanIds?: ReadonlySet<string>;
   loading?: boolean;
   message?: string;
   onCreateJob: (
@@ -378,6 +384,7 @@ export function Stage2JobTable({
     candidateIds: string[],
     skill: Stage2SkillSelection,
   ) => void;
+  onCancelJobs?: (plan: SourcePlan) => void;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
 }) {
@@ -388,6 +395,7 @@ export function Stage2JobTable({
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [outputReview, setOutputReview] = useState<{
     plan: SourcePlan;
     jobs: Stage2Job[];
@@ -420,6 +428,18 @@ export function Stage2JobTable({
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+    const hasCancelableJob = jobs.some(job => (
+      job.can_cancel
+      && Boolean(job.cancel_available_until)
+      && Date.parse(job.cancel_available_until || "") > Date.now()
+    ));
+    if (!hasCancelableJob) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [jobs]);
 
   useEffect(() => {
     setSelectedByPlan(current => {
@@ -566,6 +586,19 @@ export function Stage2JobTable({
             const generated = completedCandidates.get(plan.id) || new Set<string>();
             const pickableAvailable = available.filter(reference => !generated.has(reference.id)).length;
             const runs = outputSummary(planJobs);
+            const cancellableJobs = allPlanJobs.filter(job => (
+              job.status === "queued"
+              && job.can_cancel
+              && Boolean(job.cancel_available_until)
+              && Date.parse(job.cancel_available_until || "") > nowMs
+            ));
+            const cancelDeadlineMs = cancellableJobs.length
+              ? Math.min(...cancellableJobs.map(job => Date.parse(job.cancel_available_until || "")))
+              : null;
+            const cancelSeconds = cancelDeadlineMs === null
+              ? 0
+              : Math.max(1, Math.ceil((cancelDeadlineMs - nowMs) / 1000));
+            const cancelling = cancellingPlanIds.has(plan.id);
             const busy = creatingPlanIds.has(plan.id)
               || allPlanJobs.some(job => job.status === "queued" || job.status === "running");
             const skill = selectedSkill(plan.id);
@@ -665,7 +698,19 @@ export function Stage2JobTable({
                   Manage / sync skill
                 </button>}
                 {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Rename the conflicting local skill before syncing.</small>}
-                <button
+                {cancelDeadlineMs !== null ? <>
+                  <button
+                    type="button"
+                    className="rrugc-stage2-cancel"
+                    disabled={cancelling}
+                    onClick={() => onCancelJobs(plan)}
+                  >
+                    {cancelling ? "Cancelling…" : "Cancel · " + cancelSeconds + "s"}
+                  </button>
+                  <small className="rrugc-stage2-cancel-note">
+                    Generation starts automatically when the 10-second cancel window ends.
+                  </small>
+                </> : <button
                   type="button"
                   className="rrugc-primary rrugc-stage2-generate"
                   disabled={busy || selected.length === 0 || !canGenerate}
@@ -677,7 +722,7 @@ export function Stage2JobTable({
                   })}
                 >
                   {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate selected"}
-                </button>
+                </button>}
                 </div>
               </td>
               <td className="rrugc-stage2-status">
@@ -687,6 +732,7 @@ export function Stage2JobTable({
                   <small>
                     {runs.completed} done
                     {runs.failed ? " · " + runs.failed + " failed" : ""}
+                    {runs.cancelled ? " · " + runs.cancelled + " cancelled" : ""}
                     {runs.active ? " · " + runs.active + " active" : ""}
                     {runs.remaining ? " · " + runs.remaining + " not run" : ""}
                   </small>
@@ -717,6 +763,16 @@ export function Stage2JobTable({
                         <small>Done</small>
                       </div>;
                     }
+                    if (run.status === "cancelled") {
+                      return <div
+                        className="rrugc-stage2-run is-cancelled"
+                        key={run.id}
+                        title="Cancelled during the 10-second grace period"
+                      >
+                        <span aria-hidden="true">×</span>
+                        <small>Cancelled</small>
+                      </div>;
+                    }
                     if (run.status === "failed") {
                       return <div
                         className="rrugc-stage2-run is-failed"
@@ -741,6 +797,7 @@ export function Stage2JobTable({
                   <span className="is-empty"><i />Not run</span>
                   <span className="is-active"><i />Running</span>
                   <span className="is-done"><i />Done</span>
+                  <span className="is-cancelled"><i />Cancelled</span>
                   <span className="is-failed"><i />Failed</span>
                 </div>
                 </div>
