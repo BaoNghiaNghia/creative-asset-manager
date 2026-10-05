@@ -8,7 +8,7 @@ import {
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
 import { RealisticReviewUgcPage } from "./RealisticReviewUgcPage";
-import { Stage2JobTable } from "./Stage2JobTable";
+import { Stage2JobTable, Stage2OutputReviewModal } from "./Stage2JobTable";
 import {
   ReferenceReviewModal,
   SourceImageReviewModal,
@@ -223,7 +223,38 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Generated output 3");
     expect(markup).toContain("1 output");
     expect(markup).toContain('class="rrugc-stage2-results"');
+    expect(markup).toContain("rrugc-stage2-result-open");
+    expect(markup).toContain("Preview generated output");
+    expect(markup).not.toContain('class="rrugc-stage2-result" href=');
     expect(markup).toContain(">Not run<");
+  });
+
+  it("renders generated outputs in a review-style modal without feedback tags", () => {
+    const plan = makePlan(3);
+    const jobs = [
+      makeStage2Job("job-output-1", "completed", {
+        output_web_url: "https://drive.example/output-1",
+      }),
+      makeStage2Job("job-output-2", "completed"),
+    ];
+    const markup = renderToStaticMarkup(
+      <Stage2OutputReviewModal
+        plan={plan}
+        jobs={jobs}
+        onClose={() => undefined}
+      />,
+    );
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain("GENERATED OUTPUT PREVIEW");
+    expect(markup).toContain("2 generated outputs");
+    expect(markup).toContain("rrugc-source-review-masonry");
+    expect(markup).toContain("rrugc-stage2-output-review-card");
+    expect(markup).toContain("Drive ↗");
+    expect(markup).not.toContain("rrugc-source-review-votes");
+    expect(markup).not.toContain("rrugc-source-review-vote is-good");
+    expect(markup).not.toContain("rrugc-source-review-vote is-bad");
+    expect(markup).not.toContain("rrugc-source-review-vote is-ai");
+    expect(markup).not.toContain(">AI<");
   });
 
   it("uses server overview totals instead of current-page rows for Stage 1 KPIs", () => {

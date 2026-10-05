@@ -112,6 +112,60 @@ function outputSummary(jobs: Stage2Job[]) {
   };
 }
 
+export function Stage2OutputReviewModal({
+  plan,
+  jobs,
+  onClose,
+}: {
+  plan: SourcePlan;
+  jobs: Stage2Job[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-stage2-output-review-title-" + plan.id}>
+      <header className="rrugc-source-review-header">
+        <div>
+          <small>GENERATED OUTPUT PREVIEW</small>
+          <h2 id={"rrugc-stage2-output-review-title-" + plan.id}>{plan.source_name}</h2>
+          <p>{jobs.length} generated {jobs.length === 1 ? "output" : "outputs"}</p>
+        </div>
+        <button type="button" className="rrugc-source-review-close" aria-label="Close generated output preview" onClick={onClose}>×</button>
+      </header>
+      <div className="rrugc-source-review-masonry rrugc-stage2-output-review-masonry">
+        {jobs.map((run, index) => (
+          <article key={run.id} className="rrugc-source-review-card rrugc-stage2-output-review-card">
+            <div className="rrugc-source-review-image">
+              <DeferredImage
+                src={stage2JobOutputUrl(run.id)}
+                alt={"Generated output " + (index + 1)}
+                rootMargin="320px 0px"
+              />
+              <span className="rrugc-source-review-index">{index + 1}</span>
+            </div>
+            <footer>
+              <span>{new Date(run.completed_at || run.created_at).toLocaleString()}</span>
+              {run.output_web_url && <a href={run.output_web_url} target="_blank" rel="noreferrer">Drive ↗</a>}
+            </footer>
+          </article>
+        ))}
+      </div>
+    </section>
+  </div>;
+}
+
 function skillKey(skill: Stage2Skill) {
   return skill.source + ":" + (skill.skill_id || skill.skill_name);
 }
@@ -202,6 +256,10 @@ export function Stage2JobTable({
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
+  const [outputReview, setOutputReview] = useState<{
+    plan: SourcePlan;
+    jobs: Stage2Job[];
+  } | null>(null);
   const recentJobs = useMemo(() => recentJobsByPlan(jobs), [jobs]);
   const stage2Plans = useMemo(
     () => plans.filter(plan => (
@@ -560,13 +618,16 @@ export function Stage2JobTable({
                   <small>{runs.completed ? "Open a thumbnail to view full size." : "Waiting for a completed generation."}</small>
                 </div>
                 {runs.completed ? <div className="rrugc-stage2-result-grid" aria-label={"Generated results for " + plan.source_name}>
-                  {planJobs.map((run, index) => run.status === "completed" ? <a
+                  {planJobs.map((run, index) => run.status === "completed" ? <button
                     key={run.id}
-                    className="rrugc-stage2-result"
-                    href={stage2JobOutputUrl(run.id)}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={"Result " + (index + 1) + " · " + new Date(run.created_at).toLocaleString()}
+                    type="button"
+                    className="rrugc-stage2-result rrugc-stage2-result-open"
+                    title={"Preview result " + (index + 1) + " · " + new Date(run.created_at).toLocaleString()}
+                    aria-label={"Preview generated output " + (index + 1) + " for " + plan.source_name}
+                    onClick={() => setOutputReview({
+                      plan,
+                      jobs: planJobs.filter(job => job.status === "completed"),
+                    })}
                   >
                     <DeferredImage
                       src={stage2JobOutputThumbnailUrl(run.id)}
@@ -574,7 +635,7 @@ export function Stage2JobTable({
                       rootMargin="180px"
                     />
                     <span>{index + 1}</span>
-                  </a> : null)}
+                  </button> : null)}
                 </div> : <div className="rrugc-stage2-results-empty">
                   <strong>No results yet</strong>
                   <small>Completed generations will appear here.</small>
@@ -609,6 +670,11 @@ export function Stage2JobTable({
         </select>
       </label>
     </div>
+    {outputReview && <Stage2OutputReviewModal
+      plan={outputReview.plan}
+      jobs={outputReview.jobs}
+      onClose={() => setOutputReview(null)}
+    />}
     <SkillManagerModal
       open={skillManagerOpen}
       onClose={() => setSkillManagerOpen(false)}
