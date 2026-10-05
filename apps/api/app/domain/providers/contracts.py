@@ -77,6 +77,7 @@ class StoreAssetInput:
     content_type: str | None = None
     size_bytes: int | None = None
     filename: str | None = None
+    destination_folder_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

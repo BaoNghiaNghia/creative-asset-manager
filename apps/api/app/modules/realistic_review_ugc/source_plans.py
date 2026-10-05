@@ -117,6 +117,8 @@ def _source_revision(node: Any) -> str:
 
 
 def _is_source_image(node: Any) -> bool:
+    if str(getattr(node, "name", "") or "").casefold().startswith("output_"):
+        return False
     return (
         str(getattr(node, "kind", "") or "") == "image"
         or str(getattr(node, "mime_type", "") or "").casefold().startswith("image/")

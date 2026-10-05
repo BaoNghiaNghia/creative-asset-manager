@@ -454,10 +454,10 @@ export function Stage2JobTable({
       <div>
         <small>EMBROIDERY GROUP → PINTEREST REFS → SKILL</small>
         <h2>Embroidery groups → image generation</h2>
-        <p>Stage 1 grouping is preserved. Pick up to 10 Drive-ready references, confirm the skill, then track the latest 10 generation runs per embroidery group.</p>
+        <p>Stage 1 grouping is preserved. Pick up to 10 Drive-ready references, confirm the skill, then generate one output per selected reference.</p>
       </div>
       <div className="rrugc-stage2-registry-actions">
-        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} refs / job</span>
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} outputs / batch</span>
         <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
           <i aria-hidden="true" />
           {catalog.openai_status === "connected"
@@ -620,7 +620,7 @@ export function Stage2JobTable({
                     skill_version: version,
                   })}
                 >
-                  {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate next"}
+                  {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate selected"}
                 </button>
                 </div>
               </td>

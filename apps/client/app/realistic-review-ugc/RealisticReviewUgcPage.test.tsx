@@ -302,7 +302,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain("EMBROIDERY GROUP");
     expect(markup).toContain("Embroidery groups → image generation");
-    expect(markup).toContain("Max 10 refs / job");
+    expect(markup).toContain("Max 10 outputs / batch");
     expect(markup).toContain("Run status · latest 10");
     expect(markup).toContain(">Output<");
     expect(markup).toContain("Skill &amp; generate");
@@ -320,7 +320,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">133<");
     expect(markup).toContain(">302<");
     expect(markup).toContain(">7<");
-    expect(markup).toContain("Generate next");
+    expect(markup).toContain("Generate selected");
     expect(markup).toContain("Manage skills");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).toContain('aria-label="Stage 2 rows per page"');

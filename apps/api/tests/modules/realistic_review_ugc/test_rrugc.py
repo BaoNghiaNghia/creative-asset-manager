@@ -1051,6 +1051,7 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypa
             tenant_id="tenant-a",
             root_folder_id="root",
             source_file_id="source-stage2-alt",
+            source_parent_folder_id="hat-folder-alt",
             source_relative_path="Hats/design-alt.png",
             source_name="design-alt.png",
             source_mime_type="image/png",
@@ -1106,6 +1107,7 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypa
         assert row.selected_source_snapshot_json == {
             "source_plan_id": alternate_plan.id,
             "remote_file_id": "source-stage2-alt",
+            "remote_folder_id": "hat-folder-alt",
             "source_name": "design-alt.png",
             "content_type": "image/png",
             "size_bytes": 2048,

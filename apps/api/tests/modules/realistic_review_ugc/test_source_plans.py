@@ -77,6 +77,8 @@ class FakeDrive:
             ],
             "folder-a": [
                 node("image-a", "dog-cap.jpg", "image", parent_id="folder-a"),
+                node("generated-a", "output_job-a.png", "image", parent_id="folder-a", mime_type="image/png"),
+                node("generated-b", "OUTPUT_job-b.jpg", "image", parent_id="folder-a"),
                 node("nested", "Weekend", "folder", parent_id="folder-a"),
             ],
             "nested": [

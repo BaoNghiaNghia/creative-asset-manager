@@ -133,12 +133,36 @@ export function RealisticReviewUgcPage() {
     setStage2Message("");
     setError("");
     try {
-      const result = await createStage2Job(plan.id, candidateIds, skill);
-      setStage2Message(
-        result.created
-          ? "Stage 2 job queued with " + candidateIds.length + " Pinterest refs. The master will appear when the skill finishes."
-          : "An identical Stage 2 job already exists; showing its current status.",
+      const results = await Promise.allSettled(
+        candidateIds.map(candidateId => createStage2Job(plan.id, [candidateId], skill)),
       );
+      const queued = results.filter(
+        (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof createStage2Job>>> =>
+          result.status === "fulfilled",
+      );
+      const failed = results.filter(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (queued.length === 0 && failed.length > 0) {
+        throw failed[0].reason;
+      }
+      const createdCount = queued.filter(result => result.value.created).length;
+      const existingCount = queued.length - createdCount;
+      setStage2Message(
+        createdCount + " output generation"
+        + (createdCount === 1 ? "" : "s")
+        + " queued from " + candidateIds.length + " selected Pinterest ref"
+        + (candidateIds.length === 1 ? "" : "s")
+        + (existingCount ? "; " + existingCount + " already existed" : "")
+        + ".",
+      );
+      if (failed.length > 0) {
+        setError(
+          failed.length + " selected reference"
+          + (failed.length === 1 ? "" : "s")
+          + " could not be queued.",
+        );
+      }
       await Promise.all([
         refreshStage2Jobs(),
         refreshSourcePlans(),

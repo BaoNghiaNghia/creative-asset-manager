@@ -233,6 +233,7 @@ class RrugcStage2Service:
         selected_source_snapshot = {
             "source_plan_id": selected_source.id,
             "remote_file_id": selected_source.source_file_id,
+            "remote_folder_id": selected_source.source_parent_folder_id,
             "source_name": selected_source.source_name,
             "content_type": selected_source.source_mime_type,
             "size_bytes": selected_source.source_size_bytes,
@@ -542,6 +543,11 @@ class RrugcStage2GenerateJobHandler:
                     else None
                 )
                 source_size_bytes = selected_source_snapshot.get("size_bytes")
+                source_parent_folder_id = str(
+                    selected_source_snapshot.get("remote_folder_id")
+                    or selected_source_plan.source_parent_folder_id
+                    or ""
+                )
                 source_input_plan_id = selected_source_plan_id
                 source_input_name = str(
                     selected_source_snapshot.get("source_name") or ""
@@ -551,6 +557,7 @@ class RrugcStage2GenerateJobHandler:
                 source_file_id = plan.source_file_id
                 source_mime_type = plan.source_mime_type
                 source_size_bytes = plan.source_size_bytes
+                source_parent_folder_id = str(plan.source_parent_folder_id or "")
                 source_input_plan_id = plan.id
                 source_input_name = plan.source_name
             references = list(row.selected_reference_snapshot_json or [])
@@ -668,7 +675,8 @@ class RrugcStage2GenerateJobHandler:
                 asset_id=f"rrugc-stage2:{job_id}",
                 content_type=result.mime_type,
                 size_bytes=len(result.image_bytes),
-                filename=f"rrugc-stage2-{job_id}{_output_extension(result.mime_type)}",
+                filename=f"output_{job_id}{_output_extension(result.mime_type)}",
+                destination_folder_id=source_parent_folder_id or None,
             )
         )
         if not stored.remote_file_id:

@@ -318,11 +318,18 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
             if existing is not None:
                 return self._stored(input, existing)
 
+            destination_folder_id = (
+                str(input.destination_folder_id or "").strip()
+                or self._root_folder_id
+            )
             suffix = PurePath(input.filename or "").suffix.lower()
-            filename = f"{input.content_hash}{suffix}" if suffix else input.content_hash
+            if input.destination_folder_id and input.filename:
+                filename = PurePath(input.filename).name
+            else:
+                filename = f"{input.content_hash}{suffix}" if suffix else input.content_hash
             metadata = {
                 "name": filename,
-                "parents": [self._root_folder_id],
+                "parents": [destination_folder_id],
                 "appProperties": {
                     "cam_tenant_id": input.tenant_id,
                     "cam_asset_id": input.asset_id,
@@ -550,8 +557,12 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
     async def _find_existing(
         self, client: httpx.AsyncClient, input: StoreAssetInput
     ) -> dict | None:
+        destination_folder_id = (
+            str(input.destination_folder_id or "").strip()
+            or self._root_folder_id
+        )
         query = (
-            f"'{_escape_query(self._root_folder_id)}' in parents and trashed = false and "
+            f"'{_escape_query(destination_folder_id)}' in parents and trashed = false and "
             f"appProperties has {{ key='cam_tenant_id' and value='{_escape_query(input.tenant_id)}' }} and "
             f"appProperties has {{ key='cam_asset_id' and value='{_escape_query(input.asset_id)}' }}"
         )

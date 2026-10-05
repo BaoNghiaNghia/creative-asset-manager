@@ -110,6 +110,52 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(uploaded_body, b"abc")
         self.assertEqual(upload_count, 1)
 
+    async def test_explicit_destination_folder_preserves_requested_filename(self) -> None:
+        uploaded_metadata = None
+
+        async def handler(request):
+            nonlocal uploaded_metadata
+            if request.method == "GET":
+                self.assertIn("'hat-folder-1' in parents", request.url.params["q"])
+                return httpx.Response(200, json={"files": []})
+            if request.method == "POST":
+                uploaded_metadata = __import__("json").loads((await request.aread()).decode())
+                return httpx.Response(
+                    200,
+                    headers={"location": "https://www.googleapis.com/upload/session-output"},
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "id": "output-remote-1",
+                    "parents": ["hat-folder-1"],
+                    "webViewLink": "https://drive.google.com/file/output-remote-1",
+                    "size": "3",
+                },
+            )
+
+        provider = GoogleDriveAssetStorage(
+            "storage-token",
+            root_folder_id="managed-root",
+            transport=httpx.MockTransport(handler),
+        )
+        result = await provider.store_asset(
+            StoreAssetInput(
+                tenant_id="tenant-a",
+                asset_id="stage2-job-1",
+                content_hash="d" * 64,
+                body=body(b"png"),
+                content_type="image/png",
+                size_bytes=3,
+                filename="output_stage2-job-1.png",
+                destination_folder_id="hat-folder-1",
+            )
+        )
+
+        self.assertEqual(uploaded_metadata["parents"], ["hat-folder-1"])
+        self.assertEqual(uploaded_metadata["name"], "output_stage2-job-1.png")
+        self.assertEqual(result.remote_folder_id, "hat-folder-1")
+
     async def test_retryable_google_failure_is_classified(self) -> None:
         provider = GoogleDriveAssetStorage(
             "storage-token",
