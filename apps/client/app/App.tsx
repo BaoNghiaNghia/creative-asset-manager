@@ -8,7 +8,7 @@ import { VideoSearchPlayer } from "./components/VideoSearchPlayer";
 import type { VideoSearchItem } from "./hooks/useVideoSearch";
 import { useVideoSearch } from "./hooks/useVideoSearch";
 import { useVisualSearch } from "./hooks/useVisualSearch";
-import { AssetContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
+import { AssetContextMenu, ExplorerPaneContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { PublicReviewManagementDialog } from "./public-review-management/PublicReviewManagementDialog";
 import { activeShareFolderIds, ManagementApiError, managementApi, resolveShareLinkForCopy } from "./public-review-management/api";
 import { AssetDetailsPanel } from "./components/AssetDetailsPanel";
@@ -300,6 +300,8 @@ export default function App() {
   const [assetViewMode, setAssetViewMode] = useState<"grid" | "list">("grid");
   const explorer = useDriveExplorer(true);
   const canManageReviewLinks = explorer.applicationPermissions.includes("public_review.manage");
+  const canCreateFolder = explorer.provider === "google-drive"
+    && explorer.applicationPermissions.includes("assets.manage");
   const canSearchAllResources = explorer.pureViewer === null
     ? null
     : explorer.applicationPermissions.includes("search.read");
@@ -340,6 +342,7 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ message: string; run: () => void } | null>(null);
   const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextState | null>(null);
+  const [paneContextMenu, setPaneContextMenu] = useState<AssetContextMenuPosition | null>(null);
   const [reviewFolder, setReviewFolder] = useState<Asset | null>(null);
   const [reviewLinkShareIds, setReviewLinkShareIds] = useState<Map<string, string>>(() => new Map());
   const [generationItem, setGenerationItem] = useState<Asset | null>(null);
@@ -822,6 +825,25 @@ export default function App() {
     });
   }
 
+  function createFolderFromPane() {
+    const requested = window.prompt("Enter folder name", "New folder");
+    if (requested === null) return;
+    const name = requested.trim();
+    if (!name) {
+      setShortcutNotice({ tone: "error", message: "Folder name cannot be empty." });
+      return;
+    }
+    void explorer.createFolder(name)
+      .then(() => setShortcutNotice({
+        tone: "success",
+        message: "Created folder “" + name + "”.",
+      }))
+      .catch(reason => setShortcutNotice({
+        tone: "error",
+        message: reason instanceof Error ? reason.message : "Could not create this folder.",
+      }));
+  }
+
   function renameContextItem(item: Asset) {
     const requested = window.prompt(
       item.kind === "folder" ? "Enter a new folder name" : "Enter a new file name",
@@ -1225,7 +1247,17 @@ export default function App() {
             </div>
           </div>
 
-          <div className={visualSearchOpen ? "visual-search-workbench" : undefined}>
+          <div
+            className={[visualSearchOpen ? "visual-search-workbench" : "", "explorer-folder-pane"].filter(Boolean).join(" ")}
+            onContextMenu={event => {
+              if (!canCreateFolder || hasSearchQuery || visualSearchOpen || event.defaultPrevented) return;
+              const target = event.target as HTMLElement;
+              if (target.closest("[data-asset-id], button, a, input, textarea, select, label, [role='button'], [role='menu']")) return;
+              event.preventDefault();
+              setAssetContextMenu(null);
+              setPaneContextMenu({ x: event.clientX, y: event.clientY });
+            }}
+          >
           {visualSearchOpen && <VisualSearchPanel
             canSearchAllResources={canSearchAllResources === true}
             hasCurrentSource={Boolean(explorer.activeExternalSourceId)}
@@ -1269,7 +1301,11 @@ export default function App() {
             onPreview={setPreviewItem}
             onDetails={openDetails}
             onFocus={item => detailsOpen && openDetails(item)}
-            onContextMenu={(item, event) => { event.preventDefault(); setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } }); }}
+            onContextMenu={(item, event) => {
+              event.preventDefault();
+              setPaneContextMenu(null);
+              setAssetContextMenu({ item, position: { x: event.clientX, y: event.clientY } });
+            }}
             onFindSimilar={item => { setVisualSearchOpen(true); visualSearch.chooseAsset(item); }}
             reviewLinkShareIds={canManageReviewLinks ? reviewLinkShareIds : undefined}
             activeExternalSourceId={explorer.activeExternalSourceId}
@@ -1320,6 +1356,11 @@ export default function App() {
         </>}
     </section>
 
+    {paneContextMenu && <ExplorerPaneContextMenu
+      position={paneContextMenu}
+      onCreateFolder={createFolderFromPane}
+      onClose={() => setPaneContextMenu(null)}
+    />}
     {assetContextMenu && <AssetContextMenu
       item={assetContextMenu.item}
       position={assetContextMenu.position}

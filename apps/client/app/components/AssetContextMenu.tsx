@@ -23,7 +23,7 @@ type Props = {
 
 const VIEWPORT_GAP = 8;
 
-type IconName = "open" | "preview" | "generate" | "download" | "copy" | "rename" | "move" | "info" | "trash";
+type IconName = "open" | "preview" | "generate" | "download" | "copy" | "rename" | "move" | "info" | "trash" | "folderAdd";
 
 function MenuIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -36,6 +36,7 @@ function MenuIcon({ name }: { name: IconName }) {
     move: <><path d="M3 7h7l2 2h9v10H3z" /><path d="m13 13 2-2 2 2m-2-2v6" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></>,
     trash: <><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6" /></>,
+    folderAdd: <><path d="M3 7h7l2 2h9v10H3z" /><path d="M12 14h6m-3-3v6" /></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
@@ -145,6 +146,77 @@ export function AssetContextMenu({
     <div className="asset-context-separator" role="separator" />
     <button type="button" role="menuitem" className="danger" onClick={() => run(onDelete)}>
       <MenuIcon name="trash" /><b>Move to trash</b><kbd>Delete</kbd>
+    </button>
+  </div>;
+}
+
+type ExplorerPaneContextMenuProps = {
+  position: AssetContextMenuPosition;
+  onCreateFolder: () => void;
+  onClose: () => void;
+};
+
+export function ExplorerPaneContextMenu({
+  position,
+  onCreateFolder,
+  onClose,
+}: ExplorerPaneContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState(position);
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    setPlacement(clampContextMenuPosition(
+      position,
+      menu.offsetWidth,
+      menu.offsetHeight,
+      window.innerWidth,
+      window.innerHeight,
+    ));
+  }, [position]);
+
+  useEffect(() => {
+    function closeOnPointer(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) onClose();
+    }
+    function closeOnKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("pointerdown", closeOnPointer);
+    window.addEventListener("keydown", closeOnKey);
+    window.addEventListener("blur", onClose);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointer);
+      window.removeEventListener("keydown", closeOnKey);
+      window.removeEventListener("blur", onClose);
+    };
+  }, [onClose]);
+
+  const style = {
+    "--context-menu-left": placement.x + "px",
+    "--context-menu-top": placement.y + "px",
+  } as CSSProperties;
+
+  return <div
+    ref={menuRef}
+    className="asset-context-menu explorer-pane-context-menu"
+    style={style}
+    role="menu"
+    aria-label="Folder actions"
+    onContextMenu={event => event.preventDefault()}
+  >
+    <button
+      type="button"
+      role="menuitem"
+      autoFocus
+      onClick={() => {
+        onClose();
+        onCreateFolder();
+      }}
+    >
+      <MenuIcon name="folderAdd" />
+      <b>Create folder</b>
     </button>
   </div>;
 }

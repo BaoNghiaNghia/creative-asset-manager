@@ -1176,7 +1176,9 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .panel-loading{display:flex;min-height:260px;align-items:center;justify-content:center}.panel-loading-spinner{display:block;width:30px;height:30px;border:3px solid #dbe5f5;border-top-color:#3265df;border-radius:50%;animation:panel-loading-spin .8s linear infinite}@keyframes panel-loading-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.panel-loading-spinner{animation:none}}
 
 
-/* Asset card context menu */
+.explorer-folder-pane{min-height:max(240px,calc(100dvh - 180px))}
+
+/* Asset card and explorer pane context menus */
 .asset-context-menu {
   position: fixed;
   z-index: 1200;

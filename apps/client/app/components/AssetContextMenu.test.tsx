@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Asset } from "../types";
-import { AssetContextMenu, clampContextMenuPosition } from "./AssetContextMenu";
+import { AssetContextMenu, ExplorerPaneContextMenu, clampContextMenuPosition } from "./AssetContextMenu";
 
 const item: Asset = {
   provider: "google-drive",
@@ -19,6 +19,17 @@ describe("AssetContextMenu", () => {
       .toEqual({ x: 692, y: 432 });
     expect(clampContextMenuPosition({ x: -20, y: -10 }, 300, 360, 1000, 800))
       .toEqual({ x: 8, y: 8 });
+  });
+
+  it("renders the explorer pane create-folder action", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(<ExplorerPaneContextMenu
+      position={{ x: 10, y: 10 }}
+      onCreateFolder={noop}
+      onClose={noop}
+    />);
+    expect(markup).toContain("Create folder");
+    expect(markup).toContain('aria-label="Folder actions"');
   });
 
   it("renders the expected file actions", () => {
