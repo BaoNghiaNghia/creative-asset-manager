@@ -183,7 +183,7 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
     const cards = markup.match(/class="rrugc-source-ref-card/g) || [];
-    expect(cards.length).toBeLessThanOrEqual(16);
+    expect(cards.length).toBeLessThanOrEqual(8);
     expect(markup).toContain("50 reference images for front.png");
   });
 

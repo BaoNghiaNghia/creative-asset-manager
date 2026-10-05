@@ -319,9 +319,10 @@ export function ReferenceReviewModal({
   </div>;
 }
 
-const REFERENCE_CARD_PITCH = 82;
-const REFERENCE_WINDOW_OVERSCAN = 4;
-const REFERENCE_WINDOW_MIN = 16;
+const REFERENCE_CARD_PITCH = 70;
+const REFERENCE_WINDOW_OVERSCAN = 1;
+const REFERENCE_WINDOW_MIN = 6;
+const REFERENCE_WINDOW_MAX = 8;
 
 function ReferenceSlider({
   plan,
@@ -344,9 +345,12 @@ function ReferenceSlider({
   function updateWindow() {
     const track = trackRef.current;
     if (!track) return;
-    const visibleCount = Math.max(
-      REFERENCE_WINDOW_MIN,
-      Math.ceil(track.clientWidth / REFERENCE_CARD_PITCH) + REFERENCE_WINDOW_OVERSCAN * 2,
+    const visibleCount = Math.min(
+      REFERENCE_WINDOW_MAX,
+      Math.max(
+        REFERENCE_WINDOW_MIN,
+        Math.ceil(track.clientWidth / REFERENCE_CARD_PITCH) + REFERENCE_WINDOW_OVERSCAN * 2,
+      ),
     );
     const firstVisible = Math.max(0, Math.floor(track.scrollLeft / REFERENCE_CARD_PITCH));
     const start = Math.max(0, firstVisible - REFERENCE_WINDOW_OVERSCAN);
@@ -368,7 +372,7 @@ function ReferenceSlider({
   }, [references.length]);
 
   function move(direction: -1 | 1) {
-    trackRef.current?.scrollBy({ left: direction * 360, behavior: "smooth" });
+    trackRef.current?.scrollBy({ left: direction * 280, behavior: "smooth" });
   }
 
   if (references.length === 0) {
@@ -609,7 +613,7 @@ export function SourcePlanTable({
             const scoutStatus = scoutStatusPresentation(plan);
             return <tr key={plan.id}>
               <td className="rrugc-source-cell"><div className="rrugc-source-file rrugc-source-file-grouped">
-                <SourceImageGroup plan={plan} priority={rowIndex < 6} />
+                <SourceImageGroup plan={plan} priority={rowIndex < 4} />
                 <span>
                   <strong title={plan.source_name}>{plan.source_name}</strong>
                   <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"}{plan.embroidery_group_size > 1 ? " · same embroidery" : ""}</small>

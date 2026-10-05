@@ -73,7 +73,7 @@ export function stage2JobsRenderFingerprint(jobs: Stage2Job[]): string {
 export function RealisticReviewUgcPage() {
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
-  const [sourcePageSize, setSourcePageSize] = useState(20);
+  const [sourcePageSize, setSourcePageSize] = useState(10);
   const [sourceQuery, setSourceQuery] = useState("");
   const [debouncedSourceQuery, setDebouncedSourceQuery] = useState("");
   const [sourceSortBy, setSourceSortBy] = useState<SourcePlanSortBy>("source");
