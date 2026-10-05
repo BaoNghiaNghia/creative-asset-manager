@@ -13,6 +13,7 @@ import {
   type SourcePlanSortDirection,
 } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
+import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection } from "./types";
@@ -36,9 +37,10 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   },
 };
 
-type RrugcStageTab = "stage1" | "stage2" | "settings";
+type RrugcStageTab = "stage0" | "stage1" | "stage2" | "settings";
 
 const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
+  { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
   { id: "stage1", label: "Stage 1", description: "Pinterest References", marker: "1" },
   { id: "stage2", label: "Stage 2", description: "Image Generation", marker: "2" },
   { id: "settings", label: "Settings", description: "Auto Scout", marker: "⚙" },
@@ -88,8 +90,8 @@ export function RealisticReviewUgcPage() {
   const [cancellingStage2PlanIds, setCancellingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
   const [error, setError] = useState("");
-  const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage1");
-  const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
+  const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
+  const groupsStageActive = activeStage === "stage0" || activeStage === "stage1" || activeStage === "stage2";
   const visibleStage2SourcePlanIds = useMemo(
     () => Array.from(new Set(
       sourcePage.items.flatMap(plan => [
@@ -411,8 +413,8 @@ export function RealisticReviewUgcPage() {
       <WorkspacePageHeader
         className="rrugc-header"
         route="realistic-review-ugc"
-        description="Automatically turn new Drive embroidery images into context-matched Pinterest reference sets."
-        titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Source auto scan</span>}
+        description="Run two Pinterest discovery lanes in parallel: quote keyword scouting and context-matched visual references."
+        titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}
         actions={<WorkspaceBackToAssets />}
       />
       <div className="rrugc-stage-tabs-shell">
@@ -443,6 +445,35 @@ export function RealisticReviewUgcPage() {
 
       <div className="rrugc-page-body rrugc-source-first-body">
         {error && <div className="rrugc-error" role="alert">{error}</div>}
+
+        <section
+          id="rrugc-panel-stage0"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-stage0"
+          tabIndex={activeStage === "stage0" ? 0 : -1}
+          hidden={activeStage !== "stage0"}
+        >
+          <KeywordAnalysisTable
+            plans={sourcePage.items}
+            total={sourcePage.total}
+            overview={sourcePage.overview}
+            page={sourcePageNumber}
+            pageSize={sourcePageSize}
+            query={sourceQuery}
+            loading={sourcePageLoading}
+            onPageChange={value => {
+              setSourcePageLoading(true);
+              setSourcePageNumber(value);
+            }}
+            onPageSizeChange={value => {
+              setSourcePageLoading(true);
+              setSourcePageNumber(1);
+              setSourcePageSize(value);
+            }}
+            onQueryChange={setSourceQuery}
+          />
+        </section>
 
         <section
           id="rrugc-panel-stage1"

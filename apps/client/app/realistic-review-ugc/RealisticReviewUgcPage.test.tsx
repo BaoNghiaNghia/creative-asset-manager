@@ -7,6 +7,7 @@ import {
   scoutClientIsCurrent,
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
+import { KeywordAnalysisTable, stage0DetectedQuote, stage0KeywordPlan } from "./KeywordAnalysisTable";
 import {
   RealisticReviewUgcPage,
   sourcePlanPageRenderFingerprint,
@@ -484,21 +485,25 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders Stage 1, Stage 2, and Settings as accessible AI Operations-style tabs", () => {
+  it("renders Stage 0, Stage 1, Stage 2, and Settings as accessible AI Operations-style tabs", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
     expect(markup).toContain('aria-label="Realistic Review UGC sections"');
+    expect(markup).toContain('id="rrugc-tab-stage0"');
     expect(markup).toContain('id="rrugc-tab-stage1"');
     expect(markup).toContain('id="rrugc-tab-stage2"');
     expect(markup).toContain('id="rrugc-tab-settings"');
+    expect(markup).toContain("Analysis Keyword");
     expect(markup).toContain("Pinterest References");
     expect(markup).toContain("Image Generation");
     expect(markup).toContain("Settings");
     expect(markup).toContain("Auto Scout");
     expect(markup).toContain('aria-selected="true"');
+    expect(markup).toContain('id="rrugc-panel-stage0"');
     expect(markup).toContain('id="rrugc-panel-stage1"');
     expect(markup).toContain('id="rrugc-panel-stage2"');
     expect(markup).toContain('id="rrugc-panel-settings"');
+    expect(markup.indexOf('id="rrugc-tab-stage0"')).toBeLessThan(markup.indexOf('id="rrugc-tab-stage1"'));
     expect(markup.indexOf('id="rrugc-tab-settings"')).toBeGreaterThan(markup.indexOf('id="rrugc-tab-stage2"'));
 
     const stage1Start = markup.indexOf('id="rrugc-panel-stage1"');
@@ -509,9 +514,49 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("hidden");
   });
 
+  it("builds a quote-focused Stage 0 keyword plan from embroidery text", () => {
+    const plan = makePlan();
+    expect(stage0DetectedQuote(plan)).toBe("Bad Day To Be A Hotdog");
+    expect(stage0KeywordPlan(plan)).toEqual([
+      "Bad Day To Be A Hotdog",
+      "Bad Day To Be A Hotdog embroidered hat",
+      "Bad Day To Be A Hotdog cap",
+      "Bad Day To Be A Hotdog trucker hat",
+    ]);
+
+    const markup = renderToStaticMarkup(
+      <KeywordAnalysisTable
+        plans={[plan]}
+        total={1}
+        overview={{
+          embroidery_groups: 1,
+          source_images: 3,
+          working_groups: 1,
+          refs_loaded: 0,
+          stage2_groups: 0,
+          stage2_source_images: 0,
+          stage2_drive_ready_refs: 0,
+          stage2_active_jobs: 0,
+        }}
+        page={1}
+        pageSize={10}
+        query=""
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("Stage 0 · Analysis Keyword");
+    expect(markup).toContain("Quote Scout · parallel lane");
+    expect(markup).toContain("Bad Day To Be A Hotdog embroidered hat");
+    expect(markup).toContain("Ready for Quote Scout");
+    expect(markup).toContain("4 search queries");
+  });
+
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
-    expect(markup).toContain("Source auto scan");
+    expect(markup).toContain("Dual scout pipeline");
     expect(markup).toContain("Embroidery source → Pinterest refs");
     expect(markup).toContain("Auto scan on");
     expect(markup).toContain("1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX");
