@@ -10,6 +10,7 @@ import {
 import {
   RealisticReviewUgcPage,
   sourcePlanPageRenderFingerprint,
+  stage2JobsRenderFingerprint,
 } from "./RealisticReviewUgcPage";
 import { Stage2JobTable, Stage2OutputReviewModal } from "./Stage2JobTable";
 import {
@@ -215,6 +216,47 @@ describe("Realistic Review UGC source-first workspace", () => {
       .toBe(sourcePlanPageRenderFingerprint(base));
     expect(sourcePlanPageRenderFingerprint(realChange))
       .not.toBe(sourcePlanPageRenderFingerprint(base));
+  });
+
+  it("windows large Stage 2 reference pickers instead of mounting all 40 refs", () => {
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[makePlan(50)]}
+        overview={GLOBAL_OVERVIEW}
+        jobs={[]}
+        creatingPlanIds={new Set()}
+        loading={false}
+        total={1}
+        page={1}
+        pageSize={10}
+        message=""
+        onCreateJob={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+      />,
+    );
+    const cards = markup.match(/class="rrugc-stage2-ref /g) || [];
+    expect(cards.length).toBeLessThanOrEqual(14);
+    expect(markup).toContain("40 Drive-ready references for front.png");
+  });
+
+  it("ignores Stage 2 job heartbeat timestamps but keeps real job changes", () => {
+    const base = [makeStage2Job("job-fingerprint", "running")];
+    const heartbeatOnly = [{
+      ...base[0],
+      updated_at: "2026-10-05T05:30:00Z",
+    }];
+    const statusChange = [{
+      ...heartbeatOnly[0],
+      status: "completed" as const,
+      completed_at: "2026-10-05T05:31:00Z",
+      output_remote_file_id: "remote-completed",
+    }];
+
+    expect(stage2JobsRenderFingerprint(heartbeatOnly))
+      .toBe(stage2JobsRenderFingerprint(base));
+    expect(stage2JobsRenderFingerprint(statusChange))
+      .not.toBe(stage2JobsRenderFingerprint(base));
   });
 
   it("renders Stage 2 as a max-10 Pinterest ref skill job table", () => {

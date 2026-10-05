@@ -52,12 +52,22 @@ export function sourcePlanPageRenderFingerprint(page: SourcePlanPage): string {
     items: page.items.map(plan => ({
       ...plan,
       // Scheduler timestamps can change without affecting anything visible in
-      // Stage 1. Excluding them prevents a full table reconciliation every poll.
+      // the Stage 1 / Stage 2 tables. Excluding them prevents a full table
+      // reconciliation every poll.
       updated_at: undefined,
       scan_next_at: undefined,
       scan_last_completed_at: undefined,
     })),
   });
+}
+
+export function stage2JobsRenderFingerprint(jobs: Stage2Job[]): string {
+  return JSON.stringify(jobs.map(job => ({
+    ...job,
+    // updated_at may advance while a worker heartbeat/progress record is
+    // persisted without changing anything rendered in Stage 2.
+    updated_at: undefined,
+  })));
 }
 
 export function RealisticReviewUgcPage() {
@@ -121,11 +131,22 @@ export function RealisticReviewUgcPage() {
       },
       signal,
     );
-    setStage2Page(result);
+    const nextFingerprint = sourcePlanPageRenderFingerprint(result);
+    setStage2Page(current => (
+      sourcePlanPageRenderFingerprint(current) === nextFingerprint
+        ? current
+        : result
+    ));
   }
 
   async function refreshStage2Jobs(signal?: AbortSignal) {
-    setStage2Jobs(await listStage2Jobs(undefined, signal));
+    const result = await listStage2Jobs(undefined, signal);
+    const nextFingerprint = stage2JobsRenderFingerprint(result);
+    setStage2Jobs(current => (
+      stage2JobsRenderFingerprint(current) === nextFingerprint
+        ? current
+        : result
+    ));
   }
 
   async function queueStage2Job(
@@ -299,6 +320,7 @@ export function RealisticReviewUgcPage() {
   useEffect(() => {
     if (activeStage !== "stage2") return;
     const controller = new AbortController();
+    let refreshInFlight = true;
     setStage2PageLoading(true);
     void refreshStage2Plans(controller.signal)
       .catch(reason => {
@@ -307,10 +329,17 @@ export function RealisticReviewUgcPage() {
         }
       })
       .finally(() => {
+        refreshInFlight = false;
         if (!controller.signal.aborted) setStage2PageLoading(false);
       });
     const timer = window.setInterval(() => {
-      if (!document.hidden) void refreshStage2Plans().catch(() => undefined);
+      if (document.hidden || refreshInFlight) return;
+      refreshInFlight = true;
+      void refreshStage2Plans()
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
     }, 5000);
     return () => {
       controller.abort();
@@ -321,13 +350,24 @@ export function RealisticReviewUgcPage() {
   useEffect(() => {
     if (activeStage !== "stage2") return;
     const controller = new AbortController();
-    void refreshStage2Jobs(controller.signal).catch(reason => {
-      if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 jobs.");
-      }
-    });
+    let refreshInFlight = true;
+    void refreshStage2Jobs(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 jobs.");
+        }
+      })
+      .finally(() => {
+        refreshInFlight = false;
+      });
     const timer = window.setInterval(() => {
-      if (!document.hidden) void refreshStage2Jobs().catch(() => undefined);
+      if (document.hidden || refreshInFlight) return;
+      refreshInFlight = true;
+      void refreshStage2Jobs()
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
     }, 5000);
     return () => {
       controller.abort();

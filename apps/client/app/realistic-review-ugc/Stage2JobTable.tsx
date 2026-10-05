@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listStage2Skills,
   stage2JobOutputThumbnailUrl,
@@ -110,6 +110,106 @@ function outputSummary(jobs: Stage2Job[]) {
     active,
     remaining: Math.max(0, MAX_OUTPUT_SLOTS - jobs.length),
   };
+}
+
+const STAGE2_REF_CARD_PITCH = 70;
+const STAGE2_REF_WINDOW_OVERSCAN = 3;
+const STAGE2_REF_WINDOW_MIN = 14;
+const STAGE2_REF_RENDER_LIMIT = 40;
+
+function Stage2ReferencePicker({
+  planId,
+  planName,
+  references,
+  selected,
+  busy,
+  onToggle,
+}: {
+  planId: string;
+  planName: string;
+  references: SourcePlanReferencePreview[];
+  selected: string[];
+  busy: boolean;
+  onToggle: (planId: string, referenceId: string) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [windowRange, setWindowRange] = useState({ start: 0, end: STAGE2_REF_WINDOW_MIN });
+  const limited = references.slice(0, STAGE2_REF_RENDER_LIMIT);
+
+  function updateWindow() {
+    const track = trackRef.current;
+    if (!track) return;
+    const visibleCount = Math.max(
+      STAGE2_REF_WINDOW_MIN,
+      Math.ceil(track.clientWidth / STAGE2_REF_CARD_PITCH) + STAGE2_REF_WINDOW_OVERSCAN * 2,
+    );
+    const firstVisible = Math.max(0, Math.floor(track.scrollLeft / STAGE2_REF_CARD_PITCH));
+    const start = Math.max(0, firstVisible - STAGE2_REF_WINDOW_OVERSCAN);
+    const end = Math.min(limited.length, start + visibleCount);
+    setWindowRange(current => (
+      current.start === start && current.end === end
+        ? current
+        : { start, end }
+    ));
+  }
+
+  useEffect(() => {
+    updateWindow();
+    const track = trackRef.current;
+    if (!track || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateWindow);
+    observer.observe(track);
+    return () => observer.disconnect();
+  }, [limited.length]);
+
+  if (limited.length === 0) {
+    return <div className="rrugc-stage2-ref-grid">
+      <small className="rrugc-stage2-empty-ref">Waiting for approved Pinterest references to finish Drive import.</small>
+    </div>;
+  }
+
+  const start = Math.min(windowRange.start, Math.max(0, limited.length - 1));
+  const end = Math.min(limited.length, Math.max(start + 1, windowRange.end));
+  const visible = limited.slice(start, end);
+  const leadingWidth = start > 0 ? Math.max(0, start * STAGE2_REF_CARD_PITCH - 6) : 0;
+  const trailingCount = Math.max(0, limited.length - end);
+  const trailingWidth = trailingCount > 0
+    ? Math.max(0, trailingCount * STAGE2_REF_CARD_PITCH - 6)
+    : 0;
+
+  return <div
+    ref={trackRef}
+    className="rrugc-stage2-ref-grid"
+    aria-label={limited.length + " Drive-ready references for " + planName}
+    onScroll={updateWindow}
+  >
+    {leadingWidth > 0 && <span
+      className="rrugc-stage2-ref-window-spacer"
+      aria-hidden="true"
+      style={{ flexBasis: leadingWidth }}
+    />}
+    {visible.map(reference => {
+      const checked = selected.includes(reference.id);
+      const atLimit = selected.length >= MAX_REFS && !checked;
+      return <button
+        type="button"
+        key={reference.id}
+        className={"rrugc-stage2-ref " + (checked ? "is-selected" : "")}
+        aria-pressed={checked}
+        disabled={atLimit || busy}
+        title={checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
+        onClick={() => onToggle(planId, reference.id)}
+      >
+        <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
+        <span>{checked ? "✓" : "+"}</span>
+      </button>;
+    })}
+    {trailingWidth > 0 && <span
+      className="rrugc-stage2-ref-window-spacer"
+      aria-hidden="true"
+      style={{ flexBasis: trailingWidth }}
+    />}
+  </div>;
 }
 
 export function Stage2OutputReviewModal({
@@ -457,25 +557,14 @@ export function Stage2JobTable({
                   <strong>{selected.length}/{MAX_REFS} selected</strong>
                   <small>{available.length} Drive-ready refs available</small>
                 </div>
-                <div className="rrugc-stage2-ref-grid">
-                  {available.slice(0, 40).map(reference => {
-                    const checked = selected.includes(reference.id);
-                    const atLimit = selected.length >= MAX_REFS && !checked;
-                    return <button
-                      type="button"
-                      key={reference.id}
-                      className={"rrugc-stage2-ref " + (checked ? "is-selected" : "")}
-                      aria-pressed={checked}
-                      disabled={atLimit || busy}
-                      title={checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
-                      onClick={() => toggleReference(plan.id, reference.id)}
-                    >
-                      <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
-                      <span>{checked ? "✓" : "+"}</span>
-                    </button>;
-                  })}
-                  {available.length === 0 && <small className="rrugc-stage2-empty-ref">Waiting for approved Pinterest references to finish Drive import.</small>}
-                </div>
+                <Stage2ReferencePicker
+                  planId={plan.id}
+                  planName={plan.source_name}
+                  references={available}
+                  selected={selected}
+                  busy={busy}
+                  onToggle={toggleReference}
+                />
               </td>
               <td className="rrugc-stage2-skill">
                 <div className="rrugc-stage2-cell-stack">
