@@ -101,32 +101,96 @@ type SourceThumbItem = Pick<
   "id" | "source_name" | "source_preview_url" | "source_web_url"
 >;
 
+export function sourceReviewImageUrl(source: SourceThumbItem): string {
+  const [base, query = ""] = source.source_preview_url.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("thumbnail", "true");
+  params.set("size", "1024");
+  return base + "?" + params.toString();
+}
+
 function SourceImageThumb({
   source,
   priority = false,
+  onOpen,
 }: {
   source: SourceThumbItem;
   priority?: boolean;
+  onOpen: () => void;
 }) {
   const priorityAttributes = priority
     ? ({ fetchpriority: "high" } as Record<string, string>)
     : {};
 
-  const media = <span className="rrugc-source-thumb-media">
-    <img
-      {...priorityAttributes}
-      src={source.source_preview_url}
-      alt={source.source_name}
-      width={128}
-      height={128}
-      loading={priority ? "eager" : "lazy"}
-      decoding="async"
-    />
-  </span>;
+  return <button
+    type="button"
+    className="rrugc-source-thumb rrugc-source-thumb-open"
+    title={"Preview " + source.source_name}
+    aria-label={"Preview source image " + source.source_name}
+    onClick={onOpen}
+  >
+    <span className="rrugc-source-thumb-media">
+      <img
+        {...priorityAttributes}
+        src={source.source_preview_url}
+        alt={source.source_name}
+        width={128}
+        height={128}
+        loading={priority ? "eager" : "lazy"}
+        decoding="async"
+      />
+    </span>
+  </button>;
+}
 
-  return source.source_web_url
-    ? <a href={source.source_web_url} target="_blank" rel="noreferrer" className="rrugc-source-thumb" title={"Open " + source.source_name + " in Google Drive"}>{media}</a>
-    : <span className="rrugc-source-thumb" title={source.source_name}>{media}</span>;
+export function SourceImageReviewModal({
+  plan,
+  sources,
+  onClose,
+}: {
+  plan: SourcePlan;
+  sources: SourceThumbItem[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-source-image-review-title-" + plan.id}>
+      <header className="rrugc-source-review-header">
+        <div>
+          <small>SOURCE IMAGE PREVIEW</small>
+          <h2 id={"rrugc-source-image-review-title-" + plan.id}>{plan.source_name}</h2>
+          <p>{sources.length} source image{sources.length === 1 ? "" : "s"}{sources.length > 1 ? " · same embroidery" : ""}</p>
+        </div>
+        <button type="button" className="rrugc-source-review-close" aria-label="Close source image preview" onClick={onClose}>×</button>
+      </header>
+      <div className="rrugc-source-review-masonry rrugc-source-image-review-masonry">
+        {sources.map((source, index) => (
+          <article key={source.id} className="rrugc-source-review-card rrugc-source-image-review-card">
+            <div className="rrugc-source-review-image">
+              <DeferredImage src={sourceReviewImageUrl(source)} alt={source.source_name} rootMargin="320px 0px" />
+              <span className="rrugc-source-review-index">{index + 1}</span>
+            </div>
+            <footer>
+              <span title={source.source_name}>{source.source_name}</span>
+              {source.source_web_url && <a href={source.source_web_url} target="_blank" rel="noreferrer">Drive ↗</a>}
+            </footer>
+          </article>
+        ))}
+      </div>
+    </section>
+  </div>;
 }
 
 export function SourceImageGroup({
@@ -136,19 +200,28 @@ export function SourceImageGroup({
   plan: SourcePlan;
   priority?: boolean;
 }) {
+  const [reviewOpen, setReviewOpen] = useState(false);
   const sources: SourceThumbItem[] = plan.source_group_images?.length
     ? plan.source_group_images
     : [plan];
 
-  return <div className="rrugc-source-group-track" aria-label={sources.length + " source images with the same embroidery"}>
-    {sources.map((source, index) => (
-      <SourceImageThumb
-        key={source.id}
-        source={source}
-        priority={priority && index === 0}
-      />
-    ))}
-  </div>;
+  return <>
+    <div className="rrugc-source-group-track" aria-label={sources.length + " source images with the same embroidery"}>
+      {sources.map((source, index) => (
+        <SourceImageThumb
+          key={source.id}
+          source={source}
+          priority={priority && index === 0}
+          onOpen={() => setReviewOpen(true)}
+        />
+      ))}
+    </div>
+    {reviewOpen && <SourceImageReviewModal
+      plan={plan}
+      sources={sources}
+      onClose={() => setReviewOpen(false)}
+    />}
+  </>;
 }
 
 

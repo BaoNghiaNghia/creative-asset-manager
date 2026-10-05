@@ -11,8 +11,10 @@ import { RealisticReviewUgcPage } from "./RealisticReviewUgcPage";
 import { Stage2JobTable } from "./Stage2JobTable";
 import {
   ReferenceReviewModal,
+  SourceImageReviewModal,
   SourcePlanTable,
   sourcePlanPageCount,
+  sourceReviewImageUrl,
   sourcePlanProgressPercent,
 } from "./SourcePlanTable";
 import type { SourcePlan, SourcePlanOverview, Stage2Job } from "./types";
@@ -450,6 +452,51 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("3 source images · same embroidery");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
+  });
+
+  it("renders source thumbnails as modal preview buttons", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan()]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("rrugc-source-thumb-open");
+    expect(markup).toContain("Preview source image");
+    expect(markup).not.toContain('target="_blank" rel="noreferrer" class="rrugc-source-thumb"');
+  });
+
+  it("renders source image review modal without reference feedback tags", () => {
+    const plan = makePlan();
+    const sources = plan.source_group_images!;
+    const markup = renderToStaticMarkup(
+      <SourceImageReviewModal
+        plan={plan}
+        sources={sources}
+        onClose={() => undefined}
+      />,
+    );
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain("SOURCE IMAGE PREVIEW");
+    expect(markup).toContain("rrugc-source-review-masonry");
+    expect(markup).toContain("rrugc-source-image-review-card");
+    expect(sourceReviewImageUrl(sources[0])).toContain("thumbnail=true");
+    expect(sourceReviewImageUrl(sources[0])).toContain("size=1024");
+    expect(markup).toContain("Drive ↗");
+    expect(markup).not.toContain("rrugc-source-review-votes");
+    expect(markup).not.toContain("rrugc-source-review-vote is-good");
+    expect(markup).not.toContain("rrugc-source-review-vote is-bad");
+    expect(markup).not.toContain("rrugc-source-review-vote is-ai");
+    expect(markup).not.toContain(">AI<");
   });
 
   it("renders a compact centered empty reference state without carousel arrows", () => {
