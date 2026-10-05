@@ -43,7 +43,7 @@ if not exist "%SCOUT_BOOTSTRAP%" (
     exit /b 4
   )
 
-  git fetch origin main
+  git fetch origin +refs/heads/main:refs/remotes/origin/main
   if errorlevel 1 (
     echo [ERROR] Unable to fetch origin/main. Scout was not started.
     pause

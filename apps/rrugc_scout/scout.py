@@ -2831,9 +2831,19 @@ def idle_diagnostic_message(payload: dict[str, Any]) -> str:
 
 async def run_agent(args: argparse.Namespace) -> None:
     profile_dir = Path(args.profile_dir).expanduser().resolve()
-    log_path = configure_scout_debug_log(profile_dir)
+    log_path = configure_scout_debug_log(profile_dir, scout_type="review")
+    configure_scout_remote_log(
+        base_url=args.base_url,
+        agent_id=args.agent_id,
+        token=args.token,
+    )
     print("Pinterest Scout debug log: " + str(log_path))
+    print("Remote Scout log      : API enabled · retention 5 days")
     machine_label = args.machine_label or socket.gethostname()
+    scout_debug_event(
+        "review_scout_remote_logging_enabled",
+        retention_days=5,
+    )
     scout_debug_event(
         "agent_start",
         agent_id=args.agent_id,
@@ -3119,6 +3129,7 @@ async def run_agent(args: argparse.Namespace) -> None:
                 await asyncio.sleep(delay)
     finally:
         await close_browser_runtime()
+        shutdown_scout_remote_log(timeout_seconds=3.0)
         await client.close()
 
 

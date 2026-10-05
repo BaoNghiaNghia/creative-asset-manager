@@ -46,7 +46,7 @@ On Windows, use the repository-root launcher:
 START_SCOUT_KEYWORD.cmd
 ```
 
-Use `START_SCOUT_REVIEW.cmd` for the existing Pinterest review/reference scout and `START_SCOUT_KEYWORD.cmd` for Stage 0 keyword analysis. The legacy `START_SCOUT.bat` remains unchanged and continues to launch the review scout for backward compatibility. Both CMD windows may be started at the same time: they serialize only shared startup work (Git update, pairing/config, venv and dependency setup), then release the startup lock so Review Scout and Keyword Scout run concurrently.
+Use `START_SCOUT_REVIEW.cmd` for the existing Pinterest review/reference scout and `START_SCOUT_KEYWORD.cmd` for Stage 0 keyword analysis. `START_SCOUT.bat` remains a backward-compatible Review Scout entry point. The two CMD windows are designed to run together: they serialize only shared startup work (Git update, pairing/config, venv and dependency setup), then release that lock and run independently. Review and Keyword each own a separate Chrome profile, browser process, history and local log. A mode-specific runner mutex allows exactly one Review + one Keyword at the same time while blocking accidental duplicate Review+Review or Keyword+Keyword starts. Startup also rejects profile paths that are identical or nested, preventing one Scout from touching the other Scout's Chrome lock/runtime files.
 
 Keyword Scout is autonomous. It searches Pinterest for the fixed seed query `Saying Trucker hat`, opens image Pins through the same high-quality Pin-detail resolver used by Review Scout, and sends each resolved image to Creative Asset Manager vision analysis. CAM transcribes only text visibly printed/embroidered on the hat, ignoring Pinterest captions, watermarks and background text. New quotes are deduplicated locally and sent immediately to CAM's Stage 0 keyword-volume endpoint. CAM upserts and commits each discovered quote to the database before calling AEBrowse/Google Ads, so provider failures never lose a scanned quote; volume data is filled in on the same request or a later retry.
 
@@ -67,8 +67,7 @@ The helper reads `RRUGC_AGENT_ID` and `RRUGC_SCOUT_TOKEN` from the environment. 
 
 ## Debug logs
 
-Every Scout start now creates a structured JSONL debug log inside the persistent
-Pinterest profile:
+Every Scout start now creates a structured JSONL debug log inside its own persistent Pinterest profile. Review Scout and Keyword Scout also upload structured events independently to Creative Asset Manager using the same agent credentials; server-side logs are tagged by `scout_type` and retained for 5 days, so concurrent runs remain distinguishable:
 
 ```text
 <pinterest-profile>\logs\pinterest-scout.jsonl

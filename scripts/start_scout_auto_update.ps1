@@ -244,6 +244,50 @@ function Release-ScoutStartupLock {
     }
 }
 
+$RunnerMutex = $null
+$RunnerMutexHeld = $false
+
+function Acquire-ScoutRunnerLock([string]$Mode) {
+    if ($script:RunnerMutexHeld) {
+        return
+    }
+
+    $safeMode = if ($Mode -eq "Keyword") { "Keyword" } else { "Review" }
+    $mutexName = "Local\CreativeAssetManager.RrugcScout.Runner." + $safeMode
+    $script:RunnerMutex = New-Object System.Threading.Mutex($false, $mutexName)
+    $acquired = $false
+    try {
+        $acquired = $script:RunnerMutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $acquired = $true
+    }
+
+    if (-not $acquired) {
+        $script:RunnerMutex.Dispose()
+        $script:RunnerMutex = $null
+        Fail ($safeMode + " Scout is already running. Keep the existing " + $safeMode + " CMD open; Review and Keyword may run together, but duplicate instances of the same mode are blocked.")
+    }
+
+    $script:RunnerMutexHeld = $true
+}
+
+function Release-ScoutRunnerLock {
+    if ($script:RunnerMutexHeld -and $null -ne $script:RunnerMutex) {
+        try {
+            $script:RunnerMutex.ReleaseMutex()
+        }
+        catch {
+            # The OS also releases this mutex if the terminal is closed.
+        }
+        $script:RunnerMutexHeld = $false
+    }
+    if ($null -ne $script:RunnerMutex) {
+        $script:RunnerMutex.Dispose()
+        $script:RunnerMutex = $null
+    }
+}
+
 Set-Location -LiteralPath $RepoRoot
 Acquire-ScoutStartupLock
 
@@ -367,6 +411,20 @@ $agentId = Get-ConfigValue $config "RRUGC_AGENT_ID"
 $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
 $profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
 $keywordProfileDir = Get-ConfigValue $config "RRUGC_KEYWORD_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-keyword")
+$profileDir = [IO.Path]::GetFullPath($profileDir).TrimEnd([char[]]"\/")
+$keywordProfileDir = [IO.Path]::GetFullPath($keywordProfileDir).TrimEnd([char[]]"\/")
+$pathComparer = [StringComparer]::OrdinalIgnoreCase
+$profileSeparator = [IO.Path]::DirectorySeparatorChar
+if (
+    $pathComparer.Equals($profileDir, $keywordProfileDir) -or
+    $keywordProfileDir.StartsWith($profileDir + $profileSeparator, [StringComparison]::OrdinalIgnoreCase) -or
+    $profileDir.StartsWith($keywordProfileDir + $profileSeparator, [StringComparison]::OrdinalIgnoreCase)
+) {
+    Fail (
+        "Review Scout and Keyword Scout must use two independent Chrome profile folders. " +
+        "Current Review profile: " + $profileDir + "; Keyword profile: " + $keywordProfileDir
+    )
+}
 $machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
 $pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
 $detailConcurrency = "1"
@@ -472,83 +530,104 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Shared mutable setup is complete. From this point onward Review Scout and
-# Keyword Scout must be allowed to run concurrently in separate terminals.
+# Keyword Scout are independent. A mode-specific runner mutex prevents only
+# accidental duplicate starts of the same Scout.
 Release-ScoutStartupLock
+$runMode = if ($KeywordMode) { "Keyword" } else { "Review" }
+Acquire-ScoutRunnerLock $runMode
 
-if ($KeywordMode) {
-    if (-not (Test-Path -LiteralPath $KeywordScoutPath)) {
-        Fail ("Keyword Scout entry point is missing: " + $KeywordScoutPath)
-    }
-
-    Write-Step "Starting Stage 0 Keyword Scout"
-    Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-    Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
-    Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
-    Write-Host "Pinterest query      : Saying Trucker hat" -ForegroundColor Green
-    Write-Host ("Pinterest profile   : " + $keywordProfileDir) -ForegroundColor Green
-    Write-Host "Related per Pin     : 60" -ForegroundColor Green
-    Write-Host ("Pace                : " + $pace) -ForegroundColor Green
-    Write-Host "Mode                : autonomous Pinterest quote -> AEBrowse volume" -ForegroundColor Green
-    Write-Host "Loop                : continuous until this terminal is closed" -ForegroundColor Green
-    Write-Host "Review Scout state  : separate profile + separate history" -ForegroundColor Green
-    Write-Host "Stage 1 claim lane  : not used" -ForegroundColor Green
-    Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
-    Write-Host ""
-
-    $env:RRUGC_SCOUT_TOKEN = $token
-    $keywordArguments = @(
-        $KeywordScoutPath,
-        "--auto-pinterest",
-        "--base-url", $baseUrl,
-        "--agent-id", $agentId,
-        "--profile-dir", $keywordProfileDir,
-        "--seed-query", "Saying Trucker hat",
-        "--related-per-pin", "60",
-        "--pace", $pace
-    )
-    if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
-        $keywordArguments += @("--chrome-executable", $chromeExecutable)
-    }
-
-    try {
-        & $python @keywordArguments
-        exit $LASTEXITCODE
-    }
-    finally {
-        Remove-Item Env:RRUGC_SCOUT_TOKEN -ErrorAction SilentlyContinue
-    }
-}
-
-Write-Step "Starting Pinterest Auto Scout"
-Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + browser self-heal (v22)" -ForegroundColor Green
-Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
-Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
-Write-Host ("Pace                : " + $pace) -ForegroundColor Green
-Write-Host "Detail mode         : single reusable tab" -ForegroundColor Green
-Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
-Write-Host ""
-
+$scoutExit = 1
 $env:RRUGC_SCOUT_TOKEN = $token
-$arguments = @(
-    $ScoutPath,
-    "--base-url", $baseUrl,
-    "--agent-id", $agentId,
-    "--profile-dir", $profileDir,
-    "--pace", $pace,
-    "--detail-concurrency", [string]$detailValue
-)
-if (-not [string]::IsNullOrWhiteSpace($machineLabel)) {
-    $arguments += @("--machine-label", $machineLabel)
-}
-if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
-    $arguments += @("--chrome-executable", $chromeExecutable)
-}
-
 try {
-    & $python @arguments
-    exit $LASTEXITCODE
+    if ($KeywordMode) {
+        if (-not (Test-Path -LiteralPath $KeywordScoutPath)) {
+            Fail ("Keyword Scout entry point is missing: " + $KeywordScoutPath)
+        }
+        try {
+            $Host.UI.RawUI.WindowTitle = "Realistic Review UGC - Keyword Scout"
+        }
+        catch {
+            # Window title is best-effort only.
+        }
+
+        Write-Step "Starting Stage 0 Keyword Scout"
+        Write-Host ("Source commit       : " + $head) -ForegroundColor Green
+        Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
+        Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
+        Write-Host "Pinterest query      : Saying Trucker hat" -ForegroundColor Green
+        Write-Host ("Pinterest profile   : " + $keywordProfileDir) -ForegroundColor Green
+        Write-Host "Browser isolation   : dedicated Keyword Chrome profile/process" -ForegroundColor Green
+        Write-Host "Concurrent mode     : SAFE with Review Scout" -ForegroundColor Green
+        Write-Host "Duplicate Keyword   : blocked by runner lock" -ForegroundColor Green
+        Write-Host "Related per Pin     : 60" -ForegroundColor Green
+        Write-Host ("Pace                : " + $pace) -ForegroundColor Green
+        Write-Host "Mode                : autonomous Pinterest quote -> AEBrowse volume" -ForegroundColor Green
+        Write-Host "Loop                : continuous until this terminal is closed" -ForegroundColor Green
+        Write-Host "Review Scout state  : separate browser + profile + history + log" -ForegroundColor Green
+        Write-Host "Stage 1 claim lane  : not used" -ForegroundColor Green
+        Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
+        Write-Host ""
+
+        $keywordArguments = @(
+            $KeywordScoutPath,
+            "--auto-pinterest",
+            "--base-url", $baseUrl,
+            "--agent-id", $agentId,
+            "--profile-dir", $keywordProfileDir,
+            "--seed-query", "Saying Trucker hat",
+            "--related-per-pin", "60",
+            "--pace", $pace
+        )
+        if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+            $keywordArguments += @("--chrome-executable", $chromeExecutable)
+        }
+
+        & $python @keywordArguments
+        $scoutExit = $LASTEXITCODE
+    }
+    else {
+        try {
+            $Host.UI.RawUI.WindowTitle = "Realistic Review UGC - Review Scout"
+        }
+        catch {
+            # Window title is best-effort only.
+        }
+
+        Write-Step "Starting Pinterest Review Scout"
+        Write-Host ("Source commit       : " + $head) -ForegroundColor Green
+        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + browser self-heal (v23)" -ForegroundColor Green
+        Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
+        Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
+        Write-Host "Browser isolation   : dedicated Review Chrome profile/process" -ForegroundColor Green
+        Write-Host "Concurrent mode     : SAFE with Keyword Scout" -ForegroundColor Green
+        Write-Host "Duplicate Review    : blocked by runner lock" -ForegroundColor Green
+        Write-Host ("Pace                : " + $pace) -ForegroundColor Green
+        Write-Host "Detail mode         : single reusable tab" -ForegroundColor Green
+        Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
+        Write-Host ""
+
+        $arguments = @(
+            $ScoutPath,
+            "--base-url", $baseUrl,
+            "--agent-id", $agentId,
+            "--profile-dir", $profileDir,
+            "--pace", $pace,
+            "--detail-concurrency", [string]$detailValue
+        )
+        if (-not [string]::IsNullOrWhiteSpace($machineLabel)) {
+            $arguments += @("--machine-label", $machineLabel)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+            $arguments += @("--chrome-executable", $chromeExecutable)
+        }
+
+        & $python @arguments
+        $scoutExit = $LASTEXITCODE
+    }
 }
 finally {
     Remove-Item Env:RRUGC_SCOUT_TOKEN -ErrorAction SilentlyContinue
+    Release-ScoutRunnerLock
 }
+
+exit $scoutExit
