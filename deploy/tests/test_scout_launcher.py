@@ -73,6 +73,15 @@ class ScoutLauncherContractTests(unittest.TestCase):
         self.assertIn("scripts\\start_scout_auto_update.ps1", source)
         self.assertIn("-KeywordMode", source)
         self.assertIn("Stage 0 Keyword Scout", source)
+        self.assertIn(
+            "git show origin/main:scripts/start_scout_auto_update.ps1",
+            source,
+        )
+        self.assertIn(
+            "Keyword Scout updater restored. Continuing in Keyword Mode",
+            source,
+        )
+        self.assertNotIn("Run START_SCOUT.bat once", source)
 
     def test_keyword_mode_survives_fast_forward_relaunch(self) -> None:
         source = UPDATER.read_text()
