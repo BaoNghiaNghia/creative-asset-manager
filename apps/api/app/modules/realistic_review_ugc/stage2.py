@@ -61,6 +61,76 @@ class RrugcStage2Error(RuntimeError):
         self.status_code = status_code
 
 
+def _stage2_source_group(
+    session: Session,
+    *,
+    tenant_id: str,
+    plan: RrugcSourcePlanModel,
+) -> list[RrugcSourcePlanModel]:
+    """Resolve the durable embroidery-group members for Stage 2 history.
+
+    Stage 2 history belongs to the embroidery group, not whichever source plan
+    happens to be selected as the current UI representative. A group member can
+    also be temporarily marked missing during a Drive reconciliation and must
+    keep participating in history/duplicate protection until it comes back.
+    """
+    computed_signature = (
+        embroidery_signature(plan.visual_context_json)
+        if isinstance(plan.visual_context_json, dict)
+        else None
+    )
+    effective_signature = computed_signature or plan.embroidery_signature
+    candidates = list(
+        session.query(RrugcSourcePlanModel)
+        .filter(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.root_folder_id == plan.root_folder_id,
+        )
+        .order_by(
+            RrugcSourcePlanModel.source_relative_path.asc(),
+            RrugcSourcePlanModel.id.asc(),
+        )
+    )
+    members = [
+        member
+        for member in candidates
+        if member.source_file_id
+        and (
+            (
+                (
+                    (
+                        embroidery_signature(member.visual_context_json)
+                        if isinstance(member.visual_context_json, dict)
+                        else None
+                    )
+                    or member.embroidery_signature
+                )
+                == computed_signature
+            )
+            if computed_signature
+            else (
+                (
+                    bool(effective_signature)
+                    and (
+                        (
+                            embroidery_signature(member.visual_context_json)
+                            if isinstance(member.visual_context_json, dict)
+                            else None
+                        )
+                        or member.embroidery_signature
+                    )
+                    == effective_signature
+                )
+                or (
+                    bool(plan.campaign_id)
+                    and member.campaign_id == plan.campaign_id
+                )
+            )
+        )
+    ]
+    return members or [plan]
+
+
 class RrugcStage2Service:
     def __init__(self, session: Session, settings: Settings | None = None):
         self.session = session
@@ -92,6 +162,12 @@ class RrugcStage2Service:
                 "stage2_source_plan_not_ready",
                 "Stage 1 must finish the embroidery context plan before Stage 2 can run.",
             )
+        source_group = _stage2_source_group(
+            self.session,
+            tenant_id=tenant_id,
+            plan=plan,
+        )
+        source_group_ids = [member.id for member in source_group]
         ids = list(dict.fromkeys(str(value).strip() for value in selected_candidate_ids if str(value).strip()))
         if not ids:
             raise RrugcStage2Error(
@@ -110,7 +186,7 @@ class RrugcStage2Service:
             str(candidate_id)
             for completed_job in self.session.query(RrugcStage2JobModel).filter(
                 RrugcStage2JobModel.tenant_id == tenant_id,
-                RrugcStage2JobModel.source_plan_id == plan.id,
+                RrugcStage2JobModel.source_plan_id.in_(source_group_ids),
                 RrugcStage2JobModel.status == "completed",
             )
             for candidate_id in (completed_job.selected_candidate_ids_json or [])
@@ -192,62 +268,10 @@ class RrugcStage2Service:
                 status_code=422,
             )
 
-        computed_signature = (
-            embroidery_signature(plan.visual_context_json)
-            if isinstance(plan.visual_context_json, dict)
-            else None
-        )
-        effective_signature = computed_signature or plan.embroidery_signature
-        source_candidates = list(
-            self.session.query(RrugcSourcePlanModel)
-            .filter(
-                RrugcSourcePlanModel.tenant_id == tenant_id,
-                RrugcSourcePlanModel.root_folder_id == plan.root_folder_id,
-            )
-            .order_by(
-                RrugcSourcePlanModel.source_relative_path.asc(),
-                RrugcSourcePlanModel.id.asc(),
-            )
-        )
-        source_group = [
-            member
-            for member in source_candidates
-            if member.source_file_id
-            and member.status != "missing"
-            and (
-                (
-                    (
-                        (
-                            embroidery_signature(member.visual_context_json)
-                            if isinstance(member.visual_context_json, dict)
-                            else None
-                        )
-                        or member.embroidery_signature
-                    )
-                    == computed_signature
-                )
-                if computed_signature
-                else (
-                    (
-                        bool(effective_signature)
-                        and (
-                            (
-                                embroidery_signature(member.visual_context_json)
-                                if isinstance(member.visual_context_json, dict)
-                                else None
-                            )
-                            or member.embroidery_signature
-                        )
-                        == effective_signature
-                    )
-                    or (
-                        bool(plan.campaign_id)
-                        and member.campaign_id == plan.campaign_id
-                    )
-                )
-            )
+        live_source_group = [
+            member for member in source_group if member.status != "missing"
         ] or [plan]
-        selected_source = random.choice(source_group)
+        selected_source = random.choice(live_source_group)
         selected_source_snapshot = {
             "source_plan_id": selected_source.id,
             "remote_file_id": selected_source.source_file_id,
@@ -302,7 +326,7 @@ class RrugcStage2Service:
             self.session.query(RrugcStage2JobModel)
             .filter(
                 RrugcStage2JobModel.tenant_id == tenant_id,
-                RrugcStage2JobModel.source_plan_id == plan.id,
+                RrugcStage2JobModel.source_plan_id.in_(source_group_ids),
             )
             .count()
             + 1

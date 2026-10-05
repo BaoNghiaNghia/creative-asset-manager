@@ -332,7 +332,10 @@ describe("Realistic Review UGC source-first workspace", () => {
       <Stage2JobTable
         plans={[makePlan(12)]}
         overview={GLOBAL_OVERVIEW}
-        jobs={[makeStage2Job("job-generated-ref", "completed", { selected_candidate_ids: ["ref-0"] })]}
+        jobs={[makeStage2Job("job-generated-ref", "completed", {
+          source_plan_id: "plan-2",
+          selected_candidate_ids: ["ref-0"],
+        })]}
         creatingPlanIds={new Set()}
         onCreateJob={() => undefined}
       />,
@@ -364,7 +367,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("7 not run");
     expect(markup).toContain("IMAGE_GENERATION_FAILED");
     expect(markup).toContain("Generating");
-    expect(markup).toContain("Generated output 3");
+    expect(markup).toContain("Generated output 1");
     expect(markup).toContain("1 output");
     expect(markup).toContain('class="rrugc-stage2-results"');
     expect(markup).toContain("rrugc-stage2-result-open");

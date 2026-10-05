@@ -1252,15 +1252,15 @@ class RrugcRepository:
         self,
         tenant_id: str,
         *,
-        source_plan_id: str | None = None,
-        limit: int = 200,
+        source_plan_ids: list[str] | None = None,
+        limit: int = 1000,
     ) -> list[RrugcStage2JobModel]:
         statement = select(RrugcStage2JobModel).where(
             RrugcStage2JobModel.tenant_id == tenant_id
         )
-        if source_plan_id:
+        if source_plan_ids:
             statement = statement.where(
-                RrugcStage2JobModel.source_plan_id == source_plan_id
+                RrugcStage2JobModel.source_plan_id.in_(source_plan_ids)
             )
         return list(
             self.session.scalars(

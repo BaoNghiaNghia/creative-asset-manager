@@ -79,27 +79,45 @@ function eligibleReference(reference: SourcePlanReferencePreview) {
   return reference.status === "drive_ready" && !reference.rejected;
 }
 
-function completedCandidateIdsByPlan(jobs: Stage2Job[]) {
-  const result = new Map<string, Set<string>>();
-  for (const job of jobs) {
-    if (job.status !== "completed") continue;
-    const current = result.get(job.source_plan_id) || new Set<string>();
-    for (const candidateId of job.selected_candidate_ids) current.add(candidateId);
-    result.set(job.source_plan_id, current);
+function stage2JobsByPlan(plans: SourcePlan[], jobs: Stage2Job[]) {
+  const result = new Map<string, Stage2Job[]>();
+  for (const plan of plans) {
+    const memberIds = new Set([
+      plan.id,
+      ...(plan.source_group_images || []).map(member => member.id),
+    ]);
+    result.set(
+      plan.id,
+      jobs.filter(job => memberIds.has(job.source_plan_id)),
+    );
   }
   return result;
 }
 
-function recentJobsByPlan(jobs: Stage2Job[]) {
-  const result = new Map<string, Stage2Job[]>();
-  for (const job of jobs) {
-    const current = result.get(job.source_plan_id) || [];
-    if (current.length >= MAX_OUTPUT_SLOTS) continue;
-    current.push(job);
-    result.set(job.source_plan_id, current);
+function completedCandidateIdsByPlan(
+  plans: SourcePlan[],
+  allJobsByPlan: Map<string, Stage2Job[]>,
+) {
+  const result = new Map<string, Set<string>>();
+  for (const plan of plans) {
+    const completed = new Set<string>();
+    for (const job of allJobsByPlan.get(plan.id) || []) {
+      if (job.status !== "completed") continue;
+      for (const candidateId of job.selected_candidate_ids) completed.add(candidateId);
+    }
+    result.set(plan.id, completed);
   }
-  for (const [planId, planJobs] of result) {
-    result.set(planId, [...planJobs].reverse());
+  return result;
+}
+
+function recentJobsByPlan(
+  plans: SourcePlan[],
+  allJobsByPlan: Map<string, Stage2Job[]>,
+) {
+  const result = new Map<string, Stage2Job[]>();
+  for (const plan of plans) {
+    const newest = (allJobsByPlan.get(plan.id) || []).slice(0, MAX_OUTPUT_SLOTS);
+    result.set(plan.id, [...newest].reverse());
   }
   return result;
 }
@@ -374,9 +392,19 @@ export function Stage2JobTable({
     plan: SourcePlan;
     jobs: Stage2Job[];
   } | null>(null);
-  const recentJobs = useMemo(() => recentJobsByPlan(jobs), [jobs]);
-  const completedCandidates = useMemo(() => completedCandidateIdsByPlan(jobs), [jobs]);
   const stage2Plans = plans;
+  const allJobsByPlan = useMemo(
+    () => stage2JobsByPlan(stage2Plans, jobs),
+    [stage2Plans, jobs],
+  );
+  const recentJobs = useMemo(
+    () => recentJobsByPlan(stage2Plans, allJobsByPlan),
+    [stage2Plans, allJobsByPlan],
+  );
+  const completedCandidates = useMemo(
+    () => completedCandidateIdsByPlan(stage2Plans, allJobsByPlan),
+    [stage2Plans, allJobsByPlan],
+  );
   const stage2Total = total ?? stage2Plans.length;
   const pageCount = sourcePlanPageCount(stage2Total, pageSize);
   const currentPage = Math.min(Math.max(1, page), pageCount);
@@ -532,12 +560,14 @@ export function Stage2JobTable({
           {loading ? <Stage2SkeletonRows count={pageSize} /> : stage2Plans.map(plan => {
             const available = plan.reference_previews.filter(eligibleReference);
             const selected = selectedByPlan[plan.id] || [];
+            const allPlanJobs = allJobsByPlan.get(plan.id) || [];
             const planJobs = recentJobs.get(plan.id) || [];
+            const completedJobs = allPlanJobs.filter(job => job.status === "completed");
             const generated = completedCandidates.get(plan.id) || new Set<string>();
             const pickableAvailable = available.filter(reference => !generated.has(reference.id)).length;
             const runs = outputSummary(planJobs);
             const busy = creatingPlanIds.has(plan.id)
-              || planJobs.some(job => job.status === "queued" || job.status === "running");
+              || allPlanJobs.some(job => job.status === "queued" || job.status === "running");
             const skill = selectedSkill(plan.id);
             const version = selectedVersion(plan.id, skill);
             const hasReadySkill = catalog.items.length > 0;
@@ -718,11 +748,11 @@ export function Stage2JobTable({
               <td className="rrugc-stage2-results">
                 <div className="rrugc-stage2-cell-stack">
                 <div className="rrugc-stage2-results-head">
-                  <strong>{runs.completed} {runs.completed === 1 ? "output" : "outputs"}</strong>
-                  <small>{runs.completed ? "Open a thumbnail to view full size." : "Waiting for a completed generation."}</small>
+                  <strong>{completedJobs.length} {completedJobs.length === 1 ? "output" : "outputs"}</strong>
+                  <small>{completedJobs.length ? "Historical outputs are kept even while new runs are generating." : "Waiting for a completed generation."}</small>
                 </div>
-                {runs.completed ? <div className="rrugc-stage2-result-grid" aria-label={"Generated results for " + plan.source_name}>
-                  {planJobs.map((run, index) => run.status === "completed" ? <button
+                {completedJobs.length ? <div className="rrugc-stage2-result-grid" aria-label={"Generated results for " + plan.source_name}>
+                  {completedJobs.map((run, index) => <button
                     key={run.id}
                     type="button"
                     className="rrugc-stage2-result rrugc-stage2-result-open"
@@ -730,7 +760,7 @@ export function Stage2JobTable({
                     aria-label={"Preview generated output " + (index + 1) + " for " + plan.source_name}
                     onClick={() => setOutputReview({
                       plan,
-                      jobs: planJobs.filter(job => job.status === "completed"),
+                      jobs: completedJobs,
                     })}
                   >
                     <DeferredImage
@@ -739,7 +769,7 @@ export function Stage2JobTable({
                       rootMargin="180px"
                     />
                     <span>{index + 1}</span>
-                  </button> : null)}
+                  </button>)}
                 </div> : <div className="rrugc-stage2-results-empty">
                   <strong>No results yet</strong>
                   <small>Completed generations will appear here.</small>

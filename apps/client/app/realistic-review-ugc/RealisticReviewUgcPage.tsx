@@ -88,6 +88,16 @@ export function RealisticReviewUgcPage() {
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage1");
   const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
+  const visibleStage2SourcePlanIds = useMemo(
+    () => Array.from(new Set(
+      sourcePage.items.flatMap(plan => [
+        plan.id,
+        ...(plan.source_group_images || []).map(member => member.id),
+      ]),
+    )),
+    [sourcePage.items],
+  );
+  const visibleStage2SourcePlanIdsKey = visibleStage2SourcePlanIds.join(",");
 
   const sourcePageCount = useMemo(
     () => Math.max(1, Math.ceil(sourcePage.total / Math.max(1, sourcePageSize))),
@@ -114,7 +124,11 @@ export function RealisticReviewUgcPage() {
   }
 
   async function refreshStage2Jobs(signal?: AbortSignal) {
-    const result = await listStage2Jobs(undefined, signal);
+    if (visibleStage2SourcePlanIds.length === 0) {
+      setStage2Jobs([]);
+      return;
+    }
+    const result = await listStage2Jobs(visibleStage2SourcePlanIds, signal);
     const nextFingerprint = stage2JobsRenderFingerprint(result);
     setStage2Jobs(current => (
       stage2JobsRenderFingerprint(current) === nextFingerprint
@@ -188,7 +202,7 @@ export function RealisticReviewUgcPage() {
       setSourcePlanMessage(
         "Scanned " + result.folders_scanned + " folders / " + result.images_found + " images. "
         + result.jobs_queued + " source plans queued for AI context analysis"
-        + (result.plans_missing ? "; " + result.plans_missing + " removed sources archived" : "")
+        + (result.plans_missing ? "; " + result.plans_missing + " temporarily missing sources retained safely" : "")
         + "; current target " + result.target_count + " refs per source.",
       );
       await refreshSourcePlans();
@@ -337,7 +351,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage]);
+  }, [activeStage, visibleStage2SourcePlanIdsKey]);
 
   function selectStage(nextStage: RrugcStageTab) {
     setActiveStage(nextStage);

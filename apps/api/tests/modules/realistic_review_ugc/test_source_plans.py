@@ -1148,7 +1148,7 @@ def test_sync_source_plans_creates_one_fifty_ref_plan_per_source_image_idempoten
         assert len(list(session.scalars(select(ProcessingJobModel)))) == 3
 
 
-def test_sync_source_plans_deletes_removed_source_plan_and_only_its_jobs():
+def test_sync_source_plans_tombstones_missing_source_without_deleting_history_identity():
     factory = make_database()
 
     with factory() as session:
@@ -1204,7 +1204,11 @@ def test_sync_source_plans_deletes_removed_source_plan_and_only_its_jobs():
 
         assert result.images_found == 2
         assert result.plans_missing == 1
-        assert session.get(RrugcSourcePlanModel, plan_id) is None
+        retained = session.get(RrugcSourcePlanModel, plan_id)
+        assert retained is not None
+        assert retained.status == "missing"
+        assert retained.last_error_code == "rrugc_source_file_missing"
+        assert retained.campaign_id == campaign.id
         assert session.scalar(
             select(ProcessingJobModel.id).where(
                 ProcessingJobModel.entity_type == "rrugc_source_plan",
@@ -1215,6 +1219,22 @@ def test_sync_source_plans_deletes_removed_source_plan_and_only_its_jobs():
         assert campaign.status == "archived"
         assert campaign.auto_scout is False
         assert campaign.scan_next_at is None
+
+        restored = asyncio.run(
+            sync_source_plans(
+                session,
+                tenant_id="tenant-a",
+                user_id="user-a",
+                storage=FakeStorage.__new__(FakeStorage),
+                drive_client_factory=FakeDrive,
+            )
+        )
+        same_plan = session.get(RrugcSourcePlanModel, plan_id)
+        assert same_plan is not None
+        assert same_plan.source_file_id == "image-c"
+        assert same_plan.status == "queued"
+        assert restored.plans_created == 0
+        assert restored.jobs_queued == 1
 
 
 
@@ -1275,7 +1295,10 @@ def test_missing_color_does_not_archive_campaign_shared_by_another_source_plan()
         session.refresh(remaining_plan)
 
         assert result.plans_missing == 1
-        assert session.get(RrugcSourcePlanModel, missing_plan_id) is None
+        retained_missing = session.get(RrugcSourcePlanModel, missing_plan_id)
+        assert retained_missing is not None
+        assert retained_missing.status == "missing"
+        assert retained_missing.campaign_id == campaign.id
         assert remaining_plan.campaign_id == campaign.id
         assert campaign.auto_scout is True
         assert campaign.status == "running"

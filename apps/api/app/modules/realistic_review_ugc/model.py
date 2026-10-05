@@ -877,7 +877,7 @@ class RrugcStage2JobModel(Base):
             ["source_plan_id"],
             ["rrugc_source_plans.id"],
             name="fk_rrugc_stage2_job_source_plan",
-            ondelete="CASCADE",
+            ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["tenant_id", "campaign_id"],

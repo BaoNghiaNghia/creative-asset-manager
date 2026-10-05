@@ -1135,7 +1135,10 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypa
         assert next_run.prompt_text == DEFAULT_STAGE2_PROMPT
         assert next_run.selected_source_snapshot_json["remote_file_id"] == "source-stage2-alt"
 
+        # History belongs to the embroidery group, not only the current
+        # representative source-plan ID.
         row.status = "completed"
+        row.source_plan_id = alternate_plan.id
         session.commit()
         with pytest.raises(RrugcStage2Error) as completed_exc:
             service.create_job(

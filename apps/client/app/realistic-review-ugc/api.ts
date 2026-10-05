@@ -248,11 +248,13 @@ export const archiveScoutAgent = (agentId: string) =>
   );
 
 export const listStage2Jobs = (
-  sourcePlanId?: string,
+  sourcePlanIds: string[] = [],
   signal?: AbortSignal,
 ) => {
-  const params = new URLSearchParams({ limit: "200" });
-  if (sourcePlanId) params.set("source_plan_id", sourcePlanId);
+  const params = new URLSearchParams({ limit: "1000" });
+  for (const sourcePlanId of Array.from(new Set(sourcePlanIds))) {
+    if (sourcePlanId) params.append("source_plan_id", sourcePlanId);
+  }
   return request<Stage2Job[]>(
     "/api/v1/realistic-review-ugc/stage2-jobs?" + params.toString(),
     { signal },

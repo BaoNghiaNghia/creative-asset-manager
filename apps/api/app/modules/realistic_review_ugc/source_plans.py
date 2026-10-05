@@ -460,6 +460,7 @@ def _campaign_has_source_plan(
     statement = select(RrugcSourcePlanModel.id).where(
         RrugcSourcePlanModel.tenant_id == tenant_id,
         RrugcSourcePlanModel.campaign_id == campaign_id,
+        RrugcSourcePlanModel.status != "missing",
     )
     if exclude_plan_id:
         statement = statement.where(RrugcSourcePlanModel.id != exclude_plan_id)
@@ -870,6 +871,12 @@ async def sync_source_plans(
     for plan in existing_plans:
         if plan.source_file_id in seen_file_ids:
             continue
+        if plan.status == "missing":
+            # A Drive children() response can transiently omit files while a
+            # folder is being edited or Google is reconciling changes. Keep a
+            # durable tombstone instead of deleting the source plan: Stage 2
+            # jobs and generated-output history are attached to this identity.
+            continue
 
         campaign_id = plan.campaign_id
         session.execute(
@@ -879,7 +886,8 @@ async def sync_source_plans(
                 ProcessingJobModel.entity_id == plan.id,
             )
         )
-        session.delete(plan)
+        plan.status = "missing"
+        plan.last_error_code = "rrugc_source_file_missing"
         session.flush()
         missing += 1
         _retire_source_campaign_if_unreferenced(

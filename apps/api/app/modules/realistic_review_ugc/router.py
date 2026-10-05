@@ -3550,16 +3550,29 @@ def sync_stage2_skill(
 
 @router.get("/stage2-jobs", response_model=list[Stage2JobResponse])
 def list_stage2_jobs(
-    source_plan_id: str | None = Query(default=None, max_length=36),
-    limit: int = Query(default=200, ge=1, le=500),
+    source_plan_id: list[str] | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=2000),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
+    source_plan_ids = list(dict.fromkeys(
+        str(value or "").strip()
+        for value in (source_plan_id or [])
+        if str(value or "").strip()
+    ))
+    if len(source_plan_ids) > 250 or any(len(value) > 36 for value in source_plan_ids):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "stage2_source_plan_filter_invalid",
+                "message": "Stage 2 job filtering accepts at most 250 source plan IDs.",
+            },
+        )
     return [
         _stage2_job(row)
         for row in RrugcRepository(session).list_stage2_jobs(
             principal.active_tenant_id,
-            source_plan_id=source_plan_id,
+            source_plan_ids=source_plan_ids,
             limit=limit,
         )
     ]
