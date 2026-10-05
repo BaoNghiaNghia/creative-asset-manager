@@ -53,6 +53,29 @@ def test_hat_quote_document_accepts_gemini_native_phrase_shape():
     assert document.confidence == 1.0
 
 
+def test_hat_quote_document_keeps_all_distinct_quotes_from_many_hats():
+    quotes = [
+        "BAD DAY TO BE A HOTDOG",
+        "OUT OF OFFICE",
+        "GIRLS CAN GOLF TOO",
+        "WILD AT HEART",
+        "NEED MONEY FOR DIRTBIKES",
+        "WHY TAKE THE HIGH ROAD",
+        "EVERY DREAM BEGINS WITH A WISH",
+        "PLEASE BE PATIENT WITH ME",
+    ]
+    document = HatQuoteDocument.model_validate(
+        {
+            "is_hat": True,
+            "quotes": quotes,
+            "confidence": 0.97,
+        }
+    )
+
+    assert document.quotes == quotes
+    assert len(document.quotes) == 8
+
+
 def test_validate_pinterest_image_url_only_accepts_pinimg_https():
     assert (
         validate_pinterest_image_url(
@@ -106,7 +129,9 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
         analysis_input = provider.inputs[0]
         assert analysis_input.image_bytes == b"fake-jpeg-bytes"
         assert analysis_input.image_mime_type == "image/jpeg"
-        assert "only wording physically on the hat/cap" in analysis_input.prompt
+        assert "read the complete saying/quote physically printed or embroidered on that hat" in analysis_input.prompt
+        assert "Do not stop after the first, clearest, largest, or central hat." in analysis_input.prompt
+        assert "return every distinct readable saying from all of them" in analysis_input.prompt
         assert "unrelated Pinterest caption" in analysis_input.prompt
         assert len(requests) == 1
 

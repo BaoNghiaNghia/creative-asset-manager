@@ -15,9 +15,10 @@ from app.domain.providers.contracts import (
 )
 
 
-QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v1"
+QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v2"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 QUOTE_SCOUT_MIN_KEYWORD_CHARS = 5
+QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
 QUOTE_SCOUT_ALLOWED_IMAGE_HOST = re.compile(r"(^|\.)pinimg\.com$", re.IGNORECASE)
 
 
@@ -37,7 +38,10 @@ class HatQuoteDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_hat: bool
-    quotes: list[str] = Field(default_factory=list, max_length=4)
+    quotes: list[str] = Field(
+        default_factory=list,
+        max_length=QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE,
+    )
     confidence: float = Field(ge=0.0, le=1.0)
 
     @model_validator(mode="before")
@@ -89,7 +93,7 @@ class HatQuoteDocument(BaseModel):
             return []
         result: list[str] = []
         seen: set[str] = set()
-        for raw in value[:8]:
+        for raw in value:
             if isinstance(raw, dict):
                 raw = raw.get("text") or raw.get("phrase") or ""
             text = re.sub(r"\s+", " ", str(raw or "")).strip(" \t\r\n\"'“”")
@@ -103,7 +107,7 @@ class HatQuoteDocument(BaseModel):
                 continue
             seen.add(key)
             result.append(text)
-            if len(result) >= 4:
+            if len(result) >= QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE:
                 break
         return result
 
@@ -144,18 +148,25 @@ You are reading text on a product photo discovered from Pinterest search results
 Goal: extract the exact saying/quote visibly printed or embroidered ON THE HAT/CAP itself.
 
 Rules:
-- Decide whether the image visibly contains a hat/cap.
-- Read only wording physically on the hat/cap.
+- Inspect the ENTIRE image and identify every visible hat/cap, including small, side,
+  background, partially angled, and non-central hats.
+- Do not stop after the first, clearest, largest, or central hat.
+- Decide whether the image visibly contains at least one hat/cap.
+- For EACH visible hat/cap, read the complete saying/quote physically printed or embroidered on that hat.
+- If several hats have different sayings, return every distinct readable saying from all of them.
+- Read only wording physically on hats/caps.
 - Ignore Pinterest UI, captions, product titles, watermarks, packaging, signs, shirts,
-  background text, comments, and any text not physically on the hat.
+  background text, comments, and any text not physically on a hat.
 - Transcribe verbatim in natural reading order.
 - Do not correct spelling, complete hidden letters, paraphrase, or invent missing words.
-- If lettering is too unclear to read confidently, return no quote for it.
-- If multiple separate text lines form one saying, combine them into one phrase.
-- Return at most 4 distinct phrases.
+- If lettering on one hat is too unclear to read confidently, skip only that unreadable quote;
+  continue inspecting the other hats.
+- If multiple separate text lines on the same hat form one saying, combine them into one phrase.
+- Return every distinct readable hat saying. The transport supports up to 50 distinct quotes
+  per image; do not intentionally omit readable hats unless that technical limit is reached.
 - Ignore single letters/fragments; each returned phrase must contain at least 5 alphanumeric characters.
-- Each item in quotes must be a plain string only. Never return {text, confidence} objects inside quotes.
-- confidence is confidence that the returned phrase(s) are visibly present on the hat.
+- Each item in quotes must be a plain string only. Never return {{text, confidence}} objects inside quotes.
+- confidence is confidence that the returned phrase(s) are visibly present on the hats.
 
 Pinterest image alt text is weak supporting context only and must never override visible evidence:
 {alt_block}

@@ -135,6 +135,46 @@ def test_keyword_volume_request_includes_pinterest_source(monkeypatch):
     asyncio.run(client.close())
 
 
+def test_keyword_volume_request_keeps_all_quotes_from_multi_hat_image(monkeypatch):
+    captured = {}
+
+    async def fake_post(path, payload, *, operation):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["operation"] = operation
+        return {"items": []}
+
+    quotes = [
+        "BAD DAY TO BE A HOTDOG",
+        "OUT OF OFFICE",
+        "GIRLS CAN GOLF TOO",
+        "WILD AT HEART",
+        "NEED MONEY FOR DIRTBIKES",
+        "WHY TAKE THE HIGH ROAD",
+        "EVERY DREAM BEGINS WITH A WISH",
+        "PLEASE BE PATIENT WITH ME",
+    ]
+    client = QuoteScoutClient(
+        "https://creative-assets.example",
+        "agent-1",
+        "secret",
+    )
+    monkeypatch.setattr(client, "_post", fake_post)
+
+    asyncio.run(
+        client.resolve_volume(
+            quotes,
+            source_image_url="https://i.pinimg.com/736x/aa/bb/multi-hat.jpg",
+            source_pin_url="https://www.pinterest.com/pin/456/",
+        )
+    )
+
+    assert captured["operation"] == "resolve_keyword_volume"
+    assert captured["payload"]["keywords"] == quotes
+    assert len(captured["payload"]["keywords"]) == 8
+    asyncio.run(client.close())
+
+
 def test_login_gate_requires_normal_chrome_bootstrap(monkeypatch):
     class FakePage:
         async def wait_for_timeout(self, _ms):
