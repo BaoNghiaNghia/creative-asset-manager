@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BATCH = ROOT / "START_SCOUT.bat"
+KEYWORD_CMD = ROOT / "START_KEYWORD_SCOUT.cmd"
 UPDATER = ROOT / "scripts" / "start_scout_auto_update.ps1"
 
 
@@ -60,6 +61,27 @@ class ScoutLauncherContractTests(unittest.TestCase):
         self.assertIn("for ($attempt = 1; $attempt -le 10; $attempt++)", recovery)
         self.assertIn("Start-Sleep -Milliseconds 100", recovery)
         self.assertIn("Test-Path -LiteralPath $Path -PathType Leaf", recovery)
+
+    def test_keyword_cmd_uses_shared_self_updating_launcher(self) -> None:
+        source = KEYWORD_CMD.read_text()
+        self.assertIn("scripts\\start_scout_auto_update.ps1", source)
+        self.assertIn("-KeywordMode", source)
+        self.assertIn("Stage 0 Keyword Scout", source)
+
+    def test_keyword_mode_survives_fast_forward_relaunch(self) -> None:
+        source = UPDATER.read_text()
+        self.assertIn("if ($KeywordMode)", source)
+        self.assertIn(
+            "-File $updatedBootstrap -SkipUpdate -KeywordMode",
+            source,
+        )
+
+    def test_keyword_mode_reuses_agent_credentials_without_stage1_claims(self) -> None:
+        source = UPDATER.read_text()
+        self.assertIn("$KeywordScoutPath", source)
+        self.assertIn('"--agent-id", $agentId', source)
+        self.assertIn("$env:RRUGC_SCOUT_TOKEN = $token", source)
+        self.assertIn("Stage 1 claim lane  : not used", source)
 
 
 if __name__ == "__main__":

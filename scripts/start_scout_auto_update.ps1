@@ -1,5 +1,6 @@
 param(
-    [switch]$SkipUpdate
+    [switch]$SkipUpdate,
+    [switch]$KeywordMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,7 @@ $ConfigExamplePath = Join-Path $RepoRoot "scout.local.env.example"
 $RequirementsPath = Join-Path $RepoRoot "apps\rrugc_scout\requirements.txt"
 $RequirementsStampPath = Join-Path $RepoRoot ".rrugc-scout-requirements.sha256"
 $ScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\scout.py"
+$KeywordScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\quote_keyword_volume.py"
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -269,7 +271,12 @@ if (-not $SkipUpdate) {
             # left it absent, recover the exact origin/main version first.
             $updatedBootstrap = Join-Path $RepoRoot "scripts\start_scout_auto_update.ps1"
             Ensure-ScoutBootstrap $updatedBootstrap
-            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate
+            if ($KeywordMode) {
+                & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -KeywordMode
+            }
+            else {
+                & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate
+            }
             exit $LASTEXITCODE
         }
 
@@ -387,6 +394,92 @@ if (-not (Test-Path -LiteralPath $ScoutPath)) {
 $head = (& git rev-parse --short=8 HEAD 2>$null)
 if ($LASTEXITCODE -ne 0) {
     $head = "unknown"
+}
+
+if ($KeywordMode) {
+    if (-not (Test-Path -LiteralPath $KeywordScoutPath)) {
+        Fail ("Keyword Scout entry point is missing: " + $KeywordScoutPath)
+    }
+
+    Write-Step "Starting Stage 0 Keyword Scout"
+    Write-Host ("Source commit       : " + $head) -ForegroundColor Green
+    Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
+    Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
+    Write-Host "Mode                : independent Stage 0 keyword-volume analysis" -ForegroundColor Green
+    Write-Host "Stage 1 claim lane  : not used" -ForegroundColor Green
+    Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Paste up to 50 keywords. Use one keyword per line." -ForegroundColor Cyan
+    Write-Host "A blank line starts analysis. Type Q on an empty batch to quit." -ForegroundColor DarkGray
+
+    $env:RRUGC_SCOUT_TOKEN = $token
+    try {
+        while ($true) {
+            Write-Host ""
+            Write-Host "Keywords:" -ForegroundColor Cyan
+            $keywords = New-Object System.Collections.Generic.List[string]
+            $seen = @{}
+
+            while ($keywords.Count -lt 50) {
+                $line = Read-Host
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    break
+                }
+                if ($keywords.Count -eq 0 -and $line.Trim().Equals("q", [StringComparison]::OrdinalIgnoreCase)) {
+                    exit 0
+                }
+
+                foreach ($part in ($line -split "[,;]")) {
+                    $keyword = $part.Trim()
+                    if ([string]::IsNullOrWhiteSpace($keyword)) {
+                        continue
+                    }
+                    $key = $keyword.ToLowerInvariant()
+                    if (-not $seen.ContainsKey($key)) {
+                        $seen[$key] = $true
+                        $keywords.Add($keyword)
+                    }
+                    if ($keywords.Count -ge 50) {
+                        break
+                    }
+                }
+            }
+
+            if ($keywords.Count -eq 0) {
+                Write-Host "No keywords entered." -ForegroundColor Yellow
+                continue
+            }
+
+            Write-Step ("Analyzing " + $keywords.Count + " keyword(s)")
+            $keywordArguments = @(
+                $KeywordScoutPath,
+                "--base-url", $baseUrl,
+                "--agent-id", $agentId
+            )
+            foreach ($keyword in $keywords) {
+                $keywordArguments += @("--keyword", $keyword)
+            }
+
+            & $python @keywordArguments
+            $keywordExit = $LASTEXITCODE
+            if ($keywordExit -ne 0) {
+                Write-Host ""
+                Write-Host ("Keyword Scout request failed with exit code " + $keywordExit + ".") -ForegroundColor Red
+            }
+            else {
+                Write-Host ""
+                Write-Host "Stage 0 updated. Results are available in Creative Asset Manager." -ForegroundColor Green
+            }
+
+            $next = (Read-Host "Press Enter for another batch, or type Q to quit").Trim()
+            if ($next.Equals("q", [StringComparison]::OrdinalIgnoreCase)) {
+                exit $keywordExit
+            }
+        }
+    }
+    finally {
+        Remove-Item Env:RRUGC_SCOUT_TOKEN -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Step "Starting Pinterest Auto Scout"

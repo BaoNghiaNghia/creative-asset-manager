@@ -38,7 +38,15 @@ Do not commit `scout.local.env`; it is intentionally ignored by Git.
 
 A second terminal can reuse the same Scout Agent credentials without competing for the normal Pinterest reference claim lane. After the quote scout discovers keywords, submit them through Creative Asset Manager instead of calling AEBrowse directly. Stage 0 is an independent keyword table: CAM calls the AEBrowse Google Ads endpoint server-side, stores each normalized keyword once per tenant, and reuses fresh results for 24 hours.
 
-Example:
+On Windows, use the repository-root launcher:
+
+```text
+START_KEYWORD_SCOUT.cmd
+```
+
+It auto-updates from `origin/main` with the same safety rules as `START_SCOUT.bat`, reuses `scout.local.env` and `.venv-rrugc`, and opens an interactive loop. Paste up to 50 keywords, one per line, then submit a blank line. The terminal can stay open beside the normal Pinterest Scout; it never claims Stage 1 jobs.
+
+Direct Python usage remains available:
 
 ```powershell
 python apps\rrugc_scout\quote_keyword_volume.py `
