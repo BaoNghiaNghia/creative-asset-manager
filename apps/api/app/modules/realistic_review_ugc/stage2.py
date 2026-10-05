@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import random
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from PIL import Image
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -48,6 +50,7 @@ from app.providers.ai.codex_image import (
 STAGE2_JOB_TYPE = "rrugc_stage2_generate"
 DEFAULT_STAGE2_SKILL = "gatorhats-8869-image-studio"
 MAX_STAGE2_REFERENCES = 10
+DEFAULT_STAGE2_PROMPT = "8869 Five-Panel Twill Cap\nCenter"
 
 
 class RrugcStage2Error(RuntimeError):
@@ -171,6 +174,44 @@ class RrugcStage2Service:
                 status_code=422,
             )
 
+        source_group_filters = []
+        if plan.campaign_id:
+            source_group_filters.append(
+                RrugcSourcePlanModel.campaign_id == plan.campaign_id
+            )
+        if plan.embroidery_signature:
+            source_group_filters.append(
+                RrugcSourcePlanModel.embroidery_signature == plan.embroidery_signature
+            )
+        source_group = [plan]
+        if source_group_filters:
+            source_group = list(
+                self.session.query(RrugcSourcePlanModel)
+                .filter(
+                    RrugcSourcePlanModel.tenant_id == tenant_id,
+                    or_(*source_group_filters),
+                )
+                .order_by(
+                    RrugcSourcePlanModel.source_relative_path.asc(),
+                    RrugcSourcePlanModel.id.asc(),
+                )
+            )
+            source_group = [
+                member
+                for member in source_group
+                if member.source_file_id and member.status != "missing"
+            ] or [plan]
+        selected_source = random.choice(source_group)
+        selected_source_snapshot = {
+            "source_plan_id": selected_source.id,
+            "remote_file_id": selected_source.source_file_id,
+            "source_name": selected_source.source_name,
+            "content_type": selected_source.source_mime_type,
+            "size_bytes": selected_source.source_size_bytes,
+            "source_revision": selected_source.source_revision,
+        }
+        effective_prompt = (prompt or "").strip() or DEFAULT_STAGE2_PROMPT
+
         snapshot: list[dict] = []
         for position, candidate_id in enumerate(ids):
             row = by_id[candidate_id]
@@ -210,17 +251,27 @@ class RrugcStage2Service:
                 }
             )
 
+        run_ordinal = (
+            self.session.query(RrugcStage2JobModel)
+            .filter(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.source_plan_id == plan.id,
+            )
+            .count()
+            + 1
+        )
         raw_key = "|".join(
             [
                 plan.id,
                 plan.source_revision,
+                f"run:{run_ordinal}",
                 resolved.source,
                 resolved.skill_id or "",
                 resolved_skill,
                 resolved.skill_version or "",
                 bundle_sha256 or "",
                 *ids,
-                (prompt or "").strip(),
+                effective_prompt,
             ]
         )
         idempotency_key = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
@@ -241,7 +292,8 @@ class RrugcStage2Service:
             skill_bundle_sha256=bundle_sha256,
             selected_candidate_ids_json=ids,
             selected_reference_snapshot_json=snapshot,
-            prompt_text=(prompt or "").strip() or None,
+            selected_source_snapshot_json=selected_source_snapshot,
+            prompt_text=effective_prompt,
             status="queued",
             idempotency_key=idempotency_key,
             queued_at=now,
@@ -427,9 +479,52 @@ class RrugcStage2GenerateJobHandler:
             row.started_at = row.started_at or datetime.now(timezone.utc)
             row.last_error_code = None
             row.last_error_message = None
-            source_file_id = plan.source_file_id
-            source_mime_type = plan.source_mime_type
-            source_size_bytes = plan.source_size_bytes
+            selected_source_snapshot = dict(row.selected_source_snapshot_json or {})
+            if selected_source_snapshot:
+                selected_source_plan_id = str(
+                    selected_source_snapshot.get("source_plan_id") or ""
+                )
+                selected_source_plan = (
+                    session.get(RrugcSourcePlanModel, selected_source_plan_id)
+                    if selected_source_plan_id
+                    else None
+                )
+                if (
+                    selected_source_plan is None
+                    or selected_source_plan.tenant_id != context.job.tenant_id
+                    or selected_source_plan.source_revision
+                    != str(selected_source_snapshot.get("source_revision") or "")
+                ):
+                    row.status = "failed"
+                    row.last_error_code = "stage2_source_changed"
+                    row.last_error_message = (
+                        "The randomly selected hat input changed after this job was queued."
+                    )
+                    session.commit()
+                    return JobHandlerResult.non_retryable(
+                        "stage2_source_changed",
+                        row.last_error_message,
+                    )
+                source_file_id = str(
+                    selected_source_snapshot.get("remote_file_id") or ""
+                )
+                source_mime_type = (
+                    str(selected_source_snapshot.get("content_type"))
+                    if selected_source_snapshot.get("content_type")
+                    else None
+                )
+                source_size_bytes = selected_source_snapshot.get("size_bytes")
+                source_input_plan_id = selected_source_plan_id
+                source_input_name = str(
+                    selected_source_snapshot.get("source_name") or ""
+                )
+            else:
+                # Backward compatibility for jobs queued before source snapshots existed.
+                source_file_id = plan.source_file_id
+                source_mime_type = plan.source_mime_type
+                source_size_bytes = plan.source_size_bytes
+                source_input_plan_id = plan.id
+                source_input_name = plan.source_name
             references = list(row.selected_reference_snapshot_json or [])
             skill_name = row.skill_name
             skill_source = row.skill_source or "local"
@@ -448,13 +543,15 @@ class RrugcStage2GenerateJobHandler:
                 "skill_name": skill_name,
                 "skill_version": skill_version,
                 "reference_count": len(references[:MAX_STAGE2_REFERENCES]),
+                "source_input_plan_id": source_input_plan_id,
+                "source_input_name": source_input_name,
             },
         )
 
         source = await self._open_prepared(
             storage,
             tenant_id=context.job.tenant_id,
-            asset_id=f"rrugc-stage2-source:{job_id}",
+            asset_id=f"rrugc-stage2-source:{job_id}:{source_input_plan_id}",
             remote_file_id=source_file_id,
             content_type=source_mime_type,
             size_bytes=source_size_bytes,
@@ -512,16 +609,7 @@ class RrugcStage2GenerateJobHandler:
                 ),
             )
         )
-        generation_prompt = (
-            "Stage 2 master generation. The edit target is the authoritative "
-            "embroidered-hat source. Preserve the visible embroidery identity, "
-            "wording, layout and hat construction. The Pinterest target_image "
-            "references are context/composition/style anchors only; do not copy "
-            "their branding or artwork. Create one photorealistic master image "
-            "that can anchor later variants."
-        )
-        if prompt:
-            generation_prompt += "\nAdditional operator instruction: " + prompt
+        generation_prompt = (prompt or DEFAULT_STAGE2_PROMPT).strip()
 
         try:
             result = await runner.generate_from_references(

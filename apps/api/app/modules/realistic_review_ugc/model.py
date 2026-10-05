@@ -918,6 +918,7 @@ class RrugcStage2JobModel(Base):
     skill_bundle_sha256: Mapped[str | None] = mapped_column(String(64))
     selected_candidate_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
     selected_reference_snapshot_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    selected_source_snapshot_json: Mapped[dict | None] = mapped_column(JSON)
     prompt_text: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)

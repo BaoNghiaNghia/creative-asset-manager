@@ -68,7 +68,11 @@ from app.modules.realistic_review_ugc.keyword_strategy import (
 from app.modules.realistic_review_ugc.generation import RrugcGenerationFoundation
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
-from app.modules.realistic_review_ugc.stage2 import RrugcStage2Error, RrugcStage2Service
+from app.modules.realistic_review_ugc.stage2 import (
+    DEFAULT_STAGE2_PROMPT,
+    RrugcStage2Error,
+    RrugcStage2Service,
+)
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
@@ -1008,7 +1012,7 @@ def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
         assert diagnostics["claimable"] == 1
 
 
-def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database):
+def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypatch):
     codex_home = (Path(__file__).resolve().parents[5] / "deploy" / "codex").resolve()
     settings = Settings(
         CODEX_IMAGE_HOME=str(codex_home),
@@ -1043,8 +1047,29 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database):
             campaign_id=campaign.id,
             created_by_user_id="user-a",
         )
-        session.add(plan)
+        alternate_plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id="root",
+            source_file_id="source-stage2-alt",
+            source_relative_path="Hats/design-alt.png",
+            source_name="design-alt.png",
+            source_mime_type="image/png",
+            source_size_bytes=2048,
+            source_revision="e" * 64,
+            analysis_revision=1,
+            embroidery_signature="d" * 64,
+            status="ready",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        session.add_all([plan, alternate_plan])
         session.flush()
+        monkeypatch.setattr(
+            "app.modules.realistic_review_ugc.stage2.random.choice",
+            lambda rows: next(
+                row for row in rows if row.source_file_id == "source-stage2-alt"
+            ),
+        )
 
         candidates = []
         for index in range(11):
@@ -1078,6 +1103,15 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database):
         assert row.status == "queued"
         assert row.selected_candidate_ids_json == selected
         assert len(row.selected_reference_snapshot_json) == 3
+        assert row.selected_source_snapshot_json == {
+            "source_plan_id": alternate_plan.id,
+            "remote_file_id": "source-stage2-alt",
+            "source_name": "design-alt.png",
+            "content_type": "image/png",
+            "size_bytes": 2048,
+            "source_revision": "e" * 64,
+        }
+        assert row.prompt_text == DEFAULT_STAGE2_PROMPT
         assert all(
             item["remote_file_id"].startswith("drive-ref-")
             for item in row.selected_reference_snapshot_json
@@ -1087,14 +1121,17 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database):
         assert processing_job.job_type == "rrugc_stage2_generate"
         assert processing_job.entity_id == row.id
 
-        same, duplicate_created = service.create_job(
+        next_run, next_created = service.create_job(
             tenant_id="tenant-a",
             user_id="user-a",
             source_plan_id=plan.id,
             selected_candidate_ids=selected,
         )
-        assert duplicate_created is False
-        assert same.id == row.id
+        assert next_created is True
+        assert next_run.id != row.id
+        assert next_run.selected_candidate_ids_json == selected
+        assert next_run.prompt_text == DEFAULT_STAGE2_PROMPT
+        assert next_run.selected_source_snapshot_json["remote_file_id"] == "source-stage2-alt"
 
         with pytest.raises(RrugcStage2Error) as exc:
             service.create_job(
