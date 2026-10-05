@@ -870,6 +870,10 @@ async def extract_visible(page: Any) -> list[Candidate]:
     rows = await page.evaluate(
         r"""() => {
           const out = [];
+          const seen = new Set();
+          const pinImageSelector =
+            'img[src*="pinimg.com"], img[srcset*="pinimg.com"]';
+
           const bestSrc = (image) => {
             const candidates = [];
             const srcset = image.getAttribute('srcset') || '';
@@ -883,13 +887,111 @@ async def extract_visible(page: Any) -> list[Candidate]:
               || image.src
               || '';
           };
-          const seen = new Set();
-          const collect = (anchor, card, images) => {
-            if (!anchor) return;
-            const href = anchor.href || '';
+
+          const renderedArea = (node) => {
+            const rect = node?.getBoundingClientRect?.();
+            if (!rect) return 0;
+            return Math.max(0, rect.width) * Math.max(0, rect.height);
+          };
+
+          const pinImages = Array.from(
+            document.querySelectorAll(pinImageSelector)
+          );
+
+          const chooseLargest = (images) => {
+            const rows = Array.from(images || []).filter(Boolean);
+            rows.sort((a, b) => {
+              const areaDelta = renderedArea(b) - renderedArea(a);
+              if (areaDelta) return areaDelta;
+              return (b.naturalWidth || 0) - (a.naturalWidth || 0);
+            });
+            return rows[0] || null;
+          };
+
+          const localImageForAnchor = (anchor) => {
+            let node = anchor;
+            for (let depth = 0; node && depth < 10; depth += 1) {
+              const images = Array.from(node.querySelectorAll?.(
+                pinImageSelector
+              ) || []);
+              const pinLinks = Array.from(node.querySelectorAll?.(
+                'a[href*="/pin/"]'
+              ) || []);
+              if (
+                images.length
+                && pinLinks.length >= 1
+                && pinLinks.length <= 4
+              ) {
+                return {
+                  image: chooseLargest(images),
+                  card: node,
+                  strategy: 'ancestor',
+                };
+              }
+              node = node.parentElement;
+            }
+            return null;
+          };
+
+          const rectForAnchor = (anchor) => {
+            let node = anchor;
+            for (let depth = 0; node && depth < 6; depth += 1) {
+              const rect = node.getBoundingClientRect?.();
+              if (rect && rect.width > 8 && rect.height > 8) {
+                return rect;
+              }
+              node = node.parentElement;
+            }
+            return anchor.getBoundingClientRect?.() || null;
+          };
+
+          const nearestImageForAnchor = (anchor) => {
+            const anchorRect = rectForAnchor(anchor);
+            if (!anchorRect) return null;
+            const ax = anchorRect.left + anchorRect.width / 2;
+            const ay = anchorRect.top + anchorRect.height / 2;
+            let best = null;
+            let bestScore = Number.POSITIVE_INFINITY;
+            for (const image of pinImages) {
+              const rect = image.getBoundingClientRect?.();
+              if (!rect || rect.width < 20 || rect.height < 20) continue;
+              const ix = rect.left + rect.width / 2;
+              const iy = rect.top + rect.height / 2;
+              const dx = ix - ax;
+              const dy = iy - ay;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              const inside = (
+                ix >= anchorRect.left - 24
+                && ix <= anchorRect.right + 24
+                && iy >= anchorRect.top - 24
+                && iy <= anchorRect.bottom + 24
+              );
+              const score = distance - (inside ? 10000 : 0)
+                - Math.min(renderedArea(image), 200000) / 10000;
+              if (score < bestScore) {
+                bestScore = score;
+                best = image;
+              }
+            }
+            if (!best) return null;
+            const bestRect = best.getBoundingClientRect?.();
+            const bx = bestRect.left + bestRect.width / 2;
+            const by = bestRect.top + bestRect.height / 2;
+            const distance = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2);
+            const maxDistance = Math.max(
+              360,
+              Math.max(anchorRect.width, anchorRect.height) * 2.5
+            );
+            return distance <= maxDistance ? best : null;
+          };
+
+          const collect = (anchor, image, card, strategy) => {
+            if (!anchor || !image) return;
+            const href = anchor.href || anchor.getAttribute('href') || '';
             if (!href.includes('/pin/')) return;
+
             const mediaRoot = card || anchor;
-            const isVideo = Boolean(mediaRoot?.querySelector([
+            const isVideo = Boolean(mediaRoot?.querySelector?.([
               'video',
               '[data-test-id*="video" i]',
               '[data-test-id*="story-pin" i]',
@@ -897,53 +999,80 @@ async def extract_visible(page: Any) -> list[Candidate]:
               '[aria-label*="video" i]',
             ].join(',')));
             if (isVideo) return;
+
+            const src = bestSrc(image);
+            if (!src || !src.includes('pinimg.com')) return;
+            const key = href + '\n' + src;
+            if (seen.has(key)) return;
+            seen.add(key);
+
             const contextText = (card?.textContent || '').trim().slice(0, 1200);
-            for (const image of images || []) {
-              const src = bestSrc(image);
-              if (!src || !src.includes('pinimg.com')) continue;
-              const key = href + '\n' + src;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              out.push({
-                pin_url: href,
-                image_url: src,
-                alt_text: image.alt
-                  || image.getAttribute('aria-label')
-                  || anchor.getAttribute('aria-label')
-                  || null,
-                context_text: contextText || null,
-              });
-            }
+            out.push({
+              pin_url: href,
+              image_url: src,
+              alt_text: image.alt
+                || image.getAttribute('aria-label')
+                || anchor.getAttribute('aria-label')
+                || null,
+              context_text: contextText || null,
+              pairing_strategy: strategy || null,
+            });
           };
 
-          // Preferred path: image remains inside the Pin anchor.
-          for (const anchor of Array.from(document.querySelectorAll('a[href*="/pin/"]'))) {
-            const card = anchor.closest('[data-grid-item="true"]')
-              || anchor.closest('[data-test-id*="pin" i]')
-              || anchor.parentElement?.parentElement
-              || anchor.parentElement;
-            let images = Array.from(anchor.querySelectorAll('img'));
-            // Pinterest occasionally renders the media as a sibling of its
-            // clickable overlay. In that DOM, fall back to images in the card.
-            if (!images.length && card) {
-              images = Array.from(card.querySelectorAll('img'));
+          const anchors = Array.from(
+            document.querySelectorAll('a[href*="/pin/"]')
+          );
+          const handledAnchors = new Set();
+
+          for (const anchor of anchors) {
+            const href = anchor.href || anchor.getAttribute('href') || '';
+            if (!href || handledAnchors.has(href)) continue;
+
+            const directImages = Array.from(
+              anchor.querySelectorAll?.(pinImageSelector) || []
+            );
+            if (directImages.length) {
+              collect(anchor, chooseLargest(directImages), anchor, 'direct');
+              handledAnchors.add(href);
+              continue;
             }
-            collect(anchor, card, images);
+
+            const local = localImageForAnchor(anchor);
+            if (local?.image) {
+              collect(anchor, local.image, local.card, local.strategy);
+              handledAnchors.add(href);
+              continue;
+            }
+
+            const nearest = nearestImageForAnchor(anchor);
+            if (nearest) {
+              collect(anchor, nearest, anchor.parentElement, 'geometry');
+              handledAnchors.add(href);
+            }
           }
 
-          // Final fallback for newer card markup: start from Pinterest CDN
-          // images, find the nearest card and pair it with that card's Pin link.
-          for (const image of Array.from(document.querySelectorAll(
-            'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
-          ))) {
-            const card = image.closest('[data-grid-item="true"]')
-              || image.closest('[data-test-id*="pin" i]')
-              || image.parentElement?.parentElement?.parentElement
-              || image.parentElement?.parentElement;
-            const anchor = image.closest('a[href*="/pin/"]')
-              || card?.querySelector('a[href*="/pin/"]');
-            collect(anchor, card, [image]);
+          // Image-first fallback for cards whose clickable Pin overlay is not
+          // an ancestor of the image. Walk upward farther than the old fixed
+          // parent-depth heuristic and stop before reaching a multi-card root.
+          for (const image of pinImages) {
+            let node = image;
+            let anchor = image.closest?.('a[href*="/pin/"]') || null;
+            let card = anchor || null;
+            for (let depth = 0; !anchor && node && depth < 10; depth += 1) {
+              const links = Array.from(node.querySelectorAll?.(
+                'a[href*="/pin/"]'
+              ) || []);
+              if (links.length === 1) {
+                anchor = links[0];
+                card = node;
+                break;
+              }
+              if (links.length > 4) break;
+              node = node.parentElement;
+            }
+            collect(anchor, image, card, 'image-first');
           }
+
           return out;
         }"""
     )

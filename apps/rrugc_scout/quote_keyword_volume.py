@@ -27,6 +27,7 @@ from scout import (
     extract_visible,
     guard_pinterest_response,
     launch_context,
+    loaded_pin_count,
     paced_wait,
     pin_history_key,
     pinimg_asset_key,
@@ -43,6 +44,11 @@ DEFAULT_CYCLE_SECONDS = 180
 DEFAULT_MAX_SCROLL_BATCHES = 10
 DEFAULT_MAX_PINS_PER_CYCLE = 40
 DEFAULT_RELATED_PER_PIN = 60
+KEYWORD_SCROLL_STEP_PX = (260, 420)
+KEYWORD_SCROLL_STEPS_PER_BATCH = (1, 2)
+KEYWORD_SCROLL_STEP_PAUSE_MS = (1_100, 1_700)
+KEYWORD_SCROLL_SETTLE_MS = (900, 1_500)
+KEYWORD_SCROLL_GROWTH_TIMEOUT_MS = 4_500
 INITIAL_RESULTS_TIMEOUT_MS = 12_000
 EMPTY_BATCH_RELOAD_THRESHOLD = 3
 EMPTY_CYCLE_RETRY_SECONDS = 30
@@ -335,10 +341,28 @@ async def _wait_for_pinterest_access(page: Any, *, max_seconds: int = 900) -> No
 
 
 async def _scroll_search_page(page: Any, pace) -> None:
-    steps = random.randint(*pace.scroll_steps_per_batch)
+    previous_count = await loaded_pin_count(page)
+    steps = random.randint(*KEYWORD_SCROLL_STEPS_PER_BATCH)
     for _ in range(steps):
-        await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
-        await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
+        await page.mouse.wheel(0, random.randint(*KEYWORD_SCROLL_STEP_PX))
+        await page.wait_for_timeout(
+            random.randint(*KEYWORD_SCROLL_STEP_PAUSE_MS)
+        )
+    latest_count = await wait_for_pin_growth(
+        page,
+        previous_count=previous_count,
+        timeout_ms=KEYWORD_SCROLL_GROWTH_TIMEOUT_MS,
+    )
+    settle_ms = random.randint(*KEYWORD_SCROLL_SETTLE_MS)
+    await page.wait_for_timeout(settle_ms)
+    scout_debug_event(
+        "keyword_scout_scroll_completed",
+        pace=pace.name,
+        steps=steps,
+        previous_pin_links=previous_count,
+        latest_pin_links=latest_count,
+        settle_ms=settle_ms,
+    )
 
 
 async def _search_page_diagnostics(page: Any) -> dict[str, Any]:
@@ -355,6 +379,16 @@ async def _search_page_diagnostics(page: Any) -> dict[str, Any]:
           pinimg_images: document.querySelectorAll(
             'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
           ).length,
+          pin_links_with_direct_image: Array.from(
+            document.querySelectorAll('a[href*="/pin/"]')
+          ).filter((node) => node.querySelector(
+            'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
+          )).length,
+          pinimg_with_pin_ancestor: Array.from(
+            document.querySelectorAll(
+              'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
+            )
+          ).filter((node) => node.closest('a[href*="/pin/"]')).length,
           all_images: document.images.length,
           body_text: (document.body?.innerText || '')
             .replace(/\s+/g, ' ')
@@ -739,6 +773,20 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             + str(diagnostics.get("pin_links") or 0)
                             + " pinimg_images="
                             + str(diagnostics.get("pinimg_images") or 0)
+                            + " direct_pairs="
+                            + str(
+                                diagnostics.get(
+                                    "pin_links_with_direct_image"
+                                )
+                                or 0
+                            )
+                            + " image_ancestors="
+                            + str(
+                                diagnostics.get(
+                                    "pinimg_with_pin_ancestor"
+                                )
+                                or 0
+                            )
                         )
                         if gate is not None:
                             raise PinterestAccessGateError(gate)

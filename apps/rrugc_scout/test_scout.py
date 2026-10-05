@@ -331,7 +331,9 @@ def test_extract_visible_uses_normalization_contract_and_card_fallback():
     assert len(rows) == 1
     assert rows[0].image_url.endswith("/736x/a.jpg")
     assert 'img[src*="pinimg.com"]' in page.script
-    assert "card?.querySelector('a[href*=\"/pin/\"]')" in page.script
+    assert "depth < 10" in page.script
+    assert "nearestImageForAnchor" in page.script
+    assert "pairing_strategy" in page.script
 
 
 def test_pin_detail_selection_prefers_same_asset_highest_rendition():
