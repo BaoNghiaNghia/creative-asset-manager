@@ -8,6 +8,7 @@ import quote_keyword_volume as keyword_scout
 from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
     DEFAULT_RELATED_PER_PIN,
+    CAM_QUOTE_REQUEST_TIMEOUT_SECONDS,
     KeywordScoutHistory,
     QuoteScoutClient,
     _dedupe,
@@ -99,6 +100,41 @@ def test_keyword_volume_skips_http_when_all_keywords_are_too_short(monkeypatch):
         "cached": 0,
         "items": [],
     }
+    asyncio.run(client.close())
+
+
+def test_quote_extract_uses_extended_timeout_for_gemini_failover(monkeypatch):
+    captured = {}
+
+    class Candidate:
+        pin_url = "https://www.pinterest.com/pin/999/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/quote.jpg"
+        alt_text = "trucker cap"
+
+    async def fake_post(path, payload, *, operation, timeout_seconds):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["operation"] = operation
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "quotes": ["OUT OF OFFICE"],
+            "is_target_cap": True,
+            "confidence": 0.99,
+            "provider": "gemini",
+        }
+
+    client = QuoteScoutClient(
+        "https://creative-assets.example",
+        "agent-1",
+        "secret",
+    )
+    monkeypatch.setattr(client, "_post", fake_post)
+
+    result = asyncio.run(client.extract_quote(Candidate()))
+
+    assert result["quotes"] == ["OUT OF OFFICE"]
+    assert captured["operation"] == "extract_hat_quote"
+    assert captured["timeout_seconds"] == CAM_QUOTE_REQUEST_TIMEOUT_SECONDS == 90.0
     asyncio.run(client.close())
 
 

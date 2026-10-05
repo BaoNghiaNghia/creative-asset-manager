@@ -58,6 +58,8 @@ INITIAL_RESULTS_TIMEOUT_MS = 12_000
 EMPTY_BATCH_RELOAD_THRESHOLD = 3
 EMPTY_CYCLE_RETRY_SECONDS = 30
 RUNTIME_RECOVERY_SECONDS = 30
+CAM_DEFAULT_REQUEST_TIMEOUT_SECONDS = 45.0
+CAM_QUOTE_REQUEST_TIMEOUT_SECONDS = 90.0
 
 
 def _keywords_from_file(path: str | None) -> list[str]:
@@ -308,12 +310,17 @@ class QuoteScoutClient:
         payload: dict[str, Any],
         *,
         operation: str,
+        timeout_seconds: float = CAM_DEFAULT_REQUEST_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(3):
             started = time.monotonic()
             try:
-                response = await self.client.post(path, json=payload)
+                response = await self.client.post(
+                    path,
+                    json=payload,
+                    timeout=httpx.Timeout(timeout_seconds, connect=10.0),
+                )
                 if response.status_code == 429 or response.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"CAM returned HTTP {response.status_code}",
@@ -340,11 +347,35 @@ class QuoteScoutClient:
                     and exc.response is not None
                     else None
                 )
+                duration_ms = round((time.monotonic() - started) * 1000)
+                error_code = None
+                error_message = str(exc)[:500]
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response is not None
+                ):
+                    try:
+                        response_payload = exc.response.json()
+                    except (ValueError, TypeError):
+                        response_payload = None
+                    if isinstance(response_payload, dict):
+                        detail = response_payload.get("detail")
+                        if isinstance(detail, dict):
+                            error_code = str(detail.get("code") or "").strip() or None
+                            error_message = (
+                                str(detail.get("message") or error_message).strip()[:500]
+                            )
+                        elif detail is not None:
+                            error_message = str(detail).strip()[:500]
                 scout_debug_event(
                     "keyword_scout_cam_request_failed",
                     operation=operation,
                     status_code=status,
                     error_type=exc.__class__.__name__,
+                    error_code=error_code,
+                    error=error_message,
+                    duration_ms=duration_ms,
+                    request_timeout_seconds=timeout_seconds,
                     attempt=attempt + 1,
                 )
                 if (
@@ -355,7 +386,18 @@ class QuoteScoutClient:
                 ):
                     raise
                 if attempt < 2:
-                    await asyncio.sleep(1.0 * (2 ** attempt) + random.random())
+                    if status in {429, 503}:
+                        retry_delay = 5.0 * (2 ** attempt) + random.random()
+                    else:
+                        retry_delay = 1.0 * (2 ** attempt) + random.random()
+                    scout_debug_event(
+                        "keyword_scout_cam_retry_wait",
+                        operation=operation,
+                        status_code=status,
+                        retry_delay_seconds=round(retry_delay, 2),
+                        next_attempt=attempt + 2,
+                    )
+                    await asyncio.sleep(retry_delay)
         raise RuntimeError(f"{operation} failed after retries") from last_error
 
     async def extract_quote(self, candidate) -> dict[str, Any]:
@@ -367,6 +409,7 @@ class QuoteScoutClient:
                 "alt_text": candidate.alt_text,
             },
             operation="extract_hat_quote",
+            timeout_seconds=CAM_QUOTE_REQUEST_TIMEOUT_SECONDS,
         )
 
     async def resolve_volume(
