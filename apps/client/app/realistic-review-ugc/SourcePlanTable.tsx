@@ -103,10 +103,11 @@ type SourceThumbItem = Pick<
 
 function SourceImageThumb({ source }: { source: SourceThumbItem }) {
   const media = <span className="rrugc-source-thumb-media">
-    <DeferredImage
+    <img
       src={source.source_preview_url}
       alt={source.source_name}
-      rootMargin="180px"
+      loading="lazy"
+      decoding="async"
     />
   </span>;
 

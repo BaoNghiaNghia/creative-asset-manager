@@ -288,6 +288,38 @@ def test_embroidery_signature_groups_same_golf_artwork_despite_ai_wording_drift(
     assert embroidery_signature(navy) == embroidery_signature(natural)
 
 
+def test_embroidery_signature_falls_back_to_summary_when_identity_omits_motif():
+    detailed = {
+        "embroidery_text": ["Best Grandpa BY PAR"],
+        "embroidery_identity": "Golfer mid-swing beside Best Grandpa BY PAR wording.",
+        "summary": "Natural cap with a golf theme.",
+        "product_cues": ["golf club embroidery"],
+    }
+    generic_identity = {
+        "embroidery_text": ["Best Grandpa BY PAR"],
+        "embroidery_identity": "Best Grandpa BY PAR embroidered wording.",
+        "summary": "Red cap featuring the same golf motif.",
+        "product_cues": ["golf themed embroidery"],
+    }
+
+    assert embroidery_signature(detailed) == embroidery_signature(generic_identity)
+
+
+def test_embroidery_signature_ignores_secondary_motif_wording_drift():
+    simple = {
+        "embroidery_text": ["Best Grandpa BY PAR"],
+        "embroidery_identity": "Golfer mid-swing beside the wording.",
+        "summary": "Golf embroidery.",
+    }
+    verbose = {
+        "embroidery_text": ["Best Grandpa BY PAR"],
+        "embroidery_identity": "Golfer, golf club and ball beside the wording.",
+        "summary": "Golf embroidery with extra visual detail.",
+    }
+
+    assert embroidery_signature(simple) == embroidery_signature(verbose)
+
+
 def test_group_source_plan_rows_uses_recomputed_signature_before_backfill():
     first = RrugcSourcePlanModel(
         id="plan-a",

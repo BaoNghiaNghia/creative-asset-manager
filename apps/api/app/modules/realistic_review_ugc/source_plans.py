@@ -273,6 +273,45 @@ _EMBROIDERY_MOTIF_FAMILY = {
 }
 
 
+_EMBROIDERY_PRIMARY_MOTIF_PRIORITY = (
+    "golf",
+    "hotdog",
+    "teacher",
+    "wedding",
+    "fishing",
+    "motorcycle",
+    "bicycle",
+    "dog",
+    "cat",
+    "paw",
+    "pet",
+    "floral",
+    "heart",
+    "bow",
+    "coffee",
+    "book",
+    "skull",
+    "cowboy",
+    "horse",
+    "truck",
+    "tractor",
+    "mountain",
+    "forest",
+    "tree",
+    "sun",
+    "moon",
+    "star",
+    "beer",
+    "apple",
+    "baby",
+    "dad",
+    "mom",
+    "grandma",
+    "grandpa",
+    "ball",
+)
+
+
 def _canonical_embroidery_motifs(
     tokens: list[str],
     *,
@@ -284,6 +323,20 @@ def _canonical_embroidery_motifs(
         for token in tokens
         if token in _EMBROIDERY_MOTIF_WORDS and token not in text_tokens
     })
+
+
+def _primary_embroidery_motif(
+    tokens: list[str],
+    *,
+    text_tokens: set[str] | None = None,
+) -> str | None:
+    motifs = set(_canonical_embroidery_motifs(tokens, text_tokens=text_tokens))
+    if not motifs:
+        return None
+    for motif in _EMBROIDERY_PRIMARY_MOTIF_PRIORITY:
+        if motif in motifs:
+            return motif
+    return sorted(motifs)[0]
 
 
 def _normalized_embroidery_tokens(value: Any, *, drop_generic: bool = False) -> list[str]:
@@ -309,18 +362,19 @@ def embroidery_signature(visual_context: dict[str, Any] | None) -> str | None:
     text_rows = sorted({value for value in text_rows if value})
 
     identity_value = str(context.get("embroidery_identity") or "").strip()
-    semantic_blob = (
-        identity_value
-        if identity_value
-        else " ".join(
-            [
-                str(context.get("summary") or ""),
-                *[str(value) for value in list(context.get("product_cues") or [])[:10]],
-            ]
-        )
+    identity_tokens_raw = _normalized_embroidery_tokens(
+        identity_value,
+        drop_generic=True,
     )
-    semantic_tokens = _normalized_embroidery_tokens(
-        semantic_blob,
+    fallback_blob = " ".join(
+        [
+            str(context.get("summary") or ""),
+            *[str(value) for value in list(context.get("product_cues") or [])[:10]],
+            *[str(value) for value in list(context.get("themes") or [])[:8]],
+        ]
+    )
+    fallback_tokens_raw = _normalized_embroidery_tokens(
+        fallback_blob,
         drop_generic=True,
     )
     text_tokens = {
@@ -328,27 +382,36 @@ def embroidery_signature(visual_context: dict[str, Any] | None) -> str | None:
         for row in text_rows
         for token in _normalized_embroidery_tokens(row)
     }
+    identity_primary_motif = _primary_embroidery_motif(
+        identity_tokens_raw,
+        text_tokens=text_tokens,
+    )
+    fallback_primary_motif = _primary_embroidery_motif(
+        fallback_tokens_raw,
+        text_tokens=text_tokens,
+    )
+    primary_motif = identity_primary_motif or fallback_primary_motif
+    semantic_tokens = identity_tokens_raw or fallback_tokens_raw
     motifs = _canonical_embroidery_motifs(
         semantic_tokens,
         text_tokens=text_tokens,
     )
     identity_tokens = (
-        sorted(set(_normalized_embroidery_tokens(identity_value, drop_generic=True)))[:24]
-        if identity_value
+        sorted(set(identity_tokens_raw))[:24]
+        if identity_tokens_raw
         else []
     )
 
-    # Readable embroidery text is the strongest stable identity signal.
-    # Motifs come from the dedicated color-invariant embroidery identity when
-    # available, and are canonicalized into stable families so wording drift
-    # such as "golfer", "golf club" and "golf" does not split one design across
-    # product colors. Motifs already present in the transcribed wording are
-    # excluded because the text itself already carries that identity signal.
-    # Text-free embroidery still uses the richer dedicated identity tokens.
+    # Readable embroidery text is the strongest stable identity signal. Use one
+    # stable motif family as a discriminator rather than hashing every motif
+    # word the vision model happened to mention. If the dedicated identity
+    # omits the motif, fall back to summary/product cues/themes. This keeps the
+    # same embroidery grouped across hat colors while still separating common
+    # same-wording designs such as a hotdog graphic vs a golf graphic.
     if text_rows:
         payload = {
             "text": text_rows,
-            "motifs": motifs,
+            "motif": primary_motif,
         }
     else:
         fallback_tokens = identity_tokens or sorted(set(semantic_tokens))[:24]

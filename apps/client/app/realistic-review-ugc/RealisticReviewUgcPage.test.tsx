@@ -351,7 +351,7 @@ describe("Realistic Review UGC source-first workspace", () => {
   });
 
 
-  it("lazy-loads source thumbnails behind a stable skeleton", () => {
+  it("loads source thumbnails directly with native lazy loading", () => {
     const markup = renderToStaticMarkup(
       <SourcePlanTable
         plans={[makePlan()]}
@@ -367,9 +367,10 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("rrugc-deferred-img");
+    expect(markup).toContain('src="/api/v1/realistic-review-ugc/source-plans/plan-1/image"');
     expect(markup).toContain('loading="lazy"');
     expect(markup).toContain('decoding="async"');
+    expect(markup).not.toContain("rrugc-deferred-img");
   });
 
   it("renders table skeleton rows while a Stage 1 page is loading", () => {
