@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from PIL import Image
-from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,6 +32,7 @@ from app.modules.realistic_review_ugc.skill_registry import (
     assert_skill_enabled,
     ensure_skill_registry,
 )
+from app.modules.realistic_review_ugc.source_plans import embroidery_signature
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError,
     installed_stage2_skill_sha256,
@@ -174,33 +174,61 @@ class RrugcStage2Service:
                 status_code=422,
             )
 
-        source_group_filters = []
-        if plan.campaign_id:
-            source_group_filters.append(
-                RrugcSourcePlanModel.campaign_id == plan.campaign_id
+        computed_signature = (
+            embroidery_signature(plan.visual_context_json)
+            if isinstance(plan.visual_context_json, dict)
+            else None
+        )
+        effective_signature = computed_signature or plan.embroidery_signature
+        source_candidates = list(
+            self.session.query(RrugcSourcePlanModel)
+            .filter(
+                RrugcSourcePlanModel.tenant_id == tenant_id,
+                RrugcSourcePlanModel.root_folder_id == plan.root_folder_id,
             )
-        if plan.embroidery_signature:
-            source_group_filters.append(
-                RrugcSourcePlanModel.embroidery_signature == plan.embroidery_signature
+            .order_by(
+                RrugcSourcePlanModel.source_relative_path.asc(),
+                RrugcSourcePlanModel.id.asc(),
             )
-        source_group = [plan]
-        if source_group_filters:
-            source_group = list(
-                self.session.query(RrugcSourcePlanModel)
-                .filter(
-                    RrugcSourcePlanModel.tenant_id == tenant_id,
-                    or_(*source_group_filters),
+        )
+        source_group = [
+            member
+            for member in source_candidates
+            if member.source_file_id
+            and member.status != "missing"
+            and (
+                (
+                    (
+                        (
+                            embroidery_signature(member.visual_context_json)
+                            if isinstance(member.visual_context_json, dict)
+                            else None
+                        )
+                        or member.embroidery_signature
+                    )
+                    == computed_signature
                 )
-                .order_by(
-                    RrugcSourcePlanModel.source_relative_path.asc(),
-                    RrugcSourcePlanModel.id.asc(),
+                if computed_signature
+                else (
+                    (
+                        bool(effective_signature)
+                        and (
+                            (
+                                embroidery_signature(member.visual_context_json)
+                                if isinstance(member.visual_context_json, dict)
+                                else None
+                            )
+                            or member.embroidery_signature
+                        )
+                        == effective_signature
+                    )
+                    or (
+                        bool(plan.campaign_id)
+                        and member.campaign_id == plan.campaign_id
+                    )
                 )
             )
-            source_group = [
-                member
-                for member in source_group
-                if member.source_file_id and member.status != "missing"
-            ] or [plan]
+        ] or [plan]
         selected_source = random.choice(source_group)
         selected_source_snapshot = {
             "source_plan_id": selected_source.id,

@@ -250,6 +250,40 @@ _EMBROIDERY_MOTIF_WORDS = frozenset({
     "fish", "fishing", "beer", "coffee", "book", "books", "sun", "moon",
     "star", "stars", "skull", "cowboy", "horse", "truck", "tractor",
 })
+_EMBROIDERY_MOTIF_FAMILY = {
+    "dogs": "dog",
+    "cats": "cat",
+    "paws": "paw",
+    "hearts": "heart",
+    "bows": "bow",
+    "flowers": "floral",
+    "flower": "floral",
+    "rose": "floral",
+    "golfer": "golf",
+    "club": "golf",
+    "clubs": "golf",
+    "bike": "bicycle",
+    "hotdogs": "hotdog",
+    "sausage": "hotdog",
+    "bride": "wedding",
+    "groom": "wedding",
+    "fish": "fishing",
+    "books": "book",
+    "stars": "star",
+}
+
+
+def _canonical_embroidery_motifs(
+    tokens: list[str],
+    *,
+    text_tokens: set[str] | None = None,
+) -> list[str]:
+    text_tokens = text_tokens or set()
+    return sorted({
+        _EMBROIDERY_MOTIF_FAMILY.get(token, token)
+        for token in tokens
+        if token in _EMBROIDERY_MOTIF_WORDS and token not in text_tokens
+    })
 
 
 def _normalized_embroidery_tokens(value: Any, *, drop_generic: bool = False) -> list[str]:
@@ -274,21 +308,30 @@ def embroidery_signature(visual_context: dict[str, Any] | None) -> str | None:
     ]
     text_rows = sorted({value for value in text_rows if value})
 
-    semantic_blob = " ".join(
-        [
-            str(context.get("embroidery_identity") or ""),
-            str(context.get("summary") or ""),
-            *[str(value) for value in list(context.get("product_cues") or [])[:10]],
-        ]
+    identity_value = str(context.get("embroidery_identity") or "").strip()
+    semantic_blob = (
+        identity_value
+        if identity_value
+        else " ".join(
+            [
+                str(context.get("summary") or ""),
+                *[str(value) for value in list(context.get("product_cues") or [])[:10]],
+            ]
+        )
     )
     semantic_tokens = _normalized_embroidery_tokens(
         semantic_blob,
         drop_generic=True,
     )
-    motifs = sorted({
-        token for token in semantic_tokens if token in _EMBROIDERY_MOTIF_WORDS
-    })
-    identity_value = str(context.get("embroidery_identity") or "").strip()
+    text_tokens = {
+        token
+        for row in text_rows
+        for token in _normalized_embroidery_tokens(row)
+    }
+    motifs = _canonical_embroidery_motifs(
+        semantic_tokens,
+        text_tokens=text_tokens,
+    )
     identity_tokens = (
         sorted(set(_normalized_embroidery_tokens(identity_value, drop_generic=True)))[:24]
         if identity_value
@@ -296,10 +339,12 @@ def embroidery_signature(visual_context: dict[str, Any] | None) -> str | None:
     )
 
     # Readable embroidery text is the strongest stable identity signal.
-    # Concrete motif tokens distinguish common same-wording designs without
-    # making the key sensitive to hat color or free-form scene wording. For
-    # text-free embroidery, the dedicated color-invariant identity is used;
-    # older analyzed rows fall back to their color-stripped semantic cues.
+    # Motifs come from the dedicated color-invariant embroidery identity when
+    # available, and are canonicalized into stable families so wording drift
+    # such as "golfer", "golf club" and "golf" does not split one design across
+    # product colors. Motifs already present in the transcribed wording are
+    # excluded because the text itself already carries that identity signal.
+    # Text-free embroidery still uses the richer dedicated identity tokens.
     if text_rows:
         payload = {
             "text": text_rows,
@@ -520,8 +565,10 @@ def _reconcile_embroidery_groups(
                 _ensure_source_campaign_capacity(service, campaign)
                 plan.target_count = RRUGC_SOURCE_TARGET_COUNT
 
-        if not plan.embroidery_signature and isinstance(plan.visual_context_json, dict):
-            plan.embroidery_signature = embroidery_signature(plan.visual_context_json)
+        if isinstance(plan.visual_context_json, dict):
+            recalculated_signature = embroidery_signature(plan.visual_context_json)
+            if recalculated_signature != plan.embroidery_signature:
+                plan.embroidery_signature = recalculated_signature
         if plan.embroidery_signature:
             groups[plan.embroidery_signature].append(plan)
 

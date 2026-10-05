@@ -17,6 +17,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcStage2JobModel,
 )
 from app.modules.realistic_review_ugc.router import (
+    _group_source_plan_rows,
     _source_plan_reference_preview,
     get_source_plans,
 )
@@ -266,6 +267,112 @@ def test_embroidery_signature_ignores_hat_color_but_keeps_distinct_motifs():
 
     assert embroidery_signature(navy) == embroidery_signature(red)
     assert embroidery_signature(navy) != embroidery_signature(golf)
+
+
+def test_embroidery_signature_groups_same_golf_artwork_despite_ai_wording_drift():
+    navy = {
+        "embroidery_text": ["Best Grandpa BY PAR"],
+        "embroidery_identity": (
+            "Best Grandpa BY PAR wording beside a golfer mid-swing with a golf club."
+        ),
+        "summary": "Navy snapback with golf embroidery.",
+    }
+    natural = {
+        "embroidery_text": ["Best Grandpa BY PAR"],
+        "embroidery_identity": (
+            "Golf motif with Best Grandpa BY PAR text and a golfer graphic."
+        ),
+        "summary": "Natural cap with the same embroidered artwork.",
+    }
+
+    assert embroidery_signature(navy) == embroidery_signature(natural)
+
+
+def test_group_source_plan_rows_uses_recomputed_signature_before_backfill():
+    first = RrugcSourcePlanModel(
+        id="plan-a",
+        tenant_id="tenant-a",
+        root_folder_id="root",
+        source_file_id="file-a",
+        source_relative_path="navy.png",
+        source_name="navy.png",
+        source_mime_type="image/png",
+        source_revision="a" * 64,
+        analysis_revision=1,
+        embroidery_signature="1" * 64,
+        target_count=50,
+        status="ready",
+        visual_context_json={
+            "embroidery_text": ["Best Grandpa BY PAR"],
+            "embroidery_identity": "Golfer mid-swing with Best Grandpa BY PAR wording.",
+        },
+        created_by_user_id="user-a",
+    )
+    second = RrugcSourcePlanModel(
+        id="plan-b",
+        tenant_id="tenant-a",
+        root_folder_id="root",
+        source_file_id="file-b",
+        source_relative_path="red.png",
+        source_name="red.png",
+        source_mime_type="image/png",
+        source_revision="b" * 64,
+        analysis_revision=1,
+        embroidery_signature="2" * 64,
+        target_count=50,
+        status="ready",
+        visual_context_json={
+            "embroidery_text": ["Best Grandpa BY PAR"],
+            "embroidery_identity": "Golf club and golfer graphic with Best Grandpa BY PAR text.",
+        },
+        created_by_user_id="user-a",
+    )
+
+    groups = _group_source_plan_rows([first, second])
+
+    assert len(groups) == 1
+    assert {row.id for row in groups[0]} == {"plan-a", "plan-b"}
+
+
+def test_group_source_plan_rows_does_not_let_stale_campaign_override_visual_identity():
+    common = {
+        "tenant_id": "tenant-a",
+        "root_folder_id": "root",
+        "source_mime_type": "image/png",
+        "analysis_revision": 1,
+        "target_count": 50,
+        "status": "ready",
+        "campaign_id": "legacy-shared-campaign",
+        "created_by_user_id": "user-a",
+    }
+    golf = RrugcSourcePlanModel(
+        **common,
+        id="golf",
+        source_file_id="golf-file",
+        source_relative_path="golf.png",
+        source_name="golf.png",
+        source_revision="c" * 64,
+        visual_context_json={
+            "embroidery_text": ["Best Grandpa BY PAR"],
+            "embroidery_identity": "Golfer mid-swing with golf club.",
+        },
+    )
+    hotdog = RrugcSourcePlanModel(
+        **common,
+        id="hotdog",
+        source_file_id="hotdog-file",
+        source_relative_path="hotdog.png",
+        source_name="hotdog.png",
+        source_revision="d" * 64,
+        visual_context_json={
+            "embroidery_text": ["Best Grandpa BY PAR"],
+            "embroidery_identity": "Hotdog character with the same wording.",
+        },
+    )
+
+    groups = _group_source_plan_rows([golf, hotdog])
+
+    assert len(groups) == 2
 
 
 def test_reconcile_embroidery_groups_shares_best_campaign_and_reopens_to_fifty():

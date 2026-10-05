@@ -243,6 +243,7 @@ from app.modules.realistic_review_ugc.skill_registry import (
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_TARGET_COUNT,
     RrugcSourcePlanError,
+    embroidery_signature,
     sync_source_plans,
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
@@ -2771,17 +2772,45 @@ def _group_source_plan_rows(
         if left_root != right_root:
             parents[right_root] = left_root
 
+    computed_signatures: list[str | None] = []
+    effective_signatures: list[str | None] = []
     by_signature: dict[str, int] = {}
-    by_campaign: dict[str, int] = {}
     for index, row in enumerate(rows):
-        if row.embroidery_signature:
-            signature = str(row.embroidery_signature)
+        computed_signature = (
+            embroidery_signature(row.visual_context_json)
+            if isinstance(row.visual_context_json, dict)
+            else None
+        )
+        computed_signature = str(computed_signature or "") or None
+        signature = str(computed_signature or row.embroidery_signature or "") or None
+        computed_signatures.append(computed_signature)
+        effective_signatures.append(signature)
+        if signature:
             previous = by_signature.setdefault(signature, index)
             union(index, previous)
-        if row.campaign_id:
-            campaign_id = str(row.campaign_id)
-            previous = by_campaign.setdefault(campaign_id, index)
-            union(index, previous)
+
+    # Campaign membership is a legacy fallback for rows that have not yet
+    # produced a current visual signature. Once both rows have a freshly
+    # computed signature, a stale/shared campaign must never override a
+    # mismatch and merge genuinely different embroidery designs.
+    by_campaign: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        if not row.campaign_id:
+            continue
+        campaign_id = str(row.campaign_id)
+        previous = by_campaign.get(campaign_id)
+        if previous is None:
+            by_campaign[campaign_id] = index
+            continue
+        current_computed = computed_signatures[index]
+        previous_computed = computed_signatures[previous]
+        if (
+            current_computed
+            and previous_computed
+            and current_computed != previous_computed
+        ):
+            continue
+        union(index, previous)
 
     grouped: dict[int, list[RrugcSourcePlanModel]] = {}
     for index, row in enumerate(rows):
