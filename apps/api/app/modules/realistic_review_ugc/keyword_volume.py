@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 from dataclasses import dataclass
+import json
 from datetime import datetime, timedelta, timezone
 import logging
 import re
@@ -21,6 +23,7 @@ KEYWORD_VOLUME_PENDING_PROVIDER = "pending"
 KEYWORD_VOLUME_CACHE_TTL = timedelta(hours=24)
 KEYWORD_VOLUME_MAX_BATCH = 50
 KEYWORD_VOLUME_MAX_LENGTH = 500
+KEYWORD_VOLUME_MIN_CHARS = 5
 KEYWORD_VOLUME_RETRIES = 2
 
 
@@ -40,12 +43,48 @@ class KeywordVolumeResolveResult:
     cached: int
 
 
+def _extract_keyword_text(value: object) -> str:
+    if isinstance(value, dict):
+        value = value.get("text") or value.get("phrase") or ""
+    text = str(value or "").strip()
+    if text.startswith("{") and text.endswith("}"):
+        parsed: object = None
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                parsed = loader(text)
+                break
+            except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
+                continue
+        if isinstance(parsed, dict):
+            text = str(parsed.get("text") or parsed.get("phrase") or "")
+        else:
+            match = re.search(
+                r"""['"](?:text|phrase)['"]\s*:\s*(['"])(.*?)\1\s*(?:,\s*['"][^'"]+['"]\s*:|})""",
+                text,
+                flags=re.DOTALL,
+            )
+            if match:
+                text = match.group(2)
+    return text
+
+
+def _meaningful_keyword_length(value: str) -> int:
+    return sum(1 for char in value if char.isalnum())
+
+
 def normalize_keyword(value: str) -> tuple[str, str]:
-    clean = re.sub(r"\s+", " ", str(value or "")).strip()
+    clean = re.sub(r"\s+", " ", _extract_keyword_text(value)).strip(
+        " \t\r\n\"'“”"
+    )
     if not clean:
         raise KeywordVolumeError(
             "rrugc_keyword_required",
             "Keyword cannot be empty.",
+        )
+    if _meaningful_keyword_length(clean) < KEYWORD_VOLUME_MIN_CHARS:
+        raise KeywordVolumeError(
+            "rrugc_keyword_too_short",
+            f"Keyword must contain at least {KEYWORD_VOLUME_MIN_CHARS} characters.",
         )
     if len(clean) > KEYWORD_VOLUME_MAX_LENGTH:
         raise KeywordVolumeError(
@@ -58,13 +97,25 @@ def normalize_keyword(value: str) -> tuple[str, str]:
 def normalize_keywords(values: list[str]) -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
     seen: set[str] = set()
+    rejected_short = 0
     for value in values:
-        clean, normalized = normalize_keyword(value)
+        try:
+            clean, normalized = normalize_keyword(value)
+        except KeywordVolumeError as exc:
+            if exc.code in {"rrugc_keyword_required", "rrugc_keyword_too_short"}:
+                rejected_short += 1
+                continue
+            raise
         if normalized in seen:
             continue
         seen.add(normalized)
         result.append((clean, normalized))
     if not result:
+        if rejected_short:
+            raise KeywordVolumeError(
+                "rrugc_keyword_too_short",
+                f"Keyword must contain at least {KEYWORD_VOLUME_MIN_CHARS} characters.",
+            )
         raise KeywordVolumeError(
             "rrugc_keywords_required",
             "At least one keyword is required.",
@@ -119,6 +170,8 @@ class RrugcKeywordVolumeService:
         tenant_id: str,
         keywords: list[str],
         force: bool = False,
+        source_image_url: str | None = None,
+        source_pin_url: str | None = None,
         now: datetime | None = None,
     ) -> KeywordVolumeResolveResult:
         requested = normalize_keywords(keywords)
@@ -159,6 +212,10 @@ class RrugcKeywordVolumeService:
                 self.session.add(row)
                 existing_by_key[normalized] = row
             row.keyword = clean
+            if source_image_url:
+                row.source_image_url = source_image_url
+            if source_pin_url:
+                row.source_pin_url = source_pin_url
             row.last_requested_at = current_time
             row.request_count = int(row.request_count or 0) + 1
         self.session.commit()

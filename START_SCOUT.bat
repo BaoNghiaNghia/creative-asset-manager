@@ -16,7 +16,7 @@ rem First-run recovery: an older/local checkout may have START_SCOUT.bat
 rem without the PowerShell launcher that normally performs auto-update.
 if not exist "%SCOUT_BOOTSTRAP%" (
   echo.
-  echo ==> Scout launcher is incomplete. Bootstrapping the latest files from main...
+  echo [INFO] Scout launcher is incomplete. Bootstrapping the latest files from main...
 
   where git.exe >nul 2>nul
   if errorlevel 1 (

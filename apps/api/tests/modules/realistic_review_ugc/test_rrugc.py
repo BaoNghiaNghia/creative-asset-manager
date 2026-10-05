@@ -107,7 +107,9 @@ from app.modules.realistic_review_ugc.keyword_volume import (
     KEYWORD_VOLUME_PENDING_PROVIDER,
     KeywordVolumeError,
     RrugcKeywordVolumeService,
+    normalize_keyword,
 )
+from app.modules.realistic_review_ugc.quote_scout_analysis import HatQuoteDocument
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
 from app.modules.realistic_review_ugc.product_registry import RrugcProductRegistry
 from app.modules.realistic_review_ugc.repository import RrugcRepository
@@ -229,6 +231,36 @@ def api(database):
         yield client
 
 
+def test_quote_scout_normalizes_object_quotes_and_rejects_short_text():
+    document = HatQuoteDocument.model_validate({
+        "is_hat": True,
+        "quotes": [
+            {"text": "slow mornings Club", "confidence": 0.99},
+            {"text": "A", "confidence": 0.99},
+            {"text": "C", "confidence": 0.99},
+            {"text": "PLEASE BE PATIENT WITH ME. I'M FROM THE 1900s.", "confidence": 0.98},
+        ],
+    })
+
+    assert document.quotes == [
+        "slow mornings Club",
+        "PLEASE BE PATIENT WITH ME. I'M FROM THE 1900s.",
+    ]
+    assert document.confidence == 0.99
+
+
+def test_keyword_normalizer_extracts_text_only_and_requires_five_characters():
+    clean, normalized = normalize_keyword(
+        "{'text': 'slow mornings Club', 'confidence': 0.99}"
+    )
+    assert clean == "slow mornings Club"
+    assert normalized == "slow mornings club"
+
+    with pytest.raises(KeywordVolumeError) as exc_info:
+        normalize_keyword("A")
+    assert exc_info.value.code == "rrugc_keyword_too_short"
+
+
 def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
     calls: list[list[str]] = []
 
@@ -266,10 +298,14 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 first = await service.resolve(
                     tenant_id="tenant-a",
                     keywords=[
+                        "A",
+                        "C",
                         "Bad Day To Be A Hotdog hat",
                         "funny hotdog cap",
                         "BAD DAY TO BE A HOTDOG HAT",
                     ],
+                    source_image_url="https://i.pinimg.com/736x/aa/bb/hotdog.jpg",
+                    source_pin_url="https://www.pinterest.com/pin/123456789/",
                     now=now,
                 )
                 assert first.requested == 2
@@ -279,6 +315,12 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 assert first.rows[0].search_volume == 4400
                 assert first.rows[0].competition == "HIGH"
                 assert first.rows[0].cpc_low == 0.56
+                assert first.rows[0].source_image_url == (
+                    "https://i.pinimg.com/736x/aa/bb/hotdog.jpg"
+                )
+                assert first.rows[0].source_pin_url == (
+                    "https://www.pinterest.com/pin/123456789/"
+                )
                 assert calls == [[
                     "Bad Day To Be A Hotdog hat",
                     "funny hotdog cap",
@@ -318,6 +360,16 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                     "bad day to be a hotdog hat",
                     "funny hotdog cap",
                 }
+                assert all(
+                    row.source_image_url
+                    == "https://i.pinimg.com/736x/aa/bb/hotdog.jpg"
+                    for row in persisted
+                )
+                assert all(
+                    row.source_pin_url
+                    == "https://www.pinterest.com/pin/123456789/"
+                    for row in persisted
+                )
 
     asyncio.run(scenario())
 
@@ -382,6 +434,8 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
                 competition="HIGH",
                 cpc_low=0.56,
                 cpc_high=1.96,
+                source_image_url="https://i.pinimg.com/736x/aa/bb/matching.jpg",
+                source_pin_url="https://www.pinterest.com/pin/222/",
                 provider="aebrowse_google_ads",
                 fetched_at=now,
                 last_requested_at=now,
@@ -415,6 +469,14 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         "matching couple hoodies",
         "custom initial hoodie",
     ]
+    assert payload["items"][0]["source_image_url"] == (
+        "https://i.pinimg.com/736x/aa/bb/matching.jpg"
+    )
+    assert payload["items"][0]["source_pin_url"] == (
+        "https://www.pinterest.com/pin/222/"
+    )
+    assert payload["items"][1]["source_image_url"] is None
+    assert payload["items"][1]["source_pin_url"] is None
 
     searched = api.get(
         "/api/v1/realistic-review-ugc/keyword-analysis",
@@ -453,7 +515,11 @@ def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     response = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/keyword-analysis/resolve",
         headers={"Authorization": f"Bearer {token}"},
-        json={"keywords": ["matching couple hoodies"]},
+        json={
+            "keywords": ["matching couple hoodies"],
+            "source_image_url": "https://i.pinimg.com/1200x/cc/dd/new-source.jpg",
+            "source_pin_url": "https://www.pinterest.com/pin/999/",
+        },
     )
     assert response.status_code == 200
     payload = response.json()
@@ -461,6 +527,26 @@ def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     assert payload["provider_requested"] == 0
     assert payload["cached"] == 1
     assert payload["items"][0]["search_volume"] == 4400
+    assert payload["items"][0]["source_image_url"] == (
+        "https://i.pinimg.com/1200x/cc/dd/new-source.jpg"
+    )
+    assert payload["items"][0]["source_pin_url"] == (
+        "https://www.pinterest.com/pin/999/"
+    )
+
+    with database() as session:
+        row = session.scalar(
+            select(RrugcKeywordVolumeModel).where(
+                RrugcKeywordVolumeModel.tenant_id == "tenant-a",
+                RrugcKeywordVolumeModel.keyword_normalized
+                == "matching couple hoodies",
+            )
+        )
+        assert row is not None
+        assert row.source_image_url == (
+            "https://i.pinimg.com/1200x/cc/dd/new-source.jpg"
+        )
+        assert row.source_pin_url == "https://www.pinterest.com/pin/999/"
 
 
 def test_pinterest_url_allowlist_is_strict():

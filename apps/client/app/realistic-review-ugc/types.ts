@@ -172,6 +172,8 @@ export type KeywordVolume = {
   competition: string | null;
   cpc_low: number | null;
   cpc_high: number | null;
+  source_image_url: string | null;
+  source_pin_url: string | null;
   provider: string;
   fetched_at: string;
 };

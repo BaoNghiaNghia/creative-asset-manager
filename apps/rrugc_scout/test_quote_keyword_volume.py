@@ -9,6 +9,7 @@ from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
     DEFAULT_RELATED_PER_PIN,
     KeywordScoutHistory,
+    QuoteScoutClient,
     _dedupe,
     _quote_extract_status_is_terminal,
     build_parser,
@@ -36,9 +37,16 @@ def test_quote_dedupe_normalizes_case_and_whitespace():
         "  Bad   Day To Be A Hotdog ",
         "bad day to be a hotdog",
         "Another Saying",
+        {"text": "slow mornings Club", "confidence": 0.99},
+        "{'text': 'PLEASE BE PATIENT WITH ME. I\'M FROM THE 1900s.', 'confidence': 0.99}",
+        "A",
+        "C",
+        "N",
     ]) == [
         "Bad Day To Be A Hotdog",
         "Another Saying",
+        "slow mornings Club",
+        "PLEASE BE PATIENT WITH ME. I'M FROM THE 1900s.",
     ]
 
 
@@ -71,6 +79,60 @@ def test_keyword_history_is_durable_and_separate_from_review_history():
         completed = KeywordScoutHistory(path)
         assert completed.pending_quotes == []
         assert "retry me later" in completed.seen_quotes
+
+
+def test_keyword_volume_skips_http_when_all_keywords_are_too_short(monkeypatch):
+    async def fail_post(*_args, **_kwargs):
+        raise AssertionError("HTTP request must not run for short keywords")
+
+    client = QuoteScoutClient(
+        "https://creative-assets.example",
+        "agent-1",
+        "secret",
+    )
+    monkeypatch.setattr(client, "_post", fail_post)
+
+    result = asyncio.run(client.resolve_volume(["A", "C", "N"]))
+    assert result == {
+        "requested": 0,
+        "provider_requested": 0,
+        "cached": 0,
+        "items": [],
+    }
+    asyncio.run(client.close())
+
+
+def test_keyword_volume_request_includes_pinterest_source(monkeypatch):
+    captured = {}
+
+    async def fake_post(path, payload, *, operation):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["operation"] = operation
+        return {"items": []}
+
+    client = QuoteScoutClient(
+        "https://creative-assets.example",
+        "agent-1",
+        "secret",
+    )
+    monkeypatch.setattr(client, "_post", fake_post)
+
+    asyncio.run(
+        client.resolve_volume(
+            ["Out of Office"],
+            source_image_url="https://i.pinimg.com/736x/aa/bb/source.jpg",
+            source_pin_url="https://www.pinterest.com/pin/123/",
+        )
+    )
+    assert captured["operation"] == "resolve_keyword_volume"
+    assert captured["payload"] == {
+        "keywords": ["Out of Office"],
+        "force": False,
+        "source_image_url": "https://i.pinimg.com/736x/aa/bb/source.jpg",
+        "source_pin_url": "https://www.pinterest.com/pin/123/",
+    }
+    asyncio.run(client.close())
 
 
 def test_login_gate_requires_normal_chrome_bootstrap(monkeypatch):

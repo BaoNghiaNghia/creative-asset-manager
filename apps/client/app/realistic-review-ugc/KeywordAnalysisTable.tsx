@@ -81,10 +81,17 @@ export function KeywordAnalysisTable({
 
     <div className="rrugc-stage0-table-wrap">
       <table className="rrugc-stage0-table rrugc-stage0-keyword-table" aria-busy={loading}>
-        <thead><tr><th>Keyword</th><th>Search volume</th><th>Competition</th><th>CPC range</th><th>Last checked</th></tr></thead>
+        <thead><tr><th>Image</th><th>Keyword</th><th>Search volume</th><th>Competition</th><th>CPC range</th><th>Last checked</th></tr></thead>
         <tbody>
-          {loading ? Array.from({length: 5}, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={5}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : items.map(item => (
+          {loading ? Array.from({length: 5}, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={6}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : items.map(item => (
             <tr key={item.id}>
+              <td className="rrugc-stage0-source-image">
+                {item.source_image_url ? (
+                  <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open Pinterest source for " + item.keyword}>
+                    <img src={item.source_image_url} alt="" loading="lazy" decoding="async" />
+                  </a>
+                ) : <span className="rrugc-stage0-source-empty">—</span>}
+              </td>
               <td className="rrugc-stage0-keyword-name"><strong>{item.keyword}</strong><small>{item.provider === "aebrowse_google_ads" ? "AEBrowse · Google Ads" : item.provider}</small></td>
               <td className="rrugc-stage0-volume"><strong>{item.search_volume.toLocaleString()}</strong><small>/ month</small></td>
               <td><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></td>
@@ -92,7 +99,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-fetched"><strong>{new Date(item.fetched_at).toLocaleDateString()}</strong><small>{new Date(item.fetched_at).toLocaleTimeString()}</small></td>
             </tr>
           ))}
-          {!loading && items.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">{query.trim() ? "No keyword matches this search." : "No keyword data yet. Start the separate quote-scout terminal and submit discovered keywords."}</td></tr>}
+          {!loading && items.length === 0 && <tr><td colSpan={6} className="rrugc-source-plan-empty">{query.trim() ? "No keyword matches this search." : "No keyword data yet. Start the separate quote-scout terminal and submit discovered keywords."}</td></tr>}
         </tbody>
       </table>
     </div>

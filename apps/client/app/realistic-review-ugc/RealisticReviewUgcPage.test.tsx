@@ -526,6 +526,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               competition: "HIGH",
               cpc_low: 0.56,
               cpc_high: 1.96,
+              source_image_url: "https://i.pinimg.com/736x/aa/bb/hotdog.jpg",
+              source_pin_url: "https://www.pinterest.com/pin/123456789/",
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
             },
@@ -536,6 +538,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               competition: "MEDIUM",
               cpc_low: 0.31,
               cpc_high: 0.88,
+              source_image_url: null,
+              source_pin_url: null,
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
             },
@@ -560,6 +564,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Stage 0 · Analysis Keyword");
     expect(markup).toContain("Quote Scout · separate terminal");
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
+    expect(markup).toContain(">Image<");
+    expect(markup).toContain("https://i.pinimg.com/736x/aa/bb/hotdog.jpg");
+    expect(markup).toContain("https://www.pinterest.com/pin/123456789/");
     expect(markup).toContain(">4,400<");
     expect(markup).toContain("HIGH");
     expect(markup).toContain("$0.56–$1.96");

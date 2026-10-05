@@ -17,7 +17,12 @@ from app.domain.providers.contracts import (
 
 QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v1"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
+QUOTE_SCOUT_MIN_KEYWORD_CHARS = 5
 QUOTE_SCOUT_ALLOWED_IMAGE_HOST = re.compile(r"(^|\.)pinimg\.com$", re.IGNORECASE)
+
+
+def _meaningful_keyword_length(value: str) -> int:
+    return sum(1 for char in value if char.isalnum())
 
 
 class QuoteScoutError(RuntimeError):
@@ -51,9 +56,13 @@ class HatQuoteDocument(BaseModel):
             data.pop("has_hat", None)
 
         phrase_confidences: list[float] = []
-        if "quotes" not in data and isinstance(data.get("phrases"), list):
+        raw_quotes = data.get("quotes")
+        if not isinstance(raw_quotes, list) and isinstance(data.get("phrases"), list):
+            raw_quotes = data.get("phrases")
+
+        if isinstance(raw_quotes, list):
             quotes: list[str] = []
-            for phrase in data.get("phrases") or []:
+            for phrase in raw_quotes:
                 if isinstance(phrase, dict):
                     text = phrase.get("text") or phrase.get("phrase")
                     confidence = phrase.get("confidence")
@@ -81,8 +90,13 @@ class HatQuoteDocument(BaseModel):
         result: list[str] = []
         seen: set[str] = set()
         for raw in value[:8]:
+            if isinstance(raw, dict):
+                raw = raw.get("text") or raw.get("phrase") or ""
             text = re.sub(r"\s+", " ", str(raw or "")).strip(" \t\r\n\"'“”")
-            if len(text) < 2 or len(text) > 180:
+            if (
+                _meaningful_keyword_length(text) < QUOTE_SCOUT_MIN_KEYWORD_CHARS
+                or len(text) > 180
+            ):
                 continue
             key = text.casefold()
             if key in seen:
@@ -139,6 +153,8 @@ Rules:
 - If lettering is too unclear to read confidently, return no quote for it.
 - If multiple separate text lines form one saying, combine them into one phrase.
 - Return at most 4 distinct phrases.
+- Ignore single letters/fragments; each returned phrase must contain at least 5 alphanumeric characters.
+- Each item in quotes must be a plain string only. Never return {text, confidence} objects inside quotes.
 - confidence is confidence that the returned phrase(s) are visibly present on the hat.
 
 Pinterest image alt text is weak supporting context only and must never override visible evidence:

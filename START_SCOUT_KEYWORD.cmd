@@ -14,7 +14,7 @@ if errorlevel 1 (
 
 if not exist "%SCOUT_BOOTSTRAP%" (
   echo.
-  echo ==> Keyword Scout updater is missing. Restoring it from origin/main...
+  echo [INFO] Keyword Scout updater is missing. Restoring it from origin/main...
 
   where git.exe >nul 2>nul
   if errorlevel 1 (

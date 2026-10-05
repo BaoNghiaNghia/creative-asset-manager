@@ -192,6 +192,8 @@ class RrugcKeywordVolumeModel(Base):
     competition: Mapped[str | None] = mapped_column(String(32))
     cpc_low: Mapped[float | None] = mapped_column(Float)
     cpc_high: Mapped[float | None] = mapped_column(Float)
+    source_image_url: Mapped[str | None] = mapped_column(String(2048))
+    source_pin_url: Mapped[str | None] = mapped_column(String(2048))
     provider: Mapped[str] = mapped_column(
         String(64), nullable=False, default="aebrowse_google_ads"
     )

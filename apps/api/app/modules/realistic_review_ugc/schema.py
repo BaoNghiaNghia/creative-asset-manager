@@ -434,6 +434,8 @@ class KeywordVolumeResponse(BaseModel):
     competition: str | None = None
     cpc_low: float | None = None
     cpc_high: float | None = None
+    source_image_url: str | None = None
+    source_pin_url: str | None = None
     provider: str
     fetched_at: datetime
 
@@ -441,6 +443,8 @@ class KeywordVolumeResponse(BaseModel):
 class KeywordVolumeResolveRequest(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=50)
     force: bool = False
+    source_image_url: str | None = Field(default=None, max_length=2048)
+    source_pin_url: str | None = Field(default=None, max_length=2048)
 
 
 class KeywordVolumeResolveResponse(BaseModel):

@@ -13,6 +13,9 @@
 scout.local.env
 .rrugc-scout-requirements.sha256
 pinterest-profile/
+pinterest-profile-keyword/
+.rrugc-pinterest-profile/
+scripts/start_scout_auto_update.ps1.backup
 
 __pycache__/
 **/__pycache__/

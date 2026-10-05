@@ -241,6 +241,8 @@ from app.modules.realistic_review_ugc.service import (
     RrugcError,
     RrugcService,
     campaign_token_matches,
+    validate_image_url,
+    validate_pin_url,
 )
 from app.modules.realistic_review_ugc.stage2 import (
     RrugcStage2Error,
@@ -2724,6 +2726,8 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         competition=row.competition,
         cpc_low=row.cpc_low,
         cpc_high=row.cpc_high,
+        source_image_url=row.source_image_url,
+        source_pin_url=row.source_pin_url,
         provider=row.provider,
         fetched_at=row.fetched_at,
     )
@@ -3327,7 +3331,19 @@ async def resolve_keyword_analysis(
             tenant_id=principal.active_tenant_id,
             keywords=request.keywords,
             force=request.force,
+            source_image_url=(
+                validate_image_url(request.source_image_url)
+                if request.source_image_url
+                else None
+            ),
+            source_pin_url=(
+                validate_pin_url(request.source_pin_url)
+                if request.source_pin_url
+                else None
+            ),
         )
+    except RrugcError as exc:
+        raise _error(exc) from exc
     except KeywordVolumeError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -3356,6 +3372,16 @@ async def quote_scout_resolve_keyword_analysis(
             tenant_id=agent.tenant_id,
             keywords=request.keywords,
             force=request.force,
+            source_image_url=(
+                validate_image_url(request.source_image_url)
+                if request.source_image_url
+                else None
+            ),
+            source_pin_url=(
+                validate_pin_url(request.source_pin_url)
+                if request.source_pin_url
+                else None
+            ),
         )
     except RrugcError as exc:
         raise _error(exc) from exc

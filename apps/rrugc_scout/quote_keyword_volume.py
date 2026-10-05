@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import json
 import os
@@ -73,16 +74,45 @@ def _keywords_from_file(path: str | None) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
-def _clean_keyword(value: str) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip(" \t\r\n\"'“”")
+def _keyword_text(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("text") or value.get("phrase") or ""
+    text = str(value or "").strip()
+    if text.startswith("{") and text.endswith("}"):
+        parsed: Any = None
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                parsed = loader(text)
+                break
+            except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
+                continue
+        if isinstance(parsed, dict):
+            text = str(parsed.get("text") or parsed.get("phrase") or "")
+        else:
+            match = re.search(
+                r"""['"](?:text|phrase)['"]\s*:\s*(['"])(.*?)\1\s*(?:,\s*['"][^'"]+['"]\s*:|})""",
+                text,
+                flags=re.DOTALL,
+            )
+            if match:
+                text = match.group(2)
+    return text
 
 
-def _dedupe(values: list[str]) -> list[str]:
+def _clean_keyword(value: Any) -> str:
+    return re.sub(r"\s+", " ", _keyword_text(value)).strip(" \t\r\n\"'“”")
+
+
+def _keyword_has_min_chars(value: str, minimum: int = 5) -> bool:
+    return sum(1 for char in value if char.isalnum()) >= minimum
+
+
+def _dedupe(values: list[Any]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
         clean = _clean_keyword(value)
-        if not clean:
+        if not clean or not _keyword_has_min_chars(clean):
             continue
         key = clean.casefold()
         if key in seen:
@@ -104,6 +134,14 @@ def resolve_keyword_volume(
     keywords: list[str],
     force: bool = False,
 ) -> dict:
+    keywords = _dedupe(keywords)
+    if not keywords:
+        return {
+            "requested": 0,
+            "provider_requested": 0,
+            "cached": 0,
+            "items": [],
+        }
     endpoint = (
         base_url.rstrip("/")
         + "/api/v1/realistic-review-ugc/scout-agents/"
@@ -174,7 +212,10 @@ class KeywordScoutHistory:
 
     @property
     def seen_quotes(self) -> set[str]:
-        return {value.casefold() for value in self._set("seen_quotes")}
+        return {
+            value.casefold()
+            for value in _dedupe(list(self._set("seen_quotes")))
+        }
 
     @property
     def pending_quotes(self) -> list[str]:
@@ -213,7 +254,7 @@ class KeywordScoutHistory:
         self.save()
 
     def remember_quotes(self, quotes: list[str]) -> None:
-        existing = list(self._set("seen_quotes"))
+        existing = _dedupe(list(self._set("seen_quotes")))
         known = {value.casefold() for value in existing}
         completed = {value.casefold() for value in _dedupe(quotes)}
         for quote in _dedupe(quotes):
@@ -328,10 +369,29 @@ class QuoteScoutClient:
             operation="extract_hat_quote",
         )
 
-    async def resolve_volume(self, quotes: list[str]) -> dict[str, Any]:
+    async def resolve_volume(
+        self,
+        quotes: list[str],
+        *,
+        source_image_url: str | None = None,
+        source_pin_url: str | None = None,
+    ) -> dict[str, Any]:
+        quotes = _dedupe(quotes)
+        if not quotes:
+            return {
+                "requested": 0,
+                "provider_requested": 0,
+                "cached": 0,
+                "items": [],
+            }
+        payload: dict[str, Any] = {"keywords": quotes, "force": False}
+        if source_image_url:
+            payload["source_image_url"] = source_image_url
+        if source_pin_url:
+            payload["source_pin_url"] = source_pin_url
         return await self._post(
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/resolve",
-            {"keywords": quotes, "force": False},
+            payload,
             operation="resolve_keyword_volume",
         )
 
@@ -521,10 +581,7 @@ async def _process_keyword_candidate(
         )
         return 0, 0
 
-    quotes = _dedupe([
-        str(value)
-        for value in (result.get("quotes") or [])
-    ])
+    quotes = _dedupe(list(result.get("quotes") or []))
     new_quotes = [
         quote
         for quote in quotes
@@ -565,7 +622,11 @@ async def _process_keyword_candidate(
         return 0, 0
 
     try:
-        volume = await client.resolve_volume(new_quotes)
+        volume = await client.resolve_volume(
+            new_quotes,
+            source_image_url=candidate.image_url,
+            source_pin_url=candidate.pin_url,
+        )
     except Exception as exc:
         history.remember_pending_quotes(new_quotes)
         scout_debug_event(

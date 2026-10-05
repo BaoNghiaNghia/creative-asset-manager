@@ -16,7 +16,7 @@ rem Normal path: launch Review mode directly so this window keeps its own title
 rem and process lifecycle. The legacy BAT is only a recovery fallback.
 if not exist "%SCOUT_BOOTSTRAP%" (
   echo.
-  echo ==> Review Scout updater is missing. Running legacy recovery once...
+  echo [INFO] Review Scout updater is missing. Running legacy recovery once...
   call "%~dp0START_SCOUT.bat"
   exit /b %ERRORLEVEL%
 )
