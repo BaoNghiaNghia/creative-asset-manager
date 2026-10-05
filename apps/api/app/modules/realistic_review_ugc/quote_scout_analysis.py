@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.providers.contracts import (
     AiMetadataAnalysisInput,
@@ -34,6 +34,44 @@ class HatQuoteDocument(BaseModel):
     is_hat: bool
     quotes: list[str] = Field(default_factory=list, max_length=4)
     confidence: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_provider_shape(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+
+        # The Gemini metadata adapter may return its native vision shape even
+        # when a JSON schema is supplied: {has_hat, phrases:[{text, confidence}]}.
+        # Accept that equivalent shape so a valid quote never becomes an API 500.
+        if "is_hat" not in data and "has_hat" in data:
+            data["is_hat"] = bool(data.pop("has_hat"))
+        else:
+            data.pop("has_hat", None)
+
+        phrase_confidences: list[float] = []
+        if "quotes" not in data and isinstance(data.get("phrases"), list):
+            quotes: list[str] = []
+            for phrase in data.get("phrases") or []:
+                if isinstance(phrase, dict):
+                    text = phrase.get("text") or phrase.get("phrase")
+                    confidence = phrase.get("confidence")
+                    if isinstance(confidence, (int, float)):
+                        phrase_confidences.append(float(confidence))
+                else:
+                    text = phrase
+                if text is not None:
+                    quotes.append(str(text))
+            data["quotes"] = quotes
+        data.pop("phrases", None)
+
+        if "confidence" not in data:
+            if phrase_confidences:
+                data["confidence"] = max(0.0, min(1.0, max(phrase_confidences)))
+            else:
+                data["confidence"] = 0.0
+        return data
 
     @field_validator("quotes", mode="before")
     @classmethod

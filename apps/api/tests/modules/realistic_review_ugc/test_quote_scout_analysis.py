@@ -6,6 +6,7 @@ import httpx
 
 from app.domain.providers.contracts import AiMetadataAnalysisResult
 from app.modules.realistic_review_ugc.quote_scout_analysis import (
+    HatQuoteDocument,
     QuoteScoutError,
     analyze_hat_quote,
     validate_pinterest_image_url,
@@ -35,6 +36,21 @@ class FakeQuoteProvider:
             provider="gemini",
             model="gemini-test",
         )
+
+
+def test_hat_quote_document_accepts_gemini_native_phrase_shape():
+    document = HatQuoteDocument.model_validate(
+        {
+            "has_hat": True,
+            "phrases": [
+                {"text": "Out of Office", "confidence": 1.0},
+                {"text": "  Out of Office  ", "confidence": 0.91},
+            ],
+        }
+    )
+    assert document.is_hat is True
+    assert document.quotes == ["Out of Office"]
+    assert document.confidence == 1.0
 
 
 def test_validate_pinterest_image_url_only_accepts_pinimg_https():

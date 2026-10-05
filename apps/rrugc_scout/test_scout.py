@@ -434,6 +434,27 @@ def test_pin_detail_resolver_reuses_one_sequential_detail_tab():
     assert page.context.closed == 1
 
 
+def test_pin_detail_resolver_rethrows_closed_browser_runtime():
+    class ClosedDetailPage:
+        async def goto(self, *_args, **_kwargs):
+            raise RuntimeError(
+                "TargetClosedError: Target page, context or browser has been closed"
+            )
+
+    seed = Candidate(
+        "https://www.pinterest.com/pin/123/",
+        "https://i.pinimg.com/736x/aa/123/photo.jpg",
+    )
+    with pytest.raises(RuntimeError, match="TargetClosedError"):
+        asyncio.run(
+            resolve_pin_details(
+                object(),
+                [seed],
+                detail_page=ClosedDetailPage(),
+            )
+        )
+
+
 def test_access_gate_detects_login_and_challenge_without_solving_them():
     class LoginPage:
         url = "https://www.pinterest.com/login/"

@@ -20,6 +20,7 @@ from scout import (
     PinterestAccessGateError,
     PinterestRateLimitedError,
     SCOUT_PACES,
+    _looks_like_browser_runtime_failure,
     access_gate,
     bootstrap_login,
     configure_scout_debug_log,
@@ -865,6 +866,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 ):
                                     raise
                                 except Exception as exc:
+                                    if _looks_like_browser_runtime_failure(exc):
+                                        raise
                                     scout_debug_event(
                                         "keyword_scout_related_scan_failed",
                                         root_pin_url=candidate.pin_url,
@@ -1053,22 +1056,37 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             except Exception as exc:
                 if args.once:
                     raise
+                browser_failure = _looks_like_browser_runtime_failure(exc)
+                retry_seconds = 2 if browser_failure else RUNTIME_RECOVERY_SECONDS
+                event_name = (
+                    "keyword_scout_browser_recycled"
+                    if browser_failure
+                    else "keyword_scout_cycle_recovering"
+                )
                 scout_debug_event(
-                    "keyword_scout_cycle_recovering",
+                    event_name,
                     query=args.seed_query,
                     error_type=exc.__class__.__name__,
                     error=str(exc)[:500],
-                    retry_seconds=RUNTIME_RECOVERY_SECONDS,
+                    retry_seconds=retry_seconds,
                 )
-                print(
-                    "Keyword Scout runtime error="
-                    + exc.__class__.__name__
-                    + "; recovering in "
-                    + str(RUNTIME_RECOVERY_SECONDS)
-                    + "s. The continuous loop remains active."
-                )
+                if browser_failure:
+                    print(
+                        "Keyword Scout browser/detail tab closed unexpectedly; "
+                        + "recycling Chrome context in "
+                        + str(retry_seconds)
+                        + "s."
+                    )
+                else:
+                    print(
+                        "Keyword Scout runtime error="
+                        + exc.__class__.__name__
+                        + "; recovering in "
+                        + str(retry_seconds)
+                        + "s. The continuous loop remains active."
+                    )
                 await close_browser_runtime()
-                await asyncio.sleep(RUNTIME_RECOVERY_SECONDS)
+                await asyncio.sleep(retry_seconds)
                 continue
     finally:
         await close_browser_runtime()

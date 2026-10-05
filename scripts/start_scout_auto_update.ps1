@@ -310,7 +310,15 @@ if (-not $SkipUpdate) {
 
     try {
         $before = ([string](Invoke-Git @("rev-parse", "HEAD") | Select-Object -First 1)).Trim()
-        Invoke-Git @("fetch", "--quiet", "origin", "main") | Out-Null
+        # Fetch directly into the remote-tracking ref. `git fetch origin main`
+        # only refreshes FETCH_HEAD on some Git/Windows setups, which can leave
+        # origin/main stale and make the launcher incorrectly print "Already up to date".
+        Invoke-Git @(
+            "fetch",
+            "--quiet",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main"
+        ) | Out-Null
         $remote = ([string](Invoke-Git @("rev-parse", "origin/main") | Select-Object -First 1)).Trim()
 
         & git merge-base --is-ancestor HEAD origin/main 2>$null

@@ -1433,8 +1433,14 @@ async def extract_related_candidates(
                 break
         if len(collected) >= wanted or step >= PIN_RELATED_MAX_SCROLL_STEPS:
             break
+        previous_count = await loaded_pin_count(page)
         await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
         await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
+        await wait_for_pin_growth(
+            page,
+            previous_count=previous_count,
+            timeout_ms=3_500,
+        )
 
     return list(collected.values())[:wanted]
 
@@ -1479,6 +1485,8 @@ async def resolve_pin_details(
                 print("Pinterest video Pin skipped: " + seed.pin_url)
                 continue
             except Exception as exc:
+                if _looks_like_browser_runtime_failure(exc):
+                    raise
                 print(
                     "Pinterest Pin detail fallback: "
                     + seed.pin_url
