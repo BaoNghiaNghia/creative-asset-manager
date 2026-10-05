@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.domain.providers.contracts import (
     AiMetadataAnalysisInput,
@@ -15,7 +15,7 @@ from app.domain.providers.contracts import (
 )
 
 
-QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v2"
+QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v3"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 QUOTE_SCOUT_MIN_KEYWORD_CHARS = 5
 QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
@@ -35,9 +35,18 @@ class QuoteScoutError(RuntimeError):
 
 
 class HatQuoteDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Gemini can occasionally add harmless descriptive fields or use native
+    # aliases. Ignore unknown metadata here; consumed fields remain validated.
+    model_config = ConfigDict(extra="ignore")
 
-    is_hat: bool
+    is_hat: bool = Field(
+        default=False,
+        description=(
+            "True only when at least one target baseball-style cap is visible. "
+            "Target caps include trucker, baseball, snapback, dad, 5-panel, "
+            "6-panel, golf or sports caps with a crown and bill."
+        ),
+    )
     quotes: list[str] = Field(
         default_factory=list,
         max_length=QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE,
@@ -51,24 +60,55 @@ class HatQuoteDocument(BaseModel):
             return value
         data = dict(value)
 
-        # The Gemini metadata adapter may return its native vision shape even
-        # when a JSON schema is supplied: {has_hat, phrases:[{text, confidence}]}.
-        # Accept that equivalent shape so a valid quote never becomes an API 500.
-        if "is_hat" not in data and "has_hat" in data:
-            data["is_hat"] = bool(data.pop("has_hat"))
-        else:
-            data.pop("has_hat", None)
+        # Gemini metadata adapters may return a native shape instead of the
+        # supplied schema. All recognized boolean aliases map to the same
+        # target-cap gate defined by the prompt.
+        if "is_hat" not in data:
+            for alias in (
+                "is_target_cap",
+                "has_target_cap",
+                "has_cap",
+                "is_cap",
+                "has_hat",
+            ):
+                if alias in data:
+                    data["is_hat"] = bool(data.get(alias))
+                    break
+        data.setdefault("is_hat", False)
+        for alias in (
+            "is_target_cap",
+            "has_target_cap",
+            "has_cap",
+            "is_cap",
+            "has_hat",
+        ):
+            data.pop(alias, None)
 
         phrase_confidences: list[float] = []
         raw_quotes = data.get("quotes")
-        if not isinstance(raw_quotes, list) and isinstance(data.get("phrases"), list):
-            raw_quotes = data.get("phrases")
+        if not isinstance(raw_quotes, list):
+            for alias in ("sayings", "phrases", "texts"):
+                candidate = data.get(alias)
+                if isinstance(candidate, list):
+                    raw_quotes = candidate
+                    break
+        if not isinstance(raw_quotes, list):
+            for alias in ("quote", "saying", "text"):
+                candidate = data.get(alias)
+                if isinstance(candidate, str) and candidate.strip():
+                    raw_quotes = [candidate]
+                    break
 
         if isinstance(raw_quotes, list):
             quotes: list[str] = []
             for phrase in raw_quotes:
                 if isinstance(phrase, dict):
-                    text = phrase.get("text") or phrase.get("phrase")
+                    text = (
+                        phrase.get("text")
+                        or phrase.get("phrase")
+                        or phrase.get("quote")
+                        or phrase.get("saying")
+                    )
                     confidence = phrase.get("confidence")
                     if isinstance(confidence, (int, float)):
                         phrase_confidences.append(float(confidence))
@@ -77,13 +117,19 @@ class HatQuoteDocument(BaseModel):
                 if text is not None:
                     quotes.append(str(text))
             data["quotes"] = quotes
-        data.pop("phrases", None)
+        else:
+            data["quotes"] = []
 
-        if "confidence" not in data:
-            if phrase_confidences:
-                data["confidence"] = max(0.0, min(1.0, max(phrase_confidences)))
-            else:
-                data["confidence"] = 0.0
+        for alias in ("sayings", "phrases", "texts", "quote", "saying", "text"):
+            data.pop(alias, None)
+
+        raw_confidence = data.get("confidence")
+        if isinstance(raw_confidence, (int, float)):
+            data["confidence"] = max(0.0, min(1.0, float(raw_confidence)))
+        elif phrase_confidences:
+            data["confidence"] = max(0.0, min(1.0, max(phrase_confidences)))
+        else:
+            data["confidence"] = 0.0
         return data
 
     @field_validator("quotes", mode="before")
@@ -115,6 +161,7 @@ class HatQuoteDocument(BaseModel):
 @dataclass(frozen=True)
 class QuoteScoutAnalysisResult:
     quotes: list[str]
+    is_target_cap: bool
     confidence: float
     provider: str
     model: str | None
@@ -145,28 +192,50 @@ def _prompt(*, alt_text: str | None) -> str:
     return f"""
 You are reading text on a product photo discovered from Pinterest search results.
 
-Goal: extract the exact saying/quote visibly printed or embroidered ON THE HAT/CAP itself.
+Goal: extract exact sayings/quotes only from TARGET CAPS.
+
+A TARGET CAP is a baseball-style cap with a crown and a front bill/visor. Allowed:
+- trucker cap / mesh-back trucker hat
+- baseball cap
+- snapback
+- dad cap
+- 5-panel or 6-panel cap
+- golf/sports cap when it has the same baseball-cap construction
+
+NOT TARGET PRODUCTS - always reject these even when they contain text:
+- beanie, knit hat, toque
+- bucket hat
+- cowboy/western hat
+- fedora, trilby, pork-pie hat
+- straw hat, sun hat, floppy/wide-brim hat
+- visor-only headwear with no crown
+- bonnet, beret
+- helmet, hard hat
+- shirts, hoodies, bags/totes, mugs, patches, stickers, posters, shoes, phone cases,
+  or any other non-cap product
 
 Rules:
-- Inspect the ENTIRE image and identify every visible hat/cap, including small, side,
-  background, partially angled, and non-central hats.
-- Do not stop after the first, clearest, largest, or central hat.
-- Decide whether the image visibly contains at least one hat/cap.
-- For EACH visible hat/cap, read the complete saying/quote physically printed or embroidered on that hat.
-- If several hats have different sayings, return every distinct readable saying from all of them.
-- Read only wording physically on hats/caps.
-- Ignore Pinterest UI, captions, product titles, watermarks, packaging, signs, shirts,
-  background text, comments, and any text not physically on a hat.
+- Inspect the ENTIRE image and identify every visible TARGET CAP, including small,
+  side, background, partially angled, and non-central caps.
+- is_hat means contains at least one TARGET CAP; it does NOT mean generic headwear.
+- If the image contains only non-target hats/headwear or other products, set is_hat=false
+  and return quotes=[].
+- Do not stop after the first, clearest, largest, or central target cap.
+- For EACH visible target cap, read the complete saying/quote physically printed or embroidered on that cap.
+- If several target caps have different sayings, return every distinct readable saying from all of them.
+- If target caps and other products appear together, read ONLY text physically on target caps.
+- Ignore text on non-target hats, shirts, hoodies, bags, packaging, signs, Pinterest UI,
+  captions, product titles, watermarks, comments, and background objects.
 - Transcribe verbatim in natural reading order.
 - Do not correct spelling, complete hidden letters, paraphrase, or invent missing words.
-- If lettering on one hat is too unclear to read confidently, skip only that unreadable quote;
-  continue inspecting the other hats.
-- If multiple separate text lines on the same hat form one saying, combine them into one phrase.
-- Return every distinct readable hat saying. The transport supports up to 50 distinct quotes
-  per image; do not intentionally omit readable hats unless that technical limit is reached.
+- If lettering on one target cap is too unclear to read confidently, skip only that unreadable quote;
+  continue inspecting the other target caps.
+- If multiple separate text lines on the same target cap form one saying, combine them into one phrase.
+- Return every distinct readable target-cap saying. The transport supports up to 50 distinct quotes
+  per image; do not intentionally omit readable target caps unless that technical limit is reached.
 - Ignore single letters/fragments; each returned phrase must contain at least 5 alphanumeric characters.
 - Each item in quotes must be a plain string only. Never return {{text, confidence}} objects inside quotes.
-- confidence is confidence that the returned phrase(s) are visibly present on the hats.
+- confidence is confidence that the returned phrase(s) are visibly present on TARGET CAPS.
 
 Pinterest image alt text is weak supporting context only and must never override visible evidence:
 {alt_block}
@@ -286,10 +355,18 @@ async def analyze_hat_quote(
         )
     except AiProviderError:
         raise
-    document = HatQuoteDocument.model_validate(dict(result.metadata))
+    try:
+        document = HatQuoteDocument.model_validate(dict(result.metadata))
+    except ValidationError as exc:
+        raise QuoteScoutError(
+            "quote_scout_provider_payload_invalid",
+            "Quote Scout vision provider returned an invalid metadata payload.",
+            status_code=502,
+        ) from exc
     quotes = document.quotes if document.is_hat else []
     return QuoteScoutAnalysisResult(
         quotes=quotes,
+        is_target_cap=bool(document.is_hat),
         confidence=float(document.confidence),
         provider=result.provider,
         model=result.model,

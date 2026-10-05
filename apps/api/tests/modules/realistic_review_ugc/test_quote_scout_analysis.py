@@ -53,6 +53,34 @@ def test_hat_quote_document_accepts_gemini_native_phrase_shape():
     assert document.confidence == 1.0
 
 
+def test_hat_quote_document_accepts_sayings_alias_and_ignores_extra_metadata():
+    document = HatQuoteDocument.model_validate(
+        {
+            "has_target_cap": True,
+            "sayings": ["OUT OF OFFICE", "  BAD DAY TO BE A HOTDOG  "],
+            "product_type": "trucker_cap",
+            "hat_count": 2,
+        }
+    )
+
+    assert document.is_hat is True
+    assert document.quotes == ["OUT OF OFFICE", "BAD DAY TO BE A HOTDOG"]
+    assert document.confidence == 0.0
+
+
+def test_hat_quote_document_rejects_short_sayings_without_error():
+    document = HatQuoteDocument.model_validate(
+        {
+            "has_hat": True,
+            "sayings": ["BOOM"],
+            "unexpected_provider_field": {"safe": "ignored"},
+        }
+    )
+
+    assert document.is_hat is True
+    assert document.quotes == []
+
+
 def test_hat_quote_document_keeps_all_distinct_quotes_from_many_hats():
     quotes = [
         "BAD DAY TO BE A HOTDOG",
@@ -129,9 +157,13 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
         analysis_input = provider.inputs[0]
         assert analysis_input.image_bytes == b"fake-jpeg-bytes"
         assert analysis_input.image_mime_type == "image/jpeg"
-        assert "read the complete saying/quote physically printed or embroidered on that hat" in analysis_input.prompt
-        assert "Do not stop after the first, clearest, largest, or central hat." in analysis_input.prompt
+        assert "read the complete saying/quote physically printed or embroidered on that cap" in analysis_input.prompt
+        assert "Do not stop after the first, clearest, largest, or central target cap." in analysis_input.prompt
         assert "return every distinct readable saying from all of them" in analysis_input.prompt
+        assert "TARGET CAP" in analysis_input.prompt
+        assert "bucket hat" in analysis_input.prompt
+        assert "cowboy/western hat" in analysis_input.prompt
+        assert "any other non-cap product" in analysis_input.prompt
         assert "unrelated Pinterest caption" in analysis_input.prompt
         assert len(requests) == 1
 

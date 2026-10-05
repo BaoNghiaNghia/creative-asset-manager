@@ -462,6 +462,7 @@ class QuoteScoutAnalyzeRequest(BaseModel):
 
 class QuoteScoutAnalyzeResponse(BaseModel):
     quotes: list[str] = Field(default_factory=list)
+    is_target_cap: bool = False
     confidence: float = 0.0
     provider: str
     model: str | None = None

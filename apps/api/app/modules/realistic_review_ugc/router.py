@@ -3425,6 +3425,7 @@ async def quote_scout_extract_hat_quote(
         )
         return QuoteScoutAnalyzeResponse(
             quotes=result.quotes,
+            is_target_cap=result.is_target_cap,
             confidence=result.confidence,
             provider=result.provider,
             model=result.model,

@@ -597,6 +597,7 @@ async def _process_keyword_candidate(
         new_quotes=new_quotes,
         quote_count=len(quotes),
         new_quote_count=len(new_quotes),
+        is_target_cap=bool(result.get("is_target_cap", False)),
         confidence=float(result.get("confidence") or 0.0),
         provider=str(result.get("provider") or ""),
         model=str(result.get("model") or ""),
@@ -609,15 +610,26 @@ async def _process_keyword_candidate(
             root_pin_url=root_pin_url,
             pin_url=candidate.pin_url,
             image_url=candidate.image_url,
-            reason="none_or_seen",
+            reason=(
+                "not_target_cap"
+                if not bool(result.get("is_target_cap", False))
+                else "none_or_seen"
+            ),
+            is_target_cap=bool(result.get("is_target_cap", False)),
             quotes=quotes,
+        )
+        skip_reason = (
+            "not_target_cap"
+            if not bool(result.get("is_target_cap", False))
+            else "none_or_seen"
         )
         print(
             "pin="
             + candidate.pin_url
             + " source="
             + source
-            + " quote=none_or_seen"
+            + " quote="
+            + skip_reason
         )
         return 0, 0
 
