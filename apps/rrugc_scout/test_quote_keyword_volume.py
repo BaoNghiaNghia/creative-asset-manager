@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import quote_keyword_volume as keyword_scout
 from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
     KeywordScoutHistory,
     _dedupe,
     build_parser,
 )
+from scout import PinterestAccessGateError
 
 
 def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
@@ -57,3 +60,48 @@ def test_keyword_history_is_durable_and_separate_from_review_history():
         completed = KeywordScoutHistory(path)
         assert completed.pending_quotes == []
         assert "retry me later" in completed.seen_quotes
+
+
+def test_login_gate_requires_normal_chrome_bootstrap(monkeypatch):
+    class FakePage:
+        async def wait_for_timeout(self, _ms):
+            raise AssertionError("login gate should not wait inside Playwright")
+
+    async def fake_access_gate(_page):
+        return "login"
+
+    monkeypatch.setattr(keyword_scout, "access_gate", fake_access_gate)
+
+    async def scenario():
+        try:
+            await keyword_scout._wait_for_pinterest_access(FakePage())
+        except PinterestAccessGateError as exc:
+            assert exc.gate == "login"
+        else:
+            raise AssertionError("login gate did not request bootstrap")
+
+    asyncio.run(scenario())
+
+
+def test_challenge_gate_can_be_resolved_in_open_browser(monkeypatch):
+    calls = iter(["challenge", None])
+
+    class FakePage:
+        def __init__(self):
+            self.waits = 0
+
+        async def wait_for_timeout(self, _ms):
+            self.waits += 1
+
+    async def fake_access_gate(_page):
+        return next(calls)
+
+    page = FakePage()
+    monkeypatch.setattr(keyword_scout, "access_gate", fake_access_gate)
+    asyncio.run(
+        keyword_scout._wait_for_pinterest_access(
+            page,
+            max_seconds=30,
+        )
+    )
+    assert page.waits == 1

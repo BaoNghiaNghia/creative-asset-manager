@@ -19,6 +19,7 @@ from scout import (
     PinterestRateLimitedError,
     SCOUT_PACES,
     access_gate,
+    bootstrap_login,
     configure_scout_debug_log,
     extract_visible,
     guard_pinterest_response,
@@ -300,17 +301,26 @@ async def _wait_for_pinterest_access(page: Any, *, max_seconds: int = 900) -> No
     gate = await access_gate(page)
     if gate is None:
         return
+    if gate == "login":
+        # Google commonly rejects sign-in from a Playwright-controlled browser.
+        # Signal the caller to close automation and reopen this profile in
+        # ordinary Chrome via bootstrap_login().
+        raise PinterestAccessGateError("login")
+
     print(
-        "Pinterest login/challenge detected for the Keyword Scout profile. "
-        "Complete it in the opened Chrome window; this terminal will resume automatically."
+        "Pinterest challenge detected for the Keyword Scout profile. "
+        "Resolve it in the open Chrome window; this terminal will resume automatically."
     )
     deadline = time.monotonic() + max_seconds
     while time.monotonic() < deadline:
         await page.wait_for_timeout(5_000)
-        if await access_gate(page) is None:
+        gate = await access_gate(page)
+        if gate is None:
             print("Pinterest access restored. Keyword Scout is continuing.")
             return
-    raise PinterestAccessGateError(gate)
+        if gate == "login":
+            raise PinterestAccessGateError("login")
+    raise PinterestAccessGateError(gate or "challenge")
 
 
 async def _scroll_search_page(page: Any, pace) -> None:
@@ -375,7 +385,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     context = None
     page = None
     detail_page = None
-    try:
+
+    async def open_browser_runtime() -> None:
+        nonlocal playwright, context, page, detail_page
         playwright, context = await launch_context(args)
         page = context.pages[0] if context.pages else await context.new_page()
         for stale_page in list(context.pages[1:]):
@@ -384,6 +396,62 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             except Exception:
                 pass
         detail_page = await context.new_page()
+
+    async def close_browser_runtime() -> None:
+        nonlocal playwright, context, page, detail_page
+        current_detail = detail_page
+        current_context = context
+        current_playwright = playwright
+        detail_page = None
+        page = None
+        context = None
+        playwright = None
+
+        if current_detail is not None:
+            try:
+                await current_detail.close()
+            except Exception:
+                pass
+        if current_context is not None:
+            try:
+                await current_context.close()
+            except Exception:
+                pass
+        if current_playwright is not None:
+            try:
+                await current_playwright.stop()
+            except Exception:
+                pass
+
+    async def bootstrap_keyword_login() -> None:
+        await close_browser_runtime()
+        print("")
+        print(
+            "Pinterest sign-in requires normal Chrome. "
+            "Opening the dedicated Keyword Scout profile outside Playwright..."
+        )
+        print(
+            "Complete Pinterest sign-in there. Continue with Google is supported "
+            "in this normal Chrome window. Close the Chrome window after Pinterest "
+            "is fully signed in; Keyword Scout will resume automatically."
+        )
+        scout_debug_event(
+            "keyword_scout_login_bootstrap_started",
+            profile_dir=str(profile_dir),
+        )
+        await asyncio.to_thread(
+            bootstrap_login,
+            str(profile_dir),
+            args.chrome_executable,
+        )
+        scout_debug_event(
+            "keyword_scout_login_bootstrap_completed",
+            profile_dir=str(profile_dir),
+        )
+        await open_browser_runtime()
+
+    try:
+        await open_browser_runtime()
 
         while True:
             await _flush_pending_quote_volumes(client, history)
@@ -595,24 +663,16 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 if args.once:
                     raise
                 await asyncio.sleep(wait_seconds)
-            except PinterestAccessGateError:
+            except PinterestAccessGateError as exc:
+                if exc.gate == "login":
+                    await bootstrap_keyword_login()
+                    continue
+                if page is None:
+                    await open_browser_runtime()
+                    continue
                 await _wait_for_pinterest_access(page)
     finally:
-        if detail_page is not None:
-            try:
-                await detail_page.close()
-            except Exception:
-                pass
-        if context is not None:
-            try:
-                await context.close()
-            except Exception:
-                pass
-        if playwright is not None:
-            try:
-                await playwright.stop()
-            except Exception:
-                pass
+        await close_browser_runtime()
         await client.close()
 
 
