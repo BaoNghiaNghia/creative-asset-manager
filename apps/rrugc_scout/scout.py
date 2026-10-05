@@ -22,7 +22,7 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v20"
+CLIENT_VERSION = "rrugc-scout-v21"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PIN_DETAIL_CONCURRENCY = 1
 PIN_RELATED_SCAN_LIMIT = 20
@@ -39,6 +39,29 @@ MANUAL_GATE_POLL_MS = 1_500
 QUALITY_FIRST_RUN_CANDIDATE_CAP = 12
 MAX_KEYWORDS_PER_RUN = 4
 QUALITY_QUERY_SUFFIX = "authentic smartphone candid photo real people"
+HUMAN_QUERY_MARKERS = (
+    "selfie",
+    "person",
+    "people",
+    " man ",
+    " woman ",
+    "couple",
+    "family",
+    "friend",
+    "owner",
+    "dad",
+    "mom",
+    "grandpa",
+    "grandma",
+    "wearing",
+    "portrait",
+)
+HAND_HELD_QUERY_MARKERS = (
+    "hand holding",
+    "held in hand",
+    "holding cap",
+    "holding hat",
+)
 HEARTBEAT_INTERVAL_SECONDS = 10
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
@@ -722,11 +745,19 @@ def quality_search_query(value: str) -> str:
     clean = " ".join(str(value or "").split())
     if not clean:
         return clean
-    lowered = clean.casefold()
-    if any(
+    lowered = " " + clean.casefold() + " "
+    if any(marker in lowered for marker in HAND_HELD_QUERY_MARKERS):
+        if "real human hand" not in lowered:
+            return clean + " real human hand product review"
+        return clean
+    has_photo_context = any(
         marker in lowered
         for marker in ("photo", "photography", "candid", "lifestyle")
-    ):
+    )
+    has_human_context = any(marker in lowered for marker in HUMAN_QUERY_MARKERS)
+    if has_photo_context:
+        if not has_human_context:
+            return clean + " real person product review"
         return clean
     return clean + " " + QUALITY_QUERY_SUFFIX
 
@@ -1487,10 +1518,28 @@ def task_search_queries(task: dict[str, Any]) -> list[str]:
     if source_plan_id and isinstance(source_context, dict):
         clusters = source_context.get("search_clusters")
         if isinstance(clusters, dict):
-            for level in ("direct", "text_match", "adjacent"):
-                values = clusters.get(level)
-                if isinstance(values, list):
-                    raw_queries.extend(values)
+            # Round-robin high-value composition clusters so the four-keyword
+            # per-run cap cannot starve hand-held/selfie references behind a
+            # long list of generic direct queries.
+            levels = (
+                "selfie_wearing_hat",
+                "hand_holding_hat",
+                "direct",
+                "adjacent",
+                "text_match",
+            )
+            cluster_rows = {
+                level: clusters.get(level)
+                if isinstance(clusters.get(level), list)
+                else []
+                for level in levels
+            }
+            max_depth = max((len(values) for values in cluster_rows.values()), default=0)
+            for index in range(max_depth):
+                for level in levels:
+                    values = cluster_rows[level]
+                    if index < len(values):
+                        raw_queries.append(values[index])
 
     configured = task.get("search_queries")
     if isinstance(configured, list):

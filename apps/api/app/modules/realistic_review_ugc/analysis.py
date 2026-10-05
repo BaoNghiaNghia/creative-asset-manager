@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-ANALYZER_VERSION = "rrugc-reference-v10-hand-held-hat"
+ANALYZER_VERSION = "rrugc-reference-v11-hat-review-scenes"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -26,7 +26,9 @@ AUTO_APPROVE_MAX_AI_RISK = 0.20
 class ReferenceAnalysisDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    people_count: int = Field(ge=0, le=12)
+    # Parse larger groups successfully so they can be rejected by policy rather
+    # than turning into retryable invalid-document failures.
+    people_count: int = Field(ge=0)
     primary_head_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     smile_score: float = Field(ge=0.0, le=1.0)
     head_visible: bool
@@ -127,6 +129,7 @@ class ReferencePreferenceModel:
 
 @dataclass(frozen=True, slots=True)
 class ReferenceFilterPolicy:
+    max_people_count: int = 6
     min_head_ratio: float = 0.18
     max_head_ratio: float = 0.70
     min_smile_score: float = 0.00
@@ -417,6 +420,7 @@ def evaluate_reference(
     variant_matching_required: bool = False,
     context_matching_required: bool = False,
     allow_hand_held_hat: bool = False,
+    strict_context_exclusions: bool = False,
 ) -> ReferenceDecision:
     ai_risk = (
         document.ai_risk_score
@@ -472,6 +476,9 @@ def evaluate_reference(
         + max(-0.12, min(0.12, reference_preference_score))
     ), 4)
 
+    if document.people_count > policy.max_people_count:
+        return ReferenceDecision("rejected_context", "TOO_MANY_PEOPLE", final_score)
+
     if not hand_held_hat_reference:
         if document.people_count < 1:
             return ReferenceDecision("rejected_no_person", "NO_PERSON", final_score)
@@ -522,12 +529,16 @@ def evaluate_reference(
         return ReferenceDecision("rejected_expression", "SMILE_SCORE_LOW", final_score)
     if document.product_fit_score < policy.min_product_fit_score:
         return ReferenceDecision("rejected_context", "PRODUCT_FIT_LOW", final_score)
-    if (
-        context_matching_required
-        and document.context_match_score < 0.25
-    ):
-        # Context matching is intentionally a soft gate. Ambiguous lifestyle
-        # scenes remain reviewable instead of being discarded automatically.
+    if context_matching_required and document.context_match_score < 0.25:
+        if strict_context_exclusions:
+            return ReferenceDecision(
+                "rejected_context",
+                "PRODUCT_CONTEXT_EXCLUDED",
+                final_score,
+            )
+        # Context matching is intentionally a soft gate for ordinary themes.
+        # Ambiguous lifestyle scenes remain reviewable instead of being
+        # discarded automatically.
         return ReferenceDecision(
             "needs_review",
             "PRODUCT_CONTEXT_LOW",
@@ -616,6 +627,16 @@ def hand_holding_hat_context_active(product_context: dict | None) -> bool:
     }
 
 
+def strict_context_exclusions_active(product_context: dict | None) -> bool:
+    product = dict(product_context or {})
+    profile = (
+        dict(product.get("discovery_context"))
+        if isinstance(product.get("discovery_context"), dict)
+        else {}
+    )
+    return bool(profile.get("strict_context_exclusions"))
+
+
 def _product_context_prompt_block(product_context: dict | None) -> str:
     product = dict(product_context or {})
     profile = (
@@ -641,6 +662,7 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
         return rows
 
     themes = clean(profile.get("themes"), limit=8)
+    strict_exclusions = bool(profile.get("strict_context_exclusions"))
     reference_contexts = clean(profile.get("reference_contexts"), limit=6)
     preferred = clean(profile.get("preferred_scenes"), limit=6)
     avoid = clean(profile.get("avoid"), limit=6)
@@ -649,6 +671,7 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
         if isinstance(profile.get("search_clusters"), dict)
         else {}
     )
+    selfie_wearing_hat = clean(clusters.get("selfie_wearing_hat"), limit=6)
     hand_holding_hat = clean(clusters.get("hand_holding_hat"), limit=6)
     direct = clean(clusters.get("direct"), limit=6)
     feedback = (
@@ -699,6 +722,10 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
     sections: list[str] = []
     if reference_contexts:
         sections.append("- preferred reference contexts: " + ", ".join(reference_contexts))
+    if selfie_wearing_hat:
+        sections.append(
+            "- selfie wearing-hat targets: " + " | ".join(selfie_wearing_hat)
+        )
     if hand_holding_hat:
         sections.append(
             "- hand-held hat targets: " + " | ".join(hand_holding_hat)
@@ -730,6 +757,11 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
     combined_avoid = clean([*avoid, *visual_avoid], limit=8)
     if combined_avoid:
         sections.append("- avoid/conflict hints: " + " | ".join(combined_avoid))
+    if strict_exclusions and combined_avoid:
+        sections.append(
+            "- STRICT: if the visible scene matches an avoid/conflict hint, "
+            "set context_match_score to 0.15 or lower."
+        )
     if not sections:
         return ""
 
@@ -748,8 +780,10 @@ You are evaluating a Pinterest lifestyle reference for a quality-first real-phot
 Return exactly one JSON object and no prose.
 
 The workflow strongly prefers authentic smartphone-style personal photos over artistic/editorial
-photography: ordinary selfies, mirror selfies, car selfies, cafe/home/outdoor snapshots, family
-moments, and casual candid images with natural ambient light and imperfect everyday framing.
+photography: ordinary selfies, mirror selfies, car selfies, cafe/home/outdoor snapshots, and casual
+candid images with natural ambient light and imperfect everyday framing. This is a hat product-review
+workflow: prioritize a person visibly wearing a cap/hat, especially close or mirror selfies. A natural
+hand-held-hat composition is also useful when a real hand and the hat front panel are clearly visible.
 A person may be smiling or neutral, looking at camera or away, sitting, drinking, or looking down.
 Do not reward studio polish, cinematic lighting, fashion/editorial posing, heavy art direction, or
 professional portrait aesthetics just because they look technically beautiful.
@@ -764,7 +798,7 @@ Do not identify the person and do not infer protected or demographic attributes.
 Only evaluate visible composition and image suitability.
 
 Definitions:
-- people_count: number of visibly present people.
+- people_count: number of visibly present people. Count the whole visible group; more than 6 people is unsuitable for this review workflow. Except for a deliberate hand-held-hat composition, at least one visible person is required.
 - primary_head_ratio: height of the primary visible head bounding region divided by full image height, in 0..1. Use null when there is no usable visible head.
 - smile_score: 0..1 strength of a clearly positive/smiling visible expression. Treat this as descriptive only: a neutral, serious, looking-down, sipping, or candid expression can still be an excellent reference.
 - head_visible: true when the primary head/hat region is sufficiently readable to preserve or naturally replace headwear. Existing caps are valid references. A cap brim partly covering the forehead or eyes does not make head_visible false when the overall head pose and hat placement remain understandable.

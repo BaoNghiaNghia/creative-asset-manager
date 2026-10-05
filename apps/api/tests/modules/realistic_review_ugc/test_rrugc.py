@@ -3047,6 +3047,7 @@ def test_reference_policy_can_still_reject_existing_headwear():
     ("overrides", "status", "reason"),
     [
         ({"people_count": 0, "primary_head_ratio": None}, "rejected_no_person", "NO_PERSON"),
+        ({"people_count": 7}, "rejected_context", "TOO_MANY_PEOPLE"),
         ({"primary_head_ratio": 0.12}, "rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE"),
         ({"head_occlusion": 0.75}, "rejected_head_occlusion", "HEAD_OCCLUSION"),
         ({"quality_score": 0.59}, "rejected_quality", "QUALITY_SCORE_LOW"),

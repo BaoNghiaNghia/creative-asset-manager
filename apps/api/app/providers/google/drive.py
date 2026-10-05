@@ -93,14 +93,26 @@ class GoogleDriveClient:
     async def _get(self, path: str, params: dict):
         response = None
         for attempt in range(3):
-            response = await self.client.get(path, params=params)
+            try:
+                response = await self.client.get(path, params=params)
+            except (httpx.TimeoutException, httpx.TransportError):
+                if attempt >= 2:
+                    raise
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
             if response.status_code not in {429, 500, 502, 503, 504}:
                 break
             if attempt < 2:
                 retry_after = response.headers.get("retry-after")
-                delay = float(retry_after) if retry_after and retry_after.isdigit() else 0.5 * (2 ** attempt)
+                delay = (
+                    float(retry_after)
+                    if retry_after and retry_after.isdigit()
+                    else 0.5 * (2 ** attempt)
+                )
                 await asyncio.sleep(delay)
 
+        if response is None:
+            raise httpx.TransportError("Google Drive request failed without a response.")
         response.raise_for_status()
         return response.json()
 

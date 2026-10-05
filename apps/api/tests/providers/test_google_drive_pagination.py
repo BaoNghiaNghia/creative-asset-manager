@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -82,6 +83,34 @@ class GoogleDrivePaginationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(requests), 2)
         self.assertEqual(requests[0].url.params["pageSize"], "200")
         self.assertEqual(requests[1].url.params["pageToken"], "page-2")
+
+    async def test_get_retries_transient_read_timeout(self) -> None:
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.ReadTimeout("temporary Drive timeout", request=request)
+            return httpx.Response(200, json={"files": [self._file("one")]})
+
+        client = GoogleDriveClient("test-token")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://www.googleapis.com/drive/v3",
+            transport=httpx.MockTransport(handler),
+        )
+        self.addAsyncCleanup(client.client.aclose)
+
+        with patch(
+            "app.providers.google.drive.asyncio.sleep",
+            new=AsyncMock(),
+        ) as sleep:
+            data = await client._get("/files", {"pageSize": "1"})
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(data["files"][0]["id"], "one")
+        sleep.assert_awaited_once()
 
 
 if __name__ == "__main__":

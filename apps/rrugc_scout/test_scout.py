@@ -117,7 +117,7 @@ def test_recover_windows_profile_only_closes_dedicated_root_chrome(
 def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v20"}',
+        '{"pid":21668,"version":"rrugc-scout-v21"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -137,7 +137,7 @@ def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
 def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v20"}',
+        '{"pid":21668,"version":"rrugc-scout-v21"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -152,7 +152,7 @@ def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
 
     payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
     assert payload["pid"] == scout_module.os.getpid()
-    assert payload["version"] == "rrugc-scout-v20"
+    assert payload["version"] == "rrugc-scout-v21"
 
     lock.release()
     assert not lock_path.exists()
@@ -194,6 +194,12 @@ def test_scout_history_persists_seen_pins(tmp_path):
 def test_quality_first_query_and_metadata_prefilter():
     assert quality_search_query("cap man") == "cap man authentic smartphone candid photo real people"
     assert quality_search_query("cap man candid photo") == "cap man candid photo"
+    assert quality_search_query("embroidered cap product photo") == (
+        "embroidered cap product photo real person product review"
+    )
+    assert quality_search_query("hand holding embroidered hat photo") == (
+        "hand holding embroidered hat photo real human hand product review"
+    )
 
     rows = normalize_candidates([
         {
@@ -966,6 +972,13 @@ def test_source_plan_search_queries_prioritize_image_context_over_legacy_queries
         ],
         "source_context": {
             "search_clusters": {
+                "selfie_wearing_hat": [
+                    "grandpa wearing cap selfie phone photo",
+                    "outdoor cap selfie natural light",
+                ],
+                "hand_holding_hat": [
+                    "hand holding embroidered cap front view phone photo",
+                ],
                 "direct": [
                     "grandpa golf course candid phone photo",
                     "grandfather tee time candid phone photo",
@@ -981,12 +994,12 @@ def test_source_plan_search_queries_prioritize_image_context_over_legacy_queries
     }
 
     assert task_search_queries(task)[:6] == [
+        "grandpa wearing cap selfie phone photo",
+        "hand holding embroidered cap front view phone photo",
         "grandpa golf course candid phone photo",
-        "grandfather tee time candid phone photo",
-        "Best Grandpa By Par photo",
-        "Best Grandpa By Par candid photo",
         "family golf outing candid phone photo",
-        "generic candid lifestyle",
+        "Best Grandpa By Par photo",
+        "outdoor cap selfie natural light",
     ]
 
 
@@ -1092,11 +1105,11 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v20"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v21"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         if request.url.path.endswith("/diagnostics"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v20"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v21"
             assert request.headers["x-scout-machine"] == "studio-pc"
         return httpx.Response(200, json={"status": "ready"})
 

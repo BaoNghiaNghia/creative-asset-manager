@@ -35,6 +35,7 @@ from app.modules.realistic_review_ugc.analysis import (
     policy_from_campaign,
     product_context_matching_active,
     should_confirm_ai_risk,
+    strict_context_exclusions_active,
 )
 from app.modules.realistic_review_ugc.gemini_safety import (
     deferred_rrugc_ai_retry,
@@ -128,7 +129,15 @@ class RrugcCandidateAnalyzeJobHandler:
                 "rrugc_analysis_source_unavailable",
                 "Reference image could not be downloaded for analysis.",
             )
-        except ValidationError:
+        except ValidationError as exc:
+            context.logger.warning(
+                "rrugc_candidate_analysis_invalid_document",
+                extra={
+                    "candidate_id": context.job.entity_id,
+                    "tenant_id": context.job.tenant_id,
+                    "validation_errors": exc.errors(include_url=False),
+                },
+            )
             self._mark_error(context, "rrugc_analysis_invalid_document", terminal=False)
             return JobHandlerResult.retryable(
                 "rrugc_analysis_invalid_document",
@@ -257,6 +266,9 @@ class RrugcCandidateAnalyzeJobHandler:
                 product_context
             )
             hand_holding_hat_context = hand_holding_hat_context_active(
+                product_context
+            )
+            strict_context_exclusions = strict_context_exclusions_active(
                 product_context
             )
             discovery_context = (
@@ -640,6 +652,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 variant_matching_required=bool(product_variants),
                 context_matching_required=context_matching_required,
                 allow_hand_held_hat=hand_holding_hat_context,
+                strict_context_exclusions=strict_context_exclusions,
             )
 
             with context.dependencies.session_factory() as session:

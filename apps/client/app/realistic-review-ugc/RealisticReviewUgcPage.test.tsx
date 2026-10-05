@@ -555,9 +555,9 @@ describe("Realistic Review UGC source-first workspace", () => {
   });
 
   it("requires the text-aware context-first v14 Scout client", () => {
-    expect(scoutClientIsCurrent("rrugc-scout-v12")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v13")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v14")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v20")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v21")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v22")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 

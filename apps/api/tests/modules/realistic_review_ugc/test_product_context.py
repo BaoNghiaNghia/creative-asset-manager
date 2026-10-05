@@ -5,6 +5,7 @@ from app.modules.realistic_review_ugc.analysis import (
     evaluate_reference,
     hand_holding_hat_context_active,
     product_context_matching_active,
+    strict_context_exclusions_active,
 )
 from app.modules.realistic_review_ugc.keyword_strategy import build_campaign_search_queries
 from app.modules.realistic_review_ugc.product_context import (
@@ -165,8 +166,14 @@ def test_hat_product_adds_hand_holding_reference_context_and_queries():
         config={"auto_context": True, "visual_context": visual},
     )
 
-    assert profile["reference_contexts"] == ["hand_holding_hat"]
+    assert profile["reference_contexts"] == [
+        "selfie_wearing_hat",
+        "hand_holding_hat",
+    ]
+    selfie_queries = profile["search_clusters"]["selfie_wearing_hat"]
     hand_queries = profile["search_clusters"]["hand_holding_hat"]
+    assert selfie_queries
+    assert any("selfie" in query.casefold() for query in selfie_queries)
     assert hand_queries
     assert hand_queries[0] == (
         "WHISKEY HELL BOUND embroidered hat held in hand front view"
@@ -183,6 +190,77 @@ def test_hat_product_adds_hand_holding_reference_context_and_queries():
     assert "hat_held_in_hand" in analysis_prompt(wrapped)
 
 
+def test_wedding_hat_uses_casual_review_contexts_and_strictly_excludes_wedding_events():
+    product = {
+        "name": "BRIDE Embroidered Trucker Hat",
+        "product_type": "trucker hat",
+        "source_category": "wedding gift cap",
+    }
+    visual = {
+        "status": "ready",
+        "binding_fingerprint": product_visual_binding_fingerprint(product, None),
+        "themes": ["wedding"],
+        "embroidery_text": ["BRIDE"],
+        "scene_hints": ["bride groom wedding ceremony"],
+        "audience_hints": [],
+        "occasion_hints": ["wedding reception"],
+        "product_cues": ["embroidered cap"],
+        "avoid_hints": [],
+        "confidence": 0.95,
+        "summary": "Wedding-related embroidery.",
+    }
+
+    profile = derive_product_context_profile(
+        product_snapshot=product,
+        config={"auto_context": True, "visual_context": visual},
+    )
+
+    assert profile["strict_context_exclusions"] is True
+    assert profile["search_clusters"]["text_match"] == []
+    assert profile["search_clusters"]["selfie_wearing_hat"]
+    assert profile["search_clusters"]["hand_holding_hat"]
+    combined_queries = [
+        query.casefold()
+        for level in ("direct", "adjacent")
+        for query in profile["search_clusters"][level]
+    ]
+    assert all("wedding ceremony" not in query for query in combined_queries)
+    assert all("wedding reception" not in query for query in combined_queries)
+    assert all("bride groom" not in query for query in combined_queries)
+    assert "wedding ceremony" in {
+        value.casefold() for value in profile["avoid"]
+    }
+
+    wrapped = {**product, "discovery_context": profile}
+    assert strict_context_exclusions_active(wrapped) is True
+    prompt = analysis_prompt(wrapped)
+    assert "STRICT:" in prompt
+
+    rejected = evaluate_reference(
+        ReferenceAnalysisDocument(
+            people_count=2,
+            primary_head_ratio=0.30,
+            smile_score=0.8,
+            head_visible=True,
+            existing_headwear=True,
+            head_occlusion=0.1,
+            mobile_ugc_score=0.9,
+            phone_authenticity_score=0.9,
+            artistic_editorial_risk=0.1,
+            quality_score=0.9,
+            ai_risk_score=0.05,
+            product_fit_score=0.9,
+            context_match_score=0.10,
+            summary="Formal wedding event conflicts with the casual hat review context.",
+        ),
+        ReferenceFilterPolicy(),
+        context_matching_required=True,
+        strict_context_exclusions=True,
+    )
+    assert rejected.status == "rejected_context"
+    assert rejected.reject_reason == "PRODUCT_CONTEXT_EXCLUDED"
+
+
 def test_non_hat_product_does_not_add_hand_holding_hat_context():
     profile = derive_product_context_profile(
         product_snapshot={
@@ -194,6 +272,7 @@ def test_non_hat_product_does_not_add_hand_holding_hat_context():
     )
 
     assert profile["reference_contexts"] == []
+    assert profile["search_clusters"]["selfie_wearing_hat"] == []
     assert profile["search_clusters"]["hand_holding_hat"] == []
 
 

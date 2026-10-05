@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
-PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v3-hand-held-hat"
-PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v5-hand-held-hat"
+PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v4-hat-review-scenes"
+PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v6-hat-review-scenes"
 CONTEXT_FEEDBACK_MIN_MATCHES = 2
 CONTEXT_FEEDBACK_PROMOTION_SCORE = 0.20
 CONTEXT_FEEDBACK_RANKING_SCALE = 0.08
@@ -229,13 +229,15 @@ _CONTEXT_QUERY_TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "wedding": {
         "direct": (
-            "groom wedding candid phone photo",
-            "bride groom candid natural light",
-            "wedding party candid smartphone photo",
+            "personalized wedding hat gift casual home phone photo",
+            "newlywed casual travel cap selfie smartphone photo",
+            "couple casual weekend cap selfie natural light",
+            "embroidered cap gift reveal at home phone photo",
         ),
         "adjacent": (
-            "couple celebration candid natural light",
-            "family celebration phone photo",
+            "casual coffee shop cap selfie phone photo",
+            "outdoor weekend hat candid smartphone photo",
+            "airport travel cap selfie natural light",
         ),
     },
     "cycling": {
@@ -342,6 +344,22 @@ _HAND_HOLDING_HAT_BASE_QUERIES = (
     "cap held in hand front view natural indoor phone photo",
 )
 
+_SELFIE_WEARING_HAT_BASE_QUERIES = (
+    "person wearing embroidered cap selfie phone photo",
+    "baseball cap close selfie natural light",
+    "mirror selfie wearing cap casual phone photo",
+    "outdoor selfie wearing embroidered hat smartphone photo",
+)
+
+_WEDDING_HAT_STRICT_AVOID = (
+    "bride in wedding dress",
+    "groom in wedding suit",
+    "wedding ceremony",
+    "wedding reception",
+    "formal wedding party",
+    "bridesmaid or groomsman event",
+)
+
 
 def _clean_list(values: Iterable[Any] | None, *, limit: int = 12) -> list[str]:
     result: list[str] = []
@@ -392,6 +410,22 @@ def _hand_holding_hat_search_queries(
             f"{phrase} hand holding cap embroidery close up phone photo",
         ))
     rows.extend(_HAND_HOLDING_HAT_BASE_QUERIES)
+    return _clean_list(rows, limit=10)
+
+
+def _selfie_wearing_hat_search_queries(
+    embroidery_text: Iterable[Any] | None,
+) -> list[str]:
+    rows: list[str] = []
+    for value in _clean_list(embroidery_text, limit=3):
+        phrase = " ".join(value.replace("\n", " ").split()).strip(" \t\r\n\"'")
+        if len(phrase) < 2:
+            continue
+        rows.extend((
+            f"{phrase} embroidered cap selfie casual phone photo",
+            f"{phrase} wearing hat selfie natural light",
+        ))
+    rows.extend(_SELFIE_WEARING_HAT_BASE_QUERIES)
     return _clean_list(rows, limit=10)
 
 
@@ -732,9 +766,18 @@ def derive_product_context_profile(
         _contains_context_term(text, term)
         for term in _HAT_PRODUCT_TERMS
     )
-    reference_contexts = ["hand_holding_hat"] if hat_product else []
+    reference_contexts = (
+        ["selfie_wearing_hat", "hand_holding_hat"]
+        if hat_product
+        else []
+    )
     hand_holding_hat = (
         _hand_holding_hat_search_queries(visual_embroidery_text)
+        if hat_product
+        else []
+    )
+    selfie_wearing_hat = (
+        _selfie_wearing_hat_search_queries(visual_embroidery_text)
         if hat_product
         else []
     )
@@ -744,6 +787,9 @@ def derive_product_context_profile(
         limit=8,
     )
     themes = _clean_list([*operator_themes, *detected_themes], limit=8)
+    wedding_hat_context = hat_product and "wedding" in themes
+    if wedding_hat_context:
+        avoid = _clean_list([*_WEDDING_HAT_STRICT_AVOID, *avoid], limit=12)
     feedback_learning = derive_context_feedback_learning(context_feedback)
     promoted_queries = _clean_list(
         feedback_learning.get("promoted_queries"),
@@ -777,7 +823,38 @@ def derive_product_context_profile(
     # added as direct targets; suppressed queries are removed from derived
     # clusters but manual anchor queries remain protected by the caller.
     direct = [*promoted_queries, *direct]
+    if wedding_hat_context:
+        blocked_event_terms = (
+            "bride groom",
+            "bride in wedding",
+            "groom wedding",
+            "wedding dress",
+            "wedding ceremony",
+            "wedding reception",
+            "wedding party",
+            "bridesmaid",
+            "groomsman",
+        )
+        direct = [
+            query
+            for query in direct
+            if not any(term in query.casefold() for term in blocked_event_terms)
+        ]
+        adjacent = [
+            query
+            for query in adjacent
+            if not any(term in query.casefold() for term in blocked_event_terms)
+        ]
+        # Text-only wedding terms such as "Bride photo" mostly return formal
+        # wedding imagery. Product-specific wording is still preserved in the
+        # selfie/hand-held clusters where cap/hat usage is explicit.
+        text_match = []
     search_clusters = {
+        "selfie_wearing_hat": [
+            value
+            for value in _clean_list(selfie_wearing_hat, limit=10)
+            if value.casefold() not in suppressed_query_keys
+        ][:8],
         "hand_holding_hat": [
             value
             for value in _clean_list(hand_holding_hat, limit=10)
@@ -821,6 +898,7 @@ def derive_product_context_profile(
         "notes": notes,
         "visual_context": visual_context,
         "reference_contexts": reference_contexts,
+        "strict_context_exclusions": wedding_hat_context,
         "feedback_learning": feedback_learning,
         "search_clusters": search_clusters,
         "source": {
@@ -842,7 +920,14 @@ def product_context_search_queries(profile: dict[str, Any] | None) -> list[tuple
         return []
     rows: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for level in ("text_match", "hand_holding_hat", "direct", "adjacent", "generic"):
+    for level in (
+        "selfie_wearing_hat",
+        "hand_holding_hat",
+        "text_match",
+        "direct",
+        "adjacent",
+        "generic",
+    ):
         values = clusters.get(level)
         if not isinstance(values, list):
             continue
@@ -910,6 +995,10 @@ Guidance:
 - scene_hints: short Pinterest-search scene concepts, 2-6 words each, such as
   "dog owner park", "dad bike ride", "teacher classroom", "couple weekend outing".
   Describe likely lifestyle context, not studio product photography.
+  For hats/caps, favor product-review-friendly scenes such as a casual close selfie, mirror selfie,
+  outdoor selfie, or a hand holding the hat front panel. If the design is wedding-related, do NOT
+  suggest a bride/groom formal portrait, ceremony, reception, bridesmaid/groomsman event, or wedding
+  party. Prefer casual home gift reveal, coffee/weekend outing, travel/airport, or relaxed outdoor use.
 - audience_hints: neutral relationship/role labels supported by the design, e.g. dog owner, dad,
   teacher, couple. Do not infer age, ethnicity, religion, health, or other protected/sensitive traits.
 - occasion_hints: gift/use occasions visibly or textually supported by the product.
