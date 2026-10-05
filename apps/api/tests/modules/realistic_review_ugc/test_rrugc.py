@@ -1341,6 +1341,163 @@ def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
         assert diagnostics["claimable"] == 1
 
 
+def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        campaign, _token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Stage 3 folder grouping",
+            query="ugc review groups",
+            search_queries=["ugc review groups"],
+            target_count=10,
+            max_scroll_batches=1,
+            auto_import=True,
+            auto_scout=False,
+        )
+        plans = [
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id="root",
+                source_file_id="source-stage3-a",
+                source_parent_folder_id="folder-a",
+                source_relative_path="Product A/Natural-Navy/front.png",
+                source_name="front.png",
+                source_mime_type="image/png",
+                source_revision="a" * 64,
+                status="ready",
+                campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id="root",
+                source_file_id="source-stage3-b",
+                source_parent_folder_id="folder-a",
+                source_relative_path="Product A/Natural-Navy/back.png",
+                source_name="back.png",
+                source_mime_type="image/png",
+                source_revision="b" * 64,
+                status="ready",
+                campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id="root",
+                source_file_id="source-stage3-c",
+                source_parent_folder_id="folder-b",
+                source_relative_path="Product B/Black/front.png",
+                source_name="front.png",
+                source_mime_type="image/png",
+                source_revision="c" * 64,
+                status="ready",
+                campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ),
+        ]
+        session.add_all(plans)
+        session.flush()
+
+        jobs = [
+            RrugcStage2JobModel(
+                tenant_id="tenant-a",
+                source_plan_id=plans[0].id,
+                campaign_id=campaign.id,
+                source_revision=plans[0].source_revision,
+                skill_name="test-stage2",
+                selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[],
+                status="completed",
+                idempotency_key="stage3-a-1",
+                output_remote_file_id="out-a-1",
+                output_remote_folder_id="folder-a",
+                output_width=1024,
+                output_height=1024,
+                output_content_type="image/png",
+                completed_at=now - timedelta(minutes=3),
+                created_by_user_id="user-a",
+            ),
+            RrugcStage2JobModel(
+                tenant_id="tenant-a",
+                source_plan_id=plans[1].id,
+                campaign_id=campaign.id,
+                source_revision=plans[1].source_revision,
+                skill_name="test-stage2",
+                selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[],
+                status="completed",
+                idempotency_key="stage3-a-2",
+                output_remote_file_id="out-a-2",
+                output_remote_folder_id="folder-a",
+                output_width=1024,
+                output_height=1024,
+                output_content_type="image/png",
+                completed_at=now - timedelta(minutes=2),
+                created_by_user_id="user-a",
+            ),
+            RrugcStage2JobModel(
+                tenant_id="tenant-a",
+                source_plan_id=plans[2].id,
+                campaign_id=campaign.id,
+                source_revision=plans[2].source_revision,
+                skill_name="test-stage2",
+                selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[],
+                status="completed",
+                idempotency_key="stage3-b-1",
+                output_remote_file_id="out-b-1",
+                output_remote_folder_id="folder-b",
+                output_width=1200,
+                output_height=900,
+                output_content_type="image/jpeg",
+                completed_at=now - timedelta(minutes=1),
+                created_by_user_id="user-a",
+            ),
+            RrugcStage2JobModel(
+                tenant_id="tenant-a",
+                source_plan_id=plans[0].id,
+                campaign_id=campaign.id,
+                source_revision=plans[0].source_revision,
+                skill_name="test-stage2",
+                selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[],
+                status="running",
+                idempotency_key="stage3-running",
+                output_remote_file_id="out-running",
+                output_remote_folder_id="folder-a",
+                created_by_user_id="user-a",
+            ),
+        ]
+        session.add_all(jobs)
+        session.commit()
+
+    response = api.get("/api/v1/realistic-review-ugc/stage3/review-groups")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_groups"] == 2
+    assert payload["total_images"] == 3
+
+    groups = {item["folder_id"]: item for item in payload["items"]}
+    assert groups["folder-a"]["folder_name"] == "Natural-Navy"
+    assert groups["folder-a"]["folder_path"] == "Product A/Natural-Navy"
+    assert groups["folder-a"]["image_count"] == 2
+    assert len(groups["folder-a"]["images"]) == 2
+    assert all(
+        image["preview_url"].startswith(
+            "/api/v1/realistic-review-ugc/stage2-jobs/"
+        )
+        for image in groups["folder-a"]["images"]
+    )
+    assert groups["folder-b"]["folder_name"] == "Black"
+    assert groups["folder-b"]["image_count"] == 1
+    assert all(
+        image["output_remote_file_id"] != "out-running"
+        for group in payload["items"]
+        for image in group["images"]
+    )
+
+
 def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypatch):
     codex_home = (Path(__file__).resolve().parents[5] / "deploy" / "codex").resolve()
     settings = Settings(

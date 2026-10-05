@@ -8,6 +8,7 @@ import {
   listKeywordAnalysis,
   listSourcePlans,
   listStage2Jobs,
+  listStage3ReviewGroups,
   markCandidateReferenceFeedback,
   syncSourcePlans,
   type SourcePlanSortBy,
@@ -17,7 +18,8 @@ import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
-import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection } from "./types";
+import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
+import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection, Stage3ReviewGroupList } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
 
@@ -33,6 +35,8 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
     zero_volume: 0,
   },
 };
+
+const EMPTY_STAGE3_GROUPS: Stage3ReviewGroupList = { items: [], total_groups: 0, total_images: 0 };
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   items: [],
@@ -51,12 +55,13 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   },
 };
 
-type RrugcStageTab = "stage0" | "stage1" | "stage2" | "settings";
+type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "settings";
 
 const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
   { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
   { id: "stage1", label: "Stage 1", description: "Pinterest References", marker: "1" },
   { id: "stage2", label: "Stage 2", description: "Image Generation", marker: "2" },
+  { id: "stage3", label: "Stage 3", description: "UGC Review", marker: "3" },
   { id: "settings", label: "Settings", description: "Auto Scout", marker: "⚙" },
 ];
 
@@ -109,6 +114,8 @@ export function RealisticReviewUgcPage() {
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
   const [cancellingStage2PlanIds, setCancellingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
+  const [stage3Groups, setStage3Groups] = useState<Stage3ReviewGroupList>(EMPTY_STAGE3_GROUPS);
+  const [stage3Loading, setStage3Loading] = useState(true);
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
   const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
@@ -157,6 +164,11 @@ export function RealisticReviewUgcPage() {
         ? current
         : result
     ));
+  }
+
+  async function refreshStage3Groups(signal?: AbortSignal) {
+    const result = await listStage3ReviewGroups(signal);
+    setStage3Groups(result);
   }
 
   async function refreshStage2Jobs(signal?: AbortSignal) {
@@ -455,6 +467,36 @@ export function RealisticReviewUgcPage() {
     };
   }, [activeStage, visibleStage2SourcePlanIdsKey]);
 
+  useEffect(() => {
+    if (activeStage !== "stage3") return;
+    const controller = new AbortController();
+    let refreshInFlight = true;
+    setStage3Loading(true);
+    void refreshStage3Groups(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load Stage 3 review groups.");
+        }
+      })
+      .finally(() => {
+        refreshInFlight = false;
+        if (!controller.signal.aborted) setStage3Loading(false);
+      });
+    const timer = window.setInterval(() => {
+      if (document.hidden || refreshInFlight) return;
+      refreshInFlight = true;
+      void refreshStage3Groups()
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
+    }, 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [activeStage]);
+
   function selectStage(nextStage: RrugcStageTab) {
     setActiveStage(nextStage);
     window.requestAnimationFrame?.(() => {
@@ -617,6 +659,20 @@ export function RealisticReviewUgcPage() {
             }}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
             onCancelJobs={plan => void cancelStage2Batch(plan)}
+          />
+        </section>
+
+        <section
+          id="rrugc-panel-stage3"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-stage3"
+          tabIndex={activeStage === "stage3" ? 0 : -1}
+          hidden={activeStage !== "stage3"}
+        >
+          <Stage3ReviewGroups
+            data={stage3Groups}
+            loading={stage3Loading}
           />
         </section>
 

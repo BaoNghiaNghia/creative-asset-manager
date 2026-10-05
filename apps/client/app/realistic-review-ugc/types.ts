@@ -375,6 +375,35 @@ export type Stage2JobsCancelled = {
   job_ids: string[];
 };
 
+export type Stage3ReviewImage = {
+  stage2_job_id: string;
+  source_plan_id: string;
+  source_name: string;
+  source_relative_path: string;
+  output_remote_file_id: string;
+  output_width: number | null;
+  output_height: number | null;
+  output_content_type: string | null;
+  completed_at: string | null;
+  preview_url: string;
+};
+
+export type Stage3ReviewGroup = {
+  folder_id: string;
+  folder_name: string;
+  folder_path: string;
+  image_count: number;
+  status: "ready";
+  latest_completed_at: string | null;
+  images: Stage3ReviewImage[];
+};
+
+export type Stage3ReviewGroupList = {
+  items: Stage3ReviewGroup[];
+  total_groups: number;
+  total_images: number;
+};
+
 export type SourcePlanSyncResult = {
   root_folder_id: string;
   target_count: number;

@@ -43,6 +43,7 @@ import type {
   SourcePlanSyncResult,
   Stage2Job,
   Stage2JobCreated,
+  Stage3ReviewGroupList,
   Stage2Skill,
   Stage2SkillCatalog,
   Stage2SkillRegistry,
@@ -276,6 +277,14 @@ export const listStage2Jobs = (
     { signal },
   );
 };
+
+export const listStage3ReviewGroups = (
+  signal?: AbortSignal,
+) =>
+  request<Stage3ReviewGroupList>(
+    "/api/v1/realistic-review-ugc/stage3/review-groups",
+    { signal },
+  );
 
 export const listStage2Skills = (refresh = false, signal?: AbortSignal) =>
   request<Stage2SkillCatalog>(

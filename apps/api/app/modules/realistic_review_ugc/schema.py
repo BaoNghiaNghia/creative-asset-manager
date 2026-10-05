@@ -801,6 +801,35 @@ class Stage2JobsCancelledResponse(BaseModel):
     job_ids: list[str] = Field(default_factory=list)
 
 
+class Stage3ReviewImageResponse(BaseModel):
+    stage2_job_id: str
+    source_plan_id: str
+    source_name: str
+    source_relative_path: str
+    output_remote_file_id: str
+    output_width: int | None = None
+    output_height: int | None = None
+    output_content_type: str | None = None
+    completed_at: datetime | None = None
+    preview_url: str
+
+
+class Stage3ReviewGroupResponse(BaseModel):
+    folder_id: str
+    folder_name: str
+    folder_path: str
+    image_count: int
+    status: Literal["ready"] = "ready"
+    latest_completed_at: datetime | None = None
+    images: list[Stage3ReviewImageResponse] = Field(default_factory=list)
+
+
+class Stage3ReviewGroupListResponse(BaseModel):
+    items: list[Stage3ReviewGroupResponse] = Field(default_factory=list)
+    total_groups: int
+    total_images: int
+
+
 class ScoutRunCompleteRequest(BaseModel):
     status: Literal["completed", "needs_login", "failed"]
     error_code: str | None = Field(default=None, max_length=100)

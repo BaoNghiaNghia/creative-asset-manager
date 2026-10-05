@@ -216,6 +216,9 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2JobCreatedResponse,
     Stage2JobResponse,
     Stage2JobsCancelledResponse,
+    Stage3ReviewGroupListResponse,
+    Stage3ReviewGroupResponse,
+    Stage3ReviewImageResponse,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -3849,6 +3852,101 @@ def list_stage2_jobs(
             limit=limit,
         )
     ]
+
+
+@router.get(
+    "/stage3/review-groups",
+    response_model=Stage3ReviewGroupListResponse,
+)
+def list_stage3_review_groups(
+    limit: int = Query(default=250, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    rows = (
+        session.query(RrugcStage2JobModel, RrugcSourcePlanModel)
+        .join(
+            RrugcSourcePlanModel,
+            RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id,
+        )
+        .filter(
+            RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcStage2JobModel.status == "completed",
+            RrugcStage2JobModel.output_remote_file_id.is_not(None),
+            RrugcStage2JobModel.output_remote_folder_id.is_not(None),
+        )
+        .order_by(
+            RrugcStage2JobModel.completed_at.desc(),
+            RrugcStage2JobModel.created_at.desc(),
+        )
+        .limit(5000)
+        .all()
+    )
+
+    grouped: dict[str, dict[str, object]] = {}
+    total_images = 0
+    for job, plan in rows:
+        folder_id = str(job.output_remote_folder_id or "").strip()
+        remote_file_id = str(job.output_remote_file_id or "").strip()
+        if not folder_id or not remote_file_id:
+            continue
+
+        relative_path = str(plan.source_relative_path or plan.source_name or "").replace("\\", "/").strip("/")
+        folder_path = relative_path.rsplit("/", 1)[0] if "/" in relative_path else ""
+        folder_name = folder_path.rsplit("/", 1)[-1] if folder_path else "Root folder"
+
+        group = grouped.get(folder_id)
+        if group is None:
+            if len(grouped) >= limit:
+                continue
+            group = {
+                "folder_id": folder_id,
+                "folder_name": folder_name,
+                "folder_path": folder_path,
+                "latest_completed_at": job.completed_at,
+                "images": [],
+            }
+            grouped[folder_id] = group
+
+        images = group["images"]
+        assert isinstance(images, list)
+        images.append(
+            Stage3ReviewImageResponse(
+                stage2_job_id=job.id,
+                source_plan_id=job.source_plan_id,
+                source_name=plan.source_name,
+                source_relative_path=plan.source_relative_path,
+                output_remote_file_id=remote_file_id,
+                output_width=job.output_width,
+                output_height=job.output_height,
+                output_content_type=job.output_content_type,
+                completed_at=job.completed_at,
+                preview_url=(
+                    "/api/v1/realistic-review-ugc/stage2-jobs/"
+                    + job.id
+                    + "/output?thumbnail=true&size=512"
+                ),
+            )
+        )
+        total_images += 1
+
+    items = [
+        Stage3ReviewGroupResponse(
+            folder_id=str(group["folder_id"]),
+            folder_name=str(group["folder_name"]),
+            folder_path=str(group["folder_path"]),
+            image_count=len(group["images"]),
+            latest_completed_at=group["latest_completed_at"],
+            images=group["images"],
+        )
+        for group in grouped.values()
+    ]
+    return Stage3ReviewGroupListResponse(
+        items=items,
+        total_groups=len(items),
+        total_images=total_images,
+    )
 
 
 @router.post(
