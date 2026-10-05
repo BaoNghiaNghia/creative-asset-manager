@@ -658,6 +658,9 @@ export default function App() {
   }, [explorer.searchV3.active, explorer.searchV3.hasMore, explorer.searchV3.loading, explorer.searchV3.loadingMore, explorer.searchV3.items.length, paginationResetKey, explorer.searchV3.loadMore]);
   const activeUploadCount = explorer.uploads.filter(upload => upload.status === "queued" || upload.status === "uploading").length;
   const failedUploadCount = explorer.uploads.filter(upload => upload.status === "failed").length;
+  const uploadsCompletionKey = explorer.uploads
+    .map(upload => `${upload.id}:${upload.status}`)
+    .join("|");
   const activeUpload = explorer.uploads.find(upload => upload.status === "uploading");
   const remainingUploadBytes = explorer.uploads.reduce((total, upload) => {
     if (upload.status !== "queued" && upload.status !== "uploading") return total;
@@ -668,6 +671,16 @@ export default function App() {
       ? remainingUploadBytes / activeUpload.speedBps
       : null,
   );
+  useEffect(() => {
+    if (
+      !explorer.uploads.length
+      || !explorer.uploads.every(upload => upload.status === "completed")
+    ) return;
+    const autoDismissTimer = window.setTimeout(() => {
+      explorer.clearUploads?.();
+    }, 5000);
+    return () => window.clearTimeout(autoDismissTimer);
+  }, [uploadsCompletionKey]);
 
   function handleFileDragEnter(event: DragEvent<HTMLElement>) {
     if (!isExternalFileDrag(event.dataTransfer, Boolean(window.camDesktop?.isDesktop))) return;

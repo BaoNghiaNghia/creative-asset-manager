@@ -35,4 +35,14 @@ describe("upload progress panel", () => {
     );
     expect(globalStyles).toContain(".upload-progress-value{stroke:#2f63c9;stroke-linecap:round");
   });
+
+  it("auto-dismisses a fully completed upload batch after five seconds", () => {
+    expect(appSource).toContain(
+      '!explorer.uploads.every(upload => upload.status === "completed")',
+    );
+    expect(appSource).toContain("window.setTimeout(() =>");
+    expect(appSource).toContain("explorer.clearUploads?.();");
+    expect(appSource).toContain("}, 5000);");
+    expect(appSource).toContain("window.clearTimeout(autoDismissTimer)");
+  });
 });
