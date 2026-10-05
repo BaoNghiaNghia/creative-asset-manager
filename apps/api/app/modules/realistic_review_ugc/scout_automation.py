@@ -1524,6 +1524,7 @@ class RrugcAutoScoutService:
         run.completed_at = now
         run.last_heartbeat_at = now
 
+        scheduled_delay_seconds: int | None = None
         if campaign is not None:
             counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
             progress = (
@@ -1569,9 +1570,40 @@ class RrugcAutoScoutService:
                     failure_streak=int(campaign.scan_failure_streak or 0),
                     created_count=int(run.created_count or 0),
                 )
+                scheduled_delay_seconds = delay
                 campaign.scan_next_at = now + timedelta(seconds=delay)
             else:
                 campaign.scan_next_at = None
+
+        _LOGGER.info(
+            "rrugc_scout_run_complete",
+            extra={
+                "agent_id": agent.id,
+                "tenant_id": agent.tenant_id,
+                "run_id": run.id,
+                "campaign_id": run.campaign_id,
+                "status": status,
+                "error_code": run.last_error_code,
+                "created_count": int(run.created_count or 0),
+                "existing_count": int(run.existing_count or 0),
+                "empty_streak": (
+                    int(campaign.scan_empty_streak or 0)
+                    if campaign is not None
+                    else None
+                ),
+                "failure_streak": (
+                    int(campaign.scan_failure_streak or 0)
+                    if campaign is not None
+                    else None
+                ),
+                "next_scan_delay_seconds": scheduled_delay_seconds,
+                "next_scan_at": (
+                    campaign.scan_next_at.isoformat()
+                    if campaign is not None and campaign.scan_next_at
+                    else None
+                ),
+            },
+        )
 
         agent.last_seen_at = now
         agent.last_error_code = run.last_error_code

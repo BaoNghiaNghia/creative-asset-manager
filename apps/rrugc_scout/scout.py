@@ -22,8 +22,10 @@ from urllib.parse import quote_plus, urlsplit
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v21"
+CLIENT_VERSION = "rrugc-scout-v22"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
+BROWSER_SESSION_MAX_AGE_SECONDS = 2 * 60 * 60
+BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD = 2
 PIN_DETAIL_CONCURRENCY = 1
 PIN_RELATED_SCAN_LIMIT = 20
 PIN_RELATED_MAX_SCROLL_STEPS = 5
@@ -361,6 +363,39 @@ def _looks_like_profile_launch_collision(error: BaseException) -> bool:
     )
 
 
+def _looks_like_browser_runtime_failure(error: BaseException) -> bool:
+    message = (error.__class__.__name__ + " " + str(error)).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "targetclosederror",
+            "target page, context or browser has been closed",
+            "browser has been closed",
+            "browser context closed",
+            "page crashed",
+            "page has been closed",
+            "connection closed",
+            "connection terminated",
+        )
+    )
+
+
+def _browser_session_needs_recycle(
+    page: Any,
+    detail_page: Any,
+    started_at: float,
+    *,
+    now: float | None = None,
+) -> bool:
+    if page is None or detail_page is None:
+        return True
+    try:
+        if page.is_closed() or detail_page.is_closed():
+            return True
+    except Exception:
+        return True
+    current = time.monotonic() if now is None else now
+    return current - started_at >= BROWSER_SESSION_MAX_AGE_SECONDS
 
 
 class ScoutProfileLock:
@@ -2347,6 +2382,8 @@ def idle_diagnostic_message(payload: dict[str, Any]) -> str:
     )
     if active_counts:
         message += " [" + active_counts + "]"
+    if reason == "scheduled_later" and campaign.get("scan_next_at"):
+        message += " next_scan=" + str(campaign["scan_next_at"])
     return message
 
 
@@ -2370,20 +2407,67 @@ async def run_agent(args: argparse.Namespace) -> None:
     )
     playwright = None
     context = None
+    page = None
+    detail_page = None
+    browser_started_at = 0.0
+    browser_runtime_failures = 0
     history = ScoutHistory(
         profile_dir / SCOUT_HISTORY_FILENAME
     )
     idle_failures = 0
     last_idle_diagnostic_at = 0.0
-    try:
-        playwright, context = await launch_context(args)
-        page = context.pages[0] if context.pages else await context.new_page()
-        for stale_page in list(context.pages[1:]):
+
+    async def open_browser_runtime() -> tuple[Any, Any, Any, Any]:
+        next_playwright, next_context = await launch_context(args)
+        next_page = (
+            next_context.pages[0]
+            if next_context.pages
+            else await next_context.new_page()
+        )
+        for stale_page in list(next_context.pages[1:]):
             try:
                 await stale_page.close()
             except Exception:
                 pass
-        detail_page = await context.new_page()
+        next_detail_page = await next_context.new_page()
+        return next_playwright, next_context, next_page, next_detail_page
+
+    async def close_browser_runtime() -> None:
+        nonlocal playwright, context, page, detail_page
+        current_context = context
+        current_playwright = playwright
+        page = None
+        detail_page = None
+        context = None
+        playwright = None
+        if current_context is not None:
+            try:
+                await asyncio.wait_for(current_context.close(), timeout=10)
+            except Exception:
+                pass
+        if current_playwright is not None:
+            try:
+                await asyncio.wait_for(current_playwright.stop(), timeout=10)
+            except Exception:
+                pass
+
+    async def recycle_browser(reason: str) -> None:
+        nonlocal playwright, context, page, detail_page
+        nonlocal browser_started_at, browser_runtime_failures
+        scout_debug_event(
+            "browser_recycle_started",
+            reason=reason,
+            runtime_failure_streak=browser_runtime_failures,
+        )
+        await close_browser_runtime()
+        playwright, context, page, detail_page = await open_browser_runtime()
+        browser_started_at = time.monotonic()
+        browser_runtime_failures = 0
+        scout_debug_event("browser_recycle_completed", reason=reason)
+
+    try:
+        playwright, context, page, detail_page = await open_browser_runtime()
+        browser_started_at = time.monotonic()
         await client.heartbeat("ready")
         print(
             "Pinterest Auto Scout online. agent="
@@ -2421,6 +2505,13 @@ async def run_agent(args: argparse.Namespace) -> None:
                     await asyncio.sleep(args.poll_interval_seconds)
                     continue
                 try:
+                    if _browser_session_needs_recycle(
+                        page,
+                        detail_page,
+                        browser_started_at,
+                    ):
+                        await recycle_browser("session_age_or_closed")
+                        await client.heartbeat("ready")
                     await scan_auto_run(
                         page,
                         client,
@@ -2431,6 +2522,7 @@ async def run_agent(args: argparse.Namespace) -> None:
                         detail_concurrency=1,
                         history=history,
                     )
+                    browser_runtime_failures = 0
                 except PinterestAccessGateError as exc:
                     await client.complete(
                         str(task["run"]["id"]),
@@ -2524,6 +2616,7 @@ async def run_agent(args: argparse.Namespace) -> None:
                 await asyncio.sleep(delay)
             except Exception as exc:
                 idle_failures += 1
+                browser_runtime_failures += 1
                 try:
                     await client.heartbeat(
                         "error",
@@ -2532,26 +2625,58 @@ async def run_agent(args: argparse.Namespace) -> None:
                 except Exception:
                     pass
                 delay = min(60, max(5, 2 ** min(idle_failures, 6)))
+                recycle_needed = (
+                    _looks_like_browser_runtime_failure(exc)
+                    or browser_runtime_failures
+                    >= BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD
+                )
                 scout_debug_event(
                     "scout_runtime_retry",
                     error_type=exc.__class__.__name__,
                     failure_streak=idle_failures,
+                    browser_failure_streak=browser_runtime_failures,
+                    browser_recycle=recycle_needed,
                     retry_delay_seconds=delay,
-                )
-                print(
-                    "Scout run failed; keeping the persistent browser alive and retrying in "
-                    + str(delay)
-                    + "s: "
-                    + exc.__class__.__name__
                 )
                 if args.once:
                     raise
+                if recycle_needed:
+                    reason = (
+                        "browser_runtime_failure"
+                        if _looks_like_browser_runtime_failure(exc)
+                        else "runtime_failure_threshold"
+                    )
+                    try:
+                        await recycle_browser(reason)
+                        await client.heartbeat("ready")
+                        print(
+                            "Scout browser recovered automatically after "
+                            + exc.__class__.__name__
+                            + "; retrying in "
+                            + str(delay)
+                            + "s."
+                        )
+                    except Exception as recycle_error:
+                        scout_debug_event(
+                            "browser_recycle_failed",
+                            reason=reason,
+                            error_type=recycle_error.__class__.__name__,
+                        )
+                        print(
+                            "Scout browser recycle failed; will retry recovery on the next "
+                            "claimed run: "
+                            + recycle_error.__class__.__name__
+                        )
+                else:
+                    print(
+                        "Scout run failed; retrying with the current browser in "
+                        + str(delay)
+                        + "s: "
+                        + exc.__class__.__name__
+                    )
                 await asyncio.sleep(delay)
     finally:
-        if context is not None:
-            await context.close()
-        if playwright is not None:
-            await playwright.stop()
+        await close_browser_runtime()
         await client.close()
 
 

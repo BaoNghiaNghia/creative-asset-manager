@@ -62,6 +62,47 @@ def test_profile_launch_collision_detection_matches_windows_target_closed_log():
     assert not _looks_like_profile_launch_collision(RuntimeError("Pinterest HTTP 429"))
 
 
+def test_browser_runtime_failure_detection_matches_closed_or_crashed_browser():
+    assert scout_module._looks_like_browser_runtime_failure(
+        RuntimeError("TargetClosedError: Target page, context or browser has been closed")
+    )
+    assert scout_module._looks_like_browser_runtime_failure(
+        RuntimeError("Page crashed while waiting for selector")
+    )
+    assert not scout_module._looks_like_browser_runtime_failure(
+        RuntimeError("Pinterest returned HTTP 429")
+    )
+
+
+def test_browser_session_recycles_when_closed_or_too_old():
+    class FakePage:
+        def __init__(self, closed: bool):
+            self.closed = closed
+
+        def is_closed(self):
+            return self.closed
+
+    max_age = scout_module.BROWSER_SESSION_MAX_AGE_SECONDS
+    assert scout_module._browser_session_needs_recycle(
+        FakePage(True),
+        FakePage(False),
+        100.0,
+        now=101.0,
+    )
+    assert not scout_module._browser_session_needs_recycle(
+        FakePage(False),
+        FakePage(False),
+        100.0,
+        now=100.0 + max_age - 1,
+    )
+    assert scout_module._browser_session_needs_recycle(
+        FakePage(False),
+        FakePage(False),
+        100.0,
+        now=100.0 + max_age,
+    )
+
+
 def test_clear_stale_profile_runtime_files_preserves_unrelated_files(tmp_path):
     stale_names = (
         "SingletonCookie",
@@ -117,7 +158,7 @@ def test_recover_windows_profile_only_closes_dedicated_root_chrome(
 def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v21"}',
+        '{"pid":21668,"version":"rrugc-scout-v22"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -137,7 +178,7 @@ def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
 def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v21"}',
+        '{"pid":21668,"version":"rrugc-scout-v22"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -152,7 +193,7 @@ def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
 
     payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
     assert payload["pid"] == scout_module.os.getpid()
-    assert payload["version"] == "rrugc-scout-v21"
+    assert payload["version"] == "rrugc-scout-v22"
 
     lock.release()
     assert not lock_path.exists()
@@ -1083,6 +1124,22 @@ def test_idle_diagnostic_message_explains_source_plan_wait():
     assert "claimable" not in message
 
 
+def test_idle_diagnostic_message_shows_next_scheduled_scan():
+    message = idle_diagnostic_message({
+        "campaigns": [{
+            "name": "Grandpa cap",
+            "reason": "scheduled_later",
+            "target_count": 50,
+            "progress": 4,
+            "pipeline_count": 12,
+            "counts": {"analysis_queued": 8, "drive_ready": 4},
+            "scan_next_at": "2026-10-05T05:30:49+00:00",
+        }],
+    })
+    assert "next scan is scheduled later" in message
+    assert "next_scan=2026-10-05T05:30:49+00:00" in message
+
+
 def test_idle_diagnostic_message_explains_pipeline_backpressure():
     message = idle_diagnostic_message({
         "campaigns": [{
@@ -1105,11 +1162,11 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v21"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v22"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         if request.url.path.endswith("/diagnostics"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v21"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v22"
             assert request.headers["x-scout-machine"] == "studio-pc"
         return httpx.Response(200, json={"status": "ready"})
 
