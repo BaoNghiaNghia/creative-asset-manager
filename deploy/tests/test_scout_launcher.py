@@ -6,7 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BATCH = ROOT / "START_SCOUT.bat"
-KEYWORD_CMD = ROOT / "START_KEYWORD_SCOUT.cmd"
+REVIEW_CMD = ROOT / "START_SCOUT_REVIEW.cmd"
+KEYWORD_CMD = ROOT / "START_SCOUT_KEYWORD.cmd"
 UPDATER = ROOT / "scripts" / "start_scout_auto_update.ps1"
 
 
@@ -62,6 +63,11 @@ class ScoutLauncherContractTests(unittest.TestCase):
         self.assertIn("Start-Sleep -Milliseconds 100", recovery)
         self.assertIn("Test-Path -LiteralPath $Path -PathType Leaf", recovery)
 
+    def test_review_cmd_preserves_legacy_review_launcher(self) -> None:
+        source = REVIEW_CMD.read_text()
+        self.assertIn('call "%~dp0START_SCOUT.bat"', source)
+        self.assertIn("Review Scout", source)
+
     def test_keyword_cmd_uses_shared_self_updating_launcher(self) -> None:
         source = KEYWORD_CMD.read_text()
         self.assertIn("scripts\\start_scout_auto_update.ps1", source)
@@ -82,6 +88,36 @@ class ScoutLauncherContractTests(unittest.TestCase):
         self.assertIn('"--agent-id", $agentId', source)
         self.assertIn("$env:RRUGC_SCOUT_TOKEN = $token", source)
         self.assertIn("Stage 1 claim lane  : not used", source)
+
+    def test_shared_startup_mutex_serializes_only_mutating_setup(self) -> None:
+        source = UPDATER.read_text()
+        self.assertIn("Local\\CreativeAssetManager.RrugcScout.Startup", source)
+        self.assertIn("function Acquire-ScoutStartupLock", source)
+        self.assertIn("function Release-ScoutStartupLock", source)
+        self.assertIn("Acquire-ScoutStartupLock", source)
+
+        shared_release = source.index(
+            "# Shared mutable setup is complete. From this point onward Review Scout and"
+        )
+        keyword_start = source.index('if ($KeywordMode) {', shared_release)
+        review_start = source.index('Write-Step "Starting Pinterest Auto Scout"', shared_release)
+        release_index = source.index("Release-ScoutStartupLock", shared_release)
+        self.assertLess(release_index, keyword_start)
+        self.assertLess(release_index, review_start)
+
+    def test_fast_forward_releases_mutex_before_child_relaunch(self) -> None:
+        source = UPDATER.read_text()
+        bootstrap_index = source.index("Ensure-ScoutBootstrap $updatedBootstrap")
+        release_index = source.index("Release-ScoutStartupLock", bootstrap_index)
+        child_index = source.index(
+            "-File $updatedBootstrap -SkipUpdate -KeywordMode",
+            release_index,
+        )
+        self.assertLess(bootstrap_index, release_index)
+        self.assertLess(release_index, child_index)
+
+    def test_old_keyword_launcher_name_is_removed(self) -> None:
+        self.assertFalse((ROOT / "START_KEYWORD_SCOUT.cmd").exists())
 
 
 if __name__ == "__main__":

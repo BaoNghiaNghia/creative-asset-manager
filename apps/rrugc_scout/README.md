@@ -4,7 +4,7 @@ This companion runtime runs on a user-controlled desktop or laptop with Chrome/C
 
 ## One-click Windows launcher
 
-For the Windows checkout (for example `D:\\Bot_Tool_Auto_Game\\scan_pinterest`), use the repository-root `START_SCOUT.bat` instead of invoking `scout.py` manually.
+For the Windows checkout (for example `D:\\Bot_Tool_Auto_Game\\scan_pinterest`), use `START_SCOUT_REVIEW.cmd` for the existing review/reference scout and `START_SCOUT_KEYWORD.cmd` for Stage 0 keyword analysis. The legacy repository-root `START_SCOUT.bat` is intentionally preserved and still launches the same review scout.
 
 On every start the launcher:
 
@@ -26,11 +26,13 @@ RRUGC_SCOUT_TOKEN=<agent token>
 
 The defaults already use `https://creative-assets.ddns.net`, `<repo>\\pinterest-profile`, `careful` pace, and low-footprint detail mode with one reusable detail tab.
 
-After this one-time configuration, the normal workflow is only:
+After this one-time configuration, the normal Review Scout workflow is:
 
 ```text
-START_SCOUT.bat
+START_SCOUT_REVIEW.cmd
 ```
+
+`START_SCOUT.bat` remains a supported legacy entry point with its original behavior.
 
 Do not commit `scout.local.env`; it is intentionally ignored by Git.
 
@@ -41,10 +43,10 @@ A second terminal can reuse the same Scout Agent credentials without competing f
 On Windows, use the repository-root launcher:
 
 ```text
-START_KEYWORD_SCOUT.cmd
+START_SCOUT_KEYWORD.cmd
 ```
 
-It auto-updates from `origin/main` with the same safety rules as `START_SCOUT.bat`, reuses `scout.local.env` and `.venv-rrugc`, and opens an interactive loop. Paste up to 50 keywords, one per line, then submit a blank line. The terminal can stay open beside the normal Pinterest Scout; it never claims Stage 1 jobs.
+Use `START_SCOUT_REVIEW.cmd` for the existing Pinterest review/reference scout and `START_SCOUT_KEYWORD.cmd` for Stage 0 keyword analysis. The legacy `START_SCOUT.bat` remains unchanged and continues to launch the review scout for backward compatibility. Both CMD windows may be started at the same time: they serialize only shared startup work (Git update, pairing/config, venv and dependency setup), then release the startup lock so Review Scout and Keyword Scout run concurrently. The keyword launcher reuses `scout.local.env` and `.venv-rrugc`; paste up to 50 keywords, one per line, then submit a blank line. It never claims Stage 1 jobs.
 
 Direct Python usage remains available:
 

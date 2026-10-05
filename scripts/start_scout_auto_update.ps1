@@ -188,7 +188,64 @@ function Ensure-ScoutBootstrap([string]$Path) {
     }
 }
 
+$StartupMutex = $null
+$StartupMutexHeld = $false
+
+function Acquire-ScoutStartupLock {
+    if ($script:StartupMutexHeld) {
+        return
+    }
+
+    $mutexName = "Local\CreativeAssetManager.RrugcScout.Startup"
+    $script:StartupMutex = New-Object System.Threading.Mutex($false, $mutexName)
+    $acquired = $false
+
+    try {
+        $acquired = $script:StartupMutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $acquired = $true
+    }
+
+    if (-not $acquired) {
+        Write-Host ""
+        Write-Host "Another Scout launcher is finishing shared startup setup." -ForegroundColor Yellow
+        Write-Host "Waiting for Git/update/environment lock; both Scouts will run together after setup." -ForegroundColor DarkGray
+        try {
+            $acquired = $script:StartupMutex.WaitOne([TimeSpan]::FromMinutes(5))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+    }
+
+    if (-not $acquired) {
+        $script:StartupMutex.Dispose()
+        $script:StartupMutex = $null
+        Fail "Timed out waiting for the shared Scout startup lock."
+    }
+
+    $script:StartupMutexHeld = $true
+}
+
+function Release-ScoutStartupLock {
+    if ($script:StartupMutexHeld -and $null -ne $script:StartupMutex) {
+        try {
+            $script:StartupMutex.ReleaseMutex()
+        }
+        catch {
+            # The OS releases abandoned named mutexes when a launcher exits.
+        }
+        $script:StartupMutexHeld = $false
+    }
+    if ($null -ne $script:StartupMutex) {
+        $script:StartupMutex.Dispose()
+        $script:StartupMutex = $null
+    }
+}
+
 Set-Location -LiteralPath $RepoRoot
+Acquire-ScoutStartupLock
 
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
     if (Test-Path -LiteralPath $ConfigExamplePath) {
@@ -271,6 +328,11 @@ if (-not $SkipUpdate) {
             # left it absent, recover the exact origin/main version first.
             $updatedBootstrap = Join-Path $RepoRoot "scripts\start_scout_auto_update.ps1"
             Ensure-ScoutBootstrap $updatedBootstrap
+
+            # The updated child must acquire the same startup mutex itself.
+            # Release before launching it or two simultaneous launchers could
+            # deadlock here while waiting for the parent process to exit.
+            Release-ScoutStartupLock
             if ($KeywordMode) {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -KeywordMode
             }
@@ -395,6 +457,10 @@ $head = (& git rev-parse --short=8 HEAD 2>$null)
 if ($LASTEXITCODE -ne 0) {
     $head = "unknown"
 }
+
+# Shared mutable setup is complete. From this point onward Review Scout and
+# Keyword Scout must be allowed to run concurrently in separate terminals.
+Release-ScoutStartupLock
 
 if ($KeywordMode) {
     if (-not (Test-Path -LiteralPath $KeywordScoutPath)) {
