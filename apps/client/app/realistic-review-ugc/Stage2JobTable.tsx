@@ -361,18 +361,7 @@ export function Stage2JobTable({
     jobs: Stage2Job[];
   } | null>(null);
   const recentJobs = useMemo(() => recentJobsByPlan(jobs), [jobs]);
-  const stage2Plans = useMemo(
-    () => plans.filter(plan => (
-      plan.status === "ready"
-      && Boolean(plan.campaign_id)
-      && Boolean(
-        plan.embroidery_signature
-        || plan.visual_context?.embroidery_identity
-        || plan.visual_context?.embroidery_text?.length
-      )
-    )),
-    [plans],
-  );
+  const stage2Plans = plans;
   const stage2Total = total ?? stage2Plans.length;
   const pageCount = sourcePlanPageCount(stage2Total, pageSize);
   const currentPage = Math.min(Math.max(1, page), pageCount);
@@ -499,8 +488,8 @@ export function Stage2JobTable({
     {skillMessage && <p className="rrugc-editor-product-result" role="status">{skillMessage}</p>}
 
     <div className="rrugc-source-plan-kpis rrugc-stage2-kpis">
-      <article><span>Embroidery groups</span><strong>{overview.stage2_groups}</strong></article>
-      <article><span>Source images</span><strong>{overview.stage2_source_images}</strong></article>
+      <article><span>Embroidery groups</span><strong>{overview.embroidery_groups}</strong></article>
+      <article><span>Source images</span><strong>{overview.source_images}</strong></article>
       <article><span>Drive-ready refs</span><strong>{overview.stage2_drive_ready_refs}</strong></article>
       <article><span>Active jobs</span><strong>{overview.stage2_active_jobs}</strong></article>
     </div>

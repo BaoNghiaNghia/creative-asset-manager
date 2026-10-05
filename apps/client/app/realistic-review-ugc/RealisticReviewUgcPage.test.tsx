@@ -259,6 +259,37 @@ describe("Realistic Review UGC source-first workspace", () => {
       .not.toBe(stage2JobsRenderFingerprint(base));
   });
 
+  it("keeps non-ready embroidery groups visible in Stage 2 so group totals match Stage 1", () => {
+    const pendingPlan = {
+      ...makePlan(0),
+      id: "plan-pending",
+      source_name: "pending-group.png",
+      status: "pending" as const,
+      campaign_id: null,
+      embroidery_signature: null,
+      visual_context: null,
+    };
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[pendingPlan]}
+        overview={GLOBAL_OVERVIEW}
+        jobs={[]}
+        creatingPlanIds={new Set()}
+        loading={false}
+        total={GLOBAL_OVERVIEW.embroidery_groups}
+        page={1}
+        pageSize={10}
+        message=""
+        onCreateJob={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("pending-group.png");
+    expect(markup).toContain(">" + GLOBAL_OVERVIEW.embroidery_groups + "<");
+    expect(markup).toContain(">" + GLOBAL_OVERVIEW.source_images + "<");
+  });
+
   it("renders Stage 2 as a max-10 Pinterest ref skill job table", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable
@@ -285,8 +316,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("front-red.png");
     expect(markup).toContain("same embroidery");
     expect(markup).toContain("Source images");
-    expect(markup).toContain(">57<");
-    expect(markup).toContain(">99<");
+    expect(markup).toContain(">79<");
+    expect(markup).toContain(">133<");
     expect(markup).toContain(">302<");
     expect(markup).toContain(">7<");
     expect(markup).toContain("Generate next");

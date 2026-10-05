@@ -82,23 +82,16 @@ export function RealisticReviewUgcPage() {
   const [sourcePageLoading, setSourcePageLoading] = useState(true);
   const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [sourcePlanMessage, setSourcePlanMessage] = useState("");
-  const [stage2Page, setStage2Page] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
-  const [stage2PageNumber, setStage2PageNumber] = useState(1);
-  const [stage2PageSize, setStage2PageSize] = useState(10);
-  const [stage2PageLoading, setStage2PageLoading] = useState(true);
   const [stage2Jobs, setStage2Jobs] = useState<Stage2Job[]>([]);
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage1");
+  const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
 
   const sourcePageCount = useMemo(
     () => Math.max(1, Math.ceil(sourcePage.total / Math.max(1, sourcePageSize))),
     [sourcePage.total, sourcePageSize],
-  );
-  const stage2PageCount = useMemo(
-    () => Math.max(1, Math.ceil(stage2Page.total / Math.max(1, stage2PageSize))),
-    [stage2Page.total, stage2PageSize],
   );
 
   async function refreshSourcePlans(signal?: AbortSignal) {
@@ -114,25 +107,6 @@ export function RealisticReviewUgcPage() {
     );
     const nextFingerprint = sourcePlanPageRenderFingerprint(result);
     setSourcePage(current => (
-      sourcePlanPageRenderFingerprint(current) === nextFingerprint
-        ? current
-        : result
-    ));
-  }
-
-  async function refreshStage2Plans(signal?: AbortSignal) {
-    const result = await listSourcePlans(
-      {
-        page: stage2PageNumber,
-        pageSize: stage2PageSize,
-        sortBy: "source",
-        sortDirection: "asc",
-        stage2Only: true,
-      },
-      signal,
-    );
-    const nextFingerprint = sourcePlanPageRenderFingerprint(result);
-    setStage2Page(current => (
       sourcePlanPageRenderFingerprint(current) === nextFingerprint
         ? current
         : result
@@ -167,7 +141,7 @@ export function RealisticReviewUgcPage() {
       );
       await Promise.all([
         refreshStage2Jobs(),
-        refreshStage2Plans(),
+        refreshSourcePlans(),
       ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to queue Stage 2 generation.");
@@ -281,17 +255,13 @@ export function RealisticReviewUgcPage() {
   }, [sourcePageCount, sourcePageNumber]);
 
   useEffect(() => {
-    if (stage2PageNumber > stage2PageCount) {
-      setStage2PageNumber(stage2PageCount);
-    }
-  }, [stage2PageCount, stage2PageNumber]);
-
-  useEffect(() => {
-    if (activeStage !== "stage1") return;
+    if (!groupsStageActive) return;
     const controller = new AbortController();
     let refreshInFlight = true;
     setError("");
-    setSourcePageLoading(true);
+    if (sourcePage.items.length === 0 && sourcePage.total === 0) {
+      setSourcePageLoading(true);
+    }
     void refreshSourcePlans(controller.signal)
       .catch(reason => {
         if (!controller.signal.aborted) {
@@ -315,37 +285,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
-
-  useEffect(() => {
-    if (activeStage !== "stage2") return;
-    const controller = new AbortController();
-    let refreshInFlight = true;
-    setStage2PageLoading(true);
-    void refreshStage2Plans(controller.signal)
-      .catch(reason => {
-        if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 groups.");
-        }
-      })
-      .finally(() => {
-        refreshInFlight = false;
-        if (!controller.signal.aborted) setStage2PageLoading(false);
-      });
-    const timer = window.setInterval(() => {
-      if (document.hidden || refreshInFlight) return;
-      refreshInFlight = true;
-      void refreshStage2Plans()
-        .catch(() => undefined)
-        .finally(() => {
-          refreshInFlight = false;
-        });
-    }, 5000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [activeStage, stage2PageNumber, stage2PageSize]);
+  }, [groupsStageActive, sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
 
   useEffect(() => {
     if (activeStage !== "stage2") return;
@@ -376,10 +316,6 @@ export function RealisticReviewUgcPage() {
   }, [activeStage]);
 
   function selectStage(nextStage: RrugcStageTab) {
-    if (nextStage !== activeStage) {
-      if (nextStage === "stage1") setSourcePageLoading(true);
-      if (nextStage === "stage2") setStage2PageLoading(true);
-    }
     setActiveStage(nextStage);
     window.requestAnimationFrame?.(() => {
       document.getElementById("rrugc-tab-" + nextStage)?.focus();
@@ -495,23 +431,23 @@ export function RealisticReviewUgcPage() {
           hidden={activeStage !== "stage2"}
         >
           <Stage2JobTable
-            plans={stage2Page.items}
-            total={stage2Page.total}
-            overview={stage2Page.overview}
-            page={stage2PageNumber}
-            pageSize={stage2PageSize}
+            plans={sourcePage.items}
+            total={sourcePage.total}
+            overview={sourcePage.overview}
+            page={sourcePageNumber}
+            pageSize={sourcePageSize}
             jobs={stage2Jobs}
             creatingPlanIds={creatingStage2PlanIds}
-            loading={stage2PageLoading}
+            loading={sourcePageLoading}
             message={stage2Message}
             onPageChange={value => {
-              setStage2PageLoading(true);
-              setStage2PageNumber(value);
+              setSourcePageLoading(true);
+              setSourcePageNumber(value);
             }}
             onPageSizeChange={value => {
-              setStage2PageLoading(true);
-              setStage2PageNumber(1);
-              setStage2PageSize(value);
+              setSourcePageLoading(true);
+              setSourcePageNumber(1);
+              setSourcePageSize(value);
             }}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
           />
