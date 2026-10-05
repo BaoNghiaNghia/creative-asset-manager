@@ -5,12 +5,14 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import random
 import re
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -18,6 +20,7 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
+from uuid import uuid4
 
 import httpx
 
@@ -77,6 +80,101 @@ _SCOUT_DEBUG_LOGGER.setLevel(logging.INFO)
 _SCOUT_DEBUG_LOGGER.propagate = False
 _SCOUT_DEBUG_LOG_PATH: Path | None = None
 _SCOUT_DEBUG_BASE_FIELDS: dict[str, Any] = {}
+_SCOUT_REMOTE_LOG_QUEUE: queue.Queue[dict[str, Any]] | None = None
+_SCOUT_REMOTE_LOG_THREAD: threading.Thread | None = None
+_SCOUT_REMOTE_LOG_STOP = threading.Event()
+_SCOUT_REMOTE_LOG_ENDPOINT: str | None = None
+_SCOUT_REMOTE_LOG_TOKEN: str | None = None
+_SCOUT_REMOTE_LOG_BATCH_SIZE = 50
+_SCOUT_REMOTE_LOG_QUEUE_LIMIT = 5_000
+
+
+def _scout_remote_log_level(event: str) -> str:
+    lowered = str(event).casefold()
+    if any(marker in lowered for marker in ("failed", "error", "recovering")):
+        return "error"
+    if any(marker in lowered for marker in ("rate_limited", "challenge", "warning")):
+        return "warning"
+    return "info"
+
+
+def _scout_remote_log_worker() -> None:
+    pending: list[dict[str, Any]] = []
+    with httpx.Client(timeout=httpx.Timeout(8.0, connect=4.0)) as client:
+        while not _SCOUT_REMOTE_LOG_STOP.is_set() or pending:
+            current_queue = _SCOUT_REMOTE_LOG_QUEUE
+            endpoint = _SCOUT_REMOTE_LOG_ENDPOINT
+            token = _SCOUT_REMOTE_LOG_TOKEN
+            if current_queue is None or not endpoint or not token:
+                return
+
+            if not pending:
+                try:
+                    pending.append(current_queue.get(timeout=0.5))
+                except queue.Empty:
+                    continue
+                while len(pending) < _SCOUT_REMOTE_LOG_BATCH_SIZE:
+                    try:
+                        pending.append(current_queue.get_nowait())
+                    except queue.Empty:
+                        break
+
+            try:
+                response = client.post(
+                    endpoint,
+                    headers={"Authorization": "Bearer " + token},
+                    json={"events": list(pending)},
+                )
+                response.raise_for_status()
+                pending.clear()
+            except Exception:
+                if _SCOUT_REMOTE_LOG_STOP.wait(2.0):
+                    return
+
+
+def configure_scout_remote_log(
+    *,
+    base_url: str,
+    agent_id: str,
+    token: str,
+) -> None:
+    global _SCOUT_REMOTE_LOG_QUEUE
+    global _SCOUT_REMOTE_LOG_THREAD
+    global _SCOUT_REMOTE_LOG_ENDPOINT
+    global _SCOUT_REMOTE_LOG_TOKEN
+
+    shutdown_scout_remote_log(timeout_seconds=1.0)
+    _SCOUT_REMOTE_LOG_STOP.clear()
+    _SCOUT_REMOTE_LOG_QUEUE = queue.Queue(maxsize=_SCOUT_REMOTE_LOG_QUEUE_LIMIT)
+    _SCOUT_REMOTE_LOG_ENDPOINT = (
+        base_url.rstrip("/")
+        + "/api/v1/realistic-review-ugc/scout-agents/"
+        + agent_id
+        + "/logs"
+    )
+    _SCOUT_REMOTE_LOG_TOKEN = token
+    _SCOUT_REMOTE_LOG_THREAD = threading.Thread(
+        target=_scout_remote_log_worker,
+        name="rrugc-scout-remote-log",
+        daemon=True,
+    )
+    _SCOUT_REMOTE_LOG_THREAD.start()
+
+
+def shutdown_scout_remote_log(*, timeout_seconds: float = 3.0) -> None:
+    global _SCOUT_REMOTE_LOG_QUEUE
+    global _SCOUT_REMOTE_LOG_THREAD
+    global _SCOUT_REMOTE_LOG_ENDPOINT
+    global _SCOUT_REMOTE_LOG_TOKEN
+
+    thread = _SCOUT_REMOTE_LOG_THREAD
+    _SCOUT_REMOTE_LOG_STOP.set()
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=max(0.0, timeout_seconds))
+    _SCOUT_REMOTE_LOG_QUEUE = None
+    _SCOUT_REMOTE_LOG_THREAD = None
+    _SCOUT_REMOTE_LOG_ENDPOINT = None
+    _SCOUT_REMOTE_LOG_TOKEN = None
 
 
 def configure_scout_debug_log(
@@ -121,7 +219,7 @@ def configure_scout_debug_log(
 
 
 def scout_debug_event(event: str, **fields: Any) -> None:
-    if not _SCOUT_DEBUG_LOGGER.handlers:
+    if not _SCOUT_DEBUG_LOGGER.handlers and _SCOUT_REMOTE_LOG_QUEUE is None:
         return
     payload = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -130,18 +228,35 @@ def scout_debug_event(event: str, **fields: Any) -> None:
         **_SCOUT_DEBUG_BASE_FIELDS,
         **fields,
     }
-    try:
-        _SCOUT_DEBUG_LOGGER.info(
-            json.dumps(
-                payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                default=str,
+    if _SCOUT_DEBUG_LOGGER.handlers:
+        try:
+            _SCOUT_DEBUG_LOGGER.info(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                )
             )
-        )
-    except Exception:
-        # Debug logging must never interrupt Pinterest scouting.
-        pass
+        except Exception:
+            # Debug logging must never interrupt Pinterest scouting.
+            pass
+
+    remote_queue = _SCOUT_REMOTE_LOG_QUEUE
+    if remote_queue is not None:
+        try:
+            remote_queue.put_nowait(
+                {
+                    "event_id": uuid4().hex,
+                    "event_type": str(event),
+                    "level": _scout_remote_log_level(str(event)),
+                    "occurred_at": payload["ts"],
+                    "payload": payload,
+                }
+            )
+        except queue.Full:
+            # Remote logging is best-effort; local JSONL remains the fallback.
+            pass
 
 
 @dataclass(frozen=True, slots=True)

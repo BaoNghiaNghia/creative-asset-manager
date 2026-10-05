@@ -191,6 +191,8 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutAgentResponse,
     ScoutAgentCreatedResponse,
     ScoutAgentHeartbeatRequest,
+    ScoutLogBatchRequest,
+    ScoutLogBatchResponse,
     ScoutClaimResponse,
     ScoutRunCompleteRequest,
     ScoutRunResponse,
@@ -221,6 +223,10 @@ from app.modules.realistic_review_ugc.scout_automation import (
     effective_agent_status,
     keyword_health_rows,
     quality_pipeline_count,
+)
+from app.modules.realistic_review_ugc.scout_log import (
+    RrugcScoutLogService,
+    SCOUT_LOG_RETENTION_DAYS,
 )
 from app.modules.realistic_review_ugc.export import RrugcExportService
 from app.modules.realistic_review_ugc.delivery import RrugcDeliveryService
@@ -5346,6 +5352,32 @@ def auto_scout_agent_heartbeat(
     except RrugcError as exc:
         raise _error(exc) from exc
     return _scout_agent_response(row)
+
+
+@router.post(
+    "/scout-agents/{agent_id}/logs",
+    response_model=ScoutLogBatchResponse,
+)
+def auto_scout_agent_logs(
+    agent_id: str,
+    request: ScoutLogBatchRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    try:
+        accepted, created = RrugcScoutLogService(session).ingest(
+            agent_id=agent_id,
+            raw_token=token,
+            events=[item.model_dump() for item in request.events],
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    return ScoutLogBatchResponse(
+        accepted=accepted,
+        created=created,
+        retention_days=SCOUT_LOG_RETENTION_DAYS,
+    )
 
 
 @router.get(

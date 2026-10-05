@@ -23,6 +23,7 @@ from scout import (
     access_gate,
     bootstrap_login,
     configure_scout_debug_log,
+    configure_scout_remote_log,
     extract_related_candidates,
     extract_visible,
     guard_pinterest_response,
@@ -33,6 +34,7 @@ from scout import (
     pinimg_asset_key,
     resolve_pin_details,
     scout_debug_event,
+    shutdown_scout_remote_log,
     wait_for_pin_growth,
 )
 
@@ -618,8 +620,14 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     history = KeywordScoutHistory(profile_dir / DEFAULT_HISTORY_FILENAME)
     pace = SCOUT_PACES.get(args.pace, SCOUT_PACES["careful"])
     client = QuoteScoutClient(args.base_url, args.agent_id, args.token)
+    configure_scout_remote_log(
+        base_url=args.base_url,
+        agent_id=args.agent_id,
+        token=args.token,
+    )
 
     print("Stage 0 Keyword Scout log: " + str(log_path))
+    print("Remote Scout log      : API enabled · retention 5 days")
     print("Pinterest query       : " + args.seed_query)
     print("Pinterest profile     : " + str(profile_dir))
     print("Related per Pin       : " + str(args.related_per_pin))
@@ -636,6 +644,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         max_pins_per_cycle=args.max_pins_per_cycle,
         related_per_pin=args.related_per_pin,
         history_path=str(history.path),
+    )
+    scout_debug_event(
+        "keyword_scout_remote_logging_enabled",
+        retention_days=5,
     )
 
     playwright = None
@@ -1060,6 +1072,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 continue
     finally:
         await close_browser_runtime()
+        shutdown_scout_remote_log(timeout_seconds=3.0)
         await client.close()
 
 

@@ -1,4 +1,5 @@
 import asyncio
+from threading import Event
 
 import httpx
 import pytest
@@ -17,6 +18,7 @@ from scout import (
     allowed_pin,
     choose_pin_detail_candidate,
     configure_scout_debug_log,
+    configure_scout_remote_log,
     extract_related_candidates,
     extract_visible,
     idle_diagnostic_message,
@@ -32,6 +34,7 @@ from scout import (
     resolve_pin_details,
     scan_auto_run,
     scout_debug_event,
+    shutdown_scout_remote_log,
     task_search_queries,
     wait_for_pin_growth,
 )
@@ -1120,6 +1123,66 @@ def test_scout_debug_log_writes_jsonl_and_keeps_secrets_out_of_events(tmp_path):
     assert rows[-1]["operation"] == "claim"
     assert rows[-1]["duration_ms"] == 42
     assert "secret-token" not in log_path.read_text(encoding="utf-8")
+
+
+def test_scout_remote_log_posts_events_without_blocking_local_logger(
+    tmp_path,
+    monkeypatch,
+):
+    posted: list[dict] = []
+    sent = Event()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, url, *, headers, json):
+            posted.append({"url": url, "headers": headers, "json": json})
+            sent.set()
+            return FakeResponse()
+
+    monkeypatch.setattr(scout_module.httpx, "Client", FakeClient)
+    configure_scout_debug_log(
+        tmp_path,
+        filename="keyword-scout.jsonl",
+        scout_type="keyword",
+    )
+    configure_scout_remote_log(
+        base_url="https://creative-assets.example",
+        agent_id="agent-123",
+        token="secret-token",
+    )
+    try:
+        scout_debug_event(
+            "keyword_scout_batch_completed",
+            visible=31,
+            fresh=12,
+        )
+        assert sent.wait(1.0)
+    finally:
+        shutdown_scout_remote_log(timeout_seconds=1.0)
+
+    request = posted[-1]
+    assert request["url"].endswith(
+        "/api/v1/realistic-review-ugc/scout-agents/agent-123/logs"
+    )
+    assert request["headers"]["Authorization"] == "Bearer secret-token"
+    event = request["json"]["events"][0]
+    assert event["event_type"] == "keyword_scout_batch_completed"
+    assert event["payload"]["scout_type"] == "keyword"
+    assert event["payload"]["visible"] == 31
+    assert event["payload"]["fresh"] == 12
+    assert "secret-token" not in str(event)
 
 
 def test_scout_debug_log_supports_keyword_specific_jsonl(tmp_path):

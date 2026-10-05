@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -588,6 +588,28 @@ class ScoutAgentHeartbeatRequest(BaseModel):
     machine_label: str | None = Field(default=None, max_length=160)
     run_id: str | None = Field(default=None, max_length=36)
     error_code: str | None = Field(default=None, max_length=100)
+
+
+class ScoutLogEventRequest(BaseModel):
+    event_id: str = Field(min_length=8, max_length=255)
+    event_type: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+    )
+    level: Literal["trace", "debug", "info", "warning", "error", "critical"] = "info"
+    occurred_at: datetime
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScoutLogBatchRequest(BaseModel):
+    events: list[ScoutLogEventRequest] = Field(min_length=1, max_length=100)
+
+
+class ScoutLogBatchResponse(BaseModel):
+    accepted: int
+    created: int
+    retention_days: int
 
 
 class ScoutRunResponse(BaseModel):

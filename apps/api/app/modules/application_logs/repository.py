@@ -46,14 +46,14 @@ class ApplicationLogRepository:
         if tenant_id is not None: statement = statement.where(ApplicationLogModel.tenant_id == tenant_id)
         result = self.session.execute(statement); return int(result.rowcount or 0)
 
-    def create_log(self, *, application: LogApplicationModel, idempotency_key: str | None, request_hash: str, level: str, event_type: str, message: str | None, trace_id: str | None, payload: dict, occurred_at: datetime | None, now: datetime | None = None) -> tuple[ApplicationLogModel, bool]:
+    def create_log(self, *, application: LogApplicationModel, idempotency_key: str | None, request_hash: str, level: str, event_type: str, message: str | None, trace_id: str | None, payload: dict, occurred_at: datetime | None, now: datetime | None = None, retention_days: int = LOG_RETENTION_DAYS) -> tuple[ApplicationLogModel, bool]:
         if idempotency_key:
             existing = self.session.scalar(select(ApplicationLogModel).where(ApplicationLogModel.application_id == application.id, ApplicationLogModel.idempotency_key == idempotency_key))
             if existing is not None:
                 if existing.request_hash != request_hash: raise IdempotencyConflictError(idempotency_key)
                 return existing, False
         received_at = now or datetime.now(timezone.utc)
-        log = ApplicationLogModel(tenant_id=application.tenant_id, application_id=application.id, idempotency_key=idempotency_key, request_hash=request_hash, level=level, event_type=event_type, message=message, trace_id=trace_id, payload_json=payload, occurred_at=occurred_at or received_at, received_at=received_at, expires_at=received_at + timedelta(days=LOG_RETENTION_DAYS))
+        log = ApplicationLogModel(tenant_id=application.tenant_id, application_id=application.id, idempotency_key=idempotency_key, request_hash=request_hash, level=level, event_type=event_type, message=message, trace_id=trace_id, payload_json=payload, occurred_at=occurred_at or received_at, received_at=received_at, expires_at=received_at + timedelta(days=max(1, int(retention_days))))
         self.session.add(log); self.session.flush(); return log, True
 
     def list_logs(self, *, application_id: str, now: datetime, start: datetime | None, end: datetime | None, level: str | None, event_type: str | None, trace_id: str | None, limit: int, offset: int) -> tuple[list[ApplicationLogModel], int]:

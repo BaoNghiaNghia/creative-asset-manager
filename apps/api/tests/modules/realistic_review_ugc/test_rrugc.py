@@ -40,6 +40,7 @@ from app.domain.providers.registry import AiProviderRegistry
 from app.infrastructure.downloader.secure_image import DownloadedImage, SecureDownloadError
 from app.modules.authorization.principal import CurrentPrincipal, require_authenticated_principal
 from app.modules.assets.model import AssetModel
+from app.modules.application_logs.model import ApplicationLogModel, LogApplicationModel
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.image_generation.providers import GeneratedImageResult
@@ -1884,6 +1885,76 @@ def test_auto_scout_needs_login_releases_lease_and_requeues(database):
         assert campaign.scan_last_error_code == "pinterest_login_required"
         assert agent.status == "needs_login"
 
+
+
+def test_keyword_scout_logs_use_agent_token_and_expire_after_five_days(api, database):
+    engine = database.kw["bind"]
+    LogApplicationModel.__table__.create(engine, checkfirst=True)
+    ApplicationLogModel.__table__.create(engine, checkfirst=True)
+
+    agent_response = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Keyword Scout Log Agent"},
+    )
+    assert agent_response.status_code == 201
+    agent = agent_response.json()
+
+    occurred_at = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+    payload = {
+        "events": [
+            {
+                "event_id": "evt-keyword-scout-0001",
+                "event_type": "keyword_scout_batch_completed",
+                "level": "info",
+                "occurred_at": occurred_at.isoformat(),
+                "payload": {
+                    "scout_type": "keyword",
+                    "visible": 31,
+                    "fresh": 12,
+                },
+            }
+        ]
+    }
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent['id']}/logs",
+        headers={"Authorization": f"Bearer {agent['agent_token']}"},
+        json=payload,
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "accepted": 1,
+        "created": 1,
+        "retention_days": 5,
+    }
+
+    retry = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent['id']}/logs",
+        headers={"Authorization": f"Bearer {agent['agent_token']}"},
+        json=payload,
+    )
+    assert retry.status_code == 200
+    assert retry.json()["created"] == 0
+
+    with database() as session:
+        application = session.scalar(
+            select(LogApplicationModel).where(
+                LogApplicationModel.slug == "rrugc-scout",
+            )
+        )
+        assert application is not None
+        logs = list(
+            session.scalars(
+                select(ApplicationLogModel).where(
+                    ApplicationLogModel.application_id == application.id,
+                )
+            )
+        )
+        assert len(logs) == 1
+        row = logs[0]
+        assert row.event_type == "keyword_scout_batch_completed"
+        assert row.payload_json["agent_id"] == agent["id"]
+        assert row.payload_json["scout_type"] == "keyword"
+        assert row.expires_at - row.received_at == timedelta(days=5)
 
 
 def test_auto_scout_claim_prioritizes_campaign_with_scarcer_pipeline(api, database):
