@@ -1,15 +1,44 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 from pathlib import Path
+import random
+import re
 import sys
+import time
+from typing import Any
+from urllib.parse import quote_plus
 
 import httpx
 
+from scout import (
+    PinterestAccessGateError,
+    PinterestRateLimitedError,
+    SCOUT_PACES,
+    access_gate,
+    configure_scout_debug_log,
+    extract_visible,
+    guard_pinterest_response,
+    launch_context,
+    paced_wait,
+    pin_history_key,
+    pinimg_asset_key,
+    resolve_pin_details,
+    scout_debug_event,
+    wait_for_pin_growth,
+)
+
 
 DEFAULT_BASE_URL = "https://creative-assets.ddns.net"
+DEFAULT_PINTEREST_QUERY = "saying trucker hat"
+DEFAULT_HISTORY_FILENAME = "keyword-scout-history.json"
+DEFAULT_CYCLE_SECONDS = 180
+DEFAULT_MAX_SCROLL_BATCHES = 10
+DEFAULT_MAX_PINS_PER_CYCLE = 40
+INITIAL_RESULTS_TIMEOUT_MS = 12_000
 
 
 def _keywords_from_file(path: str | None) -> list[str]:
@@ -26,11 +55,15 @@ def _keywords_from_file(path: str | None) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
+def _clean_keyword(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip(" \t\r\n\"'“”")
+
+
 def _dedupe(values: list[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
-        clean = " ".join(str(value or "").split()).strip()
+        clean = _clean_keyword(value)
         if not clean:
             continue
         key = clean.casefold()
@@ -71,12 +104,525 @@ def resolve_keyword_volume(
     return payload
 
 
-def main() -> int:
+class KeywordScoutHistory:
+    """Durable no-repeat history isolated from the Review Scout history."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.data: dict[str, Any] = {
+            "version": 1,
+            "seen_pins": [],
+            "seen_assets": [],
+            "seen_quotes": [],
+            "pending_quotes": [],
+        }
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                self.data.update(payload)
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            pass
+
+    def _set(self, name: str) -> set[str]:
+        values = self.data.get(name)
+        if not isinstance(values, list):
+            return set()
+        return {
+            str(value).strip()
+            for value in values
+            if isinstance(value, str) and value.strip()
+        }
+
+    @property
+    def seen_pins(self) -> set[str]:
+        return self._set("seen_pins")
+
+    @property
+    def seen_assets(self) -> set[str]:
+        return self._set("seen_assets")
+
+    @property
+    def seen_quotes(self) -> set[str]:
+        return {value.casefold() for value in self._set("seen_quotes")}
+
+    @property
+    def pending_quotes(self) -> list[str]:
+        values = self.data.get("pending_quotes")
+        if not isinstance(values, list):
+            return []
+        return _dedupe([str(value) for value in values if str(value).strip()])
+
+    @property
+    def known_quote_keys(self) -> set[str]:
+        return self.seen_quotes | {
+            value.casefold()
+            for value in self.pending_quotes
+        }
+
+    def remember_candidate(self, pin_url: str, image_url: str) -> None:
+        pins = list(self._set("seen_pins"))
+        assets = list(self._set("seen_assets"))
+        pin = pin_history_key(pin_url)
+        asset = pinimg_asset_key(image_url)
+        if pin and pin not in pins:
+            pins.append(pin)
+        if asset and asset not in assets:
+            assets.append(asset)
+        self.data["seen_pins"] = pins[-50_000:]
+        self.data["seen_assets"] = assets[-50_000:]
+        self.save()
+
+    def remember_quotes(self, quotes: list[str]) -> None:
+        existing = list(self._set("seen_quotes"))
+        known = {value.casefold() for value in existing}
+        completed = {value.casefold() for value in _dedupe(quotes)}
+        for quote in _dedupe(quotes):
+            if quote.casefold() not in known:
+                known.add(quote.casefold())
+                existing.append(quote)
+        self.data["seen_quotes"] = existing[-20_000:]
+        self.data["pending_quotes"] = [
+            value
+            for value in self.pending_quotes
+            if value.casefold() not in completed
+        ]
+        self.save()
+
+    def remember_pending_quotes(self, quotes: list[str]) -> None:
+        pending = self.pending_quotes
+        known = {value.casefold() for value in pending} | self.seen_quotes
+        for quote in _dedupe(quotes):
+            if quote.casefold() not in known:
+                known.add(quote.casefold())
+                pending.append(quote)
+        self.data["pending_quotes"] = pending[-20_000:]
+        self.save()
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(self.data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(self.path)
+
+
+class QuoteScoutClient:
+    def __init__(self, base_url: str, agent_id: str, token: str) -> None:
+        self.agent_id = agent_id
+        self.client = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": "Bearer " + token},
+            timeout=httpx.Timeout(45.0, connect=10.0),
+            follow_redirects=False,
+        )
+
+    async def close(self) -> None:
+        await self.client.aclose()
+
+    async def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        operation: str,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(3):
+            started = time.monotonic()
+            try:
+                response = await self.client.post(path, json=payload)
+                if response.status_code == 429 or response.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"CAM returned HTTP {response.status_code}",
+                        request=response.request,
+                        response=response,
+                    )
+                response.raise_for_status()
+                body = response.json()
+                if not isinstance(body, dict):
+                    raise RuntimeError("CAM returned an invalid JSON response.")
+                scout_debug_event(
+                    "keyword_scout_cam_request",
+                    operation=operation,
+                    status_code=response.status_code,
+                    duration_ms=round((time.monotonic() - started) * 1000),
+                    attempt=attempt + 1,
+                )
+                return body
+            except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+                last_error = exc
+                status = (
+                    exc.response.status_code
+                    if isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response is not None
+                    else None
+                )
+                scout_debug_event(
+                    "keyword_scout_cam_request_failed",
+                    operation=operation,
+                    status_code=status,
+                    error_type=exc.__class__.__name__,
+                    attempt=attempt + 1,
+                )
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response is not None
+                    and exc.response.status_code not in {429}
+                    and exc.response.status_code < 500
+                ):
+                    raise
+                if attempt < 2:
+                    await asyncio.sleep(1.0 * (2 ** attempt) + random.random())
+        raise RuntimeError(f"{operation} failed after retries") from last_error
+
+    async def extract_quote(self, candidate) -> dict[str, Any]:
+        return await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/quote-analysis/extract",
+            {
+                "pin_url": candidate.pin_url,
+                "image_url": candidate.image_url,
+                "alt_text": candidate.alt_text,
+            },
+            operation="extract_hat_quote",
+        )
+
+    async def resolve_volume(self, quotes: list[str]) -> dict[str, Any]:
+        return await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/resolve",
+            {"keywords": quotes, "force": False},
+            operation="resolve_keyword_volume",
+        )
+
+
+async def _wait_for_pinterest_access(page: Any, *, max_seconds: int = 900) -> None:
+    gate = await access_gate(page)
+    if gate is None:
+        return
+    print(
+        "Pinterest login/challenge detected for the Keyword Scout profile. "
+        "Complete it in the opened Chrome window; this terminal will resume automatically."
+    )
+    deadline = time.monotonic() + max_seconds
+    while time.monotonic() < deadline:
+        await page.wait_for_timeout(5_000)
+        if await access_gate(page) is None:
+            print("Pinterest access restored. Keyword Scout is continuing.")
+            return
+    raise PinterestAccessGateError(gate)
+
+
+async def _scroll_search_page(page: Any, pace) -> None:
+    steps = random.randint(*pace.scroll_steps_per_batch)
+    for _ in range(steps):
+        await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
+        await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
+
+
+async def _flush_pending_quote_volumes(
+    client: QuoteScoutClient,
+    history: KeywordScoutHistory,
+) -> int:
+    pending = history.pending_quotes
+    if not pending:
+        return 0
+
+    saved = 0
+    for start in range(0, len(pending), 50):
+        chunk = pending[start:start + 50]
+        try:
+            result = await client.resolve_volume(chunk)
+        except Exception as exc:
+            scout_debug_event(
+                "keyword_scout_pending_volume_failed",
+                pending=len(chunk),
+                error_type=exc.__class__.__name__,
+            )
+            print(
+                "Pending keyword-volume retry failed; keeping "
+                + str(len(chunk))
+                + " quote(s) for the next cycle."
+            )
+            break
+        history.remember_quotes(chunk)
+        saved += len(chunk)
+        scout_debug_event(
+            "keyword_scout_pending_volume_saved",
+            count=len(chunk),
+            provider_requested=int(result.get("provider_requested") or 0),
+            cached=int(result.get("cached") or 0),
+        )
+        print("Recovered pending keyword volumes: " + str(len(chunk)))
+    return saved
+
+
+async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
+    profile_dir = Path(args.profile_dir).expanduser().resolve()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    log_path = configure_scout_debug_log(profile_dir)
+    history = KeywordScoutHistory(profile_dir / DEFAULT_HISTORY_FILENAME)
+    pace = SCOUT_PACES.get(args.pace, SCOUT_PACES["careful"])
+    client = QuoteScoutClient(args.base_url, args.agent_id, args.token)
+
+    print("Stage 0 Keyword Scout log: " + str(log_path))
+    print("Pinterest query       : " + args.seed_query)
+    print("Pinterest profile     : " + str(profile_dir))
+    print("Mode                  : autonomous quote extraction + Google Ads volume")
+    print("Review Scout state    : separate profile + separate history")
+
+    playwright = None
+    context = None
+    page = None
+    detail_page = None
+    try:
+        playwright, context = await launch_context(args)
+        page = context.pages[0] if context.pages else await context.new_page()
+        for stale_page in list(context.pages[1:]):
+            try:
+                await stale_page.close()
+            except Exception:
+                pass
+        detail_page = await context.new_page()
+
+        while True:
+            await _flush_pending_quote_volumes(client, history)
+            search_url = (
+                "https://www.pinterest.com/search/pins/?q="
+                + quote_plus(args.seed_query)
+            )
+            try:
+                response = await page.goto(
+                    search_url,
+                    wait_until="domcontentloaded",
+                    timeout=60_000,
+                )
+                guard_pinterest_response(response)
+                await wait_for_pin_growth(
+                    page,
+                    previous_count=0,
+                    timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                )
+                await _wait_for_pinterest_access(page)
+                initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
+                scout_debug_event(
+                    "keyword_scout_cycle_started",
+                    query=args.seed_query,
+                    initial_dwell_ms=initial_dwell,
+                    seen_pins=len(history.seen_pins),
+                    seen_quotes=len(history.seen_quotes),
+                )
+
+                processed = 0
+                extracted = 0
+                saved_quotes = 0
+                cycle_seen: set[str] = set()
+                for batch in range(args.max_scroll_batches):
+                    await paced_wait(page, pace.inspect_dwell_ms)
+                    visible = await extract_visible(page)
+                    candidates = []
+                    persistent_pins = history.seen_pins
+                    persistent_assets = history.seen_assets
+                    for candidate in visible:
+                        pin_key = pin_history_key(candidate.pin_url)
+                        asset_key = pinimg_asset_key(candidate.image_url)
+                        if not pin_key or pin_key in cycle_seen:
+                            continue
+                        cycle_seen.add(pin_key)
+                        if pin_key in persistent_pins:
+                            continue
+                        if asset_key and asset_key in persistent_assets:
+                            continue
+                        candidates.append(candidate)
+
+                    remaining = args.max_pins_per_cycle - processed
+                    candidates = candidates[:max(0, remaining)]
+                    if candidates:
+                        resolved = await resolve_pin_details(
+                            page,
+                            candidates,
+                            detail_page=detail_page,
+                            concurrency=1,
+                        )
+                        for candidate in resolved:
+                            if processed >= args.max_pins_per_cycle:
+                                break
+                            processed += 1
+                            try:
+                                result = await client.extract_quote(candidate)
+                            except httpx.HTTPStatusError as exc:
+                                status = exc.response.status_code
+                                if 400 <= status < 500 and status != 429:
+                                    history.remember_candidate(
+                                        candidate.pin_url,
+                                        candidate.image_url,
+                                    )
+                                print(
+                                    "quote_extract_failed status="
+                                    + str(status)
+                                    + " pin="
+                                    + candidate.pin_url
+                                )
+                                continue
+                            except Exception as exc:
+                                print(
+                                    "quote_extract_retry_later error="
+                                    + exc.__class__.__name__
+                                    + " pin="
+                                    + candidate.pin_url
+                                )
+                                continue
+
+                            quotes = _dedupe([
+                                str(value)
+                                for value in (result.get("quotes") or [])
+                            ])
+                            new_quotes = [
+                                quote
+                                for quote in quotes
+                                if quote.casefold() not in history.known_quote_keys
+                            ]
+                            history.remember_candidate(
+                                candidate.pin_url,
+                                candidate.image_url,
+                            )
+                            if not new_quotes:
+                                print(
+                                    "pin="
+                                    + candidate.pin_url
+                                    + " quote=none_or_seen"
+                                )
+                                continue
+
+                            extracted += 1
+                            try:
+                                volume = await client.resolve_volume(new_quotes)
+                            except Exception as exc:
+                                history.remember_pending_quotes(new_quotes)
+                                print(
+                                    "volume_retry_later quote="
+                                    + " | ".join(new_quotes)
+                                    + " error="
+                                    + exc.__class__.__name__
+                                )
+                                continue
+
+                            history.remember_quotes(new_quotes)
+                            saved_quotes += len(new_quotes)
+                            items = volume.get("items") or []
+                            volume_by_keyword = {
+                                str(item.get("keyword") or "").casefold(): int(
+                                    item.get("search_volume") or 0
+                                )
+                                for item in items
+                                if isinstance(item, dict)
+                            }
+                            for quote in new_quotes:
+                                print(
+                                    "quote="
+                                    + quote
+                                    + " volume="
+                                    + str(volume_by_keyword.get(quote.casefold(), 0))
+                                    + "/mo"
+                                )
+                            scout_debug_event(
+                                "keyword_scout_quotes_saved",
+                                pin_url=candidate.pin_url,
+                                image_url=candidate.image_url,
+                                quote_count=len(new_quotes),
+                                quotes=new_quotes,
+                                provider_requested=int(
+                                    volume.get("provider_requested") or 0
+                                ),
+                                cached=int(volume.get("cached") or 0),
+                            )
+                            await page.wait_for_timeout(
+                                random.randint(*pace.submit_pause_ms)
+                            )
+
+                    print(
+                        "keyword_cycle batch="
+                        + str(batch + 1)
+                        + "/"
+                        + str(args.max_scroll_batches)
+                        + " visible="
+                        + str(len(visible))
+                        + " fresh="
+                        + str(len(candidates))
+                        + " processed="
+                        + str(processed)
+                        + " quote_pins="
+                        + str(extracted)
+                        + " saved_quotes="
+                        + str(saved_quotes)
+                    )
+                    if processed >= args.max_pins_per_cycle:
+                        break
+                    await _scroll_search_page(page, pace)
+
+                scout_debug_event(
+                    "keyword_scout_cycle_completed",
+                    query=args.seed_query,
+                    processed=processed,
+                    quote_pins=extracted,
+                    saved_quotes=saved_quotes,
+                    cycle_seconds=args.cycle_seconds,
+                )
+                if args.once:
+                    return
+                print(
+                    "Keyword Scout cycle complete. "
+                    + "processed="
+                    + str(processed)
+                    + " saved_quotes="
+                    + str(saved_quotes)
+                    + " next_cycle_in="
+                    + str(args.cycle_seconds)
+                    + "s"
+                )
+                await asyncio.sleep(args.cycle_seconds)
+            except PinterestRateLimitedError:
+                wait_seconds = max(args.cycle_seconds, 600)
+                print(
+                    "Pinterest rate limited Keyword Scout; waiting "
+                    + str(wait_seconds)
+                    + "s."
+                )
+                scout_debug_event(
+                    "keyword_scout_rate_limited",
+                    wait_seconds=wait_seconds,
+                )
+                if args.once:
+                    raise
+                await asyncio.sleep(wait_seconds)
+            except PinterestAccessGateError:
+                await _wait_for_pinterest_access(page)
+    finally:
+        if detail_page is not None:
+            try:
+                await detail_page.close()
+            except Exception:
+                pass
+        if context is not None:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        if playwright is not None:
+            try:
+                await playwright.stop()
+            except Exception:
+                pass
+        await client.close()
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Submit quote-scout keywords to Creative Asset Manager. "
-            "The server resolves Google Ads volume through AEBrowse, caches it, "
-            "and stores the results for Stage 0."
+            "Stage 0 Quote Scout. In --auto-pinterest mode it searches Pinterest "
+            "for saying trucker hat images, reads visible hat quotes through CAM "
+            "vision analysis, resolves Google Ads volume through AEBrowse, and "
+            "stores results in Stage 0."
         )
     )
     parser.add_argument(
@@ -95,14 +641,54 @@ def main() -> int:
         "--keyword",
         action="append",
         default=[],
-        help="Keyword to resolve. Repeat this option for multiple keywords.",
+        help="Manual mode: keyword to resolve. Repeat for multiple keywords.",
     )
     parser.add_argument(
         "--keywords-file",
-        help="UTF-8 file containing one keyword per line or a JSON array.",
+        help="Manual mode: one keyword per line or a JSON array.",
     )
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output")
+    parser.add_argument("--auto-pinterest", action="store_true")
+    parser.add_argument("--seed-query", default=DEFAULT_PINTEREST_QUERY)
+    parser.add_argument(
+        "--profile-dir",
+        default=os.getenv(
+            "RRUGC_KEYWORD_PROFILE_DIR",
+            "./pinterest-profile-keyword",
+        ),
+    )
+    parser.add_argument(
+        "--pace",
+        choices=tuple(SCOUT_PACES),
+        default=os.getenv("RRUGC_PACE", "careful"),
+    )
+    parser.add_argument(
+        "--chrome-executable",
+        default=os.getenv("RRUGC_CHROME_EXECUTABLE", ""),
+    )
+    parser.add_argument("--headless", action="store_true")
+    parser.add_argument(
+        "--cycle-seconds",
+        type=int,
+        default=DEFAULT_CYCLE_SECONDS,
+    )
+    parser.add_argument(
+        "--max-scroll-batches",
+        type=int,
+        default=DEFAULT_MAX_SCROLL_BATCHES,
+    )
+    parser.add_argument(
+        "--max-pins-per-cycle",
+        type=int,
+        default=DEFAULT_MAX_PINS_PER_CYCLE,
+    )
+    parser.add_argument("--once", action="store_true")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     if not args.agent_id:
@@ -110,9 +696,22 @@ def main() -> int:
     if not args.token:
         parser.error("--token or RRUGC_SCOUT_TOKEN is required")
 
+    if args.auto_pinterest:
+        if args.cycle_seconds < 30:
+            parser.error("--cycle-seconds must be at least 30")
+        if args.max_scroll_batches < 1 or args.max_scroll_batches > 50:
+            parser.error("--max-scroll-batches must be between 1 and 50")
+        if args.max_pins_per_cycle < 1 or args.max_pins_per_cycle > 200:
+            parser.error("--max-pins-per-cycle must be between 1 and 200")
+        asyncio.run(run_pinterest_quote_scout(args))
+        return 0
+
     keywords = _dedupe(list(args.keyword) + _keywords_from_file(args.keywords_file))
     if not keywords:
-        parser.error("At least one --keyword or --keywords-file entry is required")
+        parser.error(
+            "Manual mode requires --keyword/--keywords-file; "
+            "use --auto-pinterest for autonomous quote scouting."
+        )
     if len(keywords) > 50:
         parser.error("At most 50 unique keywords may be submitted per request")
 
@@ -146,7 +745,8 @@ def main() -> int:
         cpc_low = item.get("cpc_low")
         cpc_high = item.get("cpc_high")
         cpc = (
-            f"${float(cpc_low):.2f}-${float(cpc_high):.2f}"
+            "$" + f"{float(cpc_low):.2f}"
+            + "-$" + f"{float(cpc_high):.2f}"
             if cpc_low is not None and cpc_high is not None
             else "-"
         )

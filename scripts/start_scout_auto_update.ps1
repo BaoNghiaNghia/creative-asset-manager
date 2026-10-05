@@ -257,6 +257,7 @@ if (-not (Test-Path -LiteralPath $ConfigPath)) {
             "RRUGC_AGENT_ID=",
             "RRUGC_SCOUT_TOKEN=",
             "RRUGC_PROFILE_DIR=",
+            "RRUGC_KEYWORD_PROFILE_DIR=",
             "RRUGC_PACE=careful",
             "RRUGC_DETAIL_CONCURRENCY=1"
         ) -Encoding UTF8
@@ -357,6 +358,7 @@ $baseUrl = Get-ConfigValue $config "RRUGC_BASE_URL" "https://creative-assets.ddn
 $agentId = Get-ConfigValue $config "RRUGC_AGENT_ID"
 $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
 $profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
+$keywordProfileDir = Get-ConfigValue $config "RRUGC_KEYWORD_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-keyword")
 $machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
 $pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
 $detailConcurrency = "1"
@@ -380,6 +382,9 @@ if (-not [int]::TryParse($detailConcurrency, [ref]$detailValue)) {
 
 if (-not (Test-Path -LiteralPath $profileDir)) {
     New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+}
+if (-not (Test-Path -LiteralPath $keywordProfileDir)) {
+    New-Item -ItemType Directory -Path $keywordProfileDir -Force | Out-Null
 }
 
 $python = ""
@@ -471,77 +476,32 @@ if ($KeywordMode) {
     Write-Host ("Source commit       : " + $head) -ForegroundColor Green
     Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
     Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
-    Write-Host "Mode                : independent Stage 0 keyword-volume analysis" -ForegroundColor Green
+    Write-Host "Pinterest query      : saying trucker hat" -ForegroundColor Green
+    Write-Host ("Pinterest profile   : " + $keywordProfileDir) -ForegroundColor Green
+    Write-Host ("Pace                : " + $pace) -ForegroundColor Green
+    Write-Host "Mode                : autonomous Pinterest quote -> AEBrowse volume" -ForegroundColor Green
+    Write-Host "Review Scout state  : separate profile + separate history" -ForegroundColor Green
     Write-Host "Stage 1 claim lane  : not used" -ForegroundColor Green
     Write-Host "Token               : loaded from scout.local.env (hidden)" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Paste up to 50 keywords. Use one keyword per line." -ForegroundColor Cyan
-    Write-Host "A blank line starts analysis. Type Q on an empty batch to quit." -ForegroundColor DarkGray
 
     $env:RRUGC_SCOUT_TOKEN = $token
+    $keywordArguments = @(
+        $KeywordScoutPath,
+        "--auto-pinterest",
+        "--base-url", $baseUrl,
+        "--agent-id", $agentId,
+        "--profile-dir", $keywordProfileDir,
+        "--seed-query", "saying trucker hat",
+        "--pace", $pace
+    )
+    if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+        $keywordArguments += @("--chrome-executable", $chromeExecutable)
+    }
+
     try {
-        while ($true) {
-            Write-Host ""
-            Write-Host "Keywords:" -ForegroundColor Cyan
-            $keywords = New-Object System.Collections.Generic.List[string]
-            $seen = @{}
-
-            while ($keywords.Count -lt 50) {
-                $line = Read-Host
-                if ([string]::IsNullOrWhiteSpace($line)) {
-                    break
-                }
-                if ($keywords.Count -eq 0 -and $line.Trim().Equals("q", [StringComparison]::OrdinalIgnoreCase)) {
-                    exit 0
-                }
-
-                foreach ($part in ($line -split "[,;]")) {
-                    $keyword = $part.Trim()
-                    if ([string]::IsNullOrWhiteSpace($keyword)) {
-                        continue
-                    }
-                    $key = $keyword.ToLowerInvariant()
-                    if (-not $seen.ContainsKey($key)) {
-                        $seen[$key] = $true
-                        $keywords.Add($keyword)
-                    }
-                    if ($keywords.Count -ge 50) {
-                        break
-                    }
-                }
-            }
-
-            if ($keywords.Count -eq 0) {
-                Write-Host "No keywords entered." -ForegroundColor Yellow
-                continue
-            }
-
-            Write-Step ("Analyzing " + $keywords.Count + " keyword(s)")
-            $keywordArguments = @(
-                $KeywordScoutPath,
-                "--base-url", $baseUrl,
-                "--agent-id", $agentId
-            )
-            foreach ($keyword in $keywords) {
-                $keywordArguments += @("--keyword", $keyword)
-            }
-
-            & $python @keywordArguments
-            $keywordExit = $LASTEXITCODE
-            if ($keywordExit -ne 0) {
-                Write-Host ""
-                Write-Host ("Keyword Scout request failed with exit code " + $keywordExit + ".") -ForegroundColor Red
-            }
-            else {
-                Write-Host ""
-                Write-Host "Stage 0 updated. Results are available in Creative Asset Manager." -ForegroundColor Green
-            }
-
-            $next = (Read-Host "Press Enter for another batch, or type Q to quit").Trim()
-            if ($next.Equals("q", [StringComparison]::OrdinalIgnoreCase)) {
-                exit $keywordExit
-            }
-        }
+        & $python @keywordArguments
+        exit $LASTEXITCODE
     }
     finally {
         Remove-Item Env:RRUGC_SCOUT_TOKEN -ErrorAction SilentlyContinue

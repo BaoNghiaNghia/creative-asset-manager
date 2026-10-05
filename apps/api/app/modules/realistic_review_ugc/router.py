@@ -40,6 +40,10 @@ from app.modules.realistic_review_ugc.keyword_volume import (
     KeywordVolumeError,
     RrugcKeywordVolumeService,
 )
+from app.modules.realistic_review_ugc.quote_scout_analysis import (
+    QuoteScoutError,
+    analyze_hat_quote,
+)
 from app.modules.realistic_review_ugc.generation import (
     RrugcGenerationFoundation,
     binding_is_generation_ready,
@@ -136,6 +140,8 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
     KeywordVolumeResponse,
+    QuoteScoutAnalyzeRequest,
+    QuoteScoutAnalyzeResponse,
     ReferenceAssetResponse,
     ReferenceAssetPromotionResponse,
     ReferenceSeedRequest,
@@ -3353,6 +3359,59 @@ async def quote_scout_resolve_keyword_analysis(
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     return _keyword_volume_resolve_response(result)
+
+
+@router.post(
+    "/scout-agents/{agent_id}/quote-analysis/extract",
+    response_model=QuoteScoutAnalyzeResponse,
+)
+async def quote_scout_extract_hat_quote(
+    agent_id: str,
+    request: QuoteScoutAnalyzeRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    registry = None
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id,
+            raw_token=token,
+        )
+        settings = get_settings()
+        registry = build_ai_provider_registry(
+            settings,
+            session_factory=SessionLocal,
+        )
+        provider = registry.require("gemini")
+        result = await analyze_hat_quote(
+            provider=provider,
+            tenant_id=agent.tenant_id,
+            image_url=request.image_url,
+            pin_url=request.pin_url,
+            alt_text=request.alt_text,
+        )
+        return QuoteScoutAnalyzeResponse(
+            quotes=result.quotes,
+            confidence=result.confidence,
+            provider=result.provider,
+            model=result.model,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    except QuoteScoutError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except AiProviderError as exc:
+        raise HTTPException(
+            status_code=503 if exc.retryable else 422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    finally:
+        if registry is not None:
+            await registry.aclose()
 
 
 @router.get("/source-plans/{source_plan_id}/image")

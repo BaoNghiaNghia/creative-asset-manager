@@ -82,12 +82,17 @@ class ScoutLauncherContractTests(unittest.TestCase):
             source,
         )
 
-    def test_keyword_mode_reuses_agent_credentials_without_stage1_claims(self) -> None:
+    def test_keyword_mode_runs_autonomous_pinterest_quote_scout(self) -> None:
         source = UPDATER.read_text()
         self.assertIn("$KeywordScoutPath", source)
         self.assertIn('"--agent-id", $agentId', source)
         self.assertIn("$env:RRUGC_SCOUT_TOKEN = $token", source)
+        self.assertIn('"--auto-pinterest"', source)
+        self.assertIn('"--seed-query", "saying trucker hat"', source)
+        self.assertIn('"--profile-dir", $keywordProfileDir', source)
+        self.assertIn("RRUGC_KEYWORD_PROFILE_DIR", source)
         self.assertIn("Stage 1 claim lane  : not used", source)
+        self.assertIn("Review Scout state  : separate profile + separate history", source)
 
     def test_shared_startup_mutex_serializes_only_mutating_setup(self) -> None:
         source = UPDATER.read_text()

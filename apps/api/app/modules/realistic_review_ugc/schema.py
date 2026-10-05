@@ -450,6 +450,19 @@ class KeywordVolumeResolveResponse(BaseModel):
     items: list[KeywordVolumeResponse] = Field(default_factory=list)
 
 
+class QuoteScoutAnalyzeRequest(BaseModel):
+    pin_url: str | None = Field(default=None, max_length=2048)
+    image_url: str = Field(min_length=1, max_length=2048)
+    alt_text: str | None = Field(default=None, max_length=1000)
+
+
+class QuoteScoutAnalyzeResponse(BaseModel):
+    quotes: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    provider: str
+    model: str | None = None
+
+
 class KeywordVolumeOverviewResponse(BaseModel):
     total_keywords: int = 0
     total_search_volume: int = 0
