@@ -10,6 +10,7 @@ import { normalizedPoint, pinPosition, type Rect } from "./pinGeometry";
 import { clearReviewHistory, historyEntryAsset, readReviewHistory, recordReviewHistory, type ReviewHistoryEntry } from "./viewHistory";
 import { createReviewPlaybackTicketCache, createReviewPrewarmQueue, reviewMediaOrigin } from "./reviewVideoPerformance";
 import { BrandIcon, SourceFolderIcon, sourceFolderBrand } from "../components/Icons";
+import { CenteredLoadingState } from "../components/CenteredLoadingState";
 import { VisualSearchIcon } from "../components/VisualSearchIcon";
 import { VisualSearchPanel } from "../components/VisualSearchPanel";
 import type { VisualCrop } from "../hooks/useVisualSearch";
@@ -414,7 +415,23 @@ export function PublicReviewRoute() {
   videoPrewarm?.enqueue(asset, "high");
   void playbackTickets?.prefetch(asset).catch(() => undefined);
  };
- if (error) return <main className="public-review state">{error}</main>; if (!id || !boot) return <main className="public-review state">Loading review…</main>;
+ if (error) return <CenteredLoadingState
+  kind="shared"
+  mode="error"
+  title="Unable to open shared review"
+  detail={error}
+ />;
+ if (!id) return <CenteredLoadingState
+  kind="shared"
+  mode="error"
+  title="Invalid shared review link"
+  detail="This shared review link is incomplete or no longer valid."
+ />;
+ if (!boot) return <CenteredLoadingState
+  kind="shared"
+  title="Loading review…"
+  detail="Preparing the shared workspace and media."
+ />;
  const open = async (folder: Folder, trail: Folder[] = [folder]) => {
   await displayFolder(folder, trail);
   const nextPath = reviewFolderPath(id, folder.folder_id);

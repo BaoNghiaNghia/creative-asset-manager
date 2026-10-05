@@ -11,6 +11,11 @@
 .centered-loading-state--application .centered-loading-state__icon{color:#526987}
 .centered-loading-state--application .centered-loading-state__icon::before{border-color:#dde5ef;background:radial-gradient(circle at 34% 28%,#fff 0,#f8fafc 43%,#eef2f7 100%);box-shadow:0 7px 20px rgba(62,82,116,.09),0 0 0 5px rgba(82,105,135,.03)}
 .centered-loading-state--application .centered-loading-state__spinner{border-color:#e1e7ef;border-top-color:#536fbd;border-right-color:#9aabd1}
+.centered-loading-state--shared .centered-loading-state__icon{color:#315fe9}
+.centered-loading-state--shared .centered-loading-state__icon::before{border-color:#d7e4fb;background:radial-gradient(circle at 34% 28%,#fff 0,#f6f9ff 43%,#edf3ff 100%)}
+.centered-loading-state--error .centered-loading-state__icon{color:#b84b55}
+.centered-loading-state--error .centered-loading-state__icon::before{border-color:#f1d7da;background:radial-gradient(circle at 34% 28%,#fff 0,#fff8f8 43%,#fff0f1 100%);box-shadow:0 7px 20px rgba(184,75,85,.08),0 0 0 5px rgba(184,75,85,.025)}
+.centered-loading-state--error .centered-loading-state__content>strong{color:#3b2a30}
 .centered-loading-state__content>strong{color:#263951;font-size:15px;font-weight:700;line-height:1.35;letter-spacing:-.01em}
 .centered-loading-state__detail{max-width:330px;margin-top:6px;color:#7a8799;font-size:11px;line-height:1.5}
 @keyframes centered-loading-spin{to{transform:rotate(360deg)}}

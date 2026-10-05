@@ -27,4 +27,19 @@ describe("CenteredLoadingState", () => {
     expect(markup).toContain("centered-loading-state--application");
     expect(markup).toContain("<rect");
   });
+
+  it("renders shared errors with the same centered state system without a spinner", () => {
+    const markup = renderToStaticMarkup(<CenteredLoadingState
+      kind="shared"
+      mode="error"
+      title="Unable to open shared review"
+      detail="This review is unavailable."
+    />);
+    expect(markup).toContain("centered-loading-state--shared");
+    expect(markup).toContain("centered-loading-state--error");
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('aria-busy="false"');
+    expect(markup).not.toContain("centered-loading-state__spinner");
+    expect(markup).toContain("Unable to open shared review");
+  });
 });
