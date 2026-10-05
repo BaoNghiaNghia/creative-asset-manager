@@ -150,6 +150,118 @@ const STAGE2_REF_WINDOW_OVERSCAN = 3;
 const STAGE2_REF_WINDOW_MIN = 14;
 const STAGE2_REF_RENDER_LIMIT = 40;
 
+export function Stage2ReferenceReviewModal({
+  planId,
+  planName,
+  references,
+  selected,
+  generated,
+  busy,
+  onToggle,
+  onClose,
+}: {
+  planId: string;
+  planName: string;
+  references: SourcePlanReferencePreview[];
+  selected: string[];
+  generated: ReadonlySet<string>;
+  busy: boolean;
+  onToggle: (planId: string, referenceId: string) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return <div
+    className="rrugc-source-review-backdrop"
+    role="presentation"
+    onMouseDown={event => event.target === event.currentTarget && onClose()}
+  >
+    <section
+      className="rrugc-source-review-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={"rrugc-stage2-reference-review-title-" + planId}
+    >
+      <header className="rrugc-source-review-header">
+        <div>
+          <small>STAGE 2 REFERENCE PREVIEW</small>
+          <h2 id={"rrugc-stage2-reference-review-title-" + planId}>{planName}</h2>
+          <p>{references.length} images · {selected.length}/{MAX_REFS} selected</p>
+        </div>
+        <button
+          type="button"
+          className="rrugc-source-review-close"
+          aria-label="Close Stage 2 reference preview"
+          onClick={onClose}
+        >×</button>
+      </header>
+      <div className="rrugc-source-review-masonry rrugc-stage2-reference-review-masonry">
+        {references.map((reference, index) => {
+          const alreadyGenerated = generated.has(reference.id);
+          const checked = !alreadyGenerated && selected.includes(reference.id);
+          const atLimit = selected.length >= MAX_REFS && !checked;
+          return <article
+            key={reference.id}
+            className={
+              "rrugc-source-review-card rrugc-stage2-reference-review-card"
+              + (checked ? " is-stage2-selected" : "")
+              + (alreadyGenerated ? " is-stage2-generated" : "")
+            }
+          >
+            <div className="rrugc-source-review-image">
+              <DeferredImage
+                src={reference.image_url}
+                alt=""
+                rootMargin="320px 0px"
+                referrerPolicy="no-referrer"
+              />
+              <span className="rrugc-source-review-index">{index + 1}</span>
+              <button
+                type="button"
+                className="rrugc-stage2-review-toggle"
+                aria-label={
+                  alreadyGenerated
+                    ? "Reference " + (index + 1) + " already generated"
+                    : checked
+                      ? "Remove reference " + (index + 1)
+                      : "Select reference " + (index + 1)
+                }
+                aria-pressed={checked}
+                disabled={alreadyGenerated || atLimit || busy}
+                title={
+                  alreadyGenerated
+                    ? "Already generated"
+                    : checked
+                      ? "Remove reference"
+                      : atLimit
+                        ? "Maximum 10 references"
+                        : "Use this Pinterest reference"
+                }
+                onClick={() => onToggle(planId, reference.id)}
+              >{alreadyGenerated || checked ? "✓" : "+"}</button>
+            </div>
+            <footer>
+              <span>{alreadyGenerated ? "Already generated" : checked ? "Selected" : "Available"}</span>
+              {reference.pin_url && <a href={reference.pin_url} target="_blank" rel="noreferrer">Pinterest ↗</a>}
+            </footer>
+          </article>;
+        })}
+      </div>
+    </section>
+  </div>;
+}
+
 function Stage2ReferencePicker({
   planId,
   planName,
@@ -169,6 +281,7 @@ function Stage2ReferencePicker({
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const { dragging, dragHandlers } = useHorizontalDragScroll();
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [windowRange, setWindowRange] = useState({ start: 0, end: STAGE2_REF_WINDOW_MIN });
   const limited = references.slice(0, STAGE2_REF_RENDER_LIMIT);
 
@@ -213,13 +326,14 @@ function Stage2ReferencePicker({
     ? Math.max(0, trailingCount * STAGE2_REF_CARD_PITCH - 6)
     : 0;
 
-  return <div
-    ref={trackRef}
-    className={"rrugc-stage2-ref-grid" + (dragging ? " is-dragging" : "")}
-    aria-label={limited.length + " Drive-ready references for " + planName}
-    onScroll={updateWindow}
-    {...dragHandlers}
-  >
+  return <>
+    <div
+      ref={trackRef}
+      className={"rrugc-stage2-ref-grid" + (dragging ? " is-dragging" : "")}
+      aria-label={limited.length + " Drive-ready references for " + planName}
+      onScroll={updateWindow}
+      {...dragHandlers}
+    >
     {leadingWidth > 0 && <span
       className="rrugc-stage2-ref-window-spacer"
       aria-hidden="true"
@@ -229,25 +343,53 @@ function Stage2ReferencePicker({
       const alreadyGenerated = generated.has(reference.id);
       const checked = !alreadyGenerated && selected.includes(reference.id);
       const atLimit = selected.length >= MAX_REFS && !checked;
-      return <button
-        type="button"
+      return <div
         key={reference.id}
         className={"rrugc-stage2-ref " + (alreadyGenerated ? "is-generated" : checked ? "is-selected" : "")}
-        aria-pressed={checked}
-        disabled={alreadyGenerated || atLimit || busy}
-        title={alreadyGenerated ? "Already generated" : checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
-        onClick={() => onToggle(planId, reference.id)}
       >
-        <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
-        <span>{alreadyGenerated ? "✓" : checked ? "✓" : "+"}</span>
-      </button>;
+        <button
+          type="button"
+          className="rrugc-stage2-ref-open"
+          aria-label={"Open reference preview for " + planName}
+          title="Open reference preview"
+          onClick={() => setReviewOpen(true)}
+        >
+          <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
+        </button>
+        <button
+          type="button"
+          className="rrugc-stage2-ref-toggle"
+          aria-label={
+            alreadyGenerated
+              ? "Already generated"
+              : checked
+                ? "Remove reference"
+                : "Select reference"
+          }
+          aria-pressed={checked}
+          disabled={alreadyGenerated || atLimit || busy}
+          title={alreadyGenerated ? "Already generated" : checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
+          onClick={() => onToggle(planId, reference.id)}
+        >{alreadyGenerated ? "✓" : checked ? "✓" : "+"}</button>
+      </div>;
     })}
     {trailingWidth > 0 && <span
       className="rrugc-stage2-ref-window-spacer"
       aria-hidden="true"
       style={{ flexBasis: trailingWidth }}
     />}
-  </div>;
+    </div>
+    {reviewOpen && <Stage2ReferenceReviewModal
+      planId={planId}
+      planName={planName}
+      references={limited}
+      selected={selected}
+      generated={generated}
+      busy={busy}
+      onToggle={onToggle}
+      onClose={() => setReviewOpen(false)}
+    />}
+  </>;
 }
 
 export function Stage2OutputReviewModal({

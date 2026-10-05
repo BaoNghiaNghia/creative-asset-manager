@@ -12,7 +12,7 @@ import {
   sourcePlanPageRenderFingerprint,
   stage2JobsRenderFingerprint,
 } from "./RealisticReviewUgcPage";
-import { Stage2JobTable, Stage2OutputReviewModal } from "./Stage2JobTable";
+import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal } from "./Stage2JobTable";
 import {
   ReferenceReviewModal,
   SourceImageReviewModal,
@@ -395,6 +395,31 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Preview generated output");
     expect(markup).not.toContain('class="rrugc-stage2-result" href=');
     expect(markup).toContain(">Not run<");
+  });
+
+  it("renders Stage 2 references in a review-style modal with pick controls", () => {
+    const plan = makePlan(3);
+    const markup = renderToStaticMarkup(
+      <Stage2ReferenceReviewModal
+        planId={plan.id}
+        planName={plan.source_name}
+        references={plan.reference_previews}
+        selected={[plan.reference_previews[0].id]}
+        generated={new Set([plan.reference_previews[1].id])}
+        busy={false}
+        onToggle={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain("STAGE 2 REFERENCE PREVIEW");
+    expect(markup).toContain("3 images · 1/10 selected");
+    expect(markup).toContain("rrugc-stage2-reference-review-card");
+    expect(markup).toContain("rrugc-stage2-review-toggle");
+    expect(markup).toContain("Selected");
+    expect(markup).toContain("Already generated");
+    expect(markup).toContain("Pinterest ↗");
+    expect(markup).not.toContain("rrugc-source-review-votes");
   });
 
   it("renders generated outputs in a review-style modal without feedback tags", () => {
