@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanOverview, SourcePlanReferencePreview } from "./types";
 
 const SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX";
@@ -338,6 +339,7 @@ function ReferenceSlider({
   ) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const { dragging, dragHandlers } = useHorizontalDragScroll();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [windowRange, setWindowRange] = useState({ start: 0, end: REFERENCE_WINDOW_MIN });
   const references = plan.reference_previews;
@@ -400,9 +402,10 @@ function ReferenceSlider({
     <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} onClick={() => move(-1)}>‹</button>
     <div
       ref={trackRef}
-      className="rrugc-source-ref-track"
+      className={"rrugc-source-ref-track" + (dragging ? " is-dragging" : "")}
       aria-label={references.length + " reference images for " + plan.source_name}
       onScroll={updateWindow}
+      {...dragHandlers}
     >
       {leadingWidth > 0 && <span
         className="rrugc-source-ref-window-spacer"

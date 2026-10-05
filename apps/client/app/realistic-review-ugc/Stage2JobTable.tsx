@@ -7,6 +7,7 @@ import {
 import { DeferredImage } from "./DeferredImage";
 import { SkillManagerModal } from "./SkillManagerModal";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
+import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type {
   SourcePlan,
   SourcePlanOverview,
@@ -167,6 +168,7 @@ function Stage2ReferencePicker({
   onToggle: (planId: string, referenceId: string) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const { dragging, dragHandlers } = useHorizontalDragScroll();
   const [windowRange, setWindowRange] = useState({ start: 0, end: STAGE2_REF_WINDOW_MIN });
   const limited = references.slice(0, STAGE2_REF_RENDER_LIMIT);
 
@@ -213,9 +215,10 @@ function Stage2ReferencePicker({
 
   return <div
     ref={trackRef}
-    className="rrugc-stage2-ref-grid"
+    className={"rrugc-stage2-ref-grid" + (dragging ? " is-dragging" : "")}
     aria-label={limited.length + " Drive-ready references for " + planName}
     onScroll={updateWindow}
+    {...dragHandlers}
   >
     {leadingWidth > 0 && <span
       className="rrugc-stage2-ref-window-spacer"
