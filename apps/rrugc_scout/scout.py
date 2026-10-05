@@ -559,6 +559,10 @@ class PinterestRateLimitedError(RuntimeError):
     pass
 
 
+class PinterestVideoPinError(RuntimeError):
+    pass
+
+
 def guard_pinterest_response(response: Any) -> None:
     status = int(getattr(response, "status", 0) or 0)
     if status == 429:
@@ -828,6 +832,8 @@ def normalize_candidates(rows: list[dict[str, Any]]) -> list[Candidate]:
         image_url = str(row.get("image_url") or "").strip()
         alt_text = str(row.get("alt_text") or "").strip() or None
         context_text = str(row.get("context_text") or "").strip()[:1200] or None
+        if row.get("is_video") is True:
+            continue
         if not allowed_pin(pin_url) or not allowed_image(image_url):
             continue
         candidate = Candidate(pin_url, image_url, alt_text, context_text)
@@ -872,6 +878,15 @@ async def extract_visible(page: Any) -> list[Candidate]:
               || anchor.parentElement?.parentElement
               || anchor.parentElement;
             const contextText = (card?.textContent || '').trim().slice(0, 1200);
+            const mediaRoot = card || anchor;
+            const isVideo = Boolean(mediaRoot?.querySelector([
+              'video',
+              '[data-test-id*="video" i]',
+              '[data-test-id*="story-pin" i]',
+              '[data-test-id*="idea-pin" i]',
+              '[aria-label*="video" i]',
+            ].join(',')));
+            if (isVideo) continue;
             for (const image of images) {
               const src = bestSrc(image);
               if (!src) continue;
@@ -984,6 +999,21 @@ async def extract_pin_detail_candidate(page: Any, seed: Candidate) -> Candidate:
     gate = await access_gate(page)
     if gate is not None:
         raise PinterestAccessGateError(gate)
+    is_video_pin = await page.evaluate(
+        r"""() => {
+          const ogType = (
+            document.querySelector('meta[property="og:type"]')?.getAttribute('content') || ''
+          ).toLowerCase();
+          return Boolean(
+            document.querySelector('video')
+            || document.querySelector('meta[property^="og:video"]')
+            || document.querySelector('meta[name="twitter:player"]')
+            || ogType.includes('video')
+          );
+        }"""
+    )
+    if is_video_pin:
+        raise PinterestVideoPinError("Pinterest video Pin is not eligible for image Scout")
     rows = await page.evaluate(
         r"""() => {
           const out = [];
@@ -1158,6 +1188,9 @@ async def resolve_pin_details(
                 )
             except (PinterestAccessGateError, PinterestRateLimitedError):
                 raise
+            except PinterestVideoPinError:
+                print("Pinterest video Pin skipped: " + seed.pin_url)
+                continue
             except Exception as exc:
                 print(
                     "Pinterest Pin detail fallback: "
@@ -2027,11 +2060,31 @@ async def scan_auto_run(
                     detail_page=detail_page,
                     concurrency=1,
                 )
+                resolved_by_pin = {
+                    pin_history_key(row.pin_url): row
+                    for row in resolved_chunk
+                    if pin_history_key(row.pin_url)
+                }
                 upgraded = sum(
                     1
-                    for before, after in zip(chunk, resolved_chunk)
-                    if before.image_url != after.image_url
+                    for before in chunk
+                    if pin_history_key(before.pin_url) in resolved_by_pin
+                    and before.image_url
+                    != resolved_by_pin[pin_history_key(before.pin_url)].image_url
                 )
+                resolved_pin_keys = set(resolved_by_pin)
+                video_filtered = [
+                    row for row in chunk
+                    if pin_history_key(row.pin_url) not in resolved_pin_keys
+                ]
+                if video_filtered:
+                    remember_history(video_filtered)
+                    scout_debug_event(
+                        "video_pins_filtered",
+                        campaign_id=str(task["campaign_id"]),
+                        run_id=run_id,
+                        filtered=len(video_filtered),
+                    )
                 if upgraded:
                     scout_debug_event(
                         "pin_detail_upgraded",

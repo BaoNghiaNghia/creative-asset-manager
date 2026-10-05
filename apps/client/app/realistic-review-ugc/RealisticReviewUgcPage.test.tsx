@@ -310,7 +310,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("0/10 runs");
     expect(markup).toContain("10 not run");
     expect(markup).toContain("$gatorhats-8869-image-studio");
-    expect(markup).toContain("11 Drive-ready refs available");
+    expect(markup).toContain("11 refs available");
     expect(markup).toContain('aria-label="3 source images with the same embroidery"');
     expect(markup).toContain("front-black.png");
     expect(markup).toContain("front-red.png");
@@ -325,6 +325,22 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Page 1 / 1");
     expect(markup).toContain('aria-label="Stage 2 rows per page"');
     expect(markup).toContain("1–1 of 1");
+  });
+
+  it("locks Pinterest references that already produced a completed Stage 2 output", () => {
+    const markup = renderToStaticMarkup(
+      <Stage2JobTable
+        plans={[makePlan(12)]}
+        overview={GLOBAL_OVERVIEW}
+        jobs={[makeStage2Job("job-generated-ref", "completed", { selected_candidate_ids: ["ref-0"] })]}
+        creatingPlanIds={new Set()}
+        onCreateJob={() => undefined}
+      />,
+    );
+    expect(markup).toContain("10 refs available · 1 generated");
+    expect(markup).toContain("is-generated");
+    expect(markup).toContain('title="Already generated"');
+    expect(markup).not.toContain("1/10 selected");
   });
 
   it("shows completed, active, failed, and not-run generation slots separately", () => {

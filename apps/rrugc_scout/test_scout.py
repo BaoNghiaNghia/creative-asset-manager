@@ -275,6 +275,11 @@ def test_normalize_candidates_filters_and_dedupes():
             "alt_text": "duplicate",
         },
         {
+            "pin_url": "https://www.pinterest.com/pin/video-456/",
+            "image_url": "https://i.pinimg.com/video-thumbnail.jpg",
+            "is_video": True,
+        },
+        {
             "pin_url": "https://evil.example/pin/9/",
             "image_url": "https://i.pinimg.com/b.jpg",
         },

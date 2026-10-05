@@ -79,6 +79,17 @@ function eligibleReference(reference: SourcePlanReferencePreview) {
   return reference.status === "drive_ready" && !reference.rejected;
 }
 
+function completedCandidateIdsByPlan(jobs: Stage2Job[]) {
+  const result = new Map<string, Set<string>>();
+  for (const job of jobs) {
+    if (job.status !== "completed") continue;
+    const current = result.get(job.source_plan_id) || new Set<string>();
+    for (const candidateId of job.selected_candidate_ids) current.add(candidateId);
+    result.set(job.source_plan_id, current);
+  }
+  return result;
+}
+
 function recentJobsByPlan(jobs: Stage2Job[]) {
   const result = new Map<string, Stage2Job[]>();
   for (const job of jobs) {
@@ -122,6 +133,7 @@ function Stage2ReferencePicker({
   planName,
   references,
   selected,
+  generated,
   busy,
   onToggle,
 }: {
@@ -129,6 +141,7 @@ function Stage2ReferencePicker({
   planName: string;
   references: SourcePlanReferencePreview[];
   selected: string[];
+  generated: ReadonlySet<string>;
   busy: boolean;
   onToggle: (planId: string, referenceId: string) => void;
 }) {
@@ -189,19 +202,20 @@ function Stage2ReferencePicker({
       style={{ flexBasis: leadingWidth }}
     />}
     {visible.map(reference => {
-      const checked = selected.includes(reference.id);
+      const alreadyGenerated = generated.has(reference.id);
+      const checked = !alreadyGenerated && selected.includes(reference.id);
       const atLimit = selected.length >= MAX_REFS && !checked;
       return <button
         type="button"
         key={reference.id}
-        className={"rrugc-stage2-ref " + (checked ? "is-selected" : "")}
+        className={"rrugc-stage2-ref " + (alreadyGenerated ? "is-generated" : checked ? "is-selected" : "")}
         aria-pressed={checked}
-        disabled={atLimit || busy}
-        title={checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
+        disabled={alreadyGenerated || atLimit || busy}
+        title={alreadyGenerated ? "Already generated" : checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
         onClick={() => onToggle(planId, reference.id)}
       >
         <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
-        <span>{checked ? "✓" : "+"}</span>
+        <span>{alreadyGenerated ? "✓" : checked ? "✓" : "+"}</span>
       </button>;
     })}
     {trailingWidth > 0 && <span
@@ -361,6 +375,7 @@ export function Stage2JobTable({
     jobs: Stage2Job[];
   } | null>(null);
   const recentJobs = useMemo(() => recentJobsByPlan(jobs), [jobs]);
+  const completedCandidates = useMemo(() => completedCandidateIdsByPlan(jobs), [jobs]);
   const stage2Plans = plans;
   const stage2Total = total ?? stage2Plans.length;
   const pageCount = sourcePlanPageCount(stage2Total, pageSize);
@@ -383,16 +398,24 @@ export function Stage2JobTable({
       let changed = false;
       const next = { ...current };
       for (const plan of stage2Plans) {
-        if (Object.prototype.hasOwnProperty.call(next, plan.id)) continue;
+        const generated = completedCandidates.get(plan.id) || new Set<string>();
+        if (Object.prototype.hasOwnProperty.call(next, plan.id)) {
+          const filtered = next[plan.id].filter(referenceId => !generated.has(referenceId));
+          if (filtered.length !== next[plan.id].length) {
+            next[plan.id] = filtered;
+            changed = true;
+          }
+          continue;
+        }
         next[plan.id] = plan.reference_previews
-          .filter(reference => reference.picked && eligibleReference(reference))
+          .filter(reference => reference.picked && eligibleReference(reference) && !generated.has(reference.id))
           .slice(0, MAX_REFS)
           .map(reference => reference.id);
         changed = true;
       }
       return changed ? next : current;
     });
-  }, [stage2Plans]);
+  }, [stage2Plans, completedCandidates]);
 
   function selectedSkill(planId: string) {
     const requestedKey = skillKeyByPlan[planId];
@@ -510,6 +533,8 @@ export function Stage2JobTable({
             const available = plan.reference_previews.filter(eligibleReference);
             const selected = selectedByPlan[plan.id] || [];
             const planJobs = recentJobs.get(plan.id) || [];
+            const generated = completedCandidates.get(plan.id) || new Set<string>();
+            const pickableAvailable = available.filter(reference => !generated.has(reference.id)).length;
             const runs = outputSummary(planJobs);
             const busy = creatingPlanIds.has(plan.id)
               || planJobs.some(job => job.status === "queued" || job.status === "running");
@@ -544,13 +569,14 @@ export function Stage2JobTable({
               <td>
                 <div className="rrugc-stage2-ref-head">
                   <strong>{selected.length}/{MAX_REFS} selected</strong>
-                  <small>{available.length} Drive-ready refs available</small>
+                  <small>{pickableAvailable} refs available{generated.size ? " · " + generated.size + " generated" : ""}</small>
                 </div>
                 <Stage2ReferencePicker
                   planId={plan.id}
                   planName={plan.source_name}
                   references={available}
                   selected={selected}
+                  generated={generated}
                   busy={busy}
                   onToggle={toggleReference}
                 />

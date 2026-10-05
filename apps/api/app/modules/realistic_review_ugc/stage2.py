@@ -106,6 +106,24 @@ class RrugcStage2Service:
                 status_code=422,
             )
 
+        completed_candidate_ids = {
+            str(candidate_id)
+            for completed_job in self.session.query(RrugcStage2JobModel).filter(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.source_plan_id == plan.id,
+                RrugcStage2JobModel.status == "completed",
+            )
+            for candidate_id in (completed_job.selected_candidate_ids_json or [])
+            if str(candidate_id).strip()
+        }
+        already_generated = [candidate_id for candidate_id in ids if candidate_id in completed_candidate_ids]
+        if already_generated:
+            raise RrugcStage2Error(
+                "stage2_reference_already_generated",
+                "One or more selected Pinterest references already have a completed Stage 2 output.",
+                status_code=409,
+            )
+
         try:
             resolved = resolve_stage2_skill(
                 settings=self.settings,
