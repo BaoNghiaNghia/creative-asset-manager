@@ -27,8 +27,13 @@ from app.modules.realistic_review_ugc.model import (
     RrugcStage2JobModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.skill_registry import (
+    assert_skill_enabled,
+    ensure_skill_registry,
+)
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError,
+    installed_stage2_skill_sha256,
     resolve_stage2_skill,
     verify_stage2_skill_runtime,
 )
@@ -114,6 +119,28 @@ class RrugcStage2Service:
                 status_code=exc.status_code,
             ) from exc
         resolved_skill = resolved.skill_name
+        ensure_skill_registry(
+            self.session,
+            tenant_id=tenant_id,
+        )
+        try:
+            assert_skill_enabled(
+                self.session,
+                tenant_id=tenant_id,
+                source=resolved.source,
+                skill_id=resolved.skill_id,
+                skill_name=resolved_skill,
+            )
+        except Stage2SkillRegistryError as exc:
+            raise RrugcStage2Error(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+            ) from exc
+        bundle_sha256 = installed_stage2_skill_sha256(
+            resolved_skill,
+            settings=self.settings,
+        )
         codex_home = str(
             getattr(
                 self.settings,
@@ -191,6 +218,7 @@ class RrugcStage2Service:
                 resolved.skill_id or "",
                 resolved_skill,
                 resolved.skill_version or "",
+                bundle_sha256 or "",
                 *ids,
                 (prompt or "").strip(),
             ]
@@ -210,6 +238,7 @@ class RrugcStage2Service:
             skill_source=resolved.source,
             skill_id=resolved.skill_id,
             skill_version=resolved.skill_version,
+            skill_bundle_sha256=bundle_sha256,
             selected_candidate_ids_json=ids,
             selected_reference_snapshot_json=snapshot,
             prompt_text=(prompt or "").strip() or None,
@@ -365,6 +394,17 @@ class RrugcStage2GenerateJobHandler:
                     skill_name=row.skill_name,
                     skill_version=row.skill_version,
                 )
+                if row.skill_bundle_sha256:
+                    current_bundle_sha256 = installed_stage2_skill_sha256(
+                        row.skill_name,
+                        settings=settings,
+                    )
+                    if current_bundle_sha256 != row.skill_bundle_sha256:
+                        raise Stage2SkillRegistryError(
+                            "stage2_skill_runtime_bundle_mismatch",
+                            "The installed skill bundle changed after this job was queued.",
+                            status_code=409,
+                        )
             except Stage2SkillRegistryError as exc:
                 row.status = "failed"
                 row.last_error_code = exc.code

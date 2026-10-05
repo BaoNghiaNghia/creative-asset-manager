@@ -269,6 +269,42 @@ export type Stage2SkillSelection = {
   skill_version: string | null;
 };
 
+export type Stage2SkillRegistryVersion = {
+  id: string;
+  version: string;
+  is_default: boolean;
+  is_synced: boolean;
+  status: string;
+  bundle_sha256: string | null;
+  created_at: string;
+};
+
+export type Stage2SkillRegistryItem = {
+  id: string;
+  source: "local" | "openai";
+  skill_id: string | null;
+  skill_name: string;
+  display_name: string;
+  description: string;
+  workflow: string;
+  enabled: boolean;
+  default_version: string | null;
+  latest_version: string | null;
+  synced_version: string | null;
+  sync_state: string;
+  validation_status: string;
+  bundle_sha256: string | null;
+  last_error: string | null;
+  versions: Stage2SkillRegistryVersion[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type Stage2SkillRegistry = {
+  can_manage: boolean;
+  items: Stage2SkillRegistryItem[];
+};
+
 export type Stage2Job = {
   id: string;
   source_plan_id: string;
@@ -278,6 +314,7 @@ export type Stage2Job = {
   skill_source: "local" | "openai";
   skill_id: string | null;
   skill_version: string | null;
+  skill_bundle_sha256: string | null;
   selected_candidate_ids: string[];
   reference_count: number;
   status: "queued" | "running" | "completed" | "failed";

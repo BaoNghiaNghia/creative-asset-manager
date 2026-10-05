@@ -125,6 +125,7 @@ function makeStage2Job(
     skill_source: "local",
     skill_id: null,
     skill_version: null,
+    skill_bundle_sha256: null,
     selected_candidate_ids: ["ref-0"],
     reference_count: 1,
     status,
@@ -190,6 +191,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">302<");
     expect(markup).toContain(">7<");
     expect(markup).toContain("Generate next");
+    expect(markup).toContain("Manage skills");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).toContain('aria-label="Stage 2 rows per page"');
     expect(markup).toContain("1–1 of 1");

@@ -3,9 +3,9 @@ import {
   listStage2Skills,
   stage2JobOutputThumbnailUrl,
   stage2JobOutputUrl,
-  syncStage2Skill,
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { SkillManagerModal } from "./SkillManagerModal";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import type {
   SourcePlan,
@@ -200,7 +200,7 @@ export function Stage2JobTable({
   const [skillKeyByPlan, setSkillKeyByPlan] = useState<Record<string, string>>({});
   const [skillVersionByPlan, setSkillVersionByPlan] = useState<Record<string, string>>({});
   const [refreshingSkills, setRefreshingSkills] = useState(false);
-  const [syncingSkillKey, setSyncingSkillKey] = useState("");
+  const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
   const recentJobs = useMemo(() => recentJobsByPlan(jobs), [jobs]);
   const stage2Plans = useMemo(
@@ -302,29 +302,6 @@ export function Stage2JobTable({
     }
   }
 
-  async function syncSkill(planId: string, skill: Stage2Skill, version: string | null) {
-    if (!skill.skill_id || syncingSkillKey) return;
-    const key = skillKey(skill);
-    setSyncingSkillKey(key);
-    setSkillMessage("");
-    try {
-      await syncStage2Skill(skill.skill_id, version);
-      const refreshed = await listStage2Skills(true);
-      setCatalog(refreshed);
-      setSkillKeyByPlan(current => ({ ...current, [planId]: key }));
-      if (version) {
-        setSkillVersionByPlan(current => ({ ...current, [planId]: version }));
-      }
-      setSkillMessage(
-        "$" + skill.skill_name + (version ? " v" + version : "") + " synced to Stage 2.",
-      );
-    } catch (reason) {
-      setSkillMessage(reason instanceof Error ? reason.message : "Unable to sync skill.");
-    } finally {
-      setSyncingSkillKey("");
-    }
-  }
-
   return <section className="rrugc-card rrugc-stage2">
     <div className="rrugc-section-heading rrugc-stage2-heading">
       <div>
@@ -349,6 +326,13 @@ export function Stage2JobTable({
           onClick={() => void refreshSkills()}
         >
           {refreshingSkills ? "Refreshing…" : "Refresh skills"}
+        </button>
+        <button
+          type="button"
+          className="rrugc-stage2-manage"
+          onClick={() => setSkillManagerOpen(true)}
+        >
+          Manage skills
         </button>
       </div>
     </div>
@@ -384,9 +368,12 @@ export function Stage2JobTable({
               || planJobs.some(job => job.status === "queued" || job.status === "running");
             const skill = selectedSkill(plan.id);
             const version = selectedVersion(plan.id, skill);
-            const canGenerate = skill.ready
+            const hasReadySkill = catalog.items.length > 0;
+            const canGenerate = hasReadySkill && skill.ready
               && (skill.source === "local" || version === skill.synced_version);
-            const skillIssue = skill.sync_state === "local_conflict"
+            const skillIssue = !hasReadySkill
+              ? "No enabled and synced skill"
+              : skill.sync_state === "local_conflict"
               ? "Local skill name conflict"
               : !skill.ready
                 ? "Skill needs sync"
@@ -477,15 +464,13 @@ export function Stage2JobTable({
                   </label>
                 </div>
                 <small className="rrugc-stage2-skill-id">{"$" + skill.skill_name} · {skillStatus(skill)}</small>
-                {skill.source === "openai" && !canGenerate && skill.sync_state !== "local_conflict" && <button
+                {!canGenerate && skill.sync_state !== "local_conflict" && <button
                   type="button"
                   className="rrugc-stage2-sync"
-                  disabled={busy || syncingSkillKey === skillKey(skill)}
-                  onClick={() => void syncSkill(plan.id, skill, version)}
+                  disabled={busy}
+                  onClick={() => setSkillManagerOpen(true)}
                 >
-                  {syncingSkillKey === skillKey(skill)
-                    ? "Syncing…"
-                    : "Sync " + (version ? "v" + version : "skill")}
+                  Manage / sync skill
                 </button>}
                 {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Rename the conflicting local skill before syncing.</small>}
                 <button
@@ -624,5 +609,13 @@ export function Stage2JobTable({
         </select>
       </label>
     </div>
+    <SkillManagerModal
+      open={skillManagerOpen}
+      onClose={() => setSkillManagerOpen(false)}
+      onChanged={async () => {
+        const refreshed = await listStage2Skills(false);
+        setCatalog(refreshed);
+      }}
+    />
   </section>;
 }

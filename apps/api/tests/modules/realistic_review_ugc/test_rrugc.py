@@ -76,6 +76,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcStage2JobModel,
+    RrugcStage2SkillRegistryModel,
+    RrugcStage2SkillVersionModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
@@ -180,6 +182,8 @@ def database():
     RrugcVisualFingerprintModel.__table__.create(engine)
     RrugcAiFeedbackModel.__table__.create(engine)
     RrugcGenerationAttemptModel.__table__.create(engine)
+    RrugcStage2SkillRegistryModel.__table__.create(engine)
+    RrugcStage2SkillVersionModel.__table__.create(engine)
     RrugcStage2JobModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
     RrugcReviewTaskModel.__table__.create(engine)

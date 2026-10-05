@@ -44,6 +44,8 @@ import type {
   Stage2JobCreated,
   Stage2Skill,
   Stage2SkillCatalog,
+  Stage2SkillRegistry,
+  Stage2SkillRegistryItem,
   Stage2SkillSelection,
   SupervisorResult,
 } from "./types";
@@ -274,6 +276,86 @@ export const syncStage2Skill = (skillId: string, version?: string | null) =>
         ...(version ? { version } : {}),
       }),
     },
+  );
+
+export const listStage2SkillRegistry = (refresh = false, signal?: AbortSignal) =>
+  request<Stage2SkillRegistry>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry?refresh=" + String(refresh),
+    { signal },
+  );
+
+export const createStage2Skill = (file: File) => {
+  const body = new FormData();
+  body.set("file", file);
+  return request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry",
+    { method: "POST", body },
+  );
+};
+
+export const createStage2SkillVersion = (
+  registryId: string,
+  file: File,
+  makeDefault = false,
+) => {
+  const body = new FormData();
+  body.set("file", file);
+  return request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+      + encodeURIComponent(registryId)
+      + "/versions?make_default="
+      + String(makeDefault),
+    { method: "POST", body },
+  );
+};
+
+export const setStage2SkillEnabled = (registryId: string, enabled: boolean) =>
+  request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+      + encodeURIComponent(registryId)
+      + "/enabled",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    },
+  );
+
+export const setStage2SkillDefaultVersion = (registryId: string, version: string) =>
+  request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+      + encodeURIComponent(registryId)
+      + "/default",
+    {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    },
+  );
+
+export const syncStage2SkillRegistry = (registryId: string, version?: string | null) =>
+  request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+      + encodeURIComponent(registryId)
+      + "/sync",
+    {
+      method: "POST",
+      body: JSON.stringify({ ...(version ? { version } : {}) }),
+    },
+  );
+
+export const deleteStage2SkillVersion = (registryId: string, version: string) =>
+  request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+      + encodeURIComponent(registryId)
+      + "/versions/"
+      + encodeURIComponent(version),
+    { method: "DELETE" },
+  );
+
+export const deleteStage2Skill = (registryId: string) =>
+  request<{ deleted: boolean; registry_id: string }>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+      + encodeURIComponent(registryId),
+    { method: "DELETE" },
   );
 
 export const createStage2Job = (

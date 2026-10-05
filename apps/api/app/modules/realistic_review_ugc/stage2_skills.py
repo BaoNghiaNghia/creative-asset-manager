@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -74,6 +76,16 @@ class ResolvedStage2Skill:
     skill_version: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class UploadedStage2SkillBundle:
+    skill_name: str
+    display_name: str
+    description: str
+    version: str | None
+    bundle_sha256: str
+    files: tuple[tuple[str, bytes, str], ...]
+
+
 def _codex_home(settings: Settings) -> Path:
     return Path(
         str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
@@ -93,6 +105,325 @@ def _client(settings: Settings) -> OpenAI:
     if settings.OPENAI_PROJECT:
         kwargs["project"] = settings.OPENAI_PROJECT
     return OpenAI(**kwargs)
+
+
+
+
+
+def inspect_uploaded_stage2_skill_bundle(bundle: bytes) -> UploadedStage2SkillBundle:
+    if not bundle:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_bundle_empty",
+            "Upload a non-empty skill ZIP.",
+            status_code=422,
+        )
+    temp_root = Path(tempfile.mkdtemp(prefix=".stage2-skill-upload-"))
+    try:
+        root = _safe_extract_bundle(bundle, temp_root)
+        matches = [
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.name.casefold() == "skill.md"
+        ]
+        if len(matches) != 1:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_bundle_invalid",
+                "Skill bundle must contain exactly one SKILL.md.",
+                status_code=422,
+            )
+        skill_md = matches[0]
+        text = skill_md.read_text(encoding="utf-8")
+        name_match = re.search(r"(?m)^name:\s*([^\n#]+?)\s*$", text)
+        skill_name = (
+            name_match.group(1).strip().strip('"').strip("'")
+            if name_match
+            else ""
+        )
+        if not SAFE_SKILL_RE.fullmatch(skill_name):
+            raise Stage2SkillRegistryError(
+                "stage2_skill_name_invalid",
+                "SKILL.md must declare a lowercase kebab-case name.",
+                status_code=422,
+            )
+        description_match = re.search(r"(?m)^description:\s*([^\n#]+?)\s*$", text)
+        description = (
+            description_match.group(1).strip().strip('"').strip("'")
+            if description_match
+            else ""
+        )
+        version_match = VERSION_RE.search(text)
+        version = (
+            version_match.group(1).strip().strip('"').strip("'")
+            if version_match
+            else None
+        )
+        manifest_path = root / "manifest.json"
+        display_name = skill_name
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_manifest_invalid",
+                    "manifest.json is invalid JSON.",
+                    status_code=422,
+                ) from exc
+            if not isinstance(manifest, dict):
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_manifest_invalid",
+                    "manifest.json must contain an object.",
+                    status_code=422,
+                )
+            workflows = manifest.get("workflows") or []
+            if "image_studio" not in workflows:
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_workflow_invalid",
+                    "Stage 2 skills must declare the image_studio workflow.",
+                    status_code=422,
+                )
+            manifest_name = str(manifest.get("skill_name") or skill_name).strip()
+            if manifest_name != skill_name:
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_name_mismatch",
+                    "manifest.json skill_name must match SKILL.md.",
+                    status_code=422,
+                )
+            display_name = str(manifest.get("display_name") or skill_name).strip() or skill_name
+            description = str(manifest.get("description") or description).strip()
+
+        files: list[tuple[str, bytes, str]] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(root).as_posix()
+            content_type = mimetypes.guess_type(relative)[0] or "application/octet-stream"
+            files.append((relative, path.read_bytes(), content_type))
+        return UploadedStage2SkillBundle(
+            skill_name=skill_name,
+            display_name=display_name,
+            description=description,
+            version=version,
+            bundle_sha256=hashlib.sha256(bundle).hexdigest(),
+            files=tuple(files),
+        )
+    except UnicodeDecodeError as exc:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_bundle_invalid",
+            "SKILL.md must be UTF-8 text.",
+            status_code=422,
+        ) from exc
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def _require_openai_skills(settings: Settings) -> OpenAI:
+    if not settings.OPENAI_API_KEY:
+        raise Stage2SkillRegistryError(
+            "openai_skills_not_configured",
+            "OPENAI_API_KEY is required to manage hosted skills.",
+            status_code=503,
+        )
+    return _client(settings)
+
+
+def create_openai_stage2_skill(
+    bundle: UploadedStage2SkillBundle,
+    *,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    settings = settings or get_settings()
+    try:
+        skill = _require_openai_skills(settings).skills.create(files=list(bundle.files))
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception("stage2_skill_create_failed skill_name=%s", bundle.skill_name)
+        raise Stage2SkillRegistryError(
+            "openai_skill_create_failed",
+            "Unable to create the OpenAI skill.",
+            status_code=503,
+        ) from exc
+    _catalog_cache.clear()
+    return {
+        "id": str(skill.id),
+        "name": str(skill.name),
+        "description": str(getattr(skill, "description", "") or ""),
+        "default_version": str(getattr(skill, "default_version", "") or "") or None,
+        "latest_version": str(getattr(skill, "latest_version", "") or "") or None,
+    }
+
+
+def create_openai_stage2_skill_version(
+    skill_id: str,
+    bundle: UploadedStage2SkillBundle,
+    *,
+    make_default: bool = False,
+    settings: Settings | None = None,
+) -> str:
+    settings = settings or get_settings()
+    try:
+        version = _require_openai_skills(settings).skills.versions.create(
+            skill_id,
+            default=bool(make_default),
+            files=list(bundle.files),
+        )
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception("stage2_skill_version_create_failed skill_id=%s", skill_id)
+        raise Stage2SkillRegistryError(
+            "openai_skill_version_create_failed",
+            "Unable to create the OpenAI skill version.",
+            status_code=503,
+        ) from exc
+    _catalog_cache.clear()
+    return str(version.version)
+
+
+def list_openai_stage2_skill_versions(
+    skill_id: str,
+    *,
+    settings: Settings | None = None,
+) -> tuple[str, ...]:
+    settings = settings or get_settings()
+    try:
+        page = _require_openai_skills(settings).skills.versions.list(
+            skill_id,
+            limit=100,
+            order="desc",
+        )
+        versions: list[str] = []
+        while True:
+            for item in page.data:
+                value = str(getattr(item, "version", "") or "").strip()
+                if value and value not in versions:
+                    versions.append(value)
+            if not page.has_next_page():
+                break
+            page = page.get_next_page()
+        return tuple(versions)
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception("stage2_skill_versions_list_failed skill_id=%s", skill_id)
+        raise Stage2SkillRegistryError(
+            "openai_skill_versions_unavailable",
+            "Unable to list OpenAI skill versions.",
+            status_code=503,
+        ) from exc
+
+
+def set_openai_stage2_skill_default(
+    skill_id: str,
+    version: str,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    settings = settings or get_settings()
+    try:
+        _require_openai_skills(settings).skills.update(
+            skill_id,
+            default_version=str(version),
+        )
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception(
+            "stage2_skill_default_update_failed skill_id=%s version=%s",
+            skill_id,
+            version,
+        )
+        raise Stage2SkillRegistryError(
+            "openai_skill_default_update_failed",
+            "Unable to change the OpenAI skill default version.",
+            status_code=503,
+        ) from exc
+    _catalog_cache.clear()
+
+
+def delete_openai_stage2_skill(
+    skill_id: str,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    settings = settings or get_settings()
+    try:
+        _require_openai_skills(settings).skills.delete(skill_id)
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception("stage2_skill_delete_failed skill_id=%s", skill_id)
+        raise Stage2SkillRegistryError(
+            "openai_skill_delete_failed",
+            "Unable to delete the OpenAI skill.",
+            status_code=503,
+        ) from exc
+    _catalog_cache.clear()
+
+
+def delete_openai_stage2_skill_version(
+    skill_id: str,
+    version: str,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    settings = settings or get_settings()
+    try:
+        _require_openai_skills(settings).skills.versions.delete(
+            str(version),
+            skill_id=skill_id,
+        )
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception(
+            "stage2_skill_version_delete_failed skill_id=%s version=%s",
+            skill_id,
+            version,
+        )
+        raise Stage2SkillRegistryError(
+            "openai_skill_version_delete_failed",
+            "Unable to delete the OpenAI skill version.",
+            status_code=503,
+        ) from exc
+    _catalog_cache.clear()
+
+
+def download_openai_stage2_skill_version(
+    skill_id: str,
+    version: str,
+    *,
+    settings: Settings | None = None,
+) -> bytes:
+    settings = settings or get_settings()
+    try:
+        content = _require_openai_skills(settings).skills.versions.content.retrieve(
+            str(version),
+            skill_id=skill_id,
+        )
+        return content.read()
+    except (OpenAIError, ValueError, AttributeError) as exc:
+        logger.exception(
+            "stage2_skill_download_failed skill_id=%s version=%s",
+            skill_id,
+            version,
+        )
+        raise Stage2SkillRegistryError(
+            "openai_skill_download_failed",
+            "Unable to download the selected OpenAI skill version.",
+            status_code=503,
+        ) from exc
+
+
+def installed_stage2_skill_sha256(
+    skill_name: str,
+    *,
+    settings: Settings | None = None,
+) -> str | None:
+    settings = settings or get_settings()
+    root = _codex_home(settings) / "skills" / skill_name
+    if not root.is_dir():
+        return None
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root).as_posix()
+        if relative == ".openai-skill.json":
+            continue
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _cache_key(settings: Settings) -> str:

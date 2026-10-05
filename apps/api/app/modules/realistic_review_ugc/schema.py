@@ -609,6 +609,50 @@ class Stage2SkillSyncRequest(BaseModel):
     version: str | None = Field(default=None, min_length=1, max_length=64)
 
 
+class Stage2SkillRegistryVersionResponse(BaseModel):
+    id: str
+    version: str
+    is_default: bool
+    is_synced: bool
+    status: str
+    bundle_sha256: str | None = None
+    created_at: datetime
+
+
+class Stage2SkillRegistryItemResponse(BaseModel):
+    id: str
+    source: Literal["local", "openai"]
+    skill_id: str | None = None
+    skill_name: str
+    display_name: str
+    description: str
+    workflow: str
+    enabled: bool
+    default_version: str | None = None
+    latest_version: str | None = None
+    synced_version: str | None = None
+    sync_state: str
+    validation_status: str
+    bundle_sha256: str | None = None
+    last_error: str | None = None
+    versions: list[Stage2SkillRegistryVersionResponse] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class Stage2SkillRegistryResponse(BaseModel):
+    can_manage: bool
+    items: list[Stage2SkillRegistryItemResponse] = Field(default_factory=list)
+
+
+class Stage2SkillEnabledRequest(BaseModel):
+    enabled: bool
+
+
+class Stage2SkillDefaultVersionRequest(BaseModel):
+    version: str = Field(min_length=1, max_length=64)
+
+
 class Stage2JobCreateRequest(BaseModel):
     selected_candidate_ids: list[str] = Field(min_length=1, max_length=10)
     skill_source: Literal["local", "openai"] | None = None
@@ -644,6 +688,7 @@ class Stage2JobResponse(BaseModel):
     skill_source: Literal["local", "openai"] = "local"
     skill_id: str | None = None
     skill_version: str | None = None
+    skill_bundle_sha256: str | None = None
     selected_candidate_ids: list[str] = Field(default_factory=list)
     reference_count: int = 0
     status: Literal["queued", "running", "completed", "failed"]

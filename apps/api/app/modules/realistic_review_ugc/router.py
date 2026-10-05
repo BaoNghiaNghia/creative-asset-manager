@@ -189,6 +189,10 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2SkillCatalogResponse,
     Stage2SkillResponse,
     Stage2SkillSyncRequest,
+    Stage2SkillRegistryItemResponse,
+    Stage2SkillRegistryResponse,
+    Stage2SkillEnabledRequest,
+    Stage2SkillDefaultVersionRequest,
     Stage2JobCreateRequest,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
@@ -222,7 +226,19 @@ from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
     Stage2SkillRegistryError,
     list_stage2_skill_catalog,
-    sync_openai_stage2_skill,
+)
+from app.modules.realistic_review_ugc.skill_registry import (
+    create_skill,
+    create_skill_version,
+    delete_skill,
+    delete_skill_version,
+    enabled_catalog_items,
+    ensure_skill_registry,
+    get_registry_row_by_skill_id,
+    registry_payload,
+    set_skill_default,
+    set_skill_enabled,
+    sync_skill,
 )
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_TARGET_COUNT,
@@ -242,6 +258,26 @@ router = APIRouter(
 )
 READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
+
+
+def _can_manage_stage2_skills(principal: CurrentPrincipal) -> bool:
+    return bool(
+        principal.platform_admin
+        or "tenant_admin" in principal.effective_roles
+    )
+
+
+def _require_stage2_skill_admin(principal: CurrentPrincipal) -> None:
+    if _can_manage_stage2_skills(principal):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "code": "stage2_skill_admin_required",
+            "message": "Tenant admin access is required to manage Stage 2 skills.",
+        },
+    )
+
 
 ANALYSIS_APPROVED_STATUSES = {
     "approved",
@@ -890,6 +926,7 @@ def _stage2_job(row: RrugcStage2JobModel) -> Stage2JobResponse:
         skill_source=row.skill_source or "local",
         skill_id=row.skill_id,
         skill_version=row.skill_version,
+        skill_bundle_sha256=row.skill_bundle_sha256,
         selected_candidate_ids=selected_ids,
         reference_count=len(selected_ids),
         status=row.status,
@@ -3141,16 +3178,234 @@ async def get_source_plan_image(
 @router.get("/stage2-skills", response_model=Stage2SkillCatalogResponse)
 def list_stage2_skills(
     refresh: bool = Query(default=False),
+    session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    del principal
-    catalog = list_stage2_skill_catalog(refresh=refresh)
+    ensure_skill_registry(
+        session,
+        tenant_id=principal.active_tenant_id,
+        actor_id=principal.user_id if refresh and _can_manage_stage2_skills(principal) else None,
+        refresh=refresh,
+    )
+    catalog = list_stage2_skill_catalog(refresh=False)
+    items = enabled_catalog_items(
+        session,
+        tenant_id=principal.active_tenant_id,
+        catalog_items=catalog.items,
+    )
     return Stage2SkillCatalogResponse(
         openai_configured=catalog.openai_configured,
         openai_status=catalog.openai_status,
         error_code=catalog.error_code,
-        items=[_stage2_skill(item) for item in catalog.items],
+        items=[_stage2_skill(item) for item in items],
     )
+
+
+@router.get(
+    "/stage2-skills/registry",
+    response_model=Stage2SkillRegistryResponse,
+)
+def list_stage2_skill_registry(
+    refresh: bool = Query(default=False),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    rows = ensure_skill_registry(
+        session,
+        tenant_id=principal.active_tenant_id,
+        actor_id=principal.user_id if refresh and _can_manage_stage2_skills(principal) else None,
+        refresh=refresh,
+    )
+    return Stage2SkillRegistryResponse(
+        can_manage=_can_manage_stage2_skills(principal),
+        items=[
+            Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+            for row in rows
+        ],
+    )
+
+
+@router.post(
+    "/stage2-skills/registry",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+async def create_stage2_skill(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    bundle = await file.read(50 * 1024 * 1024 + 1)
+    try:
+        row = create_skill(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            bundle_bytes=bundle,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.post(
+    "/stage2-skills/registry/{registry_id}/versions",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+async def create_stage2_skill_registry_version(
+    registry_id: str,
+    file: UploadFile = File(...),
+    make_default: bool = Query(default=False),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    bundle = await file.read(50 * 1024 * 1024 + 1)
+    try:
+        row = create_skill_version(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry_id,
+            bundle_bytes=bundle,
+            make_default=make_default,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.patch(
+    "/stage2-skills/registry/{registry_id}/enabled",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+def update_stage2_skill_enabled(
+    registry_id: str,
+    request: Stage2SkillEnabledRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        row = set_skill_enabled(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry_id,
+            enabled=request.enabled,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.post(
+    "/stage2-skills/registry/{registry_id}/default",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+def update_stage2_skill_default(
+    registry_id: str,
+    request: Stage2SkillDefaultVersionRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        row = set_skill_default(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry_id,
+            version=request.version,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.post(
+    "/stage2-skills/registry/{registry_id}/sync",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+def sync_stage2_skill_registry(
+    registry_id: str,
+    request: Stage2SkillSyncRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        row = sync_skill(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry_id,
+            version=request.version,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.delete("/stage2-skills/registry/{registry_id}/versions/{version}")
+def remove_stage2_skill_version(
+    registry_id: str,
+    version: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        row = delete_skill_version(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry_id,
+            version=version,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.delete("/stage2-skills/registry/{registry_id}")
+def remove_stage2_skill(
+    registry_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        delete_skill(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry_id,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return {"deleted": True, "registry_id": registry_id}
 
 
 @router.post(
@@ -3161,31 +3416,36 @@ def sync_stage2_skill(
     skill_id: str,
     request: Stage2SkillSyncRequest,
     session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(RUN),
+    principal: CurrentPrincipal = Depends(READ),
 ):
-    del principal
-    active_jobs = int(
-        session.scalar(
-            select(func.count())
-            .select_from(RrugcStage2JobModel)
-            .where(
-                RrugcStage2JobModel.skill_source == "openai",
-                RrugcStage2JobModel.skill_id == skill_id,
-                RrugcStage2JobModel.status.in_(("queued", "running")),
-            )
-        )
-        or 0
-    )
-    if active_jobs:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "stage2_skill_sync_blocked_by_active_jobs",
-                "message": "Wait for active jobs using this OpenAI skill to finish before syncing another version.",
-            },
-        )
+    _require_stage2_skill_admin(principal)
     try:
-        item = sync_openai_stage2_skill(skill_id, version=request.version)
+        registry = get_registry_row_by_skill_id(
+            session,
+            tenant_id=principal.active_tenant_id,
+            skill_id=skill_id,
+        )
+        sync_skill(
+            session,
+            tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id,
+            registry_id=registry.id,
+            version=request.version,
+        )
+        catalog = list_stage2_skill_catalog(refresh=True)
+        item = next(
+            (
+                value for value in catalog.items
+                if value.source == "openai" and value.skill_id == skill_id
+            ),
+            None,
+        )
+        if item is None:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_not_found",
+                "The synced skill could not be refreshed.",
+                status_code=404,
+            )
     except Stage2SkillRegistryError as exc:
         raise HTTPException(
             status_code=exc.status_code,

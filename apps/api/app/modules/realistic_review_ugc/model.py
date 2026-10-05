@@ -779,6 +779,97 @@ class RrugcAiFeedbackModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+
+
+
+class RrugcStage2SkillRegistryModel(Base):
+    __tablename__ = "rrugc_stage2_skill_registry"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "source",
+            "skill_name",
+            name="uq_rrugc_stage2_skill_registry_name",
+        ),
+        Index(
+            "ix_rrugc_stage2_skill_registry_tenant_enabled",
+            "tenant_id",
+            "enabled",
+            "updated_at",
+        ),
+        Index(
+            "ix_rrugc_stage2_skill_registry_skill_id",
+            "tenant_id",
+            "skill_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    skill_id: Mapped[str | None] = mapped_column(String(255))
+    skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    workflow: Mapped[str] = mapped_column(String(64), nullable=False, default="image_studio")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    default_version: Mapped[str | None] = mapped_column(String(64))
+    latest_version: Mapped[str | None] = mapped_column(String(64))
+    synced_version: Mapped[str | None] = mapped_column(String(64))
+    sync_state: Mapped[str] = mapped_column(String(32), nullable=False, default="not_synced")
+    validation_status: Mapped[str] = mapped_column(String(32), nullable=False, default="valid")
+    bundle_sha256: Mapped[str | None] = mapped_column(String(64))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+class RrugcStage2SkillVersionModel(Base):
+    __tablename__ = "rrugc_stage2_skill_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["registry_id"],
+            ["rrugc_stage2_skill_registry.id"],
+            name="fk_rrugc_stage2_skill_version_registry",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "registry_id",
+            "version",
+            name="uq_rrugc_stage2_skill_version",
+        ),
+        Index(
+            "ix_rrugc_stage2_skill_version_registry",
+            "tenant_id",
+            "registry_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    registry_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_synced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")
+    bundle_sha256: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
 class RrugcStage2JobModel(Base):
     __tablename__ = "rrugc_stage2_jobs"
     __table_args__ = (
@@ -824,6 +915,7 @@ class RrugcStage2JobModel(Base):
     skill_source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
     skill_id: Mapped[str | None] = mapped_column(String(255))
     skill_version: Mapped[str | None] = mapped_column(String(64))
+    skill_bundle_sha256: Mapped[str | None] = mapped_column(String(64))
     selected_candidate_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
     selected_reference_snapshot_json: Mapped[list] = mapped_column(JSON, nullable=False)
     prompt_text: Mapped[str | None] = mapped_column(Text)
