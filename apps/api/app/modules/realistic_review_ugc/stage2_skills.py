@@ -216,6 +216,184 @@ def inspect_uploaded_stage2_skill_bundle(bundle: bytes) -> UploadedStage2SkillBu
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def _ensure_uploaded_local_manifest(
+    root: Path,
+    bundle: UploadedStage2SkillBundle,
+) -> None:
+    path = root / "manifest.json"
+    if path.is_file():
+        return
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "skill_name": bundle.skill_name,
+                "display_name": bundle.display_name or bundle.skill_name,
+                "description": bundle.description or f"Stage 2 skill {bundle.skill_name}",
+                "workflows": ["image_studio"],
+                "product_types": [],
+                "required_reference_roles": [],
+                "optional_reference_roles": [],
+                "max_references": 10,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def install_local_stage2_skill_bundle(
+    bundle: UploadedStage2SkillBundle,
+    *,
+    settings: Settings | None = None,
+    replace: bool = False,
+) -> Stage2SkillItem:
+    """Install an uploaded Stage 2 skill into CAM's persistent Codex runtime.
+
+    This path is intentionally independent of OPENAI_API_KEY. OpenAI-hosted
+    skill discovery/sync remains a separate optional integration.
+    """
+
+    settings = settings or get_settings()
+    home = _codex_home(settings)
+    skills_root = home / "skills"
+    try:
+        skills_root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_install_failed",
+            "Unable to prepare the Stage 2 skill runtime.",
+            status_code=500,
+        ) from exc
+
+    target = skills_root / bundle.skill_name
+    if target.exists() and not replace:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_already_exists",
+            "A Stage 2 skill with this name is already installed.",
+            status_code=409,
+        )
+    if target.exists() and _sync_metadata(home, bundle.skill_name) is not None:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_local_conflict",
+            "An OpenAI-synced skill already uses this name. Remove that sync before uploading a local skill.",
+            status_code=409,
+        )
+
+    temp_root = Path(
+        tempfile.mkdtemp(
+            prefix=".stage2-skill-local-",
+            dir=str(skills_root),
+        )
+    )
+    staged = temp_root / "staged"
+    backup = temp_root / "backup"
+    replaced_existing = False
+    try:
+        staged.mkdir(parents=True, exist_ok=False)
+        for relative, body, _content_type in bundle.files:
+            relative_path = Path(relative)
+            if (
+                relative_path.is_absolute()
+                or ".." in relative_path.parts
+                or not relative_path.parts
+            ):
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_bundle_invalid",
+                    "Skill bundle contains an unsafe path.",
+                    status_code=422,
+                )
+            destination = staged / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(body)
+
+        # Uploaded local skills must never be able to impersonate an OpenAI
+        # synced runtime entry.
+        (staged / ".openai-skill.json").unlink(missing_ok=True)
+        if not (staged / "SKILL.md").is_file():
+            raise Stage2SkillRegistryError(
+                "stage2_skill_bundle_invalid",
+                "SKILL.md must be at the root of the uploaded skill ZIP.",
+                status_code=422,
+            )
+        _ensure_uploaded_local_manifest(staged, bundle)
+
+        verify_home = temp_root / "verify"
+        verify_target = verify_home / "skills" / bundle.skill_name
+        verify_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(staged, verify_target)
+        try:
+            manifest = load_codex_skill_manifest(verify_home, bundle.skill_name)
+        except CodexImageProviderError as exc:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_manifest_invalid",
+                "The uploaded skill manifest is not valid for Stage 2.",
+                status_code=422,
+            ) from exc
+        if manifest is None or "image_studio" not in manifest.workflows:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_workflow_invalid",
+                "Stage 2 skills must declare the image_studio workflow.",
+                status_code=422,
+            )
+
+        if target.exists():
+            os.replace(target, backup)
+            replaced_existing = True
+        os.replace(staged, target)
+
+        try:
+            installed = load_codex_skill_manifest(home, bundle.skill_name)
+            if installed is None or "image_studio" not in installed.workflows:
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_install_verification_failed",
+                    "The uploaded skill could not be verified after installation.",
+                    status_code=500,
+                )
+        except (CodexImageProviderError, Stage2SkillRegistryError):
+            if target.exists():
+                shutil.rmtree(target)
+            if replaced_existing and backup.exists():
+                os.replace(backup, target)
+            raise
+
+        item = _local_item(settings, installed)
+        if item is None or not item.ready:
+            if target.exists():
+                shutil.rmtree(target)
+            if replaced_existing and backup.exists():
+                os.replace(backup, target)
+            raise Stage2SkillRegistryError(
+                "stage2_skill_install_verification_failed",
+                "The uploaded skill could not be loaded by the Stage 2 runtime.",
+                status_code=500,
+            )
+        _catalog_cache.clear()
+        logger.info(
+            "stage2_local_skill_installed skill_name=%s version=%s sha256=%s",
+            bundle.skill_name,
+            bundle.version or "",
+            bundle.bundle_sha256,
+        )
+        return item
+    except Stage2SkillRegistryError:
+        raise
+    except OSError as exc:
+        if target.exists() and replaced_existing:
+            shutil.rmtree(target, ignore_errors=True)
+            if backup.exists():
+                os.replace(backup, target)
+        raise Stage2SkillRegistryError(
+            "stage2_skill_install_failed",
+            "Unable to install the uploaded Stage 2 skill.",
+            status_code=500,
+        ) from exc
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def _require_openai_skills(settings: Settings) -> OpenAI:
     if not settings.OPENAI_API_KEY:
         raise Stage2SkillRegistryError(

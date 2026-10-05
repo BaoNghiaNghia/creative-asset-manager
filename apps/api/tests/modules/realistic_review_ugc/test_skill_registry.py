@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings
 from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.modules.realistic_review_ugc import skill_registry, stage2_skills
 from app.modules.realistic_review_ugc.model import (
@@ -135,3 +136,70 @@ def test_uploaded_skill_bundle_is_validated_and_hashed():
         "SKILL.md",
         "manifest.json",
     }
+
+
+def test_create_skill_installs_local_runtime_without_openai_key(tmp_path, monkeypatch):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "SKILL.md",
+            "---\n"
+            "name: uploaded-image-studio\n"
+            "version: 1.4.0\n"
+            "description: Uploaded local image generation skill\n"
+            "---\n"
+            "# Uploaded skill\n",
+        )
+        archive.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "skill_name": "uploaded-image-studio",
+                    "display_name": "Uploaded Image Studio",
+                    "description": "Uploaded local image generation skill",
+                    "workflows": ["image_studio"],
+                }
+            ),
+        )
+
+    settings = Settings(
+        _env_file=None,
+        CODEX_IMAGE_HOME=str(tmp_path / "codex"),
+        OPENAI_API_KEY="",
+    )
+    monkeypatch.setattr(stage2_skills, "get_settings", lambda: settings)
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            row = skill_registry.create_skill(
+                session,
+                tenant_id="tenant-a",
+                actor_id="admin-a",
+                bundle_bytes=buffer.getvalue(),
+            )
+            assert row.source == "local"
+            assert row.skill_id is None
+            assert row.skill_name == "uploaded-image-studio"
+            assert row.sync_state == "ready"
+            assert row.validation_status == "valid"
+            assert row.default_version == "1.4.0"
+            assert row.synced_version == "1.4.0"
+            assert len(row.bundle_sha256 or "") == 64
+
+            installed = tmp_path / "codex" / "skills" / "uploaded-image-studio"
+            assert (installed / "SKILL.md").is_file()
+            assert (installed / "manifest.json").is_file()
+            assert not (installed / ".openai-skill.json").exists()
+
+            version = session.scalar(
+                select(RrugcStage2SkillVersionModel).where(
+                    RrugcStage2SkillVersionModel.registry_id == row.id,
+                    RrugcStage2SkillVersionModel.version == "1.4.0",
+                )
+            )
+            assert version is not None
+            assert version.is_synced is True
+    finally:
+        engine.dispose()

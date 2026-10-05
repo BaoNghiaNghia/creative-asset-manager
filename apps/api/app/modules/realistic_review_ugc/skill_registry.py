@@ -17,11 +17,11 @@ from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
     Stage2SkillRegistryError,
     UploadedStage2SkillBundle,
-    create_openai_stage2_skill,
     create_openai_stage2_skill_version,
     delete_openai_stage2_skill,
     delete_openai_stage2_skill_version,
     inspect_uploaded_stage2_skill_bundle,
+    install_local_stage2_skill_bundle,
     installed_stage2_skill_sha256,
     list_openai_stage2_skill_versions,
     list_stage2_skill_catalog,
@@ -377,26 +377,18 @@ def create_skill(
             "A Stage 2 skill with this name already exists.",
             status_code=409,
         )
-    remote = create_openai_stage2_skill(bundle)
-    reconcile_skill_registry(
+
+    # Uploading through CAM creates a project-local runtime skill. This is
+    # intentionally independent of OPENAI_API_KEY; OpenAI-hosted skills remain
+    # an optional discovery/sync source managed by the separate refresh flow.
+    item = install_local_stage2_skill_bundle(bundle)
+    row = _upsert_catalog_item(
         session,
         tenant_id=tenant_id,
         actor_id=actor_id,
-        refresh=True,
+        item=item,
+        versions=item.version_options,
     )
-    row = session.scalar(
-        select(RrugcStage2SkillRegistryModel).where(
-            RrugcStage2SkillRegistryModel.tenant_id == tenant_id,
-            RrugcStage2SkillRegistryModel.source == "openai",
-            RrugcStage2SkillRegistryModel.skill_id == remote["id"],
-        )
-    )
-    if row is None:
-        raise Stage2SkillRegistryError(
-            "stage2_skill_registry_failed",
-            "Skill was created but could not be registered.",
-            status_code=500,
-        )
     row.bundle_sha256 = bundle.bundle_sha256
     row.created_by_user_id = actor_id
     row.updated_by_user_id = actor_id
@@ -407,6 +399,7 @@ def create_skill(
         action="stage2_skill.created",
         detail={
             "registry_id": row.id,
+            "source": row.source,
             "skill_id": row.skill_id,
             "skill_name": row.skill_name,
             "bundle_sha256": bundle.bundle_sha256,

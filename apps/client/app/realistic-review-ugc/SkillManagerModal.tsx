@@ -112,7 +112,7 @@ export function SkillManagerModal({
     await mutate(
       "create",
       () => createStage2Skill(createFile),
-      "Skill created and added to the registry.",
+      "Skill uploaded, installed and added to the Stage 2 registry.",
     );
     setCreateFile(null);
   }
@@ -157,7 +157,7 @@ export function SkillManagerModal({
         <div>
           <small>STAGE 2 · SKILL REGISTRY</small>
           <h2 id="rrugc-skill-modal-title">Manage Skills</h2>
-          <p>Hosted OpenAI Skills are the source of truth. CAM keeps runtime sync, versions and job pins separate.</p>
+          <p>CAM-local skills can be uploaded and used immediately. OpenAI-hosted skills remain an optional sync source.</p>
         </div>
         <button type="button" className="rrugc-skill-modal-close" onClick={onClose} disabled={Boolean(busyKey)} aria-label="Close skill manager">×</button>
       </header>
@@ -169,14 +169,14 @@ export function SkillManagerModal({
           <span>{registry.can_manage ? "Admin controls" : "Read only"}</span>
         </div>
         <button type="button" onClick={() => void reload(true)} disabled={loading || Boolean(busyKey)}>
-          {loading ? "Refreshing…" : "Refresh from OpenAI"}
+          {loading ? "Refreshing…" : "Refresh skills"}
         </button>
       </div>
 
       {registry.can_manage && <div className="rrugc-skill-upload">
         <div>
-          <strong>Add hosted skill</strong>
-          <small>Upload a ZIP containing exactly one SKILL.md. The bundle is validated before OpenAI receives it.</small>
+          <strong>Add Stage 2 skill</strong>
+          <small>Upload a ZIP containing exactly one SKILL.md. CAM validates it and installs it directly into the Stage 2 runtime.</small>
         </div>
         <label className="rrugc-skill-file">
           <span>{createFile?.name || "Choose skill ZIP"}</span>
