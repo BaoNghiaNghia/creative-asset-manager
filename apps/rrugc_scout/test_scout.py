@@ -832,10 +832,10 @@ def test_related_seed_history_is_persistent_and_normalized(tmp_path):
     }
 
 
-def test_extract_related_candidates_keeps_first_20_and_excludes_seed():
+def test_extract_related_candidates_keeps_first_60_and_excludes_seed():
     class FakeMouse:
         async def wheel(self, _x, _y):
-            raise AssertionError("no scroll should be needed when 20 related Pins are loaded")
+            raise AssertionError("no scroll should be needed when 60 related Pins are loaded")
 
     class FakePage:
         def __init__(self):
@@ -862,7 +862,7 @@ def test_extract_related_candidates_keeps_first_20_and_excludes_seed():
                     "pin_url": f"https://www.pinterest.com/pin/related-{index}/",
                     "image_url": f"https://i.pinimg.com/736x/related-{index}.jpg",
                     "alt_text": f"related {index}",
-                } for index in range(25))
+                } for index in range(70))
                 return rows
             return False
 
@@ -876,9 +876,9 @@ def test_extract_related_candidates_keeps_first_20_and_excludes_seed():
         pace=SCOUT_PACES["careful"],
     ))
 
-    assert len(rows) == 20
+    assert len(rows) == 60
     assert rows[0].pin_url.endswith("/related-0/")
-    assert rows[-1].pin_url.endswith("/related-19/")
+    assert rows[-1].pin_url.endswith("/related-59/")
     assert all(row.pin_url != seed.pin_url for row in rows)
 
 
@@ -894,7 +894,7 @@ def test_auto_scout_expands_approved_seed_before_keyword_search(tmp_path, monkey
 
     async def fake_extract_related(_page, seed, *, pace, limit):
         assert seed.pin_url == "https://www.pinterest.com/pin/approved-seed/"
-        assert limit == 20
+        assert limit == 60
         assert pace.name == "careful"
         return related
 

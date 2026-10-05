@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 import quote_keyword_volume as keyword_scout
 from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
+    DEFAULT_RELATED_PER_PIN,
     KeywordScoutHistory,
     _dedupe,
     _quote_extract_status_is_terminal,
@@ -26,6 +27,7 @@ def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
     ])
     assert args.seed_query == DEFAULT_PINTEREST_QUERY == "Saying Trucker hat"
     assert args.profile_dir.endswith("pinterest-profile-keyword")
+    assert args.related_per_pin == DEFAULT_RELATED_PER_PIN == 60
     assert args.once is False
 
 

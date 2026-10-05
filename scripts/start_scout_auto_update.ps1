@@ -478,6 +478,7 @@ if ($KeywordMode) {
     Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
     Write-Host "Pinterest query      : Saying Trucker hat" -ForegroundColor Green
     Write-Host ("Pinterest profile   : " + $keywordProfileDir) -ForegroundColor Green
+    Write-Host "Related per Pin     : 60" -ForegroundColor Green
     Write-Host ("Pace                : " + $pace) -ForegroundColor Green
     Write-Host "Mode                : autonomous Pinterest quote -> AEBrowse volume" -ForegroundColor Green
     Write-Host "Loop                : continuous until this terminal is closed" -ForegroundColor Green
@@ -494,6 +495,7 @@ if ($KeywordMode) {
         "--agent-id", $agentId,
         "--profile-dir", $keywordProfileDir,
         "--seed-query", "Saying Trucker hat",
+        "--related-per-pin", "60",
         "--pace", $pace
     )
     if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
