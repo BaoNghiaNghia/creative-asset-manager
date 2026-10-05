@@ -711,6 +711,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain("SOURCE IMAGE PREVIEW");
+    expect(markup).toContain("rrugc-source-image-review-modal");
+    expect(markup).toContain("width:914px");
     expect(markup).toContain("rrugc-source-review-masonry");
     expect(markup).toContain("rrugc-source-image-review-card");
     expect(sourceReviewImageUrl(sources[0])).toContain("thumbnail=true");

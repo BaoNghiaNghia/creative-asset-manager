@@ -166,8 +166,17 @@ export function SourceImageReviewModal({
     };
   }, [onClose]);
 
+  const previewColumns = Math.min(3, Math.max(1, sources.length));
+  const previewWidth = previewColumns * 290 + 44;
+
   return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-    <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-source-image-review-title-" + plan.id}>
+    <section
+      className="rrugc-source-review-modal rrugc-source-image-review-modal"
+      style={{ width: previewWidth }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={"rrugc-source-image-review-title-" + plan.id}
+    >
       <header className="rrugc-source-review-header">
         <div>
           <small>SOURCE IMAGE PREVIEW</small>
