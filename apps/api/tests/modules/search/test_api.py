@@ -183,6 +183,65 @@ class SearchV3ApiTest(unittest.TestCase):
             },
         )
 
+    def test_search_releases_database_session_before_elasticsearch_io(self):
+        sessions = []
+        test_case = self
+
+        class TrackingSession(Session):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.released_for_network_io = False
+                sessions.append(self)
+
+            def close(self):
+                self.released_for_network_io = True
+                return super().close()
+
+        class FakeIndex:
+            async def open_point_in_time(self, *, keep_alive):
+                test_case.assertTrue(sessions)
+                test_case.assertTrue(sessions[-1].released_for_network_io)
+                return "pit-release-db"
+
+            async def search_with_pit(self, query, *, pit_id, keep_alive):
+                test_case.assertTrue(sessions[-1].released_for_network_io)
+                return {
+                    "pit_id": pit_id,
+                    "took": 1,
+                    "hits": {"total": {"value": 0, "relation": "eq"}, "hits": []},
+                    "aggregations": {},
+                }
+
+            async def close_point_in_time(self, _pit_id):
+                return True
+
+        settings = Settings(
+            SEARCH_V3_ENABLED=True,
+            ELASTICSEARCH_URL="http://search.test:9200",
+        )
+        tracking_factory = sessionmaker(
+            self.engine,
+            class_=TrackingSession,
+            expire_on_commit=False,
+        )
+        fake_index = FakeIndex()
+
+        async def get_index(_config):
+            return fake_index
+
+        with (
+            patch("app.modules.search.router.SessionLocal", tracking_factory),
+            patch("app.modules.search.router.get_settings", return_value=settings),
+            patch.object(API_SEARCH_INDEX_POOL, "get", side_effect=get_index),
+        ):
+            response = self.client.post(
+                "/api/v1/search",
+                json={"query": "pool safety"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [])
+
     def test_filter_only_search_keeps_security_and_returns_total_relation(self):
         app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
             user_id="operator-a",

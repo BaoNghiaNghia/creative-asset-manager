@@ -906,6 +906,12 @@ async def search(
         query["size"] = chunk_size
         pit_id = cursor_state.pit_id if cursor_state is not None else None
         opened_here = False
+
+        # The request setup above performs synchronous SQLAlchemy reads. Do not
+        # keep that checkout while awaiting Elasticsearch: under concurrent
+        # searches a small QueuePool can otherwise be exhausted, and the next
+        # synchronous checkout blocks the single Uvicorn event loop.
+        session.close()
         try:
             index = await API_SEARCH_INDEX_POOL.get(
                 ElasticsearchV3Config(
@@ -951,6 +957,9 @@ async def search(
             viewer_restricted=viewer_restricted,
             limit=body.limit,
         )
+        # Hydration is the only DB work in this phase. Release its checkout
+        # before any follow-up PIT request.
+        session.close()
         can_continue = bool(
             len(hits) == chunk_size and isinstance(last_sort, list)
         )
@@ -999,6 +1008,7 @@ async def search(
                 viewer_restricted=viewer_restricted,
                 limit=body.limit,
             )
+            session.close()
             can_continue = len(batch) == next_size
 
         response = first_response
