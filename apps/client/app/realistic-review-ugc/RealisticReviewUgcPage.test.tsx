@@ -7,7 +7,10 @@ import {
   scoutClientIsCurrent,
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
-import { RealisticReviewUgcPage } from "./RealisticReviewUgcPage";
+import {
+  RealisticReviewUgcPage,
+  sourcePlanPageRenderFingerprint,
+} from "./RealisticReviewUgcPage";
 import { Stage2JobTable, Stage2OutputReviewModal } from "./Stage2JobTable";
 import {
   ReferenceReviewModal,
@@ -162,6 +165,58 @@ const GLOBAL_OVERVIEW: SourcePlanOverview = {
 };
 
 describe("Realistic Review UGC source-first workspace", () => {
+  it("windows large Stage 1 reference rows instead of mounting every card", () => {
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[makePlan(50)]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        syncing={false}
+        message=""
+        onSync={() => undefined}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onQueryChange={() => undefined}
+      />,
+    );
+    const cards = markup.match(/class="rrugc-source-ref-card/g) || [];
+    expect(cards.length).toBeLessThanOrEqual(16);
+    expect(markup).toContain("50 reference images for front.png");
+  });
+
+  it("ignores scheduler-only timestamps when deciding whether Stage 1 changed", () => {
+    const base = {
+      items: [makePlan(12)],
+      page: 1,
+      page_size: 20,
+      total: 1,
+      overview: GLOBAL_OVERVIEW,
+    };
+    const schedulerOnly = {
+      ...base,
+      items: [{
+        ...base.items[0],
+        updated_at: "2026-10-05T05:00:00Z",
+        scan_next_at: "2026-10-05T05:01:00Z",
+        scan_last_completed_at: "2026-10-05T04:59:00Z",
+      }],
+    };
+    const realChange = {
+      ...schedulerOnly,
+      items: [{
+        ...schedulerOnly.items[0],
+        progress_count: schedulerOnly.items[0].progress_count + 1,
+      }],
+    };
+
+    expect(sourcePlanPageRenderFingerprint(schedulerOnly))
+      .toBe(sourcePlanPageRenderFingerprint(base));
+    expect(sourcePlanPageRenderFingerprint(realChange))
+      .not.toBe(sourcePlanPageRenderFingerprint(base));
+  });
+
   it("renders Stage 2 as a max-10 Pinterest ref skill job table", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable

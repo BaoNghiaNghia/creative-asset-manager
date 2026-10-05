@@ -319,6 +319,10 @@ export function ReferenceReviewModal({
   </div>;
 }
 
+const REFERENCE_CARD_PITCH = 82;
+const REFERENCE_WINDOW_OVERSCAN = 4;
+const REFERENCE_WINDOW_MIN = 16;
+
 function ReferenceSlider({
   plan,
   reviewingReferenceIds,
@@ -334,7 +338,34 @@ function ReferenceSlider({
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [windowRange, setWindowRange] = useState({ start: 0, end: REFERENCE_WINDOW_MIN });
   const references = plan.reference_previews;
+
+  function updateWindow() {
+    const track = trackRef.current;
+    if (!track) return;
+    const visibleCount = Math.max(
+      REFERENCE_WINDOW_MIN,
+      Math.ceil(track.clientWidth / REFERENCE_CARD_PITCH) + REFERENCE_WINDOW_OVERSCAN * 2,
+    );
+    const firstVisible = Math.max(0, Math.floor(track.scrollLeft / REFERENCE_CARD_PITCH));
+    const start = Math.max(0, firstVisible - REFERENCE_WINDOW_OVERSCAN);
+    const end = Math.min(references.length, start + visibleCount);
+    setWindowRange(current => (
+      current.start === start && current.end === end
+        ? current
+        : { start, end }
+    ));
+  }
+
+  useEffect(() => {
+    updateWindow();
+    const track = trackRef.current;
+    if (!track || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateWindow);
+    observer.observe(track);
+    return () => observer.disconnect();
+  }, [references.length]);
 
   function move(direction: -1 | 1) {
     trackRef.current?.scrollBy({ left: direction * 360, behavior: "smooth" });
@@ -352,11 +383,31 @@ function ReferenceSlider({
     </div>;
   }
 
+  const start = Math.min(windowRange.start, Math.max(0, references.length - 1));
+  const end = Math.min(references.length, Math.max(start + 1, windowRange.end));
+  const visibleReferences = references.slice(start, end);
+  const leadingWidth = start > 0 ? Math.max(0, start * REFERENCE_CARD_PITCH - 6) : 0;
+  const trailingCount = Math.max(0, references.length - end);
+  const trailingWidth = trailingCount > 0
+    ? Math.max(0, trailingCount * REFERENCE_CARD_PITCH - 6)
+    : 0;
+
   return <div className="rrugc-source-ref-slider">
     <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references left"} onClick={() => move(-1)}>‹</button>
-    <div ref={trackRef} className="rrugc-source-ref-track" aria-label={references.length + " reference images for " + plan.source_name}>
-      {references.map((reference, index) => (
-        <div
+    <div
+      ref={trackRef}
+      className="rrugc-source-ref-track"
+      aria-label={references.length + " reference images for " + plan.source_name}
+      onScroll={updateWindow}
+    >
+      {leadingWidth > 0 && <span
+        className="rrugc-source-ref-window-spacer"
+        aria-hidden="true"
+        style={{ flexBasis: leadingWidth }}
+      />}
+      {visibleReferences.map((reference, localIndex) => {
+        const index = start + localIndex;
+        return <div
           key={reference.id}
           className={
             "rrugc-source-ref-card status-" + reference.status
@@ -404,8 +455,13 @@ function ReferenceSlider({
               onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
             >{reviewingReferenceIds.has(reference.id) ? "…" : "AI"}</button>
           </div>
-        </div>
-      ))}
+        </div>;
+      })}
+      {trailingWidth > 0 && <span
+        className="rrugc-source-ref-window-spacer"
+        aria-hidden="true"
+        style={{ flexBasis: trailingWidth }}
+      />}
     </div>
     <button type="button" className="rrugc-source-ref-arrow" aria-label={"Scroll " + plan.source_name + " references right"} onClick={() => move(1)}>›</button>
     {reviewOpen && <ReferenceReviewModal

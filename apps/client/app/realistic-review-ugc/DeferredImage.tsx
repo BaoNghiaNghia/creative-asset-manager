@@ -87,16 +87,20 @@ export function DeferredImage({
       return;
     }
     const observer = new IntersectionObserver(entries => {
-      if (!entries.some(entry => entry.isIntersecting)) return;
-      setNearViewport(true);
-      observer.disconnect();
+      setNearViewport(entries.some(entry => entry.isIntersecting));
     }, { rootMargin });
     observer.observe(target);
     return () => observer.disconnect();
   }, [rootMargin, src]);
 
   useEffect(() => {
-    if (!nearViewport || !src) return;
+    if (!nearViewport || !src) {
+      ticketRef.current?.cancel();
+      ticketRef.current = null;
+      setGrantedSource(current => current === null ? current : null);
+      setLoadedSource(current => current === null ? current : null);
+      return;
+    }
     const ticket = imageQueue.acquire(() => setGrantedSource(src));
     ticketRef.current = ticket;
     return () => {

@@ -43,6 +43,23 @@ const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: s
   { id: "settings", label: "Settings", description: "Auto Scout", marker: "⚙" },
 ];
 
+export function sourcePlanPageRenderFingerprint(page: SourcePlanPage): string {
+  return JSON.stringify({
+    page: page.page,
+    page_size: page.page_size,
+    total: page.total,
+    overview: page.overview,
+    items: page.items.map(plan => ({
+      ...plan,
+      // Scheduler timestamps can change without affecting anything visible in
+      // Stage 1. Excluding them prevents a full table reconciliation every poll.
+      updated_at: undefined,
+      scan_next_at: undefined,
+      scan_last_completed_at: undefined,
+    })),
+  });
+}
+
 export function RealisticReviewUgcPage() {
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
@@ -85,7 +102,12 @@ export function RealisticReviewUgcPage() {
       },
       signal,
     );
-    setSourcePage(result);
+    const nextFingerprint = sourcePlanPageRenderFingerprint(result);
+    setSourcePage(current => (
+      sourcePlanPageRenderFingerprint(current) === nextFingerprint
+        ? current
+        : result
+    ));
   }
 
   async function refreshStage2Plans(signal?: AbortSignal) {
@@ -246,6 +268,7 @@ export function RealisticReviewUgcPage() {
   useEffect(() => {
     if (activeStage !== "stage1") return;
     const controller = new AbortController();
+    let refreshInFlight = true;
     setError("");
     setSourcePageLoading(true);
     void refreshSourcePlans(controller.signal)
@@ -255,10 +278,17 @@ export function RealisticReviewUgcPage() {
         }
       })
       .finally(() => {
+        refreshInFlight = false;
         if (!controller.signal.aborted) setSourcePageLoading(false);
       });
     const timer = window.setInterval(() => {
-      if (!document.hidden) void refreshSourcePlans().catch(() => undefined);
+      if (document.hidden || refreshInFlight) return;
+      refreshInFlight = true;
+      void refreshSourcePlans()
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
     }, 5000);
     return () => {
       controller.abort();
