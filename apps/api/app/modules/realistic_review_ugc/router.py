@@ -3653,6 +3653,7 @@ async def get_stage2_job_output(
             remote_file_id=output_remote_file_id,
             size_pixels=size,
             cache_control="private, max-age=86400",
+            cache_version=f"{row_id}:{output_remote_file_id}",
         )
         if compact is not None:
             return compact

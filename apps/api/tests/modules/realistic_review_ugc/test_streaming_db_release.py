@@ -198,3 +198,80 @@ def test_managed_drive_thumbnail_reuses_shared_byte_cache(monkeypatch):
     assert first.body == b"thumbnail-bytes"
     assert second.body == b"thumbnail-bytes"
     assert calls == {"open": 1, "close": 1}
+
+
+def test_stage2_output_thumbnail_supplies_stable_cache_version(monkeypatch):
+    class Stage2Session:
+        def __init__(self):
+            self.closed = False
+
+        def scalar(self, _statement):
+            return SimpleNamespace(
+                id="job-a",
+                status="completed",
+                output_remote_file_id="drive-output-a",
+                output_content_type="image/png",
+                output_size_bytes=321,
+            )
+
+        def close(self):
+            self.closed = True
+
+    session = Stage2Session()
+    storage = object()
+    monkeypatch.setattr(
+        rrugc_router_module,
+        "build_managed_storage_provider",
+        lambda _settings: storage,
+    )
+    observed = {}
+
+    async def fake_thumbnail(
+        passed_storage,
+        *,
+        tenant_id,
+        remote_file_id,
+        size_pixels,
+        cache_control,
+        cache_version,
+        etag=None,
+        http_client=None,
+    ):
+        observed.update(
+            storage=passed_storage,
+            tenant_id=tenant_id,
+            remote_file_id=remote_file_id,
+            size_pixels=size_pixels,
+            cache_control=cache_control,
+            cache_version=cache_version,
+            etag=etag,
+            http_client=http_client,
+        )
+        return rrugc_router_module.Response(
+            content=b"stage2-thumbnail",
+            media_type="image/jpeg",
+        )
+
+    monkeypatch.setattr(
+        rrugc_router_module,
+        "_managed_drive_thumbnail_response",
+        fake_thumbnail,
+    )
+
+    response = asyncio.run(
+        rrugc_router_module.get_stage2_job_output(
+            "job-a",
+            thumbnail=True,
+            size=192,
+            session=session,
+            principal=_principal(),
+        )
+    )
+
+    assert session.closed is True
+    assert response.body == b"stage2-thumbnail"
+    assert observed["storage"] is storage
+    assert observed["tenant_id"] == "tenant-a"
+    assert observed["remote_file_id"] == "drive-output-a"
+    assert observed["size_pixels"] == 192
+    assert observed["cache_version"] == "job-a:drive-output-a"
