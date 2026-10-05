@@ -22,11 +22,12 @@ from scout import (
     SCOUT_PACES,
     _looks_like_browser_runtime_failure,
     access_gate,
+    allowed_image,
     bootstrap_login,
     configure_scout_debug_log,
     configure_scout_remote_log,
     extract_related_candidates,
-    extract_visible,
+    extract_visible_pin_candidates,
     guard_pinterest_response,
     launch_context,
     loaded_pin_count,
@@ -131,9 +132,10 @@ class KeywordScoutHistory:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.data: dict[str, Any] = {
-            "version": 1,
+            "version": 2,
             "seen_pins": [],
             "seen_assets": [],
+            "expanded_pins": [],
             "seen_quotes": [],
             "pending_quotes": [],
         }
@@ -161,6 +163,14 @@ class KeywordScoutHistory:
     @property
     def seen_assets(self) -> set[str]:
         return self._set("seen_assets")
+
+    @property
+    def expanded_pins(self) -> set[str]:
+        return {
+            pin_history_key(value)
+            for value in self._set("expanded_pins")
+            if pin_history_key(value)
+        }
 
     @property
     def seen_quotes(self) -> set[str]:
@@ -191,6 +201,15 @@ class KeywordScoutHistory:
             assets.append(asset)
         self.data["seen_pins"] = pins[-50_000:]
         self.data["seen_assets"] = assets[-50_000:]
+        self.save()
+
+    def remember_expanded_pin(self, pin_url: str) -> None:
+        expanded = list(self._set("expanded_pins"))
+        pin = pin_history_key(pin_url)
+        if pin and pin not in expanded:
+            expanded.append(pin)
+        self.data["expanded_pins"] = expanded[-50_000:]
+        self.data["version"] = 2
         self.save()
 
     def remember_quotes(self, quotes: list[str]) -> None:
@@ -763,7 +782,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 cycle_seen: set[str] = set()
                 for batch in range(args.max_scroll_batches):
                     await paced_wait(page, pace.inspect_dwell_ms)
-                    visible = await extract_visible(page)
+                    visible = await extract_visible_pin_candidates(page)
                     if visible:
                         empty_batch_streak = 0
                     else:
@@ -815,19 +834,25 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         )
                         empty_batch_streak = 0
                         await paced_wait(page, pace.inspect_dwell_ms)
-                        visible = await extract_visible(page)
+                        visible = await extract_visible_pin_candidates(page)
                     candidates = []
                     persistent_pins = history.seen_pins
                     persistent_assets = history.seen_assets
+                    expanded_pins = history.expanded_pins
                     for candidate in visible:
                         pin_key = pin_history_key(candidate.pin_url)
                         asset_key = pinimg_asset_key(candidate.image_url)
                         if not pin_key or pin_key in cycle_seen:
                             continue
                         cycle_seen.add(pin_key)
-                        if pin_key in persistent_pins:
+                        needs_expansion = pin_key not in expanded_pins
+                        if pin_key in persistent_pins and not needs_expansion:
                             continue
-                        if asset_key and asset_key in persistent_assets:
+                        if (
+                            asset_key
+                            and asset_key in persistent_assets
+                            and not needs_expansion
+                        ):
                             continue
                         candidates.append(candidate)
 
@@ -839,15 +864,30 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             candidates,
                             detail_page=detail_page,
                             concurrency=1,
+                            fallback_on_error=False,
                         )
                         for candidate in resolved:
                             if processed >= args.max_pins_per_cycle:
                                 break
                             pin_key = pin_history_key(candidate.pin_url)
                             asset_key = pinimg_asset_key(candidate.image_url)
-                            if pin_key in history.seen_pins:
+                            needs_expansion = pin_key not in history.expanded_pins
+                            root_needs_quote = (
+                                pin_key not in history.seen_pins
+                                and (
+                                    not asset_key
+                                    or asset_key not in history.seen_assets
+                                )
+                            )
+                            if not allowed_image(candidate.image_url):
+                                scout_debug_event(
+                                    "keyword_scout_pin_detail_unresolved",
+                                    source="root",
+                                    pin_url=candidate.pin_url,
+                                    root_pin_url=candidate.pin_url,
+                                )
                                 continue
-                            if asset_key and asset_key in history.seen_assets:
+                            if not needs_expansion and not root_needs_quote:
                                 continue
 
                             processed += 1
@@ -908,6 +948,32 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     fresh_related,
                                     detail_page=detail_page,
                                     concurrency=1,
+                                    fallback_on_error=False,
+                                )
+                            valid_resolved_related = [
+                                row
+                                for row in resolved_related
+                                if allowed_image(row.image_url)
+                            ]
+                            expansion_complete = (
+                                args.related_per_pin <= 0
+                                or len(related_rows) > 0
+                            )
+                            if expansion_complete:
+                                history.remember_expanded_pin(candidate.pin_url)
+                                scout_debug_event(
+                                    "keyword_scout_root_expanded",
+                                    root_pin_url=candidate.pin_url,
+                                    scanned=len(related_rows),
+                                    fresh=len(fresh_related),
+                                    resolved=len(valid_resolved_related),
+                                )
+                            else:
+                                scout_debug_event(
+                                    "keyword_scout_root_expansion_incomplete",
+                                    root_pin_url=candidate.pin_url,
+                                    requested=args.related_per_pin,
+                                    scanned=0,
                                 )
                             scout_debug_event(
                                 "keyword_scout_related_scanned",
@@ -915,7 +981,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 requested=args.related_per_pin,
                                 scanned=len(related_rows),
                                 fresh=len(fresh_related),
-                                resolved=len(resolved_related),
+                                resolved=len(valid_resolved_related),
                             )
                             print(
                                 "root_pin="
@@ -928,13 +994,19 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 + str(len(fresh_related))
                             )
 
-                            processing_queue = [
-                                ("root", candidate, candidate.pin_url),
-                                *[
-                                    ("related", related, candidate.pin_url)
-                                    for related in resolved_related
-                                ],
-                            ]
+                            processing_queue = []
+                            if root_needs_quote:
+                                processing_queue.append(
+                                    ("root", candidate, candidate.pin_url)
+                                )
+                            processing_queue.extend(
+                                (
+                                    "related",
+                                    related,
+                                    candidate.pin_url,
+                                )
+                                for related in valid_resolved_related
+                            )
                             for source, row, root_pin_url in processing_queue:
                                 if source == "related":
                                     row_pin_key = pin_history_key(row.pin_url)
@@ -962,6 +1034,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 await page.wait_for_timeout(
                                     random.randint(*pace.submit_pause_ms)
                                 )
+
+                        search_to_front = getattr(page, "bring_to_front", None)
+                        if callable(search_to_front):
+                            await search_to_front()
 
                     scout_debug_event(
                         "keyword_scout_batch_completed",

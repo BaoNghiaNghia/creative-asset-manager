@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v22"
+CLIENT_VERSION = "rrugc-scout-v23"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 BROWSER_SESSION_MAX_AGE_SECONDS = 2 * 60 * 60
 BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD = 2
@@ -981,6 +981,52 @@ def normalize_candidates(rows: list[dict[str, Any]]) -> list[Candidate]:
     return [by_pin[pin_url] for pin_url in order]
 
 
+async def extract_pin_links(page: Any) -> list[str]:
+    """Return every Pinterest Pin href currently present in the DOM.
+
+    Pinterest frequently virtualizes result cards so the clickable /pin/
+    anchor remains while its image is moved behind an overlay or temporarily
+    has no pinimg src. Detail-first Scout flows must still open that Pin.
+    """
+    values = await page.evaluate(
+        r"""() => Array.from(document.querySelectorAll('a[href*="/pin/"]'))
+          .map((anchor) => anchor.href || anchor.getAttribute('href') || '')
+          .filter(Boolean)"""
+    )
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        raw = str(value or "").strip()
+        key = pin_history_key(raw)
+        if not key or key in seen or not allowed_pin(key):
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
+
+
+def merge_pin_link_candidates(
+    visible: list[Candidate],
+    pin_urls: list[str],
+) -> list[Candidate]:
+    """Keep rich candidates and add Pin-only placeholders for detail resolve."""
+    result = list(visible)
+    seen = {
+        pin_history_key(candidate.pin_url)
+        for candidate in visible
+        if pin_history_key(candidate.pin_url)
+    }
+    for pin_url in pin_urls:
+        key = pin_history_key(pin_url)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        # Empty image_url is intentional: resolve_pin_details() opens the Pin
+        # detail page and replaces it with the real close-up/meta image.
+        result.append(Candidate(key, ""))
+    return result
+
+
 async def extract_visible(page: Any) -> list[Candidate]:
     rows = await page.evaluate(
         r"""() => {
@@ -1194,6 +1240,13 @@ async def extract_visible(page: Any) -> list[Candidate]:
     return normalize_candidates(rows)
 
 
+async def extract_visible_pin_candidates(page: Any) -> list[Candidate]:
+    """Discover all Pin links, even when Pinterest does not pair them with images."""
+    visible = await extract_visible(page)
+    pin_urls = await extract_pin_links(page)
+    return merge_pin_link_candidates(visible, pin_urls)
+
+
 def pinimg_asset_key(value: str) -> str:
     """Return the rendition-independent Pinterest CDN path for one image asset."""
     if not allowed_image(value):
@@ -1239,7 +1292,7 @@ def choose_pin_detail_candidate(
     candidates: list[tuple[tuple[int, int, int, int], str, str | None]] = [
         (
             (
-                1,
+                int(bool(seed_key)),
                 pinimg_rendition_score(seed.image_url),
                 source_priority["seed"],
                 0,
@@ -1423,7 +1476,7 @@ async def extract_related_candidates(
     seed_key = pin_history_key(seed.pin_url)
     collected: dict[str, Candidate] = {}
     for step in range(PIN_RELATED_MAX_SCROLL_STEPS + 1):
-        visible = await extract_visible(page)
+        visible = await extract_visible_pin_candidates(page)
         for row in visible:
             key = pin_history_key(row.pin_url)
             if not key or key == seed_key or key in collected:
@@ -1451,6 +1504,7 @@ async def resolve_pin_details(
     *,
     detail_page: Any | None = None,
     concurrency: int = PIN_DETAIL_CONCURRENCY,
+    fallback_on_error: bool = True,
 ) -> list[Candidate]:
     """Resolve Pin details sequentially through one reusable detail tab."""
     if not rows:
@@ -1476,25 +1530,58 @@ async def resolve_pin_details(
     try:
         for index, seed in enumerate(rows):
             try:
-                resolved.append(
-                    await extract_pin_detail_candidate(detail_page, seed)
+                bring_to_front = getattr(detail_page, "bring_to_front", None)
+                if callable(bring_to_front):
+                    await bring_to_front()
+                scout_debug_event(
+                    "pinterest_pin_detail_opening",
+                    pin_url=seed.pin_url,
+                    seed_has_image=allowed_image(seed.image_url),
+                    index=index + 1,
+                    total=len(rows),
+                )
+                candidate = await extract_pin_detail_candidate(detail_page, seed)
+                resolved.append(candidate)
+                scout_debug_event(
+                    "pinterest_pin_detail_resolved",
+                    pin_url=candidate.pin_url,
+                    image_url=candidate.image_url,
+                    resolved_image=allowed_image(candidate.image_url),
+                    index=index + 1,
+                    total=len(rows),
                 )
             except (PinterestAccessGateError, PinterestRateLimitedError):
                 raise
             except PinterestVideoPinError:
+                scout_debug_event(
+                    "pinterest_pin_detail_video_skipped",
+                    pin_url=seed.pin_url,
+                    index=index + 1,
+                    total=len(rows),
+                )
                 print("Pinterest video Pin skipped: " + seed.pin_url)
                 continue
             except Exception as exc:
                 if _looks_like_browser_runtime_failure(exc):
                     raise
+                scout_debug_event(
+                    "pinterest_pin_detail_failed",
+                    pin_url=seed.pin_url,
+                    error_type=exc.__class__.__name__,
+                    error=str(exc)[:500],
+                    index=index + 1,
+                    total=len(rows),
+                )
                 print(
-                    "Pinterest Pin detail fallback: "
+                    "Pinterest Pin detail "
+                    + ("fallback: " if fallback_on_error else "failed: ")
                     + seed.pin_url
                     + " ("
                     + exc.__class__.__name__
                     + ")"
                 )
-                resolved.append(seed)
+                if fallback_on_error:
+                    resolved.append(seed)
 
             if index + 1 < len(rows):
                 await detail_page.wait_for_timeout(PIN_DETAIL_NAVIGATION_PAUSE_MS)

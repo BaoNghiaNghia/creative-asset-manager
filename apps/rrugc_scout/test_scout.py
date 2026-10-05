@@ -21,6 +21,8 @@ from scout import (
     configure_scout_remote_log,
     extract_related_candidates,
     extract_visible,
+    extract_visible_pin_candidates,
+    merge_pin_link_candidates,
     idle_diagnostic_message,
     keyword_candidate_budgets,
     normalize_candidates,
@@ -161,7 +163,7 @@ def test_recover_windows_profile_only_closes_dedicated_root_chrome(
 def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v22"}',
+        '{"pid":21668,"version":"rrugc-scout-v23"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -181,7 +183,7 @@ def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
 def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
     lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
     lock_path.write_text(
-        '{"pid":21668,"version":"rrugc-scout-v22"}',
+        '{"pid":21668,"version":"rrugc-scout-v23"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
@@ -196,7 +198,7 @@ def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
 
     payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
     assert payload["pid"] == scout_module.os.getpid()
-    assert payload["version"] == "rrugc-scout-v22"
+    assert payload["version"] == "rrugc-scout-v23"
 
     lock.release()
     assert not lock_path.exists()
@@ -337,6 +339,43 @@ def test_extract_visible_uses_normalization_contract_and_card_fallback():
     assert "depth < 10" in page.script
     assert "nearestImageForAnchor" in page.script
     assert "pairing_strategy" in page.script
+
+
+def test_merge_pin_link_candidates_keeps_unpaired_pins_for_detail_resolution():
+    rich = [
+        Candidate(
+            "https://www.pinterest.com/pin/111/",
+            "https://i.pinimg.com/736x/aa/111.jpg",
+        )
+    ]
+    rows = merge_pin_link_candidates(
+        rich,
+        [
+            "https://www.pinterest.com/pin/111/?utm_source=feed",
+            "https://www.pinterest.com/pin/222/",
+        ],
+    )
+    assert [row.pin_url for row in rows] == [
+        "https://www.pinterest.com/pin/111/",
+        "https://www.pinterest.com/pin/222/",
+    ]
+    assert rows[1].image_url == ""
+
+
+def test_pin_detail_selection_populates_pin_only_candidate():
+    seed = Candidate("https://www.pinterest.com/pin/222/", "")
+    resolved = choose_pin_detail_candidate(
+        seed,
+        [
+            {
+                "url": "https://i.pinimg.com/originals/aa/bb/detail.jpg",
+                "source": "meta",
+                "width": 1200,
+                "height": 1600,
+            }
+        ],
+    )
+    assert resolved.image_url == "https://i.pinimg.com/originals/aa/bb/detail.jpg"
 
 
 def test_pin_detail_selection_prefers_same_asset_highest_rendition():
@@ -1295,11 +1334,11 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v22"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v23"
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         if request.url.path.endswith("/diagnostics"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v22"
+            assert request.headers["x-scout-version"] == "rrugc-scout-v23"
             assert request.headers["x-scout-machine"] == "studio-pc"
         return httpx.Response(200, json={"status": "ready"})
 

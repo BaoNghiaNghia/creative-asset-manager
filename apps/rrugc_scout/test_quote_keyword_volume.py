@@ -55,8 +55,15 @@ def test_keyword_history_is_durable_and_separate_from_review_history():
 
         loaded = KeywordScoutHistory(path)
         assert "https://www.pinterest.com/pin/123/" in loaded.seen_pins
+        assert loaded.expanded_pins == set()
         assert "aa/bb/example.jpg" in loaded.seen_assets
         assert "bad day to be a hotdog" in loaded.seen_quotes
+
+        loaded.remember_expanded_pin("https://www.pinterest.com/pin/123/?x=1")
+        expanded = KeywordScoutHistory(path)
+        assert expanded.expanded_pins == {
+            "https://www.pinterest.com/pin/123/"
+        }
         assert loaded.pending_quotes == ["Retry Me Later"]
         assert "retry me later" in loaded.known_quote_keys
 
