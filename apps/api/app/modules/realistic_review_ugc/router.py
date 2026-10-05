@@ -19,6 +19,7 @@ from app.domain.providers.contracts import (
     StorageProviderError,
 )
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
 from app.providers.ai.codex_image import (
@@ -2549,29 +2550,73 @@ async def _managed_drive_thumbnail_response(
     remote_file_id: str,
     size_pixels: int,
     cache_control: str,
+    cache_version: str,
     etag: str | None = None,
-) -> StreamingResponse | None:
-    """Serve a compact managed-Drive thumbnail and fall back to the original."""
+    http_client: httpx.AsyncClient | None = None,
+) -> Response | None:
+    """Serve a compact managed-Drive thumbnail from the shared in-memory cache."""
     if not isinstance(storage, GoogleDriveAssetStorage):
         return None
-    try:
+
+    cache_key = (
+        tenant_id,
+        "rrugc-source-plan",
+        remote_file_id,
+        f"{cache_version}:{size_pixels}",
+    )
+
+    async def load_thumbnail() -> CachedThumbnail:
         access_token = await storage.get_access_token()
-        client, upstream = await open_thumbnail_stream(
-            access_token,
-            remote_file_id,
-            cache_key=("rrugc-managed", tenant_id, remote_file_id),
-            size_pixels=size_pixels,
-        )
+        client = None
+        upstream = None
+        try:
+            client, upstream = await open_thumbnail_stream(
+                access_token,
+                remote_file_id,
+                cache_key=("rrugc-managed", tenant_id, remote_file_id),
+                http_client=http_client,
+                size_pixels=size_pixels,
+            )
+            content = bytearray()
+            async for chunk in upstream.aiter_raw():
+                content.extend(chunk)
+                if len(content) > 4 * 1024 * 1024:
+                    raise ValueError("RRUGC source thumbnail response is too large")
+            headers = tuple(
+                (name, value)
+                for name in ("last-modified",)
+                if (value := upstream.headers.get(name))
+            )
+            return CachedThumbnail(
+                content=bytes(content),
+                content_type=upstream.headers.get("content-type") or "image/jpeg",
+                headers=headers,
+            )
+        finally:
+            if client is not None and upstream is not None:
+                await close_thumbnail_stream(
+                    client,
+                    upstream,
+                    close_client=client is not http_client,
+                )
+
+    try:
+        cached = await thumbnail_cache.get_or_load(cache_key, load_thumbnail)
     except Exception:
         return None
 
-    headers = {"Cache-Control": cache_control}
+    headers = dict(cached.headers)
+    headers.update(
+        {
+            "Cache-Control": cache_control,
+            "Vary": "Cookie",
+        }
+    )
     if etag:
         headers["ETag"] = etag
-    return StreamingResponse(
-        upstream.aiter_bytes(),
-        media_type=upstream.headers.get("content-type") or "image/jpeg",
-        background=BackgroundTask(close_thumbnail_stream, client, upstream),
+    return Response(
+        content=cached.content,
+        media_type=cached.content_type,
         headers=headers,
     )
 
@@ -2617,7 +2662,7 @@ def _source_plan_group_image_response(
         source_relative_path=row.source_relative_path,
         source_preview_url=(
             f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
-            f"?thumbnail=true&size=320&v={row.source_revision[:16]}"
+            f"?thumbnail=true&size=128&v={row.source_revision[:16]}"
         ),
         source_web_url=row.source_web_url,
         source_width=row.source_width,
@@ -2686,7 +2731,7 @@ def _source_plan_response(
         source_web_url=row.source_web_url,
         source_preview_url=(
             f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
-            f"?thumbnail=true&size=320&v={row.source_revision[:16]}"
+            f"?thumbnail=true&size=128&v={row.source_revision[:16]}"
         ),
         source_revision=row.source_revision,
         analysis_revision=row.analysis_revision,
@@ -3132,8 +3177,9 @@ def get_source_plans(
 @router.get("/source-plans/{source_plan_id}/image")
 async def get_source_plan_image(
     source_plan_id: str,
+    request: Request,
     thumbnail: bool = Query(default=False),
-    size: int = Query(default=320, ge=128, le=1024),
+    size: int = Query(default=128, ge=128, le=1024),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3154,6 +3200,19 @@ async def get_source_plan_image(
     # the read transaction before remote I/O so those streams cannot exhaust
     # the API QueuePool and block auth/bootstrap requests.
     session.close()
+
+    etag = f'"{source_revision}"'
+    thumbnail_cache_control = "private, max-age=31536000, immutable"
+    if thumbnail and request.headers.get("if-none-match") == etag:
+        return Response(
+            status_code=304,
+            headers={
+                "Cache-Control": thumbnail_cache_control,
+                "ETag": etag,
+                "Vary": "Cookie",
+            },
+        )
+
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(
@@ -3169,8 +3228,14 @@ async def get_source_plan_image(
             tenant_id=principal.active_tenant_id,
             remote_file_id=remote_file_id,
             size_pixels=size,
-            cache_control="private, max-age=86400",
-            etag=f'"{source_revision}"',
+            cache_control=thumbnail_cache_control,
+            cache_version=source_revision,
+            etag=etag,
+            http_client=getattr(
+                request.app.state,
+                "google_drive_stream_client",
+                None,
+            ),
         )
         if compact is not None:
             return compact
@@ -3198,7 +3263,7 @@ async def get_source_plan_image(
         background=BackgroundTask(stream.close),
         headers={
             "Cache-Control": "private, max-age=3600",
-            "ETag": f'"{source_revision}"',
+            "ETag": etag,
         },
     )
 

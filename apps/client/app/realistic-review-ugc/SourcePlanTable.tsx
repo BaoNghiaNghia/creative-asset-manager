@@ -101,12 +101,25 @@ type SourceThumbItem = Pick<
   "id" | "source_name" | "source_preview_url" | "source_web_url"
 >;
 
-function SourceImageThumb({ source }: { source: SourceThumbItem }) {
+function SourceImageThumb({
+  source,
+  priority = false,
+}: {
+  source: SourceThumbItem;
+  priority?: boolean;
+}) {
+  const priorityAttributes = priority
+    ? ({ fetchpriority: "high" } as Record<string, string>)
+    : {};
+
   const media = <span className="rrugc-source-thumb-media">
     <img
+      {...priorityAttributes}
       src={source.source_preview_url}
       alt={source.source_name}
-      loading="lazy"
+      width={128}
+      height={128}
+      loading={priority ? "eager" : "lazy"}
       decoding="async"
     />
   </span>;
@@ -116,13 +129,25 @@ function SourceImageThumb({ source }: { source: SourceThumbItem }) {
     : <span className="rrugc-source-thumb" title={source.source_name}>{media}</span>;
 }
 
-export function SourceImageGroup({ plan }: { plan: SourcePlan }) {
+export function SourceImageGroup({
+  plan,
+  priority = false,
+}: {
+  plan: SourcePlan;
+  priority?: boolean;
+}) {
   const sources: SourceThumbItem[] = plan.source_group_images?.length
     ? plan.source_group_images
     : [plan];
 
   return <div className="rrugc-source-group-track" aria-label={sources.length + " source images with the same embroidery"}>
-    {sources.map(source => <SourceImageThumb key={source.id} source={source} />)}
+    {sources.map((source, index) => (
+      <SourceImageThumb
+        key={source.id}
+        source={source}
+        priority={priority && index === 0}
+      />
+    ))}
   </div>;
 }
 
@@ -445,7 +470,7 @@ export function SourcePlanTable({
       <table className="rrugc-source-plan-table" aria-busy={loading}>
         <thead><tr><th>Source image</th><th>AI context & Pinterest plan</th><th>Scout</th><th>References</th></tr></thead>
         <tbody>
-          {loading ? <SourcePlanSkeletonRows count={pageSize} /> : plans.map(plan => {
+          {loading ? <SourcePlanSkeletonRows count={pageSize} /> : plans.map((plan, rowIndex) => {
             const progress = sourcePlanProgressPercent(plan);
             const context = sourcePlanContextSummary(plan);
             const themes = plan.visual_context?.themes?.slice(0, 3) || [];
@@ -455,7 +480,7 @@ export function SourcePlanTable({
             const scoutStatus = scoutStatusPresentation(plan);
             return <tr key={plan.id}>
               <td className="rrugc-source-cell"><div className="rrugc-source-file rrugc-source-file-grouped">
-                <SourceImageGroup plan={plan} />
+                <SourceImageGroup plan={plan} priority={rowIndex < 6} />
                 <span>
                   <strong title={plan.source_name}>{plan.source_name}</strong>
                   <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"}{plan.embroidery_group_size > 1 ? " · same embroidery" : ""}</small>

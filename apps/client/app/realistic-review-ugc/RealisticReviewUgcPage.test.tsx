@@ -351,7 +351,7 @@ describe("Realistic Review UGC source-first workspace", () => {
   });
 
 
-  it("loads source thumbnails directly with native lazy loading", () => {
+  it("prioritizes the visible source thumbnail while keeping grouped extras lazy", () => {
     const markup = renderToStaticMarkup(
       <SourcePlanTable
         plans={[makePlan()]}
@@ -368,7 +368,11 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
     expect(markup).toContain('src="/api/v1/realistic-review-ugc/source-plans/plan-1/image"');
+    expect(markup).toContain('loading="eager"');
+    expect(markup).toContain('fetchpriority="high"');
     expect(markup).toContain('loading="lazy"');
+    expect(markup).toContain('width="128"');
+    expect(markup).toContain('height="128"');
     expect(markup).toContain('decoding="async"');
     expect(markup).not.toContain("rrugc-deferred-img");
   });
