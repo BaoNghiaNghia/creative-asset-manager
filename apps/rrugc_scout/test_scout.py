@@ -1120,6 +1120,41 @@ def test_scout_debug_log_writes_jsonl_and_keeps_secrets_out_of_events(tmp_path):
     assert "secret-token" not in log_path.read_text(encoding="utf-8")
 
 
+def test_scout_debug_log_supports_keyword_specific_jsonl(tmp_path):
+    log_path = configure_scout_debug_log(
+        tmp_path,
+        filename="keyword-scout.jsonl",
+        scout_type="keyword",
+    )
+    scout_debug_event(
+        "keyword_scout_test_event",
+        query="Saying Trucker hat",
+    )
+    for handler in scout_module._SCOUT_DEBUG_LOGGER.handlers:
+        handler.flush()
+
+    assert log_path.name == "keyword-scout.jsonl"
+    rows = [
+        scout_module.json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows[0]["event"] == "logging_started"
+    assert rows[0]["scout_type"] == "keyword"
+    assert rows[-1]["event"] == "keyword_scout_test_event"
+    assert rows[-1]["scout_type"] == "keyword"
+    assert rows[-1]["query"] == "Saying Trucker hat"
+
+
+def test_scout_debug_log_rejects_unsafe_filename(tmp_path):
+    with pytest.raises(ValueError, match="jsonl basename"):
+        configure_scout_debug_log(
+            tmp_path,
+            filename="../outside.log",
+            scout_type="keyword",
+        )
+
+
 def test_idle_diagnostic_message_explains_source_plan_wait():
     message = idle_diagnostic_message({
         "campaigns": [{

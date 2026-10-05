@@ -76,13 +76,22 @@ _SCOUT_DEBUG_LOGGER = logging.getLogger("rrugc_scout.debug")
 _SCOUT_DEBUG_LOGGER.setLevel(logging.INFO)
 _SCOUT_DEBUG_LOGGER.propagate = False
 _SCOUT_DEBUG_LOG_PATH: Path | None = None
+_SCOUT_DEBUG_BASE_FIELDS: dict[str, Any] = {}
 
 
-def configure_scout_debug_log(profile_dir: Path) -> Path:
-    global _SCOUT_DEBUG_LOG_PATH
+def configure_scout_debug_log(
+    profile_dir: Path,
+    *,
+    filename: str = SCOUT_DEBUG_LOG_FILENAME,
+    scout_type: str = "review",
+) -> Path:
+    global _SCOUT_DEBUG_LOG_PATH, _SCOUT_DEBUG_BASE_FIELDS
+    safe_filename = Path(str(filename or "")).name
+    if not safe_filename or not safe_filename.endswith(".jsonl"):
+        raise ValueError("Scout debug log filename must be a .jsonl basename.")
     log_dir = profile_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / SCOUT_DEBUG_LOG_FILENAME
+    log_path = log_dir / safe_filename
     for handler in list(_SCOUT_DEBUG_LOGGER.handlers):
         _SCOUT_DEBUG_LOGGER.removeHandler(handler)
         try:
@@ -100,6 +109,9 @@ def configure_scout_debug_log(profile_dir: Path) -> Path:
     handler.setFormatter(logging.Formatter("%(message)s"))
     _SCOUT_DEBUG_LOGGER.addHandler(handler)
     _SCOUT_DEBUG_LOG_PATH = log_path
+    _SCOUT_DEBUG_BASE_FIELDS = {
+        "scout_type": str(scout_type or "unknown").strip() or "unknown",
+    }
     scout_debug_event(
         "logging_started",
         log_path=str(log_path),
@@ -115,6 +127,7 @@ def scout_debug_event(event: str, **fields: Any) -> None:
         "ts": datetime.now(timezone.utc).isoformat(),
         "event": str(event),
         "client_version": CLIENT_VERSION,
+        **_SCOUT_DEBUG_BASE_FIELDS,
         **fields,
     }
     try:

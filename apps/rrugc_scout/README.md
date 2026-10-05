@@ -52,6 +52,8 @@ Keyword Scout is autonomous. It searches Pinterest for the fixed seed query `Say
 
 Keyword Scout has its own Chrome profile (`RRUGC_KEYWORD_PROFILE_DIR`, default `<repo>\pinterest-profile-keyword`) and its own durable `keyword-scout-history.json`. This prevents Chrome profile locks and Pin/history collisions when Review Scout and Keyword Scout run at the same time. On the first Keyword Scout run, sign into Pinterest in the separate Chrome window if prompted; the terminal waits and resumes automatically. It never claims Stage 1 jobs. The launcher runs continuously until its terminal is closed; empty-result cycles self-reload the Pinterest search and retry quickly instead of stopping.
 
+Keyword Scout also keeps a dedicated rotating JSONL debug log at `<keyword-profile>\logs\keyword-scout.jsonl`. It records startup/cycles, Pinterest empty-search diagnostics and reloads, every processed Pin, vision extraction result/error, quote dedupe decisions, AEBrowse volume success/defer, retry/recovery events, and batch summaries. Logs rotate daily and keep 10 days; Scout tokens are never written to the file.
+
 Direct Python usage remains available:
 
 ```powershell

@@ -401,7 +401,11 @@ async def _flush_pending_quote_volumes(
 async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     profile_dir = Path(args.profile_dir).expanduser().resolve()
     profile_dir.mkdir(parents=True, exist_ok=True)
-    log_path = configure_scout_debug_log(profile_dir)
+    log_path = configure_scout_debug_log(
+        profile_dir,
+        filename="keyword-scout.jsonl",
+        scout_type="keyword",
+    )
     history = KeywordScoutHistory(profile_dir / DEFAULT_HISTORY_FILENAME)
     pace = SCOUT_PACES.get(args.pace, SCOUT_PACES["careful"])
     client = QuoteScoutClient(args.base_url, args.agent_id, args.token)
@@ -412,6 +416,16 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     print("Mode                  : autonomous quote extraction + Google Ads volume")
     print("Loop                  : continuous until this terminal is closed")
     print("Review Scout state    : separate profile + separate history")
+    scout_debug_event(
+        "keyword_scout_started",
+        query=args.seed_query,
+        profile_dir=str(profile_dir),
+        pace=pace.name,
+        cycle_seconds=args.cycle_seconds,
+        max_scroll_batches=args.max_scroll_batches,
+        max_pins_per_cycle=args.max_pins_per_cycle,
+        history_path=str(history.path),
+    )
 
     playwright = None
     context = None
@@ -589,6 +603,13 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             if processed >= args.max_pins_per_cycle:
                                 break
                             processed += 1
+                            scout_debug_event(
+                                "keyword_scout_pin_processing",
+                                pin_url=candidate.pin_url,
+                                image_url=candidate.image_url,
+                                batch_index=batch + 1,
+                                processed=processed,
+                            )
                             try:
                                 result = await client.extract_quote(candidate)
                             except httpx.HTTPStatusError as exc:
@@ -604,20 +625,32 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                         candidate.pin_url,
                                         candidate.image_url,
                                     )
+                                retryable = not _quote_extract_status_is_terminal(status)
+                                scout_debug_event(
+                                    "keyword_scout_quote_extract_failed",
+                                    pin_url=candidate.pin_url,
+                                    image_url=candidate.image_url,
+                                    status_code=status,
+                                    retryable=retryable,
+                                )
                                 print(
                                     "quote_extract_failed status="
                                     + str(status)
                                     + " retry="
-                                    + (
-                                        "no"
-                                        if _quote_extract_status_is_terminal(status)
-                                        else "yes"
-                                    )
+                                    + ("yes" if retryable else "no")
                                     + " pin="
                                     + candidate.pin_url
                                 )
                                 continue
                             except Exception as exc:
+                                scout_debug_event(
+                                    "keyword_scout_quote_extract_failed",
+                                    pin_url=candidate.pin_url,
+                                    image_url=candidate.image_url,
+                                    error_type=exc.__class__.__name__,
+                                    error=str(exc)[:500],
+                                    retryable=True,
+                                )
                                 print(
                                     "quote_extract_retry_later error="
                                     + exc.__class__.__name__
@@ -635,11 +668,30 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 for quote in quotes
                                 if quote.casefold() not in history.known_quote_keys
                             ]
+                            scout_debug_event(
+                                "keyword_scout_quote_extracted",
+                                pin_url=candidate.pin_url,
+                                image_url=candidate.image_url,
+                                quotes=quotes,
+                                new_quotes=new_quotes,
+                                quote_count=len(quotes),
+                                new_quote_count=len(new_quotes),
+                                confidence=float(result.get("confidence") or 0.0),
+                                provider=str(result.get("provider") or ""),
+                                model=str(result.get("model") or ""),
+                            )
                             history.remember_candidate(
                                 candidate.pin_url,
                                 candidate.image_url,
                             )
                             if not new_quotes:
+                                scout_debug_event(
+                                    "keyword_scout_quote_skipped",
+                                    pin_url=candidate.pin_url,
+                                    image_url=candidate.image_url,
+                                    reason="none_or_seen",
+                                    quotes=quotes,
+                                )
                                 print(
                                     "pin="
                                     + candidate.pin_url
@@ -652,6 +704,13 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 volume = await client.resolve_volume(new_quotes)
                             except Exception as exc:
                                 history.remember_pending_quotes(new_quotes)
+                                scout_debug_event(
+                                    "keyword_scout_volume_deferred",
+                                    pin_url=candidate.pin_url,
+                                    quotes=new_quotes,
+                                    error_type=exc.__class__.__name__,
+                                    error=str(exc)[:500],
+                                )
                                 print(
                                     "volume_retry_later quote="
                                     + " | ".join(new_quotes)
@@ -684,6 +743,15 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 image_url=candidate.image_url,
                                 quote_count=len(new_quotes),
                                 quotes=new_quotes,
+                                volumes=[
+                                    {
+                                        "keyword": str(item.get("keyword") or ""),
+                                        "search_volume": int(item.get("search_volume") or 0),
+                                        "competition": str(item.get("competition") or ""),
+                                    }
+                                    for item in items
+                                    if isinstance(item, dict)
+                                ],
                                 provider_requested=int(
                                     volume.get("provider_requested") or 0
                                 ),
@@ -693,6 +761,17 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 random.randint(*pace.submit_pause_ms)
                             )
 
+                    scout_debug_event(
+                        "keyword_scout_batch_completed",
+                        query=args.seed_query,
+                        batch_index=batch + 1,
+                        batch_total=args.max_scroll_batches,
+                        visible=len(visible),
+                        fresh=len(candidates),
+                        processed=processed,
+                        quote_pins=extracted,
+                        saved_quotes=saved_quotes,
+                    )
                     print(
                         "keyword_cycle batch="
                         + str(batch + 1)
