@@ -1223,7 +1223,11 @@ class CandidateSubmission(BaseModel):
 
 
 class CandidateBatchRequest(BaseModel):
-    items: list[CandidateSubmission] = Field(min_length=1, max_length=50)
+    # Compatibility with Review Scout v33: a detail-resolution batch can become
+    # empty after videos/unresolvable Pins are filtered. Treat that as a no-op
+    # instead of rejecting the whole run with HTTP 422. Scout v34 also avoids
+    # sending these requests client-side.
+    items: list[CandidateSubmission] = Field(max_length=50)
     source_query: str | None = Field(default=None, min_length=1, max_length=500)
 
 

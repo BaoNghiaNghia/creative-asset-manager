@@ -2719,19 +2719,99 @@ def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
     campaign_id = campaign_response.json()["id"]
 
     with database.begin() as session:
+        now = datetime.now(timezone.utc)
+        used_seed = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="used-related-seed",
+            pin_url="https://www.pinterest.com/pin/used-related-seed/",
+            image_url="https://i.pinimg.com/736x/used-related-seed.jpg",
+            alt_text="used seed",
+            status="approved",
+            analysis_revision=1,
+            final_score=0.72,
+            analyzed_at=now - timedelta(days=3),
+        )
+        manual_seed = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="manual-related-seed",
+            pin_url="https://www.pinterest.com/pin/manual-related-seed/",
+            image_url="https://i.pinimg.com/736x/manual-related-seed.jpg",
+            alt_text="manual seed",
+            status="approved",
+            analysis_revision=1,
+            final_score=0.80,
+            analyzed_at=now - timedelta(days=1),
+            ai_signal_json={"reference_manual_label": "good"},
+        )
+        auto_seed = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="approved-related-seed",
+            pin_url="https://www.pinterest.com/pin/approved-related-seed/",
+            image_url="https://i.pinimg.com/736x/approved-related-seed.jpg",
+            alt_text="approved seed",
+            status="approved",
+            analysis_revision=1,
+            final_score=0.99,
+            analyzed_at=now,
+        )
+        rejected_seed = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign_id,
+            source_key="rejected-related-seed",
+            pin_url="https://www.pinterest.com/pin/rejected-related-seed/",
+            image_url="https://i.pinimg.com/736x/rejected-related-seed.jpg",
+            alt_text="rejected seed",
+            status="approved",
+            analysis_revision=1,
+            final_score=1.0,
+            analyzed_at=now,
+            ai_signal_json={"reference_manual_label": "bad"},
+        )
+        session.add_all([used_seed, manual_seed, auto_seed, rejected_seed])
+        session.flush()
+        source_plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id="seed-root",
+            source_file_id="seed-source",
+            source_relative_path="seed-source.png",
+            source_name="seed-source.png",
+            source_mime_type="image/png",
+            source_revision="a" * 64,
+            status="ready",
+            campaign_id=campaign_id,
+            created_by_user_id="user-a",
+        )
+        session.add(source_plan)
+        session.flush()
         session.add(
-            RrugcCandidateModel(
+            RrugcStage2JobModel(
                 tenant_id="tenant-a",
+                source_plan_id=source_plan.id,
                 campaign_id=campaign_id,
-                source_key="approved-related-seed",
-                pin_url="https://www.pinterest.com/pin/approved-related-seed/",
-                image_url="https://i.pinimg.com/736x/approved-related-seed.jpg",
-                alt_text="approved seed",
-                status="approved",
-                analysis_revision=1,
-                final_score=0.93,
-                analyzed_at=datetime.now(timezone.utc),
+                source_revision=source_plan.source_revision,
+                skill_name="test-skill",
+                skill_source="local",
+                selected_candidate_ids_json=[used_seed.id],
+                selected_reference_snapshot_json=[],
+                status="completed",
+                idempotency_key="used-related-seed-job",
+                completed_at=now,
+                created_by_user_id="user-a",
             )
+        )
+        session.flush()
+        learned_rows = RrugcRepository(session).reference_feedback_training_rows(
+            "tenant-a",
+            legacy_campaign_id=campaign_id,
+        )
+        assert any(
+            label == "ref_good"
+            and isinstance(signal, dict)
+            and signal.get("reference_feedback_kind") == "stage2_used"
+            for label, signal in learned_rows
         )
 
     claim = api.post(
@@ -2746,11 +2826,27 @@ def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
     )
     assert claim.status_code == 200
     payload = claim.json()
-    assert payload["related_seeds"] == [{
-        "pin_url": "https://www.pinterest.com/pin/approved-related-seed/",
-        "image_url": "https://i.pinimg.com/736x/approved-related-seed.jpg",
-        "alt_text": "approved seed",
-    }]
+    assert payload["related_seeds"][:3] == [
+        {
+            "pin_url": "https://www.pinterest.com/pin/used-related-seed/",
+            "image_url": "https://i.pinimg.com/736x/used-related-seed.jpg",
+            "alt_text": "used seed",
+        },
+        {
+            "pin_url": "https://www.pinterest.com/pin/manual-related-seed/",
+            "image_url": "https://i.pinimg.com/736x/manual-related-seed.jpg",
+            "alt_text": "manual seed",
+        },
+        {
+            "pin_url": "https://www.pinterest.com/pin/approved-related-seed/",
+            "image_url": "https://i.pinimg.com/736x/approved-related-seed.jpg",
+            "alt_text": "approved seed",
+        },
+    ]
+    assert all(
+        seed["pin_url"] != "https://www.pinterest.com/pin/rejected-related-seed/"
+        for seed in payload["related_seeds"]
+    )
 
 
 def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database):
@@ -2838,6 +2934,19 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert sorted(work["search_queries"]) == sorted(campaign_payload["search_queries"])
     assert work["pipeline_count"] == 0
     run_id = work["run"]["id"]
+
+    empty_submitted = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/candidates",
+        headers={"Authorization": "Bearer " + token},
+        json={
+            "items": [],
+            "source_query": "casual woman outdoors",
+        },
+    )
+    assert empty_submitted.status_code == 200
+    assert empty_submitted.json()["created"] == 0
+    assert empty_submitted.json()["existing"] == 0
+    assert empty_submitted.json()["pipeline_count"] == 0
 
     submitted = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/candidates",

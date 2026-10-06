@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -5853,24 +5853,70 @@ def auto_scout_agent_claim(
             RrugcSourcePlanModel.campaign_id == claim.campaign.id,
         )
     )
-    approved_related_seeds = list(
-        session.scalars(
-            select(RrugcCandidateModel)
-            .where(
-                RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
-                RrugcCandidateModel.campaign_id == claim.campaign.id,
-                RrugcCandidateModel.status.in_(ANALYSIS_APPROVED_STATUSES),
-                RrugcCandidateModel.pin_url.is_not(None),
-                RrugcCandidateModel.image_url.is_not(None),
-            )
-            .order_by(
-                RrugcCandidateModel.analyzed_at.desc(),
-                RrugcCandidateModel.final_score.desc(),
-                RrugcCandidateModel.created_at.desc(),
-            )
-            .limit(12)
+    repository = RrugcRepository(session)
+    stage2_used_ids = repository.completed_stage2_reference_ids(
+        claim.campaign.tenant_id,
+        claim.campaign.id,
+        limit=500,
+    )
+    manual_label = (
+        RrugcCandidateModel.ai_signal_json["reference_manual_label"].as_string()
+    )
+    usable_reference = or_(
+        RrugcCandidateModel.ai_signal_json.is_(None),
+        manual_label.is_(None),
+        manual_label.notin_(("bad", "ai")),
+    )
+    seed_base = (
+        select(RrugcCandidateModel)
+        .where(
+            RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
+            RrugcCandidateModel.campaign_id == claim.campaign.id,
+            RrugcCandidateModel.status.in_(ANALYSIS_APPROVED_STATUSES),
+            RrugcCandidateModel.pin_url.is_not(None),
+            RrugcCandidateModel.image_url.is_not(None),
+            usable_reference,
         )
     )
+    seed_rows = list(session.scalars(
+        seed_base
+        .order_by(
+            RrugcCandidateModel.analyzed_at.desc(),
+            RrugcCandidateModel.final_score.desc(),
+            RrugcCandidateModel.created_at.desc(),
+        )
+        .limit(60)
+    ))
+    if stage2_used_ids:
+        seed_rows.extend(session.scalars(
+            seed_base.where(RrugcCandidateModel.id.in_(stage2_used_ids))
+        ))
+    seed_by_id = {row.id: row for row in seed_rows}
+
+    def related_seed_priority(row: RrugcCandidateModel) -> tuple:
+        signal = row.ai_signal_json if isinstance(row.ai_signal_json, dict) else {}
+        manual_good = signal.get("reference_manual_label") == "good"
+        learned = signal.get("reference_preference_adjustment")
+        learned_score = (
+            float(learned)
+            if isinstance(learned, (int, float))
+            else 0.0
+        )
+        analyzed_at = row.analyzed_at or row.created_at
+        return (
+            1 if row.id in stage2_used_ids else 0,
+            1 if manual_good else 0,
+            learned_score,
+            float(row.final_score or 0.0),
+            analyzed_at,
+            row.id,
+        )
+
+    approved_related_seeds = sorted(
+        seed_by_id.values(),
+        key=related_seed_priority,
+        reverse=True,
+    )[:12]
     return ScoutClaimResponse(
         run=_scout_run_response(claim.run),
         campaign_id=claim.campaign.id,

@@ -1489,6 +1489,36 @@ def test_idle_diagnostic_message_explains_pipeline_backpressure():
     assert "analysis_queued=96" in message
 
 
+def test_auto_scout_client_blocks_empty_candidate_submit_before_http():
+    requests: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(200, json={"status": "ok"})
+
+    async def scenario():
+        client = AutoScoutClient(
+            "https://cam.example",
+            "agent-1",
+            "secret-token",
+            machine_label="empty-submit-test",
+        )
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            headers={"Authorization": "Bearer secret-token"},
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            with pytest.raises(ValueError, match="at least one resolved image"):
+                await client.submit("run-empty", [])
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+    assert requests == []
+
+
 def test_auto_scout_client_uses_agent_scoped_endpoints():
     requests: list[tuple[str, str]] = []
 

@@ -770,7 +770,13 @@ class RrugcCandidateAnalyzeJobHandler:
                 session.commit()
 
         context.logger.info(
-            "rrugc_candidate_analysis_completed",
+            "rrugc_candidate_analysis_completed"
+            + " status="
+            + str(status)
+            + " reject_reason="
+            + str(reject_reason or "-")
+            + " final_score="
+            + str(round(float(decision.final_score), 4)),
             extra={
                 "candidate_id": candidate_id,
                 "tenant_id": context.job.tenant_id,

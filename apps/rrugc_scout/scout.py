@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v33"
+CLIENT_VERSION = "rrugc-scout-v34"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -2073,6 +2073,13 @@ class AutoScoutClient:
         *,
         source_query: str | None = None,
     ) -> dict[str, Any]:
+        if not rows:
+            scout_debug_event(
+                "candidate_submit_blocked_empty",
+                run_id=run_id,
+                source_query=source_query,
+            )
+            raise ValueError("Scout candidate submit requires at least one resolved image")
         scout_debug_event(
             "candidate_submit_start",
             run_id=run_id,
@@ -2403,6 +2410,30 @@ async def scan_auto_run(
                 detail_page=related_page,
                 concurrency=1,
             )
+            resolved_keys = {
+                pin_history_key(row.pin_url)
+                for row in resolved_chunk
+                if pin_history_key(row.pin_url)
+            }
+            unresolved_chunk = [
+                row
+                for row in chunk
+                if pin_history_key(row.pin_url) not in resolved_keys
+            ]
+            if unresolved_chunk:
+                remember_history(unresolved_chunk)
+            if not resolved_chunk:
+                scout_debug_event(
+                    "candidate_submit_skipped_empty",
+                    campaign_id=campaign_id,
+                    run_id=run_id,
+                    lane="related_seed",
+                    source_seed=seed.pin_url,
+                    attempted=len(chunk),
+                    filtered=len(unresolved_chunk),
+                )
+                await heartbeat_if_due()
+                continue
             result = await client.submit(
                 run_id,
                 resolved_chunk,
@@ -2711,6 +2742,18 @@ async def scan_auto_run(
                         + "/"
                         + str(len(resolved_chunk))
                     )
+                if not resolved_chunk:
+                    scout_debug_event(
+                        "candidate_submit_skipped_empty",
+                        campaign_id=str(task["campaign_id"]),
+                        run_id=run_id,
+                        lane="keyword",
+                        source_query=raw_query,
+                        attempted=len(chunk),
+                        filtered=len(video_filtered),
+                    )
+                    await heartbeat_if_due()
+                    continue
                 result = await client.submit(
                     run_id,
                     resolved_chunk,
@@ -2895,6 +2938,14 @@ async def scan_page(
                 detail_page=detail_page,
                 concurrency=1,
             )
+            if not resolved_chunk:
+                scout_debug_event(
+                    "candidate_submit_skipped_empty",
+                    lane="legacy",
+                    attempted=len(chunk),
+                    filtered=len(chunk),
+                )
+                continue
             result = await client.submit(resolved_chunk)
             latest = await client.task()
             starting = int(latest["drive_ready"] if auto_import else latest["approved"])

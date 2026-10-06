@@ -744,7 +744,109 @@ class RrugcRepository:
                 if not same_intent and not same_legacy_campaign:
                     continue
             result.append((row.label, payload))
+
+        # A reference that actually produced a completed Stage 2 image is a
+        # stronger positive signal than an unreviewed approved candidate. Fold
+        # those historical choices into the preference learner so old jobs also
+        # improve future scouting. Explicit human good/bad feedback remains
+        # authoritative and is never duplicated or overridden here.
+        if (
+            legacy_campaign_id is not None
+            and (
+                profile_key is None
+                or profile_key == "realistic-person-ugc"
+            )
+        ):
+            used_candidate_ids = self.completed_stage2_reference_ids(
+                tenant_id,
+                legacy_campaign_id,
+                limit=min(max(1, int(limit)), 1000),
+            )
+            if used_candidate_ids:
+                explicit_feedback_ids = {
+                    candidate_id
+                    for (candidate_id, row_profile), row in latest_by_scope.items()
+                    if (
+                        row_profile == "realistic-person-ugc"
+                        and row.label in {"ref_good", "ref_bad"}
+                    )
+                }
+                used_rows = list(self.session.scalars(
+                    select(RrugcCandidateModel)
+                    .where(
+                        RrugcCandidateModel.tenant_id == tenant_id,
+                        RrugcCandidateModel.campaign_id == legacy_campaign_id,
+                        RrugcCandidateModel.id.in_(used_candidate_ids),
+                        RrugcCandidateModel.analyzed_at.is_not(None),
+                    )
+                ))
+
+                def feature_value(
+                    raw: float | None,
+                    fallback: float = 0.5,
+                ) -> float:
+                    value = fallback if raw is None else float(raw)
+                    return max(0.0, min(1.0, value))
+
+                for candidate in used_rows:
+                    if candidate.id in explicit_feedback_ids:
+                        continue
+                    result.append((
+                        "ref_good",
+                        {
+                            "reference_preference_features": {
+                                "phone_authenticity": feature_value(
+                                    candidate.phone_authenticity_score
+                                ),
+                                "mobile_ugc": feature_value(
+                                    candidate.mobile_ugc_score
+                                ),
+                                "product_fit": feature_value(
+                                    candidate.product_fit_score
+                                ),
+                                "quality": feature_value(candidate.quality_score),
+                                "non_artistic": 1.0 - feature_value(
+                                    candidate.artistic_editorial_risk
+                                ),
+                                "low_ai_risk": 1.0 - feature_value(
+                                    candidate.ai_risk_score
+                                ),
+                            },
+                            "reference_preference_trainable": True,
+                            "learning_intent": intent,
+                            "reference_profile_key": "realistic-person-ugc",
+                            "reference_feedback_kind": "stage2_used",
+                        },
+                    ))
         return result
+
+    def completed_stage2_reference_ids(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        limit: int = 500,
+    ) -> set[str]:
+        snapshots = list(self.session.scalars(
+            select(RrugcStage2JobModel.selected_candidate_ids_json)
+            .where(
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.campaign_id == campaign_id,
+                RrugcStage2JobModel.status == "completed",
+            )
+            .order_by(
+                RrugcStage2JobModel.completed_at.desc().nullslast(),
+                RrugcStage2JobModel.created_at.desc(),
+            )
+            .limit(max(1, int(limit)))
+        ))
+        return {
+            str(candidate_id).strip()
+            for snapshot in snapshots
+            if isinstance(snapshot, list)
+            for candidate_id in snapshot
+            if str(candidate_id).strip()
+        }
 
 
     def list_scout_agents(
