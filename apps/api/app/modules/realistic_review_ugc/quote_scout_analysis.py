@@ -16,7 +16,7 @@ from app.domain.providers.contracts import (
 )
 
 
-QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v6"
+QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v7"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 QUOTE_SCOUT_MIN_WORDS = 2
 QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
@@ -335,6 +335,14 @@ Rules:
   obscured, partially hidden, or requires guessing. These images are low priority.
 - A visually clean, front-facing cap with a short clear embroidered saying should usually score
   higher than a distant lifestyle image with the same saying.
+- Also treat strong worn-cap lifestyle references as PREFERRED when the quote stays easy to read:
+  a person wearing the cap in a cafe, street, store, mirror/selfie, or top-down selfie scene;
+  the cap can cover part of the face and the background may be real-world/busy, but the crown/front
+  must remain large enough and the full saying must be legible. These examples should normally score
+  0.90+ when the text is crisp and unobstructed.
+- Worn-cap imagery is not penalized merely because a person, clothing, phone, drink, street, or store
+  interior is visible. The deciding factor is whether the physical cap and its front quote are the
+  visual focus and the entire quote can be read confidently.
 - Do NOT increase confidence merely because Pinterest alt text contains the words. Base this
   score on visible pixels of the quote on the physical cap.
 

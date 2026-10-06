@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import asyncio
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import httpx
 
 from scout import (
     Candidate,
+    PIN_RELATED_HARD_LIMIT,
     PIN_RELATED_SCAN_LIMIT,
     PinterestAccessGateError,
     PinterestRateLimitedError,
@@ -60,6 +62,10 @@ DEFAULT_CYCLE_SECONDS = 180
 DEFAULT_MAX_SCROLL_BATCHES = 10
 DEFAULT_MAX_PINS_PER_CYCLE = 40
 DEFAULT_RELATED_PER_PIN = 60
+DEFAULT_DEEP_DIVE_RELATED_PER_PIN = 150
+DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME = 1_000
+DEFAULT_DEEP_DIVE_STYLE_MAX_DEPTH = 3
+DEFAULT_DEEP_DIVE_MARKET_MAX_DEPTH = 4
 KEYWORD_SCROLL_STEP_PX = (260, 420)
 KEYWORD_SCROLL_STEPS_PER_BATCH = (1, 2)
 KEYWORD_SCROLL_STEP_PAUSE_MS = (1_100, 1_700)
@@ -134,6 +140,46 @@ def _quote_priority_label(score: float) -> str:
     return "low"
 
 
+@dataclass(frozen=True)
+class KeywordCandidateResult:
+    quote_delta: int = 0
+    saved_delta: int = 0
+    priority_score: float = 0.0
+    quotes: tuple[str, ...] = ()
+    max_search_volume: int = 0
+    low_competition_search_volume: int = 0
+    market_opportunity: bool = False
+
+
+@dataclass(frozen=True)
+class DeepDiveSeed:
+    candidate: Candidate
+    root_pin_url: str
+    depth: int
+    result: KeywordCandidateResult
+
+
+def _deep_dive_max_depth(
+    result: KeywordCandidateResult,
+    *,
+    style_max_depth: int,
+    market_max_depth: int,
+) -> int:
+    if result.market_opportunity:
+        return max(0, int(market_max_depth))
+    if result.priority_score >= KEYWORD_QUOTE_HIGH_PRIORITY_SCORE:
+        return max(0, int(style_max_depth))
+    return 0
+
+
+def _deep_dive_sort_key(seed: DeepDiveSeed) -> tuple[int, int, float]:
+    return (
+        1 if seed.result.market_opportunity else 0,
+        seed.result.max_search_volume,
+        seed.result.priority_score,
+    )
+
+
 _KEYWORD_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 KEYWORD_MIN_WORDS = 2
 
@@ -205,10 +251,11 @@ class KeywordScoutHistory:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.data: dict[str, Any] = {
-            "version": 2,
+            "version": 3,
             "seen_pins": [],
             "seen_assets": [],
             "expanded_pins": [],
+            "deep_expanded_pins": [],
             "seen_quotes": [],
             "pending_quotes": [],
         }
@@ -242,6 +289,14 @@ class KeywordScoutHistory:
         return {
             pin_history_key(value)
             for value in self._set("expanded_pins")
+            if pin_history_key(value)
+        }
+
+    @property
+    def deep_expanded_pins(self) -> set[str]:
+        return {
+            pin_history_key(value)
+            for value in self._set("deep_expanded_pins")
             if pin_history_key(value)
         }
 
@@ -285,7 +340,16 @@ class KeywordScoutHistory:
         if pin and pin not in expanded:
             expanded.append(pin)
         self.data["expanded_pins"] = expanded[-50_000:]
-        self.data["version"] = 2
+        self.data["version"] = 3
+        self.save()
+
+    def remember_deep_expanded_pin(self, pin_url: str) -> None:
+        expanded = list(self._set("deep_expanded_pins"))
+        pin = pin_history_key(pin_url)
+        if pin and pin not in expanded:
+            expanded.append(pin)
+        self.data["deep_expanded_pins"] = expanded[-50_000:]
+        self.data["version"] = 3
         self.save()
 
     def remember_quotes(self, quotes: list[str]) -> None:
@@ -603,7 +667,8 @@ async def _process_keyword_candidate(
     *,
     source: str,
     root_pin_url: str,
-) -> tuple[int, int]:
+    deep_dive_min_search_volume: int = DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME,
+) -> KeywordCandidateResult:
     scout_debug_event(
         "keyword_scout_pin_processing",
         source=source,
@@ -637,7 +702,7 @@ async def _process_keyword_candidate(
             + " pin="
             + candidate.pin_url
         )
-        return 0, 0
+        return KeywordCandidateResult()
     except Exception as exc:
         scout_debug_event(
             "keyword_scout_quote_extract_failed",
@@ -657,7 +722,7 @@ async def _process_keyword_candidate(
             + " pin="
             + candidate.pin_url
         )
-        return 0, 0
+        return KeywordCandidateResult()
 
     raw_quotes = list(result.get("quotes") or [])
     rejected_min_words = [
@@ -737,7 +802,10 @@ async def _process_keyword_candidate(
             + " quote="
             + skip_reason
         )
-        return 0, 0
+        return KeywordCandidateResult(
+            priority_score=priority_score,
+            quotes=tuple(quotes),
+        )
 
     if priority_score < KEYWORD_QUOTE_MIN_PRIORITY_SCORE:
         scout_debug_event(
@@ -759,7 +827,10 @@ async def _process_keyword_candidate(
             + " quote="
             + " | ".join(new_quotes)
         )
-        return 0, 0
+        return KeywordCandidateResult(
+            priority_score=priority_score,
+            quotes=tuple(new_quotes),
+        )
 
     print(
         "quote_priority="
@@ -795,17 +866,42 @@ async def _process_keyword_candidate(
             + " error="
             + exc.__class__.__name__
         )
-        return 1, 0
+        return KeywordCandidateResult(
+            quote_delta=1,
+            priority_score=priority_score,
+            quotes=tuple(new_quotes),
+        )
 
     history.remember_quotes(new_quotes)
-    items = volume.get("items") or []
+    items = [
+        item
+        for item in (volume.get("items") or [])
+        if isinstance(item, dict)
+    ]
     volume_by_keyword = {
         str(item.get("keyword") or "").casefold(): int(
             item.get("search_volume") or 0
         )
         for item in items
-        if isinstance(item, dict)
     }
+    max_search_volume = max(
+        (int(item.get("search_volume") or 0) for item in items),
+        default=0,
+    )
+    low_competition_search_volume = max(
+        (
+            int(item.get("search_volume") or 0)
+            for item in items
+            if str(item.get("competition") or "").strip().upper() == "LOW"
+        ),
+        default=0,
+    )
+    market_opportunity = (
+        low_competition_search_volume >= max(
+            0,
+            int(deep_dive_min_search_volume),
+        )
+    )
     for quote in new_quotes:
         print(
             "quote="
@@ -831,12 +927,32 @@ async def _process_keyword_candidate(
                 "competition": str(item.get("competition") or ""),
             }
             for item in items
-            if isinstance(item, dict)
         ],
+        max_search_volume=max_search_volume,
+        low_competition_search_volume=low_competition_search_volume,
+        deep_dive_min_search_volume=int(deep_dive_min_search_volume),
+        market_opportunity=market_opportunity,
         provider_requested=int(volume.get("provider_requested") or 0),
         cached=int(volume.get("cached") or 0),
     )
-    return 1, len(new_quotes)
+    if market_opportunity:
+        print(
+            "deep_dive_market=yes volume="
+            + str(low_competition_search_volume)
+            + "/mo competition=LOW threshold="
+            + str(int(deep_dive_min_search_volume))
+            + " pin="
+            + candidate.pin_url
+        )
+    return KeywordCandidateResult(
+        quote_delta=1,
+        saved_delta=len(new_quotes),
+        priority_score=priority_score,
+        quotes=tuple(new_quotes),
+        max_search_volume=max_search_volume,
+        low_competition_search_volume=low_competition_search_volume,
+        market_opportunity=market_opportunity,
+    )
 
 
 async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
@@ -861,7 +977,23 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     print("Pinterest query       : " + args.seed_query)
     print("Pinterest profile     : " + str(profile_dir))
     print("Related per Pin       : " + str(args.related_per_pin))
-    print("Mode                  : autonomous quote extraction + Google Ads volume")
+    print(
+        "Deep-dive per detail  : "
+        + str(args.deep_dive_related_per_pin)
+        + " Pins"
+    )
+    print(
+        "Deep-dive market      : volume >= "
+        + str(args.deep_dive_min_search_volume)
+        + "/mo + Competition LOW"
+    )
+    print(
+        "Deep-dive depth       : style="
+        + str(args.deep_dive_style_max_depth)
+        + " market="
+        + str(args.deep_dive_market_max_depth)
+    )
+    print("Mode                  : adaptive recursive quote discovery + Google Ads volume")
     print("Loop                  : continuous until this terminal is closed")
     print("Review Scout state    : separate profile + separate history")
     scout_debug_event(
@@ -873,6 +1005,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         max_scroll_batches=args.max_scroll_batches,
         max_pins_per_cycle=args.max_pins_per_cycle,
         related_per_pin=args.related_per_pin,
+        deep_dive_related_per_pin=args.deep_dive_related_per_pin,
+        deep_dive_min_search_volume=args.deep_dive_min_search_volume,
+        deep_dive_style_max_depth=args.deep_dive_style_max_depth,
+        deep_dive_market_max_depth=args.deep_dive_market_max_depth,
         history_path=str(history.path),
     )
     scout_debug_event(
@@ -1025,6 +1161,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 related_scanned = 0
                 related_fresh = 0
                 related_processed = 0
+                deep_detail_expanded = 0
+                deep_related_scanned = 0
                 empty_batch_streak = 0
                 cycle_seen: set[str] = set()
                 for batch in range(args.max_scroll_batches):
@@ -1254,6 +1392,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 )
                                 for related in valid_resolved_related
                             )
+                            deep_queue: list[DeepDiveSeed] = []
+                            deep_queued_keys: set[str] = set()
                             for source, row, root_pin_url in processing_queue:
                                 if source == "related":
                                     row_pin_key = pin_history_key(row.pin_url)
@@ -1267,20 +1407,280 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                         continue
                                     related_processed += 1
 
-                                quote_delta, saved_delta = (
-                                    await _process_keyword_candidate(
-                                        client,
-                                        history,
-                                        row,
-                                        source=source,
-                                        root_pin_url=root_pin_url,
-                                    )
+                                candidate_result = await _process_keyword_candidate(
+                                    client,
+                                    history,
+                                    row,
+                                    source=source,
+                                    root_pin_url=root_pin_url,
+                                    deep_dive_min_search_volume=(
+                                        args.deep_dive_min_search_volume
+                                    ),
                                 )
-                                extracted += quote_delta
-                                saved_quotes += saved_delta
+                                extracted += candidate_result.quote_delta
+                                saved_quotes += candidate_result.saved_delta
+                                max_depth = _deep_dive_max_depth(
+                                    candidate_result,
+                                    style_max_depth=args.deep_dive_style_max_depth,
+                                    market_max_depth=args.deep_dive_market_max_depth,
+                                )
+                                row_pin_key = pin_history_key(row.pin_url)
+                                if (
+                                    max_depth >= 1
+                                    and row_pin_key
+                                    and row_pin_key not in history.deep_expanded_pins
+                                    and row_pin_key not in deep_queued_keys
+                                ):
+                                    deep_queued_keys.add(row_pin_key)
+                                    deep_queue.append(
+                                        DeepDiveSeed(
+                                            candidate=row,
+                                            root_pin_url=root_pin_url,
+                                            depth=1,
+                                            result=candidate_result,
+                                        )
+                                    )
+                                    scout_debug_event(
+                                        "keyword_scout_deep_dive_queued",
+                                        pin_url=row.pin_url,
+                                        root_pin_url=root_pin_url,
+                                        depth=1,
+                                        max_depth=max_depth,
+                                        reason=(
+                                            "market"
+                                            if candidate_result.market_opportunity
+                                            else "visual_style"
+                                        ),
+                                        priority_score=(
+                                            candidate_result.priority_score
+                                        ),
+                                        max_search_volume=(
+                                            candidate_result.max_search_volume
+                                        ),
+                                    )
                                 await page.wait_for_timeout(
                                     random.randint(*pace.submit_pause_ms)
                                 )
+
+                            while (
+                                deep_queue
+                                and processed < args.max_pins_per_cycle
+                            ):
+                                deep_queue.sort(
+                                    key=_deep_dive_sort_key,
+                                    reverse=True,
+                                )
+                                seed = deep_queue.pop(0)
+                                seed_key = pin_history_key(seed.candidate.pin_url)
+                                seed_max_depth = _deep_dive_max_depth(
+                                    seed.result,
+                                    style_max_depth=args.deep_dive_style_max_depth,
+                                    market_max_depth=args.deep_dive_market_max_depth,
+                                )
+                                if (
+                                    not seed_key
+                                    or seed.depth > seed_max_depth
+                                    or seed_key in history.deep_expanded_pins
+                                ):
+                                    continue
+
+                                processed += 1
+                                deep_rows: list[Candidate] = []
+                                try:
+                                    deep_rows = await extract_related_candidates(
+                                        detail_page or page,
+                                        seed.candidate,
+                                        pace=pace,
+                                        limit=args.deep_dive_related_per_pin,
+                                    )
+                                except (
+                                    PinterestAccessGateError,
+                                    PinterestRateLimitedError,
+                                ):
+                                    raise
+                                except Exception as exc:
+                                    if _looks_like_browser_runtime_failure(exc):
+                                        raise
+                                    scout_debug_event(
+                                        "keyword_scout_deep_dive_scan_failed",
+                                        pin_url=seed.candidate.pin_url,
+                                        root_pin_url=seed.root_pin_url,
+                                        depth=seed.depth,
+                                        error_type=exc.__class__.__name__,
+                                        error=str(exc)[:500],
+                                    )
+                                    print(
+                                        "deep_dive_scan_failed pin="
+                                        + seed.candidate.pin_url
+                                        + " depth="
+                                        + str(seed.depth)
+                                        + " error="
+                                        + exc.__class__.__name__
+                                    )
+
+                                deep_related_scanned += len(deep_rows)
+                                deep_fresh: list[Candidate] = []
+                                persistent_pins = history.seen_pins
+                                persistent_assets = history.seen_assets
+                                for deep_row in deep_rows:
+                                    deep_pin_key = pin_history_key(
+                                        deep_row.pin_url
+                                    )
+                                    deep_asset_key = pinimg_asset_key(
+                                        deep_row.image_url
+                                    )
+                                    if (
+                                        not deep_pin_key
+                                        or deep_pin_key in cycle_seen
+                                        or deep_pin_key in persistent_pins
+                                    ):
+                                        continue
+                                    if (
+                                        deep_asset_key
+                                        and deep_asset_key in persistent_assets
+                                    ):
+                                        continue
+                                    cycle_seen.add(deep_pin_key)
+                                    deep_fresh.append(deep_row)
+
+                                related_fresh += len(deep_fresh)
+                                resolved_deep: list[Candidate] = []
+                                if deep_fresh:
+                                    resolved_deep = await resolve_pin_details(
+                                        page,
+                                        deep_fresh,
+                                        detail_page=detail_page,
+                                        concurrency=1,
+                                        fallback_on_error=False,
+                                    )
+                                valid_deep = [
+                                    row
+                                    for row in resolved_deep
+                                    if allowed_image(row.image_url)
+                                ]
+                                deep_complete = (
+                                    args.deep_dive_related_per_pin <= 0
+                                    or len(deep_rows) > 0
+                                )
+                                if deep_complete:
+                                    history.remember_deep_expanded_pin(
+                                        seed.candidate.pin_url
+                                    )
+                                    deep_detail_expanded += 1
+
+                                scout_debug_event(
+                                    "keyword_scout_deep_dive_scanned",
+                                    pin_url=seed.candidate.pin_url,
+                                    root_pin_url=seed.root_pin_url,
+                                    depth=seed.depth,
+                                    max_depth=seed_max_depth,
+                                    reason=(
+                                        "market"
+                                        if seed.result.market_opportunity
+                                        else "visual_style"
+                                    ),
+                                    requested=args.deep_dive_related_per_pin,
+                                    scanned=len(deep_rows),
+                                    fresh=len(deep_fresh),
+                                    resolved=len(valid_deep),
+                                    complete=deep_complete,
+                                )
+                                print(
+                                    "deep_dive pin="
+                                    + seed.candidate.pin_url
+                                    + " depth="
+                                    + str(seed.depth)
+                                    + "/"
+                                    + str(seed_max_depth)
+                                    + " related_scanned="
+                                    + str(len(deep_rows))
+                                    + "/"
+                                    + str(args.deep_dive_related_per_pin)
+                                    + " fresh="
+                                    + str(len(deep_fresh))
+                                    + " reason="
+                                    + (
+                                        "market"
+                                        if seed.result.market_opportunity
+                                        else "visual_style"
+                                    )
+                                )
+
+                                for child in valid_deep:
+                                    child_key = pin_history_key(child.pin_url)
+                                    child_asset_key = pinimg_asset_key(
+                                        child.image_url
+                                    )
+                                    if child_key in history.seen_pins:
+                                        continue
+                                    if (
+                                        child_asset_key
+                                        and child_asset_key in history.seen_assets
+                                    ):
+                                        continue
+                                    related_processed += 1
+                                    child_result = (
+                                        await _process_keyword_candidate(
+                                            client,
+                                            history,
+                                            child,
+                                            source="deep_related",
+                                            root_pin_url=seed.root_pin_url,
+                                            deep_dive_min_search_volume=(
+                                                args.deep_dive_min_search_volume
+                                            ),
+                                        )
+                                    )
+                                    extracted += child_result.quote_delta
+                                    saved_quotes += child_result.saved_delta
+
+                                    child_depth = seed.depth + 1
+                                    child_max_depth = _deep_dive_max_depth(
+                                        child_result,
+                                        style_max_depth=(
+                                            args.deep_dive_style_max_depth
+                                        ),
+                                        market_max_depth=(
+                                            args.deep_dive_market_max_depth
+                                        ),
+                                    )
+                                    if (
+                                        child_key
+                                        and child_depth <= child_max_depth
+                                        and child_key
+                                        not in history.deep_expanded_pins
+                                        and child_key not in deep_queued_keys
+                                    ):
+                                        deep_queued_keys.add(child_key)
+                                        deep_queue.append(
+                                            DeepDiveSeed(
+                                                candidate=child,
+                                                root_pin_url=seed.root_pin_url,
+                                                depth=child_depth,
+                                                result=child_result,
+                                            )
+                                        )
+                                        scout_debug_event(
+                                            "keyword_scout_deep_dive_queued",
+                                            pin_url=child.pin_url,
+                                            root_pin_url=seed.root_pin_url,
+                                            depth=child_depth,
+                                            max_depth=child_max_depth,
+                                            reason=(
+                                                "market"
+                                                if child_result.market_opportunity
+                                                else "visual_style"
+                                            ),
+                                            priority_score=(
+                                                child_result.priority_score
+                                            ),
+                                            max_search_volume=(
+                                                child_result.max_search_volume
+                                            ),
+                                        )
+                                    await page.wait_for_timeout(
+                                        random.randint(*pace.submit_pause_ms)
+                                    )
 
                         search_to_front = getattr(page, "bring_to_front", None)
                         if callable(search_to_front):
@@ -1297,6 +1697,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         related_scanned=related_scanned,
                         related_fresh=related_fresh,
                         related_processed=related_processed,
+                        deep_detail_expanded=deep_detail_expanded,
+                        deep_related_scanned=deep_related_scanned,
                         quote_pins=extracted,
                         saved_quotes=saved_quotes,
                     )
@@ -1315,6 +1717,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         + str(related_processed)
                         + "/"
                         + str(related_scanned)
+                        + " deep_details="
+                        + str(deep_detail_expanded)
+                        + " deep_scanned="
+                        + str(deep_related_scanned)
                         + " quote_pins="
                         + str(extracted)
                         + " saved_quotes="
@@ -1333,6 +1739,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     related_scanned=related_scanned,
                     related_fresh=related_fresh,
                     related_processed=related_processed,
+                    deep_detail_expanded=deep_detail_expanded,
+                    deep_related_scanned=deep_related_scanned,
                     quote_pins=extracted,
                     saved_quotes=saved_quotes,
                     cycle_seconds=args.cycle_seconds,
@@ -1350,6 +1758,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     + str(processed)
                     + " saved_quotes="
                     + str(saved_quotes)
+                    + " deep_details="
+                    + str(deep_detail_expanded)
+                    + " deep_scanned="
+                    + str(deep_related_scanned)
                     + " next_cycle_in="
                     + str(next_cycle_seconds)
                     + "s"
@@ -1571,7 +1983,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--related-per-pin",
         type=int,
         default=DEFAULT_RELATED_PER_PIN,
-        help="Scan up to this many related Pins from each root Pin detail page.",
+        help="Scan up to this many related Pins from each normal root detail page.",
+    )
+    parser.add_argument(
+        "--deep-dive-related-per-pin",
+        type=int,
+        default=DEFAULT_DEEP_DIVE_RELATED_PER_PIN,
+        help="Scan up to this many related Pins from each prioritized deep-dive detail page.",
+    )
+    parser.add_argument(
+        "--deep-dive-min-search-volume",
+        type=int,
+        default=DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME,
+        help="Minimum monthly search volume for Competition LOW market deep-dive priority.",
+    )
+    parser.add_argument(
+        "--deep-dive-style-max-depth",
+        type=int,
+        default=DEFAULT_DEEP_DIVE_STYLE_MAX_DEPTH,
+        help="Maximum recursive detail depth for visually preferred clear-quote Pins.",
+    )
+    parser.add_argument(
+        "--deep-dive-market-max-depth",
+        type=int,
+        default=DEFAULT_DEEP_DIVE_MARKET_MAX_DEPTH,
+        help="Maximum recursive detail depth for high-volume Competition LOW quotes.",
     )
     parser.add_argument("--once", action="store_true")
     return parser
@@ -1597,6 +2033,28 @@ def main() -> int:
             parser.error(
                 "--related-per-pin must be between 0 and "
                 + str(PIN_RELATED_SCAN_LIMIT)
+            )
+        if (
+            args.deep_dive_related_per_pin < 1
+            or args.deep_dive_related_per_pin > PIN_RELATED_HARD_LIMIT
+        ):
+            parser.error(
+                "--deep-dive-related-per-pin must be between 1 and "
+                + str(PIN_RELATED_HARD_LIMIT)
+            )
+        if args.deep_dive_min_search_volume < 0:
+            parser.error("--deep-dive-min-search-volume must be at least 0")
+        if (
+            args.deep_dive_style_max_depth < 1
+            or args.deep_dive_style_max_depth > 6
+        ):
+            parser.error("--deep-dive-style-max-depth must be between 1 and 6")
+        if (
+            args.deep_dive_market_max_depth < args.deep_dive_style_max_depth
+            or args.deep_dive_market_max_depth > 8
+        ):
+            parser.error(
+                "--deep-dive-market-max-depth must be >= style depth and <= 8"
             )
         try:
             asyncio.run(supervise_pinterest_quote_scout(args))

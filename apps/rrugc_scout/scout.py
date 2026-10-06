@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v32"
+CLIENT_VERSION = "rrugc-scout-v33"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -35,6 +35,7 @@ BROWSER_SESSION_MAX_AGE_SECONDS = 2 * 60 * 60
 BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD = 2
 PIN_DETAIL_CONCURRENCY = 1
 PIN_RELATED_SCAN_LIMIT = 60
+PIN_RELATED_HARD_LIMIT = 150
 PIN_RELATED_MAX_SCROLL_STEPS = 12
 PIN_DETAIL_TIMEOUT_MS = 15_000
 PIN_DETAIL_SETTLE_MS = 650
@@ -1614,7 +1615,7 @@ async def extract_related_candidates(
     limit: int = PIN_RELATED_SCAN_LIMIT,
 ) -> list[Candidate]:
     """Collect the first related Pins shown under one approved Pin detail page."""
-    wanted = max(1, min(int(limit), PIN_RELATED_SCAN_LIMIT))
+    wanted = max(1, min(int(limit), PIN_RELATED_HARD_LIMIT))
     response = await page.goto(
         seed.pin_url,
         wait_until="domcontentloaded",
@@ -1628,7 +1629,11 @@ async def extract_related_candidates(
 
     seed_key = pin_history_key(seed.pin_url)
     collected: dict[str, Candidate] = {}
-    for step in range(PIN_RELATED_MAX_SCROLL_STEPS + 1):
+    max_scroll_steps = max(
+        PIN_RELATED_MAX_SCROLL_STEPS,
+        min(45, (wanted + 3) // 4),
+    )
+    for step in range(max_scroll_steps + 1):
         visible = await extract_visible_pin_candidates(page)
         for row in visible:
             key = pin_history_key(row.pin_url)
@@ -1637,7 +1642,7 @@ async def extract_related_candidates(
             collected[key] = row
             if len(collected) >= wanted:
                 break
-        if len(collected) >= wanted or step >= PIN_RELATED_MAX_SCROLL_STEPS:
+        if len(collected) >= wanted or step >= max_scroll_steps:
             break
         previous_count = await loaded_pin_count(page)
         await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))

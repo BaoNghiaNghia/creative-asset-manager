@@ -1059,6 +1059,55 @@ def test_extract_related_candidates_keeps_first_60_and_excludes_seed():
     assert all(row.pin_url != seed.pin_url for row in rows)
 
 
+def test_extract_related_candidates_allows_150_for_keyword_deep_dive():
+    class FakeMouse:
+        async def wheel(self, _x, _y):
+            raise AssertionError("no scroll should be needed when 150 related Pins are loaded")
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+            self.mouse = FakeMouse()
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            return None
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "const out = []" in script:
+                rows = [{
+                    "pin_url": "https://www.pinterest.com/pin/seed-150/",
+                    "image_url": "https://i.pinimg.com/736x/seed-150.jpg",
+                    "alt_text": "seed",
+                }]
+                rows.extend({
+                    "pin_url": f"https://www.pinterest.com/pin/deep-{index}/",
+                    "image_url": f"https://i.pinimg.com/736x/deep-{index}.jpg",
+                    "alt_text": f"deep {index}",
+                } for index in range(160))
+                return rows
+            return False
+
+    seed = Candidate(
+        "https://www.pinterest.com/pin/seed-150/",
+        "https://i.pinimg.com/736x/seed-150.jpg",
+    )
+    rows = asyncio.run(extract_related_candidates(
+        FakePage(),
+        seed,
+        pace=SCOUT_PACES["careful"],
+        limit=150,
+    ))
+
+    assert len(rows) == 150
+    assert rows[-1].pin_url.endswith("/deep-149/")
+
+
 def test_auto_scout_expands_approved_seed_before_keyword_search(tmp_path, monkeypatch):
     related = [
         Candidate(

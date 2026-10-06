@@ -184,7 +184,7 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
         analysis_input = provider.inputs[0]
         assert analysis_input.image_bytes == b"fake-jpeg-bytes"
         assert analysis_input.image_mime_type == "image/jpeg"
-        assert analysis_input.metadata_profile_version == "rrugc-quote-scout-v6"
+        assert analysis_input.metadata_profile_version == "rrugc-quote-scout-v7"
         assert "cap_texts" in analysis_input.json_schema["properties"]
         assert "quotes" not in analysis_input.json_schema["properties"]
         assert "EVERY readable text line physically printed or embroidered on that SAME cap" in analysis_input.prompt
@@ -201,6 +201,8 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
         assert "front/front-three-quarter crown is visible" in analysis_input.prompt
         assert "complete quote can be read without guessing" in analysis_input.prompt
         assert "Score below 0.60" in analysis_input.prompt
+        assert "cafe, street, store, mirror/selfie, or top-down selfie scene" in analysis_input.prompt
+        assert "Worn-cap imagery is not penalized" in analysis_input.prompt
         assert len(requests) == 1
 
     asyncio.run(scenario())

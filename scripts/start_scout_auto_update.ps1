@@ -560,7 +560,8 @@ try {
         Write-Host "Concurrent mode     : SAFE with Review Scout" -ForegroundColor Green
         Write-Host "Duplicate Keyword   : blocked by runner lock" -ForegroundColor Green
         Write-Host "Related per Pin     : 60" -ForegroundColor Green
-        Write-Host "Quote priority      : clear front-cap text first; low-clarity images skipped" -ForegroundColor Green
+        Write-Host "Quote priority      : clear product + worn lifestyle quote styles" -ForegroundColor Green
+        Write-Host "Deep detail         : 150 Pins; style depth 3; market LOW + >=1000/mo depth 4" -ForegroundColor Green
         Write-Host ("Pace                : " + $pace) -ForegroundColor Green
         Write-Host "Mode                : autonomous Pinterest clear-quote priority -> AEBrowse volume" -ForegroundColor Green
         Write-Host "Loop                : continuous until this terminal is closed" -ForegroundColor Green
@@ -577,6 +578,10 @@ try {
             "--profile-dir", $keywordProfileDir,
             "--seed-query", "Saying Trucker hat",
             "--related-per-pin", "60",
+            "--deep-dive-related-per-pin", "150",
+            "--deep-dive-min-search-volume", "1000",
+            "--deep-dive-style-max-depth", "3",
+            "--deep-dive-market-max-depth", "4",
             "--pace", $pace
         )
         if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
@@ -596,7 +601,7 @@ try {
 
         Write-Step "Starting Pinterest Review Scout"
         Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + login-gated self-heal + bounded Scout restart (v32)" -ForegroundColor Green
+        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + login-gated self-heal + bounded Scout restart (v33)" -ForegroundColor Green
         Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
         Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
         Write-Host "Browser isolation   : dedicated Review Chrome profile/process" -ForegroundColor Green

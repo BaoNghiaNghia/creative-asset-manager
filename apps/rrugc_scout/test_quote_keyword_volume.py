@@ -75,6 +75,10 @@ def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
     assert args.seed_query == DEFAULT_PINTEREST_QUERY == "Saying Trucker hat"
     assert args.profile_dir.endswith("pinterest-profile-keyword")
     assert args.related_per_pin == DEFAULT_RELATED_PER_PIN == 60
+    assert args.deep_dive_related_per_pin == 150
+    assert args.deep_dive_min_search_volume == 1000
+    assert args.deep_dive_style_max_depth == 3
+    assert args.deep_dive_market_max_depth == 4
     assert args.once is False
 
 
@@ -129,9 +133,113 @@ def test_low_clarity_hat_quote_skips_aebrowse_volume():
             )
         )
 
-        assert result == (0, 0)
+        assert result.quote_delta == 0
+        assert result.saved_delta == 0
+        assert result.priority_score == 0.42
+        assert result.market_opportunity is False
         assert client.volume_called is False
         assert Candidate.pin_url in history.seen_pins
+
+
+def test_high_volume_low_competition_becomes_market_deep_dive():
+    class Candidate:
+        pin_url = "https://www.pinterest.com/pin/market-opportunity/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/market.jpg"
+        alt_text = "clear saying cap"
+
+    class FakeClient:
+        async def extract_quote(self, _candidate):
+            return {
+                "quotes": ["Wanna Be My Cardio"],
+                "is_target_cap": True,
+                "confidence": 0.91,
+                "provider": "gemini",
+                "model": "gemini-test",
+            }
+
+        async def resolve_volume(self, *_args, **_kwargs):
+            return {
+                "items": [
+                    {
+                        "keyword": "Wanna Be My Cardio",
+                        "search_volume": 5400,
+                        "competition": "LOW",
+                    }
+                ],
+                "provider_requested": 1,
+                "cached": 0,
+            }
+
+    with TemporaryDirectory() as directory:
+        history = KeywordScoutHistory(
+            Path(directory) / "keyword-scout-history.json"
+        )
+        result = asyncio.run(
+            keyword_scout._process_keyword_candidate(
+                FakeClient(),
+                history,
+                Candidate(),
+                source="root",
+                root_pin_url=Candidate.pin_url,
+                deep_dive_min_search_volume=1000,
+            )
+        )
+
+    assert result.saved_delta == 1
+    assert result.max_search_volume == 5400
+    assert result.low_competition_search_volume == 5400
+    assert result.market_opportunity is True
+    assert keyword_scout._deep_dive_max_depth(
+        result,
+        style_max_depth=3,
+        market_max_depth=4,
+    ) == 4
+
+
+def test_deep_dive_prefers_market_before_style_only_and_caps_depth():
+    style = keyword_scout.KeywordCandidateResult(
+        priority_score=0.99,
+        max_search_volume=20000,
+        market_opportunity=False,
+    )
+    market = keyword_scout.KeywordCandidateResult(
+        priority_score=0.86,
+        max_search_volume=1200,
+        low_competition_search_volume=1200,
+        market_opportunity=True,
+    )
+    style_seed = keyword_scout.DeepDiveSeed(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/style/",
+            "https://i.pinimg.com/736x/style.jpg",
+        ),
+        "https://www.pinterest.com/pin/root/",
+        1,
+        style,
+    )
+    market_seed = keyword_scout.DeepDiveSeed(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/market/",
+            "https://i.pinimg.com/736x/market.jpg",
+        ),
+        "https://www.pinterest.com/pin/root/",
+        1,
+        market,
+    )
+    seeds = [style_seed, market_seed]
+    seeds.sort(key=keyword_scout._deep_dive_sort_key, reverse=True)
+
+    assert seeds[0] is market_seed
+    assert keyword_scout._deep_dive_max_depth(
+        style,
+        style_max_depth=3,
+        market_max_depth=4,
+    ) == 3
+    assert keyword_scout._deep_dive_max_depth(
+        market,
+        style_max_depth=3,
+        market_max_depth=4,
+    ) == 4
 
 
 def test_quote_dedupe_normalizes_case_whitespace_and_requires_two_words():
@@ -176,6 +284,14 @@ def test_keyword_history_is_durable_and_separate_from_review_history():
         loaded.remember_expanded_pin("https://www.pinterest.com/pin/123/?x=1")
         expanded = KeywordScoutHistory(path)
         assert expanded.expanded_pins == {
+            "https://www.pinterest.com/pin/123/"
+        }
+        assert expanded.deep_expanded_pins == set()
+        expanded.remember_deep_expanded_pin(
+            "https://www.pinterest.com/pin/123/?deep=1"
+        )
+        deep_expanded = KeywordScoutHistory(path)
+        assert deep_expanded.deep_expanded_pins == {
             "https://www.pinterest.com/pin/123/"
         }
         assert loaded.pending_quotes == ["Retry Me Later"]
