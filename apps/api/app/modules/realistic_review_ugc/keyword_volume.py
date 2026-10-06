@@ -97,6 +97,13 @@ def normalize_keyword(value: str) -> tuple[str, str]:
     return clean, clean.casefold()
 
 
+def provider_search_keyword(value: str) -> str:
+    clean, _normalized = normalize_keyword(value)
+    if re.search(r"\bhat\s*$", clean, flags=re.IGNORECASE):
+        return clean
+    return clean + " hat"
+
+
 def normalize_keywords(values: list[str]) -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -228,9 +235,17 @@ class RrugcKeywordVolumeService:
         for clean, normalized in requested:
             row = existing_by_key[normalized]
             fetched_at = _aware(row.fetched_at)
+            provider_raw_keyword = str(
+                (row.provider_raw_json or {}).get("keyword") or ""
+            ).strip()
+            provider_query_matches = (
+                provider_raw_keyword.casefold()
+                == provider_search_keyword(clean).casefold()
+            )
             if (
                 not force
                 and row.provider == KEYWORD_VOLUME_PROVIDER
+                and provider_query_matches
                 and fetched_at is not None
                 and fetched_at >= fresh_after
             ):
@@ -241,7 +256,16 @@ class RrugcKeywordVolumeService:
         provider_payload: dict = {}
         provider_rows_by_key: dict[str, dict] = {}
         if provider_keywords:
-            provider_payload = await self._fetch_provider(provider_keywords)
+            provider_search_terms = [
+                provider_search_keyword(clean) for clean in provider_keywords
+            ]
+            provider_search_to_requested: dict[str, str] = {}
+            for clean, search_term in zip(provider_keywords, provider_search_terms):
+                _clean, requested_normalized = normalize_keyword(clean)
+                _search_clean, search_normalized = normalize_keyword(search_term)
+                provider_search_to_requested[search_normalized] = requested_normalized
+
+            provider_payload = await self._fetch_provider(provider_search_terms)
             raw_data = provider_payload.get("data")
             if not isinstance(raw_data, list):
                 raw_data = []
@@ -254,8 +278,11 @@ class RrugcKeywordVolumeService:
                     )
                 except KeywordVolumeError:
                     continue
-                if normalized in requested_by_key:
-                    provider_rows_by_key[normalized] = item
+                requested_normalized = provider_search_to_requested.get(normalized)
+                if requested_normalized is None and normalized in requested_by_key:
+                    requested_normalized = normalized
+                if requested_normalized is not None:
+                    provider_rows_by_key[requested_normalized] = item
 
             for clean in provider_keywords:
                 clean, normalized = normalize_keyword(clean)

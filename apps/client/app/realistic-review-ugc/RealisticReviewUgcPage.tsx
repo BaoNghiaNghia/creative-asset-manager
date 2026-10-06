@@ -14,6 +14,8 @@ import {
   syncSourcePlans,
   type SourcePlanSortBy,
   type SourcePlanSortDirection,
+  type KeywordAnalysisSortBy,
+  type KeywordAnalysisSortDirection,
 } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
@@ -108,6 +110,8 @@ export function RealisticReviewUgcPage() {
   const [keywordPageSize, setKeywordPageSize] = useState(20);
   const [keywordQuery, setKeywordQuery] = useState("");
   const [debouncedKeywordQuery, setDebouncedKeywordQuery] = useState("");
+  const [keywordSortBy, setKeywordSortBy] = useState<KeywordAnalysisSortBy>("search_volume");
+  const [keywordSortDirection, setKeywordSortDirection] = useState<KeywordAnalysisSortDirection>("desc");
   const [keywordLoading, setKeywordLoading] = useState(true);
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
@@ -153,10 +157,25 @@ export function RealisticReviewUgcPage() {
         page: keywordPageNumber,
         pageSize: keywordPageSize,
         query: debouncedKeywordQuery,
+        sortBy: keywordSortBy,
+        sortDirection: keywordSortDirection,
       },
       signal,
     );
     setKeywordPage(result);
+  }
+
+  function changeKeywordSort(next: KeywordAnalysisSortBy) {
+    setKeywordLoading(true);
+    setKeywordPageNumber(1);
+    if (keywordSortBy === next) {
+      setKeywordSortDirection(current => current === "asc" ? "desc" : "asc");
+      return;
+    }
+    setKeywordSortBy(next);
+    setKeywordSortDirection(
+      next === "keyword" || next === "competition" ? "asc" : "desc",
+    );
   }
 
   async function refreshSourcePlans(signal?: AbortSignal) {
@@ -435,7 +454,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery]);
+  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection]);
 
   useEffect(() => {
     if (!groupsStageActive) return;
@@ -601,6 +620,9 @@ export function RealisticReviewUgcPage() {
             data={keywordPage}
             query={keywordQuery}
             loading={keywordLoading}
+            sortBy={keywordSortBy}
+            sortDirection={keywordSortDirection}
+            onSortChange={changeKeywordSort}
             onPageChange={value => {
               setKeywordLoading(true);
               setKeywordPageNumber(value);

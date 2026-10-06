@@ -602,6 +602,9 @@ describe("Realistic Review UGC source-first workspace", () => {
           },
         }}
         query=""
+        sortBy="search_volume"
+        sortDirection="desc"
+        onSortChange={() => undefined}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
         onQueryChange={() => undefined}
@@ -619,6 +622,12 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("$0.56–$1.96");
     expect(markup).toContain(">4,660<");
     expect(markup).toContain("AEBrowse · Google Ads");
+    expect(markup).toContain('aria-sort="descending"');
+    expect(markup).toContain('aria-label="Sort by Keyword ascending"');
+    expect(markup).toContain('aria-label="Sort by Search volume ascending"');
+    expect(markup).toContain('aria-label="Sort by Competition ascending"');
+    expect(markup).toContain('aria-label="Sort by CPC range ascending"');
+    expect(markup).toContain('aria-label="Sort by Last checked ascending"');
   });
 
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {

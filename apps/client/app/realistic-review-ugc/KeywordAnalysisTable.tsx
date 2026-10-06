@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection } from "./api";
 import type { KeywordVolumePage } from "./types";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -11,10 +12,47 @@ function competitionTone(value: string | null): string {
   return (value || "unknown").toLowerCase();
 }
 
+function SortHeader({
+  column,
+  label,
+  sortBy,
+  sortDirection,
+  onSortChange,
+}: {
+  column: KeywordAnalysisSortBy;
+  label: string;
+  sortBy: KeywordAnalysisSortBy;
+  sortDirection: KeywordAnalysisSortDirection;
+  onSortChange: (column: KeywordAnalysisSortBy) => void;
+}) {
+  const active = sortBy === column;
+  return (
+    <th aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        className={"rrugc-stage0-sort" + (active ? " active" : "")}
+        onClick={() => onSortChange(column)}
+        aria-label={
+          "Sort by " + label + " "
+          + (active && sortDirection === "asc" ? "descending" : "ascending")
+        }
+      >
+        <span>{label}</span>
+        <span className="rrugc-stage0-sort-icon" aria-hidden="true">
+          {active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export function KeywordAnalysisTable({
   data,
   query,
   loading = false,
+  sortBy,
+  sortDirection,
+  onSortChange,
   onPageChange,
   onPageSizeChange,
   onQueryChange,
@@ -22,6 +60,9 @@ export function KeywordAnalysisTable({
   data: KeywordVolumePage;
   query: string;
   loading?: boolean;
+  sortBy: KeywordAnalysisSortBy;
+  sortDirection: KeywordAnalysisSortDirection;
+  onSortChange: (column: KeywordAnalysisSortBy) => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
@@ -81,7 +122,14 @@ export function KeywordAnalysisTable({
 
     <div className="rrugc-stage0-table-wrap">
       <table className="rrugc-stage0-table rrugc-stage0-keyword-table" aria-busy={loading}>
-        <thead><tr><th>Image</th><th>Keyword</th><th>Search volume</th><th>Competition</th><th>CPC range</th><th>Last checked</th></tr></thead>
+        <thead><tr>
+          <th>Image</th>
+          <SortHeader column="keyword" label="Keyword" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="search_volume" label="Search volume" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="competition" label="Competition" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="cpc" label="CPC range" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="fetched_at" label="Last checked" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+        </tr></thead>
         <tbody>
           {loading ? Array.from({length: 5}, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={6}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : items.map(item => (
             <tr key={item.id}>

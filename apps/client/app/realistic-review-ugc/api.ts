@@ -157,6 +157,8 @@ export const archiveProductReference = (productId: string, referenceId: string) 
 
 export type SourcePlanSortBy = "source" | "updated" | "analyzed" | "group_size" | "status";
 export type SourcePlanSortDirection = "asc" | "desc";
+export type KeywordAnalysisSortBy = "keyword" | "search_volume" | "competition" | "cpc" | "fetched_at";
+export type KeywordAnalysisSortDirection = "asc" | "desc";
 
 export const listSourcePlans = (
   filters: {
@@ -189,12 +191,20 @@ export const syncSourcePlans = () =>
   });
 
 export const listKeywordAnalysis = (
-  filters: { page?: number; pageSize?: number; query?: string } = {},
+  filters: {
+    page?: number;
+    pageSize?: number;
+    query?: string;
+    sortBy?: KeywordAnalysisSortBy;
+    sortDirection?: KeywordAnalysisSortDirection;
+  } = {},
   signal?: AbortSignal,
 ) => {
   const params = new URLSearchParams({
     page: String(filters.page ?? 1),
     page_size: String(filters.pageSize ?? 20),
+    sort_by: filters.sortBy ?? "search_volume",
+    sort_dir: filters.sortDirection ?? "desc",
   });
   if (filters.query?.trim()) params.set("query", filters.query.trim());
   return request<KeywordVolumePage>(

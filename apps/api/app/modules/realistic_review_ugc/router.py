@@ -3261,6 +3261,11 @@ def list_keyword_analysis(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     query: str = Query(default="", max_length=200),
+    sort_by: str = Query(
+        default="search_volume",
+        pattern="^(keyword|search_volume|competition|cpc|fetched_at)$",
+    ),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3298,14 +3303,58 @@ def list_keyword_analysis(
             )
         ) or 0
     )
+    competition_rank = case(
+        (RrugcKeywordVolumeModel.competition == "LOW", 1),
+        (RrugcKeywordVolumeModel.competition == "MEDIUM", 2),
+        (RrugcKeywordVolumeModel.competition == "HIGH", 3),
+        else_=None,
+    )
+    if sort_by == "keyword":
+        primary_order = [
+            RrugcKeywordVolumeModel.keyword.asc()
+            if sort_dir == "asc"
+            else RrugcKeywordVolumeModel.keyword.desc()
+        ]
+    elif sort_by == "competition":
+        primary_order = [
+            competition_rank.asc().nulls_last()
+            if sort_dir == "asc"
+            else competition_rank.desc().nulls_last()
+        ]
+    elif sort_by == "cpc":
+        primary_order = [
+            (
+                RrugcKeywordVolumeModel.cpc_low.asc().nulls_last()
+                if sort_dir == "asc"
+                else RrugcKeywordVolumeModel.cpc_low.desc().nulls_last()
+            ),
+            (
+                RrugcKeywordVolumeModel.cpc_high.asc().nulls_last()
+                if sort_dir == "asc"
+                else RrugcKeywordVolumeModel.cpc_high.desc().nulls_last()
+            ),
+        ]
+    elif sort_by == "fetched_at":
+        primary_order = [
+            RrugcKeywordVolumeModel.fetched_at.asc()
+            if sort_dir == "asc"
+            else RrugcKeywordVolumeModel.fetched_at.desc()
+        ]
+    else:
+        primary_order = [
+            RrugcKeywordVolumeModel.search_volume.asc()
+            if sort_dir == "asc"
+            else RrugcKeywordVolumeModel.search_volume.desc()
+        ]
+
     rows = list(
         session.scalars(
             select(RrugcKeywordVolumeModel)
             .where(*conditions)
             .order_by(
-                RrugcKeywordVolumeModel.search_volume.desc(),
-                RrugcKeywordVolumeModel.fetched_at.desc(),
+                *primary_order,
                 RrugcKeywordVolumeModel.keyword.asc(),
+                RrugcKeywordVolumeModel.id.asc(),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)

@@ -117,6 +117,7 @@ from app.modules.realistic_review_ugc.keyword_volume import (
     KeywordVolumeError,
     RrugcKeywordVolumeService,
     normalize_keyword,
+    provider_search_keyword,
 )
 from app.modules.realistic_review_ugc.quote_scout_analysis import HatQuoteDocument
 from app.modules.realistic_review_ugc.product_page_import import ProductPageData
@@ -272,6 +273,8 @@ def test_keyword_normalizer_extracts_text_only_and_requires_two_words():
 
     assert normalize_keyword("HOUSTON ASTROS") == ("HOUSTON ASTROS", "houston astros")
     assert normalize_keyword("Morgan Wallen") == ("Morgan Wallen", "morgan wallen")
+    assert provider_search_keyword("IN A RELATIONSHIP") == "IN A RELATIONSHIP hat"
+    assert provider_search_keyword("Bad Day To Be A Hotdog hat") == "Bad Day To Be A Hotdog hat"
 
     for invalid in ("HOUSTON", "I'm", "ASTROS"):
         with pytest.raises(KeywordVolumeError) as exc_info:
@@ -342,7 +345,7 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 )
                 assert calls == [[
                     "Bad Day To Be A Hotdog hat",
-                    "funny hotdog cap",
+                    "funny hotdog cap hat",
                 ]]
 
                 cached = await service.resolve(
@@ -433,9 +436,9 @@ def test_keyword_volume_persists_quote_before_provider_failure(database):
                 assert persisted.provider == KEYWORD_VOLUME_PENDING_PROVIDER
                 assert persisted.request_count == 1
                 assert calls == [
-                    ["Bad Day To Be A Hotdog"],
-                    ["Bad Day To Be A Hotdog"],
-                    ["Bad Day To Be A Hotdog"],
+                    ["Bad Day To Be A Hotdog hat"],
+                    ["Bad Day To Be A Hotdog hat"],
+                    ["Bad Day To Be A Hotdog hat"],
                 ]
 
     asyncio.run(scenario())
@@ -468,8 +471,8 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
                 cpc_low=0.12,
                 cpc_high=0.44,
                 provider="aebrowse_google_ads",
-                fetched_at=now,
-                last_requested_at=now,
+                fetched_at=now - timedelta(hours=1),
+                last_requested_at=now - timedelta(hours=1),
             ),
         ])
         session.commit()
@@ -505,6 +508,26 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     assert searched.json()["total"] == 1
     assert searched.json()["items"][0]["keyword"] == "custom initial hoodie"
 
+    expected_orders = {
+        ("keyword", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("keyword", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("search_volume", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("search_volume", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("competition", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("competition", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("cpc", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("cpc", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("fetched_at", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("fetched_at", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+    }
+    for (sort_by, sort_dir), expected in expected_orders.items():
+        sorted_response = api.get(
+            "/api/v1/realistic-review-ugc/keyword-analysis",
+            params={"sort_by": sort_by, "sort_dir": sort_dir},
+        )
+        assert sorted_response.status_code == 200
+        assert [row["keyword"] for row in sorted_response.json()["items"]] == expected
+
 
 def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     now = datetime.now(timezone.utc)
@@ -524,6 +547,7 @@ def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
                 cpc_low=0.56,
                 cpc_high=1.96,
                 provider="aebrowse_google_ads",
+                provider_raw_json={"keyword": "matching couple hoodies hat"},
                 fetched_at=now,
                 last_requested_at=now,
             )
