@@ -902,15 +902,14 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     async def ensure_keyword_startup_login() -> None:
         if not pinterest_login_ready(profile_dir):
             scout_debug_event(
-                "startup_manual_login_required",
+                "startup_saved_session_probe",
                 scout_type="keyword",
                 profile_dir=str(profile_dir),
             )
             print(
-                "Pinterest login has not been verified for this Keyword Scout profile. "
-                "No search cycle will start before manual sign-in completes."
+                "Pinterest login marker is missing. Checking the saved Keyword profile "
+                "session before asking for manual sign-in..."
             )
-            await bootstrap_keyword_login()
 
         while True:
             if page is None:

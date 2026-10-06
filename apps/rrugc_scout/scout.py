@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v30"
+CLIENT_VERSION = "rrugc-scout-v31"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -767,6 +767,8 @@ def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
         "--user-data-dir=" + profile,
         "--new-window",
         "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-mode",
         "https://www.pinterest.com/login/",
     ])
     process.wait()
@@ -3137,24 +3139,14 @@ async def run_agent(args: argparse.Namespace) -> None:
         nonlocal playwright, context, page, detail_page, browser_started_at
 
         if not pinterest_login_ready(profile_dir):
-            await client.heartbeat(
-                "needs_login",
-                error_code="pinterest_startup_manual_login_required",
-            )
             scout_debug_event(
-                "startup_manual_login_required",
+                "startup_saved_session_probe",
                 scout_type="review",
                 profile_dir=str(profile_dir),
             )
-            print("")
             print(
-                "Pinterest login has not been verified for this Review Scout profile. "
-                "No campaign will be claimed before manual sign-in completes."
-            )
-            await asyncio.to_thread(
-                bootstrap_login,
-                str(profile_dir),
-                args.chrome_executable,
+                "Pinterest login marker is missing. Checking the saved Review profile "
+                "session before asking for manual sign-in..."
             )
 
         while True:
