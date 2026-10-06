@@ -78,6 +78,62 @@ def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
     assert args.once is False
 
 
+def test_keyword_quote_priority_bands_match_clear_hat_text_policy():
+    assert keyword_scout._quote_priority_label(0.95) == "high"
+    assert keyword_scout._quote_priority_label(
+        keyword_scout.KEYWORD_QUOTE_HIGH_PRIORITY_SCORE
+    ) == "high"
+    assert keyword_scout._quote_priority_label(0.70) == "normal"
+    assert keyword_scout._quote_priority_label(
+        keyword_scout.KEYWORD_QUOTE_MIN_PRIORITY_SCORE
+    ) == "normal"
+    assert keyword_scout._quote_priority_label(0.59) == "low"
+    assert keyword_scout._quote_priority_score({"confidence": 1.4}) == 1.0
+    assert keyword_scout._quote_priority_score({"confidence": -0.2}) == 0.0
+
+
+def test_low_clarity_hat_quote_skips_aebrowse_volume():
+    class Candidate:
+        pin_url = "https://www.pinterest.com/pin/clear-priority-test/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/low-clarity.jpg"
+        alt_text = "embroidered saying cap"
+
+    class FakeClient:
+        volume_called = False
+
+        async def extract_quote(self, _candidate):
+            return {
+                "quotes": ["Thinking about not thinking"],
+                "is_target_cap": True,
+                "confidence": 0.42,
+                "provider": "gemini",
+                "model": "gemini-test",
+            }
+
+        async def resolve_volume(self, *_args, **_kwargs):
+            self.volume_called = True
+            raise AssertionError("low-clarity quote must not call AEBrowse")
+
+    with TemporaryDirectory() as directory:
+        history = KeywordScoutHistory(
+            Path(directory) / "keyword-scout-history.json"
+        )
+        client = FakeClient()
+        result = asyncio.run(
+            keyword_scout._process_keyword_candidate(
+                client,
+                history,
+                Candidate(),
+                source="root",
+                root_pin_url=Candidate.pin_url,
+            )
+        )
+
+        assert result == (0, 0)
+        assert client.volume_called is False
+        assert Candidate.pin_url in history.seen_pins
+
+
 def test_quote_dedupe_normalizes_case_whitespace_and_requires_two_words():
     assert _dedupe([
         "  Bad   Day To Be A Hotdog ",

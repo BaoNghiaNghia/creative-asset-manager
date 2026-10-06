@@ -560,8 +560,9 @@ try {
         Write-Host "Concurrent mode     : SAFE with Review Scout" -ForegroundColor Green
         Write-Host "Duplicate Keyword   : blocked by runner lock" -ForegroundColor Green
         Write-Host "Related per Pin     : 60" -ForegroundColor Green
+        Write-Host "Quote priority      : clear front-cap text first; low-clarity images skipped" -ForegroundColor Green
         Write-Host ("Pace                : " + $pace) -ForegroundColor Green
-        Write-Host "Mode                : autonomous Pinterest quote -> AEBrowse volume" -ForegroundColor Green
+        Write-Host "Mode                : autonomous Pinterest clear-quote priority -> AEBrowse volume" -ForegroundColor Green
         Write-Host "Loop                : continuous until this terminal is closed" -ForegroundColor Green
         Write-Host "Review Scout state  : separate browser + profile + history + log" -ForegroundColor Green
         Write-Host "Stage 1 claim lane  : not used" -ForegroundColor Green
@@ -595,7 +596,7 @@ try {
 
         Write-Step "Starting Pinterest Review Scout"
         Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + login-gated self-heal + bounded Scout restart (v31)" -ForegroundColor Green
+        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + login-gated self-heal + bounded Scout restart (v32)" -ForegroundColor Green
         Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
         Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
         Write-Host "Browser isolation   : dedicated Review Chrome profile/process" -ForegroundColor Green

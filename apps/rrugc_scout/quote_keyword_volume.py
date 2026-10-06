@@ -71,6 +71,8 @@ EMPTY_CYCLE_RETRY_SECONDS = 30
 RUNTIME_RECOVERY_SECONDS = 30
 CAM_DEFAULT_REQUEST_TIMEOUT_SECONDS = 45.0
 CAM_QUOTE_REQUEST_TIMEOUT_SECONDS = 90.0
+KEYWORD_QUOTE_MIN_PRIORITY_SCORE = 0.60
+KEYWORD_QUOTE_HIGH_PRIORITY_SCORE = 0.85
 
 
 def _keywords_from_file(path: str | None) -> list[str]:
@@ -114,6 +116,22 @@ def _keyword_text(value: Any) -> str:
 
 def _clean_keyword(value: Any) -> str:
     return re.sub(r"\s+", " ", _keyword_text(value)).strip(" \t\r\n\"'“”")
+
+
+def _quote_priority_score(result: dict[str, Any]) -> float:
+    try:
+        value = float(result.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    return max(0.0, min(1.0, value))
+
+
+def _quote_priority_label(score: float) -> str:
+    if score >= KEYWORD_QUOTE_HIGH_PRIORITY_SCORE:
+        return "high"
+    if score >= KEYWORD_QUOTE_MIN_PRIORITY_SCORE:
+        return "normal"
+    return "low"
 
 
 _KEYWORD_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
@@ -671,6 +689,8 @@ async def _process_keyword_candidate(
         for quote in quotes
         if quote.casefold() not in history.known_quote_keys
     ]
+    priority_score = _quote_priority_score(result)
+    priority_label = _quote_priority_label(priority_score)
     scout_debug_event(
         "keyword_scout_quote_extracted",
         source=source,
@@ -682,7 +702,9 @@ async def _process_keyword_candidate(
         quote_count=len(quotes),
         new_quote_count=len(new_quotes),
         is_target_cap=bool(result.get("is_target_cap", False)),
-        confidence=float(result.get("confidence") or 0.0),
+        confidence=priority_score,
+        priority_label=priority_label,
+        priority_min_score=KEYWORD_QUOTE_MIN_PRIORITY_SCORE,
         provider=str(result.get("provider") or ""),
         model=str(result.get("model") or ""),
     )
@@ -716,6 +738,37 @@ async def _process_keyword_candidate(
             + skip_reason
         )
         return 0, 0
+
+    if priority_score < KEYWORD_QUOTE_MIN_PRIORITY_SCORE:
+        scout_debug_event(
+            "keyword_scout_quote_skipped",
+            source=source,
+            root_pin_url=root_pin_url,
+            pin_url=candidate.pin_url,
+            image_url=candidate.image_url,
+            reason="low_quote_clarity",
+            quotes=new_quotes,
+            priority_score=priority_score,
+            priority_min_score=KEYWORD_QUOTE_MIN_PRIORITY_SCORE,
+        )
+        print(
+            "quote_priority=low skip_volume=yes score="
+            + f"{priority_score:.2f}"
+            + " minimum="
+            + f"{KEYWORD_QUOTE_MIN_PRIORITY_SCORE:.2f}"
+            + " quote="
+            + " | ".join(new_quotes)
+        )
+        return 0, 0
+
+    print(
+        "quote_priority="
+        + priority_label
+        + " score="
+        + f"{priority_score:.2f}"
+        + " quote="
+        + " | ".join(new_quotes)
+    )
 
     try:
         volume = await client.resolve_volume(

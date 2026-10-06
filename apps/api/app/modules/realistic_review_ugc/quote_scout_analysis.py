@@ -16,7 +16,7 @@ from app.domain.providers.contracts import (
 )
 
 
-QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v5"
+QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v6"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 QUOTE_SCOUT_MIN_WORDS = 2
 QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
@@ -321,7 +321,22 @@ Rules:
   concatenated keyword must contain at least 2 words.
 - The transport supports up to 50 visible target caps per image; do not intentionally omit readable
   target caps unless that technical limit is reached.
-- confidence is confidence that the grouped cap text is visibly present on TARGET CAPS.
+- confidence is also the IMAGE PRIORITY SCORE for Keyword Scout, from 0.0 to 1.0.
+- Score 0.90-1.00 for preferred examples: the cap is a main subject or reasonably large in
+  frame; front/front-three-quarter crown is visible; the saying is physically on the cap;
+  letters have good contrast; and the complete quote can be read without guessing. Hand-held
+  caps, simple product photos, lifestyle shots, or caps on a bed/table are all excellent when
+  the front quote is clearly readable.
+- Score 0.75-0.89 when the quote is still clearly readable but the cap is somewhat smaller,
+  mildly angled, or the background is busier.
+- Score 0.60-0.74 when the quote is usable but not preferred because text is relatively small,
+  perspective is stronger, contrast is weaker, or a small part is difficult to read.
+- Score below 0.60 when the quote is tiny, blurry, heavily angled, low-contrast, cropped,
+  obscured, partially hidden, or requires guessing. These images are low priority.
+- A visually clean, front-facing cap with a short clear embroidered saying should usually score
+  higher than a distant lifestyle image with the same saying.
+- Do NOT increase confidence merely because Pinterest alt text contains the words. Base this
+  score on visible pixels of the quote on the physical cap.
 
 Pinterest image alt text is weak supporting context only and must never override visible evidence:
 {alt_block}
