@@ -19,6 +19,7 @@ from app.domain.providers.contracts import (
     StorageProviderError,
 )
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
@@ -3423,12 +3424,16 @@ async def quote_scout_extract_hat_quote(
             session_factory=SessionLocal,
         )
         provider = registry.require("gemini")
+        backup_providers = CreativeAiCredentialRepository(
+            session, None
+        ).list_active_backup_providers(agent.tenant_id)
         result = await analyze_hat_quote(
             provider=provider,
             tenant_id=agent.tenant_id,
             image_url=request.image_url,
             pin_url=request.pin_url,
             alt_text=request.alt_text,
+            credential_providers=("gemini", *backup_providers),
         )
         return QuoteScoutAnalyzeResponse(
             quotes=result.quotes,

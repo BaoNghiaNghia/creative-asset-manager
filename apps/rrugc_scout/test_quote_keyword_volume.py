@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import httpx
 import quote_keyword_volume as keyword_scout
 from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
@@ -268,3 +269,55 @@ def test_quote_extract_http_status_retry_policy_preserves_transient_pins():
     assert not _quote_extract_status_is_terminal(404)
     assert not _quote_extract_status_is_terminal(429)
     assert not _quote_extract_status_is_terminal(500)
+
+
+def test_quote_extract_preserves_final_http_status_after_retries(monkeypatch):
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            503,
+            request=request,
+            json={
+                "detail": {
+                    "code": "gemini_model_pool_temporarily_unavailable",
+                    "message": "No Gemini model is currently available.",
+                }
+            },
+        )
+
+    async def no_sleep(_seconds):
+        return None
+
+    class Candidate:
+        pin_url = "https://www.pinterest.com/pin/999/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/quote.jpg"
+        alt_text = "trucker cap"
+
+    async def scenario():
+        client = QuoteScoutClient(
+            "https://creative-assets.example",
+            "agent-1",
+            "secret",
+        )
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://creative-assets.example",
+            headers={"Authorization": "Bearer secret"},
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.extract_quote(Candidate())
+        except httpx.HTTPStatusError as exc:
+            assert exc.response.status_code == 503
+        else:
+            raise AssertionError("503 was masked instead of being preserved")
+        finally:
+            await client.close()
+
+    monkeypatch.setattr(keyword_scout.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(keyword_scout.random, "random", lambda: 0.0)
+    asyncio.run(scenario())
+    assert attempts == 3

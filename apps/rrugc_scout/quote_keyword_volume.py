@@ -402,7 +402,9 @@ class QuoteScoutClient:
                         next_attempt=attempt + 2,
                     )
                     await asyncio.sleep(retry_delay)
-        raise RuntimeError(f"{operation} failed after retries") from last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(f"{operation} failed after retries")
 
     async def extract_quote(self, candidate) -> dict[str, Any]:
         return await self._post(

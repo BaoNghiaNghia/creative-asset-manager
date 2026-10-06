@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -21,6 +22,7 @@ QUOTE_SCOUT_MIN_WORDS = 2
 QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
 QUOTE_SCOUT_ALLOWED_IMAGE_HOST = re.compile(r"(^|\.)pinimg\.com$", re.IGNORECASE)
 _QUOTE_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+_LOGGER = logging.getLogger("cam.rrugc.quote_scout")
 
 
 def _quote_word_count(value: str) -> int:
@@ -332,6 +334,7 @@ async def analyze_hat_quote(
     pin_url: str | None,
     alt_text: str | None,
     http_client: httpx.AsyncClient | None = None,
+    credential_providers: tuple[str | None, ...] | None = None,
 ) -> QuoteScoutAnalysisResult:
     image_bytes, image_mime_type = await fetch_pinterest_image(
         image_url,
@@ -340,22 +343,56 @@ async def analyze_hat_quote(
     reference_id = "quote-scout:" + hashlib.sha256(
         (str(pin_url or "") + "\n" + image_url).encode("utf-8")
     ).hexdigest()[:32]
-    try:
-        result = await provider.analyze_single(
-            AiMetadataAnalysisInput(
-                tenant_id=tenant_id,
-                asset_id=reference_id,
-                prompt=_prompt(alt_text=alt_text),
-                image_bytes=image_bytes,
-                image_mime_type=image_mime_type,
-                metadata_profile="rrugc_quote_scout",
-                metadata_profile_version=QUOTE_SCOUT_PROFILE_VERSION,
-                json_schema=HatQuoteDocument.model_json_schema(),
-                analysis_id=reference_id,
+    credentials = credential_providers or (None,)
+    result = None
+    last_provider_error: AiProviderError | None = None
+    for attempt, credential_provider in enumerate(credentials, start=1):
+        try:
+            result = await provider.analyze_single(
+                AiMetadataAnalysisInput(
+                    tenant_id=tenant_id,
+                    asset_id=reference_id,
+                    prompt=_prompt(alt_text=alt_text),
+                    image_bytes=image_bytes,
+                    image_mime_type=image_mime_type,
+                    metadata_profile="rrugc_quote_scout",
+                    metadata_profile_version=QUOTE_SCOUT_PROFILE_VERSION,
+                    json_schema=HatQuoteDocument.model_json_schema(),
+                    analysis_id=reference_id,
+                    preferred_credential_provider=credential_provider,
+                )
             )
+            if attempt > 1:
+                _LOGGER.warning(
+                    "quote_scout_provider_failover_recovered "
+                    "credential_provider=%s attempt=%s total_candidates=%s",
+                    credential_provider or "default",
+                    attempt,
+                    len(credentials),
+                )
+            break
+        except AiProviderError as exc:
+            last_provider_error = exc
+            if not exc.retryable or attempt >= len(credentials):
+                raise
+            _LOGGER.warning(
+                "quote_scout_provider_failover "
+                "credential_provider=%s error_code=%s status_code=%s "
+                "next_credential_provider=%s",
+                credential_provider or "default",
+                exc.code,
+                exc.status_code,
+                credentials[attempt] or "default",
+            )
+    if result is None:
+        if last_provider_error is not None:
+            raise last_provider_error
+        raise AiProviderError(
+            "Quote Scout vision provider is unavailable.",
+            code="quote_scout_provider_unavailable",
+            retryable=True,
+            status_code=503,
         )
-    except AiProviderError:
-        raise
     try:
         document = HatQuoteDocument.model_validate(dict(result.metadata))
     except ValidationError as exc:

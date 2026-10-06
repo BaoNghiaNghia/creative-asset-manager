@@ -4,7 +4,7 @@ import asyncio
 
 import httpx
 
-from app.domain.providers.contracts import AiMetadataAnalysisResult
+from app.domain.providers.contracts import AiMetadataAnalysisResult, AiProviderError
 from app.modules.realistic_review_ugc.quote_scout_analysis import (
     HatQuoteDocument,
     QuoteScoutError,
@@ -166,5 +166,115 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
         assert "any other non-cap product" in analysis_input.prompt
         assert "unrelated Pinterest caption" in analysis_input.prompt
         assert len(requests) == 1
+
+    asyncio.run(scenario())
+
+
+def test_analyze_hat_quote_fails_over_to_backup_credential_without_redownloading_image():
+    requests: list[httpx.Request] = []
+
+    async def image_provider(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "image/jpeg"},
+            content=b"fake-jpeg-bytes",
+        )
+
+    class FailoverQuoteProvider:
+        provider_name = "gemini"
+        supports_single = True
+        supports_batch = False
+        default_model = "gemini-test"
+
+        def __init__(self) -> None:
+            self.credentials: list[str | None] = []
+
+        async def analyze_single(self, input):
+            self.credentials.append(input.preferred_credential_provider)
+            if input.preferred_credential_provider == "gemini":
+                raise AiProviderError(
+                    "No Gemini model is currently available.",
+                    code="gemini_model_pool_temporarily_unavailable",
+                    retryable=True,
+                    status_code=503,
+                )
+            return AiMetadataAnalysisResult(
+                metadata={
+                    "is_hat": True,
+                    "quotes": ["OUT OF OFFICE"],
+                    "confidence": 0.98,
+                },
+                provider="gemini",
+                model="gemini-test",
+            )
+
+    async def scenario() -> None:
+        provider = FailoverQuoteProvider()
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(image_provider)
+        ) as client:
+            result = await analyze_hat_quote(
+                provider=provider,
+                tenant_id="tenant-a",
+                image_url="https://i.pinimg.com/originals/aa/bb/example.jpg",
+                pin_url="https://www.pinterest.com/pin/123/",
+                alt_text="trucker cap",
+                http_client=client,
+                credential_providers=("gemini", "gemini_backup_1"),
+            )
+
+        assert result.quotes == ["OUT OF OFFICE"]
+        assert provider.credentials == ["gemini", "gemini_backup_1"]
+        assert len(requests) == 1
+
+    asyncio.run(scenario())
+
+
+def test_analyze_hat_quote_does_not_fail_over_nonretryable_provider_error():
+    class TerminalQuoteProvider(FakeQuoteProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.credentials: list[str | None] = []
+
+        async def analyze_single(self, input):
+            self.credentials.append(input.preferred_credential_provider)
+            raise AiProviderError(
+                "Invalid request.",
+                code="gemini_invalid_document",
+                retryable=False,
+                status_code=422,
+            )
+
+    async def image_provider(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "image/jpeg"},
+            content=b"fake-jpeg-bytes",
+        )
+
+    async def scenario() -> None:
+        provider = TerminalQuoteProvider()
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(image_provider)
+        ) as client:
+            try:
+                await analyze_hat_quote(
+                    provider=provider,
+                    tenant_id="tenant-a",
+                    image_url="https://i.pinimg.com/originals/aa/bb/example.jpg",
+                    pin_url="https://www.pinterest.com/pin/123/",
+                    alt_text="trucker cap",
+                    http_client=client,
+                    credential_providers=("gemini", "gemini_backup_1"),
+                )
+            except AiProviderError as exc:
+                assert exc.code == "gemini_invalid_document"
+            else:
+                raise AssertionError("nonretryable provider error was not raised")
+
+        assert provider.credentials == ["gemini"]
 
     asyncio.run(scenario())
