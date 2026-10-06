@@ -54,7 +54,7 @@ class Stage3UgcAnalysisDocument(BaseModel):
     framing_type: str = Field(default="unknown", max_length=64)
     evidence: list[str] = Field(default_factory=list, max_length=6)
     summary: str = Field(min_length=1, max_length=500)
-    review_text: str = Field(min_length=20, max_length=600)
+    review_text: str | None = Field(default=None, max_length=600)
 
 
 def stage3_analysis_prompt() -> str:
@@ -147,6 +147,21 @@ def star_rating_for_analysis(analysis_id: str) -> int:
     if bucket < 248:
         return 4
     return 3
+
+
+def review_text_for_analysis(document: Stage3UgcAnalysisDocument) -> str:
+    candidate = (document.review_text or "").strip()
+    if candidate:
+        return candidate
+    if document.embroidery_visible:
+        return (
+            "I picked this hat because the embroidered detail gives it some personality "
+            "without feeling overdone. It has an easy, casual look that works well for everyday wear."
+        )
+    return (
+        "I like the easy, casual look of this hat and how simple it is to work into an everyday outfit. "
+        "It is the kind of style I would reach for on a regular day."
+    )
 
 
 class RrugcStage3Service:
@@ -243,7 +258,15 @@ class RrugcStage3AnalyzeJobHandler:
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
         try:
             return asyncio.run(self._execute(context))
-        except ValidationError:
+        except ValidationError as exc:
+            context.logger.warning(
+                "rrugc_stage3_analysis_invalid_document",
+                extra={
+                    "analysis_id": context.job.entity_id,
+                    "tenant_id": context.job.tenant_id,
+                    "validation_errors": exc.errors(include_input=False),
+                },
+            )
             self._mark_error(
                 context,
                 "stage3_analysis_invalid_document",
@@ -437,7 +460,7 @@ class RrugcStage3AnalyzeJobHandler:
             row.summary = document.summary
             row.reviewer_name = reviewer_name_for_analysis(analysis_id)
             row.star_rating = star_rating_for_analysis(analysis_id)
-            row.review_text = document.review_text.strip()
+            row.review_text = review_text_for_analysis(document)
             row.review_generated_at = datetime.now(timezone.utc)
             row.evidence_json = list(document.evidence)
             row.reject_reasons_json = list(decision.reject_reasons)

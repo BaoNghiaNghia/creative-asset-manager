@@ -75,6 +75,7 @@ from app.modules.realistic_review_ugc.stage3 import (
     RrugcStage3Service,
     Stage3UgcAnalysisDocument,
     evaluate_stage3,
+    review_text_for_analysis,
 )
 from app.modules.realistic_review_ugc.stage2 import (
     DEFAULT_STAGE2_PROMPT,
@@ -1371,6 +1372,23 @@ def test_stage3_ugc_decision_requires_person_product_and_review_fit():
     assert ready.status == "ready"
     assert ready.reject_reasons == []
     assert ready.final_score > 0.8
+
+    fallback_document = Stage3UgcAnalysisDocument(
+        people_count=1,
+        person_visible=True,
+        hat_visible=True,
+        product_visible=True,
+        embroidery_visible=True,
+        mobile_ugc_score=0.82,
+        photorealism_score=0.88,
+        product_visibility_score=0.91,
+        review_fit_score=0.86,
+        scene_type="home",
+        framing_type="medium",
+        evidence=["person wearing the hat"],
+        summary="Natural lifestyle frame.",
+    )
+    assert "embroidered detail" in review_text_for_analysis(fallback_document)
 
     rejected = evaluate_stage3(
         Stage3UgcAnalysisDocument(
