@@ -76,6 +76,7 @@ def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
     assert args.profile_dir.endswith("pinterest-profile-keyword")
     assert args.related_per_pin == DEFAULT_RELATED_PER_PIN == 60
     assert args.deep_dive_related_per_pin == 150
+    assert args.deep_dive_seeds_per_cycle == 3
     assert args.deep_dive_min_search_volume == 1000
     assert args.deep_dive_style_max_depth == 3
     assert args.deep_dive_market_max_depth == 4
@@ -194,6 +195,75 @@ def test_high_volume_low_competition_becomes_market_deep_dive():
         style_max_depth=3,
         market_max_depth=4,
     ) == 4
+
+
+def test_adaptive_market_score_allows_high_volume_high_competition():
+    score, picked = keyword_scout._market_opportunity_score(
+        [
+            {
+                "keyword": "GIRL DAD",
+                "search_volume": 12100,
+                "competition": "HIGH",
+                "picked": False,
+            }
+        ],
+        priority_score=0.96,
+    )
+    assert picked is False
+    assert score >= keyword_scout.MARKET_DEEP_DIVE_SCORE_THRESHOLD
+
+
+def test_market_score_rewards_picked_keywords_without_forcing_weak_rows():
+    picked_score, picked = keyword_scout._market_opportunity_score(
+        [
+            {
+                "keyword": "NO FRIENDS JUST FAMILIA",
+                "search_volume": 40,
+                "competition": "LOW",
+                "picked": True,
+            }
+        ],
+        priority_score=0.95,
+    )
+    weak_score, weak_picked = keyword_scout._market_opportunity_score(
+        [
+            {
+                "keyword": "random phrase",
+                "search_volume": 10,
+                "competition": "HIGH",
+                "picked": False,
+            }
+        ],
+        priority_score=0.61,
+    )
+    assert picked is True
+    assert picked_score > weak_score
+    assert weak_picked is False
+    assert weak_score < keyword_scout.MARKET_DEEP_DIVE_SCORE_THRESHOLD
+
+
+def test_keyword_metadata_prefilter_only_rejects_explicit_non_hat_products():
+    assert keyword_scout._keyword_metadata_prefilter_reason(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/hat/",
+            "https://i.pinimg.com/736x/hat.jpg",
+            alt_text="embroidered trucker cap saying",
+        )
+    ) is None
+    assert keyword_scout._keyword_metadata_prefilter_reason(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/shirt/",
+            "https://i.pinimg.com/736x/shirt.jpg",
+            alt_text="funny saying printed t-shirt",
+        )
+    ) == "explicit_non_hat_product:t-shirt"
+    assert keyword_scout._keyword_metadata_prefilter_reason(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/unknown/",
+            "https://i.pinimg.com/736x/unknown.jpg",
+            alt_text="funny quote gift idea",
+        )
+    ) is None
 
 
 def test_deep_dive_prefers_market_before_style_only_and_caps_depth():

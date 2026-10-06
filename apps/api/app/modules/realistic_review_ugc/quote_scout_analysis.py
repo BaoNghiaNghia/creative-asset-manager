@@ -441,11 +441,35 @@ async def analyze_hat_quote(
     alt_text: str | None,
     http_client: httpx.AsyncClient | None = None,
     credential_providers: tuple[str | None, ...] | None = None,
+    supplied_image_bytes: bytes | None = None,
+    supplied_image_mime_type: str | None = None,
 ) -> QuoteScoutAnalysisResult:
-    image_bytes, image_mime_type = await fetch_pinterest_image(
-        image_url,
-        client=http_client,
-    )
+    if supplied_image_bytes is None:
+        image_bytes, image_mime_type = await fetch_pinterest_image(
+            image_url,
+            client=http_client,
+        )
+    else:
+        image_bytes = supplied_image_bytes
+        image_mime_type = str(supplied_image_mime_type or "").strip().lower()
+        if image_mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise QuoteScoutError(
+                "quote_scout_image_type_rejected",
+                "Browser fallback image type is not supported.",
+                status_code=422,
+            )
+        if not image_bytes:
+            raise QuoteScoutError(
+                "quote_scout_image_empty",
+                "Browser fallback image returned no data.",
+                status_code=422,
+            )
+        if len(image_bytes) > QUOTE_SCOUT_MAX_IMAGE_BYTES:
+            raise QuoteScoutError(
+                "quote_scout_image_too_large",
+                "Browser fallback image exceeds the Quote Scout size limit.",
+                status_code=413,
+            )
     reference_id = "quote-scout:" + hashlib.sha256(
         (str(pin_url or "") + "\n" + image_url).encode("utf-8")
     ).hexdigest()[:32]

@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v34"
+CLIENT_VERSION = "rrugc-scout-v35"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -975,6 +975,44 @@ class ScoutHistory:
         campaign["expanded_related_seeds"] = seeds[-2000:]
         self.save()
         return True
+
+    def remember_pin_urls(self, campaign_id: str, pin_urls: list[str]) -> int:
+        if not pin_urls:
+            return 0
+        campaigns = self.data.setdefault("campaigns", {})
+        if not isinstance(campaigns, dict):
+            campaigns = {}
+            self.data["campaigns"] = campaigns
+        key = str(campaign_id)
+        campaign = campaigns.setdefault(
+            key,
+            {"seen_pins": [], "seen_assets": []},
+        )
+        if not isinstance(campaign, dict):
+            campaign = {"seen_pins": [], "seen_assets": []}
+            campaigns[key] = campaign
+        pins = campaign.get("seen_pins")
+        if not isinstance(pins, list):
+            pins = []
+        ordered_pins = [
+            pin_history_key(value)
+            for value in pins
+            if isinstance(value, str) and value.strip()
+        ]
+        known_pins = set(ordered_pins)
+        added = 0
+        for value in pin_urls:
+            pin = pin_history_key(value)
+            if not pin or pin in known_pins:
+                continue
+            known_pins.add(pin)
+            ordered_pins.append(pin)
+            added += 1
+        campaign["seen_pins"] = ordered_pins[-self.max_pins_per_campaign:]
+        self.data["version"] = 2
+        if added:
+            self.save()
+        return added
 
     def remember(self, campaign_id: str, rows: list[Candidate]) -> int:
         if not rows:
@@ -2244,7 +2282,89 @@ def task_search_queries(task: dict[str, Any]) -> list[str]:
     fallback = str(task.get("query") or "").strip()
     if not search_queries and fallback:
         search_queries.append(fallback)
-    return search_queries
+
+    performance_by_key: dict[str, dict[str, Any]] = {}
+    for row in task.get("query_performance") or []:
+        if not isinstance(row, dict):
+            continue
+        query = " ".join(str(row.get("query") or "").split())
+        if not query:
+            continue
+        performance_by_key[query.casefold()] = row
+
+    person_markers = (
+        "selfie",
+        "wearing",
+        "person",
+        "woman",
+        "man ",
+        "candid",
+        "lifestyle",
+        "mirror",
+        "outdoor",
+        "park",
+        "family",
+        "couple",
+        "face visible",
+        "head and shoulders",
+    )
+    product_only_markers = (
+        "held in hand",
+        "hand holding",
+        "embroidery close up",
+        "front view",
+    )
+
+    ranked: list[tuple[float, int, str, int, int]] = []
+    for index, value in enumerate(search_queries):
+        key = value.casefold()
+        perf = performance_by_key.get(key) or {}
+        try:
+            score = float(perf.get("score", 0.62))
+        except (TypeError, ValueError):
+            score = 0.62
+        lowered = " " + key + " "
+        has_person = any(marker in lowered for marker in person_markers)
+        is_product_only = (
+            any(marker in lowered for marker in product_only_markers)
+            and not has_person
+        )
+        if has_person:
+            score += 0.06
+        if is_product_only:
+            # Keep this lane available for exploration because hand-held hats
+            # were explicitly requested, but avoid letting product-only imagery
+            # dominate a person-required Review campaign.
+            score -= 0.12
+        submitted = int(perf.get("submitted") or 0)
+        stage2_used = int(perf.get("stage2_used") or 0)
+        ranked.append((
+            max(0.0, min(1.0, score)),
+            stage2_used,
+            value,
+            submitted,
+            index,
+        ))
+
+    ranked.sort(
+        key=lambda row: (row[0], row[1], -row[3], -row[4]),
+        reverse=True,
+    )
+    ordered = [row[2] for row in ranked]
+    scout_debug_event(
+        "review_query_bandit_ranked",
+        campaign_id=str(task.get("campaign_id") or ""),
+        rankings=[
+            {
+                "query": row[2],
+                "score": round(row[0], 4),
+                "stage2_used": row[1],
+                "submitted": row[3],
+            }
+            for row in ranked[:8]
+        ],
+    )
+    return ordered
 
 
 def related_seed_candidates(task: dict[str, Any]) -> list[Candidate]:
@@ -2294,7 +2414,25 @@ async def scan_auto_run(
     related_history_key = campaign_id
     persistent_seen: set[str] = set()
     persistent_seen_assets: set[str] = set()
+    server_known_pin_urls = [
+        str(value).strip()
+        for value in (task.get("known_pin_urls") or [])
+        if str(value or "").strip()
+    ]
     if history:
+        synced = 0
+        for history_key in history_keys:
+            synced += history.remember_pin_urls(
+                history_key,
+                server_known_pin_urls,
+            )
+        if server_known_pin_urls:
+            scout_debug_event(
+                "server_history_synced",
+                campaign_id=campaign_id,
+                received=len(server_known_pin_urls),
+                added=synced,
+            )
         for history_key in history_keys:
             persistent_seen.update(history.seen_pin_keys(history_key))
             persistent_seen_assets.update(history.seen_asset_keys(history_key))

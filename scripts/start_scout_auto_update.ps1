@@ -601,7 +601,7 @@ try {
 
         Write-Step "Starting Pinterest Review Scout"
         Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + login-gated self-heal + bounded Scout restart + learned ref seeds (v34)" -ForegroundColor Green
+        Write-Host "Scout mode          : persistent no-repeat discovery + source-plan context + login-gated self-heal + bounded Scout restart + learned ref seeds (v35)" -ForegroundColor Green
         Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
         Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
         Write-Host "Browser isolation   : dedicated Review Chrome profile/process" -ForegroundColor Green

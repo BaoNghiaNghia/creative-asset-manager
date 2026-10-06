@@ -849,6 +849,34 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
             }
         }
 
+        derived_result = service.submit_candidates(
+            agent_id=agent.id,
+            raw_token=token,
+            run_id=claim.run.id,
+            source_query="person wearing cap cafe candid photo",
+            submissions=[
+                CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/67890/",
+                    image_url="https://i.pinimg.com/736x/d/e/f.jpg",
+                    alt_text="derived context query",
+                )
+            ],
+        )
+        assert derived_result.created == 1
+        derived = session.scalar(
+            select(RrugcCandidateModel).where(
+                RrugcCandidateModel.tenant_id == "tenant-a",
+                RrugcCandidateModel.campaign_id == campaign.id,
+                RrugcCandidateModel.pin_url
+                == "https://www.pinterest.com/pin/67890/",
+            )
+        )
+        assert derived is not None
+        assert (
+            derived.ai_signal_json["scout_query"]
+            == "person wearing cap cafe candid photo"
+        )
+
         completed = service.complete(
             agent_id=agent.id,
             raw_token=token,
@@ -2847,6 +2875,13 @@ def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
         seed["pin_url"] != "https://www.pinterest.com/pin/rejected-related-seed/"
         for seed in payload["related_seeds"]
     )
+    assert {
+        "https://www.pinterest.com/pin/used-related-seed/",
+        "https://www.pinterest.com/pin/manual-related-seed/",
+        "https://www.pinterest.com/pin/approved-related-seed/",
+        "https://www.pinterest.com/pin/rejected-related-seed/",
+    }.issubset(set(payload["known_pin_urls"]))
+    assert isinstance(payload["query_performance"], list)
 
 
 def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database):

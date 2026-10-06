@@ -1436,16 +1436,10 @@ class RrugcAutoScoutService:
             int(campaign.target_count) - pipeline_before,
         )
         accepted_submissions = submissions[:remaining_pipeline_budget]
-        campaign_queries = {
-            str(query).strip().casefold(): str(query).strip()
-            for query in (campaign.search_queries_json or [campaign.query])
-            if str(query or "").strip()
-        }
-        requested_source_query = str(source_query or "").strip()
-        effective_source_query = campaign_queries.get(
-            requested_source_query.casefold(),
-            run.query,
-        )
+        requested_source_query = " ".join(
+            str(source_query or "").split()
+        )[:500]
+        effective_source_query = requested_source_query or run.query
         if accepted_submissions:
             _rows, created, existing = RrugcService(self.session).ingest_candidates(
                 campaign=campaign,

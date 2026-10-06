@@ -464,6 +464,8 @@ class QuoteScoutAnalyzeRequest(BaseModel):
     pin_url: str | None = Field(default=None, max_length=2048)
     image_url: str = Field(min_length=1, max_length=2048)
     alt_text: str | None = Field(default=None, max_length=1000)
+    image_base64: str | None = Field(default=None, max_length=17_000_000)
+    image_mime_type: str | None = Field(default=None, max_length=64)
 
 
 class QuoteScoutAnalyzeResponse(BaseModel):
@@ -651,11 +653,25 @@ class ScoutRelatedSeed(BaseModel):
     alt_text: str | None = Field(default=None, max_length=2000)
 
 
+class ScoutQueryPerformance(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    score: float = 0.0
+    submitted: int = 0
+    created: int = 0
+    existing: int = 0
+    approved: int = 0
+    rejected: int = 0
+    needs_review: int = 0
+    stage2_used: int = 0
+
+
 class ScoutClaimResponse(BaseModel):
     run: ScoutRunResponse
     campaign_id: str
     query: str
     search_queries: list[str] = Field(default_factory=list)
+    query_performance: list[ScoutQueryPerformance] = Field(default_factory=list)
+    known_pin_urls: list[str] = Field(default_factory=list)
     target_count: int
     max_scroll_batches: int
     auto_import: bool

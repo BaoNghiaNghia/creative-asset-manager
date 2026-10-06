@@ -267,6 +267,24 @@ def test_scout_history_persists_seen_pins(tmp_path):
     assert reloaded.seen_asset_keys("campaign-a") == {"a.jpg", "b.jpg"}
 
 
+def test_scout_history_merges_server_known_pins(tmp_path):
+    path = tmp_path / "history.json"
+    history = ScoutHistory(path)
+    assert history.remember_pin_urls(
+        "campaign-a",
+        [
+            "https://pinterest.com/pin/777/?utm_source=server",
+            "https://www.pinterest.com/pin/888/",
+            "https://www.pinterest.com/pin/777/",
+        ],
+    ) == 2
+    reloaded = ScoutHistory(path)
+    assert reloaded.seen_pin_keys("campaign-a") == {
+        "https://www.pinterest.com/pin/777/",
+        "https://www.pinterest.com/pin/888/",
+    }
+
+
 def test_quality_first_query_and_metadata_prefilter():
     assert quality_search_query("cap man") == "cap man authentic smartphone candid photo real people"
     assert quality_search_query("cap man candid photo") == "cap man candid photo"
@@ -1272,14 +1290,17 @@ def test_source_plan_search_queries_prioritize_image_context_over_legacy_queries
         },
     }
 
-    assert task_search_queries(task)[:6] == [
+    ranked = task_search_queries(task)
+    assert ranked[:4] == [
         "grandpa wearing cap selfie phone photo",
-        "hand holding embroidered cap front view phone photo",
         "grandpa golf course candid phone photo",
         "family golf outing candid phone photo",
-        "Best Grandpa By Par photo",
         "outdoor cap selfie natural light",
     ]
+    assert "hand holding embroidered cap front view phone photo" in ranked
+    assert ranked.index("hand holding embroidered cap front view phone photo") > ranked.index(
+        "outdoor cap selfie natural light"
+    )
 
 
 def test_legacy_search_queries_keep_server_order_without_source_plan_context():
@@ -1291,6 +1312,38 @@ def test_legacy_search_queries_keep_server_order_without_source_plan_context():
         },
     }
     assert task_search_queries(task) == ["first query", "second query"]
+
+
+def test_query_bandit_promotes_productive_person_queries_and_keeps_exploration():
+    task = {
+        "source_plan_id": "source-plan-bandit",
+        "query": "generic",
+        "search_queries": [
+            "stale selfie query",
+            "fresh unseen query",
+            "hand holding embroidered cap front view",
+            "person wearing cap cafe candid photo",
+        ],
+        "query_performance": [
+            {"query": "stale selfie query", "score": 0.08, "submitted": 20},
+            {
+                "query": "person wearing cap cafe candid photo",
+                "score": 0.82,
+                "submitted": 8,
+                "stage2_used": 2,
+            },
+            {
+                "query": "hand holding embroidered cap front view",
+                "score": 0.78,
+                "submitted": 5,
+            },
+        ],
+        "source_context": {"search_clusters": {}},
+    }
+    ranked = task_search_queries(task)
+    assert ranked[0] == "person wearing cap cafe candid photo"
+    assert ranked.index("fresh unseen query") < ranked.index("stale selfie query")
+    assert "hand holding embroidered cap front view" in ranked
 
 
 def test_careful_pace_uses_gradual_scrolls_and_longer_waits():

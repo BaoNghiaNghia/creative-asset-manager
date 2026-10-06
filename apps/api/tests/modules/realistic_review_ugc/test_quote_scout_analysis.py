@@ -208,6 +208,26 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
     asyncio.run(scenario())
 
 
+def test_analyze_hat_quote_accepts_browser_supplied_image_without_server_fetch():
+    async def scenario() -> None:
+        provider = FakeQuoteProvider()
+        result = await analyze_hat_quote(
+            provider=provider,
+            tenant_id="tenant-a",
+            image_url="https://i.pinimg.com/originals/browser/fallback.jpg",
+            pin_url="https://www.pinterest.com/pin/browser-fallback/",
+            alt_text="clear trucker cap quote",
+            supplied_image_bytes=b"browser-fetched-jpeg",
+            supplied_image_mime_type="image/jpeg",
+        )
+        assert result.quotes == ["Bad Day To Be A Hotdog"]
+        assert len(provider.inputs) == 1
+        assert provider.inputs[0].image_bytes == b"browser-fetched-jpeg"
+        assert provider.inputs[0].image_mime_type == "image/jpeg"
+
+    asyncio.run(scenario())
+
+
 def test_analyze_hat_quote_fails_over_to_backup_credential_without_redownloading_image():
     requests: list[httpx.Request] = []
 

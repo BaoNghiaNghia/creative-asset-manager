@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -197,6 +199,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutLogBatchRequest,
     ScoutLogBatchResponse,
     ScoutClaimResponse,
+    ScoutQueryPerformance,
     ScoutRunCompleteRequest,
     ScoutRunResponse,
     ScoutRelatedSeed,
@@ -1397,6 +1400,141 @@ def _scout_run_response(row: RrugcScoutRunModel) -> ScoutRunResponse:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def _scout_query_key(value: str | None) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _scout_query_performance(
+    session: Session,
+    *,
+    tenant_id: str,
+    campaign_id: str,
+    stage2_used_ids: set[str],
+) -> list[ScoutQueryPerformance]:
+    stats: dict[str, dict[str, object]] = {}
+
+    def ensure(query: str) -> dict[str, object]:
+        clean = " ".join(str(query or "").split())[:500]
+        key = _scout_query_key(clean)
+        row = stats.get(key)
+        if row is None:
+            row = {
+                "query": clean,
+                "submitted": 0,
+                "created": 0,
+                "existing": 0,
+                "approved": 0,
+                "rejected": 0,
+                "needs_review": 0,
+                "stage2_used": 0,
+            }
+            stats[key] = row
+        return row
+
+    recent_runs = list(session.scalars(
+        select(RrugcScoutRunModel)
+        .where(
+            RrugcScoutRunModel.tenant_id == tenant_id,
+            RrugcScoutRunModel.campaign_id == campaign_id,
+        )
+        .order_by(RrugcScoutRunModel.created_at.desc())
+        .limit(40)
+    ))
+    for run in recent_runs:
+        raw_stats = run.keyword_stats_json if isinstance(run.keyword_stats_json, dict) else {}
+        for raw_query, values in raw_stats.items():
+            if not str(raw_query or "").strip() or not isinstance(values, dict):
+                continue
+            row = ensure(str(raw_query))
+            for field in ("submitted", "created", "existing"):
+                row[field] = int(row[field]) + int(values.get(field) or 0)
+
+    candidate_rows = list(session.scalars(
+        select(RrugcCandidateModel)
+        .where(
+            RrugcCandidateModel.tenant_id == tenant_id,
+            RrugcCandidateModel.campaign_id == campaign_id,
+        )
+        .order_by(RrugcCandidateModel.created_at.desc())
+        .limit(2000)
+    ))
+    approved_statuses = set(ANALYSIS_APPROVED_STATUSES) | {
+        "drive_ready",
+        "importing",
+        "import_queued",
+    }
+    for candidate in candidate_rows:
+        signal = candidate.ai_signal_json if isinstance(candidate.ai_signal_json, dict) else {}
+        query = str(signal.get("scout_query") or "").strip()
+        if not query:
+            continue
+        row = ensure(query)
+        if candidate.status in approved_statuses:
+            row["approved"] = int(row["approved"]) + 1
+        elif candidate.status == "needs_review":
+            row["needs_review"] = int(row["needs_review"]) + 1
+        elif str(candidate.status or "").startswith("rejected_"):
+            row["rejected"] = int(row["rejected"]) + 1
+        if candidate.id in stage2_used_ids:
+            row["stage2_used"] = int(row["stage2_used"]) + 1
+
+    result: list[ScoutQueryPerformance] = []
+    for row in stats.values():
+        submitted = int(row["submitted"])
+        created = int(row["created"])
+        existing = int(row["existing"])
+        approved = int(row["approved"])
+        rejected = int(row["rejected"])
+        needs_review = int(row["needs_review"])
+        stage2_used = int(row["stage2_used"])
+        novelty = (created + 1.0) / (created + existing + 2.0)
+        judged = approved + rejected + needs_review
+        quality = (approved + 0.5 * needs_review + 1.0) / (judged + 2.0)
+        used_rate = min(1.0, stage2_used / max(1.0, float(approved)))
+        exploration = 1.0 / ((submitted + 1.0) ** 0.5)
+        score = (
+            0.30 * novelty
+            + 0.40 * quality
+            + 0.20 * used_rate
+            + 0.10 * exploration
+        )
+        result.append(ScoutQueryPerformance(
+            query=str(row["query"]),
+            score=round(max(0.0, min(1.0, score)), 4),
+            submitted=submitted,
+            created=created,
+            existing=existing,
+            approved=approved,
+            rejected=rejected,
+            needs_review=needs_review,
+            stage2_used=stage2_used,
+        ))
+    return sorted(
+        result,
+        key=lambda item: (item.score, item.stage2_used, item.created),
+        reverse=True,
+    )[:200]
+
+
+def _rank_scout_queries(
+    queries: list[str],
+    performance: list[ScoutQueryPerformance],
+) -> list[str]:
+    score_by_key = {
+        _scout_query_key(item.query): item.score
+        for item in performance
+    }
+    indexed = list(enumerate(queries))
+    indexed.sort(
+        key=lambda pair: (
+            score_by_key.get(_scout_query_key(pair[1]), 0.62),
+            -pair[0],
+        ),
+        reverse=True,
+    )
+    return [query for _index, query in indexed]
 
 
 def _agent_token(
@@ -3529,6 +3667,24 @@ async def quote_scout_extract_hat_quote(
         backup_providers = CreativeAiCredentialRepository(
             session, None
         ).list_active_backup_providers(agent.tenant_id)
+        supplied_image_bytes: bytes | None = None
+        supplied_image_mime_type: str | None = None
+        if request.image_base64:
+            try:
+                supplied_image_bytes = base64.b64decode(
+                    request.image_base64,
+                    validate=True,
+                )
+            except (binascii.Error, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "quote_scout_image_base64_invalid",
+                        "message": "Browser fallback image payload is invalid.",
+                    },
+                ) from exc
+            supplied_image_mime_type = request.image_mime_type
+
         result = await analyze_hat_quote(
             provider=provider,
             tenant_id=agent.tenant_id,
@@ -3536,6 +3692,8 @@ async def quote_scout_extract_hat_quote(
             pin_url=request.pin_url,
             alt_text=request.alt_text,
             credential_providers=("gemini", *backup_providers),
+            supplied_image_bytes=supplied_image_bytes,
+            supplied_image_mime_type=supplied_image_mime_type,
         )
         return QuoteScoutAnalyzeResponse(
             quotes=result.quotes,
@@ -5859,6 +6017,36 @@ def auto_scout_agent_claim(
         claim.campaign.id,
         limit=500,
     )
+    query_performance = _scout_query_performance(
+        session,
+        tenant_id=claim.campaign.tenant_id,
+        campaign_id=claim.campaign.id,
+        stage2_used_ids=stage2_used_ids,
+    )
+    search_queries = _rank_scout_queries(search_queries, query_performance)
+
+    # Sync tenant-wide recent Pinterest history into the local Scout before it
+    # opens detail pages. The backend rejects exact tenant duplicates anyway, so
+    # spending browser/Gemini time on these Pins has no value.
+    recent_pin_rows = list(session.scalars(
+        select(RrugcCandidateModel.pin_url)
+        .where(
+            RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
+            RrugcCandidateModel.pin_url.is_not(None),
+        )
+        .order_by(RrugcCandidateModel.created_at.desc())
+        .limit(5000)
+    ))
+    known_pin_urls: list[str] = []
+    known_pin_keys: set[str] = set()
+    for pin_url in recent_pin_rows:
+        clean = str(pin_url or "").strip()
+        key = clean.casefold()
+        if not clean or key in known_pin_keys:
+            continue
+        known_pin_keys.add(key)
+        known_pin_urls.append(clean)
+
     manual_label = (
         RrugcCandidateModel.ai_signal_json["reference_manual_label"].as_string()
     )
@@ -5922,6 +6110,8 @@ def auto_scout_agent_claim(
         campaign_id=claim.campaign.id,
         query=claim.campaign.query,
         search_queries=search_queries,
+        query_performance=query_performance,
+        known_pin_urls=known_pin_urls,
         target_count=claim.campaign.target_count,
         max_scroll_batches=claim.run.max_scroll_batches,
         auto_import=claim.campaign.auto_import,

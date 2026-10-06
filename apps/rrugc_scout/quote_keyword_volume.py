@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import asyncio
+import base64
 from dataclasses import dataclass
 import json
 import os
@@ -63,9 +64,11 @@ DEFAULT_MAX_SCROLL_BATCHES = 10
 DEFAULT_MAX_PINS_PER_CYCLE = 40
 DEFAULT_RELATED_PER_PIN = 60
 DEFAULT_DEEP_DIVE_RELATED_PER_PIN = 150
+DEFAULT_DEEP_DIVE_SEEDS_PER_CYCLE = 3
 DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME = 1_000
 DEFAULT_DEEP_DIVE_STYLE_MAX_DEPTH = 3
 DEFAULT_DEEP_DIVE_MARKET_MAX_DEPTH = 4
+MARKET_DEEP_DIVE_SCORE_THRESHOLD = 0.65
 KEYWORD_SCROLL_STEP_PX = (260, 420)
 KEYWORD_SCROLL_STEPS_PER_BATCH = (1, 2)
 KEYWORD_SCROLL_STEP_PAUSE_MS = (1_100, 1_700)
@@ -77,6 +80,7 @@ EMPTY_CYCLE_RETRY_SECONDS = 30
 RUNTIME_RECOVERY_SECONDS = 30
 CAM_DEFAULT_REQUEST_TIMEOUT_SECONDS = 45.0
 CAM_QUOTE_REQUEST_TIMEOUT_SECONDS = 90.0
+BROWSER_FALLBACK_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 KEYWORD_QUOTE_MIN_PRIORITY_SCORE = 0.60
 KEYWORD_QUOTE_HIGH_PRIORITY_SCORE = 0.85
 
@@ -148,6 +152,8 @@ class KeywordCandidateResult:
     quotes: tuple[str, ...] = ()
     max_search_volume: int = 0
     low_competition_search_volume: int = 0
+    market_score: float = 0.0
+    picked_keyword: bool = False
     market_opportunity: bool = False
 
 
@@ -172,16 +178,110 @@ def _deep_dive_max_depth(
     return 0
 
 
-def _deep_dive_sort_key(seed: DeepDiveSeed) -> tuple[int, int, float]:
+def _deep_dive_sort_key(seed: DeepDiveSeed) -> tuple[int, float, int, float]:
     return (
         1 if seed.result.market_opportunity else 0,
+        seed.result.market_score,
         seed.result.max_search_volume,
         seed.result.priority_score,
     )
 
 
+def _market_volume_score(search_volume: int) -> float:
+    volume = max(0, int(search_volume))
+    if volume >= 10_000:
+        return 1.0
+    if volume >= 1_000:
+        return 0.85
+    if volume >= 100:
+        return 0.60
+    if volume >= 10:
+        return 0.35
+    if volume > 0:
+        return 0.20
+    return 0.0
+
+
+def _market_competition_score(value: Any) -> float:
+    competition = str(value or "").strip().upper()
+    return {
+        "LOW": 1.0,
+        "MEDIUM": 0.55,
+        "UNKNOWN": 0.35,
+        "UNSPECIFIED": 0.35,
+        "HIGH": 0.15,
+    }.get(competition, 0.30)
+
+
+def _market_opportunity_score(
+    items: list[dict[str, Any]],
+    *,
+    priority_score: float,
+) -> tuple[float, bool]:
+    best_score = 0.0
+    picked = False
+    for item in items:
+        volume_score = _market_volume_score(int(item.get("search_volume") or 0))
+        competition_score = _market_competition_score(item.get("competition"))
+        item_picked = bool(item.get("picked"))
+        picked = picked or item_picked
+        score = (
+            0.45 * volume_score
+            + 0.25 * competition_score
+            + 0.20 * max(0.0, min(1.0, float(priority_score)))
+            + 0.10 * (1.0 if item_picked else 0.0)
+        )
+        best_score = max(best_score, score)
+    return round(best_score, 4), picked
+
+
 _KEYWORD_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 KEYWORD_MIN_WORDS = 2
+_KEYWORD_HAT_METADATA_TERMS = (
+    "hat",
+    "cap",
+    "trucker",
+    "baseball cap",
+    "dad hat",
+    "snapback",
+    "headwear",
+)
+_KEYWORD_NON_HAT_PRODUCT_TERMS = (
+    "t-shirt",
+    "tshirt",
+    "shirt",
+    "hoodie",
+    "sweatshirt",
+    "mug",
+    "tumbler",
+    "bag",
+    "tote",
+    "poster",
+    "sticker",
+    "shoe",
+    "sneaker",
+    "phone case",
+)
+
+
+def _keyword_metadata_prefilter_reason(candidate: Candidate) -> str | None:
+    text = " ".join(
+        value
+        for value in (
+            str(candidate.alt_text or "").strip(),
+            str(candidate.context_text or "").strip(),
+        )
+        if value
+    ).casefold()
+    if not text:
+        return None
+    has_hat = any(term in text for term in _KEYWORD_HAT_METADATA_TERMS)
+    if has_hat:
+        return None
+    for term in _KEYWORD_NON_HAT_PRODUCT_TERMS:
+        if term in text:
+            return "explicit_non_hat_product:" + term
+    return None
 
 
 def _keyword_word_count(value: str) -> int:
@@ -205,6 +305,48 @@ def _dedupe(values: list[Any]) -> list[str]:
 
 def _quote_extract_status_is_terminal(status: int) -> bool:
     return int(status) in {400, 413, 422}
+
+
+def _quote_extract_error_code(exc: httpx.HTTPStatusError) -> str | None:
+    try:
+        payload = exc.response.json()
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    detail = payload.get("detail")
+    if not isinstance(detail, dict):
+        return None
+    return str(detail.get("code") or "").strip() or None
+
+
+async def _browser_fetch_image(
+    page: Any,
+    image_url: str,
+) -> tuple[bytes, str]:
+    response = await page.context.request.get(
+        image_url,
+        timeout=20_000,
+        fail_on_status_code=False,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            "Browser image fetch returned HTTP " + str(response.status)
+        )
+    content_type = (
+        str(response.headers.get("content-type") or "")
+        .split(";", 1)[0]
+        .strip()
+        .lower()
+    )
+    if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise RuntimeError("Browser image fetch returned unsupported content type")
+    content = await response.body()
+    if not content:
+        raise RuntimeError("Browser image fetch returned no data")
+    if len(content) > BROWSER_FALLBACK_MAX_IMAGE_BYTES:
+        raise RuntimeError("Browser image fetch exceeded size limit")
+    return content, content_type
 
 
 def resolve_keyword_volume(
@@ -499,15 +641,27 @@ class QuoteScoutClient:
             raise last_error
         raise RuntimeError(f"{operation} failed after retries")
 
-    async def extract_quote(self, candidate) -> dict[str, Any]:
+    async def extract_quote(
+        self,
+        candidate,
+        *,
+        image_bytes: bytes | None = None,
+        image_mime_type: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "pin_url": candidate.pin_url,
+            "image_url": candidate.image_url,
+            "alt_text": candidate.alt_text,
+        }
+        operation = "extract_hat_quote"
+        if image_bytes is not None:
+            payload["image_base64"] = base64.b64encode(image_bytes).decode("ascii")
+            payload["image_mime_type"] = image_mime_type
+            operation = "extract_hat_quote_browser_fallback"
         return await self._post(
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/quote-analysis/extract",
-            {
-                "pin_url": candidate.pin_url,
-                "image_url": candidate.image_url,
-                "alt_text": candidate.alt_text,
-            },
-            operation="extract_hat_quote",
+            payload,
+            operation=operation,
             timeout_seconds=CAM_QUOTE_REQUEST_TIMEOUT_SECONDS,
         )
 
@@ -668,6 +822,7 @@ async def _process_keyword_candidate(
     source: str,
     root_pin_url: str,
     deep_dive_min_search_volume: int = DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME,
+    browser_page: Any | None = None,
 ) -> KeywordCandidateResult:
     scout_debug_event(
         "keyword_scout_pin_processing",
@@ -680,29 +835,68 @@ async def _process_keyword_candidate(
         result = await client.extract_quote(candidate)
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
-        if _quote_extract_status_is_terminal(status):
-            history.remember_candidate(candidate.pin_url, candidate.image_url)
-        retryable = not _quote_extract_status_is_terminal(status)
-        scout_debug_event(
-            "keyword_scout_quote_extract_failed",
-            source=source,
-            root_pin_url=root_pin_url,
-            pin_url=candidate.pin_url,
-            image_url=candidate.image_url,
-            status_code=status,
-            retryable=retryable,
-        )
-        print(
-            "quote_extract_failed source="
-            + source
-            + " status="
-            + str(status)
-            + " retry="
-            + ("yes" if retryable else "no")
-            + " pin="
-            + candidate.pin_url
-        )
-        return KeywordCandidateResult()
+        error_code = _quote_extract_error_code(exc)
+        fallback_used = False
+        if (
+            status == 502
+            and error_code == "quote_scout_image_fetch_failed"
+            and browser_page is not None
+        ):
+            try:
+                image_bytes, image_mime_type = await _browser_fetch_image(
+                    browser_page,
+                    candidate.image_url,
+                )
+                scout_debug_event(
+                    "keyword_scout_browser_image_fallback",
+                    source=source,
+                    root_pin_url=root_pin_url,
+                    pin_url=candidate.pin_url,
+                    image_url=candidate.image_url,
+                    size_bytes=len(image_bytes),
+                    image_mime_type=image_mime_type,
+                )
+                result = await client.extract_quote(
+                    candidate,
+                    image_bytes=image_bytes,
+                    image_mime_type=image_mime_type,
+                )
+                fallback_used = True
+            except Exception as fallback_exc:
+                scout_debug_event(
+                    "keyword_scout_browser_image_fallback_failed",
+                    source=source,
+                    root_pin_url=root_pin_url,
+                    pin_url=candidate.pin_url,
+                    image_url=candidate.image_url,
+                    error_type=fallback_exc.__class__.__name__,
+                    error=str(fallback_exc)[:500],
+                )
+        if not fallback_used:
+            if _quote_extract_status_is_terminal(status):
+                history.remember_candidate(candidate.pin_url, candidate.image_url)
+            retryable = not _quote_extract_status_is_terminal(status)
+            scout_debug_event(
+                "keyword_scout_quote_extract_failed",
+                source=source,
+                root_pin_url=root_pin_url,
+                pin_url=candidate.pin_url,
+                image_url=candidate.image_url,
+                status_code=status,
+                error_code=error_code,
+                retryable=retryable,
+            )
+            print(
+                "quote_extract_failed source="
+                + source
+                + " status="
+                + str(status)
+                + " retry="
+                + ("yes" if retryable else "no")
+                + " pin="
+                + candidate.pin_url
+            )
+            return KeywordCandidateResult()
     except Exception as exc:
         scout_debug_event(
             "keyword_scout_quote_extract_failed",
@@ -896,11 +1090,23 @@ async def _process_keyword_candidate(
         ),
         default=0,
     )
-    market_opportunity = (
+    market_score, picked_keyword = _market_opportunity_score(
+        items,
+        priority_score=priority_score,
+    )
+    # Keep the old threshold as a strong positive signal, but do not require it.
+    # Real production data often reports HIGH/UNKNOWN competition even for
+    # promising quote phrases, while picked phrases and very high volume should
+    # still earn deeper Pinterest exploration.
+    hard_market_match = (
         low_competition_search_volume >= max(
             0,
             int(deep_dive_min_search_volume),
         )
+    )
+    market_opportunity = (
+        hard_market_match
+        or market_score >= MARKET_DEEP_DIVE_SCORE_THRESHOLD
     )
     for quote in new_quotes:
         print(
@@ -930,6 +1136,8 @@ async def _process_keyword_candidate(
         ],
         max_search_volume=max_search_volume,
         low_competition_search_volume=low_competition_search_volume,
+        market_score=market_score,
+        picked_keyword=picked_keyword,
         deep_dive_min_search_volume=int(deep_dive_min_search_volume),
         market_opportunity=market_opportunity,
         provider_requested=int(volume.get("provider_requested") or 0),
@@ -937,10 +1145,14 @@ async def _process_keyword_candidate(
     )
     if market_opportunity:
         print(
-            "deep_dive_market=yes volume="
+            "deep_dive_market=yes score="
+            + str(market_score)
+            + " max_volume="
+            + str(max_search_volume)
+            + "/mo low_comp_volume="
             + str(low_competition_search_volume)
-            + "/mo competition=LOW threshold="
-            + str(int(deep_dive_min_search_volume))
+            + "/mo picked="
+            + str(picked_keyword).lower()
             + " pin="
             + candidate.pin_url
         )
@@ -951,6 +1163,8 @@ async def _process_keyword_candidate(
         quotes=tuple(new_quotes),
         max_search_volume=max_search_volume,
         low_competition_search_volume=low_competition_search_volume,
+        market_score=market_score,
+        picked_keyword=picked_keyword,
         market_opportunity=market_opportunity,
     )
 
@@ -983,9 +1197,14 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         + " Pins"
     )
     print(
-        "Deep-dive market      : volume >= "
-        + str(args.deep_dive_min_search_volume)
-        + "/mo + Competition LOW"
+        "Deep-dive budget      : "
+        + str(args.deep_dive_seeds_per_cycle)
+        + " prioritized details/cycle"
+    )
+    print(
+        "Deep-dive market      : adaptive score >= "
+        + str(MARKET_DEEP_DIVE_SCORE_THRESHOLD)
+        + " (volume + competition + visual clarity + Pick)"
     )
     print(
         "Deep-dive depth       : style="
@@ -1006,6 +1225,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         max_pins_per_cycle=args.max_pins_per_cycle,
         related_per_pin=args.related_per_pin,
         deep_dive_related_per_pin=args.deep_dive_related_per_pin,
+        deep_dive_seeds_per_cycle=args.deep_dive_seeds_per_cycle,
         deep_dive_min_search_volume=args.deep_dive_min_search_volume,
         deep_dive_style_max_depth=args.deep_dive_style_max_depth,
         deep_dive_market_max_depth=args.deep_dive_market_max_depth,
@@ -1163,6 +1383,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 related_processed = 0
                 deep_detail_expanded = 0
                 deep_related_scanned = 0
+                deep_processed = 0
                 empty_batch_streak = 0
                 cycle_seen: set[str] = set()
                 for batch in range(args.max_scroll_batches):
@@ -1407,6 +1628,21 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                         continue
                                     related_processed += 1
 
+                                metadata_skip = _keyword_metadata_prefilter_reason(row)
+                                if metadata_skip is not None:
+                                    history.remember_candidate(
+                                        row.pin_url,
+                                        row.image_url,
+                                    )
+                                    scout_debug_event(
+                                        "keyword_scout_metadata_prefiltered",
+                                        source=source,
+                                        root_pin_url=root_pin_url,
+                                        pin_url=row.pin_url,
+                                        reason=metadata_skip,
+                                    )
+                                    continue
+
                                 candidate_result = await _process_keyword_candidate(
                                     client,
                                     history,
@@ -1416,6 +1652,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     deep_dive_min_search_volume=(
                                         args.deep_dive_min_search_volume
                                     ),
+                                    browser_page=detail_page or page,
                                 )
                                 extracted += candidate_result.quote_delta
                                 saved_quotes += candidate_result.saved_delta
@@ -1462,9 +1699,13 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     random.randint(*pace.submit_pause_ms)
                                 )
 
+                            # Deep-dive has a reserved budget separate from root
+                            # discovery. Previously root scanning could consume the
+                            # complete max_pins_per_cycle budget, leaving every queued
+                            # 150-image deep-dive seed unprocessed.
                             while (
                                 deep_queue
-                                and processed < args.max_pins_per_cycle
+                                and deep_processed < args.deep_dive_seeds_per_cycle
                             ):
                                 deep_queue.sort(
                                     key=_deep_dive_sort_key,
@@ -1484,7 +1725,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 ):
                                     continue
 
-                                processed += 1
+                                deep_processed += 1
                                 deep_rows: list[Candidate] = []
                                 try:
                                     deep_rows = await extract_related_candidates(
@@ -1619,6 +1860,22 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     ):
                                         continue
                                     related_processed += 1
+                                    metadata_skip = _keyword_metadata_prefilter_reason(
+                                        child
+                                    )
+                                    if metadata_skip is not None:
+                                        history.remember_candidate(
+                                            child.pin_url,
+                                            child.image_url,
+                                        )
+                                        scout_debug_event(
+                                            "keyword_scout_metadata_prefiltered",
+                                            source="deep_related",
+                                            root_pin_url=seed.root_pin_url,
+                                            pin_url=child.pin_url,
+                                            reason=metadata_skip,
+                                        )
+                                        continue
                                     child_result = (
                                         await _process_keyword_candidate(
                                             client,
@@ -1629,6 +1886,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                             deep_dive_min_search_volume=(
                                                 args.deep_dive_min_search_volume
                                             ),
+                                            browser_page=detail_page or page,
                                         )
                                     )
                                     extracted += child_result.quote_delta
@@ -1992,6 +2250,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scan up to this many related Pins from each prioritized deep-dive detail page.",
     )
     parser.add_argument(
+        "--deep-dive-seeds-per-cycle",
+        type=int,
+        default=DEFAULT_DEEP_DIVE_SEEDS_PER_CYCLE,
+        help="Reserved prioritized detail expansions per cycle, independent of the root Pin budget.",
+    )
+    parser.add_argument(
         "--deep-dive-min-search-volume",
         type=int,
         default=DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME,
@@ -2042,6 +2306,8 @@ def main() -> int:
                 "--deep-dive-related-per-pin must be between 1 and "
                 + str(PIN_RELATED_HARD_LIMIT)
             )
+        if args.deep_dive_seeds_per_cycle < 1 or args.deep_dive_seeds_per_cycle > 12:
+            parser.error("--deep-dive-seeds-per-cycle must be between 1 and 12")
         if args.deep_dive_min_search_volume < 0:
             parser.error("--deep-dive-min-search-volume must be at least 0")
         if (
