@@ -339,35 +339,41 @@ async def _authorized_file_context(
     principal: CurrentPrincipal,
     external_source_id: str | None,
 ) -> tuple[str, str, str | None]:
-    """Resolve a tenant source and enforce the same file scope for all proxies."""
+    """Resolve tenant media access.
+
+    Viewer folder assignments constrain browse navigation. Principals with
+    search.read are intentionally allowed to open tenant-wide search results,
+    including assets from sources that are not currently selected in Explorer.
+    """
     token, _account_id_value, tenant_id, resolved_source_id = await _source_context(
         request, provider, session, principal, external_source_id
     )
     if not token:
         raise HTTPException(status_code=401, detail=f"Connect {provider} to preview files.")
 
-    scope_service = ViewerFolderScopeService(session)
-    access = scope_service.access(
-        tenant_id=tenant_id,
-        membership_id=principal.membership_id,
-        roles=principal.effective_roles,
-        external_source_id=resolved_source_id,
-    )
-    if not await _viewer_media_scope_allowed(
-        scope_service,
-        tenant_id=tenant_id,
-        access=access,
-        provider=provider,
-        token=token,
-        item_id=item_id,
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "viewer_folder_scope_denied",
-                "message": "File is outside the viewer folder scope.",
-            },
+    if is_pure_viewer(principal) and "search.read" not in principal.effective_permissions:
+        scope_service = ViewerFolderScopeService(session)
+        access = scope_service.access(
+            tenant_id=tenant_id,
+            membership_id=principal.membership_id,
+            roles=principal.effective_roles,
+            external_source_id=resolved_source_id,
         )
+        if not await _viewer_media_scope_allowed(
+            scope_service,
+            tenant_id=tenant_id,
+            access=access,
+            provider=provider,
+            token=token,
+            item_id=item_id,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "viewer_folder_scope_denied",
+                    "message": "File is outside the viewer folder scope.",
+                },
+            )
     # Authorization is complete. Never carry a DB checkout into thumbnail,
     # preview, media, or CDN/provider network I/O.
     session.close()

@@ -325,7 +325,7 @@ export function useDriveExplorer(imageSearchEnabled = true) {
   const [metadataIndex, setMetadataIndex] = useState<DriveIndexStatus>({ ...emptyIndexStatus });
   // The header search is tenant-wide: media tabs filter kind, not cloud source.
   // Result items retain their own provider/source identity for open and preview.
-  const searchV3 = useSearchV3(Boolean(applicationAuthenticated) && explorerReady, null, imageSearchEnabled ? query : "", undefined);
+  const searchV3 = useSearchV3(Boolean(applicationAuthenticated), null, imageSearchEnabled ? query : "", undefined);
 
   const folderCache = useRef(new Map<string, Folder>());
   const folderRequests = useRef(new Map<string, Promise<Folder>>());

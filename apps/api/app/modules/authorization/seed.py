@@ -68,7 +68,7 @@ BILLING_ADMIN_PERMISSIONS = {
 SYSTEM_ROLE_DEFINITIONS = {
     "viewer": (
         "Viewer",
-        "Read and search assigned assets, operate Realistic Review UGC, and fully use Review Board workflows",
+        "Read assigned assets, search tenant-wide indexed assets, operate Realistic Review UGC, and fully use Review Board workflows",
         VIEWER_PERMISSIONS,
     ),
     "operator": ("Operator", "Operate tenant AI processing", OPERATOR_PERMISSIONS),

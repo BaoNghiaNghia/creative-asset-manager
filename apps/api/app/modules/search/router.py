@@ -170,7 +170,7 @@ def capabilities(principal: CurrentPrincipal = Depends(SEARCH_READ)):
         "selected_version": "v3",
         "readiness": readiness,
         "search_available": search_available,
-        "viewer_scoped": is_pure_viewer(principal),
+        "viewer_scoped": False,
         "failure_code": None if search_available else "search_v3_unavailable",
         "facet_names": facets,
         "examples": EXAMPLES,
@@ -208,30 +208,6 @@ def _source_type_provider(source_type: object) -> str:
     }.get(str(source_type or "").casefold(), "google-drive")
 
 
-def _viewer_scope_filter(
-    session,
-    principal: CurrentPrincipal,
-    *,
-    generation: str | None = None,
-) -> tuple[dict | None, tuple[tuple[str, tuple[str, ...]], ...] | None]:
-    if not is_pure_viewer(principal) or not principal.membership_id:
-        return ({"match_none": {}}, ()) if is_pure_viewer(principal) else (None, None)
-    scopes = ViewerFolderScopeService(session).list_membership_scopes(
-        tenant_id=principal.active_tenant_id,
-        membership_id=principal.membership_id,
-    )
-    normalized = tuple(sorted(
-        (str(source_id), tuple(sorted(str(folder_id) for folder_id in folder_ids if str(folder_id).strip())))
-        for source_id, folder_ids in scopes.items() if folder_ids
-    ))
-    if not normalized:
-        return {"match_none": {}}, normalized
-    return {"bool": {"should": [
-        {"bool": {"filter": [{"term": {"source_id": source_id}}, {"terms": {"ancestor_ids": list(folder_ids)}}]}}
-        for source_id, folder_ids in normalized
-    ], "minimum_should_match": 1}}, normalized
-
-
 def _search_scope_filters(
     session,
     principal: CurrentPrincipal,
@@ -248,12 +224,10 @@ def _search_scope_filters(
     )
     if source_filter:
         filters.append(source_filter)
-    viewer_filter, viewer_scope_key = _viewer_scope_filter(
-        session, principal,
-    )
-    if viewer_filter:
-        filters.append(viewer_filter)
-    return filters, viewer_scope_key, viewer_filter is not None
+    # search.read is tenant-wide. Viewer folder assignments still constrain
+    # Explorer browsing, but they must not hide indexed assets from keyword or
+    # visual search across connected sources such as Google Drive and OneDrive.
+    return filters, None, False
 
 
 def _live_suggestion_hits(session, tenant: str, hits: list[dict]) -> list[dict]:

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
-from app.modules.explorer.router import _asset_version_fingerprint, media_access, media_playback_ticket
+from app.modules.explorer.router import _asset_version_fingerprint, _authorized_file_context, media_access, media_playback_ticket
 
 
 class AssetVersionFingerprintTests(IsolatedAsyncioTestCase):
@@ -40,6 +40,69 @@ class AssetVersionFingerprintTests(IsolatedAsyncioTestCase):
                 size_bytes=None,
             )
         )
+
+
+class SearchMediaAuthorizationTests(IsolatedAsyncioTestCase):
+    async def test_pure_viewer_with_search_read_can_open_tenant_wide_search_result(self):
+        principal = SimpleNamespace(
+            membership_id="membership-1",
+            effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset({"assets.read", "search.read"}),
+        )
+        session = MagicMock()
+        source_context = AsyncMock(
+            return_value=("token", "account-1", "tenant-1", "source-1")
+        )
+        with (
+            patch("app.modules.explorer.router._source_context", source_context),
+            patch("app.modules.explorer.router.ViewerFolderScopeService") as scope_type,
+        ):
+            result = await _authorized_file_context(
+                request=object(),
+                item_id="asset-1",
+                provider="onedrive",
+                session=session,
+                principal=principal,
+                external_source_id="source-1",
+            )
+
+        self.assertEqual(result, ("token", "tenant-1", "source-1"))
+        scope_type.assert_not_called()
+        session.close.assert_called_once()
+
+    async def test_pure_viewer_without_search_read_keeps_folder_media_scope(self):
+        principal = SimpleNamespace(
+            membership_id="membership-1",
+            effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset({"assets.read"}),
+        )
+        session = MagicMock()
+        access = object()
+        scope = MagicMock()
+        scope.access.return_value = access
+        with (
+            patch(
+                "app.modules.explorer.router._source_context",
+                AsyncMock(return_value=("token", "account-1", "tenant-1", "source-1")),
+            ),
+            patch("app.modules.explorer.router.ViewerFolderScopeService", return_value=scope),
+            patch(
+                "app.modules.explorer.router._viewer_media_scope_allowed",
+                AsyncMock(return_value=False),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await _authorized_file_context(
+                    request=object(),
+                    item_id="asset-1",
+                    provider="google-drive",
+                    session=session,
+                    principal=principal,
+                    external_source_id="source-1",
+                )
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(raised.exception.detail["code"], "viewer_folder_scope_denied")
 
 
 class MediaAccessProbeTests(IsolatedAsyncioTestCase):

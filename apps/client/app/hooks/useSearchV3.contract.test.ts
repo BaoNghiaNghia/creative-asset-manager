@@ -20,8 +20,9 @@ describe("Search V3 runtime contract", () => {
     expect(searchHookSource).not.toContain("/api/explorer/");
   });
 
-  it("gates viewer browse and search requests behind bootstrap source selection", () => {
-    expect(driveExplorerSource).toContain("useSearchV3(Boolean(applicationAuthenticated) && explorerReady");
+  it("keeps tenant-wide search independent from viewer browse bootstrap", () => {
+    expect(driveExplorerSource).toContain("useSearchV3(Boolean(applicationAuthenticated), null");
+    expect(driveExplorerSource).not.toContain("useSearchV3(Boolean(applicationAuthenticated) && explorerReady");
     expect(driveExplorerSource).toContain("if (pureViewer && !externalSourceId)");
     expect(driveExplorerSource).toContain("if (pureViewer && !sourceId)");
     expect(driveExplorerSource).toContain("/api/explorer/viewer/bootstrap?provider=");

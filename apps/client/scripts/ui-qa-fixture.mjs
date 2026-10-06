@@ -56,7 +56,7 @@ function defaultCapabilities() {
     selected_version: "v3",
     readiness: "ready",
     search_available: true,
-    viewer_scoped: true,
+    viewer_scoped: false,
     failure_code: null,
     facet_names: [],
     examples: ["embroidery", "ugc review"],

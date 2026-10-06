@@ -334,7 +334,7 @@ class SearchV3ApiTest(unittest.TestCase):
             {"value": "cat", "count": 2, "selected": True},
         )
 
-    def test_pure_viewer_tenant_wide_search_without_source_is_allowed_and_fail_closed_without_scopes(self):
+    def test_pure_viewer_search_read_is_tenant_wide_without_browse_scopes(self):
         captured = []
 
         class FakeIndex:
@@ -374,7 +374,10 @@ class SearchV3ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"], [])
-        self.assertIn({"match_none": {}}, captured[0]["query"]["bool"]["filter"])
+        self.assertEqual(
+            captured[0]["query"]["bool"]["filter"],
+            [{"term": {"tenant_id": "tenant-a"}}],
+        )
 
     def test_cursor_page_two_reuses_pit_and_rejects_context_changes(self):
         app.dependency_overrides[require_authenticated_principal] = lambda: CurrentPrincipal(
@@ -654,7 +657,7 @@ class SearchV3ApiTest(unittest.TestCase):
         self.assertEqual(_source_type_provider("onedrive"), "onedrive")
         self.assertEqual(_source_type_provider("sharepoint"), "sharepoint")
 
-    def test_viewer_suggestion_filters_are_source_and_folder_scoped(self):
+    def test_viewer_suggestion_filters_are_source_scoped_but_not_browse_folder_scoped(self):
         with self.factory() as session:
             session.add_all([
                 ExternalSourceModel(
@@ -683,12 +686,16 @@ class SearchV3ApiTest(unittest.TestCase):
                 external_source_id="source-a",
             )
 
-        self.assertTrue(restricted)
-        self.assertIn({"term": {"tenant_id": "tenant-a"}}, filters)
-        self.assertIn({"terms": {"source_id": ["source-a"]}}, filters)
-        self.assertIn("assigned-a", str(filters))
-        self.assertNotIn("sibling-folder", str(filters))
-        self.assertNotIn("source-b", str(filters))
+        self.assertFalse(restricted)
+        self.assertEqual(_scope_key, None)
+        self.assertEqual(
+            filters,
+            [
+                {"term": {"tenant_id": "tenant-a"}},
+                {"terms": {"source_id": ["source-a"]}},
+            ],
+        )
+        self.assertNotIn("assigned-a", str(filters))
 
     def test_operator_suggestion_filters_keep_v3_without_viewer_scope(self):
         with self.factory() as session:
