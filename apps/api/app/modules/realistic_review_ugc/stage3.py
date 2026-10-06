@@ -117,7 +117,9 @@ customer-review card. It should sound like an ordinary hat buyer talking about e
 style, or why they picked the design. Keep it specific enough to feel human, but only use details that
 are visible or safely generic. Do not identify the visible person, infer demographic traits, or invent
 shipping speed, customer service interactions, discounts, exact durability history, or other facts not
-supported by the image. Do not include a reviewer name or star rating in review_text.
+supported by the image. Vary both sentence count and opening style from one image to the next; do not
+default to stock openings such as "Obsessed with...". Do not include a reviewer name or star rating
+in review_text.
 """.strip()
 
 
@@ -173,18 +175,113 @@ def star_rating_for_analysis(analysis_id: str) -> int:
     return 3
 
 
-def review_text_for_analysis(document: Stage3UgcAnalysisDocument) -> str:
-    candidate = (document.review_text or "").strip()
-    if candidate:
-        return candidate
-    if document.embroidery_visible:
-        return (
-            "I picked this hat because the embroidered detail gives it some personality "
-            "without feeling overdone. It has an easy, casual look that works well for everyday wear."
-        )
-    return (
-        "I like the easy, casual look of this hat and how simple it is to work into an everyday outfit. "
-        "It is the kind of style I would reach for on a regular day."
+_REVIEW_SHORT_EMBROIDERY = (
+    "Clean embroidery, easy colors, and a really wearable everyday look.",
+    "Fun detail without feeling too loud — exactly what I want from a casual cap.",
+    "The stitching gives this hat just enough personality to stand out.",
+    "Simple, playful, and easy to work into a casual outfit.",
+    "A nice grab-and-go cap with a little more character than a basic one.",
+    "The embroidered front is subtle enough for everyday wear but still feels special.",
+    "Easy to style, and the front detail keeps the whole look from feeling plain.",
+    "Good balance of casual and fun; the embroidery is the part that makes it.",
+)
+
+_REVIEW_SHORT_GENERIC = (
+    "Simple, clean, and really easy to style for an everyday look.",
+    "A relaxed cap that works without making the outfit feel overdone.",
+    "Easy colors, casual shape, and exactly the kind of hat I would reach for often.",
+    "Low-key, wearable, and easy to pair with basic weekend outfits.",
+    "A solid everyday cap with a clean look and just enough personality.",
+    "Casual in the best way — easy to throw on and still looks put together.",
+    "This has the kind of simple shape that works with almost any casual outfit.",
+    "Clean and uncomplicated, which is exactly why this one works so well.",
+)
+
+_REVIEW_OPENINGS = (
+    "Exactly the kind of cap I reach for when I want something casual.",
+    "The whole look feels laid-back without looking plain.",
+    "This one has an easy everyday vibe that works really well.",
+    "Simple at first glance, but there is enough detail to keep it interesting.",
+    "I like how effortless this cap looks with a basic outfit.",
+    "A fun hat that still feels easy enough for regular wear.",
+    "The color and front design feel nicely balanced on this one.",
+    "Low-key enough for everyday wear, but it still has some character.",
+    "This is the kind of hat that makes a simple outfit feel more finished.",
+    "Really like the relaxed shape and uncomplicated styling here.",
+    "Such an easy casual piece to build an outfit around.",
+    "For an everyday cap, this hits a nice balance between simple and distinctive.",
+)
+
+_REVIEW_EMBROIDERY_DETAILS = (
+    "The embroidered detail stands out nicely without taking over the whole cap.",
+    "The stitching gives the front a more personal feel without looking oversized.",
+    "The embroidery adds enough contrast to make the design noticeable right away.",
+    "I like that the front detail feels playful while the rest of the hat stays simple.",
+    "The stitched design is what keeps it from feeling like just another basic cap.",
+    "The embroidery reads clearly and adds a nice focal point to the front.",
+    "That little bit of stitched detail gives the whole hat more personality.",
+    "The front design feels intentional and still keeps the overall look clean.",
+    "The embroidery makes it feel a little more special without making it hard to style.",
+    "The stitched front works especially well with the otherwise relaxed look.",
+)
+
+_REVIEW_GENERIC_DETAILS = (
+    "The overall design stays clean and does not feel too busy.",
+    "The shape looks easy to pair with jeans, tees, or a casual weekend outfit.",
+    "The colors feel straightforward enough to work into an everyday wardrobe.",
+    "There is enough visual interest to keep it from feeling like a plain basic cap.",
+    "The front stays noticeable without dominating the rest of the look.",
+    "It has that effortless, wear-with-anything kind of feel I like in a cap.",
+    "The proportions look balanced and keep the style feeling relaxed.",
+    "I like how the design adds personality while the rest stays uncomplicated.",
+    "The clean finish makes it easy to imagine wearing with a lot of casual looks.",
+    "Nothing feels overworked here, which makes the hat much easier to style.",
+)
+
+_REVIEW_CLOSINGS = (
+    "I would reach for this one a lot.",
+    "Definitely an easy everyday pick.",
+    "Good balance of fun and wearable.",
+    "This would be an easy weekend go-to.",
+    "It works especially well for casual days.",
+    "A solid choice when I want something simple with a little personality.",
+    "Easy to wear and easy to style.",
+    "I can see this getting a lot of rotation.",
+    "Just enough detail to keep it interesting.",
+    "A nice grab-and-go hat for a relaxed outfit.",
+)
+
+
+def compose_review_text(*, analysis_id: str, embroidery_visible: bool) -> str:
+    """Build stable synthetic review copy with deliberately varied cadence and length."""
+    digest = hashlib.sha256(("review-copy:" + analysis_id).encode("utf-8")).digest()
+    length_bucket = digest[0] % 100
+    short_pool = _REVIEW_SHORT_EMBROIDERY if embroidery_visible else _REVIEW_SHORT_GENERIC
+    detail_pool = _REVIEW_EMBROIDERY_DETAILS if embroidery_visible else _REVIEW_GENERIC_DETAILS
+
+    if length_bucket < 25:
+        return short_pool[digest[1] % len(short_pool)]
+
+    opening = _REVIEW_OPENINGS[digest[1] % len(_REVIEW_OPENINGS)]
+    detail = detail_pool[digest[2] % len(detail_pool)]
+    if length_bucket < 75:
+        return f"{opening} {detail}"
+
+    closing = _REVIEW_CLOSINGS[digest[3] % len(_REVIEW_CLOSINGS)]
+    return f"{opening} {detail} {closing}"
+
+
+def review_text_for_analysis(
+    document: Stage3UgcAnalysisDocument,
+    analysis_id: str,
+) -> str:
+    # Gemini still returns a short review observation as part of structured
+    # analysis, but final customer-facing copy is composed locally. This keeps
+    # wording stable across refreshes and prevents repeated model openers from
+    # propagating across an entire review grid.
+    return compose_review_text(
+        analysis_id=analysis_id,
+        embroidery_visible=document.embroidery_visible,
     )
 
 
@@ -486,7 +583,7 @@ class RrugcStage3AnalyzeJobHandler:
             row.summary = document.summary
             row.reviewer_name = reviewer_name_for_analysis(analysis_id)
             row.star_rating = star_rating_for_analysis(analysis_id)
-            row.review_text = review_text_for_analysis(document)
+            row.review_text = review_text_for_analysis(document, analysis_id)
             row.review_generated_at = datetime.now(timezone.utc)
             row.evidence_json = list(document.evidence)
             row.reject_reasons_json = list(decision.reject_reasons)

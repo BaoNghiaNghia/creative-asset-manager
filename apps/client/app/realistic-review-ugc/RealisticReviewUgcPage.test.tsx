@@ -14,6 +14,7 @@ import {
   stage2JobsRenderFingerprint,
 } from "./RealisticReviewUgcPage";
 import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal } from "./Stage2JobTable";
+import { Stage3ReviewGroups, Stage3ReviewModal } from "./Stage3ReviewGroups";
 import {
   ReferenceReviewModal,
   SourceImageReviewModal,
@@ -22,7 +23,13 @@ import {
   sourceReviewImageUrl,
   sourcePlanProgressPercent,
 } from "./SourcePlanTable";
-import type { SourcePlan, SourcePlanOverview, Stage2Job } from "./types";
+import type {
+  SourcePlan,
+  SourcePlanOverview,
+  Stage2Job,
+  Stage3ReviewGroupList,
+  Stage3ReviewImage,
+} from "./types";
 
 function makePlan(referenceCount = 0): SourcePlan {
   return {
@@ -154,6 +161,45 @@ function makeStage2Job(
     created_at: "2026-10-04T01:00:00Z",
     updated_at: "2026-10-04T01:02:00Z",
     ...overrides,
+  };
+}
+
+function makeStage3ReviewImage(
+  id: string,
+  reviewerName: string,
+  reviewText: string,
+): Stage3ReviewImage {
+  return {
+    stage2_job_id: id,
+    source_plan_id: "plan-" + id,
+    source_name: "BachelorettePartySnapbackHat-" + id + ".png",
+    source_relative_path: "Reviews/" + id + ".png",
+    output_remote_file_id: "remote-" + id,
+    output_width: 1024,
+    output_height: 1024,
+    output_content_type: "image/png",
+    completed_at: "2026-10-06T01:00:00Z",
+    preview_url: "https://img.example/" + id + ".jpg",
+    analysis_id: "analysis-" + id,
+    analysis_status: "ready",
+    final_score: 0.9,
+    mobile_ugc_score: 0.9,
+    photorealism_score: 0.88,
+    product_visibility_score: 0.92,
+    review_fit_score: 0.91,
+    person_visible: true,
+    hat_visible: true,
+    product_visible: true,
+    embroidery_visible: true,
+    scene_type: "casual",
+    framing_type: "medium",
+    summary: "Natural lifestyle image.",
+    reviewer_name: reviewerName,
+    star_rating: 5,
+    review_text: reviewText,
+    review_generated_at: "2026-10-06T01:01:00Z",
+    reject_reasons: [],
+    last_error_code: null,
   };
 }
 
@@ -907,6 +953,73 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">×<");
     expect(markup).toContain("rrugc-source-review-vote is-ai");
     expect(markup).toContain(">AI<");
+  });
+
+  it("opens ready Stage 3 review cards into a navigable detail modal", () => {
+    const first = makeStage3ReviewImage(
+      "review-1",
+      "Casey F.",
+      "Clean embroidery and an easy everyday look.",
+    );
+    const second = makeStage3ReviewImage(
+      "review-2",
+      "Alex P.",
+      "The colors feel relaxed and the front design gives the cap just enough personality.",
+    );
+    const data: Stage3ReviewGroupList = {
+      items: [{
+        folder_id: "folder-review",
+        folder_name: "Bachelorette Hats",
+        folder_path: "UGC/Bachelorette Hats",
+        image_count: 2,
+        status: "ready",
+        ready_count: 2,
+        rejected_count: 0,
+        analyzing_count: 0,
+        pending_count: 0,
+        error_count: 0,
+        latest_completed_at: "2026-10-06T01:00:00Z",
+        images: [first, second],
+      }],
+      total_groups: 1,
+      total_images: 2,
+      ready_images: 2,
+      rejected_images: 0,
+      analyzing_images: 0,
+      pending_images: 0,
+      error_images: 0,
+    };
+
+    const galleryMarkup = renderToStaticMarkup(
+      <Stage3ReviewGroups
+        data={data}
+        loading={false}
+        analyzing={false}
+        message=""
+        onAnalyze={() => undefined}
+      />,
+    );
+    expect(galleryMarkup).toContain('role="button"');
+    expect(galleryMarkup).toContain("Open review details for Casey F.");
+
+    const modalMarkup = renderToStaticMarkup(
+      <Stage3ReviewModal
+        entries={[
+          { image: first, folderName: "Bachelorette Hats", folderPath: "UGC/Bachelorette Hats" },
+          { image: second, folderName: "Bachelorette Hats", folderPath: "UGC/Bachelorette Hats" },
+        ]}
+        index={0}
+        onIndexChange={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(modalMarkup).toContain('role="dialog"');
+    expect(modalMarkup).toContain('aria-modal="true"');
+    expect(modalMarkup).toContain('aria-label="Previous review"');
+    expect(modalMarkup).toContain('aria-label="Next review"');
+    expect(modalMarkup).toContain("1 / 2");
+    expect(modalMarkup).toContain("Synthetic UGC review");
+    expect(modalMarkup).toContain("Clean embroidery and an easy everyday look.");
   });
 
   it("keeps progress capped at 100 percent when refs exceed the target", () => {

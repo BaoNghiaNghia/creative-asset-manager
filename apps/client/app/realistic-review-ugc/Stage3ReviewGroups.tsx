@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type {
   Stage3AnalysisStatus,
   Stage3ReviewGroup,
@@ -12,6 +13,19 @@ type Props = {
   analyzing: boolean;
   message: string;
   onAnalyze: (folderId?: string) => void;
+};
+
+export type Stage3ReviewModalEntry = {
+  image: Stage3ReviewImage;
+  folderName: string;
+  folderPath: string;
+};
+
+type Stage3ReviewModalProps = {
+  entries: Stage3ReviewModalEntry[];
+  index: number;
+  onIndexChange: (index: number) => void;
+  onClose: () => void;
 };
 
 function completedLabel(value: string | null): string {
@@ -57,6 +71,140 @@ function imageDetail(image: Stage3ReviewImage): string {
   );
 }
 
+function hasReview(image: Stage3ReviewImage): boolean {
+  return Boolean(
+    image.analysis_status === "ready"
+    && image.review_text
+    && image.reviewer_name
+    && image.star_rating,
+  );
+}
+
+export function Stage3ReviewModal({
+  entries,
+  index,
+  onIndexChange,
+  onClose,
+}: Stage3ReviewModalProps) {
+  const entry = entries[index];
+  const count = entries.length;
+
+  useEffect(() => {
+    if (!entry) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (count > 1 && event.key === "ArrowLeft") {
+        event.preventDefault();
+        onIndexChange((index - 1 + count) % count);
+      }
+      if (count > 1 && event.key === "ArrowRight") {
+        event.preventDefault();
+        onIndexChange((index + 1) % count);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [count, entry, index, onClose, onIndexChange]);
+
+  if (!entry) return null;
+
+  const { image, folderName, folderPath } = entry;
+  const starRating = image.star_rating || 0;
+  const move = (direction: -1 | 1) => {
+    if (count <= 1) return;
+    onIndexChange((index + direction + count) % count);
+  };
+
+  return <div
+    className="rrugc-stage3-review-modal-backdrop"
+    role="presentation"
+    onMouseDown={event => {
+      if (event.currentTarget === event.target) onClose();
+    }}
+  >
+    <section
+      className="rrugc-stage3-review-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rrugc-stage3-review-modal-title"
+      onMouseDown={event => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="rrugc-stage3-review-modal-close"
+        aria-label="Close review details"
+        onClick={onClose}
+      >×</button>
+
+      <button
+        type="button"
+        className="rrugc-stage3-review-modal-nav is-prev"
+        aria-label="Previous review"
+        onClick={() => move(-1)}
+        disabled={count <= 1}
+      >&lt;</button>
+
+      <div className="rrugc-stage3-review-modal-media">
+        <img
+          src={image.preview_url}
+          alt={image.source_name ? "Review image for " + image.source_name : "UGC review image"}
+          decoding="async"
+        />
+        <span className="rrugc-stage3-review-modal-count">{index + 1} / {count}</span>
+      </div>
+
+      <div className="rrugc-stage3-review-modal-copy">
+        <div className="rrugc-stage3-review-modal-meta">
+          <span>Synthetic UGC review</span>
+          <small>{folderName}{folderPath ? " · " + folderPath : ""}</small>
+        </div>
+
+        <div className="rrugc-stage3-review-modal-title-row">
+          <div>
+            <h3 id="rrugc-stage3-review-modal-title">{image.reviewer_name}</h3>
+            <span
+              className="rrugc-stage3-stars is-modal"
+              aria-label={starRating + " out of 5 stars"}
+            >
+              {"★".repeat(starRating)}{"☆".repeat(5 - starRating)}
+            </span>
+          </div>
+          <small>{image.scene_type || image.framing_type || "Lifestyle review"}</small>
+        </div>
+
+        <blockquote>{image.review_text}</blockquote>
+
+        <div className="rrugc-stage3-review-modal-scores" aria-label="Review image scores">
+          <span><small>UGC</small><strong>{percent(image.mobile_ugc_score)}</strong></span>
+          <span><small>Photo</small><strong>{percent(image.photorealism_score)}</strong></span>
+          <span><small>Product</small><strong>{percent(image.product_visibility_score)}</strong></span>
+          <span><small>Review</small><strong>{percent(image.review_fit_score)}</strong></span>
+        </div>
+
+        <div className="rrugc-stage3-review-modal-source">
+          <strong>{image.source_name || "Generated output"}</strong>
+          {image.output_width && image.output_height && (
+            <span>{image.output_width}×{image.output_height}</span>
+          )}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        className="rrugc-stage3-review-modal-nav is-next"
+        aria-label="Next review"
+        onClick={() => move(1)}
+        disabled={count <= 1}
+      >&gt;</button>
+    </section>
+  </div>;
+}
+
 export function Stage3ReviewGroups({
   data,
   loading,
@@ -64,7 +212,21 @@ export function Stage3ReviewGroups({
   message,
   onAnalyze,
 }: Props) {
+  const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const finished = data.ready_images + data.rejected_images;
+  const reviewEntries: Stage3ReviewModalEntry[] = data.items.flatMap(group => (
+    group.images
+      .filter(hasReview)
+      .map(image => ({
+        image,
+        folderName: group.folder_name,
+        folderPath: group.folder_path,
+      }))
+  ));
+  const selectedReviewIndex = selectedReviewId
+    ? reviewEntries.findIndex(entry => entry.image.stage2_job_id === selectedReviewId)
+    : -1;
+
   return <section className="rrugc-stage3">
     <header className="rrugc-stage3-header">
       <div>
@@ -143,10 +305,24 @@ export function Stage3ReviewGroups({
             </div>
 
             <div className="rrugc-stage3-gallery">
-              {group.images.map(image => (
-                <figure
+              {group.images.map(image => {
+                const reviewReady = hasReview(image);
+                return <figure
                   key={image.stage2_job_id}
-                  className={"rrugc-stage3-image is-" + image.analysis_status}
+                  className={
+                    "rrugc-stage3-image is-" + image.analysis_status
+                    + (reviewReady ? " is-clickable" : "")
+                  }
+                  role={reviewReady ? "button" : undefined}
+                  tabIndex={reviewReady ? 0 : undefined}
+                  aria-label={reviewReady ? "Open review details for " + image.reviewer_name : undefined}
+                  onClick={reviewReady ? () => setSelectedReviewId(image.stage2_job_id) : undefined}
+                  onKeyDown={reviewReady ? event => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedReviewId(image.stage2_job_id);
+                    }
+                  } : undefined}
                 >
                   <div className="rrugc-stage3-image-media">
                     <img
@@ -175,25 +351,25 @@ export function Stage3ReviewGroups({
                         <span>Review <b>{percent(image.review_fit_score)}</b></span>
                       </div>
                     )}
-                    {image.analysis_status === "ready" && image.review_text && image.reviewer_name && image.star_rating ? (
+                    {reviewReady ? (
                       <div className="rrugc-stage3-review-copy">
                         <div>
                           <strong>{image.reviewer_name}</strong>
                           <span
                             className="rrugc-stage3-stars"
-                            aria-label={image.star_rating + " out of 5 stars"}
+                            aria-label={(image.star_rating || 0) + " out of 5 stars"}
                           >
-                            {"★".repeat(image.star_rating)}{"☆".repeat(5 - image.star_rating)}
+                            {"★".repeat(image.star_rating || 0)}{"☆".repeat(5 - (image.star_rating || 0))}
                           </span>
                         </div>
-                        <blockquote title={image.review_text}>{image.review_text}</blockquote>
+                        <blockquote title={image.review_text || ""}>{image.review_text}</blockquote>
                       </div>
                     ) : (
                       <p title={imageDetail(image)}>{imageDetail(image)}</p>
                     )}
                   </figcaption>
-                </figure>
-              ))}
+                </figure>;
+              })}
             </div>
 
             {group.latest_completed_at && (
@@ -204,6 +380,17 @@ export function Stage3ReviewGroups({
           </article>
         ))}
       </div>
+    )}
+
+    {selectedReviewIndex >= 0 && (
+      <Stage3ReviewModal
+        entries={reviewEntries}
+        index={selectedReviewIndex}
+        onIndexChange={nextIndex => setSelectedReviewId(
+          reviewEntries[nextIndex]?.image.stage2_job_id || null,
+        )}
+        onClose={() => setSelectedReviewId(null)}
+      />
     )}
   </section>;
 }

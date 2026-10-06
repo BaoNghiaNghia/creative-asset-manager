@@ -1389,7 +1389,14 @@ def test_stage3_ugc_decision_only_rejects_missing_person_or_product():
         evidence=["person wearing the hat"],
         summary="Natural lifestyle frame.",
     )
-    assert "embroidered detail" in review_text_for_analysis(fallback_document)
+    varied_reviews = [
+        review_text_for_analysis(fallback_document, f"analysis-{index}")
+        for index in range(100)
+    ]
+    assert len(set(varied_reviews)) >= 60
+    assert {copy.count(".") for copy in varied_reviews} >= {1, 2, 3}
+    assert len({copy.split(maxsplit=1)[0] for copy in varied_reviews}) >= 8
+    assert all(not copy.lower().startswith("obsessed with") for copy in varied_reviews)
 
     normalized = normalize_stage3_metadata(
         {
@@ -1608,7 +1615,8 @@ def test_stage3_analysis_worker_persists_ready_result(database):
         assert persisted.reviewer_name.endswith(".")
         assert persisted.star_rating in {3, 4, 5}
         assert persisted.review_text is not None
-        assert "everyday wear" in persisted.review_text
+        assert len(persisted.review_text) >= 30
+        assert not persisted.review_text.lower().startswith("obsessed with")
         assert persisted.review_generated_at is not None
         assert persisted.completed_at is not None
         assert persisted.reject_reasons_json == []
