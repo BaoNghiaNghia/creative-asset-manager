@@ -1785,6 +1785,15 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
         )
         for image in groups["folder-a"]["images"]
     )
+    assert all(
+        image["original_url"]
+        == (
+            "/api/v1/realistic-review-ugc/stage2-jobs/"
+            + image["stage2_job_id"]
+            + "/output"
+        )
+        for image in groups["folder-a"]["images"]
+    )
     assert groups["folder-b"]["folder_name"] == "Black"
     assert groups["folder-b"]["image_count"] == 1
     assert all(

@@ -88,6 +88,19 @@ export function Stage3ReviewModal({
 }: Stage3ReviewModalProps) {
   const entry = entries[index];
   const count = entries.length;
+  const [loadedOriginal, setLoadedOriginal] = useState<{
+    stage2JobId: string;
+    url: string;
+  } | null>(null);
+  const currentImage = entry?.image;
+  const currentJobId = currentImage?.stage2_job_id || "";
+  const currentPreviewUrl = currentImage?.preview_url || "";
+  const currentOriginalUrl = currentImage?.original_url || "";
+  const displayedImageUrl = (
+    loadedOriginal?.stage2JobId === currentJobId
+      ? loadedOriginal.url
+      : currentPreviewUrl
+  );
 
   useEffect(() => {
     if (!entry) return undefined;
@@ -110,6 +123,45 @@ export function Stage3ReviewModal({
       document.body.style.overflow = previousOverflow;
     };
   }, [count, entry, index, onClose, onIndexChange]);
+
+  useEffect(() => {
+    setLoadedOriginal(null);
+    if (
+      !currentJobId
+      || !currentOriginalUrl
+      || currentOriginalUrl === currentPreviewUrl
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const preload = new window.Image();
+    preload.decoding = "async";
+    preload.onload = () => {
+      const decoded = typeof preload.decode === "function"
+        ? preload.decode()
+        : Promise.resolve();
+      void decoded
+        .catch(() => undefined)
+        .then(() => {
+          if (cancelled) return;
+          setLoadedOriginal({
+            stage2JobId: currentJobId,
+            url: currentOriginalUrl,
+          });
+        });
+    };
+    preload.onerror = () => {
+      // Keep the already-visible preview when the original cannot be loaded.
+    };
+    preload.src = currentOriginalUrl;
+
+    return () => {
+      cancelled = true;
+      preload.onload = null;
+      preload.onerror = null;
+    };
+  }, [currentJobId, currentOriginalUrl, currentPreviewUrl]);
 
   if (!entry) return null;
 
@@ -143,7 +195,8 @@ export function Stage3ReviewModal({
 
       <div className="rrugc-stage3-review-modal-media">
         <img
-          src={image.preview_url}
+          src={displayedImageUrl}
+          data-original-src={image.original_url}
           alt={image.source_name ? "Review image for " + image.source_name : "UGC review image"}
           decoding="async"
         />

@@ -3961,6 +3961,11 @@ def list_stage3_review_groups(
                     + job.id
                     + "/output?thumbnail=true&size=512"
                 ),
+                original_url=(
+                    "/api/v1/realistic-review-ugc/stage2-jobs/"
+                    + job.id
+                    + "/output"
+                ),
                 analysis_id=analysis.id if analysis else None,
                 analysis_status=analysis_status,
                 final_score=analysis.final_score if analysis else None,

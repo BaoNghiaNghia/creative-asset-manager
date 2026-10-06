@@ -180,6 +180,7 @@ function makeStage3ReviewImage(
     output_content_type: "image/png",
     completed_at: "2026-10-06T01:00:00Z",
     preview_url: "https://img.example/" + id + ".jpg",
+    original_url: "https://img.example/" + id + "-original.png",
     analysis_id: "analysis-" + id,
     analysis_status: "ready",
     final_score: 0.9,
@@ -1019,6 +1020,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(modalMarkup).toContain('aria-label="Next review"');
     expect(modalMarkup).toContain("1 / 2");
     expect(modalMarkup).toContain("Synthetic UGC review");
+    expect(modalMarkup).toContain('src="https://img.example/review-1.jpg"');
+    expect(modalMarkup).toContain(
+      'data-original-src="https://img.example/review-1-original.png"',
+    );
     expect(modalMarkup).toContain("Clean embroidery and an easy everyday look.");
   });
 
