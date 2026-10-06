@@ -172,6 +172,66 @@ describe("Public Review card comment badges", () => {
   });
 });
 
+describe("Public Review progressive original images", () => {
+  it("shows the preview immediately and swaps only after the original is decoded", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const preloads: Array<{
+      src: string;
+      onload: ((event: Event) => void) | null;
+      onerror: ((event: Event) => void) | null;
+      decode: ReturnType<typeof vi.fn>;
+    }> = [];
+    class MockImage {
+      decoding = "auto";
+      onload: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      decode = vi.fn().mockResolvedValue(undefined);
+      private value = "";
+      set src(value: string) {
+        this.value = value;
+        preloads.push(this);
+      }
+      get src() { return this.value; }
+    }
+    vi.stubGlobal("Image", MockImage);
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: false, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({ items: [assets[0], assets[2]], next_offset: null });
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [] });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await click(host.querySelector('[aria-label="Open a.jpg"]'));
+    const first = host.querySelector<HTMLImageElement>('.public-media-stage img[alt="a.jpg"]')!;
+    expect(first.getAttribute("src")).toBe("/preview/a");
+    expect(first.dataset.originalSrc).toBe("/api/public/review/share-1/assets/a/preview?source_asset_id=source-a");
+    expect(preloads[0]?.src).toBe("/api/public/review/share-1/assets/a/preview?source_asset_id=source-a");
+
+    await act(async () => {
+      preloads[0]?.onload?.(new Event("load"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector<HTMLImageElement>('.public-media-stage img[alt="a.jpg"]')?.getAttribute("src"))
+      .toBe("/api/public/review/share-1/assets/a/preview?source_asset_id=source-a");
+
+    await click(host.querySelector('[aria-label="Next asset"]'));
+    const second = host.querySelector<HTMLImageElement>('.public-media-stage img[alt="c.jpg"]')!;
+    expect(second.getAttribute("src")).toBe("/preview/c");
+    expect(second.dataset.originalSrc).toBe("/api/public/review/share-1/assets/c/preview?source_asset_id=source-c");
+
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Review notes follow the selected asset", () => {
   it("clears stale notes and drafts, ignores late responses, and creates on the active asset", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
