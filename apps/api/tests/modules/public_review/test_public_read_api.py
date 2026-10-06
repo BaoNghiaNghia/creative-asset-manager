@@ -249,6 +249,93 @@ def test_public_visual_search_is_limited_to_shared_scope(ctx):
  assert captured["filters"]==[{"terms":{"asset_id":["asset-good","asset-od"]}}]
 
 
+def test_authenticated_shared_visual_search_can_return_unshared_onedrive_results(ctx,monkeypatch):
+ with ctx[1]() as s:
+  s.add(ExternalSourceModel(
+   id="source-od-global",tenant_id="tenant-a",source_key="od-global",
+   source_type="onedrive",status="active",
+  ))
+  s.flush()
+  source=SourceAssetModel(
+   id="od-global-child",tenant_id="tenant-a",external_source_id="source-od-global",
+   external_asset_id=make_item_id("drive-global","photo-global"),
+   filename="onedrive-global-photo.jpg",mime_type="image/jpeg",
+   source_metadata={"drive_id":"drive-global"},
+  )
+  s.add_all([
+   source,
+   AssetModel(id="asset-od-global",tenant_id="tenant-a",content_hash="e"*64),
+  ])
+  s.flush()
+  s.add(AssetSourceLinkModel(
+   id="l-od-global",tenant_id="tenant-a",
+   asset_id="asset-od-global",source_asset_id="od-global-child",
+  ))
+  s.commit()
+ assert exchange(ctx).status_code==201
+ captured={}
+ app_principal=SimpleNamespace(
+  active_tenant_id="tenant-a",
+  platform_admin=False,
+  effective_permissions=frozenset({"search.read"}),
+ )
+ class Service:
+  def __init__(self,_settings): pass
+  def require_operation(self,_operation): return None
+ class Index:
+  def __init__(self,*_args,**_kwargs): pass
+  async def search(self,_embedding,*,scope,limit,num_candidates):
+   captured["filters"]=list(scope.access_filters)
+   return [
+    SimpleNamespace(document_id="visual-od-global",score=.99,asset_id="asset-od-global",source_id="source-od-global"),
+    SimpleNamespace(document_id="visual-good",score=.92,asset_id="asset-good",source_id="source-a"),
+   ]
+  async def aclose(self): return None
+ class ThumbnailResolver:
+  def __init__(self,*_args,**_kwargs): pass
+  async def load(self,**kwargs):
+   captured["thumbnail_source"]=kwargs["external_source_id"]
+   return SimpleNamespace(content=b"onedrive-preview",content_type="image/jpeg")
+ async def read_bytes(_file): return b"query-image"
+ async def upload_embedding(_request,_content,*,crop=None):
+  return SimpleNamespace(descriptor=SimpleNamespace(embedding_schema_version="siglip-v1"),values=(.1,.2))
+ configured=SimpleNamespace(
+  ELASTICSEARCH_URL="http://search.test:9200",
+  ELASTICSEARCH_INDEX_PREFIX="creative-assets",
+ )
+ with patch("app.modules.public_review.public_router.get_settings",return_value=configured), \
+      patch("app.modules.public_review.public_router.visual_search_tenant_eligible",return_value=True), \
+      patch("app.modules.public_review.public_router.VisualSearchService",Service), \
+      patch("app.modules.public_review.public_router.VisualSearchElasticsearchIndex",Index), \
+      patch("app.modules.public_review.public_router._read_upload_bytes",read_bytes), \
+      patch("app.modules.public_review.public_router._upload_embedding",upload_embedding), \
+      patch("app.modules.public_review.public_router.require_authenticated_principal",return_value=app_principal):
+  found=request(
+   ctx,"POST","/api/public/review/share-a/visual-search",
+   files={"file":("query.jpg",b"fake-image","image/jpeg")},
+  )
+  assert found.status_code==200
+  assert [item["asset_id"] for item in found.json()["items"]]==["asset-od-global","asset-good"]
+  assert captured["filters"]==[]
+
+  monkeypatch.setattr(public_router,"PublicThumbnailResolver",ThumbnailResolver)
+  thumbnail=request(
+   ctx,"GET",
+   "/api/public/review/share-a/assets/asset-od-global/thumbnail?source_asset_id=od-global-child",
+  )
+  assert thumbnail.status_code==200
+  assert thumbnail.content==b"onedrive-preview"
+  assert captured["thumbnail_source"]=="source-od-global"
+
+ # The public share capability itself is not widened: ordinary metadata access
+ # remains limited to assets inside the configured share folders.
+ metadata=request(
+  ctx,"GET",
+  "/api/public/review/share-a/assets/asset-od-global?source_asset_id=od-global-child",
+ )
+ assert metadata.status_code==404
+
+
 def test_anonymous_annotation_origin_and_ownership(ctx):
  assert exchange(ctx).status_code==201
  path="/api/public/review/share-a/assets/asset-good/annotations?source_asset_id=child"

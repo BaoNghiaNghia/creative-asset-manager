@@ -13,7 +13,8 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3Config, ElasticsearchV3RequestError
 from app.modules.assets.content_resolver import SourceAssetContentResolver
-from app.modules.assets.model import AssetModel, AssetSourceLinkModel, SourceAssetModel
+from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
+from app.modules.authorization.principal import require_authenticated_principal
 from app.modules.public_review.authorization import PublicShareAccessDenied, PublicShareScopeService
 from app.modules.public_review.model import AssetAnnotationModel, PublicShareModel, PublicShareSessionModel, aware_utc
 from app.modules.public_review.public_thumbnail import PublicThumbnailResolver, PublicThumbnailUnavailable
@@ -63,6 +64,18 @@ def permitted(scope,p,asset,source):
 def permitted_linked(scope,p,source):
  try: scope.authorize_linked_source_asset(principal=p,source_asset=source); return True
  except PublicShareAccessDenied: return False
+
+def _application_search_principal(request:Request,tenant_id:str):
+ try:
+  principal=require_authenticated_principal(request)
+ except HTTPException:
+  return None
+ if principal.active_tenant_id!=tenant_id:
+  return None
+ if not principal.platform_admin and "search.read" not in principal.effective_permissions:
+  return None
+ return principal
+
 def doc(asset,source,pid):
  base=f"/api/public/review/{pid}/assets/{asset.id}"
  media_type=infer_media_type(source.filename,source.mime_type or asset.mime_type)
@@ -94,6 +107,32 @@ def asset_pair(p,asset_id,source_id,db=None):
  rows=[x for x in db.execute(q).all() if permitted_linked(scope,p,x[1])]
  if len(rows)!=1: raise denied()
  a,src=rows[0]; db.expunge(a);db.expunge(src);return a,src
+
+def _read_asset_pair(request:Request,p,asset_id,source_id,db=None):
+ try:
+  return asset_pair(p,asset_id,source_id,db)
+ except HTTPException as exc:
+  if exc.status_code!=404 or _application_search_principal(request,p.tenant_id) is None:
+   raise
+ if db is None:
+  with SessionLocal() as s:
+   return _read_asset_pair(request,p,asset_id,source_id,s)
+ q=(
+  select(AssetModel,SourceAssetModel)
+  .join(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==AssetModel.tenant_id)&(AssetSourceLinkModel.asset_id==AssetModel.id))
+  .join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id))
+  .join(ExternalSourceModel,(ExternalSourceModel.tenant_id==SourceAssetModel.tenant_id)&(ExternalSourceModel.id==SourceAssetModel.external_source_id))
+  .where(
+   AssetModel.tenant_id==p.tenant_id,
+   AssetModel.id==asset_id,
+   SourceAssetModel.deleted_at.is_(None),
+   ExternalSourceModel.status=="active",
+  )
+ )
+ if source_id: q=q.where(SourceAssetModel.id==source_id)
+ rows=db.execute(q).all()
+ if len(rows)!=1: raise denied()
+ a,src=rows[0];db.expunge(a);db.expunge(src);return a,src
 @router.post("/{public_share_id}/session",status_code=201)
 def session(public_share_id:str,request:Request,body:dict):
  parsed=urlsplit(get_settings().PUBLIC_APP_URL); origin=request.headers.get("origin")
@@ -295,6 +334,39 @@ def _hydrate_public_search_hits(session, scope: PublicShareScopeService, princip
   if len(out)>=limit_value: break
  return _with_annotation_counts(session,principal,out)
 
+def _hydrate_tenant_visual_hits(session, principal, hits: list[dict], public_share_id: str, limit_value: int) -> list[dict]:
+ asset_ids=[str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "") for hit in hits]
+ asset_ids=[value for value in asset_ids if value]
+ if not asset_ids: return []
+ rows=session.execute(
+  select(AssetModel,SourceAssetModel,ExternalSourceModel)
+  .join(AssetSourceLinkModel,(AssetSourceLinkModel.tenant_id==AssetModel.tenant_id)&(AssetSourceLinkModel.asset_id==AssetModel.id))
+  .join(SourceAssetModel,(SourceAssetModel.tenant_id==AssetSourceLinkModel.tenant_id)&(SourceAssetModel.id==AssetSourceLinkModel.source_asset_id))
+  .join(ExternalSourceModel,(ExternalSourceModel.tenant_id==SourceAssetModel.tenant_id)&(ExternalSourceModel.id==SourceAssetModel.external_source_id))
+  .where(
+   AssetModel.tenant_id==principal.tenant_id,
+   AssetModel.id.in_(asset_ids),
+   SourceAssetModel.deleted_at.is_(None),
+   ExternalSourceModel.status=="active",
+  )
+ ).all()
+ by_asset:dict[str,list[tuple[AssetModel,SourceAssetModel]]]={}
+ for asset,source,_external in rows:
+  by_asset.setdefault(str(asset.id),[]).append((asset,source))
+ out=[];seen=set()
+ for hit in hits:
+  asset_id=str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "")
+  document_source_id=str(hit.get("_source",{}).get("source_id") or "")
+  candidates=by_asset.get(asset_id,[])
+  pair=next((value for value in candidates if str(value[1].external_source_id)==document_source_id),None) or (candidates[0] if candidates else None)
+  if pair is None: continue
+  asset,source=pair
+  key=(str(asset.id),str(source.id))
+  if key in seen: continue
+  seen.add(key);out.append(doc(asset,source,public_share_id))
+  if len(out)>=limit_value: break
+ return _with_annotation_counts(session,principal,out)
+
 def _legacy_public_search(session, scope: PublicShareScopeService, principal, public_share_id: str, query: str, limit_value: int) -> list[dict]:
  needle=" ".join(query.split()).casefold();out=[]
  rows=session.execute(
@@ -443,8 +515,9 @@ async def visual_search(
  with SessionLocal() as s:
   principal=user(request,public_share_id,s)
   limit(s,request,"visual_search",30)
+  app_principal=_application_search_principal(request,principal.tenant_id)
   scope_service=PublicShareScopeService(s)
-  access_filter=_public_visual_search_scope_filter(scope_service,principal)
+  access_filter=None if app_principal is not None else _public_visual_search_scope_filter(scope_service,principal)
   s.commit()
  try:
   content=await _read_upload_bytes(file)
@@ -458,7 +531,7 @@ async def visual_search(
  try:
   hits=await index.search(
    embedding,
-   scope=VisualSearchScope(p.tenant_id,(access_filter,)),
+   scope=VisualSearchScope(p.tenant_id,() if access_filter is None else (access_filter,)),
    limit=100,
    num_candidates=100,
   )
@@ -470,14 +543,17 @@ async def visual_search(
  with SessionLocal() as s:
   scope_service=PublicShareScopeService(s)
   principal=user(request,public_share_id,s)
-  items=_hydrate_public_search_hits(s,scope_service,principal,raw_hits,public_share_id,limit_value)
+  if app_principal is not None:
+   items=_hydrate_tenant_visual_hits(s,principal,raw_hits,public_share_id,limit_value)
+  else:
+   items=_hydrate_public_search_hits(s,scope_service,principal,raw_hits,public_share_id,limit_value)
   s.commit()
  return safe({"query_kind":"upload","items":items,"limit":limit_value})
 
 async def media(public_share_id,asset_id,request,source_id,force_download:bool=False):
  # Authorization and the optional R2/CDN decision do not consume a long-lived
  # provider-stream slot. Only a real Google/OneDrive fallback occupies one.
- p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_id)
+ p=user(request,public_share_id);a,src=_read_asset_pair(request,p,asset_id,source_id)
  if force_download and not p.allow_download: raise denied()
  ticket=None if force_download else await PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
  if ticket is not None:
@@ -545,7 +621,7 @@ async def thumbnail(public_share_id:str,asset_id:str,request:Request,source_asse
  # Scope authorization happens before the cache/provider lookup. The thumbnail
  # resolver is bounded and never falls back to streaming the original asset.
  with SessionLocal() as s:
-  p=user(request,public_share_id,s);_,src=asset_pair(p,asset_id,source_asset_id,s)
+  p=user(request,public_share_id,s);_,src=_read_asset_pair(request,p,asset_id,source_asset_id,s)
  async with _public_thumbnail_slots:
   try:
    value=await PublicThumbnailResolver(SessionLocal,google_http_client=getattr(request.app.state,"google_drive_stream_client",None),onedrive_http_client=getattr(request.app.state,"onedrive_stream_client",None)).load(tenant_id=p.tenant_id,external_source_id=src.external_source_id,external_asset_id=src.external_asset_id,filename=src.filename,mime_type=src.mime_type,thumbnail_url_hint=source_thumbnail_hint(src),variant="grid")
@@ -555,7 +631,7 @@ async def thumbnail(public_share_id:str,asset_id:str,request:Request,source_asse
 @router.get("/{public_share_id}/assets/{asset_id}/image-preview")
 async def image_preview(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  with SessionLocal() as s:
-  p=user(request,public_share_id,s);_,src=asset_pair(p,asset_id,source_asset_id,s)
+  p=user(request,public_share_id,s);_,src=_read_asset_pair(request,p,asset_id,source_asset_id,s)
  if not infer_media_type(src.filename,src.mime_type).startswith("image/"): raise denied()
  async with _public_thumbnail_slots:
   try:
@@ -574,7 +650,7 @@ async def download(public_share_id:str,asset_id:str,request:Request,source_asset
 
 @router.get("/{public_share_id}/assets/{asset_id}/playback-ticket")
 async def playback_ticket(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
- p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_asset_id)
+ p=user(request,public_share_id);a,src=_read_asset_pair(request,p,asset_id,source_asset_id)
  if not infer_media_type(src.filename,src.mime_type or a.mime_type).startswith("video/"): raise denied()
  ticket=await PublicVideoDeliveryResolver(SessionLocal,get_settings()).resolve(principal=p,asset=a,source=src)
  fallback=f"/api/public/review/{public_share_id}/assets/{asset_id}/preview?source_asset_id={src.id}"
@@ -583,7 +659,7 @@ async def playback_ticket(public_share_id:str,asset_id:str,request:Request,sourc
 @router.post("/{public_share_id}/assets/{asset_id}/prewarm",status_code=202)
 async def prewarm(public_share_id:str,asset_id:str,request:Request,source_asset_id:str|None=None):
  origin_required(request)
- p=user(request,public_share_id);a,src=asset_pair(p,asset_id,source_asset_id)
+ p=user(request,public_share_id);a,src=_read_asset_pair(request,p,asset_id,source_asset_id)
  if not infer_media_type(src.filename,src.mime_type or a.mime_type).startswith("video/"): raise denied()
  with SessionLocal() as s:
   limit(s,request,"video_prewarm",12);s.commit()
