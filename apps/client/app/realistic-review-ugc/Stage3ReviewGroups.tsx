@@ -141,20 +141,37 @@ export function Stage3ReviewModal({
         onClick={onClose}
       >×</button>
 
-      <button
-        type="button"
-        className="rrugc-stage3-review-modal-nav is-prev"
-        aria-label="Previous review"
-        onClick={() => move(-1)}
-        disabled={count <= 1}
-      >&lt;</button>
-
       <div className="rrugc-stage3-review-modal-media">
         <img
           src={image.preview_url}
           alt={image.source_name ? "Review image for " + image.source_name : "UGC review image"}
           decoding="async"
         />
+
+        <button
+          type="button"
+          className="rrugc-stage3-review-modal-nav is-prev"
+          aria-label="Previous review"
+          onClick={() => move(-1)}
+          disabled={count <= 1}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 5l-7 7 7 7" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          className="rrugc-stage3-review-modal-nav is-next"
+          aria-label="Next review"
+          onClick={() => move(1)}
+          disabled={count <= 1}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+
         <span className="rrugc-stage3-review-modal-count">{index + 1} / {count}</span>
       </div>
 
@@ -194,13 +211,6 @@ export function Stage3ReviewModal({
         </div>
       </div>
 
-      <button
-        type="button"
-        className="rrugc-stage3-review-modal-nav is-next"
-        aria-label="Next review"
-        onClick={() => move(1)}
-        disabled={count <= 1}
-      >&gt;</button>
     </section>
   </div>;
 }
