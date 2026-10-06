@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type DragEvent } from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { VisualCrop, VisualSearchScope } from "../hooks/useVisualSearch";
 import type { Asset } from "../types";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
@@ -10,6 +10,13 @@ type DragState = { mode: DragMode; start: { x: number; y: number }; crop: Visual
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
 const MIN_CROP = 0.1;
 const DRAG_THRESHOLD = 0.005;
+const IMAGE_EXTENSION = /\.(?:avif|bmp|gif|heic|heif|jfif|jpe?g|png|tiff?|webp)$/i;
+
+export function isVisualSearchImageFile(file: Pick<File, "name" | "type">): boolean {
+  const mimeType = file.type.trim().toLowerCase();
+  if (mimeType.startsWith("image/")) return true;
+  return (!mimeType || mimeType === "application/octet-stream") && IMAGE_EXTENSION.test(file.name);
+}
 
 export function isHeicReference(asset: Pick<Asset, "mime_type" | "name">): boolean {
   return /image\/(heic|heif)/i.test(asset.mime_type) || asset.name.toLowerCase().endsWith(".heic") || asset.name.toLowerCase().endsWith(".heif");
@@ -29,11 +36,13 @@ function sameCrop(left: VisualCrop, right: VisualCrop) { return left.x === right
 
 export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose, recentAssets = [], onChooseAsset }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
   const stageRef = useRef<HTMLDivElement>(null);
   const [crop, setCrop] = useState<VisualCrop>(fullCrop);
   const cropRef = useRef(crop);
   const dragRef = useRef<DragState | null>(null);
   const [recentExpanded, setRecentExpanded] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
   useEffect(() => { cropRef.current = crop; }, [crop]);
   useEffect(() => {
     if (reference) return;
@@ -51,11 +60,29 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
   useEffect(() => { cropRef.current = fullCrop; setCrop(fullCrop); }, [reference?.kind, reference?.kind === "asset" ? reference.asset.internal_asset_id : reference?.kind === "upload" ? reference.file.name : ""]);
   const preview = visualReferencePreviewUrl(reference);
   const uploadFile = (file: File | undefined) => {
-    if (file && file.type.startsWith("image/") && scope) onUpload(file);
+    if (!file || !scope) return;
+    if (!isVisualSearchImageFile(file)) {
+      setSelectionError("Choose an image file such as JPG, PNG, WebP, HEIC, or AVIF.");
+      return;
+    }
+    setSelectionError("");
+    onUpload(file);
   };
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
-    uploadFile(event.dataTransfer.files?.[0]);
+    const files = Array.from(event.dataTransfer.files || []);
+    uploadFile(files.find(isVisualSearchImageFile) || files[0]);
+  };
+  const openPicker = () => {
+    const input = inputRef.current;
+    if (!input || !scope) return;
+    input.value = "";
+    input.click();
+  };
+  const handleDropzoneKeyDown = (event: ReactKeyboardEvent<HTMLLabelElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openPicker();
   };
   const beginNewCrop = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (loading || event.button !== 0) return;
@@ -105,7 +132,22 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
     dragRef.current = null;
     if (scope && active.changed && !sameCrop(active.crop, cropRef.current)) onApplyCrop(cropRef.current);
   };
-  const picker = <input ref={inputRef} type="file" accept="image/*" hidden onChange={event => { uploadFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />;
+  const picker = <input
+    ref={inputRef}
+    id={inputId}
+    className="visual-search-file-input"
+    type="file"
+    accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.avif,.heic,.heif,.tif,.tiff"
+    tabIndex={-1}
+    disabled={!scope}
+    onClick={event => { event.currentTarget.value = ""; }}
+    onChange={event => {
+      const file = event.currentTarget.files?.[0];
+      event.currentTarget.value = "";
+      uploadFile(file);
+    }}
+  />;
+  const displayedError = selectionError || error;
   if (!reference) return <div className="visual-search-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="visual-search-modal" role="dialog" aria-modal="true" aria-labelledby="visual-search-modal-title">
       <header className="visual-search-modal-header">
@@ -114,21 +156,23 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19" /></svg>
         </button>
       </header>
-      <button
-        type="button"
-        className="visual-search-dropzone"
+      <label
+        htmlFor={inputId}
+        className={"visual-search-dropzone" + (!scope ? " is-disabled" : "")}
+        role="button"
+        tabIndex={scope ? 0 : -1}
+        aria-disabled={!scope}
         onDragOver={event => event.preventDefault()}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
-        disabled={!scope}
+        onKeyDown={handleDropzoneKeyDown}
       >
         <span className="visual-search-upload-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 16V8m0 0-3 3m3-3 3 3" /></svg>
         </span>
         <span>Choose a file or drag and drop it here</span>
         {!scope && <small>Search is unavailable until your account permissions finish loading.</small>}
-      </button>
-      {error && <div className="visual-search-error visual-search-modal-error" role="alert"><span>{error}</span></div>}
+      </label>
+      {displayedError && <div className="visual-search-error visual-search-modal-error" role="alert"><span>{displayedError}</span></div>}
       {recentAssets.length > 0 && onChooseAsset && <section className="visual-search-recent">
         <div className="visual-search-recent-heading">
           <button type="button" className="visual-search-recent-toggle" onClick={() => setRecentExpanded(value => !value)} aria-expanded={recentExpanded}>
@@ -147,7 +191,7 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
     </section>
   </div>;
   return <section className="visual-search-upload-card visual-search-upload-card--reference" aria-label="Visual search">
-    <button type="button" className="visual-direct-change" onClick={() => inputRef.current?.click()} aria-label="Change image" title="Change image">×</button>
+    <button type="button" className="visual-direct-change" onClick={openPicker} aria-label="Change image" title="Change image">×</button>
     <div className="visual-direct-workspace">
       <div ref={stageRef} className="visual-direct-stage" onPointerDown={beginNewCrop} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
         <img src={preview || ""} alt="" draggable={false} />
@@ -158,7 +202,7 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
       <div className="visual-direct-caption"><small>{preparingUpload ? "Optimizing large image for search…" : loading ? "Searching…" : "Drag anywhere on the image to crop · Drag a corner to resize · Double-click for full image"}</small></div>
       {!scope && <p className="visual-search-context" role="status">Choose an authorized source or folder before searching.</p>}
     </div>
-    {error && <div className="visual-search-error" role="alert"><span>{error}</span><button type="button" onClick={() => onRetry(crop)} disabled={loading}>Retry</button></div>}
+    {displayedError && <div className="visual-search-error" role="alert"><span>{displayedError}</span><button type="button" onClick={() => onRetry(crop)} disabled={loading}>Retry</button></div>}
     {picker}
   </section>;
 }

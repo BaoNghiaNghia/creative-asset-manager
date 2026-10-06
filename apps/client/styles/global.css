@@ -1705,10 +1705,20 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   cursor:pointer;
   transition:border-color .15s ease,background .15s ease;
 }
-.visual-search-dropzone:hover:not(:disabled),
+.visual-search-dropzone:hover:not(.is-disabled),
 .visual-search-dropzone:focus-visible{border-color:#9d9d96;background:#fafaf8;outline:none}
-.visual-search-dropzone:disabled{cursor:wait;opacity:.62}
+.visual-search-dropzone.is-disabled{cursor:wait;opacity:.62}
 .visual-search-dropzone small{max-width:420px;color:#757575;font-size:12px;line-height:1.4;text-align:center}
+.visual-search-file-input{
+  position:fixed;
+  width:1px;
+  height:1px;
+  overflow:hidden;
+  clip-path:inset(50%);
+  white-space:nowrap;
+  opacity:.001;
+  pointer-events:none;
+}
 .visual-search-upload-icon{display:grid;place-items:center;width:44px;height:44px}
 .visual-search-upload-icon svg{width:40px;height:40px;fill:none;stroke:#111;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .visual-search-modal-error{margin:12px 8px 0}
