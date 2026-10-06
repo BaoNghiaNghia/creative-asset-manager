@@ -18,7 +18,7 @@ import type {
   Stage2SkillSelection,
 } from "./types";
 
-const MAX_REFS = 10;
+const REFS_PER_RUN = 3;
 const MAX_OUTPUT_SLOTS = 10;
 const STAGE2_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const FALLBACK_SKILL_NAME = "gatorhats-8869-image-studio";
@@ -148,7 +148,6 @@ function outputSummary(jobs: Stage2Job[]) {
 const STAGE2_REF_CARD_PITCH = 70;
 const STAGE2_REF_WINDOW_OVERSCAN = 3;
 const STAGE2_REF_WINDOW_MIN = 14;
-const STAGE2_REF_RENDER_LIMIT = 40;
 
 export function Stage2ReferenceReviewModal({
   planId,
@@ -197,7 +196,7 @@ export function Stage2ReferenceReviewModal({
         <div>
           <small>STAGE 2 REFERENCE PREVIEW</small>
           <h2 id={"rrugc-stage2-reference-review-title-" + planId}>{planName}</h2>
-          <p>{references.length} images · {selected.length}/{MAX_REFS} selected</p>
+          <p>{references.length} images · {selected.length} selected</p>
         </div>
         <button
           type="button"
@@ -210,7 +209,6 @@ export function Stage2ReferenceReviewModal({
         {references.map((reference, index) => {
           const alreadyGenerated = generated.has(reference.id);
           const checked = !alreadyGenerated && selected.includes(reference.id);
-          const atLimit = selected.length >= MAX_REFS && !checked;
           return <article
             key={reference.id}
             className={
@@ -238,15 +236,13 @@ export function Stage2ReferenceReviewModal({
                       : "Select reference " + (index + 1)
                 }
                 aria-pressed={checked}
-                disabled={alreadyGenerated || atLimit || busy}
+                disabled={alreadyGenerated || busy}
                 title={
                   alreadyGenerated
                     ? "Already generated"
                     : checked
                       ? "Remove reference"
-                      : atLimit
-                        ? "Maximum 10 references"
-                        : "Use this Pinterest reference"
+                      : "Use this Pinterest reference"
                 }
                 onClick={() => onToggle(planId, reference.id)}
               >{alreadyGenerated || checked ? "✓" : "+"}</button>
@@ -283,7 +279,7 @@ function Stage2ReferencePicker({
   const { dragging, dragHandlers } = useHorizontalDragScroll();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [windowRange, setWindowRange] = useState({ start: 0, end: STAGE2_REF_WINDOW_MIN });
-  const limited = references.slice(0, STAGE2_REF_RENDER_LIMIT);
+  const limited = references;
 
   function updateWindow() {
     const track = trackRef.current;
@@ -342,7 +338,6 @@ function Stage2ReferencePicker({
     {visible.map(reference => {
       const alreadyGenerated = generated.has(reference.id);
       const checked = !alreadyGenerated && selected.includes(reference.id);
-      const atLimit = selected.length >= MAX_REFS && !checked;
       return <div
         key={reference.id}
         className={"rrugc-stage2-ref " + (alreadyGenerated ? "is-generated" : checked ? "is-selected" : "")}
@@ -367,8 +362,8 @@ function Stage2ReferencePicker({
                 : "Select reference"
           }
           aria-pressed={checked}
-          disabled={alreadyGenerated || atLimit || busy}
-          title={alreadyGenerated ? "Already generated" : checked ? "Remove reference" : atLimit ? "Maximum 10 references" : "Use this Pinterest reference"}
+          disabled={alreadyGenerated || busy}
+          title={alreadyGenerated ? "Already generated" : checked ? "Remove reference" : "Use this Pinterest reference"}
           onClick={() => onToggle(planId, reference.id)}
         >{alreadyGenerated ? "✓" : checked ? "✓" : "+"}</button>
       </div>;
@@ -602,7 +597,6 @@ export function Stage2JobTable({
         }
         next[plan.id] = plan.reference_previews
           .filter(reference => reference.picked && eligibleReference(reference) && !generated.has(reference.id))
-          .slice(0, MAX_REFS)
           .map(reference => reference.id);
         changed = true;
       }
@@ -646,7 +640,6 @@ export function Stage2JobTable({
           [planId]: selected.filter(value => value !== referenceId),
         };
       }
-      if (selected.length >= MAX_REFS) return current;
       return { ...current, [planId]: [...selected, referenceId] };
     });
   }
@@ -670,10 +663,10 @@ export function Stage2JobTable({
       <div>
         <small>EMBROIDERY GROUP → PINTEREST REFS → SKILL</small>
         <h2>Embroidery groups → image generation</h2>
-        <p>Stage 1 grouping is preserved. Pick up to 10 Drive-ready references, confirm the skill, then generate one output per selected reference.</p>
+        <p>Stage 1 grouping is preserved. Select any number of Drive-ready references; generation automatically runs them in groups of up to {REFS_PER_RUN} refs plus 1 random hat input until the selection is queued.</p>
       </div>
       <div className="rrugc-stage2-registry-actions">
-        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Max {MAX_REFS} outputs / batch</span>
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} refs + 1 random hat / run</span>
         <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
           <i aria-hidden="true" />
           {catalog.openai_status === "connected"
@@ -715,7 +708,7 @@ export function Stage2JobTable({
         <thead>
           <tr>
             <th>Embroidery group</th>
-            <th>References · pick up to 10</th>
+            <th>References · unlimited selection</th>
             <th>Skill & generate</th>
             <th>Run status · latest 10</th>
             <th>Output</th>
@@ -776,7 +769,7 @@ export function Stage2JobTable({
               </td>
               <td>
                 <div className="rrugc-stage2-ref-head">
-                  <strong>{selected.length}/{MAX_REFS} selected</strong>
+                  <strong>{selected.length} selected</strong>
                   <small>{pickableAvailable} refs available{generated.size ? " · " + generated.size + " generated" : ""}</small>
                 </div>
                 <Stage2ReferencePicker
@@ -791,13 +784,6 @@ export function Stage2JobTable({
               </td>
               <td className="rrugc-stage2-skill">
                 <div className="rrugc-stage2-cell-stack">
-                <div className={"rrugc-stage2-skill-state " + (canGenerate ? "is-ready" : "is-error")}>
-                  <span aria-hidden="true">{canGenerate ? "✓" : "!"}</span>
-                  <div>
-                    <strong>{skill.display_name || skill.skill_name}</strong>
-                    <small>{canGenerate ? "Skill ready" : skillIssue || "Skill unavailable"}</small>
-                  </div>
-                </div>
                 <div className="rrugc-stage2-skill-controls">
                   <label>
                     <small>Skill</small>

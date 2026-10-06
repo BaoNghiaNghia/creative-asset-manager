@@ -1914,7 +1914,7 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
     assert refreshed_groups["folder-a"]["analyzing_count"] == 2
 
 
-def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypatch):
+def test_stage2_job_uses_up_to_three_drive_ready_pinterest_refs(database, monkeypatch):
     codex_home = (Path(__file__).resolve().parents[5] / "deploy" / "codex").resolve()
     settings = Settings(
         CODEX_IMAGE_HOME=str(codex_home),
@@ -2063,7 +2063,7 @@ def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypa
                 tenant_id="tenant-a",
                 user_id="user-a",
                 source_plan_id=plan.id,
-                selected_candidate_ids=[candidate.id for candidate in candidates],
+                selected_candidate_ids=[candidate.id for candidate in candidates[:4]],
             )
         assert exc.value.code == "stage2_reference_limit_exceeded"
 

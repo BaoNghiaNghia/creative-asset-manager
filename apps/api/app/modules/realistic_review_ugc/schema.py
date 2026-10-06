@@ -741,7 +741,7 @@ class Stage2SkillDefaultVersionRequest(BaseModel):
 
 
 class Stage2JobCreateRequest(BaseModel):
-    selected_candidate_ids: list[str] = Field(min_length=1, max_length=10)
+    selected_candidate_ids: list[str] = Field(min_length=1, max_length=3)
     skill_source: Literal["local", "openai"] | None = None
     skill_id: str | None = Field(default=None, min_length=1, max_length=255)
     skill_name: str | None = Field(default=None, min_length=1, max_length=128)
@@ -760,8 +760,8 @@ class Stage2JobCreateRequest(BaseModel):
             cleaned.append(value)
         if not cleaned:
             raise ValueError("Pick at least one Pinterest reference")
-        if len(cleaned) > 10:
-            raise ValueError("Pick at most 10 Pinterest references")
+        if len(cleaned) > 3:
+            raise ValueError("Pick at most 3 Pinterest references per generation run")
         self.selected_candidate_ids = cleaned
         return self
 

@@ -42,6 +42,16 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   },
 };
 
+export const STAGE2_REFERENCES_PER_RUN = 3;
+
+export function stage2ReferenceBatches(candidateIds: string[]) {
+  const batches: string[][] = [];
+  for (let index = 0; index < candidateIds.length; index += STAGE2_REFERENCES_PER_RUN) {
+    batches.push(candidateIds.slice(index, index + STAGE2_REFERENCES_PER_RUN));
+  }
+  return batches;
+}
+
 const EMPTY_STAGE3_GROUPS: Stage3ReviewGroupList = {
   items: [],
   total_groups: 0,
@@ -272,8 +282,9 @@ export function RealisticReviewUgcPage() {
     setStage2Message("");
     setError("");
     try {
+      const batches = stage2ReferenceBatches(candidateIds);
       const results = await Promise.allSettled(
-        candidateIds.map(candidateId => createStage2Job(plan.id, [candidateId], skill)),
+        batches.map(batch => createStage2Job(plan.id, batch, skill)),
       );
       const queued = results.filter(
         (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof createStage2Job>>> =>
@@ -288,17 +299,18 @@ export function RealisticReviewUgcPage() {
       const createdCount = queued.filter(result => result.value.created).length;
       const existingCount = queued.length - createdCount;
       setStage2Message(
-        createdCount + " output generation"
-        + (createdCount === 1 ? "" : "s")
+        createdCount + " generation batch"
+        + (createdCount === 1 ? "" : "es")
         + " queued from " + candidateIds.length + " selected Pinterest ref"
         + (candidateIds.length === 1 ? "" : "s")
+        + " · up to " + STAGE2_REFERENCES_PER_RUN + " refs + 1 random hat per run"
         + (existingCount ? "; " + existingCount + " already existed" : "")
         + ". You can cancel this batch for 10 seconds before generation starts.",
       );
       if (failed.length > 0) {
         setError(
-          failed.length + " selected reference"
-          + (failed.length === 1 ? "" : "s")
+          failed.length + " generation batch"
+          + (failed.length === 1 ? "" : "es")
           + " could not be queued.",
         );
       }

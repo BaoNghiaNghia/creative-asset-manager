@@ -50,7 +50,7 @@ from app.providers.ai.codex_image import (
 
 STAGE2_JOB_TYPE = "rrugc_stage2_generate"
 DEFAULT_STAGE2_SKILL = "gatorhats-8869-image-studio"
-MAX_STAGE2_REFERENCES = 10
+MAX_STAGE2_REFERENCES = 3
 STAGE2_CANCEL_GRACE_SECONDS = 10
 DEFAULT_STAGE2_PROMPT = "8869 Five-Panel Twill Cap\nCenter"
 
@@ -180,7 +180,7 @@ class RrugcStage2Service:
         if len(ids) > MAX_STAGE2_REFERENCES:
             raise RrugcStage2Error(
                 "stage2_reference_limit_exceeded",
-                "Pick at most 10 Pinterest references.",
+                "Pick at most 3 Pinterest references per generation run.",
                 status_code=422,
             )
 

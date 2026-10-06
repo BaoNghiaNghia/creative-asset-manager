@@ -12,6 +12,7 @@ import {
   RealisticReviewUgcPage,
   sourcePlanPageRenderFingerprint,
   stage2JobsRenderFingerprint,
+  stage2ReferenceBatches,
 } from "./RealisticReviewUgcPage";
 import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal } from "./Stage2JobTable";
 import { Stage3ReviewGroups, Stage3ReviewModal } from "./Stage3ReviewGroups";
@@ -268,7 +269,7 @@ describe("Realistic Review UGC source-first workspace", () => {
       .not.toBe(sourcePlanPageRenderFingerprint(base));
   });
 
-  it("windows large Stage 2 reference pickers instead of mounting all 40 refs", () => {
+  it("virtualizes large Stage 2 reference pickers while keeping every ref selectable", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable
         plans={[makePlan(50)]}
@@ -287,7 +288,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     const cards = markup.match(/class="rrugc-stage2-ref /g) || [];
     expect(cards.length).toBeLessThanOrEqual(14);
-    expect(markup).toContain("40 Drive-ready references for front.png");
+    expect(markup).toContain("49 Drive-ready references for front.png");
   });
 
   it("ignores Stage 2 job heartbeat timestamps but keeps real job changes", () => {
@@ -340,7 +341,15 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">" + GLOBAL_OVERVIEW.source_images + "<");
   });
 
-  it("renders Stage 2 as a max-10 Pinterest ref skill job table", () => {
+  it("splits unlimited Stage 2 selections into continuous groups of three refs", () => {
+    expect(stage2ReferenceBatches(["a", "b", "c", "d", "e", "f", "g"])).toEqual([
+      ["a", "b", "c"],
+      ["d", "e", "f"],
+      ["g"],
+    ]);
+  });
+
+  it("renders Stage 2 with unlimited selection and three refs per generation run", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable
         plans={[makePlan(12)]}
@@ -352,11 +361,12 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain("EMBROIDERY GROUP");
     expect(markup).toContain("Embroidery groups → image generation");
-    expect(markup).toContain("Max 10 outputs / batch");
+    expect(markup).toContain("3 refs + 1 random hat / run");
+    expect(markup).toContain("References · unlimited selection");
     expect(markup).toContain("Run status · latest 10");
     expect(markup).toContain(">Output<");
     expect(markup).toContain("Skill &amp; generate");
-    expect(markup).toContain("Skill ready");
+    expect(markup).not.toContain("Skill ready");
     expect(markup).toContain("0/10 runs");
     expect(markup).toContain("10 not run");
     expect(markup).toContain("$gatorhats-8869-image-studio");
@@ -461,7 +471,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain("STAGE 2 REFERENCE PREVIEW");
-    expect(markup).toContain("3 images · 1/10 selected");
+    expect(markup).toContain("3 images · 1 selected");
     expect(markup).toContain("rrugc-stage2-reference-review-card");
     expect(markup).toContain("rrugc-stage2-review-toggle");
     expect(markup).toContain("Selected");
