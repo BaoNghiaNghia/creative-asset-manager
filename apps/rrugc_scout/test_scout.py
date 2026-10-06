@@ -198,7 +198,7 @@ def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):
 
     payload = scout_module.json.loads(lock_path.read_text(encoding="utf-8"))
     assert payload["pid"] == scout_module.os.getpid()
-    assert payload["version"] == "rrugc-scout-v25"
+    assert payload["version"] == scout_module.CLIENT_VERSION
 
     lock.release()
     assert not lock_path.exists()
@@ -509,6 +509,35 @@ def test_access_gate_detects_login_and_challenge_without_solving_them():
 
     assert asyncio.run(access_gate(LoginPage())) == "login"
     assert asyncio.run(access_gate(CaptchaPage())) == "challenge"
+
+
+def test_access_gate_detects_verifying_browser_and_visible_login_cta():
+    class VerifyingPage:
+        url = "https://www.pinterest.com/search/pins/?q=test"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def evaluate(self, _script):
+            self.calls += 1
+            if self.calls == 1:
+                return False
+            return {"verifying": True, "loginVisible": False}
+
+    class LoggedOutPage:
+        url = "https://www.pinterest.com/"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def evaluate(self, _script):
+            self.calls += 1
+            if self.calls == 1:
+                return False
+            return {"verifying": False, "loginVisible": True}
+
+    assert asyncio.run(access_gate(VerifyingPage())) == "challenge"
+    assert asyncio.run(access_gate(LoggedOutPage())) == "login"
 
 
 def test_auto_scout_preserves_ranked_keyword_order_and_source_attribution():
@@ -1334,11 +1363,11 @@ def test_auto_scout_client_uses_agent_scoped_endpoints():
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.url.path.endswith("/claim"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v25"
+            assert request.headers["x-scout-version"] == scout_module.CLIENT_VERSION
             assert request.headers["x-scout-machine"] == "studio-pc"
             return httpx.Response(200, content=b"null", headers={"content-type": "application/json"})
         if request.url.path.endswith("/diagnostics"):
-            assert request.headers["x-scout-version"] == "rrugc-scout-v25"
+            assert request.headers["x-scout-version"] == scout_module.CLIENT_VERSION
             assert request.headers["x-scout-machine"] == "studio-pc"
         return httpx.Response(200, json={"status": "ready"})
 

@@ -38,6 +38,7 @@ from scout import (
     resolve_pin_details,
     scout_debug_event,
     shutdown_scout_remote_log,
+    startup_access_gate,
     wait_for_pin_growth,
 )
 
@@ -885,8 +886,30 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         )
         await open_browser_runtime()
 
+    async def ensure_keyword_startup_login() -> None:
+        while True:
+            if page is None:
+                await open_browser_runtime()
+            gate = await startup_access_gate(page)
+            if gate is None:
+                scout_debug_event("startup_access_ready", scout_type="keyword")
+                print("Pinterest login verified. Keyword Scout can start.")
+                return
+            scout_debug_event(
+                "startup_access_blocked",
+                scout_type="keyword",
+                gate=gate,
+            )
+            print(
+                "Pinterest is not ready for Keyword Scout yet ("
+                + gate
+                + "). No search cycle will start before login/verification is complete."
+            )
+            await bootstrap_keyword_login()
+
     try:
         await open_browser_runtime()
+        await ensure_keyword_startup_login()
 
         while True:
             await _flush_pending_quote_volumes(client, history)

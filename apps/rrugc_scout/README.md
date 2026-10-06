@@ -107,7 +107,7 @@ Google can refuse OAuth sign-in from a browser that is being controlled by Playw
 python apps\rrugc_scout\scout.py --profile-dir "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile" --bootstrap-login
 ```
 
-Complete Pinterest sign-in manually in that normal Chrome window. If you use **Continue with Google**, do it there. After Pinterest is fully signed in, close the bootstrap Chrome window, then start Auto Scout with the same `--profile-dir`.
+Complete Pinterest sign-in manually in that normal Chrome window. If you use **Continue with Google**, do it there. Current Scout launchers also perform this check automatically: before any campaign/search is claimed, they open Pinterest with the persistent profile and detect login, CAPTCHA/challenge, and the **Verifying browser...** interstitial. If access is not ready, automated scouting stays paused, normal Chrome is opened for manual verification/login, and scouting starts only after you close that window and the session verifies successfully.
 
 Auto Scout now prefers an installed Google Chrome automatically when available. You can still pin a specific binary with:
 
@@ -123,7 +123,7 @@ The resolver keeps exactly one reusable Pin-detail tab beside the search tab and
 
 Auto Scout v19 defaults to `--pace careful`. The careful pace is tuned to stay low-footprint while moving about 15–20% faster than the previous profile: 3.8–5.8 seconds of dwell after opening a keyword, 1.2–2.2 seconds before each visible-result inspection, gradual 420–700 px scroll steps with 0.55–0.95 second pauses, batches of 3 candidates, and 3–5 second pauses between keywords. Use `--pace balanced` only when a materially shorter scan is preferred.
 
-The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. If Pinterest shows a login/challenge screen, the current run stops immediately so it can be resolved manually; a later scheduled scan resumes only after normal access is available again.
+The Scout does **not** automate Pinterest login, solve CAPTCHA/challenges, hide automation, bypass source controls, or extract credentials. Startup is now gated on a verified Pinterest session: no campaign/search work begins while login, CAPTCHA/challenge, or browser-verification UI is present. Manual resolution happens in normal Chrome using the same persistent profile; after it is closed, the Scout rechecks Pinterest and starts automatically only when access is ready. Mid-run gates still pause the affected work rather than bypassing Pinterest controls.
 
 ## Automatic flow
 

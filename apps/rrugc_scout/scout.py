@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v26"
+CLIENT_VERSION = "rrugc-scout-v27"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 BROWSER_SESSION_MAX_AGE_SECONDS = 2 * 60 * 60
 BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD = 2
@@ -1630,7 +1630,70 @@ async def access_gate(page: Any) -> str | None:
           );
         }"""
     )
-    return "challenge" if detected else None
+    if detected:
+        return "challenge"
+
+    page_state = await page.evaluate(
+        r"""() => {
+          const visible = (node) => {
+            const style = window.getComputedStyle(node);
+            if (
+              style.display === 'none'
+              || style.visibility === 'hidden'
+              || Number(style.opacity || '1') === 0
+            ) return false;
+            const rect = node.getBoundingClientRect();
+            return (
+              rect.width >= 20
+              && rect.height >= 16
+              && rect.bottom > 0
+              && rect.right > 0
+              && rect.top < window.innerHeight
+              && rect.left < window.innerWidth
+            );
+          };
+          const bodyText = String(document.body?.innerText || '').toLowerCase();
+          const verifying = (
+            bodyText.includes('verifying browser')
+            || bodyText.includes('verify your browser')
+            || bodyText.includes('checking your browser')
+          );
+          const authNodes = Array.from(document.querySelectorAll(
+            'a[href*="/login"], button, [role="button"]'
+          )).filter(visible);
+          const authText = authNodes
+            .map((node) => String(node.textContent || '').trim().toLowerCase())
+            .filter(Boolean);
+          const loginVisible = authText.some((value) =>
+            value === 'log in'
+            || value === 'login'
+            || value === 'sign up'
+            || value === 'signup'
+          );
+          return { verifying, loginVisible };
+        }"""
+    )
+    if isinstance(page_state, dict):
+        if bool(page_state.get("verifying")):
+            return "challenge"
+        if bool(page_state.get("loginVisible")):
+            return "login"
+    return None
+
+
+async def startup_access_gate(page: Any) -> str | None:
+    """Check Pinterest access before any Scout campaign is claimed or scanned."""
+    try:
+        response = await page.goto(
+            "https://www.pinterest.com/",
+            wait_until="domcontentloaded",
+            timeout=60_000,
+        )
+        guard_pinterest_response(response)
+    except PinterestAccessGateError as exc:
+        return exc.gate
+    await page.wait_for_timeout(2_500)
+    return await access_gate(page)
 
 
 async def loaded_pin_count(page: Any) -> int:
@@ -2917,10 +2980,52 @@ async def run_agent(args: argparse.Namespace) -> None:
         browser_runtime_failures = 0
         scout_debug_event("browser_recycle_completed", reason=reason)
 
+    async def ensure_startup_login() -> None:
+        nonlocal playwright, context, page, detail_page, browser_started_at
+        while True:
+            if page is None:
+                playwright, context, page, detail_page = await open_browser_runtime()
+                browser_started_at = time.monotonic()
+            gate = await startup_access_gate(page)
+            if gate is None:
+                await client.heartbeat("ready")
+                scout_debug_event("startup_access_ready", scout_type="review")
+                print("Pinterest login verified. Auto Scout can start.")
+                return
+
+            await client.heartbeat(
+                "needs_login",
+                error_code="pinterest_startup_" + gate + "_required",
+            )
+            scout_debug_event(
+                "startup_access_blocked",
+                scout_type="review",
+                gate=gate,
+            )
+            print("")
+            print(
+                "Pinterest is not ready for scouting yet ("
+                + gate
+                + "). No campaign will be claimed."
+            )
+            print(
+                "Opening normal Chrome with the dedicated Scout profile. "
+                "Finish browser verification/login there, then close that Chrome window. "
+                "The Scout will verify the session again and start automatically."
+            )
+            await close_browser_runtime()
+            await asyncio.to_thread(
+                bootstrap_login,
+                str(profile_dir),
+                args.chrome_executable,
+            )
+            playwright, context, page, detail_page = await open_browser_runtime()
+            browser_started_at = time.monotonic()
+
     try:
         playwright, context, page, detail_page = await open_browser_runtime()
         browser_started_at = time.monotonic()
-        await client.heartbeat("ready")
+        await ensure_startup_login()
         print(
             "Pinterest Auto Scout online. agent="
             + args.agent_id
