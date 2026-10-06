@@ -172,6 +172,43 @@ describe("Public Review card comment badges", () => {
   });
 });
 
+describe("Public Review modal downloads", () => {
+  it("downloads the current original image or video from the Shared review modal", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(api, "bootstrap").mockResolvedValue({ public_id: "share-1", name: "Review", allow_comments: true, allow_download: true, expires_at: null });
+    vi.spyOn(api, "folders").mockResolvedValue({ items: [{ source_id: "source", folder_id: "root", name: "Root" }] });
+    vi.spyOn(api, "children").mockResolvedValue({ items: [assets[0], assets[1]], next_offset: null });
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "prewarm").mockResolvedValue({ accepted: true });
+    vi.spyOn(api, "playbackTicket").mockResolvedValue({ url: "/video/b", cdn: true, expires_at: null });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await click(host.querySelector('[aria-label="Open a.jpg"]'));
+    let download = host.querySelector<HTMLAnchorElement>('.public-review-header .public-review-download');
+    expect(download?.textContent).toContain("Download");
+    expect(download?.getAttribute("download")).toBe("a.jpg");
+    expect(download?.getAttribute("href")).toContain("/api/public/review/share-1/assets/a/download?source_asset_id=source-a");
+
+    await click(host.querySelector('[aria-label="Next asset"]'));
+    await act(async () => { await Promise.resolve(); });
+    download = host.querySelector<HTMLAnchorElement>('.public-review-header .public-review-download');
+    expect(download?.getAttribute("download")).toBe("b.mp4");
+    expect(download?.getAttribute("href")).toContain("/api/public/review/share-1/assets/b/download?source_asset_id=source-b");
+
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Public Review progressive original images", () => {
   it("shows the preview immediately and swaps only after the original is decoded", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });

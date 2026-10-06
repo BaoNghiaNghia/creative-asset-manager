@@ -534,7 +534,48 @@
   padding:13px 16px 12px;
 }
 .public-review-heading{width:100%;min-width:0}
+.public-review-title-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
 .public-review-heading h2{line-height:24px}
+.public-review-download{
+  display:inline-flex;
+  flex:0 0 auto;
+  min-height:30px;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:5px 9px;
+  border:1px solid #dfe4eb;
+  border-radius:8px;
+  background:#fff;
+  color:#35445a;
+  font:600 11px/18px inherit;
+  text-decoration:none;
+  cursor:pointer;
+}
+.public-review-download:hover{border-color:#c7d0dc;background:#f6f8fb;color:#26364d}
+.public-review-download:focus-visible{outline:2px solid #7f9ee8;outline-offset:2px}
+.public-review-download:disabled{cursor:not-allowed;opacity:.45}
+.public-review-download svg{
+  width:16px;
+  height:16px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.public-review-backdrop .public-review-download{
+  border-color:#ffffff24;
+  background:#ffffff0a;
+  color:#ffffffe8;
+}
+.public-review-backdrop .public-review-download:hover{border-color:#ffffff42;background:#ffffff14;color:#fff}
+.public-review-backdrop .public-review-download:disabled{border-color:#ffffff14;background:#ffffff05;color:#ffffff78}
 .public-review-metadata{
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
