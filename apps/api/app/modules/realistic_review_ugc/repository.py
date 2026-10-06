@@ -820,6 +820,135 @@ class RrugcRepository:
                     ))
         return result
 
+    def visual_learning_seed_candidates(
+        self,
+        tenant_id: str,
+        campaign_id: str,
+        *,
+        intent: str | None = None,
+        profile_key: str = "realistic-person-ugc",
+        positive_limit: int = 8,
+        negative_limit: int = 8,
+    ) -> list[tuple[str, RrugcCandidateModel, str]]:
+        """Return durable ephemeral visual seeds without mutating Reference Library."""
+        normalized_profile = str(profile_key or "realistic-person-ugc").strip()[:100]
+        positive_cap = max(0, int(positive_limit))
+        negative_cap = max(0, int(negative_limit))
+        if positive_cap == 0 and negative_cap == 0:
+            return []
+
+        feedback_rows = list(self.session.scalars(
+            select(RrugcAiFeedbackModel)
+            .where(
+                RrugcAiFeedbackModel.tenant_id == tenant_id,
+                RrugcAiFeedbackModel.label.in_(("ref_good", "ref_bad", "ref_clear")),
+            )
+            .order_by(
+                RrugcAiFeedbackModel.created_at.desc(),
+                RrugcAiFeedbackModel.id.desc(),
+            )
+            .limit(2000)
+        ))
+        latest_by_candidate: dict[str, RrugcAiFeedbackModel] = {}
+        for feedback in feedback_rows:
+            payload = feedback.signal_json if isinstance(feedback.signal_json, dict) else {}
+            row_profile = (
+                str(payload.get("reference_profile_key") or "").strip()
+                or "realistic-person-ugc"
+            )
+            if row_profile != normalized_profile:
+                continue
+            if intent is not None:
+                row_intent = payload.get("learning_intent")
+                same_intent = row_intent == intent
+                same_legacy_campaign = (
+                    row_intent is None and feedback.campaign_id == campaign_id
+                )
+                if not same_intent and not same_legacy_campaign:
+                    continue
+            if feedback.candidate_id not in latest_by_candidate:
+                latest_by_candidate[feedback.candidate_id] = feedback
+
+        explicit_labels = {
+            candidate_id: row.label
+            for candidate_id, row in latest_by_candidate.items()
+            if row.label in {"ref_good", "ref_bad"}
+        }
+        stage2_ids = self.completed_stage2_reference_ids(
+            tenant_id,
+            campaign_id,
+            limit=max(positive_cap * 8, 64),
+        )
+        wanted_ids = set(explicit_labels) | set(stage2_ids)
+        if not wanted_ids:
+            return []
+
+        durable_rows = list(self.session.scalars(
+            select(RrugcCandidateModel)
+            .where(
+                RrugcCandidateModel.tenant_id == tenant_id,
+                RrugcCandidateModel.id.in_(wanted_ids),
+                RrugcCandidateModel.remote_file_id.is_not(None),
+                RrugcCandidateModel.content_hash.is_not(None),
+            )
+            .order_by(
+                RrugcCandidateModel.updated_at.desc(),
+                RrugcCandidateModel.created_at.desc(),
+                RrugcCandidateModel.id.desc(),
+            )
+        ))
+        candidate_by_id = {row.id: row for row in durable_rows}
+
+        result: list[tuple[str, RrugcCandidateModel, str]] = []
+        seen_positive: set[str] = set()
+        positive_count = 0
+
+        # A completed Stage 2 use is the strongest implicit positive.
+        # Explicit negative feedback remains authoritative.
+        for candidate in durable_rows:
+            if positive_count >= positive_cap:
+                break
+            if candidate.id not in stage2_ids:
+                continue
+            if explicit_labels.get(candidate.id) == "ref_bad":
+                continue
+            content_key = str(candidate.content_hash or candidate.id)
+            if content_key in seen_positive:
+                continue
+            seen_positive.add(content_key)
+            result.append(("positive", candidate, "stage2_used"))
+            positive_count += 1
+
+        for candidate_id, feedback in latest_by_candidate.items():
+            if feedback.label != "ref_good" or positive_count >= positive_cap:
+                continue
+            candidate = candidate_by_id.get(candidate_id)
+            if candidate is None:
+                continue
+            content_key = str(candidate.content_hash or candidate.id)
+            if content_key in seen_positive:
+                continue
+            seen_positive.add(content_key)
+            result.append(("positive", candidate, "ref_good"))
+            positive_count += 1
+
+        seen_negative: set[str] = set()
+        negative_count = 0
+        for candidate_id, feedback in latest_by_candidate.items():
+            if feedback.label != "ref_bad" or negative_count >= negative_cap:
+                continue
+            candidate = candidate_by_id.get(candidate_id)
+            if candidate is None:
+                continue
+            content_key = str(candidate.content_hash or candidate.id)
+            if content_key in seen_negative:
+                continue
+            seen_negative.add(content_key)
+            result.append(("negative", candidate, "ref_bad"))
+            negative_count += 1
+
+        return result
+
     def completed_stage2_reference_ids(
         self,
         tenant_id: str,

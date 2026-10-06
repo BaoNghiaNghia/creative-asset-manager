@@ -289,6 +289,7 @@ class RrugcCandidateAnalyzeJobHandler:
             product_variants = list(product_context.get("variants") or [])
             seed_visual_assets: list[SeedVisualAsset] = []
             seed_counts = {"positive": 0, "negative": 0}
+            seed_hashes: set[str] = set()
             for seed in repository.list_reference_seeds(
                 context.job.tenant_id,
                 campaign.id,
@@ -307,6 +308,7 @@ class RrugcCandidateAnalyzeJobHandler:
                     or asset.status != "ready"
                     or not asset.remote_file_id
                     or not asset.content_hash
+                    or asset.content_hash in seed_hashes
                 ):
                     continue
                 seed_visual_assets.append(
@@ -319,7 +321,44 @@ class RrugcCandidateAnalyzeJobHandler:
                         size_bytes=asset.size_bytes,
                     )
                 )
+                seed_hashes.add(asset.content_hash)
                 seed_counts[seed.label] += 1
+
+            # Fill any unused seed slots from real outcomes without mutating the
+            # user's Reference Library. Completed Stage 2 references are the
+            # strongest implicit positive; explicit ref_good/ref_bad feedback
+            # provides the remaining positive/negative examples.
+            learned_visual_seeds = repository.visual_learning_seed_candidates(
+                context.job.tenant_id,
+                campaign.id,
+                intent=learning_intent,
+                profile_key=SEED_VISUAL_PROFILE,
+                positive_limit=SEED_VISUAL_MAX_PER_LABEL * 2,
+                negative_limit=SEED_VISUAL_MAX_PER_LABEL * 2,
+            )
+            for learned_label, learned_candidate, _source_kind in learned_visual_seeds:
+                if learned_label not in seed_counts:
+                    continue
+                if seed_counts[learned_label] >= SEED_VISUAL_MAX_PER_LABEL:
+                    continue
+                content_hash = str(learned_candidate.content_hash or "").strip()
+                remote_file_id = str(learned_candidate.remote_file_id or "").strip()
+                if not content_hash or not remote_file_id or content_hash in seed_hashes:
+                    continue
+                seed_visual_assets.append(
+                    SeedVisualAsset(
+                        reference_asset_id=learned_candidate.id,
+                        label=learned_label,
+                        content_hash=content_hash,
+                        remote_file_id=remote_file_id,
+                        content_type=_image_mime(
+                            learned_candidate.image_format or ""
+                        ),
+                        size_bytes=learned_candidate.size_bytes,
+                    )
+                )
+                seed_hashes.add(content_hash)
+                seed_counts[learned_label] += 1
 
         downloader = build_reference_downloader()
         async with download_reference_image(image_url, downloader=downloader) as image:

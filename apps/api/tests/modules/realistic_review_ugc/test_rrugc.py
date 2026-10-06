@@ -64,6 +64,7 @@ from app.modules.realistic_review_ugc.handler import (
 from app.modules.realistic_review_ugc.gemini_safety import deferred_rrugc_ai_retry
 from app.modules.realistic_review_ugc.keyword_strategy import (
     build_campaign_search_queries,
+    campaign_learning_intent,
     detect_campaign_keyword_intent,
     query_is_suppressed_for_reference_search,
 )
@@ -2882,6 +2883,141 @@ def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
         "https://www.pinterest.com/pin/rejected-related-seed/",
     }.issubset(set(payload["known_pin_urls"]))
     assert isinstance(payload["query_performance"], list)
+
+
+def test_visual_learning_seed_candidates_prioritize_stage2_and_feedback(database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="visual seed learning",
+            query="person wearing cap candid phone photo",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=False,
+        )
+        submissions = [
+            CandidateSubmission(
+                pin_url=f"https://www.pinterest.com/pin/visual-seed-{index}/",
+                image_url=f"https://i.pinimg.com/736x/visual-seed-{index}.jpg",
+            )
+            for index in range(4)
+        ]
+        rows, created, _ = service.ingest_candidates(
+            campaign=campaign,
+            submissions=submissions,
+            source_query=campaign.query,
+        )
+        assert created == 4
+        stage2_good, manual_good, stage2_bad, cleared = rows
+        now = datetime.now(timezone.utc)
+        for index, candidate in enumerate(rows, start=1):
+            candidate.status = "drive_ready"
+            candidate.analyzed_at = now
+            candidate.remote_file_id = f"drive-visual-seed-{index}"
+            candidate.remote_folder_id = "drive-folder"
+            candidate.content_hash = f"{index:064x}"
+            candidate.image_format = "jpeg"
+            candidate.size_bytes = 12345 + index
+            candidate.width = 1200
+            candidate.height = 1200
+        session.commit()
+
+        service.mark_candidate_reference_label(
+            manual_good,
+            label="good",
+            note=None,
+            user_id="user-a",
+        )
+        service.mark_candidate_reference_label(
+            stage2_bad,
+            label="bad",
+            note="Do not learn this visual style.",
+            user_id="user-a",
+        )
+        service.mark_candidate_reference_label(
+            cleared,
+            label="good",
+            note=None,
+            user_id="user-a",
+        )
+        service.mark_candidate_reference_label(
+            cleared,
+            label="clear",
+            note=None,
+            user_id="user-a",
+        )
+
+        source_plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id="visual-seed-root",
+            source_file_id="visual-seed-source",
+            source_relative_path="visual-seed-source.png",
+            source_name="visual-seed-source.png",
+            source_mime_type="image/png",
+            source_revision="b" * 64,
+            status="ready",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        session.add(source_plan)
+        session.flush()
+        for suffix, candidate in (
+            ("good", stage2_good),
+            ("bad", stage2_bad),
+        ):
+            session.add(
+                RrugcStage2JobModel(
+                    tenant_id="tenant-a",
+                    source_plan_id=source_plan.id,
+                    campaign_id=campaign.id,
+                    source_revision=source_plan.source_revision,
+                    skill_name="test-skill",
+                    skill_source="local",
+                    selected_candidate_ids_json=[candidate.id],
+                    selected_reference_snapshot_json=[],
+                    status="completed",
+                    idempotency_key=f"visual-seed-{suffix}-job",
+                    completed_at=now,
+                    created_by_user_id="user-a",
+                )
+            )
+        session.commit()
+
+        learning_intent = campaign_learning_intent(
+            campaign_id=campaign.id,
+            name=campaign.name,
+            queries=list(campaign.search_queries_json or [campaign.query]),
+            product_snapshot=campaign.product_snapshot_json,
+        )
+        learned = RrugcRepository(session).visual_learning_seed_candidates(
+            "tenant-a",
+            campaign.id,
+            intent=learning_intent,
+            positive_limit=4,
+            negative_limit=4,
+        )
+        positives = [
+            (candidate.id, source_kind)
+            for label, candidate, source_kind in learned
+            if label == "positive"
+        ]
+        negatives = [
+            (candidate.id, source_kind)
+            for label, candidate, source_kind in learned
+            if label == "negative"
+        ]
+
+        assert (stage2_good.id, "stage2_used") in positives
+        assert (manual_good.id, "ref_good") in positives
+        assert positives.index((stage2_good.id, "stage2_used")) < positives.index(
+            (manual_good.id, "ref_good")
+        )
+        assert all(candidate_id != stage2_bad.id for candidate_id, _ in positives)
+        assert (stage2_bad.id, "ref_bad") in negatives
+        assert all(candidate_id != cleared.id for candidate_id, _ in positives)
+        assert all(candidate_id != cleared.id for candidate_id, _ in negatives)
 
 
 def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database):
