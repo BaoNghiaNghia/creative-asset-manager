@@ -1351,7 +1351,7 @@ def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
         assert diagnostics["claimable"] == 1
 
 
-def test_stage3_ugc_decision_requires_person_product_and_review_fit():
+def test_stage3_ugc_decision_only_rejects_missing_person_or_product():
     ready = evaluate_stage3(
         Stage3UgcAnalysisDocument(
             people_count=1,
@@ -1416,6 +1416,27 @@ def test_stage3_ugc_decision_requires_person_product_and_review_fit():
     assert len(normalized_document.evidence) == 6
     assert "unexpected" not in normalized
 
+    soft_scores_are_diagnostic = evaluate_stage3(
+        Stage3UgcAnalysisDocument(
+            people_count=1,
+            person_visible=True,
+            hat_visible=True,
+            product_visible=True,
+            embroidery_visible=False,
+            mobile_ugc_score=0.35,
+            photorealism_score=0.4,
+            product_visibility_score=0.45,
+            review_fit_score=0.3,
+            scene_type="outdoor",
+            framing_type="medium",
+            evidence=["person visibly wearing the hat"],
+            summary="Visible person and product with softer quality scores.",
+            review_text="I like the casual look of this hat and would wear it for everyday errands.",
+        )
+    )
+    assert soft_scores_are_diagnostic.status == "ready"
+    assert soft_scores_are_diagnostic.reject_reasons == []
+
     rejected = evaluate_stage3(
         Stage3UgcAnalysisDocument(
             people_count=0,
@@ -1435,9 +1456,7 @@ def test_stage3_ugc_decision_requires_person_product_and_review_fit():
         )
     )
     assert rejected.status == "rejected"
-    assert "no_visible_person" in rejected.reject_reasons
-    assert "low_ugc_fit" in rejected.reject_reasons
-    assert "low_review_fit" in rejected.reject_reasons
+    assert rejected.reject_reasons == ["no_visible_person"]
 
 
 def test_stage3_analysis_worker_persists_ready_result(database):

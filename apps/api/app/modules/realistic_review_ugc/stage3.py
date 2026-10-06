@@ -33,12 +33,6 @@ from app.modules.realistic_review_ugc.model import (
 STAGE3_ANALYSIS_VERSION = "rrugc-stage3-ugc-v2"
 STAGE3_JOB_TYPE = "rrugc_stage3_analyze"
 
-MIN_UGC_SCORE = 0.52
-MIN_PHOTOREALISM_SCORE = 0.55
-MIN_PRODUCT_VISIBILITY_SCORE = 0.55
-MIN_REVIEW_FIT_SCORE = 0.55
-
-
 class Stage3UgcAnalysisDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -140,15 +134,6 @@ def evaluate_stage3(document: Stage3UgcAnalysisDocument) -> Stage3Decision:
         reasons.append("no_visible_person")
     if not document.hat_visible and not document.product_visible:
         reasons.append("product_not_visible")
-    if document.product_visibility_score < MIN_PRODUCT_VISIBILITY_SCORE:
-        reasons.append("low_product_visibility")
-    if document.mobile_ugc_score < MIN_UGC_SCORE:
-        reasons.append("low_ugc_fit")
-    if document.photorealism_score < MIN_PHOTOREALISM_SCORE:
-        reasons.append("low_photorealism")
-    if document.review_fit_score < MIN_REVIEW_FIT_SCORE:
-        reasons.append("low_review_fit")
-
     final_score = round(
         0.30 * document.review_fit_score
         + 0.25 * document.mobile_ugc_score
