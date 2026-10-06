@@ -75,6 +75,7 @@ from app.modules.realistic_review_ugc.stage3 import (
     RrugcStage3Service,
     Stage3UgcAnalysisDocument,
     evaluate_stage3,
+    normalize_stage3_metadata,
     review_text_for_analysis,
 )
 from app.modules.realistic_review_ugc.stage2 import (
@@ -1389,6 +1390,31 @@ def test_stage3_ugc_decision_requires_person_product_and_review_fit():
         summary="Natural lifestyle frame.",
     )
     assert "embroidered detail" in review_text_for_analysis(fallback_document)
+
+    normalized = normalize_stage3_metadata(
+        {
+            "people_count": 2,
+            "person_visible": True,
+            "hat_visible": True,
+            "product_visible": True,
+            "embroidery_visible": True,
+            "mobile_ugc_score": 8,
+            "photorealism_score": 7,
+            "product_visibility_score": 9,
+            "review_fit_score": 90,
+            "evidence": ["visible"] * 8,
+            "review_text": "Casual review copy that is long enough for the schema.",
+            "unexpected": "ignored",
+        }
+    )
+    normalized_document = Stage3UgcAnalysisDocument.model_validate(normalized)
+    assert normalized_document.mobile_ugc_score == 0.8
+    assert normalized_document.photorealism_score == 0.7
+    assert normalized_document.product_visibility_score == 0.9
+    assert normalized_document.review_fit_score == 0.9
+    assert normalized_document.summary
+    assert len(normalized_document.evidence) == 6
+    assert "unexpected" not in normalized
 
     rejected = evaluate_stage3(
         Stage3UgcAnalysisDocument(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -55,6 +56,44 @@ class Stage3UgcAnalysisDocument(BaseModel):
     evidence: list[str] = Field(default_factory=list, max_length=6)
     summary: str = Field(min_length=1, max_length=500)
     review_text: str | None = Field(default=None, max_length=600)
+
+
+_STAGE3_SCORE_FIELDS = (
+    "mobile_ugc_score",
+    "photorealism_score",
+    "product_visibility_score",
+    "review_fit_score",
+)
+
+
+def normalize_stage3_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
+    """Normalize common structured-output drift before strict validation."""
+    allowed = set(Stage3UgcAnalysisDocument.model_fields)
+    normalized: dict[str, object] = {
+        key: value for key, value in metadata.items() if key in allowed
+    }
+
+    for key in _STAGE3_SCORE_FIELDS:
+        value = normalized.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            score = float(value)
+            if 1.0 < score <= 10.0:
+                score /= 10.0
+            elif 10.0 < score <= 100.0:
+                score /= 100.0
+            normalized[key] = score
+
+    summary = normalized.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        normalized["summary"] = (
+            "Visible image qualities were evaluated for realistic UGC review-card fit."
+        )
+
+    evidence = normalized.get("evidence")
+    if isinstance(evidence, list) and len(evidence) > 6:
+        normalized["evidence"] = evidence[:6]
+
+    return normalized
 
 
 def stage3_analysis_prompt() -> str:
@@ -432,7 +471,9 @@ class RrugcStage3AnalyzeJobHandler:
                 ),
             )
         )
-        document = Stage3UgcAnalysisDocument.model_validate(dict(result.metadata))
+        document = Stage3UgcAnalysisDocument.model_validate(
+            normalize_stage3_metadata(dict(result.metadata))
+        )
         decision = evaluate_stage3(document)
 
         with context.dependencies.session_factory() as session:
