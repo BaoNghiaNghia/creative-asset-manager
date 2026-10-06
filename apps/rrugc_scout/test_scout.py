@@ -585,6 +585,54 @@ def test_review_supervisor_stops_and_reports_after_restart_limit(monkeypatch):
     assert reports[0]["machine_label"] == "SCOUT-PC"
 
 
+def test_review_supervisor_recovers_windows_profile_before_restart(monkeypatch, tmp_path):
+    calls = 0
+    recovered = []
+
+    async def fake_run_agent(_args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise scout_module.ScoutRestartRequested(
+                "review_scout_browser_recycle_failed",
+                healthy_progress=False,
+                last_error_type="TargetClosedError",
+            )
+        return None
+
+    async def no_sleep(_seconds):
+        return None
+
+    def fake_recover(profile_dir):
+        recovered.append(str(profile_dir))
+
+    monkeypatch.setattr(scout_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr(scout_module.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scout_module,
+        "_recover_windows_scout_profile",
+        fake_recover,
+    )
+
+    args = type(
+        "Args",
+        (),
+        {
+            "machine_label": "SCOUT-PC",
+            "base_url": "https://example.test",
+            "agent_id": "agent-1",
+            "token": "secret",
+            "profile_dir": str(tmp_path),
+        },
+    )()
+
+    asyncio.run(scout_module.supervise_review_scout(args))
+
+    assert calls == 2
+    assert recovered == [str(tmp_path)]
+
+
 def test_pinterest_login_ready_marker_is_profile_scoped(tmp_path):
     assert not scout_module.pinterest_login_ready(tmp_path)
     scout_module.mark_pinterest_login_ready(tmp_path)

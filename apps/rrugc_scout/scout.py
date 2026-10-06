@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v35"
+CLIENT_VERSION = "rrugc-scout-v36"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -3602,10 +3602,15 @@ async def run_agent(args: argparse.Namespace) -> None:
                             error_type=recycle_error.__class__.__name__,
                         )
                         print(
-                            "Scout browser recycle failed; will retry recovery on the next "
-                            "claimed run: "
+                            "Scout browser recycle failed; escalating to a full Scout "
+                            "runtime restart: "
                             + recycle_error.__class__.__name__
                         )
+                        raise ScoutRestartRequested(
+                            "review_scout_browser_recycle_failed",
+                            healthy_progress=successful_runs_since_restart > 0,
+                            last_error_type=recycle_error.__class__.__name__,
+                        ) from recycle_error
                 else:
                     print(
                         "Scout run failed; retrying with the current browser in "
@@ -3769,6 +3774,23 @@ async def supervise_review_scout(args: argparse.Namespace) -> None:
                 + "s after repeated errors."
             )
             await asyncio.sleep(delay)
+            if sys.platform == "win32":
+                try:
+                    _recover_windows_scout_profile(args.profile_dir)
+                    scout_debug_event(
+                        "scout_restart_profile_recovered",
+                        scout_type="review",
+                        restart_attempt=restart_attempts,
+                    )
+                except Exception as recovery_error:
+                    scout_debug_event(
+                        "scout_restart_profile_recovery_failed",
+                        scout_type="review",
+                        restart_attempt=restart_attempts,
+                        error_type=recovery_error.__class__.__name__,
+                        error=str(recovery_error)[:500],
+                    )
+                    raise
 
 
 async def run(args: argparse.Namespace) -> None:
