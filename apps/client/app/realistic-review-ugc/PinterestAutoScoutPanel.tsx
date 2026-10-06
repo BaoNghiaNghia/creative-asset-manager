@@ -216,89 +216,91 @@ export function PinterestAutoScoutPanel({
         <b>{created ? "Pairing ready" : scout ? "Manage" : "Setup"}</b>
       </summary>
 
-      {!scout ? <div className="rrugc-scout-setup-row">
-        <label>
-          <span>Scout name</span>
-          <input value={name} maxLength={160} onChange={event => setName(event.target.value)} />
-        </label>
-        <button
-          type="button"
-          className="rrugc-primary"
-          disabled={Boolean(busy) || !name.trim()}
-          onClick={() => void pairAgent()}
-        >
-          {busy === "pair" ? "Pairing…" : "Pair Scout"}
-        </button>
-      </div> : <div className="rrugc-scout-connected-row">
-        <div>
-          <strong>{scout.name}</strong>
-          <small>
-            {scout.machine_label || "Not connected"} · Last seen {time(scout.last_seen_at)}
-          </small>
-        </div>
-        <button type="button" className="rrugc-scout-reset" disabled={Boolean(busy)} onClick={() => void pairAgent()}>
-          {busy === "pair" ? "Resetting…" : "Reset pairing"}
-        </button>
-      </div>}
-
-      {created && <div className="rrugc-pairing-ready">
-        <div>
-          <strong>Pairing ready</strong>
-          <small>Paste these once when START_SCOUT.bat asks for them.</small>
-        </div>
-        <div>
-          <button type="button" onClick={() => void copy(created.id, "agent-id")}>
-            {copied === "agent-id" ? "Agent ID copied" : "Copy Agent ID"}
-          </button>
-          <button type="button" className="rrugc-primary" onClick={() => void copy(created.agent_token, "token")}>
-            {copied === "token" ? "Token copied" : "Copy token"}
-          </button>
-        </div>
-      </div>}
-
-      {lastRun && <div className="rrugc-scout-run-summary">
-        <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
-        <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
-        <span><small>New</small><b>{lastRun.created_count}</b></span>
-        <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
-      </div>}
-
-      {scout?.last_error_code && <small className="rrugc-auto-scout-error">
-        {scout.last_error_code.replaceAll("_", " ")}
-      </small>}
-
-      <details className="rrugc-scout-advanced">
-        <summary>
-          <span>
-            <strong>Advanced</strong>
-            <small>Manual login or troubleshooting only</small>
-          </span>
-          <b>Fallback</b>
-        </summary>
-        <div className="rrugc-scout-advanced-body">
-          <label className="rrugc-auto-scout-profile-field">
-            <span>Persistent profile directory</span>
-            <input
-              value={profileDir}
-              maxLength={500}
-              placeholder={DEFAULT_PROFILE_DIR}
-              onChange={event => {
-                const next = event.target.value;
-                setProfileDir(next);
-                window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
-              }}
-            />
+      <div className="rrugc-scout-manage-grid">
+        {!scout ? <div className="rrugc-scout-setup-row">
+          <label>
+            <span>Scout name</span>
+            <input value={name} maxLength={160} onChange={event => setName(event.target.value)} />
           </label>
-          <div className="rrugc-token-actions">
-            <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
-              {copied === "bootstrap" ? "Login command copied" : "Copy login command"}
-            </button>
-            {created && <button type="button" onClick={() => void copy(command, "agent")}>
-              {copied === "agent" ? "Manual command copied" : "Copy manual Scout command"}
-            </button>}
+          <button
+            type="button"
+            className="rrugc-primary"
+            disabled={Boolean(busy) || !name.trim()}
+            onClick={() => void pairAgent()}
+          >
+            {busy === "pair" ? "Pairing…" : "Pair Scout"}
+          </button>
+        </div> : <div className="rrugc-scout-connected-row">
+          <div>
+            <strong>{scout.name}</strong>
+            <small>
+              {scout.machine_label || "Not connected"} · Last seen {time(scout.last_seen_at)}
+            </small>
           </div>
-        </div>
-      </details>
+          <button type="button" className="rrugc-scout-reset" disabled={Boolean(busy)} onClick={() => void pairAgent()}>
+            {busy === "pair" ? "Resetting…" : "Reset pairing"}
+          </button>
+        </div>}
+
+        {lastRun && <div className="rrugc-scout-run-summary">
+          <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
+          <span><small>Submitted</small><b>{lastRun.submitted_count}</b></span>
+          <span><small>New</small><b>{lastRun.created_count}</b></span>
+          <span><small>Started</small><b>{time(lastRun.started_at)}</b></span>
+        </div>}
+
+        {created && <div className="rrugc-pairing-ready">
+          <div>
+            <strong>Pairing ready</strong>
+            <small>Paste these once when START_SCOUT.bat asks for them.</small>
+          </div>
+          <div>
+            <button type="button" onClick={() => void copy(created.id, "agent-id")}>
+              {copied === "agent-id" ? "Agent ID copied" : "Copy Agent ID"}
+            </button>
+            <button type="button" className="rrugc-primary" onClick={() => void copy(created.agent_token, "token")}>
+              {copied === "token" ? "Token copied" : "Copy token"}
+            </button>
+          </div>
+        </div>}
+
+        {scout?.last_error_code && <small className="rrugc-auto-scout-error">
+          {scout.last_error_code.replaceAll("_", " ")}
+        </small>}
+
+        <details className="rrugc-scout-advanced">
+          <summary>
+            <span>
+              <strong>Advanced</strong>
+              <small>Manual login or troubleshooting only</small>
+            </span>
+            <b>Fallback</b>
+          </summary>
+          <div className="rrugc-scout-advanced-body">
+            <label className="rrugc-auto-scout-profile-field">
+              <span>Persistent profile directory</span>
+              <input
+                value={profileDir}
+                maxLength={500}
+                placeholder={DEFAULT_PROFILE_DIR}
+                onChange={event => {
+                  const next = event.target.value;
+                  setProfileDir(next);
+                  window.localStorage.setItem("rrugc:pinterest-profile-dir", next);
+                }}
+              />
+            </label>
+            <div className="rrugc-token-actions">
+              <button type="button" onClick={() => void copy(bootstrapCommand, "bootstrap")}>
+                {copied === "bootstrap" ? "Login command copied" : "Copy login command"}
+              </button>
+              {created && <button type="button" onClick={() => void copy(command, "agent")}>
+                {copied === "agent" ? "Manual command copied" : "Copy manual Scout command"}
+              </button>}
+            </div>
+          </div>
+        </details>
+      </div>
     </details>
   </section>;
 }
