@@ -898,6 +898,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-modal="true"');
     expect(markup).toContain("rrugc-source-review-masonry");
     expect(markup).toContain("rrugc-source-review-card");
+    expect(markup).toContain('width="800"');
+    expect(markup).toContain('height="1000"');
     expect(markup).toContain("is-pending-ai");
     expect(markup).toContain("Pending analysis");
     expect(markup).toContain("Pinterest ↗");

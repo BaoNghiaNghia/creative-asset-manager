@@ -286,7 +286,14 @@ export function ReferenceReviewModal({
             }
           >
             <div className="rrugc-source-review-image">
-              <DeferredImage src={reference.image_url} alt="" rootMargin="320px 0px" referrerPolicy="no-referrer" />
+              <DeferredImage
+                src={reference.image_url}
+                alt=""
+                width={reference.width ?? undefined}
+                height={reference.height ?? undefined}
+                rootMargin="320px 0px"
+                referrerPolicy="no-referrer"
+              />
               <span className="rrugc-source-review-index">{index + 1}</span>
               {reference.status === "analysis_failed" && <span className="rrugc-source-review-failed" title="AI analysis failed">!</span>}
               <div className="rrugc-source-review-votes" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
