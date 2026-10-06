@@ -1284,6 +1284,8 @@ export default function App() {
             onUpload={visualSearch.chooseUpload}
             onApplyCrop={crop => visualSearch.retry(crop)}
             onRetry={visualSearch.retry}
+            recentAssets={explorer.items.filter(item => item.kind === "image").slice(0, 12)}
+            onChooseAsset={visualSearch.chooseAsset}
             onClose={() => { visualSearch.clear(); setVisualSearchOpen(false); }}
           />}
           <div className={hasSearchQuery && showImageSearchSection ? "search-results-layout has-category-filter" : "search-results-layout"}>

@@ -4,7 +4,7 @@ import type { Asset } from "../types";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
-type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; };
+type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; recentAssets?: Asset[]; onChooseAsset?: (asset: Asset) => void; };
 type DragMode = "create" | "nw" | "ne" | "sw" | "se";
 type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop; changed: boolean };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
@@ -27,13 +27,27 @@ function point(event: ReactPointerEvent<HTMLElement>, element: HTMLElement) {
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function sameCrop(left: VisualCrop, right: VisualCrop) { return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height; }
 
-export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose }: Props) {
+export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose, recentAssets = [], onChooseAsset }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [crop, setCrop] = useState<VisualCrop>(fullCrop);
   const cropRef = useRef(crop);
   const dragRef = useRef<DragState | null>(null);
+  const [recentExpanded, setRecentExpanded] = useState(false);
   useEffect(() => { cropRef.current = crop; }, [crop]);
+  useEffect(() => {
+    if (reference) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [reference, onClose]);
   useEffect(() => { cropRef.current = fullCrop; setCrop(fullCrop); }, [reference?.kind, reference?.kind === "asset" ? reference.asset.internal_asset_id : reference?.kind === "upload" ? reference.file.name : ""]);
   const preview = visualReferencePreviewUrl(reference);
   const uploadFile = (file: File | undefined) => {
@@ -92,7 +106,46 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
     if (scope && active.changed && !sameCrop(active.crop, cropRef.current)) onApplyCrop(cropRef.current);
   };
   const picker = <input ref={inputRef} type="file" accept="image/*" hidden onChange={event => { uploadFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />;
-  if (!reference) return <><section className="visual-search-upload-card" aria-label="Search with an image" onDragOver={event => event.preventDefault()} onDrop={handleDrop} onClick={() => inputRef.current?.click()}><div><b>Search with an image</b><p>Drag and drop an image here, or upload one.</p></div><button type="button" className="visual-primary" onClick={event => { event.stopPropagation(); inputRef.current?.click(); }} disabled={!scope}>Upload image</button></section>{error && <div className="visual-search-error" role="alert"><span>{error}</span></div>}{picker}</>;
+  if (!reference) return <div className="visual-search-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="visual-search-modal" role="dialog" aria-modal="true" aria-labelledby="visual-search-modal-title">
+      <header className="visual-search-modal-header">
+        <h2 id="visual-search-modal-title">Upload an image to search</h2>
+        <button type="button" className="visual-search-modal-close" onClick={onClose} aria-label="Close image search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19" /></svg>
+        </button>
+      </header>
+      <button
+        type="button"
+        className="visual-search-dropzone"
+        onDragOver={event => event.preventDefault()}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        disabled={!scope}
+      >
+        <span className="visual-search-upload-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 16V8m0 0-3 3m3-3 3 3" /></svg>
+        </span>
+        <span>Choose a file or drag and drop it here</span>
+        {!scope && <small>Search is unavailable until your account permissions finish loading.</small>}
+      </button>
+      {error && <div className="visual-search-error visual-search-modal-error" role="alert"><span>{error}</span></div>}
+      {recentAssets.length > 0 && onChooseAsset && <section className="visual-search-recent">
+        <div className="visual-search-recent-heading">
+          <button type="button" className="visual-search-recent-toggle" onClick={() => setRecentExpanded(value => !value)} aria-expanded={recentExpanded}>
+            <span>Your recent images</span>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d={recentExpanded ? "m5 12 5-5 5 5" : "m5 8 5 5 5-5"} /></svg>
+          </button>
+          <button type="button" className="visual-search-view-all" onClick={() => setRecentExpanded(true)}>View all</button>
+        </div>
+        {recentExpanded && <div className="visual-search-recent-strip">
+          {recentAssets.map(asset => <button type="button" key={(asset.external_source_id || "") + ":" + asset.id} className="visual-search-recent-item" onClick={() => onChooseAsset(asset)} aria-label={"Search using " + asset.name} title={asset.name}>
+            <img src={asset.thumbnail_url || explorerAssetUrl(asset, "thumbnail")} alt="" loading="lazy" />
+          </button>)}
+        </div>}
+      </section>}
+      {picker}
+    </section>
+  </div>;
   return <section className="visual-search-upload-card visual-search-upload-card--reference" aria-label="Visual search">
     <button type="button" className="visual-direct-change" onClick={() => inputRef.current?.click()} aria-label="Change image" title="Change image">×</button>
     <div className="visual-direct-workspace">

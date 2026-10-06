@@ -68,6 +68,21 @@ describe("visual search client helpers", () => {
     expect(defaultVisualSearchScope(null, true, true)).toBeNull();
   });
 
+  it("renders the Pinterest-style upload modal before an image is selected", () => {
+    const markup = renderToStaticMarkup(createElement(VisualSearchPanel, {
+      scope: "all", canSearchAllResources: true, hasCurrentSource: true, hasCurrentFolder: true,
+      reference: null, loading: false, error: "", refinement: "",
+      onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
+      onApplyCrop: () => undefined, onRetry: () => undefined, onClose: () => undefined,
+      recentAssets: [referenceAsset()], onChooseAsset: () => undefined,
+    }));
+    expect(markup).toContain("visual-search-modal");
+    expect(markup).toContain("Upload an image to search");
+    expect(markup).toContain("Choose a file or drag and drop it here");
+    expect(markup).toContain("Your recent images");
+    expect(markup).toContain("View all");
+  });
+
   it("keeps scope controls out of the direct Lens canvas while the hook retains the safe viewer scope", () => {
     const markup = renderToStaticMarkup(createElement(VisualSearchPanel, {
       scope: "folder", canSearchAllResources: false, hasCurrentSource: true, hasCurrentFolder: true,

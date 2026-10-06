@@ -124,8 +124,8 @@ describe("Public Review visual search", () => {
     expect(visualButton).not.toBeNull();
     await click(visualButton);
     expect(visualButton?.getAttribute("aria-pressed")).toBe("true");
-    expect(host.querySelector(".public-visual-search .visual-search-upload-card")).not.toBeNull();
-    expect(host.textContent).toContain("Search with an image");
+    expect(host.querySelector(".visual-search-modal")).not.toBeNull();
+    expect(host.textContent).toContain("Upload an image to search");
     expect(host.querySelector(".public-folder-header h2")?.textContent).toBe("Visual search");
 
     await act(async () => root.unmount());

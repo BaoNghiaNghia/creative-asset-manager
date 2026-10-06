@@ -1635,6 +1635,146 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-panel-direct .visual-direct-caption{min-height:27px;align-content:center}
 @media(max-width:900px){.visual-search-workbench{display:block;padding:12px 0 0}.visual-search-workbench .visual-search-panel-direct{position:static;width:auto;margin:0 12px 12px}.visual-search-workbench .grid{padding:0 12px 90px}}
 
+/* Pinterest-style Visual Search upload modal. */
+.visual-search-modal-backdrop{
+  position:fixed;
+  z-index:1800;
+  inset:0;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:rgba(20,23,28,.34);
+  backdrop-filter:blur(2px);
+}
+.visual-search-modal{
+  box-sizing:border-box;
+  width:min(792px,calc(100vw - 36px));
+  max-height:min(86vh,720px);
+  overflow:auto;
+  padding:28px 18px 18px;
+  border:1px solid #ececea;
+  border-radius:22px;
+  background:#fff;
+  color:#111;
+  box-shadow:0 24px 70px rgba(22,28,38,.22);
+}
+.visual-search-modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  padding:0 0 22px;
+}
+.visual-search-modal-header h2{
+  margin:0;
+  color:#111;
+  font-size:20px;
+  font-weight:760;
+  letter-spacing:-.02em;
+}
+.visual-search-modal-close{
+  display:grid;
+  flex:none;
+  place-items:center;
+  width:36px;
+  height:36px;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:#111;
+  cursor:pointer;
+}
+.visual-search-modal-close:hover{background:#f2f2ef}
+.visual-search-modal-close svg{width:27px;height:27px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round}
+.visual-search-dropzone{
+  display:grid;
+  box-sizing:border-box;
+  width:100%;
+  min-height:336px;
+  place-items:center;
+  align-content:center;
+  gap:16px;
+  padding:32px 24px;
+  border:2px dashed #cecec7;
+  border-radius:34px;
+  background:#fff;
+  color:#111;
+  font:inherit;
+  font-size:17px;
+  cursor:pointer;
+  transition:border-color .15s ease,background .15s ease;
+}
+.visual-search-dropzone:hover:not(:disabled),
+.visual-search-dropzone:focus-visible{border-color:#9d9d96;background:#fafaf8;outline:none}
+.visual-search-dropzone:disabled{cursor:wait;opacity:.62}
+.visual-search-dropzone small{max-width:420px;color:#757575;font-size:12px;line-height:1.4;text-align:center}
+.visual-search-upload-icon{display:grid;place-items:center;width:44px;height:44px}
+.visual-search-upload-icon svg{width:40px;height:40px;fill:none;stroke:#111;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.visual-search-modal-error{margin:12px 8px 0}
+.visual-search-recent{padding:16px 16px 0}
+.visual-search-recent-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.visual-search-recent-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:8px 0;
+  border:0;
+  background:transparent;
+  color:#111;
+  font:inherit;
+  font-size:16px;
+  font-weight:760;
+  cursor:pointer;
+}
+.visual-search-recent-toggle svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.visual-search-view-all{
+  flex:none;
+  min-height:38px;
+  padding:8px 14px;
+  border:0;
+  border-radius:14px;
+  background:#e9e9e5;
+  color:#111;
+  font:inherit;
+  font-size:14px;
+  cursor:pointer;
+}
+.visual-search-view-all:hover{background:#deded9}
+.visual-search-recent-strip{
+  display:grid;
+  grid-auto-flow:column;
+  grid-auto-columns:minmax(72px,96px);
+  gap:8px;
+  overflow-x:auto;
+  padding:6px 0 2px;
+  scrollbar-width:thin;
+  scroll-snap-type:x proximity;
+}
+.visual-search-recent-item{
+  position:relative;
+  overflow:hidden;
+  aspect-ratio:.68;
+  padding:0;
+  border:0;
+  border-radius:15px;
+  background:#efefec;
+  cursor:pointer;
+  scroll-snap-align:start;
+}
+.visual-search-recent-item img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .18s ease}
+.visual-search-recent-item:hover img{transform:scale(1.035)}
+.visual-search-recent-item:focus-visible{outline:3px solid #3568df;outline-offset:2px}
+@media(max-width:640px){
+  .visual-search-modal-backdrop{padding:10px}
+  .visual-search-modal{width:100%;max-height:94vh;padding:20px 14px 14px;border-radius:18px}
+  .visual-search-modal-header{padding-bottom:16px}
+  .visual-search-modal-header h2{font-size:18px}
+  .visual-search-dropzone{min-height:250px;border-radius:26px;font-size:15px}
+  .visual-search-recent{padding-inline:8px}
+  .visual-search-recent-strip{grid-auto-columns:minmax(68px,84px)}
+}
+
 /* The visual-search entry is a single drop zone; its preview preserves the source aspect ratio. */
 .visual-search-upload-card {
   display: flex;
