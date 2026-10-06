@@ -1389,11 +1389,17 @@ def test_stage3_ugc_decision_only_rejects_missing_person_or_product():
         evidence=["person wearing the hat"],
         summary="Natural lifestyle frame.",
     )
-    varied_reviews = [
-        review_text_for_analysis(fallback_document, f"analysis-{index}")
-        for index in range(100)
-    ]
-    assert len(set(varied_reviews)) >= 60
+    varied_reviews: list[str] = []
+    used_reviews: set[str] = set()
+    for index in range(100):
+        copy = review_text_for_analysis(
+            fallback_document,
+            f"analysis-{index}",
+            existing_texts=used_reviews,
+        )
+        varied_reviews.append(copy)
+        used_reviews.add(copy)
+    assert len(set(varied_reviews)) == 100
     assert {copy.count(".") for copy in varied_reviews} >= {1, 2, 3}
     assert len({copy.split(maxsplit=1)[0] for copy in varied_reviews}) >= 8
     assert all(not copy.lower().startswith("obsessed with") for copy in varied_reviews)

@@ -252,9 +252,16 @@ _REVIEW_CLOSINGS = (
 )
 
 
-def compose_review_text(*, analysis_id: str, embroidery_visible: bool) -> str:
+def compose_review_text(
+    *,
+    analysis_id: str,
+    embroidery_visible: bool,
+    variant: int = 0,
+) -> str:
     """Build stable synthetic review copy with deliberately varied cadence and length."""
-    digest = hashlib.sha256(("review-copy:" + analysis_id).encode("utf-8")).digest()
+    digest = hashlib.sha256(
+        f"review-copy:{analysis_id}:{variant}".encode("utf-8")
+    ).digest()
     length_bucket = digest[0] % 100
     short_pool = _REVIEW_SHORT_EMBROIDERY if embroidery_visible else _REVIEW_SHORT_GENERIC
     detail_pool = _REVIEW_EMBROIDERY_DETAILS if embroidery_visible else _REVIEW_GENERIC_DETAILS
@@ -274,15 +281,24 @@ def compose_review_text(*, analysis_id: str, embroidery_visible: bool) -> str:
 def review_text_for_analysis(
     document: Stage3UgcAnalysisDocument,
     analysis_id: str,
+    *,
+    existing_texts: set[str] | None = None,
 ) -> str:
     # Gemini still returns a short review observation as part of structured
     # analysis, but final customer-facing copy is composed locally. This keeps
     # wording stable across refreshes and prevents repeated model openers from
-    # propagating across an entire review grid.
-    return compose_review_text(
-        analysis_id=analysis_id,
-        embroidery_visible=document.embroidery_visible,
-    )
+    # propagating across an entire review grid. When the tenant already has the
+    # same copy, advance a deterministic variant instead of persisting a duplicate.
+    used = existing_texts or set()
+    for variant in range(512):
+        candidate = compose_review_text(
+            analysis_id=analysis_id,
+            embroidery_visible=document.embroidery_visible,
+            variant=variant,
+        )
+        if candidate not in used:
+            return candidate
+    raise RuntimeError("Could not compose a unique Stage 3 review after 512 variants.")
 
 
 class RrugcStage3Service:
@@ -583,7 +599,22 @@ class RrugcStage3AnalyzeJobHandler:
             row.summary = document.summary
             row.reviewer_name = reviewer_name_for_analysis(analysis_id)
             row.star_rating = star_rating_for_analysis(analysis_id)
-            row.review_text = review_text_for_analysis(document, analysis_id)
+            existing_review_texts = {
+                text
+                for text in session.scalars(
+                    select(RrugcStage3AnalysisModel.review_text).where(
+                        RrugcStage3AnalysisModel.tenant_id == context.job.tenant_id,
+                        RrugcStage3AnalysisModel.id != analysis_id,
+                        RrugcStage3AnalysisModel.review_text.is_not(None),
+                    )
+                ).all()
+                if text
+            }
+            row.review_text = review_text_for_analysis(
+                document,
+                analysis_id,
+                existing_texts=existing_review_texts,
+            )
             row.review_generated_at = datetime.now(timezone.utc)
             row.evidence_json = list(document.evidence)
             row.reject_reasons_json = list(decision.reject_reasons)
