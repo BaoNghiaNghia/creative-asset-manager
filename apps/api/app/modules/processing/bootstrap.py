@@ -64,6 +64,7 @@ from app.modules.realistic_review_ugc.source_plan_scheduler import RrugcSourcePl
 from app.modules.realistic_review_ugc.source_plans import RrugcSourcePlanAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.stage2 import RrugcStage2GenerateJobHandler
+from app.modules.realistic_review_ugc.stage3 import RrugcStage3AnalyzeJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.delivery_automation import (
     RrugcDeliveryMaintenanceJobHandler,
@@ -130,6 +131,12 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
         "MANAGED_ASSET_STORAGE_ENABLED",
         "CODEX_IMAGE_GENERATION_ENABLED",
     ),
+    "rrugc_stage3_analyze": (
+        "PROCESSING_JOBS_ENABLED",
+        "DYNAMIC_AI_METADATA_ENABLED",
+        "AI_SINGLE_ANALYSIS_ENABLED",
+        "MANAGED_ASSET_STORAGE_ENABLED",
+    ),
     "rrugc_supervisor_qa": (
         "PROCESSING_JOBS_ENABLED",
         "DYNAMIC_AI_METADATA_ENABLED",
@@ -175,6 +182,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
         return job_type in {
             "video_analyze",
             "rrugc_candidate_analyze",
+            "rrugc_stage3_analyze",
             "rrugc_supervisor_qa",
         }
 
@@ -185,7 +193,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
             settings.AI_EMERGENCY_STOP_ENABLED
             and (
                 job_type.startswith(("asset_analyze", "video_analyze", "ai_batch_"))
-                or job_type in {"rrugc_candidate_analyze", "rrugc_generate", "rrugc_supervisor_qa"}
+                or job_type in {"rrugc_candidate_analyze", "rrugc_stage3_analyze", "rrugc_generate", "rrugc_supervisor_qa"}
             )
         )
         and not (
@@ -392,6 +400,7 @@ def build_worker_runtime(
                 ("rrugc_candidate_import", RrugcCandidateImportJobHandler(settings)),
                 ("rrugc_generate", RrugcGenerateJobHandler(settings)),
                 ("rrugc_stage2_generate", RrugcStage2GenerateJobHandler(settings)),
+                ("rrugc_stage3_analyze", RrugcStage3AnalyzeJobHandler()),
                 ("rrugc_supervisor_qa", RrugcSupervisorQaJobHandler(settings)),
                 (
                     "rrugc_delivery_maintenance",

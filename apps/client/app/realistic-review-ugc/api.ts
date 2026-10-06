@@ -43,6 +43,7 @@ import type {
   SourcePlanSyncResult,
   Stage2Job,
   Stage2JobCreated,
+  Stage3AnalyzeResult,
   Stage3ReviewGroupList,
   Stage2Skill,
   Stage2SkillCatalog,
@@ -284,6 +285,21 @@ export const listStage3ReviewGroups = (
   request<Stage3ReviewGroupList>(
     "/api/v1/realistic-review-ugc/stage3/review-groups",
     { signal },
+  );
+
+export const analyzeStage3ReviewGroups = (
+  folderId?: string,
+  force = false,
+) =>
+  request<Stage3AnalyzeResult>(
+    "/api/v1/realistic-review-ugc/stage3/review-groups/analyze",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        folder_id: folderId || null,
+        force,
+      }),
+    },
   );
 
 export const listStage2Skills = (refresh = false, signal?: AbortSignal) =>

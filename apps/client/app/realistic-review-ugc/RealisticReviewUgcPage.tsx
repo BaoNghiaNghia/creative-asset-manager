@@ -3,6 +3,7 @@ import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
+  analyzeStage3ReviewGroups,
   cancelStage2Jobs,
   createStage2Job,
   listKeywordAnalysis,
@@ -36,7 +37,16 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   },
 };
 
-const EMPTY_STAGE3_GROUPS: Stage3ReviewGroupList = { items: [], total_groups: 0, total_images: 0 };
+const EMPTY_STAGE3_GROUPS: Stage3ReviewGroupList = {
+  items: [],
+  total_groups: 0,
+  total_images: 0,
+  ready_images: 0,
+  rejected_images: 0,
+  analyzing_images: 0,
+  pending_images: 0,
+  error_images: 0,
+};
 
 const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   items: [],
@@ -116,6 +126,8 @@ export function RealisticReviewUgcPage() {
   const [stage2Message, setStage2Message] = useState("");
   const [stage3Groups, setStage3Groups] = useState<Stage3ReviewGroupList>(EMPTY_STAGE3_GROUPS);
   const [stage3Loading, setStage3Loading] = useState(true);
+  const [stage3Analyzing, setStage3Analyzing] = useState(false);
+  const [stage3Message, setStage3Message] = useState("");
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
   const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
@@ -169,6 +181,25 @@ export function RealisticReviewUgcPage() {
   async function refreshStage3Groups(signal?: AbortSignal) {
     const result = await listStage3ReviewGroups(signal);
     setStage3Groups(result);
+  }
+
+  async function analyzeStage3(folderId?: string) {
+    setStage3Analyzing(true);
+    setStage3Message("");
+    setError("");
+    try {
+      const result = await analyzeStage3ReviewGroups(folderId);
+      setStage3Message(
+        result.queued > 0
+          ? `Queued ${result.queued} of ${result.eligible} image${result.eligible === 1 ? "" : "s"} for UGC analysis.`
+          : `All ${result.eligible} eligible image${result.eligible === 1 ? "" : "s"} are already queued or analyzed.`,
+      );
+      await refreshStage3Groups();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to queue Stage 3 analysis.");
+    } finally {
+      setStage3Analyzing(false);
+    }
   }
 
   async function refreshStage2Jobs(signal?: AbortSignal) {
@@ -673,6 +704,9 @@ export function RealisticReviewUgcPage() {
           <Stage3ReviewGroups
             data={stage3Groups}
             loading={stage3Loading}
+            analyzing={stage3Analyzing}
+            message={stage3Message}
+            onAnalyze={folderId => void analyzeStage3(folderId)}
           />
         </section>
 

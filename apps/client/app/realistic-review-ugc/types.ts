@@ -375,6 +375,14 @@ export type Stage2JobsCancelled = {
   job_ids: string[];
 };
 
+export type Stage3AnalysisStatus =
+  | "pending"
+  | "queued"
+  | "analyzing"
+  | "ready"
+  | "rejected"
+  | "error";
+
 export type Stage3ReviewImage = {
   stage2_job_id: string;
   source_plan_id: string;
@@ -386,6 +394,26 @@ export type Stage3ReviewImage = {
   output_content_type: string | null;
   completed_at: string | null;
   preview_url: string;
+  analysis_id: string | null;
+  analysis_status: Stage3AnalysisStatus;
+  final_score: number | null;
+  mobile_ugc_score: number | null;
+  photorealism_score: number | null;
+  product_visibility_score: number | null;
+  review_fit_score: number | null;
+  person_visible: boolean | null;
+  hat_visible: boolean | null;
+  product_visible: boolean | null;
+  embroidery_visible: boolean | null;
+  scene_type: string | null;
+  framing_type: string | null;
+  summary: string | null;
+  reviewer_name: string | null;
+  star_rating: number | null;
+  review_text: string | null;
+  review_generated_at: string | null;
+  reject_reasons: string[];
+  last_error_code: string | null;
 };
 
 export type Stage3ReviewGroup = {
@@ -393,7 +421,12 @@ export type Stage3ReviewGroup = {
   folder_name: string;
   folder_path: string;
   image_count: number;
-  status: "ready";
+  status: "pending" | "analyzing" | "ready" | "partial" | "rejected" | "error";
+  ready_count: number;
+  rejected_count: number;
+  analyzing_count: number;
+  pending_count: number;
+  error_count: number;
   latest_completed_at: string | null;
   images: Stage3ReviewImage[];
 };
@@ -402,6 +435,17 @@ export type Stage3ReviewGroupList = {
   items: Stage3ReviewGroup[];
   total_groups: number;
   total_images: number;
+  ready_images: number;
+  rejected_images: number;
+  analyzing_images: number;
+  pending_images: number;
+  error_images: number;
+};
+
+export type Stage3AnalyzeResult = {
+  eligible: number;
+  queued: number;
+  existing: number;
 };
 
 export type SourcePlanSyncResult = {

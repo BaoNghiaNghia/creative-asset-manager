@@ -999,6 +999,72 @@ class RrugcStage2JobModel(Base):
     )
 
 
+class RrugcStage3AnalysisModel(Base):
+    __tablename__ = "rrugc_stage3_analyses"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["stage2_job_id"],
+            ["rrugc_stage2_jobs.id"],
+            name="fk_rrugc_stage3_analysis_stage2_job",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "stage2_job_id",
+            name="uq_rrugc_stage3_analysis_stage2_job",
+        ),
+        Index(
+            "ix_rrugc_stage3_analysis_status_updated",
+            "tenant_id",
+            "status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stage2_job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    output_content_hash: Mapped[str | None] = mapped_column(String(64))
+    analysis_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    analysis_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    people_count: Mapped[int | None] = mapped_column(Integer)
+    person_visible: Mapped[bool | None] = mapped_column(Boolean)
+    hat_visible: Mapped[bool | None] = mapped_column(Boolean)
+    product_visible: Mapped[bool | None] = mapped_column(Boolean)
+    embroidery_visible: Mapped[bool | None] = mapped_column(Boolean)
+    mobile_ugc_score: Mapped[float | None] = mapped_column(Float)
+    photorealism_score: Mapped[float | None] = mapped_column(Float)
+    product_visibility_score: Mapped[float | None] = mapped_column(Float)
+    review_fit_score: Mapped[float | None] = mapped_column(Float)
+    final_score: Mapped[float | None] = mapped_column(Float)
+    scene_type: Mapped[str | None] = mapped_column(String(64))
+    framing_type: Mapped[str | None] = mapped_column(String(64))
+    summary: Mapped[str | None] = mapped_column(Text)
+    reviewer_name: Mapped[str | None] = mapped_column(String(80))
+    star_rating: Mapped[int | None] = mapped_column(Integer)
+    review_text: Mapped[str | None] = mapped_column(Text)
+    review_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_json: Mapped[list | None] = mapped_column(JSON)
+    reject_reasons_json: Mapped[list | None] = mapped_column(JSON)
+    provider: Mapped[str | None] = mapped_column(String(64))
+    model: Mapped[str | None] = mapped_column(String(128))
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class RrugcGenerationAttemptModel(Base):
     __tablename__ = "rrugc_generation_attempts"
     __table_args__ = (

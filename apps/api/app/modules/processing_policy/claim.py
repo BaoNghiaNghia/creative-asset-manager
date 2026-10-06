@@ -38,6 +38,7 @@ AI_JOB_TYPES = (
     "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate",
     "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
     "rrugc_stage2_generate",
+    "rrugc_stage3_analyze",
     "rrugc_supervisor_qa",
 )
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_scan")
@@ -47,6 +48,7 @@ AI_ANALYSIS_MODEL_GATE_UNRESOLVABLE = "ai_analysis_model_gate_unresolvable"
 RRUGC_GEMINI_ANALYZE_JOB_TYPES = (
     "rrugc_source_plan_analyze",
     "rrugc_candidate_analyze",
+    "rrugc_stage3_analyze",
 )
 MODEL_GATED_AI_JOB_TYPES = ("asset_analyze", *RRUGC_GEMINI_ANALYZE_JOB_TYPES)
 RRUGC_GEMINI_LANE_PROVIDER = "gemini_rrugc_lane"
@@ -103,6 +105,7 @@ STAGE_POLICY = {
     "rrugc_candidate_import": "managed_storage_enabled",
     "rrugc_generate": "pipeline_enabled",
     "rrugc_stage2_generate": "pipeline_enabled",
+    "rrugc_stage3_analyze": "ai_analysis_enabled",
     "rrugc_supervisor_qa": "ai_analysis_enabled",
     "rrugc_delivery_maintenance": "pipeline_enabled",
 }

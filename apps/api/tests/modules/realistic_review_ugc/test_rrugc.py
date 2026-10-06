@@ -70,6 +70,12 @@ from app.modules.realistic_review_ugc.keyword_strategy import (
 from app.modules.realistic_review_ugc.generation import RrugcGenerationFoundation
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
+from app.modules.realistic_review_ugc.stage3 import (
+    RrugcStage3AnalyzeJobHandler,
+    RrugcStage3Service,
+    Stage3UgcAnalysisDocument,
+    evaluate_stage3,
+)
 from app.modules.realistic_review_ugc.stage2 import (
     DEFAULT_STAGE2_PROMPT,
     RrugcStage2Error,
@@ -83,6 +89,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
     RrugcStage2JobModel,
+    RrugcStage3AnalysisModel,
     RrugcStage2SkillRegistryModel,
     RrugcStage2SkillVersionModel,
     RrugcSupervisorResultModel,
@@ -200,6 +207,7 @@ def database():
     RrugcStage2SkillRegistryModel.__table__.create(engine)
     RrugcStage2SkillVersionModel.__table__.create(engine)
     RrugcStage2JobModel.__table__.create(engine)
+    RrugcStage3AnalysisModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
     RrugcReviewTaskModel.__table__.create(engine)
     AssetModel.__table__.create(engine)
@@ -1341,6 +1349,208 @@ def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
         assert diagnostics["claimable"] == 1
 
 
+def test_stage3_ugc_decision_requires_person_product_and_review_fit():
+    ready = evaluate_stage3(
+        Stage3UgcAnalysisDocument(
+            people_count=1,
+            person_visible=True,
+            hat_visible=True,
+            product_visible=True,
+            embroidery_visible=True,
+            mobile_ugc_score=0.82,
+            photorealism_score=0.88,
+            product_visibility_score=0.91,
+            review_fit_score=0.86,
+            scene_type="home",
+            framing_type="medium",
+            evidence=["person wearing the hat", "product is clearly visible"],
+            summary="Natural lifestyle frame suitable for a customer review.",
+            review_text="I wear this one for errands and weekend plans because the embroidered detail makes it feel personal without being over the top.",
+        )
+    )
+    assert ready.status == "ready"
+    assert ready.reject_reasons == []
+    assert ready.final_score > 0.8
+
+    rejected = evaluate_stage3(
+        Stage3UgcAnalysisDocument(
+            people_count=0,
+            person_visible=False,
+            hat_visible=True,
+            product_visible=True,
+            embroidery_visible=False,
+            mobile_ugc_score=0.35,
+            photorealism_score=0.9,
+            product_visibility_score=0.8,
+            review_fit_score=0.3,
+            scene_type="studio",
+            framing_type="product_only",
+            evidence=["hat shown without a person"],
+            summary="Product-only frame.",
+            review_text="The design caught my eye right away, but I would want a better lifestyle photo before using this as my main review image.",
+        )
+    )
+    assert rejected.status == "rejected"
+    assert "no_visible_person" in rejected.reject_reasons
+    assert "low_ugc_fit" in rejected.reject_reasons
+    assert "low_review_fit" in rejected.reject_reasons
+
+
+def test_stage3_analysis_worker_persists_ready_result(database):
+    class FakeStage3AnalysisProvider:
+        provider_name = "gemini"
+        supports_single = True
+        supports_batch = False
+        default_model = "fake-stage3-vision"
+
+        async def analyze_single(self, input):
+            assert input.metadata_profile == "rrugc_stage3_ugc_review"
+            assert input.metadata_profile_version == "rrugc-stage3-ugc-v2"
+            assert input.image_bytes
+            assert input.image_mime_type == "image/jpeg"
+            return AiMetadataAnalysisResult(
+                metadata={
+                    "people_count": 1,
+                    "person_visible": True,
+                    "hat_visible": True,
+                    "product_visible": True,
+                    "embroidery_visible": True,
+                    "mobile_ugc_score": 0.84,
+                    "photorealism_score": 0.9,
+                    "product_visibility_score": 0.92,
+                    "review_fit_score": 0.88,
+                    "scene_type": "home",
+                    "framing_type": "medium",
+                    "evidence": [
+                        "person visibly wearing the hat",
+                        "hat and embroidery are clearly visible",
+                    ],
+                    "summary": "Natural phone-style lifestyle image suitable for a review card.",
+                    "review_text": "I grabbed this hat for everyday wear and the embroidered detail gives it just enough personality. It has an easy, casual look I can throw on with anything.",
+                },
+                provider="gemini",
+                model="fake-stage3-vision",
+            )
+
+    with database() as session:
+        campaign, _token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Stage 3 handler",
+            query="ugc handler",
+            search_queries=["ugc handler"],
+            target_count=1,
+            max_scroll_batches=1,
+            auto_import=True,
+            auto_scout=False,
+        )
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id="root",
+            source_file_id="stage3-handler-source",
+            source_parent_folder_id="folder-handler",
+            source_relative_path="Product/Black/front.png",
+            source_name="front.png",
+            source_mime_type="image/png",
+            source_revision="e" * 64,
+            status="ready",
+            campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        )
+        session.add(plan)
+        session.flush()
+        stage2 = RrugcStage2JobModel(
+            tenant_id="tenant-a",
+            source_plan_id=plan.id,
+            campaign_id=campaign.id,
+            source_revision=plan.source_revision,
+            skill_name="test-stage2",
+            selected_candidate_ids_json=[],
+            selected_reference_snapshot_json=[],
+            status="completed",
+            idempotency_key="stage3-handler-stage2",
+            output_remote_file_id="stage3-handler-output",
+            output_remote_folder_id="folder-handler",
+            output_content_hash="f" * 64,
+            output_width=1024,
+            output_height=1024,
+            output_content_type="image/png",
+            output_size_bytes=2048,
+            completed_at=datetime.now(timezone.utc),
+            created_by_user_id="user-a",
+        )
+        session.add(stage2)
+        session.flush()
+        analysis, created = RrugcStage3Service(session).ensure_analysis_for_job(
+            tenant_id="tenant-a",
+            stage2_job=stage2,
+        )
+        assert created is True
+        session.commit()
+        analysis_id = analysis.id
+
+        processing_job = session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.tenant_id == "tenant-a",
+                ProcessingJobModel.job_type == "rrugc_stage3_analyze",
+                ProcessingJobModel.entity_id == analysis_id,
+            )
+        )
+        assert processing_job is not None
+        claimed = ClaimedJob(
+            id=processing_job.id,
+            tenant_id=processing_job.tenant_id,
+            job_type=processing_job.job_type,
+            entity_type=processing_job.entity_type,
+            entity_id=processing_job.entity_id,
+            payload=processing_job.payload_json,
+            attempt_count=processing_job.attempt_count,
+            lease_owner="test-worker",
+            provider_key="gemini",
+        )
+
+    registry = AiProviderRegistry()
+    registry.register("gemini", FakeStage3AnalysisProvider())
+    context = JobHandlerContext(
+        job=claimed,
+        dependencies=WorkerDependencies(
+            session_factory=database,
+            storage_provider=FakeStorage(),
+            ai_provider_registry=registry,
+        ),
+        shutdown_requested=Event(),
+        cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("rrugc-stage3-handler-test"), {}),
+    )
+    outcome = RrugcStage3AnalyzeJobHandler()(context)
+    assert outcome.outcome == JobOutcome.COMPLETED
+
+    with database() as session:
+        persisted = session.get(RrugcStage3AnalysisModel, analysis_id)
+        assert persisted is not None
+        assert persisted.status == "ready"
+        assert persisted.people_count == 1
+        assert persisted.person_visible is True
+        assert persisted.hat_visible is True
+        assert persisted.product_visible is True
+        assert persisted.embroidery_visible is True
+        assert persisted.mobile_ugc_score == pytest.approx(0.84)
+        assert persisted.photorealism_score == pytest.approx(0.9)
+        assert persisted.product_visibility_score == pytest.approx(0.92)
+        assert persisted.review_fit_score == pytest.approx(0.88)
+        assert persisted.final_score > 0.85
+        assert persisted.provider == "gemini"
+        assert persisted.model == "fake-stage3-vision"
+        assert persisted.reviewer_name is not None
+        assert persisted.reviewer_name.endswith(".")
+        assert persisted.star_rating in {3, 4, 5}
+        assert persisted.review_text is not None
+        assert "everyday wear" in persisted.review_text
+        assert persisted.review_generated_at is not None
+        assert persisted.completed_at is not None
+        assert persisted.reject_reasons_json == []
+
+
 def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
     now = datetime.now(timezone.utc)
     with database() as session:
@@ -1496,6 +1706,53 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
         for group in payload["items"]
         for image in group["images"]
     )
+    assert payload["pending_images"] == 3
+    assert groups["folder-a"]["status"] == "pending"
+    assert all(
+        image["analysis_status"] == "pending"
+        for image in groups["folder-a"]["images"]
+    )
+
+    queued = api.post(
+        "/api/v1/realistic-review-ugc/stage3/review-groups/analyze",
+        json={"folder_id": "folder-a", "force": False},
+    )
+    assert queued.status_code == 202
+    assert queued.json() == {"eligible": 2, "queued": 2, "existing": 0}
+
+    duplicate = api.post(
+        "/api/v1/realistic-review-ugc/stage3/review-groups/analyze",
+        json={"folder_id": "folder-a", "force": False},
+    )
+    assert duplicate.status_code == 202
+    assert duplicate.json() == {"eligible": 2, "queued": 0, "existing": 2}
+
+    with database() as session:
+        analyses = session.scalars(
+            select(RrugcStage3AnalysisModel).where(
+                RrugcStage3AnalysisModel.tenant_id == "tenant-a"
+            )
+        ).all()
+        processing_jobs = session.scalars(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.tenant_id == "tenant-a",
+                ProcessingJobModel.job_type == "rrugc_stage3_analyze",
+            )
+        ).all()
+        assert len(analyses) == 2
+        assert len(processing_jobs) == 2
+        assert {row.status for row in analyses} == {"queued"}
+
+    refreshed = api.get("/api/v1/realistic-review-ugc/stage3/review-groups")
+    assert refreshed.status_code == 200
+    refreshed_payload = refreshed.json()
+    refreshed_groups = {
+        item["folder_id"]: item for item in refreshed_payload["items"]
+    }
+    assert refreshed_payload["analyzing_images"] == 2
+    assert refreshed_payload["pending_images"] == 1
+    assert refreshed_groups["folder-a"]["status"] == "analyzing"
+    assert refreshed_groups["folder-a"]["analyzing_count"] == 2
 
 
 def test_stage2_job_uses_up_to_ten_drive_ready_pinterest_refs(database, monkeypatch):

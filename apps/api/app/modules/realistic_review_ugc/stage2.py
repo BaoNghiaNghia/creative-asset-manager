@@ -33,6 +33,7 @@ from app.modules.realistic_review_ugc.skill_registry import (
     ensure_skill_registry,
 )
 from app.modules.realistic_review_ugc.source_plans import embroidery_signature
+from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError,
     installed_stage2_skill_sha256,
@@ -852,6 +853,10 @@ class RrugcStage2GenerateJobHandler:
             row.completed_at = datetime.now(timezone.utc)
             row.last_error_code = None
             row.last_error_message = None
+            RrugcStage3Service(session).ensure_analysis_for_job(
+                tenant_id=context.job.tenant_id,
+                stage2_job=row,
+            )
             session.commit()
 
         context.logger.info(

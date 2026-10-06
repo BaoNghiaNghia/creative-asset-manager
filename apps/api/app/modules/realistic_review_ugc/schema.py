@@ -812,6 +812,28 @@ class Stage3ReviewImageResponse(BaseModel):
     output_content_type: str | None = None
     completed_at: datetime | None = None
     preview_url: str
+    analysis_id: str | None = None
+    analysis_status: Literal[
+        "pending", "queued", "analyzing", "ready", "rejected", "error"
+    ] = "pending"
+    final_score: float | None = None
+    mobile_ugc_score: float | None = None
+    photorealism_score: float | None = None
+    product_visibility_score: float | None = None
+    review_fit_score: float | None = None
+    person_visible: bool | None = None
+    hat_visible: bool | None = None
+    product_visible: bool | None = None
+    embroidery_visible: bool | None = None
+    scene_type: str | None = None
+    framing_type: str | None = None
+    summary: str | None = None
+    reviewer_name: str | None = None
+    star_rating: int | None = Field(default=None, ge=1, le=5)
+    review_text: str | None = None
+    review_generated_at: datetime | None = None
+    reject_reasons: list[str] = Field(default_factory=list)
+    last_error_code: str | None = None
 
 
 class Stage3ReviewGroupResponse(BaseModel):
@@ -819,7 +841,14 @@ class Stage3ReviewGroupResponse(BaseModel):
     folder_name: str
     folder_path: str
     image_count: int
-    status: Literal["ready"] = "ready"
+    status: Literal[
+        "pending", "analyzing", "ready", "partial", "rejected", "error"
+    ] = "pending"
+    ready_count: int = 0
+    rejected_count: int = 0
+    analyzing_count: int = 0
+    pending_count: int = 0
+    error_count: int = 0
     latest_completed_at: datetime | None = None
     images: list[Stage3ReviewImageResponse] = Field(default_factory=list)
 
@@ -828,6 +857,22 @@ class Stage3ReviewGroupListResponse(BaseModel):
     items: list[Stage3ReviewGroupResponse] = Field(default_factory=list)
     total_groups: int
     total_images: int
+    ready_images: int = 0
+    rejected_images: int = 0
+    analyzing_images: int = 0
+    pending_images: int = 0
+    error_images: int = 0
+
+
+class Stage3AnalyzeRequest(BaseModel):
+    folder_id: str | None = Field(default=None, max_length=255)
+    force: bool = False
+
+
+class Stage3AnalyzeResponse(BaseModel):
+    eligible: int
+    queued: int
+    existing: int
 
 
 class ScoutRunCompleteRequest(BaseModel):

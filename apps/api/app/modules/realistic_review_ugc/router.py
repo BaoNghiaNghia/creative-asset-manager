@@ -54,6 +54,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
     RrugcStage2JobModel,
+    RrugcStage3AnalysisModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
@@ -216,6 +217,8 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2JobCreatedResponse,
     Stage2JobResponse,
     Stage2JobsCancelledResponse,
+    Stage3AnalyzeRequest,
+    Stage3AnalyzeResponse,
     Stage3ReviewGroupListResponse,
     Stage3ReviewGroupResponse,
     Stage3ReviewImageResponse,
@@ -252,6 +255,7 @@ from app.modules.realistic_review_ugc.stage2 import (
     RrugcStage2Service,
     STAGE2_CANCEL_GRACE_SECONDS,
 )
+from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
     Stage2SkillRegistryError,
@@ -3884,15 +3888,31 @@ def list_stage3_review_groups(
         .all()
     )
 
+    stage2_ids = [job.id for job, _plan in rows]
+    analyses_by_job: dict[str, RrugcStage3AnalysisModel] = {}
+    if stage2_ids:
+        analyses = session.scalars(
+            select(RrugcStage3AnalysisModel).where(
+                RrugcStage3AnalysisModel.tenant_id
+                == principal.active_tenant_id,
+                RrugcStage3AnalysisModel.stage2_job_id.in_(stage2_ids),
+            )
+        ).all()
+        analyses_by_job = {row.stage2_job_id: row for row in analyses}
+
     grouped: dict[str, dict[str, object]] = {}
-    total_images = 0
+    totals = Counter()
     for job, plan in rows:
         folder_id = str(job.output_remote_folder_id or "").strip()
         remote_file_id = str(job.output_remote_file_id or "").strip()
         if not folder_id or not remote_file_id:
             continue
 
-        relative_path = str(plan.source_relative_path or plan.source_name or "").replace("\\", "/").strip("/")
+        relative_path = (
+            str(plan.source_relative_path or plan.source_name or "")
+            .replace("\\", "/")
+            .strip("/")
+        )
         folder_path = relative_path.rsplit("/", 1)[0] if "/" in relative_path else ""
         folder_name = folder_path.rsplit("/", 1)[-1] if folder_path else "Root folder"
 
@@ -3906,8 +3926,22 @@ def list_stage3_review_groups(
                 "folder_path": folder_path,
                 "latest_completed_at": job.completed_at,
                 "images": [],
+                "counts": Counter(),
             }
             grouped[folder_id] = group
+
+        analysis = analyses_by_job.get(job.id)
+        raw_status = str(analysis.status if analysis else "pending")
+        analysis_status = (
+            raw_status
+            if raw_status
+            in {"pending", "queued", "analyzing", "ready", "rejected", "error"}
+            else "pending"
+        )
+        counts = group["counts"]
+        assert isinstance(counts, Counter)
+        counts[analysis_status] += 1
+        totals[analysis_status] += 1
 
         images = group["images"]
         assert isinstance(images, list)
@@ -3927,25 +3961,143 @@ def list_stage3_review_groups(
                     + job.id
                     + "/output?thumbnail=true&size=512"
                 ),
+                analysis_id=analysis.id if analysis else None,
+                analysis_status=analysis_status,
+                final_score=analysis.final_score if analysis else None,
+                mobile_ugc_score=(
+                    analysis.mobile_ugc_score if analysis else None
+                ),
+                photorealism_score=(
+                    analysis.photorealism_score if analysis else None
+                ),
+                product_visibility_score=(
+                    analysis.product_visibility_score if analysis else None
+                ),
+                review_fit_score=(
+                    analysis.review_fit_score if analysis else None
+                ),
+                person_visible=analysis.person_visible if analysis else None,
+                hat_visible=analysis.hat_visible if analysis else None,
+                product_visible=analysis.product_visible if analysis else None,
+                embroidery_visible=(
+                    analysis.embroidery_visible if analysis else None
+                ),
+                scene_type=analysis.scene_type if analysis else None,
+                framing_type=analysis.framing_type if analysis else None,
+                summary=analysis.summary if analysis else None,
+                reviewer_name=analysis.reviewer_name if analysis else None,
+                star_rating=analysis.star_rating if analysis else None,
+                review_text=analysis.review_text if analysis else None,
+                review_generated_at=(
+                    analysis.review_generated_at if analysis else None
+                ),
+                reject_reasons=(
+                    list(analysis.reject_reasons_json or [])
+                    if analysis
+                    else []
+                ),
+                last_error_code=(
+                    analysis.last_error_code if analysis else None
+                ),
             )
         )
-        total_images += 1
 
-    items = [
-        Stage3ReviewGroupResponse(
-            folder_id=str(group["folder_id"]),
-            folder_name=str(group["folder_name"]),
-            folder_path=str(group["folder_path"]),
-            image_count=len(group["images"]),
-            latest_completed_at=group["latest_completed_at"],
-            images=group["images"],
+    items: list[Stage3ReviewGroupResponse] = []
+    for group in grouped.values():
+        images = group["images"]
+        counts = group["counts"]
+        assert isinstance(images, list)
+        assert isinstance(counts, Counter)
+        image_count = len(images)
+        ready_count = counts["ready"]
+        rejected_count = counts["rejected"]
+        analyzing_count = counts["queued"] + counts["analyzing"]
+        pending_count = counts["pending"]
+        error_count = counts["error"]
+
+        if analyzing_count:
+            group_status = "analyzing"
+        elif image_count and ready_count == image_count:
+            group_status = "ready"
+        elif ready_count:
+            group_status = "partial"
+        elif image_count and rejected_count == image_count:
+            group_status = "rejected"
+        elif error_count and not pending_count:
+            group_status = "error"
+        else:
+            group_status = "pending"
+
+        items.append(
+            Stage3ReviewGroupResponse(
+                folder_id=str(group["folder_id"]),
+                folder_name=str(group["folder_name"]),
+                folder_path=str(group["folder_path"]),
+                image_count=image_count,
+                status=group_status,
+                ready_count=ready_count,
+                rejected_count=rejected_count,
+                analyzing_count=analyzing_count,
+                pending_count=pending_count,
+                error_count=error_count,
+                latest_completed_at=group["latest_completed_at"],
+                images=images,
+            )
         )
-        for group in grouped.values()
-    ]
+
     return Stage3ReviewGroupListResponse(
         items=items,
         total_groups=len(items),
-        total_images=total_images,
+        total_images=sum(len(item.images) for item in items),
+        ready_images=totals["ready"],
+        rejected_images=totals["rejected"],
+        analyzing_images=totals["queued"] + totals["analyzing"],
+        pending_images=totals["pending"],
+        error_images=totals["error"],
+    )
+
+
+@router.post(
+    "/stage3/review-groups/analyze",
+    response_model=Stage3AnalyzeResponse,
+    status_code=202,
+)
+def analyze_stage3_review_groups(
+    request: Stage3AnalyzeRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    query = session.query(RrugcStage2JobModel).filter(
+        RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+        RrugcStage2JobModel.status == "completed",
+        RrugcStage2JobModel.output_remote_file_id.is_not(None),
+        RrugcStage2JobModel.output_remote_folder_id.is_not(None),
+    )
+    if request.folder_id:
+        query = query.filter(
+            RrugcStage2JobModel.output_remote_folder_id == request.folder_id
+        )
+
+    rows = query.order_by(
+        RrugcStage2JobModel.completed_at.desc(),
+        RrugcStage2JobModel.created_at.desc(),
+    ).limit(500).all()
+
+    service = RrugcStage3Service(session)
+    queued = 0
+    for row in rows:
+        _analysis, created = service.ensure_analysis_for_job(
+            tenant_id=principal.active_tenant_id,
+            stage2_job=row,
+            force=request.force,
+        )
+        if created:
+            queued += 1
+    session.commit()
+    return Stage3AnalyzeResponse(
+        eligible=len(rows),
+        queued=queued,
+        existing=max(0, len(rows) - queued),
     )
 
 
