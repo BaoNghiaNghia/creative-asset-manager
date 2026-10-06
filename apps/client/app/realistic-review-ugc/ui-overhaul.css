@@ -39,7 +39,7 @@
 .rrugc-stage-tabs button.active .rrugc-stage-tab-copy small{color:#5d76ab}
 .rrugc-stage-panel{grid-column:1/-1;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:18px;min-width:0;align-items:start}
 .rrugc-stage-panel[hidden]{display:none}
-.rrugc-stage-panel>.rrugc-source-scout-panel,.rrugc-stage-panel>#rrugc-source-plans,.rrugc-stage-panel>.rrugc-stage2{grid-column:1/-1}
+.rrugc-stage-panel>.rrugc-source-scout-panel,.rrugc-stage-panel>#rrugc-source-plans,.rrugc-stage-panel>.rrugc-stage2,.rrugc-stage-panel>.rrugc-stage3{grid-column:1/-1}
 .rrugc-page-body>.rrugc-error{grid-column:1/-1}
 .rrugc-page-body>.rrugc-overview{grid-column:1/-1}
 .rrugc-page-body>#rrugc-scout{grid-column:span 5}
