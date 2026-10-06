@@ -5624,6 +5624,26 @@ def create_scout_agent(
     return ScoutAgentCreatedResponse(**payload, agent_token=raw_token)
 
 
+@router.post(
+    "/scout-agents/{agent_id}/reset-pairing",
+    response_model=ScoutAgentCreatedResponse,
+)
+def reset_scout_agent_pairing(
+    agent_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, raw_token = RrugcAutoScoutService(session).reset_agent_pairing(
+            tenant_id=principal.active_tenant_id,
+            agent_id=agent_id,
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    payload = _scout_agent_response(row).model_dump()
+    return ScoutAgentCreatedResponse(**payload, agent_token=raw_token)
+
+
 @router.delete(
     "/scout-agents/{agent_id}",
     response_model=ScoutAgentResponse,

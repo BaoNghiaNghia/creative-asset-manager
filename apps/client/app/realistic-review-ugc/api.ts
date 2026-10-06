@@ -269,6 +269,12 @@ export const createScoutAgent = (name: string) =>
     body: JSON.stringify({ name }),
   });
 
+export const resetScoutAgentPairing = (agentId: string) =>
+  request<ScoutAgentCreated>(
+    "/api/v1/realistic-review-ugc/scout-agents/" + encodeURIComponent(agentId) + "/reset-pairing",
+    { method: "POST" },
+  );
+
 export const archiveScoutAgent = (agentId: string) =>
   request<ScoutAgent>(
     "/api/v1/realistic-review-ugc/scout-agents/" + encodeURIComponent(agentId),

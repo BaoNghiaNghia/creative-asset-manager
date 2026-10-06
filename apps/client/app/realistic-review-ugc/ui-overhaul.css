@@ -240,8 +240,12 @@
 
 .rrugc-scout-disclosure{margin-top:0!important;overflow:hidden}
 .rrugc-scout-disclosure>summary{min-height:42px;padding:8px 11px}
-.rrugc-scout-manage-grid{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(430px,1.1fr);gap:8px;padding:8px 9px 10px;border-top:1px solid #edf0f4;background:#fcfdff}
-.rrugc-scout-setup-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px;margin:0}
+.rrugc-scout-manage-grid{display:grid;grid-template-columns:minmax(360px,1.1fr) minmax(320px,.9fr);gap:8px;padding:8px 9px 10px;border-top:1px solid #edf0f4;background:#fcfdff}
+.rrugc-scout-agent-list{display:grid;gap:7px;align-content:start}
+.rrugc-scout-empty{display:grid;gap:3px;min-height:70px;align-content:center;padding:11px 12px;border:1px dashed #d7e0eb;border-radius:9px;background:#fff}
+.rrugc-scout-empty strong{color:#425873;font-size:12px}
+.rrugc-scout-empty small{color:#8794a5;font-size:9.8px;line-height:1.45}
+.rrugc-scout-setup-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;align-self:start;gap:10px;margin:0;padding:11px 12px;border:1px solid #dfe6ef;border-radius:9px;background:#fff}
 .rrugc-scout-setup-row label{display:grid;gap:5px;color:#586c88;font-size:10.8px;font-weight:800}
 .rrugc-scout-setup-row input{min-height:36px;padding:8px 10px;border:1px solid var(--rrugc-border-strong);border-radius:8px;background:#fff;color:var(--rrugc-text);font-size:13.2px}
 .rrugc-scout-setup-row .rrugc-primary{min-height:36px;white-space:nowrap}
@@ -251,6 +255,7 @@
 .rrugc-scout-connected-row>div{display:grid;min-width:0;gap:3px}
 .rrugc-scout-connected-row strong{color:#344c6b;font-size:13px}
 .rrugc-scout-connected-row small{max-width:620px;color:#7d8b9f;font-size:10.2px;line-height:1.45}
+.rrugc-scout-connected-row em{color:#b15b61;font-size:9.4px;font-style:normal;font-weight:700}
 .rrugc-scout-reset{flex:0 0 auto;min-height:32px;padding:6px 10px;border:1px solid #d8dee8;border-radius:7px;background:#fff;color:#68778c;font-size:10px;font-weight:800;cursor:pointer}
 .rrugc-scout-reset:hover{border-color:#c5cedb;background:#f8fafc}
 .rrugc-scout-reset:disabled{cursor:wait;opacity:.6}

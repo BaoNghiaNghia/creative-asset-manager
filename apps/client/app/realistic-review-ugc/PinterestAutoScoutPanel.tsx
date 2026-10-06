@@ -3,6 +3,7 @@ import {
   createScoutAgent,
   listScoutAgents,
   listScoutRuns,
+  resetScoutAgentPairing,
 } from "./api";
 import type { ScoutAgent, ScoutAgentCreated, ScoutRun } from "./types";
 
@@ -74,9 +75,11 @@ export function PinterestAutoScoutPanel({
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState<"agent-id" | "token" | "bootstrap" | "agent" | "">("");
 
-  const scout = agents[0] || null;
-  const isOnline = Boolean(scout && scout.status !== "offline");
-  const clientCurrent = Boolean(scout && scoutClientIsCurrent(scout.client_version));
+  const onlineAgents = agents.filter(agent => agent.status !== "offline");
+  const isOnline = onlineAgents.length > 0;
+  const outdatedAgents = onlineAgents.filter(agent => !scoutClientIsCurrent(agent.client_version));
+  const loginRequiredAgents = onlineAgents.filter(agent => agent.status === "needs_login");
+  const errorAgents = onlineAgents.filter(agent => agent.status === "error");
 
   const bootstrapCommand = useMemo(
     () => autoScoutBootstrapCommand(profileDir.trim() || "./.rrugc-pinterest-profile"),
@@ -99,7 +102,7 @@ export function PinterestAutoScoutPanel({
       listScoutAgents(signal),
       listScoutRuns(undefined, signal),
     ]);
-    setAgents(agentRows.slice(0, 1));
+    setAgents(agentRows);
     setRuns(runRows);
   }
 
@@ -123,7 +126,7 @@ export function PinterestAutoScoutPanel({
   }, []);
 
   async function pairAgent() {
-    const nextName = scout?.name?.trim() || name.trim();
+    const nextName = name.trim();
     if (busy || !nextName) return;
     setBusy("pair");
     setCopied("");
@@ -131,9 +134,26 @@ export function PinterestAutoScoutPanel({
     try {
       const next = await createScoutAgent(nextName);
       setCreated(next);
+      setName("Pinterest Auto Scout");
       await refresh();
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : "Unable to pair Pinterest Auto Scout.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function resetAgent(agent: ScoutAgent) {
+    if (busy) return;
+    setBusy("reset:" + agent.id);
+    setCopied("");
+    onError("");
+    try {
+      const next = await resetScoutAgentPairing(agent.id);
+      setCreated(next);
+      await refresh();
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to reset Scout pairing.");
     } finally {
       setBusy("");
     }
@@ -159,23 +179,23 @@ export function PinterestAutoScoutPanel({
     : null;
   const isStalled = Boolean(activeRun && heartbeatAgeMs !== null && heartbeatAgeMs > 120_000);
   const recentFailures = recentRuns.filter(row => row.status === "failed" || row.status === "cancelled").length;
-  const health = !isOnline
-    ? { tone: "is-offline", label: "Scout offline", detail: "Run START_SCOUT.bat on the Scout machine; it will update and reconnect automatically." }
-    : !clientCurrent
-      ? {
-          tone: "is-warning",
-          label: "Scout update recommended",
-          detail: "This Scout is " + (scout?.client_version || "an unknown version")
-            + ". Update the local client to rrugc-scout-v" + MIN_SCOUT_CLIENT_VERSION
-            + "+. Run START_SCOUT.bat to update automatically before the next scan.",
-        }
-    : isStalled
-      ? { tone: "is-warning", label: "Scan stalled", detail: "No run heartbeat for more than 2 minutes. The lease watchdog will release it automatically." }
-      : scout?.status === "needs_login"
-        ? { tone: "is-warning", label: "Login required", detail: "Open the persistent Pinterest profile and complete login." }
-        : scout?.status === "error" || recentFailures >= 3
-          ? { tone: "is-warning", label: "Recovery needed", detail: "Recent Scout runs are failing repeatedly; check diagnostics below." }
-          : { tone: "is-online", label: activeRun ? "Scanning normally" : "Pipeline healthy", detail: activeRun ? "Heartbeat is current and the campaign lease is active." : "Scout is online and ready for the next campaign." };
+  const health = agents.length === 0
+    ? { tone: "is-offline", label: "No Scout paired", detail: "Pair each Scout machine once, then run its launcher." }
+    : !isOnline
+      ? { tone: "is-offline", label: "Scouts offline", detail: "Run START_SCOUT.bat on the Scout machines; they will update and reconnect automatically." }
+      : outdatedAgents.length > 0
+        ? {
+            tone: "is-warning",
+            label: "Scout update recommended",
+            detail: outdatedAgents.length + " online Scout(s) are below rrugc-scout-v" + MIN_SCOUT_CLIENT_VERSION + ". Run START_SCOUT.bat on those machines.",
+          }
+        : isStalled
+          ? { tone: "is-warning", label: "Scan stalled", detail: "No run heartbeat for more than 2 minutes. The lease watchdog will release it automatically." }
+          : loginRequiredAgents.length > 0
+            ? { tone: "is-warning", label: "Login required", detail: loginRequiredAgents.length + " Scout machine(s) need Pinterest login." }
+            : errorAgents.length > 0 || recentFailures >= 3
+              ? { tone: "is-warning", label: "Recovery needed", detail: "One or more Scout machines are failing; check the machine rows below." }
+              : { tone: "is-online", label: activeRun ? "Scanning normally" : "Pipeline healthy", detail: activeRun ? "Scout heartbeats are current and campaign leases are active." : "Online Scouts are ready for the next campaign." };
 
   return <section className="rrugc-card rrugc-auto-scout-panel" aria-label="Pinterest Auto Scout">
     <div className="rrugc-section-heading rrugc-auto-scout-heading">
@@ -191,9 +211,9 @@ export function PinterestAutoScoutPanel({
     </div>
 
     <div className="rrugc-scout-overview" role="status">
-      <span><small>Connection</small><b>{isOnline ? "Online" : scout ? "Offline" : "Not paired"}</b></span>
+      <span><small>Machines</small><b>{agents.length || "—"} paired</b></span>
+      <span><small>Connection</small><b>{onlineAgents.length}/{agents.length || 0} online</b></span>
       <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
-      <span><small>Client</small><b>{scout?.client_version || "—"}</b></span>
       <span><small>New refs</small><b>{createdCount}</b></span>
     </div>
 
@@ -211,16 +231,47 @@ export function PinterestAutoScoutPanel({
       <summary>
         <span>
           <strong>Setup & diagnostics</strong>
-          <small>{scout ? (scout.machine_label || "Scout paired") : "Pair the local Scout once"}</small>
+          <small>{agents.length ? agents.length + " Scout machine(s) paired" : "Pair each Scout machine once"}</small>
         </span>
-        <b>{created ? "Pairing ready" : scout ? "Manage" : "Setup"}</b>
+        <b>{created ? "Pairing ready" : agents.length ? "Manage" : "Setup"}</b>
       </summary>
 
       <div className="rrugc-scout-manage-grid">
-        {!scout ? <div className="rrugc-scout-setup-row">
+        <div className="rrugc-scout-agent-list">
+          {agents.length ? agents.map(agent => <div className="rrugc-scout-connected-row" key={agent.id}>
+            <div>
+              <strong>{agent.machine_label || agent.name}</strong>
+              <small>
+                {agent.machine_label ? agent.name + " · " : ""}
+                {agent.status.replaceAll("_", " ")}
+                {" · "}{agent.client_version || "client not connected"}
+                {" · Last seen "}{time(agent.last_seen_at)}
+              </small>
+              {agent.last_error_code && <em>{agent.last_error_code.replaceAll("_", " ")}</em>}
+            </div>
+            <button
+              type="button"
+              className="rrugc-scout-reset"
+              disabled={Boolean(busy)}
+              onClick={() => void resetAgent(agent)}
+            >
+              {busy === "reset:" + agent.id ? "Resetting…" : "Reset pairing"}
+            </button>
+          </div>) : <div className="rrugc-scout-empty">
+            <strong>No Scout machine paired</strong>
+            <small>Add the first machine below. Each machine receives its own Agent ID and token.</small>
+          </div>}
+        </div>
+
+        <div className="rrugc-scout-setup-row">
           <label>
-            <span>Scout name</span>
-            <input value={name} maxLength={160} onChange={event => setName(event.target.value)} />
+            <span>Add Scout machine</span>
+            <input
+              value={name}
+              maxLength={160}
+              placeholder="Example: DESKTOP-91TD9B5"
+              onChange={event => setName(event.target.value)}
+            />
           </label>
           <button
             type="button"
@@ -228,19 +279,9 @@ export function PinterestAutoScoutPanel({
             disabled={Boolean(busy) || !name.trim()}
             onClick={() => void pairAgent()}
           >
-            {busy === "pair" ? "Pairing…" : "Pair Scout"}
+            {busy === "pair" ? "Pairing…" : "Add Scout"}
           </button>
-        </div> : <div className="rrugc-scout-connected-row">
-          <div>
-            <strong>{scout.name}</strong>
-            <small>
-              {scout.machine_label || "Not connected"} · Last seen {time(scout.last_seen_at)}
-            </small>
-          </div>
-          <button type="button" className="rrugc-scout-reset" disabled={Boolean(busy)} onClick={() => void pairAgent()}>
-            {busy === "pair" ? "Resetting…" : "Reset pairing"}
-          </button>
-        </div>}
+        </div>
 
         {lastRun && <div className="rrugc-scout-run-summary">
           <span><small>Latest run</small><b>{lastRun.status.replaceAll("_", " ")}</b></span>
@@ -263,10 +304,6 @@ export function PinterestAutoScoutPanel({
             </button>
           </div>
         </div>}
-
-        {scout?.last_error_code && <small className="rrugc-auto-scout-error">
-          {scout.last_error_code.replaceAll("_", " ")}
-        </small>}
 
         <details className="rrugc-scout-advanced">
           <summary>

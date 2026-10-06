@@ -2369,53 +2369,58 @@ def test_auto_scout_quality_pipeline_caps_to_target(database):
         assert service.claim(agent_id=agent.id, raw_token=token) is None
 
 
-def test_auto_scout_pairing_collapses_legacy_duplicate_agents(database):
+def test_auto_scout_supports_multiple_active_agents_and_isolated_reset(database):
     with database() as session:
-        older = RrugcScoutAgentModel(
-            tenant_id="tenant-a",
-            name="Older Scout",
-            token_hash="a" * 64,
-            status="offline",
-            active=True,
-            created_by_user_id="user-a",
-        )
-        newer = RrugcScoutAgentModel(
-            tenant_id="tenant-a",
-            name="Newer Scout",
-            token_hash="b" * 64,
-            status="ready",
-            active=True,
-            client_version="rrugc-scout-v2",
-            machine_label="legacy-machine",
-            last_seen_at=datetime.now(timezone.utc),
-            created_by_user_id="user-a",
-        )
-        session.add_all([older, newer])
-        session.commit()
-
-        paired, token = RrugcAutoScoutService(session).create_agent(
+        service = RrugcAutoScoutService(session)
+        agent_a, token_a = service.create_agent(
             tenant_id="tenant-a",
             user_id="user-a",
-            name="Pinterest Auto Scout",
+            name="BaoNghia",
+        )
+        agent_b, token_b = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="DESKTOP-91TD9B5",
         )
 
-        assert token
-        assert paired.id == newer.id
-        assert paired.name == "Pinterest Auto Scout"
-        assert paired.status == "offline"
-        assert paired.machine_label is None
-        assert paired.client_version is None
-        assert paired.last_seen_at is None
+        rows = service.list_agents(tenant_id="tenant-a")
+        assert {row.id for row in rows} == {agent_a.id, agent_b.id}
+        assert all(row.active for row in rows)
 
-        rows = RrugcRepository(session).list_scout_agents(
-            "tenant-a",
-            include_archived=True,
+        reset_agent, reset_token = service.reset_agent_pairing(
+            tenant_id="tenant-a",
+            agent_id=agent_a.id,
         )
-        active = [row for row in rows if row.active]
-        archived = [row for row in rows if not row.active]
-        assert [row.id for row in active] == [newer.id]
-        assert [row.id for row in archived] == [older.id]
-        assert archived[0].archived_at is not None
+        assert reset_agent.id == agent_a.id
+        assert reset_token != token_a
+        assert reset_agent.status == "offline"
+        assert reset_agent.machine_label is None
+        assert reset_agent.client_version is None
+        assert reset_agent.last_seen_at is None
+
+        with pytest.raises(RrugcError) as stale:
+            service.heartbeat(
+                agent_id=agent_a.id,
+                raw_token=token_a,
+                status="ready",
+            )
+        assert stale.value.status_code == 401
+
+        heartbeat_b = service.heartbeat(
+            agent_id=agent_b.id,
+            raw_token=token_b,
+            status="ready",
+            machine_label="DESKTOP-91TD9B5",
+        )
+        assert heartbeat_b.machine_label == "DESKTOP-91TD9B5"
+
+        heartbeat_a = service.heartbeat(
+            agent_id=agent_a.id,
+            raw_token=reset_token,
+            status="ready",
+            machine_label="BaoNghia",
+        )
+        assert heartbeat_a.machine_label == "BaoNghia"
 
 
 def test_auto_scout_rejects_wrong_agent_token_and_cross_agent_run(database):
@@ -2720,15 +2725,23 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert token
     assert payload["status"] == "offline"
 
+    second = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "DESKTOP-91TD9B5"},
+    )
+    assert second.status_code == 201
+    second_payload = second.json()
+    assert second_payload["id"] != agent_id
+
     old_token = token
     repaired = api.post(
-        "/api/v1/realistic-review-ugc/scout-agents",
-        json={"name": "Desktop Pinterest Reset"},
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/reset-pairing",
     )
-    assert repaired.status_code == 201
+    assert repaired.status_code == 200
     repaired_payload = repaired.json()
     assert repaired_payload["id"] == agent_id
     assert repaired_payload["agent_token"] != token
+    assert repaired_payload["name"] == "Desktop Pinterest"
     token = repaired_payload["agent_token"]
 
     stale_claim = api.post(
@@ -2739,9 +2752,11 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
 
     listed_after_reset = api.get("/api/v1/realistic-review-ugc/scout-agents")
     assert listed_after_reset.status_code == 200
-    assert len(listed_after_reset.json()) == 1
-    assert listed_after_reset.json()[0]["id"] == agent_id
-    assert listed_after_reset.json()[0]["name"] == "Desktop Pinterest Reset"
+    assert len(listed_after_reset.json()) == 2
+    assert {row["id"] for row in listed_after_reset.json()} == {
+        agent_id,
+        second_payload["id"],
+    }
 
     campaign = api.post(
         "/api/v1/realistic-review-ugc/campaigns",

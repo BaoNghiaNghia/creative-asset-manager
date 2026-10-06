@@ -799,43 +799,46 @@ class RrugcAutoScoutService:
                 "Scout agent name is required.",
             )
 
-        now = datetime.now(timezone.utc)
-        active_rows = self.repository.lock_active_scout_agents(tenant_id)
-        row = active_rows[0] if active_rows else None
-        for duplicate in active_rows[1:]:
-            self._archive_agent_row(
-                duplicate,
-                now=now,
-                error_code="scout_agent_superseded",
-            )
-
         raw_token = secrets.token_urlsafe(32)
-        if row is None:
-            row = RrugcScoutAgentModel(
-                tenant_id=tenant_id,
-                name=clean_name,
-                token_hash=token_digest(raw_token),
-                status="offline",
-                active=True,
-                created_by_user_id=user_id,
-            )
-            self.repository.add_scout_agent(row)
-        else:
-            self._release_agent_runtime(
-                row,
-                now=now,
-                error_code="scout_pairing_reset",
-            )
-            row.name = clean_name
-            row.token_hash = token_digest(raw_token)
-            row.status = "offline"
-            row.last_seen_at = None
-            row.client_version = None
-            row.machine_label = None
-            row.last_error_code = None
-            row.active = True
-            row.archived_at = None
+        row = RrugcScoutAgentModel(
+            tenant_id=tenant_id,
+            name=clean_name,
+            token_hash=token_digest(raw_token),
+            status="offline",
+            active=True,
+            created_by_user_id=user_id,
+        )
+        self.repository.add_scout_agent(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return row, raw_token
 
+    def reset_agent_pairing(
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+    ) -> tuple[RrugcScoutAgentModel, str]:
+        row = self.repository.get_scout_agent(tenant_id, agent_id)
+        if row is None or not row.active:
+            raise RrugcError(
+                "rrugc_scout_agent_not_found",
+                "Scout Agent not found.",
+                status_code=404,
+            )
+        now = datetime.now(timezone.utc)
+        self._release_agent_runtime(
+            row,
+            now=now,
+            error_code="scout_pairing_reset",
+        )
+        raw_token = secrets.token_urlsafe(32)
+        row.token_hash = token_digest(raw_token)
+        row.status = "offline"
+        row.last_seen_at = None
+        row.client_version = None
+        row.machine_label = None
+        row.last_error_code = None
         self.session.commit()
         self.session.refresh(row)
         return row, raw_token
@@ -846,13 +849,10 @@ class RrugcAutoScoutService:
         tenant_id: str,
         include_archived: bool = False,
     ) -> list[RrugcScoutAgentModel]:
-        rows = self.repository.list_scout_agents(
+        return self.repository.list_scout_agents(
             tenant_id,
             include_archived=include_archived,
         )
-        if include_archived:
-            return rows
-        return rows[:1]
 
     def authenticate_agent(
         self,
