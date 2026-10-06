@@ -115,6 +115,7 @@ curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0
 if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
   CAM_PRODUCTION_UI_URL="$PUBLIC_URL" \
   CAM_PRODUCTION_EXPECTED_COMMIT="$COMMIT" \
+  CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
     bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
 fi
 # Health checks have passed. Keep only the active immutable frontend release.
@@ -124,4 +125,4 @@ for release in "$RELEASES"/*; do
   [[ "$release" == "$TARGET" ]] || rm -rf -- "$release"
 done
 printf "Frontend release %s activated.\n" "$RELEASE_ID"
-printf "Post-deploy UI smoke: set CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1 for an authenticated read-only Browser smoke during an explicitly authorized deploy.\n"
+printf "Post-deploy UI smoke: set CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1; auto mode uses authenticated coverage when secure storage state exists and otherwise falls back to public read-only coverage.\n"

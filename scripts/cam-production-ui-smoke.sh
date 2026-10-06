@@ -7,7 +7,10 @@ ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}
 PLAN="${CAM_PRODUCTION_UI_PLAN:-$ROOT/docs/operations/production-ui-smoke-plan.json}"
 OUTPUT_ROOT="${CAM_PRODUCTION_UI_OUTPUT:-$CLIENT/.ui-qa/production-smoke}"
 PUBLIC_ONLY="${CAM_PRODUCTION_UI_PUBLIC_ONLY:-0}"
+MODE="${CAM_PRODUCTION_UI_MODE:-auto}"
 STORAGE_STATE="${CAM_PRODUCTION_UI_STORAGE_STATE:-/etc/creative-asset-manager/production-ui-storage-state.json}"
+STORAGE_STATE_EXPLICIT=0
+[[ -z "${CAM_PRODUCTION_UI_STORAGE_STATE+x}" ]] || STORAGE_STATE_EXPLICIT=1
 EXPECTED_COMMIT="${CAM_PRODUCTION_EXPECTED_COMMIT:-$(git -C "$ROOT" rev-parse HEAD)}"
 KEEP_RUNS="${CAM_PRODUCTION_UI_KEEP_RUNS:-5}"
 
@@ -58,19 +61,38 @@ case "$KEEP_RUNS" in
 esac
 (( KEEP_RUNS >= 1 && KEEP_RUNS <= 20 )) || die "CAM_PRODUCTION_UI_KEEP_RUNS must be between 1 and 20."
 
-if [[ "$PUBLIC_ONLY" != "1" ]]; then
-  [[ -f "$STORAGE_STATE" ]] ||
-    die "Authenticated Production smoke requires CAM_PRODUCTION_UI_STORAGE_STATE. Use CAM_PRODUCTION_UI_PUBLIC_ONLY=1 only for a deliberately partial smoke."
+case "$MODE" in
+  auto|strict|public) ;;
+  *) die "CAM_PRODUCTION_UI_MODE must be auto, strict, or public." ;;
+esac
+
+if [[ "$PUBLIC_ONLY" == "1" ]]; then
+  if [[ -n "${CAM_PRODUCTION_UI_MODE+x}" && "$MODE" != "public" ]]; then
+    die "CAM_PRODUCTION_UI_PUBLIC_ONLY=1 conflicts with CAM_PRODUCTION_UI_MODE=$MODE."
+  fi
+  MODE="public"
+fi
+
+EFFECTIVE_MODE="$MODE"
+if [[ "$MODE" == "public" ]]; then
+  EFFECTIVE_MODE="public"
+elif [[ -f "$STORAGE_STATE" ]]; then
   STORAGE_STATE="$(realpath -- "$STORAGE_STATE")"
   ROOT_REAL="$(realpath -- "$ROOT")"
   case "$STORAGE_STATE" in
     "$ROOT_REAL"|"$ROOT_REAL"/*)
       die "Production storage state must live outside the repository." ;;
   esac
-  MODE="$(stat -c '%a' "$STORAGE_STATE")"
-  if (( (8#$MODE & 077) != 0 )); then
+  STORAGE_MODE="$(stat -c '%a' "$STORAGE_STATE")"
+  if (( (8#$STORAGE_MODE & 077) != 0 )); then
     die "Production storage state must not be readable/writable by group or others; expected mode 600 or stricter."
   fi
+  EFFECTIVE_MODE="authenticated"
+elif [[ "$MODE" == "strict" || "$STORAGE_STATE_EXPLICIT" == "1" ]]; then
+  die "Authenticated Production smoke requires CAM_PRODUCTION_UI_STORAGE_STATE. Use CAM_PRODUCTION_UI_MODE=auto for safe public fallback or public for deliberate public-only coverage."
+else
+  EFFECTIVE_MODE="public"
+  printf 'WARNING: authenticated storage state is unavailable; auto mode is running public-only coverage.\n' >&2
 fi
 
 if [[ ! -d "$CLIENT/node_modules/playwright" ]]; then
@@ -87,8 +109,9 @@ ARGS=(
   --url "$BASE_URL"
   --plan "$PLAN"
   --output "$RUN_ROOT"
+  --requested-mode "$MODE"
 )
-if [[ "$PUBLIC_ONLY" == "1" ]]; then
+if [[ "$EFFECTIVE_MODE" == "public" ]]; then
   ARGS+=(--public-only)
 else
   ARGS+=(--storage-state "$STORAGE_STATE")
@@ -138,5 +161,6 @@ PY
 
 printf '\nProduction UI smoke passed.\n'
 printf 'Report: %s\n' "$REPORT"
+printf 'Coverage: requested=%s effective=%s\n' "$MODE" "$EFFECTIVE_MODE"
 printf 'Build provenance: %s <= %s\n' "$BUILD_COMMIT" "$EXPECTED_COMMIT"
 printf 'Safety: GET/HEAD/OPTIONS only; non-read requests are blocked by the browser.\n'

@@ -33,20 +33,29 @@ The frontend script builds and scans only generated `apps/client/dist`, installs
 
 After an explicitly authorized frontend deploy, run the live Browser smoke separately with `make production-ui-smoke`, or opt in during that deploy with `CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1`. The smoke never deploys anything and blocks every HTTP method except GET, HEAD, and OPTIONS. It verifies HTTPS, `/build-info.json` provenance, console/page/network health, and sequential desktop/tablet/mobile rendering for Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms. On the root-operated VPS this smoke uses the Playwright Firefox build so the browser sandbox stays enabled; do not reintroduce Chromium `--no-sandbox` flags.
 
-Authenticated private-route coverage requires a Playwright storage-state file outside the repository, normally `/etc/creative-asset-manager/production-ui-storage-state.json`, with mode `600` or stricter. Treat that file as a credential: never commit, print, copy into `.ui-qa`, or place it under the source checkout. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` runs only Privacy and Terms and is intentionally partial.
+Production smoke has three coverage modes. `CAM_PRODUCTION_UI_MODE=auto` is the default: when a secure storage-state file exists it covers authenticated private routes; when the default storage-state file is absent it falls back to public Privacy/Terms coverage, reports the downgrade as `public-only`, and does not fail an otherwise healthy deploy. `strict` requires authenticated coverage and fails if storage state is unavailable. `public` deliberately runs only public routes. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` remains a compatibility alias for `public`.
+
+Authenticated coverage uses a Playwright storage-state file outside the repository, normally `/etc/creative-asset-manager/production-ui-storage-state.json`, with mode `600` or stricter. Treat that file as a credential: never commit, print, copy into `.ui-qa`, or place it under the source checkout. If `CAM_PRODUCTION_UI_STORAGE_STATE` is explicitly set but missing, auto mode fails instead of silently ignoring that operator mistake.
 
 ```bash
+# Default: authenticated when possible, safe public-only fallback otherwise.
+CAM_PRODUCTION_UI_MODE=auto \
+CAM_PRODUCTION_EXPECTED_COMMIT=$(git rev-parse HEAD) \
+make production-ui-smoke
+
+# Release gate: authenticated coverage is mandatory.
+CAM_PRODUCTION_UI_MODE=strict \
 CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storage-state.json \
 CAM_PRODUCTION_EXPECTED_COMMIT=$(git rev-parse HEAD) \
 make production-ui-smoke
 
-# Optional during an already-authorized frontend deploy:
+# Optional during an already-authorized frontend deploy. Auto is the default.
 CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1 \
-CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storage-state.json \
+CAM_PRODUCTION_UI_MODE=auto \
 scripts/deploy-cam-frontend.sh
 ```
 
-A smoke failure reports evidence under `apps/client/.ui-qa/production-smoke/` and returns non-zero. Successful runs prune that directory to the newest five smoke-run groups by default (`CAM_PRODUCTION_UI_KEEP_RUNS=1..20` overrides this). It does not roll back or mutate Production automatically; rollback remains an explicit operator decision based on the evidence.
+The plan may use read-only UI interactions such as tab clicks. Network interception still blocks every non-GET/HEAD/OPTIONS request, and any attempted mutation fails the smoke. This lets Production QA exercise states such as Realistic Review UGC Stage 3 and assert visibility, full-width layout, and horizontal overflow without granting write access. A smoke failure reports evidence under `apps/client/.ui-qa/production-smoke/` and returns non-zero. Successful runs prune that directory to the newest five smoke-run groups by default (`CAM_PRODUCTION_UI_KEEP_RUNS=1..20` overrides this). It does not roll back or mutate Production automatically; rollback remains an explicit operator decision based on the evidence.
 
 ## Backend
 

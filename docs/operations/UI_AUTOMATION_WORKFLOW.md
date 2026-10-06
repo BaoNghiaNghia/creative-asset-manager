@@ -142,7 +142,7 @@ A normal UI task is ready only when:
 
 The automatic UI workflow is implemented in these concrete phases:
 
-1. **Browser runtime** — install/check the Chrome channel with `make ui-browser-install`. This is a one-time VPS prerequisite.
+1. **Browser runtime** — `make ui-browser-install` keeps Chrome available for local visual QA and installs the locked Playwright Firefox build used by Production smoke. Production never relies on Chromium `--no-sandbox` workarounds.
 2. **Code gate** — `make ui-check` or `bash scripts/cam-ui-gate.sh` runs diff-check, typecheck, frontend tests, and production build whenever frontend/UI files changed.
 3. **Authenticated local staging** — after the build, the gate starts a loopback-only Vite preview and runs the real frontend against deterministic fixture-backed profiles. `explorer-viewer` remains the fallback, while `review-board`, `realistic-review-ugc`, `ai-operations`, `inventory`, `access-management`, `video-generation`, `job-queue`, and `public-review` select their own route, fixture, interaction plan, and visual baseline through `apps/client/scripts/ui-qa-profiles.mjs`. When no explicit `CAM_UI_QA_PROFILE` is supplied, the gate uses the smart profile matrix to select every workspace affected by the changed files; cross-workspace foundation/navigation changes expand to all profiles. Playwright intercepts only `/api/**` inside that browser context and fails closed with synthetic HTTP 599 on any API route the selected fixture does not explicitly handle. No OAuth login, Production session cookie, Production database, or Production cloud source is used.
 4. **Visual QA runner** — `npm run ui:qa -- --url <local-or-staging-url>` captures deterministic viewport screenshots and records console/page/network issues. Add `--fixture <json>` to provide a safe authenticated scenario.
@@ -155,7 +155,7 @@ The automatic UI workflow is implemented in these concrete phases:
 11. **Smart Test Selection** — `apps/client/scripts/ui-smart-tests.mjs` builds a lightweight local import/reverse-dependency graph for frontend code and tests. Localized component/hook changes run only linked Vitest files, visual/automation-only changes can skip Vitest, and shared/security-sensitive/uncertain changes fall back to the full suite. `scripts/cam-ui-run-smart-tests.sh` is used by both repair checks and the final UI gate.
 12. **Baseline governance** — intentional visual changes never overwrite tracked baselines directly. `CAM_UI_TASK="..." make ui-visual-propose` runs the current UI against the tracked baselines and writes an isolated proposal under `.ui-qa/baseline-proposals/<id>/` containing candidate screenshots, hashes, source HEAD/workspace fingerprint, changed frontend source files, Browser/runtime evidence, `proposal.json`, and `proposal.md`. Tracked baselines remain untouched. Acceptance requires a separate current-user confirmation and an explicit `CAM_UI_BASELINE_ACCEPT=1`, proposal ID, and acceptance reason. Before applying, the system verifies that source HEAD, working-tree fingerprint, candidate hashes, and tracked baseline hashes still match the proposal. After applying, it reruns full dev-server visual QA; any failure restores the previous baselines automatically.
 13. **Resource control** — targeted repair runs and full viewport checks are sequential, only one browser process is used at a time, local servers are stopped automatically, and old `.ui-qa` runs are pruned.
-14. **Production UI Smoke** — after an explicitly authorized Production deployment, `make production-ui-smoke` can verify the live HTTPS site without mutating Production. The Browser blocks every HTTP method except GET, HEAD, and OPTIONS, runs desktop/tablet/mobile sequentially, captures screenshots plus console/page/network evidence, checks `/build-info.json` provenance against the expected deploy commit, and verifies Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms. The VPS production smoke uses the Playwright Firefox build so browser sandboxing remains enabled even when the operator wrapper itself runs as root; `--no-sandbox` and `chromiumSandbox: false` are forbidden in this workflow. Authenticated private routes require a Playwright storage-state file kept outside the repository with mode `600` or stricter. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` intentionally runs only the public legal routes and is a partial smoke, not a replacement for authenticated verification.
+14. **Production UI Smoke** — after an explicitly authorized Production deployment, `make production-ui-smoke` verifies the live HTTPS site without mutating Production. The Browser blocks every HTTP method except GET, HEAD, and OPTIONS, reuses one sandboxed Firefox process, runs desktop/tablet/mobile sequentially, captures screenshots plus console/page/network evidence, checks `/build-info.json` provenance, and supports read-only interaction states such as tab clicks with visible/layout/overflow assertions. `CAM_PRODUCTION_UI_MODE=auto` is the default: it runs authenticated Asset Explorer/Review Board/Realistic Review UGC coverage when a secure storage-state exists, otherwise it falls back to Privacy/Terms and reports `public-only` coverage instead of failing the deploy. Use `CAM_PRODUCTION_UI_MODE=strict` when authenticated coverage is mandatory, or `public` for deliberate public-only smoke. Storage state must stay outside the repository with mode `600` or stricter. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` remains a compatibility alias for `public`. `--no-sandbox` and `chromiumSandbox: false` are forbidden.
 15. **Production handoff** — Production deployment remains a separate explicit user-authorized step. The smoke workflow never grants deployment authorization and never performs create/update/delete actions.
 
 ### Standard commands
@@ -220,13 +220,20 @@ make ui-visual-accept
 CAM_UI_TASK="Increase Asset Explorer card title size" make ui-visual-update
 
 # Read-only Production smoke after an explicitly authorized deploy.
-# Authenticated route coverage requires a root/operator-owned Playwright storage state outside the repo.
+# Default auto mode uses authenticated coverage when secure storage state exists,
+# otherwise it falls back to public-only coverage and reports that downgrade.
+CAM_PRODUCTION_UI_MODE=auto \
+CAM_PRODUCTION_EXPECTED_COMMIT=<deployed-commit> \
+make production-ui-smoke
+
+# Require authenticated private-route coverage. Missing/invalid storage state fails.
+CAM_PRODUCTION_UI_MODE=strict \
 CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storage-state.json \
 CAM_PRODUCTION_EXPECTED_COMMIT=<deployed-commit> \
 make production-ui-smoke
 
-# Deliberately partial public-only smoke when no authenticated state is available.
-CAM_PRODUCTION_UI_PUBLIC_ONLY=1 \
+# Deliberately public-only coverage.
+CAM_PRODUCTION_UI_MODE=public \
 CAM_PRODUCTION_EXPECTED_COMMIT=<deployed-commit> \
 make production-ui-smoke
 

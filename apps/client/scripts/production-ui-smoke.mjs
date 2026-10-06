@@ -101,13 +101,88 @@ async function fetchBuildInfo(context, baseUrl) {
   return data;
 }
 
-async function runState(page, state, routeName, viewportName, runDir, routeIssues) {
+export async function runAssertion(page, assertion, timeoutMs) {
+  const type = String(assertion?.type || "");
+  const selector = String(assertion?.selector || "");
+  if (!type || !selector) {
+    throw new Error("State assertions require type and selector.");
+  }
+
+  if (type === "visible") {
+    await page.locator(selector).first().waitFor({
+      state: "visible",
+      timeout: assertion.timeoutMs || timeoutMs,
+    });
+    return;
+  }
+
+  if (type === "width-ratio") {
+    const relativeTo = String(assertion.relativeTo || "");
+    const min = Number(assertion.min ?? 0.98);
+    if (!relativeTo || !Number.isFinite(min) || min <= 0 || min > 1) {
+      throw new Error("width-ratio assertions require relativeTo and min in (0, 1].");
+    }
+    const result = await page.evaluate(
+      ({ childSelector, parentSelector }) => {
+        const child = document.querySelector(childSelector);
+        const parent = document.querySelector(parentSelector);
+        if (!(child instanceof HTMLElement) || !(parent instanceof HTMLElement)) return null;
+        const childWidth = child.getBoundingClientRect().width;
+        const parentWidth = parent.getBoundingClientRect().width;
+        return {
+          childWidth,
+          parentWidth,
+          ratio: parentWidth > 0 ? childWidth / parentWidth : 0,
+        };
+      },
+      { childSelector: selector, parentSelector: relativeTo },
+    );
+    if (!result) {
+      throw new Error(`width-ratio nodes missing: ${selector} / ${relativeTo}`);
+    }
+    if (result.ratio < min) {
+      throw new Error(
+        `width-ratio failed for ${selector}: ${result.ratio.toFixed(3)} < ${min.toFixed(3)}`,
+      );
+    }
+    return;
+  }
+
+  if (type === "no-horizontal-overflow") {
+    const tolerancePx = Number(assertion.tolerancePx ?? 1);
+    const result = await page.locator(selector).first().evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    const overflow = result.scrollWidth - result.clientWidth;
+    if (overflow > tolerancePx) {
+      throw new Error(
+        `horizontal overflow for ${selector}: ${overflow}px > ${tolerancePx}px`,
+      );
+    }
+    return;
+  }
+
+  throw new Error(`Unknown state assertion type: ${type}`);
+}
+
+export async function runState(page, state, routeName, viewportName, runDir, routeIssues) {
   const stateName = sanitize(state.name || "default");
   try {
+    const timeoutMs = state.timeoutMs || 5_000;
+    if (state.click) {
+      const target = page.locator(state.click).first();
+      const count = await target.count();
+      if (!count) {
+        if (!state.optional) throw new Error(`Missing click selector: ${state.click}`);
+      } else {
+        await target.click({ timeout: timeoutMs });
+      }
+    }
     if (state.waitFor) {
       await page.locator(state.waitFor).first().waitFor({
         state: "visible",
-        timeout: state.timeoutMs || 5_000,
+        timeout: timeoutMs,
       });
     }
     if (state.focus) {
@@ -129,6 +204,9 @@ async function runState(page, state, routeName, viewportName, runDir, routeIssue
       }
     }
     if (state.waitMs) await page.waitForTimeout(state.waitMs);
+    for (const assertion of state.assertions || []) {
+      await runAssertion(page, assertion, timeoutMs);
+    }
   } catch (error) {
     routeIssues.push({
       kind: "state",
@@ -164,6 +242,13 @@ async function main() {
   );
   const publicOnly =
     hasFlag("--public-only") || process.env.CAM_PRODUCTION_UI_PUBLIC_ONLY === "1";
+  const requestedMode =
+    argValue("--requested-mode") ||
+    process.env.CAM_PRODUCTION_UI_MODE ||
+    (publicOnly ? "public" : "strict");
+  if (!["auto", "strict", "public"].includes(requestedMode)) {
+    throw new Error(`Unknown Production UI smoke mode: ${requestedMode}`);
+  }
   const strict = !hasFlag("--no-strict");
   const timeoutMs = Number(argValue("--timeout-ms") || DEFAULT_TIMEOUT_MS);
   const plan = await loadPlan(planPath);
@@ -172,6 +257,9 @@ async function main() {
     argValue("--viewports") || process.env.CAM_PRODUCTION_UI_VIEWPORTS,
   );
   const routes = plan.routes.filter((route) => publicOnly ? route.public === true : true);
+  const skippedRoutes = plan.routes
+    .filter((route) => !routes.includes(route))
+    .map((route) => route.name);
 
   if (!routes.length) throw new Error("Production UI smoke plan selected no routes.");
   if (!publicOnly && routes.some((route) => route.requiresAuth) && !storageState) {
@@ -192,6 +280,12 @@ async function main() {
   const report = {
     schemaVersion: 1,
     mode: publicOnly ? "production-public-readonly" : "production-authenticated-readonly",
+    coverage: {
+      requestedMode,
+      level: publicOnly ? "public-only" : "authenticated",
+      selectedRoutes: routes.map((route) => route.name),
+      skippedRoutes,
+    },
     baseUrl: baseUrl.origin,
     createdAt: new Date().toISOString(),
     plan: path.relative(REPO_ROOT, planPath),
@@ -384,6 +478,8 @@ async function main() {
     "",
     `Status: **${report.summary.status.toUpperCase()}**`,
     `Mode: ${report.mode}`,
+    `Coverage: ${report.coverage.level} (requested: ${report.coverage.requestedMode})`,
+    `Skipped routes: ${report.coverage.skippedRoutes.length ? report.coverage.skippedRoutes.join(", ") : "none"}`,
     `Base URL: ${report.baseUrl}`,
     `Build commit: ${report.buildInfo?.build_commit || "unknown"}`,
     `Route checks: ${report.summary.routeChecks}`,
@@ -407,10 +503,15 @@ async function main() {
 
   console.log(`Production UI smoke complete: ${runDir}`);
   console.log(`Status: ${report.summary.status}`);
+  console.log(
+    `Coverage: ${report.coverage.level} (requested: ${report.coverage.requestedMode}); skipped: ${report.coverage.skippedRoutes.length}`,
+  );
   console.log(`Build commit: ${report.buildInfo?.build_commit || "unknown"}`);
   console.log(`Route checks: ${report.summary.routeChecks}; issues: ${issueCount}; warnings: ${warningCount}`);
 
   if (strict && failedRoutes > 0) process.exitCode = 2;
 }
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

@@ -81,6 +81,31 @@
           "name": "campaign-hover",
           "hover": ".rrugc-campaign-card:first-child",
           "optional": true
+        },
+        {
+          "name": "stage3-review",
+          "click": "#rrugc-tab-stage3",
+          "waitFor": ".rrugc-stage3",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".rrugc-stage3"
+            },
+            {
+              "type": "width-ratio",
+              "selector": ".rrugc-stage3",
+              "relativeTo": "#rrugc-panel-stage3",
+              "min": 0.98
+            },
+            {
+              "type": "no-horizontal-overflow",
+              "selector": ".rrugc-stage3"
+            },
+            {
+              "type": "no-horizontal-overflow",
+              "selector": ".rrugc-stage3-gallery"
+            }
+          ]
         }
       ]
     }
