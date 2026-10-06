@@ -10,6 +10,7 @@ from app.modules.visual_search.preprocess import (
     VisualImagePreparationError,
     VisualPreprocessLimits,
     decode_visual_image,
+    render_visual_preview_webp,
     resize_for_encoder,
 )
 from app.modules.visual_search.schema import NormalizedCrop
@@ -68,6 +69,13 @@ def test_decode_registers_heif_decoder_before_image_probe() -> None:
     assert decoded.source_format in {"HEIF", "HEIC"}
     assert (decoded.width, decoded.height) == (80, 40)
     assert decoded.image.mode == "RGB"
+
+
+def test_render_visual_preview_webp_makes_browser_friendly_heic_preview() -> None:
+    preview = render_visual_preview_webp(heic_bytes(size=(1200, 600)), max_edge=300)
+    with Image.open(io.BytesIO(preview)) as image:
+        assert image.format == "WEBP"
+        assert image.size == (300, 150)
 
 
 def test_decode_rejects_byte_and_crop_limits() -> None:

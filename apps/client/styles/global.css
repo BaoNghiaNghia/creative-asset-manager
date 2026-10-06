@@ -1865,23 +1865,58 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 }
 .visual-search-workbench > .visual-search-upload-card--reference .visual-direct-workspace { width: 100%; }
 .visual-search-workbench > .visual-search-upload-card--reference .visual-direct-stage { margin-inline: auto; }
-.visual-search-upload-card--reference .visual-direct-change {
+.visual-search-upload-card--reference .visual-direct-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.visual-search-upload-card--reference .visual-direct-action {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  margin: 0 0 8px auto;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 0;
+  border: 1px solid #d8e0eb;
   border-radius: 50%;
-  background: rgba(24, 29, 38, .78);
-  color: #fff;
-  font-size: 22px;
-  line-height: 1;
-  box-shadow: 0 1px 5px rgba(0, 0, 0, .25);
+  background: #fff;
+  color: #3c4b60;
+  box-shadow: 0 1px 4px rgba(23, 34, 54, .12);
   cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease;
 }
-.visual-search-upload-card--reference .visual-direct-change:hover { background: #fff; color: #263a5b; }
+.visual-search-upload-card--reference .visual-direct-action:hover {
+  border-color: #9fb4d8;
+  background: #f4f7fc;
+  color: #20324d;
+  transform: translateY(-1px);
+}
+.visual-search-upload-card--reference .visual-direct-action:focus-visible {
+  outline: 2px solid #5b8def;
+  outline-offset: 2px;
+}
+.visual-search-upload-card--reference .visual-direct-replace svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.visual-search-upload-card--reference .visual-direct-close {
+  border-color: transparent;
+  background: rgba(35, 43, 55, .86);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+}
+.visual-search-upload-card--reference .visual-direct-close:hover {
+  border-color: transparent;
+  background: #263446;
+  color: #fff;
+}
 .search-load-more-button {
   display: inline-flex;
   align-items: center;

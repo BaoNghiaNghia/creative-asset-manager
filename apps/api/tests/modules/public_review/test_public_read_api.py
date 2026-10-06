@@ -249,6 +249,33 @@ def test_public_visual_search_is_limited_to_shared_scope(ctx):
  assert captured["filters"]==[{"terms":{"asset_id":["asset-good","asset-od"]}}]
 
 
+def test_public_visual_preview_returns_browser_friendly_webp(ctx):
+ assert exchange(ctx).status_code==201
+ captured={}
+ class Service:
+  def __init__(self,_settings): pass
+  def require_operation(self,operation):
+   captured["operation"]=operation
+ async def read_bytes(_file):
+  return b"heic-query"
+ def render_preview(content):
+  captured["content"]=content
+  return b"webp-preview"
+ with patch("app.modules.public_review.public_router.get_settings",return_value=SimpleNamespace()), \
+      patch("app.modules.public_review.public_router.visual_search_tenant_eligible",return_value=True), \
+      patch("app.modules.public_review.public_router.VisualSearchService",Service), \
+      patch("app.modules.public_review.public_router._read_upload_bytes",read_bytes), \
+      patch("app.modules.public_review.public_router.render_visual_preview_webp",render_preview):
+  found=request(
+   ctx,"POST","/api/public/review/share-a/visual-preview",
+   files={"file":("iphone.heic",b"fake-heic","image/heic")},
+  )
+ assert found.status_code==200
+ assert found.content==b"webp-preview"
+ assert found.headers["content-type"]=="image/webp"
+ assert captured=={"operation":"upload","content":b"heic-query"}
+
+
 def test_authenticated_shared_visual_search_can_return_unshared_onedrive_results(ctx,monkeypatch):
  with ctx[1]() as s:
   s.add(ExternalSourceModel(

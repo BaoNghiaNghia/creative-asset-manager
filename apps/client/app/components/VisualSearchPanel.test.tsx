@@ -84,6 +84,70 @@ describe("VisualSearchPanel upload picker", () => {
     await act(async () => root.unmount());
   });
 
+  it("requests a server preview when the browser cannot render the uploaded image", async () => {
+    const onPreviewError = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const file = new File(["heic-bytes"], "iphone-photo.heic", { type: "image/heic" });
+    const previewUrl = "blob:unsupported-heic";
+
+    await act(async () => {
+      root.render(
+        <VisualSearchPanel
+          {...props()}
+          reference={{ kind: "upload", file, previewUrl }}
+          onPreviewError={onPreviewError}
+        />,
+      );
+    });
+
+    const image = host.querySelector<HTMLImageElement>(".visual-direct-stage img")!;
+    expect(image.src).toContain(previewUrl);
+    await act(async () => {
+      image.dispatchEvent(new Event("error", { bubbles: true }));
+    });
+
+    expect(onPreviewError).toHaveBeenCalledTimes(1);
+    expect(onPreviewError).toHaveBeenCalledWith(file, previewUrl);
+
+    await act(async () => root.unmount());
+  });
+
+  it("uses separate change-image and close-search actions for an active reference", async () => {
+    const onClose = vi.fn();
+    const inputClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => undefined);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const file = new File(["image"], "reference.jpg", { type: "image/jpeg" });
+
+    await act(async () => {
+      root.render(
+        <VisualSearchPanel
+          {...props()}
+          reference={{ kind: "upload", file, previewUrl: "blob:reference" }}
+          onClose={onClose}
+        />,
+      );
+    });
+
+    const change = host.querySelector<HTMLButtonElement>('[aria-label="Change image"]')!;
+    const close = host.querySelector<HTMLButtonElement>('[aria-label="Close visual search"]')!;
+    expect(change).toBeTruthy();
+    expect(close).toBeTruthy();
+
+    await act(async () => change.click());
+    expect(inputClick).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => close.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    inputClick.mockRestore();
+    await act(async () => root.unmount());
+  });
+
   it("rejects a non-image selection with visible feedback instead of silently doing nothing", async () => {
     const onUpload = vi.fn();
     const host = document.createElement("div");

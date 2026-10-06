@@ -29,6 +29,7 @@ from app.modules.search.runtime import API_SEARCH_INDEX_POOL
 from app.modules.search.router import _search_generation, _require_v3, _suggestion_values, search_config
 from app.modules.visual_search.elasticsearch import VisualSearchElasticsearchIndex, VisualSearchScope
 from app.modules.visual_search.eligibility import visual_search_tenant_eligible
+from app.modules.visual_search.preprocess import VisualImagePreparationError, render_visual_preview_webp
 from app.modules.visual_search.router import _parse_crop, _read_upload_bytes, _upload_embedding
 from app.modules.visual_search.service import VisualSearchDisabledError, VisualSearchService
 router=APIRouter(prefix="/api/public/review",tags=["public-review"])
@@ -491,6 +492,37 @@ async def search(public_share_id:str,request:Request,q:str=Query(...,min_length=
   fallback_scope=PublicShareScopeService(s)
   items=_legacy_public_search(s,fallback_scope,p,public_share_id,value,limit_value)
   s.commit();return safe({"items":items,"query":q,"search_version":"filename_fallback"})
+
+@router.post("/{public_share_id}/visual-preview")
+async def visual_preview(
+ public_share_id:str,
+ request:Request,
+ file:UploadFile=File(...),
+):
+ p=user(request,public_share_id)
+ settings=get_settings()
+ if not visual_search_tenant_eligible(settings,p.tenant_id):
+  raise HTTPException(503,detail={"code":"visual_search_not_enabled_for_tenant","message":"Visual search is not enabled for this shared review.","retryable":False})
+ try:
+  VisualSearchService(settings).require_operation("upload")
+ except VisualSearchDisabledError as exc:
+  raise HTTPException(503,detail={"code":exc.code,"message":"Visual search is unavailable for this shared review.","retryable":False}) from exc
+ with SessionLocal() as s:
+  user(request,public_share_id,s)
+  limit(s,request,"visual_preview",30)
+  s.commit()
+ try:
+  content=await _read_upload_bytes(file)
+ finally:
+  await file.close()
+ try:
+  preview=await asyncio.to_thread(render_visual_preview_webp,content)
+ except VisualImagePreparationError as exc:
+  status_code=413 if exc.code in {"visual_image_too_large","visual_image_dimensions","visual_image_decode_pixels"} else 422
+  raise HTTPException(status_code,detail={"code":exc.code,"message":str(exc),"retryable":False}) from exc
+ response=Response(content=preview,media_type="image/webp")
+ response.headers.update({"Cache-Control":"no-store, private","Pragma":"no-cache","Referrer-Policy":"no-referrer","Vary":"Cookie","X-Content-Type-Options":"nosniff"})
+ return response
 
 @router.post("/{public_share_id}/visual-search")
 async def visual_search(

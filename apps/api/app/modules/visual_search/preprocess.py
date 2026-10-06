@@ -110,6 +110,26 @@ def decode_visual_image(
     )
 
 
+def render_visual_preview_webp(
+    content: bytes,
+    *,
+    max_edge: int = 960,
+    quality: int = 82,
+) -> bytes:
+    """Return a browser-friendly preview for any visual-search input format."""
+
+    if max_edge <= 0:
+        raise ValueError("visual preview max edge must be positive")
+    if quality < 1 or quality > 100:
+        raise ValueError("visual preview quality must be between 1 and 100")
+    prepared = decode_visual_image(content)
+    image = prepared.image.copy()
+    image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    image.save(output, format="WEBP", quality=quality, method=6)
+    return output.getvalue()
+
+
 def crop_visual_image(
     image: Image.Image,
     crop: NormalizedCrop,

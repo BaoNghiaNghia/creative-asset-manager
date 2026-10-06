@@ -4,7 +4,7 @@ import type { Asset } from "../types";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
-type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; recentAssets?: Asset[]; onChooseAsset?: (asset: Asset) => void; };
+type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; onPreviewError?: (file: File, previewUrl: string) => void; recentAssets?: Asset[]; onChooseAsset?: (asset: Asset) => void; };
 type DragMode = "create" | "nw" | "ne" | "sw" | "se";
 type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop; changed: boolean };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
@@ -34,7 +34,7 @@ function point(event: ReactPointerEvent<HTMLElement>, element: HTMLElement) {
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function sameCrop(left: VisualCrop, right: VisualCrop) { return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height; }
 
-export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose, recentAssets = [], onChooseAsset }: Props) {
+export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose, onPreviewError, recentAssets = [], onChooseAsset }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
   const stageRef = useRef<HTMLDivElement>(null);
@@ -191,10 +191,15 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
     </section>
   </div>;
   return <section className="visual-search-upload-card visual-search-upload-card--reference" aria-label="Visual search">
-    <button type="button" className="visual-direct-change" onClick={openPicker} aria-label="Change image" title="Change image">×</button>
+    <div className="visual-direct-actions" aria-label="Visual search actions">
+      <button type="button" className="visual-direct-action visual-direct-replace" onClick={openPicker} aria-label="Change image" title="Change image">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h6.5m6 6.5V17a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6.5"/><path d="m5.5 16 3.8-4 3.2 3 2.4-2.4 3.6 3.4"/><circle cx="9" cy="8.5" r="1.3"/><path d="M15 4h5m0 0v5m0-5-6 6"/></svg>
+      </button>
+      <button type="button" className="visual-direct-action visual-direct-close" onClick={onClose} aria-label="Close visual search" title="Close visual search">×</button>
+    </div>
     <div className="visual-direct-workspace">
       <div ref={stageRef} className="visual-direct-stage" onPointerDown={beginNewCrop} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDoubleClick={() => { cropRef.current = fullCrop; setCrop(fullCrop); onRetry(); }}>
-        <img src={preview || ""} alt="" draggable={false} />
+        <img src={preview || ""} alt="" draggable={false} onError={() => { if (reference?.kind === "upload" && preview) onPreviewError?.(reference.file, preview); }} />
         <div className="visual-direct-crop" style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }} role="presentation">
           <i className="visual-direct-handle nw" onPointerDown={event => begin(event, "nw")} /><i className="visual-direct-handle ne" onPointerDown={event => begin(event, "ne")} /><i className="visual-direct-handle sw" onPointerDown={event => begin(event, "sw")} /><i className="visual-direct-handle se" onPointerDown={event => begin(event, "se")} />
         </div>
