@@ -31,7 +31,7 @@ The frontend script builds and scans only generated `apps/client/dist`, installs
 
 ### Read-only Production UI smoke
 
-After an explicitly authorized frontend deploy, run the live Browser smoke separately with `make production-ui-smoke`, or opt in during that deploy with `CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1`. The smoke never deploys anything and blocks every HTTP method except GET, HEAD, and OPTIONS. It verifies HTTPS, `/build-info.json` provenance, console/page/network health, and sequential desktop/tablet/mobile rendering for Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms.
+After an explicitly authorized frontend deploy, run the live Browser smoke separately with `make production-ui-smoke`, or opt in during that deploy with `CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1`. The smoke never deploys anything and blocks every HTTP method except GET, HEAD, and OPTIONS. It verifies HTTPS, `/build-info.json` provenance, console/page/network health, and sequential desktop/tablet/mobile rendering for Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms. On the root-operated VPS this smoke uses the Playwright Firefox build so the browser sandbox stays enabled; do not reintroduce Chromium `--no-sandbox` flags.
 
 Authenticated private-route coverage requires a Playwright storage-state file outside the repository, normally `/etc/creative-asset-manager/production-ui-storage-state.json`, with mode `600` or stricter. Treat that file as a credential: never commit, print, copy into `.ui-qa`, or place it under the source checkout. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` runs only Privacy and Terms and is intentionally partial.
 

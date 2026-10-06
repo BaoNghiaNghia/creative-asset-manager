@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { firefox } from "playwright";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -185,11 +185,8 @@ async function main() {
   const runDir = path.join(outputRoot, nowId());
   await fs.mkdir(runDir, { recursive: true });
 
-  const browser = await chromium.launch({
-    channel: "chrome",
+  const browser = await firefox.launch({
     headless: true,
-    chromiumSandbox: false,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
 
   const report = {

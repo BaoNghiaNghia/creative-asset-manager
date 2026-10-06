@@ -57,6 +57,10 @@ class ProductionUiSmokeTests(unittest.TestCase):
         self.assertIn("Production UI smoke refuses loopback/local URLs", text)
         self.assertIn("storage state must live outside the repository", text)
         self.assertIn("build-info.json", text)
+        self.assertIn('import { firefox } from "playwright";', text)
+        self.assertIn("firefox.launch", text)
+        self.assertNotIn("--no-sandbox", text)
+        self.assertNotIn("chromiumSandbox", text)
         self.assertNotIn("deploy-cam-frontend.sh", text)
         self.assertNotIn("cam-rebuild-backend.sh", text)
 
