@@ -11,11 +11,13 @@ import {
   listStage2Jobs,
   listStage3ReviewGroups,
   markCandidateReferenceFeedback,
+  setKeywordAnalysisPicked,
   syncSourcePlans,
   type SourcePlanSortBy,
   type SourcePlanSortDirection,
   type KeywordAnalysisSortBy,
   type KeywordAnalysisSortDirection,
+  type KeywordUsageFilter,
 } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
@@ -36,6 +38,7 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
     total_search_volume: 0,
     high_competition: 0,
     zero_volume: 0,
+    picked_keywords: 0,
   },
 };
 
@@ -112,6 +115,8 @@ export function RealisticReviewUgcPage() {
   const [debouncedKeywordQuery, setDebouncedKeywordQuery] = useState("");
   const [keywordSortBy, setKeywordSortBy] = useState<KeywordAnalysisSortBy>("search_volume");
   const [keywordSortDirection, setKeywordSortDirection] = useState<KeywordAnalysisSortDirection>("desc");
+  const [keywordUsageFilter, setKeywordUsageFilter] = useState<KeywordUsageFilter>("all");
+  const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
   const [keywordLoading, setKeywordLoading] = useState(true);
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
@@ -159,10 +164,32 @@ export function RealisticReviewUgcPage() {
         query: debouncedKeywordQuery,
         sortBy: keywordSortBy,
         sortDirection: keywordSortDirection,
+        usage: keywordUsageFilter,
       },
       signal,
     );
     setKeywordPage(result);
+  }
+
+  async function changeKeywordPicked(keywordId: string, picked: boolean) {
+    setKeywordPickingIds(current => new Set(current).add(keywordId));
+    setError("");
+    try {
+      const updated = await setKeywordAnalysisPicked(keywordId, picked);
+      setKeywordPage(current => ({
+        ...current,
+        items: current.items.map(item => item.id === updated.id ? updated : item),
+      }));
+      await refreshKeywordAnalysis();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update keyword usage.");
+    } finally {
+      setKeywordPickingIds(current => {
+        const next = new Set(current);
+        next.delete(keywordId);
+        return next;
+      });
+    }
   }
 
   function changeKeywordSort(next: KeywordAnalysisSortBy) {
@@ -454,7 +481,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection]);
+  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter]);
 
   useEffect(() => {
     if (!groupsStageActive) return;
@@ -622,7 +649,15 @@ export function RealisticReviewUgcPage() {
             loading={keywordLoading}
             sortBy={keywordSortBy}
             sortDirection={keywordSortDirection}
+            usageFilter={keywordUsageFilter}
+            pickingIds={keywordPickingIds}
             onSortChange={changeKeywordSort}
+            onUsageFilterChange={value => {
+              setKeywordLoading(true);
+              setKeywordPageNumber(1);
+              setKeywordUsageFilter(value);
+            }}
+            onPickChange={changeKeywordPicked}
             onPageChange={value => {
               setKeywordLoading(true);
               setKeywordPageNumber(value);

@@ -159,6 +159,7 @@ export type SourcePlanSortBy = "source" | "updated" | "analyzed" | "group_size" 
 export type SourcePlanSortDirection = "asc" | "desc";
 export type KeywordAnalysisSortBy = "keyword" | "search_volume" | "competition" | "cpc" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
+export type KeywordUsageFilter = "all" | "unused" | "used";
 
 export const listSourcePlans = (
   filters: {
@@ -197,6 +198,7 @@ export const listKeywordAnalysis = (
     query?: string;
     sortBy?: KeywordAnalysisSortBy;
     sortDirection?: KeywordAnalysisSortDirection;
+    usage?: KeywordUsageFilter;
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -205,6 +207,7 @@ export const listKeywordAnalysis = (
     page_size: String(filters.pageSize ?? 20),
     sort_by: filters.sortBy ?? "search_volume",
     sort_dir: filters.sortDirection ?? "desc",
+    usage: filters.usage ?? "all",
   });
   if (filters.query?.trim()) params.set("query", filters.query.trim());
   return request<KeywordVolumePage>(
@@ -212,6 +215,15 @@ export const listKeywordAnalysis = (
     { signal },
   );
 };
+
+export const setKeywordAnalysisPicked = (keywordId: string, picked: boolean) =>
+  request<import("./types").KeywordVolume>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/pick",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ picked }),
+    },
+  );
 
 export const listCampaigns = (signal?: AbortSignal) =>
   request<Campaign[]>("/api/v1/realistic-review-ugc/campaigns", { signal });

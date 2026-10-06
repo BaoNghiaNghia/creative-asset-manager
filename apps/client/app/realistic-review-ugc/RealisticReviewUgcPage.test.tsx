@@ -575,6 +575,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               cpc_high: 1.96,
               source_image_url: "https://i.pinimg.com/736x/aa/bb/hotdog.jpg",
               source_pin_url: "https://www.pinterest.com/pin/123456789/",
+              picked: true,
+              picked_at: "2026-10-05T11:00:00Z",
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
             },
@@ -587,6 +589,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               cpc_high: 0.88,
               source_image_url: null,
               source_pin_url: null,
+              picked: false,
+              picked_at: null,
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
             },
@@ -599,12 +603,17 @@ describe("Realistic Review UGC source-first workspace", () => {
             total_search_volume: 4660,
             high_competition: 1,
             zero_volume: 0,
+            picked_keywords: 1,
           },
         }}
         query=""
         sortBy="search_volume"
         sortDirection="desc"
+        usageFilter="all"
+        pickingIds={new Set()}
         onSortChange={() => undefined}
+        onUsageFilterChange={() => undefined}
+        onPickChange={() => undefined}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
         onQueryChange={() => undefined}
@@ -622,6 +631,11 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("$0.56–$1.96");
     expect(markup).toContain(">4,660<");
     expect(markup).toContain("AEBrowse · Google Ads");
+    expect(markup).toContain(">Used<");
+    expect(markup).toContain(">Unused <");
+    expect(markup).toContain(">Pick<");
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('aria-pressed="false"');
     expect(markup).toContain('aria-sort="descending"');
     expect(markup).toContain('aria-label="Sort by Keyword ascending"');
     expect(markup).toContain('aria-label="Sort by Search volume ascending"');

@@ -436,8 +436,14 @@ class KeywordVolumeResponse(BaseModel):
     cpc_high: float | None = None
     source_image_url: str | None = None
     source_pin_url: str | None = None
+    picked: bool = False
+    picked_at: datetime | None = None
     provider: str
     fetched_at: datetime
+
+
+class KeywordVolumePickRequest(BaseModel):
+    picked: bool = True
 
 
 class KeywordVolumeResolveRequest(BaseModel):
@@ -473,6 +479,7 @@ class KeywordVolumeOverviewResponse(BaseModel):
     total_search_volume: int = 0
     high_competition: int = 0
     zero_volume: int = 0
+    picked_keywords: int = 0
 
 
 class KeywordVolumePageResponse(BaseModel):

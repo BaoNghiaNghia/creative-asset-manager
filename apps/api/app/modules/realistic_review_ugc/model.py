@@ -194,6 +194,9 @@ class RrugcKeywordVolumeModel(Base):
     cpc_high: Mapped[float | None] = mapped_column(Float)
     source_image_url: Mapped[str | None] = mapped_column(String(2048))
     source_pin_url: Mapped[str | None] = mapped_column(String(2048))
+    picked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    picked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    picked_by_user_id: Mapped[str | None] = mapped_column(String(255))
     provider: Mapped[str] = mapped_column(
         String(64), nullable=False, default="aebrowse_google_ads"
     )

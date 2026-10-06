@@ -139,6 +139,7 @@ from app.modules.realistic_review_ugc.schema import (
     ImportResponse,
     KeywordVolumeOverviewResponse,
     KeywordVolumePageResponse,
+    KeywordVolumePickRequest,
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
     KeywordVolumeResponse,
@@ -2736,6 +2737,8 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         cpc_high=row.cpc_high,
         source_image_url=row.source_image_url,
         source_pin_url=row.source_pin_url,
+        picked=bool(row.picked),
+        picked_at=row.picked_at,
         provider=row.provider,
         fetched_at=row.fetched_at,
     )
@@ -3261,6 +3264,7 @@ def list_keyword_analysis(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     query: str = Query(default="", max_length=200),
+    usage: str = Query(default="all", pattern="^(all|unused|used)$"),
     sort_by: str = Query(
         default="search_volume",
         pattern="^(keyword|search_volume|competition|cpc|fetched_at)$",
@@ -3269,28 +3273,41 @@ def list_keyword_analysis(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    conditions = [RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id]
+    base_conditions = [
+        RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id
+    ]
     clean_query = query.strip()
     if clean_query:
-        conditions.append(
+        base_conditions.append(
             RrugcKeywordVolumeModel.keyword.ilike(f"%{clean_query}%")
         )
+
+    conditions = list(base_conditions)
+    if usage == "used":
+        conditions.append(RrugcKeywordVolumeModel.picked.is_(True))
+    elif usage == "unused":
+        conditions.append(RrugcKeywordVolumeModel.picked.is_(False))
 
     total = int(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(*conditions)
         ) or 0
     )
+    total_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(*base_conditions)
+        ) or 0
+    )
     total_search_volume = int(
         session.scalar(
             select(func.coalesce(func.sum(RrugcKeywordVolumeModel.search_volume), 0))
-            .where(*conditions)
+            .where(*base_conditions)
         ) or 0
     )
     high_competition = int(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
-                *conditions,
+                *base_conditions,
                 RrugcKeywordVolumeModel.competition == "HIGH",
             )
         ) or 0
@@ -3298,8 +3315,16 @@ def list_keyword_analysis(
     zero_volume = int(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
-                *conditions,
+                *base_conditions,
                 RrugcKeywordVolumeModel.search_volume <= 0,
+            )
+        ) or 0
+    )
+    picked_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *base_conditions,
+                RrugcKeywordVolumeModel.picked.is_(True),
             )
         ) or 0
     )
@@ -3366,12 +3391,40 @@ def list_keyword_analysis(
         page_size=page_size,
         total=total,
         overview=KeywordVolumeOverviewResponse(
-            total_keywords=total,
+            total_keywords=total_keywords,
             total_search_volume=total_search_volume,
             high_competition=high_competition,
             zero_volume=zero_volume,
+            picked_keywords=picked_keywords,
         ),
     )
+
+
+@router.patch(
+    "/keyword-analysis/{keyword_id}/pick",
+    response_model=KeywordVolumeResponse,
+)
+def set_keyword_analysis_pick(
+    keyword_id: str,
+    request: KeywordVolumePickRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    row = session.scalar(
+        select(RrugcKeywordVolumeModel).where(
+            RrugcKeywordVolumeModel.id == keyword_id,
+            RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword row not found.")
+
+    row.picked = bool(request.picked)
+    row.picked_at = datetime.now(timezone.utc) if request.picked else None
+    row.picked_by_user_id = principal.user_id if request.picked else None
+    session.commit()
+    session.refresh(row)
+    return _keyword_volume_response(row)
 
 
 @router.post(

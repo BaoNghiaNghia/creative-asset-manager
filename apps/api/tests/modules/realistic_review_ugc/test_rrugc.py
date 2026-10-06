@@ -458,6 +458,9 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
                 cpc_high=1.96,
                 source_image_url="https://i.pinimg.com/736x/aa/bb/matching.jpg",
                 source_pin_url="https://www.pinterest.com/pin/222/",
+                picked=True,
+                picked_at=now,
+                picked_by_user_id="user-a",
                 provider="aebrowse_google_ads",
                 fetched_at=now,
                 last_requested_at=now,
@@ -486,6 +489,7 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         "total_search_volume": 4400,
         "high_competition": 1,
         "zero_volume": 1,
+        "picked_keywords": 1,
     }
     assert [row["keyword"] for row in payload["items"]] == [
         "matching couple hoodies",
@@ -497,6 +501,9 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     assert payload["items"][0]["source_pin_url"] == (
         "https://www.pinterest.com/pin/222/"
     )
+    assert payload["items"][0]["picked"] is True
+    assert payload["items"][0]["picked_at"] is not None
+    assert payload["items"][1]["picked"] is False
     assert payload["items"][1]["source_image_url"] is None
     assert payload["items"][1]["source_pin_url"] is None
 
@@ -507,6 +514,39 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     assert searched.status_code == 200
     assert searched.json()["total"] == 1
     assert searched.json()["items"][0]["keyword"] == "custom initial hoodie"
+
+    used = api.get(
+        "/api/v1/realistic-review-ugc/keyword-analysis",
+        params={"usage": "used"},
+    )
+    assert used.status_code == 200
+    assert used.json()["total"] == 1
+    assert used.json()["items"][0]["keyword"] == "matching couple hoodies"
+    assert used.json()["overview"]["picked_keywords"] == 1
+
+    unused = api.get(
+        "/api/v1/realistic-review-ugc/keyword-analysis",
+        params={"usage": "unused"},
+    )
+    assert unused.status_code == 200
+    assert unused.json()["total"] == 1
+    assert unused.json()["items"][0]["keyword"] == "custom initial hoodie"
+
+    picked = api.patch(
+        f"/api/v1/realistic-review-ugc/keyword-analysis/{unused.json()['items'][0]['id']}/pick",
+        json={"picked": True},
+    )
+    assert picked.status_code == 200
+    assert picked.json()["picked"] is True
+    assert picked.json()["picked_at"] is not None
+
+    no_unused = api.get(
+        "/api/v1/realistic-review-ugc/keyword-analysis",
+        params={"usage": "unused"},
+    )
+    assert no_unused.status_code == 200
+    assert no_unused.json()["total"] == 0
+    assert no_unused.json()["overview"]["picked_keywords"] == 2
 
     expected_orders = {
         ("keyword", "asc"): ["custom initial hoodie", "matching couple hoodies"],

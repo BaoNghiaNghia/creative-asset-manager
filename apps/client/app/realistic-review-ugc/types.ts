@@ -174,6 +174,8 @@ export type KeywordVolume = {
   cpc_high: number | null;
   source_image_url: string | null;
   source_pin_url: string | null;
+  picked: boolean;
+  picked_at: string | null;
   provider: string;
   fetched_at: string;
 };
@@ -183,6 +185,7 @@ export type KeywordVolumeOverview = {
   total_search_volume: number;
   high_competition: number;
   zero_volume: number;
+  picked_keywords: number;
 };
 
 export type KeywordVolumePage = {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection } from "./api";
+import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection, KeywordUsageFilter } from "./api";
 import type { KeywordVolumePage } from "./types";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -52,7 +52,11 @@ export function KeywordAnalysisTable({
   loading = false,
   sortBy,
   sortDirection,
+  usageFilter,
+  pickingIds,
   onSortChange,
+  onUsageFilterChange,
+  onPickChange,
   onPageChange,
   onPageSizeChange,
   onQueryChange,
@@ -62,7 +66,11 @@ export function KeywordAnalysisTable({
   loading?: boolean;
   sortBy: KeywordAnalysisSortBy;
   sortDirection: KeywordAnalysisSortDirection;
+  usageFilter: KeywordUsageFilter;
+  pickingIds: Set<string>;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
+  onUsageFilterChange: (filter: KeywordUsageFilter) => void;
+  onPickChange: (keywordId: string, picked: boolean) => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
@@ -105,6 +113,7 @@ export function KeywordAnalysisTable({
       <article><span>Monthly volume</span><strong>{data.overview.total_search_volume.toLocaleString()}</strong><small>Combined search volume</small></article>
       <article><span>High competition</span><strong>{data.overview.high_competition}</strong><small>Google Ads HIGH</small></article>
       <article><span>Zero volume</span><strong>{data.overview.zero_volume}</strong><small>Can deprioritize</small></article>
+      <article className="rrugc-stage0-used-kpi"><span>Used</span><strong>{data.overview.picked_keywords}</strong><small>Picked for use</small></article>
     </div>
 
     <div className="rrugc-stage0-toolbar">
@@ -112,12 +121,19 @@ export function KeywordAnalysisTable({
         <span className="sr-only">Search Stage 0 keywords</span>
         <input type="search" value={query} placeholder="Search keyword…" onChange={event => onQueryChange(event.target.value)} />
       </label>
-      <div className="rrugc-stage0-filter" role="group" aria-label="Filter keyword volume">
-        <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All</button>
-        <button type="button" className={filter === "high" ? "active" : ""} onClick={() => setFilter("high")}>High competition</button>
-        <button type="button" className={filter === "zero" ? "active" : ""} onClick={() => setFilter("zero")}>Zero volume</button>
+      <div className="rrugc-stage0-filter-groups">
+        <div className="rrugc-stage0-usage-filter" role="group" aria-label="Filter keyword usage">
+          <button type="button" className={usageFilter === "all" ? "active" : ""} onClick={() => onUsageFilterChange("all")}>All <b>{data.overview.total_keywords}</b></button>
+          <button type="button" className={usageFilter === "unused" ? "active" : ""} onClick={() => onUsageFilterChange("unused")}>Unused <b>{Math.max(0, data.overview.total_keywords - data.overview.picked_keywords)}</b></button>
+          <button type="button" className={usageFilter === "used" ? "active" : ""} onClick={() => onUsageFilterChange("used")}>Used <b>{data.overview.picked_keywords}</b></button>
+        </div>
+        <div className="rrugc-stage0-filter" role="group" aria-label="Filter keyword volume">
+          <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Any volume</button>
+          <button type="button" className={filter === "high" ? "active" : ""} onClick={() => setFilter("high")}>High competition</button>
+          <button type="button" className={filter === "zero" ? "active" : ""} onClick={() => setFilter("zero")}>Zero volume</button>
+        </div>
       </div>
-      <span className="rrugc-stage0-toolbar-count">{data.total} keywords</span>
+      <span className="rrugc-stage0-toolbar-count">{data.total} rows</span>
     </div>
 
     <div className="rrugc-stage0-table-wrap">
@@ -129,10 +145,11 @@ export function KeywordAnalysisTable({
           <SortHeader column="competition" label="Competition" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="cpc" label="CPC range" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="fetched_at" label="Last checked" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <th>Used</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({length: 5}, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={6}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : items.map(item => (
-            <tr key={item.id}>
+          {loading ? Array.from({length: 5}, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={7}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : items.map(item => (
+            <tr key={item.id} className={item.picked ? "is-picked" : ""}>
               <td className="rrugc-stage0-source-image">
                 {item.source_image_url ? (
                   <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open Pinterest source for " + item.keyword}>
@@ -145,9 +162,23 @@ export function KeywordAnalysisTable({
               <td><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></td>
               <td className="rrugc-stage0-cpc">{formatCpc(item.cpc_low)}–{formatCpc(item.cpc_high)}</td>
               <td className="rrugc-stage0-fetched"><strong>{new Date(item.fetched_at).toLocaleDateString()}</strong><small>{new Date(item.fetched_at).toLocaleTimeString()}</small></td>
+              <td className="rrugc-stage0-pick-cell">
+                <button
+                  type="button"
+                  className={"rrugc-stage0-pick" + (item.picked ? " is-picked" : "")}
+                  aria-pressed={item.picked}
+                  disabled={pickingIds.has(item.id)}
+                  onClick={() => onPickChange(item.id, !item.picked)}
+                  title={item.picked ? "Mark this keyword as unused" : "Mark this keyword as used"}
+                >
+                  <span aria-hidden="true">{item.picked ? "✓" : "+"}</span>
+                  {pickingIds.has(item.id) ? "Saving…" : item.picked ? "Used" : "Pick"}
+                </button>
+                {item.picked && item.picked_at && <small>{new Date(item.picked_at).toLocaleDateString()}</small>}
+              </td>
             </tr>
           ))}
-          {!loading && items.length === 0 && <tr><td colSpan={6} className="rrugc-source-plan-empty">{query.trim() ? "No keyword matches this search." : "No keyword data yet. Start the separate quote-scout terminal and submit discovered keywords."}</td></tr>}
+          {!loading && items.length === 0 && <tr><td colSpan={7} className="rrugc-source-plan-empty">{query.trim() ? "No keyword matches this search/filter." : usageFilter !== "all" ? "No keywords in this usage state." : "No keyword data yet. Start the separate quote-scout terminal and submit discovered keywords."}</td></tr>}
         </tbody>
       </table>
     </div>
