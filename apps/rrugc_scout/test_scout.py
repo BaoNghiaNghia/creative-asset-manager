@@ -1,4 +1,5 @@
 import asyncio
+import re
 from threading import Event
 
 import httpx
@@ -40,6 +41,26 @@ from scout import (
     task_search_queries,
     wait_for_pin_growth,
 )
+
+
+def test_windows_profile_argument_pattern_requires_exact_profile_path(tmp_path):
+    review_profile = (tmp_path / "pinterest-profile").resolve()
+    keyword_profile = (tmp_path / "pinterest-profile-keyword").resolve()
+    pattern = scout_module._windows_profile_argument_pattern(review_profile)
+
+    review_command = (
+        f'chrome.exe --user-data-dir="{review_profile}" --no-first-run'
+    ).casefold()
+    fully_quoted_review_command = (
+        f'chrome.exe "--user-data-dir={review_profile}" --no-first-run'
+    ).casefold()
+    keyword_command = (
+        f'chrome.exe --user-data-dir="{keyword_profile}" --no-first-run'
+    ).casefold()
+
+    assert re.search(pattern, review_command)
+    assert re.search(pattern, fully_quoted_review_command)
+    assert not re.search(pattern, keyword_command)
 
 
 def test_windows_profile_owner_output_parser_filters_invalid_rows():
@@ -131,15 +152,18 @@ def test_clear_stale_profile_runtime_files_preserves_unrelated_files(tmp_path):
 
 
 
-def test_recover_windows_profile_only_closes_dedicated_root_chrome(
+def test_recover_windows_profile_closes_legacy_scout_and_late_chrome(
     monkeypatch,
     tmp_path,
 ):
     owner_snapshots = [
-        ((10204,), (13416, 21668, 42800)),
-        ((), (13416, 21668, 42800)),
+        ((18452,), (21012,)),
+        ((21116,), ()),
+        ((), ()),
+        ((), ()),
     ]
-    killed: list[tuple[int, ...]] = []
+    scout_kills: list[tuple[int, ...]] = []
+    chrome_kills: list[tuple[int, ...]] = []
 
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
     monkeypatch.setattr(
@@ -150,13 +174,19 @@ def test_recover_windows_profile_only_closes_dedicated_root_chrome(
     monkeypatch.setattr(
         scout_module,
         "_terminate_windows_process_trees",
-        lambda pids: killed.append(tuple(pids)) or len(pids),
+        lambda pids: scout_kills.append(tuple(pids)) or len(pids),
+    )
+    monkeypatch.setattr(
+        scout_module,
+        "_terminate_windows_profile_chrome",
+        lambda pids: chrome_kills.append(tuple(pids)) or len(pids),
     )
     monkeypatch.setattr(scout_module.time, "sleep", lambda _seconds: None)
 
     scout_module._recover_windows_scout_profile(tmp_path)
 
-    assert killed == [(10204,)]
+    assert scout_kills == [(21012,)]
+    assert chrome_kills == [(18452,), (21116,)]
     assert owner_snapshots == []
 
 

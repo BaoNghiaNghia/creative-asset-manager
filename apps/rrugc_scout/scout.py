@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v29"
+CLIENT_VERSION = "rrugc-scout-v30"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -362,6 +362,20 @@ def _powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _windows_profile_argument_pattern(profile_dir: str | Path) -> str:
+    """Match one exact --user-data-dir argument, never a sibling path prefix."""
+
+    profile = str(Path(profile_dir).expanduser().resolve()).casefold()
+    escaped = re.escape(profile)
+    return (
+        r"(?:^|\s)(?:"
+        + r'--user-data-dir="' + escaped + r'"'
+        + r'|"--user-data-dir=' + escaped + r'"'
+        + r"|--user-data-dir=" + escaped
+        + r")(?=\s|$)"
+    )
+
+
 def _parse_windows_profile_owners(raw: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
     chrome_pids: list[int] = []
     scout_pids: list[int] = []
@@ -389,12 +403,10 @@ def _windows_profile_owners(
         return (), ()
 
     profile = str(Path(profile_dir).expanduser().resolve())
-    profile_literal = _powershell_literal(profile)
+    profile_pattern = _powershell_literal(_windows_profile_argument_pattern(profile))
     scout_marker = _powershell_literal(r"rrugc_scout\scout.py")
     script = (
-        "$needle = (" + profile_literal + ").ToLowerInvariant(); "
-        "$plainProfileArg = '--user-data-dir=' + $needle; "
-        "$quotedProfileArg = '--user-data-dir="' + $needle + '"'; "
+        "$profilePattern = " + profile_pattern + "; "
         "$scoutMarker = (" + scout_marker + ").ToLowerInvariant(); "
         "$currentPid = " + str(os.getpid()) + "; "
         "Get-CimInstance Win32_Process | ForEach-Object { "
@@ -403,12 +415,13 @@ def _windows_profile_owners(
         "$pidValue = [int]$_.ProcessId; "
         "if ($pidValue -ne $currentPid -and -not [string]::IsNullOrWhiteSpace($cmd)) { "
         "$lower = $cmd.ToLowerInvariant(); "
+        "$profileMatches = [regex]::IsMatch($lower, $profilePattern); "
         "if ($name -ieq 'chrome.exe' "
-        "-and ($lower.Contains($plainProfileArg) -or $lower.Contains($quotedProfileArg)) "
+        "-and $profileMatches "
         "-and -not $lower.Contains('--type=')) { "
         "Write-Output ('chrome|' + $pidValue) "
         "} elseif (($name -ieq 'python.exe' -or $name -ieq 'pythonw.exe') "
-        "-and $lower.Contains($scoutMarker) -and $lower.Contains($needle)) { "
+        "-and $lower.Contains($scoutMarker) -and $profileMatches) { "
         "Write-Output ('scout|' + $pidValue) "
         "} "
         "} "
@@ -435,7 +448,6 @@ def _windows_profile_owners(
     if result.returncode != 0:
         return None
     return _parse_windows_profile_owners(result.stdout)
-
 
 def _terminate_windows_process_trees(pids: tuple[int, ...]) -> int:
     if sys.platform != "win32":
@@ -626,11 +638,15 @@ def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
 
     chrome_pids, scout_pids = owners
 
+    # The new Scout already owns the atomic profile lock when this runs.
+    # Any other Python Scout process using the exact same user-data-dir is an
+    # orphan/legacy runner that can keep respawning Chrome after we close it.
     if scout_pids:
         print(
-            "Legacy Scout process(es) detected for this profile and left untouched: "
+            "Closing stale/legacy Scout process tree(s) using this exact profile: "
             + ", ".join(str(pid) for pid in scout_pids)
         )
+        _terminate_windows_process_trees(scout_pids)
 
     if chrome_pids:
         print(
@@ -639,21 +655,69 @@ def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
             + ", ".join(str(pid) for pid in chrome_pids)
         )
         _terminate_windows_profile_chrome(chrome_pids)
-        time.sleep(0.75)
+
+    # Windows process teardown is asynchronous. Require two consecutive empty
+    # ownership scans and clean up any late Chrome process spawned by a legacy
+    # Scout while that Scout is being terminated.
+    empty_scans = 0
+    remaining_chrome: tuple[int, ...] = ()
+    remaining_scout: tuple[int, ...] = ()
+    for _attempt in range(8):
+        if scout_pids or chrome_pids or _attempt:
+            time.sleep(0.35)
+
         remaining = _windows_profile_owners(profile_dir)
-        if remaining is not None and remaining[0]:
+        if remaining is None:
+            print(
+                "Could not re-inspect the dedicated Scout profile after targeted "
+                "cleanup; continuing without touching other Chrome profiles."
+            )
+            break
+
+        remaining_chrome, remaining_scout = remaining
+        if not remaining_chrome and not remaining_scout:
+            empty_scans += 1
+            if empty_scans >= 2:
+                break
+            continue
+
+        empty_scans = 0
+        if remaining_scout:
+            print(
+                "Finishing stale Scout process tree(s) still using this profile: "
+                + ", ".join(str(pid) for pid in remaining_scout)
+            )
+            _terminate_windows_process_trees(remaining_scout)
+        if remaining_chrome:
+            print(
+                "Finishing late Chrome process tree(s) still using this profile: "
+                + ", ".join(str(pid) for pid in remaining_chrome)
+            )
+            _terminate_windows_profile_chrome(remaining_chrome)
+    else:
+        final_owners = _windows_profile_owners(profile_dir)
+        if final_owners is not None:
+            remaining_chrome, remaining_scout = final_owners
+        if remaining_chrome or remaining_scout:
+            details: list[str] = []
+            if remaining_scout:
+                details.append(
+                    "Scout PID(s) " + ", ".join(str(pid) for pid in remaining_scout)
+                )
+            if remaining_chrome:
+                details.append(
+                    "Chrome PID(s) " + ", ".join(str(pid) for pid in remaining_chrome)
+                )
             raise RuntimeError(
-                "The dedicated Pinterest Scout Chrome profile is still in use by root "
-                "Chrome PID(s) "
-                + ", ".join(str(pid) for pid in remaining[0])
-                + ". Other Chrome profiles were not touched. Close only the Pinterest "
-                "Scout profile window and run START_SCOUT.bat again."
+                "The dedicated Pinterest Scout profile is still in use by "
+                + "; ".join(details)
+                + ". Other Chrome profiles were not touched. Close only this "
+                "Pinterest Scout profile window and run the launcher again."
             )
 
     removed = _clear_stale_profile_runtime_files(profile_dir)
     if removed:
         print("Cleared stale Scout profile runtime files: " + ", ".join(removed))
-
 
 
 def pinterest_login_marker_path(profile_dir: str | Path) -> Path:
