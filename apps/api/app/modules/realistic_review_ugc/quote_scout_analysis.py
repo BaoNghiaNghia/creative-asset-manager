@@ -16,7 +16,7 @@ from app.domain.providers.contracts import (
 )
 
 
-QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v4"
+QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v5"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 QUOTE_SCOUT_MIN_WORDS = 2
 QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
@@ -37,6 +37,37 @@ class QuoteScoutError(RuntimeError):
         self.status_code = status_code
 
 
+class HatCapText(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    lines: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "All readable text lines physically printed or embroidered on ONE "
+            "target cap, in natural visual reading order. Different lines from "
+            "the same cap must stay together in this single object."
+        ),
+    )
+
+    @field_validator("lines", mode="before")
+    @classmethod
+    def normalize_lines(cls, value):
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            return []
+        result: list[str] = []
+        for raw in value:
+            text = re.sub(r"\s+", " ", str(raw or "")).strip(" \t\r\n\"'“”")
+            if not text or len(text) > 120:
+                continue
+            result.append(text)
+            if len(result) >= 20:
+                break
+        return result
+
+
 class HatQuoteDocument(BaseModel):
     # Gemini can occasionally add harmless descriptive fields or use native
     # aliases. Ignore unknown metadata here; consumed fields remain validated.
@@ -50,9 +81,14 @@ class HatQuoteDocument(BaseModel):
             "6-panel, golf or sports caps with a crown and bill."
         ),
     )
-    quotes: list[str] = Field(
+    cap_texts: list[HatCapText] = Field(
         default_factory=list,
         max_length=QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE,
+        description=(
+            "One item per visible target cap. Never create one item per text "
+            "line: every readable line belonging to the same cap must be grouped "
+            "inside that cap's lines array."
+        ),
     )
     confidence: float = Field(ge=0.0, le=1.0)
 
@@ -88,42 +124,86 @@ class HatQuoteDocument(BaseModel):
             data.pop(alias, None)
 
         phrase_confidences: list[float] = []
-        raw_quotes = data.get("quotes")
-        if not isinstance(raw_quotes, list):
-            for alias in ("sayings", "phrases", "texts"):
+        raw_groups = data.get("cap_texts")
+        if not isinstance(raw_groups, list):
+            for alias in ("caps", "hat_texts", "cap_groups", "hat_groups"):
                 candidate = data.get(alias)
                 if isinstance(candidate, list):
-                    raw_quotes = candidate
-                    break
-        if not isinstance(raw_quotes, list):
-            for alias in ("quote", "saying", "text"):
-                candidate = data.get(alias)
-                if isinstance(candidate, str) and candidate.strip():
-                    raw_quotes = [candidate]
+                    raw_groups = candidate
                     break
 
-        if isinstance(raw_quotes, list):
-            quotes: list[str] = []
-            for phrase in raw_quotes:
-                if isinstance(phrase, dict):
-                    text = (
-                        phrase.get("text")
-                        or phrase.get("phrase")
-                        or phrase.get("quote")
-                        or phrase.get("saying")
-                    )
-                    confidence = phrase.get("confidence")
+        cap_texts: list[dict[str, list[str]]] = []
+        if isinstance(raw_groups, list):
+            for group in raw_groups:
+                if isinstance(group, dict):
+                    confidence = group.get("confidence")
                     if isinstance(confidence, (int, float)):
                         phrase_confidences.append(float(confidence))
+                    lines = group.get("lines")
+                    if not isinstance(lines, list):
+                        for alias in ("text_lines", "wording_lines"):
+                            candidate = group.get(alias)
+                            if isinstance(candidate, list):
+                                lines = candidate
+                                break
+                    if not isinstance(lines, list):
+                        text = (
+                            group.get("quote")
+                            or group.get("text")
+                            or group.get("phrase")
+                            or group.get("saying")
+                        )
+                        lines = [text] if text is not None else []
                 else:
-                    text = phrase
-                if text is not None:
-                    quotes.append(str(text))
-            data["quotes"] = quotes
+                    lines = [group]
+                cap_texts.append({"lines": [str(line) for line in lines if line is not None]})
         else:
-            data["quotes"] = []
+            # Backward compatibility for older provider/native payloads that
+            # returned one flat quote per list item.
+            raw_quotes = data.get("quotes")
+            if not isinstance(raw_quotes, list):
+                for alias in ("sayings", "phrases", "texts"):
+                    candidate = data.get(alias)
+                    if isinstance(candidate, list):
+                        raw_quotes = candidate
+                        break
+            if not isinstance(raw_quotes, list):
+                for alias in ("quote", "saying", "text"):
+                    candidate = data.get(alias)
+                    if isinstance(candidate, str) and candidate.strip():
+                        raw_quotes = [candidate]
+                        break
+            if isinstance(raw_quotes, list):
+                for phrase in raw_quotes:
+                    if isinstance(phrase, dict):
+                        text = (
+                            phrase.get("text")
+                            or phrase.get("phrase")
+                            or phrase.get("quote")
+                            or phrase.get("saying")
+                        )
+                        confidence = phrase.get("confidence")
+                        if isinstance(confidence, (int, float)):
+                            phrase_confidences.append(float(confidence))
+                    else:
+                        text = phrase
+                    if text is not None:
+                        cap_texts.append({"lines": [str(text)]})
 
-        for alias in ("sayings", "phrases", "texts", "quote", "saying", "text"):
+        data["cap_texts"] = cap_texts
+        for alias in (
+            "caps",
+            "hat_texts",
+            "cap_groups",
+            "hat_groups",
+            "quotes",
+            "sayings",
+            "phrases",
+            "texts",
+            "quote",
+            "saying",
+            "text",
+        ):
             data.pop(alias, None)
 
         raw_confidence = data.get("confidence")
@@ -135,17 +215,14 @@ class HatQuoteDocument(BaseModel):
             data["confidence"] = 0.0
         return data
 
-    @field_validator("quotes", mode="before")
-    @classmethod
-    def normalize_quotes(cls, value):
-        if not isinstance(value, list):
-            return []
+    @property
+    def quotes(self) -> list[str]:
         result: list[str] = []
         seen: set[str] = set()
-        for raw in value:
-            if isinstance(raw, dict):
-                raw = raw.get("text") or raw.get("phrase") or ""
-            text = re.sub(r"\s+", " ", str(raw or "")).strip(" \t\r\n\"'“”")
+        for cap_text in self.cap_texts:
+            text = re.sub(r"\s+", " ", " ".join(cap_text.lines)).strip(
+                " \t\r\n\"'“”"
+            )
             if (
                 _quote_word_count(text) < QUOTE_SCOUT_MIN_WORDS
                 or len(text) > 180
@@ -222,23 +299,29 @@ Rules:
   side, background, partially angled, and non-central caps.
 - is_hat means contains at least one TARGET CAP; it does NOT mean generic headwear.
 - If the image contains only non-target hats/headwear or other products, set is_hat=false
-  and return quotes=[].
+  and return cap_texts=[].
 - Do not stop after the first, clearest, largest, or central target cap.
-- For EACH visible target cap, read the complete saying/quote physically printed or embroidered on that cap.
-- If several target caps have different sayings, return every distinct readable saying from all of them.
+- For EACH visible target cap, create exactly ONE item in cap_texts.
+- Inside that item, put EVERY readable text line physically printed or embroidered on that SAME cap
+  into its lines array, in natural visual reading order from top to bottom / left to right.
+- NEVER create one cap_texts item per text line. The grouping unit is the physical cap, not the line.
+- A cap with three readable lines must therefore produce one object with three lines. Example:
+  ["GIRLS CAN GOLF TOO", "golf club", "SPORTY & RICH"].
+  The server will concatenate those lines into ONE keyword:
+  "GIRLS CAN GOLF TOO golf club SPORTY & RICH".
+- If several target caps have different sayings, create one cap_texts item for each cap and keep
+  the lines of each cap separate from the lines of every other cap.
 - If target caps and other products appear together, read ONLY text physically on target caps.
 - Ignore text on non-target hats, shirts, hoodies, bags, packaging, signs, Pinterest UI,
   captions, product titles, watermarks, comments, and background objects.
-- Transcribe verbatim in natural reading order.
-- Do not correct spelling, complete hidden letters, paraphrase, or invent missing words.
-- If lettering on one target cap is too unclear to read confidently, skip only that unreadable quote;
-  continue inspecting the other target caps.
-- If multiple separate text lines on the same target cap form one saying, combine them into one phrase.
-- Return every distinct readable target-cap saying. The transport supports up to 50 distinct quotes
-  per image; do not intentionally omit readable target caps unless that technical limit is reached.
-- Ignore single-word text, single letters, and fragments; each returned phrase must contain at least 2 words.
-- Each item in quotes must be a plain string only. Never return {{text, confidence}} objects inside quotes.
-- confidence is confidence that the returned phrase(s) are visibly present on TARGET CAPS.
+- Transcribe verbatim. Do not correct spelling, complete hidden letters, paraphrase, or invent missing words.
+- If one line on a target cap is too unclear to read confidently, omit only that unreadable line and
+  keep the other readable lines from that same cap.
+- Preserve a readable one-word line when it belongs to a multi-line design on the cap; only the final
+  concatenated keyword must contain at least 2 words.
+- The transport supports up to 50 visible target caps per image; do not intentionally omit readable
+  target caps unless that technical limit is reached.
+- confidence is confidence that the grouped cap text is visibly present on TARGET CAPS.
 
 Pinterest image alt text is weak supporting context only and must never override visible evidence:
 {alt_block}

@@ -104,6 +104,33 @@ def test_hat_quote_document_keeps_all_distinct_quotes_from_many_hats():
     assert len(document.quotes) == 8
 
 
+def test_hat_quote_document_groups_multiline_text_by_physical_cap():
+    document = HatQuoteDocument.model_validate(
+        {
+            "is_hat": True,
+            "cap_texts": [
+                {
+                    "lines": [
+                        "GIRLS CAN GOLF TOO",
+                        "golf club",
+                        "SPORTY & RICH",
+                    ]
+                },
+                {"lines": ["OUT OF OFFICE"]},
+            ],
+            "confidence": 0.99,
+        }
+    )
+
+    assert document.quotes == [
+        "GIRLS CAN GOLF TOO golf club SPORTY & RICH",
+        "OUT OF OFFICE",
+    ]
+    schema = HatQuoteDocument.model_json_schema()
+    assert "cap_texts" in schema["properties"]
+    assert "quotes" not in schema["properties"]
+
+
 def test_validate_pinterest_image_url_only_accepts_pinimg_https():
     assert (
         validate_pinterest_image_url(
@@ -157,9 +184,13 @@ def test_analyze_hat_quote_downloads_pinimg_and_normalizes_visible_quote():
         analysis_input = provider.inputs[0]
         assert analysis_input.image_bytes == b"fake-jpeg-bytes"
         assert analysis_input.image_mime_type == "image/jpeg"
-        assert "read the complete saying/quote physically printed or embroidered on that cap" in analysis_input.prompt
+        assert analysis_input.metadata_profile_version == "rrugc-quote-scout-v5"
+        assert "cap_texts" in analysis_input.json_schema["properties"]
+        assert "quotes" not in analysis_input.json_schema["properties"]
+        assert "EVERY readable text line physically printed or embroidered on that SAME cap" in analysis_input.prompt
         assert "Do not stop after the first, clearest, largest, or central target cap." in analysis_input.prompt
-        assert "return every distinct readable saying from all of them" in analysis_input.prompt
+        assert "create exactly ONE item in cap_texts" in analysis_input.prompt
+        assert "GIRLS CAN GOLF TOO golf club SPORTY & RICH" in analysis_input.prompt
         assert "TARGET CAP" in analysis_input.prompt
         assert "bucket hat" in analysis_input.prompt
         assert "cowboy/western hat" in analysis_input.prompt
