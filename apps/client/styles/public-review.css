@@ -529,31 +529,32 @@
 }
 .public-review-backdrop .public-review-header{
   flex:0 0 auto;
-  min-height:98px;
+  min-height:90px;
   align-items:flex-start;
-  padding:13px 16px 12px;
+  padding:11px 16px 10px;
 }
 .public-review-heading{width:100%;min-width:0}
 .public-review-title-row{
   display:flex;
+  min-height:30px;
   align-items:center;
   justify-content:space-between;
-  gap:12px;
+  gap:10px;
 }
-.public-review-heading h2{line-height:24px}
+.public-review-heading h2{line-height:22px}
 .public-review-download{
   display:inline-flex;
   flex:0 0 auto;
-  min-height:30px;
+  min-height:28px;
   align-items:center;
   justify-content:center;
   gap:6px;
-  padding:5px 9px;
+  padding:4px 9px;
   border:1px solid #dfe4eb;
-  border-radius:8px;
+  border-radius:7px;
   background:#fff;
   color:#35445a;
-  font:600 11px/18px inherit;
+  font:600 11px/16px inherit;
   text-decoration:none;
   cursor:pointer;
 }
@@ -579,26 +580,26 @@
 .public-review-metadata{
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:7px;
-  margin-top:8px;
+  gap:6px;
+  margin-top:7px;
 }
 .public-review-metadata span{
   display:flex;
   min-width:0;
   flex-direction:column;
-  gap:2px;
-  padding:6px 8px;
+  gap:1px;
+  padding:5px 8px;
   border:1px solid #e6eaf0;
-  border-radius:8px;
+  border-radius:7px;
   background:#f7f9fc;
 }
 .public-review-metadata small{
   overflow:hidden;
   color:#8b97a8;
-  font-size:9px;
+  font-size:8px;
   font-weight:700;
-  line-height:12px;
-  letter-spacing:.055em;
+  line-height:11px;
+  letter-spacing:.06em;
   text-overflow:ellipsis;
   text-transform:uppercase;
   white-space:nowrap;
@@ -608,7 +609,7 @@
   color:#35445a;
   font-size:11px;
   font-weight:650;
-  line-height:15px;
+  line-height:14px;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -618,6 +619,17 @@
 }
 .public-review-backdrop .public-review-metadata small{color:#ffffff73}
 .public-review-backdrop .public-review-metadata b{color:#ffffffe8}
+
+@media(min-width:901px){
+  .public-review-backdrop .public-review-header{padding-right:66px}
+  .public-review-backdrop .public-viewer-close{
+    top:12px;
+    right:12px;
+    width:38px;
+    height:38px;
+    min-height:38px!important;
+  }
+}
 
 /* Emoji leads the composer row, before the comment input, and opens upward. */
 .public-review-composer .public-editor-emoji{
