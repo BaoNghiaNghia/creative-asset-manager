@@ -289,6 +289,10 @@ class RrugcCandidateAnalyzeJobHandler:
             product_variants = list(product_context.get("variants") or [])
             seed_visual_assets: list[SeedVisualAsset] = []
             seed_counts = {"positive": 0, "negative": 0}
+            seed_source_counts: dict[str, dict[str, int]] = {
+                "positive": {},
+                "negative": {},
+            }
             seed_hashes: set[str] = set()
             for seed in repository.list_reference_seeds(
                 context.job.tenant_id,
@@ -323,6 +327,9 @@ class RrugcCandidateAnalyzeJobHandler:
                 )
                 seed_hashes.add(asset.content_hash)
                 seed_counts[seed.label] += 1
+                seed_source_counts[seed.label]["reference_library"] = (
+                    seed_source_counts[seed.label].get("reference_library", 0) + 1
+                )
 
             # Fill any unused seed slots from real outcomes without mutating the
             # user's Reference Library. Completed Stage 2 references are the
@@ -336,7 +343,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 positive_limit=SEED_VISUAL_MAX_PER_LABEL * 2,
                 negative_limit=SEED_VISUAL_MAX_PER_LABEL * 2,
             )
-            for learned_label, learned_candidate, _source_kind in learned_visual_seeds:
+            for learned_label, learned_candidate, source_kind in learned_visual_seeds:
                 if learned_label not in seed_counts:
                     continue
                 if seed_counts[learned_label] >= SEED_VISUAL_MAX_PER_LABEL:
@@ -359,6 +366,9 @@ class RrugcCandidateAnalyzeJobHandler:
                 )
                 seed_hashes.add(content_hash)
                 seed_counts[learned_label] += 1
+                seed_source_counts[learned_label][source_kind] = (
+                    seed_source_counts[learned_label].get(source_kind, 0) + 1
+                )
 
         downloader = build_reference_downloader()
         async with download_reference_image(image_url, downloader=downloader) as image:
@@ -516,6 +526,14 @@ class RrugcCandidateAnalyzeJobHandler:
                 cache=self.seed_embedding_cache,
                 profile_key=SEED_VISUAL_PROFILE,
             )
+            seed_visual_signal = {
+                **seed_visual_signal,
+                "selected_sources": {
+                    label: dict(sorted(sources.items()))
+                    for label, sources in seed_source_counts.items()
+                    if sources
+                },
+            }
             seed_gate = high_confidence_negative_seed_gate(seed_visual_signal)
             if not manual_reference_good and seed_gate is not None:
                 with context.dependencies.session_factory() as session:

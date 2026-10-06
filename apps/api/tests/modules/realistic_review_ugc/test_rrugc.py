@@ -6669,6 +6669,9 @@ def test_analysis_worker_applies_scoped_seed_visual_ranking(api, database, monke
             candidate = session.get(RrugcCandidateModel, candidate_id)
             assert candidate is not None
             assert candidate.ai_signal_json["seed_visual"]["adjustment"] == 0.03
+            assert candidate.ai_signal_json["seed_visual"]["selected_sources"] == {
+                "positive": {"reference_library": 1}
+            }
             base_score = candidate.final_score
             assert base_score is not None
 
