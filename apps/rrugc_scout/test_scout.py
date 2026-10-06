@@ -494,6 +494,49 @@ def test_pin_detail_resolver_rethrows_closed_browser_runtime():
         )
 
 
+def test_review_supervisor_stops_and_reports_after_restart_limit(monkeypatch):
+    calls = 0
+    reports = []
+
+    async def fake_run_agent(_args):
+        nonlocal calls
+        calls += 1
+        raise scout_module.ScoutRestartRequested(
+            "review_scout_runtime_error_threshold",
+            healthy_progress=False,
+            last_error_type="RuntimeError",
+        )
+
+    async def fake_report(**kwargs):
+        reports.append(kwargs)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(scout_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr(scout_module, "report_scout_fatal_status", fake_report)
+    monkeypatch.setattr(scout_module.asyncio, "sleep", no_sleep)
+
+    args = type(
+        "Args",
+        (),
+        {
+            "machine_label": "SCOUT-PC",
+            "base_url": "https://example.test",
+            "agent_id": "agent-1",
+            "token": "secret",
+        },
+    )()
+
+    with pytest.raises(scout_module.ScoutFatalStop):
+        asyncio.run(scout_module.supervise_review_scout(args))
+
+    assert calls == scout_module.SCOUT_MAX_AUTOMATIC_RESTARTS + 1
+    assert len(reports) == 1
+    assert reports[0]["error_code"] == "review_scout_restart_limit_exceeded"
+    assert reports[0]["machine_label"] == "SCOUT-PC"
+
+
 def test_pinterest_login_ready_marker_is_profile_scoped(tmp_path):
     assert not scout_module.pinterest_login_ready(tmp_path)
     scout_module.mark_pinterest_login_ready(tmp_path)

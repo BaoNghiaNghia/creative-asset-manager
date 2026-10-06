@@ -21,6 +21,11 @@ from scout import (
     PinterestAccessGateError,
     PinterestRateLimitedError,
     SCOUT_PACES,
+    SCOUT_FATAL_EXIT_CODE,
+    SCOUT_MAX_AUTOMATIC_RESTARTS,
+    SCOUT_RUNTIME_ERRORS_BEFORE_RESTART,
+    ScoutFatalStop,
+    ScoutRestartRequested,
     _looks_like_browser_runtime_failure,
     access_gate,
     allowed_image,
@@ -38,8 +43,10 @@ from scout import (
     paced_wait,
     pin_history_key,
     pinimg_asset_key,
+    report_scout_fatal_status,
     resolve_pin_details,
     scout_debug_event,
+    scout_restart_delay_seconds,
     shutdown_scout_remote_log,
     startup_access_gate,
     wait_for_pin_growth,
@@ -824,6 +831,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     context = None
     page = None
     detail_page = None
+    runtime_error_streak = 0
+    successful_cycles_since_restart = 0
 
     async def open_browser_runtime() -> None:
         nonlocal playwright, context, page, detail_page
@@ -1263,6 +1272,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         break
                     await _scroll_search_page(page, pace)
 
+                runtime_error_streak = 0
+                successful_cycles_since_restart += 1
                 scout_debug_event(
                     "keyword_scout_cycle_completed",
                     query=args.seed_query,
@@ -1318,6 +1329,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             except Exception as exc:
                 if args.once:
                     raise
+                runtime_error_streak += 1
                 browser_failure = _looks_like_browser_runtime_failure(exc)
                 retry_seconds = 2 if browser_failure else RUNTIME_RECOVERY_SECONDS
                 event_name = (
@@ -1330,8 +1342,28 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     query=args.seed_query,
                     error_type=exc.__class__.__name__,
                     error=str(exc)[:500],
+                    runtime_error_streak=runtime_error_streak,
                     retry_seconds=retry_seconds,
                 )
+                if runtime_error_streak >= SCOUT_RUNTIME_ERRORS_BEFORE_RESTART:
+                    scout_debug_event(
+                        "scout_restart_requested",
+                        scout_type="keyword",
+                        error_code="keyword_scout_runtime_error_threshold",
+                        runtime_error_streak=runtime_error_streak,
+                        last_error_type=exc.__class__.__name__,
+                        healthy_progress=successful_cycles_since_restart > 0,
+                    )
+                    print(
+                        "Keyword Scout hit "
+                        + str(runtime_error_streak)
+                        + " unexpected runtime errors; restarting the Scout runtime."
+                    )
+                    raise ScoutRestartRequested(
+                        "keyword_scout_runtime_error_threshold",
+                        healthy_progress=successful_cycles_since_restart > 0,
+                        last_error_type=exc.__class__.__name__,
+                    ) from exc
                 if browser_failure:
                     print(
                         "Keyword Scout browser/detail tab closed unexpectedly; "
@@ -1354,6 +1386,66 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         await close_browser_runtime()
         shutdown_scout_remote_log(timeout_seconds=3.0)
         await client.close()
+
+
+async def supervise_pinterest_quote_scout(args: argparse.Namespace) -> None:
+    restart_attempts = 0
+    machine_label = (
+        os.getenv("RRUGC_MACHINE_LABEL")
+        or os.getenv("COMPUTERNAME")
+        or os.getenv("HOSTNAME")
+        or "keyword-scout"
+    )
+    while True:
+        try:
+            await run_pinterest_quote_scout(args)
+            return
+        except ScoutRestartRequested as exc:
+            if exc.healthy_progress:
+                restart_attempts = 0
+            if restart_attempts >= SCOUT_MAX_AUTOMATIC_RESTARTS:
+                fatal_code = "keyword_scout_restart_limit_exceeded"
+                scout_debug_event(
+                    "scout_fatal_stop",
+                    scout_type="keyword",
+                    error_code=fatal_code,
+                    restart_attempts=restart_attempts,
+                    last_error_type=exc.last_error_type,
+                )
+                await report_scout_fatal_status(
+                    base_url=args.base_url,
+                    agent_id=args.agent_id,
+                    token=args.token,
+                    machine_label=machine_label,
+                    error_code=fatal_code,
+                )
+                raise ScoutFatalStop(
+                    "Keyword Scout stopped after "
+                    + str(SCOUT_MAX_AUTOMATIC_RESTARTS)
+                    + " automatic restarts without healthy progress."
+                ) from exc
+
+            restart_attempts += 1
+            delay = scout_restart_delay_seconds(restart_attempts)
+            scout_debug_event(
+                "scout_automatic_restart",
+                scout_type="keyword",
+                restart_attempt=restart_attempts,
+                restart_limit=SCOUT_MAX_AUTOMATIC_RESTARTS,
+                delay_seconds=delay,
+                trigger=exc.error_code,
+                last_error_type=exc.last_error_type,
+            )
+            print(
+                "Restarting Keyword Scout "
+                + str(restart_attempts)
+                + "/"
+                + str(SCOUT_MAX_AUTOMATIC_RESTARTS)
+                + " in "
+                + str(delay)
+                + "s after repeated errors."
+            )
+            await asyncio.sleep(delay)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1454,7 +1546,11 @@ def main() -> int:
                 "--related-per-pin must be between 0 and "
                 + str(PIN_RELATED_SCAN_LIMIT)
             )
-        asyncio.run(run_pinterest_quote_scout(args))
+        try:
+            asyncio.run(supervise_pinterest_quote_scout(args))
+        except ScoutFatalStop as exc:
+            print(str(exc), file=sys.stderr)
+            return SCOUT_FATAL_EXIT_CODE
         return 0
 
     keywords = _dedupe(list(args.keyword) + _keywords_from_file(args.keywords_file))

@@ -25,9 +25,12 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v28"
+CLIENT_VERSION = "rrugc-scout-v29"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
+SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
+SCOUT_MAX_AUTOMATIC_RESTARTS = 3
+SCOUT_FATAL_EXIT_CODE = 70
 BROWSER_SESSION_MAX_AGE_SECONDS = 2 * 60 * 60
 BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD = 2
 PIN_DETAIL_CONCURRENCY = 1
@@ -718,6 +721,61 @@ class PinterestRateLimitedError(RuntimeError):
 
 class PinterestVideoPinError(RuntimeError):
     pass
+
+
+class ScoutRestartRequested(RuntimeError):
+    def __init__(
+        self,
+        error_code: str,
+        *,
+        healthy_progress: bool,
+        last_error_type: str,
+    ) -> None:
+        self.error_code = error_code
+        self.healthy_progress = healthy_progress
+        self.last_error_type = last_error_type
+        super().__init__(error_code)
+
+
+class ScoutFatalStop(RuntimeError):
+    pass
+
+
+def scout_restart_delay_seconds(attempt: int) -> int:
+    return min(30, 5 * max(1, int(attempt)))
+
+
+async def report_scout_fatal_status(
+    *,
+    base_url: str,
+    agent_id: str,
+    token: str,
+    machine_label: str,
+    error_code: str,
+) -> None:
+    try:
+        async with httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
+            headers={"Authorization": "Bearer " + token},
+            timeout=httpx.Timeout(20.0, connect=10.0),
+            follow_redirects=False,
+        ) as client:
+            response = await client.post(
+                f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/heartbeat",
+                json={
+                    "status": "error",
+                    "client_version": CLIENT_VERSION,
+                    "machine_label": machine_label,
+                    "error_code": error_code,
+                },
+            )
+            response.raise_for_status()
+    except Exception as exc:
+        scout_debug_event(
+            "scout_fatal_status_report_failed",
+            error_code=error_code,
+            error_type=exc.__class__.__name__,
+        )
 
 
 def guard_pinterest_response(response: Any) -> None:
@@ -2955,6 +3013,8 @@ async def run_agent(args: argparse.Namespace) -> None:
     detail_page = None
     browser_started_at = 0.0
     browser_runtime_failures = 0
+    runtime_error_streak = 0
+    successful_runs_since_restart = 0
     history = ScoutHistory(
         profile_dir / SCOUT_HISTORY_FILENAME
     )
@@ -3129,6 +3189,8 @@ async def run_agent(args: argparse.Namespace) -> None:
                         history=history,
                     )
                     browser_runtime_failures = 0
+                    runtime_error_streak = 0
+                    successful_runs_since_restart += 1
                 except PinterestAccessGateError as exc:
                     await client.complete(
                         str(task["run"]["id"]),
@@ -3223,6 +3285,7 @@ async def run_agent(args: argparse.Namespace) -> None:
             except Exception as exc:
                 idle_failures += 1
                 browser_runtime_failures += 1
+                runtime_error_streak += 1
                 try:
                     await client.heartbeat(
                         "error",
@@ -3240,12 +3303,32 @@ async def run_agent(args: argparse.Namespace) -> None:
                     "scout_runtime_retry",
                     error_type=exc.__class__.__name__,
                     failure_streak=idle_failures,
+                    runtime_error_streak=runtime_error_streak,
                     browser_failure_streak=browser_runtime_failures,
                     browser_recycle=recycle_needed,
                     retry_delay_seconds=delay,
                 )
                 if args.once:
                     raise
+                if runtime_error_streak >= SCOUT_RUNTIME_ERRORS_BEFORE_RESTART:
+                    scout_debug_event(
+                        "scout_restart_requested",
+                        scout_type="review",
+                        error_code="review_scout_runtime_error_threshold",
+                        runtime_error_streak=runtime_error_streak,
+                        last_error_type=exc.__class__.__name__,
+                        healthy_progress=successful_runs_since_restart > 0,
+                    )
+                    print(
+                        "Review Scout hit "
+                        + str(runtime_error_streak)
+                        + " unexpected runtime errors; restarting the Scout runtime."
+                    )
+                    raise ScoutRestartRequested(
+                        "review_scout_runtime_error_threshold",
+                        healthy_progress=successful_runs_since_restart > 0,
+                        last_error_type=exc.__class__.__name__,
+                    ) from exc
                 if recycle_needed:
                     reason = (
                         "browser_runtime_failure"
@@ -3383,6 +3466,61 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+async def supervise_review_scout(args: argparse.Namespace) -> None:
+    restart_attempts = 0
+    machine_label = args.machine_label or socket.gethostname()
+    while True:
+        try:
+            await run_agent(args)
+            return
+        except ScoutRestartRequested as exc:
+            if exc.healthy_progress:
+                restart_attempts = 0
+            if restart_attempts >= SCOUT_MAX_AUTOMATIC_RESTARTS:
+                fatal_code = "review_scout_restart_limit_exceeded"
+                scout_debug_event(
+                    "scout_fatal_stop",
+                    scout_type="review",
+                    error_code=fatal_code,
+                    restart_attempts=restart_attempts,
+                    last_error_type=exc.last_error_type,
+                )
+                await report_scout_fatal_status(
+                    base_url=args.base_url,
+                    agent_id=args.agent_id,
+                    token=args.token,
+                    machine_label=machine_label,
+                    error_code=fatal_code,
+                )
+                raise ScoutFatalStop(
+                    "Review Scout stopped after "
+                    + str(SCOUT_MAX_AUTOMATIC_RESTARTS)
+                    + " automatic restarts without healthy progress."
+                ) from exc
+
+            restart_attempts += 1
+            delay = scout_restart_delay_seconds(restart_attempts)
+            scout_debug_event(
+                "scout_automatic_restart",
+                scout_type="review",
+                restart_attempt=restart_attempts,
+                restart_limit=SCOUT_MAX_AUTOMATIC_RESTARTS,
+                delay_seconds=delay,
+                trigger=exc.error_code,
+                last_error_type=exc.last_error_type,
+            )
+            print(
+                "Restarting Review Scout "
+                + str(restart_attempts)
+                + "/"
+                + str(SCOUT_MAX_AUTOMATIC_RESTARTS)
+                + " in "
+                + str(delay)
+                + "s after repeated errors."
+            )
+            await asyncio.sleep(delay)
+
+
 async def run(args: argparse.Namespace) -> None:
     profile_lock = ScoutProfileLock(args.profile_dir)
     profile_lock.acquire()
@@ -3392,7 +3530,7 @@ async def run(args: argparse.Namespace) -> None:
         if args.bootstrap_login:
             bootstrap_login(args.profile_dir, args.chrome_executable)
         elif args.agent_id:
-            await run_agent(args)
+            await supervise_review_scout(args)
         else:
             await run_legacy(args)
     finally:
@@ -3400,4 +3538,8 @@ async def run(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(run(parse_args()))
+    try:
+        asyncio.run(run(parse_args()))
+    except ScoutFatalStop as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(SCOUT_FATAL_EXIT_CODE)

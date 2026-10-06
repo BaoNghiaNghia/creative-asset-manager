@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import httpx
+import pytest
 import quote_keyword_volume as keyword_scout
 from quote_keyword_volume import (
     DEFAULT_PINTEREST_QUERY,
@@ -17,6 +18,49 @@ from quote_keyword_volume import (
     build_parser,
 )
 from scout import PinterestAccessGateError
+
+
+def test_keyword_supervisor_stops_and_reports_after_restart_limit(monkeypatch):
+    calls = 0
+    reports = []
+
+    async def fake_run(_args):
+        nonlocal calls
+        calls += 1
+        raise keyword_scout.ScoutRestartRequested(
+            "keyword_scout_runtime_error_threshold",
+            healthy_progress=False,
+            last_error_type="RuntimeError",
+        )
+
+    async def fake_report(**kwargs):
+        reports.append(kwargs)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(keyword_scout, "run_pinterest_quote_scout", fake_run)
+    monkeypatch.setattr(keyword_scout, "report_scout_fatal_status", fake_report)
+    monkeypatch.setattr(keyword_scout.asyncio, "sleep", no_sleep)
+    monkeypatch.setenv("RRUGC_MACHINE_LABEL", "KEYWORD-PC")
+
+    args = type(
+        "Args",
+        (),
+        {
+            "base_url": "https://example.test",
+            "agent_id": "agent-1",
+            "token": "secret",
+        },
+    )()
+
+    with pytest.raises(keyword_scout.ScoutFatalStop):
+        asyncio.run(keyword_scout.supervise_pinterest_quote_scout(args))
+
+    assert calls == keyword_scout.SCOUT_MAX_AUTOMATIC_RESTARTS + 1
+    assert len(reports) == 1
+    assert reports[0]["error_code"] == "keyword_scout_restart_limit_exceeded"
+    assert reports[0]["machine_label"] == "KEYWORD-PC"
 
 
 def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
