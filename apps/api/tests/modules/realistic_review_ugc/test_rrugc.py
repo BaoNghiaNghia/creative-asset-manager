@@ -241,34 +241,43 @@ def api(database):
         yield client
 
 
-def test_quote_scout_normalizes_object_quotes_and_rejects_short_text():
+def test_quote_scout_normalizes_object_quotes_and_requires_two_words():
     document = HatQuoteDocument.model_validate({
         "is_hat": True,
         "quotes": [
             {"text": "slow mornings Club", "confidence": 0.99},
-            {"text": "A", "confidence": 0.99},
-            {"text": "C", "confidence": 0.99},
+            {"text": "HOUSTON", "confidence": 0.99},
+            {"text": "I'm", "confidence": 0.99},
+            {"text": "HOUSTON ASTROS", "confidence": 0.99},
+            {"text": "Morgan Wallen", "confidence": 0.99},
             {"text": "PLEASE BE PATIENT WITH ME. I'M FROM THE 1900s.", "confidence": 0.98},
         ],
     })
 
     assert document.quotes == [
         "slow mornings Club",
+        "HOUSTON ASTROS",
+        "Morgan Wallen",
         "PLEASE BE PATIENT WITH ME. I'M FROM THE 1900s.",
     ]
     assert document.confidence == 0.99
 
 
-def test_keyword_normalizer_extracts_text_only_and_requires_five_characters():
+def test_keyword_normalizer_extracts_text_only_and_requires_two_words():
     clean, normalized = normalize_keyword(
         "{'text': 'slow mornings Club', 'confidence': 0.99}"
     )
     assert clean == "slow mornings Club"
     assert normalized == "slow mornings club"
 
-    with pytest.raises(KeywordVolumeError) as exc_info:
-        normalize_keyword("A")
-    assert exc_info.value.code == "rrugc_keyword_too_short"
+    assert normalize_keyword("HOUSTON ASTROS") == ("HOUSTON ASTROS", "houston astros")
+    assert normalize_keyword("Morgan Wallen") == ("Morgan Wallen", "morgan wallen")
+
+    for invalid in ("HOUSTON", "I'm", "ASTROS"):
+        with pytest.raises(KeywordVolumeError) as exc_info:
+            normalize_keyword(invalid)
+        assert exc_info.value.code == "rrugc_keyword_too_short"
+        assert "at least 2 words" in exc_info.value.message
 
 
 def test_keyword_volume_service_persists_and_reuses_24h_cache(database):

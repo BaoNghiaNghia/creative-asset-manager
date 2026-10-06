@@ -15,15 +15,16 @@ from app.domain.providers.contracts import (
 )
 
 
-QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v3"
+QUOTE_SCOUT_PROFILE_VERSION = "rrugc-quote-scout-v4"
 QUOTE_SCOUT_MAX_IMAGE_BYTES = 12 * 1024 * 1024
-QUOTE_SCOUT_MIN_KEYWORD_CHARS = 5
+QUOTE_SCOUT_MIN_WORDS = 2
 QUOTE_SCOUT_MAX_QUOTES_PER_IMAGE = 50
 QUOTE_SCOUT_ALLOWED_IMAGE_HOST = re.compile(r"(^|\.)pinimg\.com$", re.IGNORECASE)
+_QUOTE_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 
 
-def _meaningful_keyword_length(value: str) -> int:
-    return sum(1 for char in value if char.isalnum())
+def _quote_word_count(value: str) -> int:
+    return len(_QUOTE_WORD_RE.findall(value))
 
 
 class QuoteScoutError(RuntimeError):
@@ -144,7 +145,7 @@ class HatQuoteDocument(BaseModel):
                 raw = raw.get("text") or raw.get("phrase") or ""
             text = re.sub(r"\s+", " ", str(raw or "")).strip(" \t\r\n\"'“”")
             if (
-                _meaningful_keyword_length(text) < QUOTE_SCOUT_MIN_KEYWORD_CHARS
+                _quote_word_count(text) < QUOTE_SCOUT_MIN_WORDS
                 or len(text) > 180
             ):
                 continue
@@ -233,7 +234,7 @@ Rules:
 - If multiple separate text lines on the same target cap form one saying, combine them into one phrase.
 - Return every distinct readable target-cap saying. The transport supports up to 50 distinct quotes
   per image; do not intentionally omit readable target caps unless that technical limit is reached.
-- Ignore single letters/fragments; each returned phrase must contain at least 5 alphanumeric characters.
+- Ignore single-word text, single letters, and fragments; each returned phrase must contain at least 2 words.
 - Each item in quotes must be a plain string only. Never return {{text, confidence}} objects inside quotes.
 - confidence is confidence that the returned phrase(s) are visibly present on TARGET CAPS.
 

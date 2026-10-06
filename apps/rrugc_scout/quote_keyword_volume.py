@@ -105,8 +105,12 @@ def _clean_keyword(value: Any) -> str:
     return re.sub(r"\s+", " ", _keyword_text(value)).strip(" \t\r\n\"'“”")
 
 
-def _keyword_has_min_chars(value: str, minimum: int = 5) -> bool:
-    return sum(1 for char in value if char.isalnum()) >= minimum
+_KEYWORD_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+KEYWORD_MIN_WORDS = 2
+
+
+def _keyword_word_count(value: str) -> int:
+    return len(_KEYWORD_WORD_RE.findall(value))
 
 
 def _dedupe(values: list[Any]) -> list[str]:
@@ -114,7 +118,7 @@ def _dedupe(values: list[Any]) -> list[str]:
     seen: set[str] = set()
     for value in values:
         clean = _clean_keyword(value)
-        if not clean or not _keyword_has_min_chars(clean):
+        if not clean or _keyword_word_count(clean) < KEYWORD_MIN_WORDS:
             continue
         key = clean.casefold()
         if key in seen:
@@ -624,7 +628,31 @@ async def _process_keyword_candidate(
         )
         return 0, 0
 
-    quotes = _dedupe(list(result.get("quotes") or []))
+    raw_quotes = list(result.get("quotes") or [])
+    rejected_min_words = [
+        clean
+        for raw in raw_quotes
+        if (clean := _clean_keyword(raw))
+        and _keyword_word_count(clean) < KEYWORD_MIN_WORDS
+    ]
+    quotes = _dedupe(raw_quotes)
+    if rejected_min_words:
+        scout_debug_event(
+            "keyword_scout_keyword_rejected",
+            source=source,
+            root_pin_url=root_pin_url,
+            pin_url=candidate.pin_url,
+            reason="min_words",
+            minimum_words=KEYWORD_MIN_WORDS,
+            rejected_keywords=rejected_min_words,
+            rejected_count=len(rejected_min_words),
+        )
+        print(
+            "keyword_rejected reason=min_words minimum="
+            + str(KEYWORD_MIN_WORDS)
+            + " value="
+            + " | ".join(rejected_min_words)
+        )
     new_quotes = [
         quote
         for quote in quotes

@@ -23,7 +23,7 @@ KEYWORD_VOLUME_PENDING_PROVIDER = "pending"
 KEYWORD_VOLUME_CACHE_TTL = timedelta(hours=24)
 KEYWORD_VOLUME_MAX_BATCH = 50
 KEYWORD_VOLUME_MAX_LENGTH = 500
-KEYWORD_VOLUME_MIN_CHARS = 5
+KEYWORD_VOLUME_MIN_WORDS = 2
 KEYWORD_VOLUME_RETRIES = 2
 
 
@@ -68,8 +68,11 @@ def _extract_keyword_text(value: object) -> str:
     return text
 
 
-def _meaningful_keyword_length(value: str) -> int:
-    return sum(1 for char in value if char.isalnum())
+_KEYWORD_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+
+
+def _keyword_word_count(value: str) -> int:
+    return len(_KEYWORD_WORD_RE.findall(value))
 
 
 def normalize_keyword(value: str) -> tuple[str, str]:
@@ -81,10 +84,10 @@ def normalize_keyword(value: str) -> tuple[str, str]:
             "rrugc_keyword_required",
             "Keyword cannot be empty.",
         )
-    if _meaningful_keyword_length(clean) < KEYWORD_VOLUME_MIN_CHARS:
+    if _keyword_word_count(clean) < KEYWORD_VOLUME_MIN_WORDS:
         raise KeywordVolumeError(
             "rrugc_keyword_too_short",
-            f"Keyword must contain at least {KEYWORD_VOLUME_MIN_CHARS} characters.",
+            f"Keyword must contain at least {KEYWORD_VOLUME_MIN_WORDS} words.",
         )
     if len(clean) > KEYWORD_VOLUME_MAX_LENGTH:
         raise KeywordVolumeError(
@@ -114,7 +117,7 @@ def normalize_keywords(values: list[str]) -> list[tuple[str, str]]:
         if rejected_short:
             raise KeywordVolumeError(
                 "rrugc_keyword_too_short",
-                f"Keyword must contain at least {KEYWORD_VOLUME_MIN_CHARS} characters.",
+                f"Keyword must contain at least {KEYWORD_VOLUME_MIN_WORDS} words.",
             )
         raise KeywordVolumeError(
             "rrugc_keywords_required",

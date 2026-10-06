@@ -33,21 +33,25 @@ def test_keyword_scout_uses_fixed_saying_trucker_hat_seed_by_default():
     assert args.once is False
 
 
-def test_quote_dedupe_normalizes_case_and_whitespace():
+def test_quote_dedupe_normalizes_case_whitespace_and_requires_two_words():
     assert _dedupe([
         "  Bad   Day To Be A Hotdog ",
         "bad day to be a hotdog",
         "Another Saying",
         {"text": "slow mornings Club", "confidence": 0.99},
         "{'text': 'PLEASE BE PATIENT WITH ME. I\'M FROM THE 1900s.', 'confidence': 0.99}",
-        "A",
-        "C",
-        "N",
+        "HOUSTON",
+        "ASTROS",
+        "I'm",
+        "HOUSTON ASTROS",
+        "Morgan Wallen",
     ]) == [
         "Bad Day To Be A Hotdog",
         "Another Saying",
         "slow mornings Club",
         "PLEASE BE PATIENT WITH ME. I'M FROM THE 1900s.",
+        "HOUSTON ASTROS",
+        "Morgan Wallen",
     ]
 
 
@@ -82,9 +86,9 @@ def test_keyword_history_is_durable_and_separate_from_review_history():
         assert "retry me later" in completed.seen_quotes
 
 
-def test_keyword_volume_skips_http_when_all_keywords_are_too_short(monkeypatch):
+def test_keyword_volume_skips_http_when_all_keywords_have_fewer_than_two_words(monkeypatch):
     async def fail_post(*_args, **_kwargs):
-        raise AssertionError("HTTP request must not run for short keywords")
+        raise AssertionError("HTTP request must not run for one-word keywords")
 
     client = QuoteScoutClient(
         "https://creative-assets.example",
@@ -93,7 +97,7 @@ def test_keyword_volume_skips_http_when_all_keywords_are_too_short(monkeypatch):
     )
     monkeypatch.setattr(client, "_post", fail_post)
 
-    result = asyncio.run(client.resolve_volume(["A", "C", "N"]))
+    result = asyncio.run(client.resolve_volume(["HOUSTON", "ASTROS", "BASEBALL", "I'm"]))
     assert result == {
         "requested": 0,
         "provider_requested": 0,
