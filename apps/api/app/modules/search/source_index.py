@@ -12,6 +12,7 @@ from app.modules.assets.model import (
     ExternalSourceModel,
     SourceAssetModel,
 )
+from app.modules.assets.source_hierarchy import source_parent_external_ids
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,20 +214,7 @@ class SearchSourceIndexResolver:
 
     @staticmethod
     def _parent_ids(metadata: Mapping[str, Any]) -> tuple[str, ...]:
-        raw = metadata.get("parents")
-        if isinstance(raw, str):
-            values = [raw]
-        elif isinstance(raw, (list, tuple)):
-            values = [value for value in raw if isinstance(value, str)]
-        else:
-            parent = metadata.get("parent_id")
-            values = [parent] if isinstance(parent, str) else []
-        result: list[str] = []
-        for value in values:
-            normalized = value.strip()
-            if normalized and normalized not in result:
-                result.append(normalized)
-        return tuple(result)
+        return source_parent_external_ids(metadata)
 
     @staticmethod
     def _source_provider(source_type: str) -> str:

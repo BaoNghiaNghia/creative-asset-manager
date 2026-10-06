@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.core.database import Base
+from app.modules.assets.source_hierarchy import source_parent_external_ids
 
 
 def new_id() -> str:
@@ -120,12 +121,8 @@ class SourceAssetModel(Base):
     @validates("source_metadata")
     def _sync_listing_fields_from_metadata(self, _key: str, value: dict | None) -> dict:
         metadata = dict(value or {})
-        parent = metadata.get("parent_id")
-        parents = metadata.get("parents")
-        if (not isinstance(parent, str) or not parent) and isinstance(parents, list) and parents:
-            first_parent = parents[0]
-            parent = first_parent if isinstance(first_parent, str) else None
-        self.parent_external_id = parent if isinstance(parent, str) and parent else None
+        parents = source_parent_external_ids(metadata)
+        self.parent_external_id = parents[0] if parents else None
         explicit_folder = metadata.get("is_folder")
         if isinstance(explicit_folder, bool):
             self.is_folder = explicit_folder

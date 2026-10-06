@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import unittest
 
 from app.modules.search.source_index import SearchSourceIndexResolver
+from app.providers.microsoft.onedrive_mapper import make_item_id
 
 
 class SearchSourceIndexResolverTest(unittest.TestCase):
@@ -73,6 +74,28 @@ class SearchSourceIndexResolverTest(unittest.TestCase):
             self._source("file-a"), source_type="onedrive"
         )
         self.assertEqual(details.source_provider, "onedrive")
+
+    def test_legacy_onedrive_parent_metadata_is_normalized_to_external_item_id(self):
+        drive_id = "drive-a"
+        parent_id = make_item_id(drive_id, "folder-a")
+        file_id = make_item_id(drive_id, "file-a")
+        resolver = self._resolver({
+            file_id: (parent_id,),
+            parent_id: (),
+        })
+        details = resolver.for_source(
+            self._source(
+                file_id,
+                {
+                    "drive_id": drive_id,
+                    "parent_drive_id": drive_id,
+                    "parent_item_id": "folder-a",
+                },
+            ),
+            source_type="onedrive",
+        )
+        self.assertEqual(details.parent_id, parent_id)
+        self.assertEqual(details.ancestor_ids, (file_id, parent_id))
 
     def test_cycles_are_bounded_and_cannot_escape_source(self):
         resolver = self._resolver({"file-a": ("folder-a",), "folder-a": ("file-a",)})

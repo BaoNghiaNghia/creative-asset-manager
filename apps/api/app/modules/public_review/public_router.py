@@ -224,6 +224,19 @@ def _public_search_scope_filter(scope: PublicShareScopeService, principal) -> di
   ]}})
  return {"bool":{"should":clauses,"minimum_should_match":1}} if clauses else {"match_none":{}}
 
+def _public_visual_search_scope_filter(scope: PublicShareScopeService, principal) -> dict:
+ # Visual projection documents are canonical per internal asset, so the stored
+ # source_id/ancestor_ids may belong to another linked provider (for example,
+ # Google Drive) even when the same asset is shared from OneDrive. Resolve the
+ # exact share boundary from synchronized source rows, then filter KNN by the
+ # internal asset IDs. Hydration below still re-authorizes the chosen live
+ # source pair before anything is returned.
+ asset_ids=sorted({asset_id for asset_id,_source_asset_id in scope.allowed_asset_source_pairs(principal=principal)})
+ if not asset_ids: return {"match_none":{}}
+ chunks=[asset_ids[offset:offset+20000] for offset in range(0,len(asset_ids),20000)]
+ if len(chunks)==1: return {"terms":{"asset_id":chunks[0]}}
+ return {"bool":{"should":[{"terms":{"asset_id":chunk}} for chunk in chunks],"minimum_should_match":1}}
+
 def _public_live_suggestion_hits(session, scope: PublicShareScopeService, principal, hits: list[dict]) -> list[dict]:
  asset_ids=[str(hit.get("_source",{}).get("asset_id") or hit.get("_id") or "") for hit in hits]
  asset_ids=[value for value in asset_ids if value]
@@ -431,7 +444,7 @@ async def visual_search(
   principal=user(request,public_share_id,s)
   limit(s,request,"visual_search",30)
   scope_service=PublicShareScopeService(s)
-  access_filter=_public_search_scope_filter(scope_service,principal)
+  access_filter=_public_visual_search_scope_filter(scope_service,principal)
   s.commit()
  try:
   content=await _read_upload_bytes(file)

@@ -14,12 +14,13 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
-from app.modules.public_review.model import PublicReviewRateLimitModel
+from app.modules.public_review.model import PublicReviewRateLimitModel, PublicShareScopeModel
 from app.modules.authorization.folder_scope_cache import viewer_folder_hierarchy_cache
 import app.modules.public_review.public_router as public_router
 from app.modules.public_review.public_router import COOKIE, router
 from app.modules.public_review.repository import PublicReviewRepository
 from app.modules.public_review.service import PublicReviewService
+from app.providers.microsoft.onedrive_mapper import make_item_id
 
 @pytest.fixture()
 def ctx():
@@ -179,6 +180,34 @@ def test_public_search_suggestions_use_share_scope_and_exclude_private_assets(ct
 
 
 def test_public_visual_search_is_limited_to_shared_scope(ctx):
+ drive_id="drive-a"; root_item_id="root-od"
+ onedrive_root=make_item_id(drive_id,root_item_id)
+ with ctx[1]() as s:
+  s.add(ExternalSourceModel(id="source-od",tenant_id="tenant-a",source_key="od",source_type="onedrive"))
+  s.flush()
+  root=SourceAssetModel(
+   id="od-root",tenant_id="tenant-a",external_source_id="source-od",
+   external_asset_id=onedrive_root,filename="OneDrive Root",
+   mime_type="application/vnd.microsoft.folder",source_metadata={"is_folder":True},
+  )
+  child=SourceAssetModel(
+   id="od-child",tenant_id="tenant-a",external_source_id="source-od",
+   external_asset_id=make_item_id(drive_id,"photo"),filename="onedrive-photo.jpg",
+   mime_type="image/jpeg",
+   source_metadata={"drive_id":drive_id,"parent_drive_id":drive_id,"parent_item_id":root_item_id},
+  )
+  s.add_all([root,child,AssetModel(id="asset-od",tenant_id="tenant-a",content_hash="d"*64)])
+  s.flush()
+  # Simulate a legacy synchronized OneDrive row from before parent_external_id
+  # normalization. Authorization must still recover its parent from metadata.
+  child.parent_external_id=None
+  s.add(AssetSourceLinkModel(id="l-od",tenant_id="tenant-a",asset_id="asset-od",source_asset_id="od-child"))
+  s.add(PublicShareScopeModel(
+   tenant_id="tenant-a",share_id=ctx[2].id,
+   external_source_id="source-od",folder_external_id=onedrive_root,
+  ))
+  s.commit()
+ viewer_folder_hierarchy_cache.invalidate(tenant_id="tenant-a",external_source_id="source-od")
  assert exchange(ctx).status_code==201
  captured={}
  class Service:
@@ -190,6 +219,9 @@ def test_public_visual_search_is_limited_to_shared_scope(ctx):
    captured["filters"]=list(scope.access_filters)
    assert limit==100 and num_candidates==100
    return [
+    # The canonical visual document can point at another provider/source.
+    # Shared hydration must still return the authorized OneDrive link.
+    SimpleNamespace(document_id="visual-od",score=.97,asset_id="asset-od",source_id="source-a"),
     SimpleNamespace(document_id="visual-good",score=.93,asset_id="asset-good",source_id="source-a"),
     SimpleNamespace(document_id="visual-private",score=.88,asset_id="asset-private",source_id="source-a"),
    ]
@@ -213,8 +245,8 @@ def test_public_visual_search_is_limited_to_shared_scope(ctx):
    files={"file":("query.jpg",b"fake-image","image/jpeg")},
   )
  assert found.status_code==200
- assert [item["asset_id"] for item in found.json()["items"]]==["asset-good"]
- assert captured["filters"]==[{"bool":{"should":[{"bool":{"filter":[{"term":{"source_id":"source-a"}},{"terms":{"ancestor_ids":["root"]}}]}}],"minimum_should_match":1}}]
+ assert [item["asset_id"] for item in found.json()["items"]]==["asset-od","asset-good"]
+ assert captured["filters"]==[{"terms":{"asset_id":["asset-good","asset-od"]}}]
 
 
 def test_anonymous_annotation_origin_and_ownership(ctx):

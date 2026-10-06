@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.database import Base
 from app.modules.assets.model import AssetSourceLinkModel, SourceAssetModel
+from app.modules.assets.source_hierarchy import source_parent_external_ids
 from app.modules.authorization.principal import is_pure_viewer
 from app.modules.authorization.folder_scope_cache import (
     ParentMap,
@@ -74,12 +75,9 @@ class FolderScopeResolver:
 
     @staticmethod
     def _parents_from_metadata(metadata: object) -> tuple[str, ...]:
-        values = metadata if isinstance(metadata, dict) else {}
-        raw = values.get("parents")
-        if not isinstance(raw, list):
-            parent = values.get("parent_id")
-            raw = [parent] if parent else []
-        return tuple(str(value) for value in raw if value)
+        return source_parent_external_ids(
+            metadata if isinstance(metadata, dict) else {}
+        )
 
     def _load_parent_map(self, *, tenant_id: str, external_source_id: str) -> ParentMap:
         rows = self.session.execute(
