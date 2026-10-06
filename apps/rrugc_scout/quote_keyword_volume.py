@@ -32,6 +32,9 @@ from scout import (
     guard_pinterest_response,
     launch_context,
     loaded_pin_count,
+    mark_pinterest_login_ready,
+    clear_pinterest_login_ready,
+    pinterest_login_ready,
     paced_wait,
     pin_history_key,
     pinimg_asset_key,
@@ -867,9 +870,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             "Opening the dedicated Keyword Scout profile outside Playwright..."
         )
         print(
-            "Complete Pinterest sign-in there. Continue with Google is supported "
-            "in this normal Chrome window. Close the Chrome window after Pinterest "
-            "is fully signed in; Keyword Scout will resume automatically."
+            "Complete Pinterest sign-in there using Pinterest email/password. "
+            "Do not use Continue with Google for the dedicated Scout profile if Google "
+            "shows 'This browser or app may not be secure'. Close the Chrome window after "
+            "Pinterest is fully signed in; Keyword Scout will verify the session and resume."
         )
         scout_debug_event(
             "keyword_scout_login_bootstrap_started",
@@ -887,14 +891,28 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         await open_browser_runtime()
 
     async def ensure_keyword_startup_login() -> None:
+        if not pinterest_login_ready(profile_dir):
+            scout_debug_event(
+                "startup_manual_login_required",
+                scout_type="keyword",
+                profile_dir=str(profile_dir),
+            )
+            print(
+                "Pinterest login has not been verified for this Keyword Scout profile. "
+                "No search cycle will start before manual sign-in completes."
+            )
+            await bootstrap_keyword_login()
+
         while True:
             if page is None:
                 await open_browser_runtime()
             gate = await startup_access_gate(page)
             if gate is None:
+                mark_pinterest_login_ready(profile_dir)
                 scout_debug_event("startup_access_ready", scout_type="keyword")
                 print("Pinterest login verified. Keyword Scout can start.")
                 return
+            clear_pinterest_login_ready(profile_dir)
             scout_debug_event(
                 "startup_access_blocked",
                 scout_type="keyword",
@@ -908,7 +926,6 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             await bootstrap_keyword_login()
 
     try:
-        await open_browser_runtime()
         await ensure_keyword_startup_login()
 
         while True:

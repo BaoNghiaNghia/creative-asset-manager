@@ -494,6 +494,16 @@ def test_pin_detail_resolver_rethrows_closed_browser_runtime():
         )
 
 
+def test_pinterest_login_ready_marker_is_profile_scoped(tmp_path):
+    assert not scout_module.pinterest_login_ready(tmp_path)
+    scout_module.mark_pinterest_login_ready(tmp_path)
+    assert scout_module.pinterest_login_ready(tmp_path)
+    marker = scout_module.pinterest_login_marker_path(tmp_path)
+    assert marker.parent == tmp_path.resolve()
+    scout_module.clear_pinterest_login_ready(tmp_path)
+    assert not scout_module.pinterest_login_ready(tmp_path)
+
+
 def test_access_gate_detects_login_and_challenge_without_solving_them():
     class LoginPage:
         url = "https://www.pinterest.com/login/"

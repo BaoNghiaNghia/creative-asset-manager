@@ -25,8 +25,9 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v27"
+CLIENT_VERSION = "rrugc-scout-v28"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
+PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 BROWSER_SESSION_MAX_AGE_SECONDS = 2 * 60 * 60
 BROWSER_RUNTIME_FAILURE_RECYCLE_THRESHOLD = 2
 PIN_DETAIL_CONCURRENCY = 1
@@ -652,6 +653,27 @@ def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
 
 
 
+def pinterest_login_marker_path(profile_dir: str | Path) -> Path:
+    return Path(profile_dir).expanduser().resolve() / PINTEREST_LOGIN_READY_MARKER
+
+
+def pinterest_login_ready(profile_dir: str | Path) -> bool:
+    return pinterest_login_marker_path(profile_dir).is_file()
+
+
+def mark_pinterest_login_ready(profile_dir: str | Path) -> None:
+    marker = pinterest_login_marker_path(profile_dir)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(CLIENT_VERSION + "\n", encoding="utf-8")
+
+
+def clear_pinterest_login_ready(profile_dir: str | Path) -> None:
+    try:
+        pinterest_login_marker_path(profile_dir).unlink()
+    except FileNotFoundError:
+        pass
+
+
 def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
     chrome = resolve_chrome_executable(chrome_executable)
     if not chrome:
@@ -663,18 +685,25 @@ def bootstrap_login(profile_dir: str, chrome_executable: str = "") -> None:
     print("Opening a normal Chrome window for manual Pinterest sign-in.")
     print("Profile: " + profile)
     print(
-        "Complete Pinterest sign-in manually. If you use Continue with Google, do it "
-        "in this normal Chrome window. When Pinterest is fully signed in, close this "
-        "Chrome window before starting Auto Scout."
+        "Sign in to Pinterest in this normal Chrome window before Scout starts. "
+        "For Scout profiles, use Pinterest email/password instead of Continue with Google: "
+        "Google may reject OAuth in dedicated/automation-associated browser profiles with "
+        "'This browser or app may not be secure'. If needed, use Pinterest's password-reset "
+        "flow to create/reset a Pinterest password for the account email."
+    )
+    print(
+        "When Pinterest is fully signed in and the home/feed opens normally, close this "
+        "Chrome window. Scout will verify the saved session before doing any search work."
     )
     process = subprocess.Popen([
         chrome,
         "--user-data-dir=" + profile,
+        "--new-window",
         "--no-first-run",
         "https://www.pinterest.com/login/",
     ])
     process.wait()
-    print("Bootstrap Chrome closed. The persistent Pinterest session is ready for Auto Scout.")
+    print("Bootstrap Chrome closed. Scout will now verify the Pinterest session.")
 
 
 class PinterestAccessGateError(RuntimeError):
@@ -2982,17 +3011,41 @@ async def run_agent(args: argparse.Namespace) -> None:
 
     async def ensure_startup_login() -> None:
         nonlocal playwright, context, page, detail_page, browser_started_at
+
+        if not pinterest_login_ready(profile_dir):
+            await client.heartbeat(
+                "needs_login",
+                error_code="pinterest_startup_manual_login_required",
+            )
+            scout_debug_event(
+                "startup_manual_login_required",
+                scout_type="review",
+                profile_dir=str(profile_dir),
+            )
+            print("")
+            print(
+                "Pinterest login has not been verified for this Review Scout profile. "
+                "No campaign will be claimed before manual sign-in completes."
+            )
+            await asyncio.to_thread(
+                bootstrap_login,
+                str(profile_dir),
+                args.chrome_executable,
+            )
+
         while True:
             if page is None:
                 playwright, context, page, detail_page = await open_browser_runtime()
                 browser_started_at = time.monotonic()
             gate = await startup_access_gate(page)
             if gate is None:
+                mark_pinterest_login_ready(profile_dir)
                 await client.heartbeat("ready")
                 scout_debug_event("startup_access_ready", scout_type="review")
                 print("Pinterest login verified. Auto Scout can start.")
                 return
 
+            clear_pinterest_login_ready(profile_dir)
             await client.heartbeat(
                 "needs_login",
                 error_code="pinterest_startup_" + gate + "_required",
@@ -3010,8 +3063,8 @@ async def run_agent(args: argparse.Namespace) -> None:
             )
             print(
                 "Opening normal Chrome with the dedicated Scout profile. "
-                "Finish browser verification/login there, then close that Chrome window. "
-                "The Scout will verify the session again and start automatically."
+                "Use Pinterest email/password, finish verification/login, then close that "
+                "Chrome window. Scout will verify the saved session and start automatically."
             )
             await close_browser_runtime()
             await asyncio.to_thread(
@@ -3019,12 +3072,8 @@ async def run_agent(args: argparse.Namespace) -> None:
                 str(profile_dir),
                 args.chrome_executable,
             )
-            playwright, context, page, detail_page = await open_browser_runtime()
-            browser_started_at = time.monotonic()
 
     try:
-        playwright, context, page, detail_page = await open_browser_runtime()
-        browser_started_at = time.monotonic()
         await ensure_startup_login()
         print(
             "Pinterest Auto Scout online. agent="

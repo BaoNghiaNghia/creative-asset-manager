@@ -101,7 +101,7 @@ class ScoutLauncherContractTests(unittest.TestCase):
         self.assertIn('"--profile-dir", $keywordProfileDir', source)
         self.assertIn("RRUGC_KEYWORD_PROFILE_DIR", source)
         self.assertIn("Stage 1 claim lane  : not used", source)
-        self.assertIn("Review Scout state  : separate profile + separate history", source)
+        self.assertIn("Review Scout state  : separate browser + profile + history + log", source)
 
     def test_shared_startup_mutex_serializes_only_mutating_setup(self) -> None:
         source = UPDATER.read_text()
@@ -114,7 +114,7 @@ class ScoutLauncherContractTests(unittest.TestCase):
             "# Shared mutable setup is complete. From this point onward Review Scout and"
         )
         keyword_start = source.index('if ($KeywordMode) {', shared_release)
-        review_start = source.index('Write-Step "Starting Pinterest Auto Scout"', shared_release)
+        review_start = source.index('Write-Step "Starting Pinterest Review Scout"', shared_release)
         release_index = source.index("Release-ScoutStartupLock", shared_release)
         self.assertLess(release_index, keyword_start)
         self.assertLess(release_index, review_start)
