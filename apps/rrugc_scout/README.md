@@ -4,18 +4,20 @@ This companion runtime runs on a user-controlled desktop or laptop with Chrome/C
 
 ## One-click Windows launcher
 
-For the Windows checkout (for example `D:\\Bot_Tool_Auto_Game\\scan_pinterest`), use `START_SCOUT_REVIEW.cmd` for the existing review/reference scout and `START_SCOUT_KEYWORD.cmd` for Stage 0 keyword analysis. The legacy repository-root `START_SCOUT.bat` is intentionally preserved and still launches the same review scout.
+For the Windows checkout (for example `D:\\Bot_Tool_Auto_Game\\scan_pinterest`), the recommended entry point is now `START_SCOUT_MANAGER.cmd`. It opens one lightweight **RRUGC Scout Manager** window and owns both Review Scout and Keyword Scout without leaving two CMD windows open. The older `START_SCOUT_REVIEW.cmd`, `START_SCOUT_KEYWORD.cmd`, and legacy `START_SCOUT.bat` remain available as recovery/manual launchers.
 
-On every start the launcher:
+Scout Manager:
 
-1. refuses to overwrite tracked local edits;
-2. fetches `origin/main` and fast-forwards the checkout when a new release exists;
-3. reloads the launcher immediately when the update changed launcher code;
-4. creates/reuses `.venv-rrugc`;
-5. installs `apps/rrugc_scout/requirements.txt` only when its SHA-256 changes;
-6. preserves the Git-ignored `pinterest-profile` and `scout.local.env`;
-7. loads the Scout token through `RRUGC_SCOUT_TOKEN` so it is not exposed in the Python process command line;
-8. starts Auto Scout with the configured Agent ID.
+1. starts Review + Keyword together, but still preserves their separate Chrome profiles, histories, logs and runner mutexes;
+2. places both child process trees in a Windows kill-on-close Job Object, so closing Manager also terminates the Scouts and their child runtimes instead of leaving invisible orphan processes;
+3. shows status, PID, latest output, and Start/Stop/Restart controls for each mode;
+4. checks `origin/main` every 60 seconds and fast-forwards the local checkout automatically when it is clean;
+5. applies unrelated repository updates without interrupting running Scouts, but when Scout/launcher-managed files change it stops both, updates, relaunches the updated Manager, and automatically resumes both modes;
+6. refuses to overwrite tracked local edits and surfaces update/pairing failures instead of looping silently;
+7. caps manager-level crash restarts and stops on authentication/fatal errors, while the existing Scout-level bounded recovery remains in place;
+8. keeps manager stdout/stderr under `%LOCALAPPDATA%\CreativeAssetManager\RrugcScoutManager\logs`.
+
+The shared lower-level launcher still creates/reuses `.venv-rrugc`, installs `apps/rrugc_scout/requirements.txt` only when its SHA-256 changes, preserves Git-ignored Pinterest profiles and `scout.local.env`, and injects `RRUGC_SCOUT_TOKEN` through the environment instead of the Python process command line.
 
 The first launch creates `scout.local.env` and prompts once in the terminal for:
 

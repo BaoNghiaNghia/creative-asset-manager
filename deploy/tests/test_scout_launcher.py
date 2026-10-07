@@ -8,7 +8,9 @@ ROOT = Path(__file__).resolve().parents[2]
 BATCH = ROOT / "START_SCOUT.bat"
 REVIEW_CMD = ROOT / "START_SCOUT_REVIEW.cmd"
 KEYWORD_CMD = ROOT / "START_SCOUT_KEYWORD.cmd"
+MANAGER_CMD = ROOT / "START_SCOUT_MANAGER.cmd"
 UPDATER = ROOT / "scripts" / "start_scout_auto_update.ps1"
+MANAGER = ROOT / "scripts" / "start_scout_manager.ps1"
 
 
 class ScoutLauncherContractTests(unittest.TestCase):
@@ -129,6 +131,50 @@ class ScoutLauncherContractTests(unittest.TestCase):
         )
         self.assertLess(bootstrap_index, release_index)
         self.assertLess(release_index, child_index)
+
+    def test_manager_launcher_opens_single_hidden_gui(self) -> None:
+        source = MANAGER_CMD.read_text()
+        self.assertIn("scripts\\start_scout_manager.ps1", source)
+        self.assertIn("-WindowStyle Hidden", source)
+        self.assertIn('start "" powershell.exe', source)
+
+    def test_manager_owns_both_scout_modes_without_visible_terminals(self) -> None:
+        source = MANAGER.read_text()
+        self.assertIn("Local\\CreativeAssetManager.RrugcScout.Manager", source)
+        self.assertIn("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE", source)
+        self.assertIn("AssignProcessToJobObject", source)
+        self.assertIn('-File", $RunnerPath,', source)
+        self.assertIn('"-SkipUpdate"', source)
+        self.assertIn('$arguments += "-KeywordMode"', source)
+        self.assertIn("Start-AllScouts", source)
+        self.assertIn("Stop-AllScouts", source)
+        self.assertIn("Closing this Manager stops both processes", source)
+
+    def test_manager_self_updates_and_restarts_only_for_scout_managed_changes(self) -> None:
+        source = MANAGER.read_text()
+        self.assertIn('$UpdateIntervalSeconds = 60', source)
+        self.assertIn('"fetch", "--quiet", "origin"', source)
+        self.assertIn('"merge", "--ff-only", "origin/main"', source)
+        self.assertIn("'^apps/rrugc_scout/'", source)
+        self.assertIn("'^scripts/start_scout'", source)
+        self.assertIn("Stop-AllScouts -KeepDesired", source)
+        self.assertIn("Start-UpdatedManager", source)
+        self.assertIn("-ResumeAfterUpdate", source)
+        self.assertIn("without interrupting Scouts", source)
+        release_index = source.index("try { $managerMutex.ReleaseMutex() }")
+        relaunch_index = source.index("Start-UpdatedManager", release_index)
+        self.assertLess(release_index, relaunch_index)
+
+    def test_manager_detects_pairing_failure_instead_of_restarting_forever(self) -> None:
+        source = MANAGER.read_text()
+        self.assertIn("Test-AuthenticationFailure", source)
+        self.assertIn("credentials were rejected", source)
+        self.assertIn("401 Unauthorized", source)
+        self.assertIn("Pairing required", source)
+        self.assertIn("Paused after repeated exits", source)
+        self.assertIn("Show-PairingDialog", source)
+        self.assertIn("Set-LocalConfigValue", source)
+        self.assertIn("UseSystemPasswordChar", source)
 
     def test_old_keyword_launcher_name_is_removed(self) -> None:
         self.assertFalse((ROOT / "START_KEYWORD_SCOUT.cmd").exists())

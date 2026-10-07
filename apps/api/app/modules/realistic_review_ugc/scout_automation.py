@@ -971,7 +971,7 @@ class RrugcAutoScoutService:
             if lock
             else self.repository.get_scout_agent_unscoped(agent_id)
         )
-        if row is None or not scout_agent_token_matches(row, raw_token):
+        if row is None or not row.active or not scout_agent_token_matches(row, raw_token):
             raise RrugcError(
                 "rrugc_scout_agent_authentication_failed",
                 "Invalid Scout Agent credentials.",

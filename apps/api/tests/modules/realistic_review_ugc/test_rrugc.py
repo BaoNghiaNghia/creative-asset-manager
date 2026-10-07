@@ -2689,6 +2689,21 @@ def test_auto_scout_supports_multiple_active_agents_and_isolated_reset(database)
         )
         assert heartbeat_a.machine_label == "BaoNghia"
 
+        archived_b = service.archive_agent(
+            tenant_id="tenant-a",
+            agent_id=agent_b.id,
+        )
+        assert archived_b.active is False
+        assert archived_b.status == "offline"
+
+        with pytest.raises(RrugcError) as archived:
+            service.heartbeat(
+                agent_id=agent_b.id,
+                raw_token=token_b,
+                status="ready",
+            )
+        assert archived.value.status_code == 401
+
 
 def test_auto_scout_rejects_wrong_agent_token_and_cross_agent_run(database):
     with database() as session:
