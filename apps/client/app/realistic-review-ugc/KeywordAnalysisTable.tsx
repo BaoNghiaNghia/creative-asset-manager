@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { KeywordSearchInput } from "./KeywordSearchInput";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import type {
@@ -38,6 +39,33 @@ function competitionTone(value: string | null): string {
   return (value || "unknown").toLowerCase();
 }
 
+function changeTone(value: number | null | undefined): "positive" | "negative" | "neutral" {
+  if (typeof value !== "number" || value === 0) return "neutral";
+  return value > 0 ? "positive" : "negative";
+}
+
+function keywordTailKind(keyword: string): KeywordTailKind {
+  const count = keyword.trim().split(/\s+/).filter(Boolean).length;
+  return count <= 2 ? "short" : count <= 4 ? "mid" : "long";
+}
+
+function keywordTailLabel(keyword: string): string {
+  const kind = keywordTailKind(keyword);
+  return kind === "short" ? "Short-tail" : kind === "mid" ? "Mid-tail" : "Long-tail";
+}
+
+function formatDetailDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function providerLabel(value: string): string {
+  return value === "aebrowse_google_ads" ? "Google Ads · AEBrowse" : value;
+}
+
 function Icon({
   name,
   filled = false,
@@ -74,12 +102,26 @@ function makeChartGeometry(points: KeywordVolumeTrendPoint[], width: number, hei
   return { line, area, dots };
 }
 
-function KeywordTrendChart({ item }: { item: KeywordVolume }) {
+function KeywordTrendChart({ item, onOpen }: { item: KeywordVolume; onOpen: () => void }) {
   const trend = item.trend ?? [];
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
   if (trend.length < 2) {
-    return <div className="rrugc-stage0-trend rrugc-stage0-trend-empty" aria-label={"Monthly trend unavailable for " + item.keyword}>
+    return <div
+      className="rrugc-stage0-trend rrugc-stage0-trend-empty"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={handleKeyDown}
+      aria-label={"Open details for " + item.keyword + ". Monthly trend unavailable."}
+    >
       <span>Trend unavailable</span>
-      <small>Waiting for Google Ads history</small>
+      <small>Open keyword details</small>
     </div>;
   }
 
@@ -91,7 +133,14 @@ function KeywordTrendChart({ item }: { item: KeywordVolume }) {
   const first = trend[0];
   const last = trend[trend.length - 1];
 
-  return <div className="rrugc-stage0-trend" tabIndex={0} aria-label={"12-month Google Ads trend for " + item.keyword}>
+  return <div
+    className="rrugc-stage0-trend"
+    role="button"
+    tabIndex={0}
+    onClick={onOpen}
+    onKeyDown={handleKeyDown}
+    aria-label={"Open details and 12-month Google Ads trend for " + item.keyword}
+  >
     <svg className="rrugc-stage0-sparkline" viewBox="0 0 126 38" preserveAspectRatio="none" aria-hidden="true">
       <path className="rrugc-stage0-spark-area" d={mini.area} />
       <path className="rrugc-stage0-spark-line" d={mini.line} />
@@ -104,8 +153,8 @@ function KeywordTrendChart({ item }: { item: KeywordVolume }) {
         <b>{item.search_volume.toLocaleString()}</b>
       </div>
       <div className="rrugc-stage0-trend-changes">
-        <span>3 mo <b className={(item.three_month_change_pct ?? 0) < 0 ? "negative" : "positive"}>{formatChange(item.three_month_change_pct)}</b></span>
-        <span>YoY <b className={(item.yoy_change_pct ?? 0) < 0 ? "negative" : "positive"}>{formatChange(item.yoy_change_pct)}</b></span>
+        <span>3 mo <b className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</b></span>
+        <span>YoY <b className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</b></span>
       </div>
       <svg viewBox="0 0 300 118" preserveAspectRatio="none" aria-hidden="true">
         <line x1="10" y1="30" x2="290" y2="30" />
@@ -118,6 +167,150 @@ function KeywordTrendChart({ item }: { item: KeywordVolume }) {
       <div className="rrugc-stage0-trend-axis"><span>{first.period}</span><span>{last.period}</span></div>
       <div className="rrugc-stage0-trend-meta"><span>Low <b>{min.toLocaleString()}</b></span><span>High <b>{max.toLocaleString()}</b></span><span>Current <b>{item.search_volume.toLocaleString()}</b></span></div>
     </div>
+  </div>;
+}
+
+export function KeywordDetailModal({
+  item,
+  onClose,
+}: {
+  item: KeywordVolume | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!item) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [item, onClose]);
+
+  if (!item) return null;
+
+  const trend = item.trend ?? [];
+  const chart = trend.length > 1 ? makeChartGeometry(trend, 720, 230, 14) : null;
+  const volumes = trend.map(point => point.volume);
+  const low = volumes.length ? Math.min(...volumes) : null;
+  const high = volumes.length ? Math.max(...volumes) : null;
+  const tailKind = keywordTailKind(item.keyword);
+  const wordCount = item.keyword.trim().split(/\s+/).filter(Boolean).length;
+
+  return <div
+    className="rrugc-stage0-detail-backdrop"
+    onMouseDown={event => {
+      if (event.target === event.currentTarget) onClose();
+    }}
+  >
+    <section
+      className="rrugc-stage0-detail-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rrugc-stage0-detail-title"
+    >
+      <header className="rrugc-stage0-detail-header">
+        <div>
+          <small>KEYWORD DETAIL · GOOGLE ADS</small>
+          <h2 id="rrugc-stage0-detail-title">{item.keyword}</h2>
+          <div className="rrugc-stage0-detail-badges">
+            <span className={"tail-" + tailKind}>{keywordTailLabel(item.keyword)} · {wordCount} words</span>
+            <span className={item.favorite ? "is-favorite" : ""}>{item.favorite ? "★ Favorite" : "☆ Not favorite"}</span>
+            <span className={item.picked ? "is-used" : ""}>{item.picked ? "Used" : "Unused"}</span>
+          </div>
+        </div>
+        <button type="button" className="rrugc-stage0-detail-close" onClick={onClose} aria-label="Close keyword details">×</button>
+      </header>
+
+      <div className="rrugc-stage0-detail-body">
+        <div className="rrugc-stage0-detail-hero">
+          <div className="rrugc-stage0-detail-source">
+            {item.source_image_url
+              ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer">
+                  <img src={item.source_image_url} alt={"Source for " + item.keyword} />
+                  <span>Open source ↗</span>
+                </a>
+              : <div className="rrugc-stage0-detail-source-empty"><Icon name="search" /><span>No source image</span></div>}
+          </div>
+          <div className="rrugc-stage0-detail-summary">
+            <div>
+              <small>Provider</small>
+              <strong>{providerLabel(item.provider)}</strong>
+              <span>Last checked {formatDetailDate(item.fetched_at)}</span>
+            </div>
+            <div>
+              <small>Source pin</small>
+              {item.source_pin_url
+                ? <a href={item.source_pin_url} target="_blank" rel="noreferrer">Open Pinterest source ↗</a>
+                : <strong>—</strong>}
+              <span>{item.request_count ? item.request_count.toLocaleString() + " provider requests" : "Provider request count unavailable"}</span>
+            </div>
+          </div>
+        </div>
+
+        <section className="rrugc-stage0-detail-metrics" aria-label="Keyword metrics">
+          <article><small>Avg searches / mo</small><strong>{item.search_volume.toLocaleString()}</strong><span>Google Ads monthly average</span></article>
+          <article><small>3-month change</small><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong><span>Recent demand direction</span></article>
+          <article><small>YoY change</small><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong><span>Same period last year</span></article>
+          <article><small>Competition</small><strong><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></strong><span>{typeof item.competition_index === "number" ? "Index " + item.competition_index : "Index unavailable"}</span></article>
+          <article><small>Low CPC</small><strong>{formatCpc(item.cpc_low)}</strong><span>Lower top-of-page bid</span></article>
+          <article><small>High CPC</small><strong>{formatCpc(item.cpc_high)}</strong><span>Upper top-of-page bid</span></article>
+        </section>
+
+        <section className="rrugc-stage0-detail-trend-panel">
+          <div className="rrugc-stage0-detail-section-head">
+            <div><small>TREND</small><h3>Monthly search volume</h3></div>
+            {trend.length > 1 && <div className="rrugc-stage0-detail-trend-stats">
+              <span>Low <b>{low?.toLocaleString()}</b></span>
+              <span>High <b>{high?.toLocaleString()}</b></span>
+              <span>Avg <b>{item.search_volume.toLocaleString()}</b></span>
+            </div>}
+          </div>
+          {chart ? <>
+            <div className="rrugc-stage0-detail-chart">
+              <svg viewBox="0 0 720 230" preserveAspectRatio="none" aria-label={"Monthly search trend for " + item.keyword}>
+                <line x1="14" y1="55" x2="706" y2="55" />
+                <line x1="14" y1="115" x2="706" y2="115" />
+                <line x1="14" y1="175" x2="706" y2="175" />
+                <path className="rrugc-stage0-spark-area" d={chart.area} />
+                <path className="rrugc-stage0-spark-line" d={chart.line} />
+                {chart.dots.map((dot, index) => <circle key={trend[index]?.period || index} cx={dot.x} cy={dot.y} r="4">
+                  <title>{`${trend[index]?.period}: ${trend[index]?.volume.toLocaleString()}`}</title>
+                </circle>)}
+              </svg>
+            </div>
+            <div className="rrugc-stage0-detail-months">
+              {trend.map(point => <div key={point.period}><span>{point.period}</span><strong>{point.volume.toLocaleString()}</strong></div>)}
+            </div>
+          </> : <div className="rrugc-stage0-detail-no-trend">
+            <Icon name="chart" />
+            <strong>No monthly history available</strong>
+            <span>AEBrowse / Google Ads returned no monthly breakdown for this zero-volume or unsupported keyword.</span>
+          </div>}
+        </section>
+
+        <section className="rrugc-stage0-detail-metadata">
+          <div className="rrugc-stage0-detail-section-head"><div><small>METADATA</small><h3>Keyword record</h3></div></div>
+          <dl>
+            <div><dt>Keyword ID</dt><dd>{item.id}</dd></div>
+            <div><dt>Provider</dt><dd>{providerLabel(item.provider)}</dd></div>
+            <div><dt>Provider account</dt><dd>{item.provider_account || "—"}</dd></div>
+            <div><dt>Customer ID</dt><dd>{item.provider_customer_id || "—"}</dd></div>
+            <div><dt>Provider requests</dt><dd>{item.request_count?.toLocaleString() || "—"}</dd></div>
+            <div><dt>Last checked</dt><dd>{formatDetailDate(item.fetched_at)}</dd></div>
+            <div><dt>Last requested</dt><dd>{formatDetailDate(item.last_requested_at)}</dd></div>
+            <div><dt>Added</dt><dd>{formatDetailDate(item.created_at)}</dd></div>
+            <div><dt>Updated</dt><dd>{formatDetailDate(item.updated_at)}</dd></div>
+            <div><dt>Favorite since</dt><dd>{formatDetailDate(item.favorite_at)}</dd></div>
+            <div><dt>Used since</dt><dd>{formatDetailDate(item.picked_at)}</dd></div>
+          </dl>
+        </section>
+      </div>
+    </section>
   </div>;
 }
 
@@ -195,8 +388,10 @@ export function KeywordAnalysisTable({
   const start = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
   const activeMainFilter = favoritesOnly ? "favorites" : tailFilter;
+  const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
 
-  return <section className="rrugc-card rrugc-stage0 rrugc-stage0-v2">
+  return <>
+  <section className="rrugc-card rrugc-stage0 rrugc-stage0-v2">
     <RrugcStageHeader
       className="rrugc-stage0-heading"
       kicker="STAGE 0 · KEYWORD INTELLIGENCE"
@@ -248,25 +443,33 @@ export function KeywordAnalysisTable({
           <th>Preview</th>
           <SortHeader column="keyword" label="Keyword" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <th>Trend</th>
-          <SortHeader column="search_volume" label="Volume" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
-          <SortHeader column="cpc" label="CPC" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="search_volume" label="Avg searches / mo" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <th>3-mo change</th>
+          <th>YoY change</th>
           <SortHeader column="competition" label="Competition" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="cpc" label="Low CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <th>High CPC ($)</th>
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={7}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => (
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={10}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => (
             <tr key={item.id} className={item.picked ? "is-picked" : ""}>
               <td className="rrugc-stage0-source-image">
                 {item.source_image_url ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open source for " + item.keyword}><img src={item.source_image_url} alt="" loading="lazy" decoding="async" /></a> : <span className="rrugc-stage0-source-empty">No image</span>}
               </td>
               <td className="rrugc-stage0-keyword-name">
-                <strong>{item.keyword}</strong>
-                <small>{item.provider === "aebrowse_google_ads" ? "Google Ads · AEBrowse" : item.provider} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
+                <button type="button" className="rrugc-stage0-keyword-link" onClick={() => setDetailItem(item)} title="Open keyword details">
+                  <strong>{item.keyword}</strong>
+                  <small>{providerLabel(item.provider)} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
+                </button>
               </td>
-              <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} /></td>
-              <td className="rrugc-stage0-volume"><strong>{item.search_volume.toLocaleString()}</strong><small>searches / mo</small></td>
-              <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_low)}–{formatCpc(item.cpc_high)}</strong><small>bid range</small></td>
-              <td><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></td>
+              <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} onOpen={() => setDetailItem(item)} /></td>
+              <td className="rrugc-stage0-volume"><strong>{item.search_volume.toLocaleString()}</strong><small>avg / month</small></td>
+              <td className="rrugc-stage0-change"><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong></td>
+              <td className="rrugc-stage0-change"><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong></td>
+              <td><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span>{typeof item.competition_index === "number" && <small className="rrugc-stage0-competition-index">{item.competition_index}</small>}</td>
+              <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_low)}</strong><small>low bid</small></td>
+              <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_high)}</strong><small>high bid</small></td>
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
                   <button type="button" className={"rrugc-stage0-icon-action favorite" + (item.favorite ? " active" : "")} aria-pressed={item.favorite} aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword} title={item.favorite ? "Remove favorite" : "Favorite"} disabled={favoritingIds.has(item.id)} onClick={() => onFavoriteChange(item.id, !item.favorite)}><Icon name="star" filled={item.favorite} /></button>
@@ -275,7 +478,7 @@ export function KeywordAnalysisTable({
               </td>
             </tr>
           ))}
-          {!loading && data.items.length === 0 && <tr><td colSpan={7} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={10} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -291,5 +494,7 @@ export function KeywordAnalysisTable({
       </div>
       <label>Rows<select aria-label="Stage 0 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>
-  </section>;
+  </section>
+  <KeywordDetailModal item={detailItem} onClose={() => setDetailItem(null)} />
+  </>;
 }

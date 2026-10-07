@@ -2969,7 +2969,13 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         favorite=bool(row.favorite),
         favorite_at=row.favorite_at,
         provider=row.provider,
+        provider_account=row.provider_account,
+        provider_customer_id=row.provider_customer_id,
+        request_count=int(row.request_count or 0),
         fetched_at=row.fetched_at,
+        last_requested_at=row.last_requested_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

@@ -452,7 +452,13 @@ class KeywordVolumeResponse(BaseModel):
     favorite: bool = False
     favorite_at: datetime | None = None
     provider: str
+    provider_account: str | None = None
+    provider_customer_id: str | None = None
+    request_count: int = 0
     fetched_at: datetime
+    last_requested_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class KeywordSuggestionResponse(BaseModel):

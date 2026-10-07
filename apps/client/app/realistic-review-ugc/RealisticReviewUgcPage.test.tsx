@@ -7,7 +7,7 @@ import {
   scoutClientIsCurrent,
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
-import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
+import { KeywordAnalysisTable, KeywordDetailModal } from "./KeywordAnalysisTable";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import {
   RealisticReviewUgcPage,
@@ -715,7 +715,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("https://www.pinterest.com/pin/123456789/");
     expect(markup).toContain(">4,400<");
     expect(markup).toContain("HIGH");
-    expect(markup).toContain("$0.56–$1.96");
+    expect(markup).toContain("$0.56");
+    expect(markup).toContain("$1.96");
+    expect(markup).toContain("Avg searches / mo");
+    expect(markup).toContain("3-mo change");
+    expect(markup).toContain("YoY change");
+    expect(markup).toContain("Low CPC ($)");
+    expect(markup).toContain("High CPC ($)");
     expect(markup).toContain("Total keywords");
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
@@ -742,9 +748,11 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-pressed="false"');
     expect(markup).toContain('aria-sort="descending"');
     expect(markup).toContain('aria-label="Sort by Keyword ascending"');
-    expect(markup).toContain('aria-label="Sort by Volume ascending"');
+    expect(markup).toContain('aria-label="Sort by Avg searches / mo ascending"');
     expect(markup).toContain('aria-label="Sort by Competition ascending"');
-    expect(markup).toContain('aria-label="Sort by CPC ascending"');
+    expect(markup).toContain('aria-label="Sort by Low CPC ($) ascending"');
+    expect(markup).toContain('title="Open keyword details"');
+    expect(markup).toContain('aria-label="Open details and 12-month Google Ads trend for Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('role="tooltip"');
     expect(markup).toContain("Google Ads monthly search volume");
     expect(markup).toContain("3 mo");
@@ -753,6 +761,62 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("-45.3%");
     expect(markup).toContain("2026-08");
     expect(markup).toContain("2026-10");
+  });
+
+  it("renders the complete Stage 0 keyword detail modal with monthly history and provider metadata", () => {
+    const markup = renderToStaticMarkup(
+      <KeywordDetailModal
+        item={{
+          id: "kv-detail",
+          keyword: "ATLANTA BRAVES",
+          search_volume: 22200,
+          competition: "HIGH",
+          cpc_low: 0.74,
+          cpc_high: 2.18,
+          competition_index: 92,
+          three_month_change_pct: -18.1,
+          yoy_change_pct: 83.1,
+          trend: [
+            { period: "2026-07", volume: 18100 },
+            { period: "2026-08", volume: 22200 },
+            { period: "2026-09", volume: 27100 },
+          ],
+          source_image_url: "https://i.pinimg.com/736x/aa/bb/braves.jpg",
+          source_pin_url: "https://www.pinterest.com/pin/987654321/",
+          picked: true,
+          picked_at: "2026-10-05T11:00:00Z",
+          favorite: true,
+          favorite_at: "2026-10-05T11:00:00Z",
+          provider: "aebrowse_google_ads",
+          provider_account: "Google Ads account",
+          provider_customer_id: "1234567890",
+          request_count: 4,
+          fetched_at: "2026-10-07T10:00:00Z",
+          last_requested_at: "2026-10-07T10:00:00Z",
+          created_at: "2026-10-01T10:00:00Z",
+          updated_at: "2026-10-07T10:00:00Z",
+        }}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain("KEYWORD DETAIL · GOOGLE ADS");
+    expect(markup).toContain("ATLANTA BRAVES");
+    expect(markup).toContain("Avg searches / mo");
+    expect(markup).toContain("22,200");
+    expect(markup).toContain("-18.1%");
+    expect(markup).toContain("+83.1%");
+    expect(markup).toContain("Index 92");
+    expect(markup).toContain("$0.74");
+    expect(markup).toContain("$2.18");
+    expect(markup).toContain("Monthly search volume");
+    expect(markup).toContain("2026-07");
+    expect(markup).toContain("27,100");
+    expect(markup).toContain("Provider account");
+    expect(markup).toContain("Google Ads account");
+    expect(markup).toContain("1234567890");
+    expect(markup).toContain("Open Pinterest source");
   });
 
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {

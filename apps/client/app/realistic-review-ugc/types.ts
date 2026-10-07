@@ -190,7 +190,13 @@ export type KeywordVolume = {
   favorite: boolean;
   favorite_at: string | null;
   provider: string;
+  provider_account?: string | null;
+  provider_customer_id?: string | null;
+  request_count?: number;
   fetched_at: string;
+  last_requested_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type KeywordVolumeOverview = {
