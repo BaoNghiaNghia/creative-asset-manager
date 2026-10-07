@@ -807,12 +807,14 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("22,200");
     expect(markup).toContain("-18.1%");
     expect(markup).toContain("+83.1%");
-    expect(markup).toContain("Index 92");
+    expect(markup).toContain("Google Ads index 92");
     expect(markup).toContain("$0.74");
     expect(markup).toContain("$2.18");
     expect(markup).toContain("Monthly search volume");
-    expect(markup).toContain("2026-07");
+    expect(markup).toContain("Jul 2026");
     expect(markup).toContain("27,100");
+    expect(markup).toContain('aria-label="Jul 2026: 18,100 searches"');
+    expect(markup).toContain("Technical details");
     expect(markup).toContain("Provider account");
     expect(markup).toContain("Google Ads account");
     expect(markup).toContain("1234567890");

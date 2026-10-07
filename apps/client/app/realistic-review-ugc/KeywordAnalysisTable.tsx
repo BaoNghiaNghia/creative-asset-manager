@@ -66,6 +66,13 @@ function providerLabel(value: string): string {
   return value === "aebrowse_google_ads" ? "Google Ads · AEBrowse" : value;
 }
 
+function formatTrendPeriod(value: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return date.toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
 function Icon({
   name,
   filled = false,
@@ -177,8 +184,11 @@ export function KeywordDetailModal({
   item: KeywordVolume | null;
   onClose: () => void;
 }) {
+  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
+
   useEffect(() => {
     if (!item) return;
+    setHoveredTrendIndex(null);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
@@ -194,7 +204,7 @@ export function KeywordDetailModal({
   if (!item) return null;
 
   const trend = item.trend ?? [];
-  const chart = trend.length > 1 ? makeChartGeometry(trend, 720, 230, 14) : null;
+  const chart = trend.length > 1 ? makeChartGeometry(trend, 720, 180, 14) : null;
   const volumes = trend.map(point => point.volume);
   const low = volumes.length ? Math.min(...volumes) : null;
   const high = volumes.length ? Math.max(...volumes) : null;
@@ -238,12 +248,12 @@ export function KeywordDetailModal({
           </div>
           <div className="rrugc-stage0-detail-summary">
             <div>
-              <small>Provider</small>
+              <small>Data source</small>
               <strong>{providerLabel(item.provider)}</strong>
-              <span>Last checked {formatDetailDate(item.fetched_at)}</span>
+              <span>Checked {formatDetailDate(item.fetched_at)}</span>
             </div>
             <div>
-              <small>Source pin</small>
+              <small>Pinterest reference</small>
               {item.source_pin_url
                 ? <a href={item.source_pin_url} target="_blank" rel="noreferrer">Open Pinterest source ↗</a>
                 : <strong>—</strong>}
@@ -253,12 +263,12 @@ export function KeywordDetailModal({
         </div>
 
         <section className="rrugc-stage0-detail-metrics" aria-label="Keyword metrics">
-          <article><small>Avg searches / mo</small><strong>{item.search_volume.toLocaleString()}</strong><span>Google Ads monthly average</span></article>
-          <article><small>3-month change</small><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong><span>Recent demand direction</span></article>
-          <article><small>YoY change</small><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong><span>Same period last year</span></article>
-          <article><small>Competition</small><strong><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></strong><span>{typeof item.competition_index === "number" ? "Index " + item.competition_index : "Index unavailable"}</span></article>
-          <article><small>Low CPC</small><strong>{formatCpc(item.cpc_low)}</strong><span>Lower top-of-page bid</span></article>
-          <article><small>High CPC</small><strong>{formatCpc(item.cpc_high)}</strong><span>Upper top-of-page bid</span></article>
+          <article><small>Avg searches / mo</small><strong>{item.search_volume.toLocaleString()}</strong><span>Average monthly searches</span></article>
+          <article><small>3-month change</small><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong><span>vs 3 months ago</span></article>
+          <article><small>YoY change</small><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong><span>vs same month last year</span></article>
+          <article><small>Competition</small><strong><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></strong><span>{typeof item.competition_index === "number" ? "Google Ads index " + item.competition_index : "Index unavailable"}</span></article>
+          <article><small>Low CPC</small><strong>{formatCpc(item.cpc_low)}</strong><span>Top-of-page low bid</span></article>
+          <article><small>High CPC</small><strong>{formatCpc(item.cpc_high)}</strong><span>Top-of-page high bid</span></article>
         </section>
 
         <section className="rrugc-stage0-detail-trend-panel">
@@ -272,19 +282,44 @@ export function KeywordDetailModal({
           </div>
           {chart ? <>
             <div className="rrugc-stage0-detail-chart">
-              <svg viewBox="0 0 720 230" preserveAspectRatio="none" aria-label={"Monthly search trend for " + item.keyword}>
-                <line x1="14" y1="55" x2="706" y2="55" />
-                <line x1="14" y1="115" x2="706" y2="115" />
-                <line x1="14" y1="175" x2="706" y2="175" />
+              <svg
+                viewBox="0 0 720 180"
+                preserveAspectRatio="none"
+                aria-label={"Monthly search trend for " + item.keyword}
+                onMouseLeave={() => setHoveredTrendIndex(null)}
+              >
+                <line x1="14" y1="45" x2="706" y2="45" />
+                <line x1="14" y1="90" x2="706" y2="90" />
+                <line x1="14" y1="135" x2="706" y2="135" />
                 <path className="rrugc-stage0-spark-area" d={chart.area} />
                 <path className="rrugc-stage0-spark-line" d={chart.line} />
-                {chart.dots.map((dot, index) => <circle key={trend[index]?.period || index} cx={dot.x} cy={dot.y} r="4">
-                  <title>{`${trend[index]?.period}: ${trend[index]?.volume.toLocaleString()}`}</title>
-                </circle>)}
+                {chart.dots.map((dot, index) => <g
+                  key={trend[index]?.period || index}
+                  className={hoveredTrendIndex === index ? "is-active" : ""}
+                  onMouseEnter={() => setHoveredTrendIndex(index)}
+                  onFocus={() => setHoveredTrendIndex(index)}
+                  onBlur={() => setHoveredTrendIndex(null)}
+                  tabIndex={0}
+                  aria-label={`${formatTrendPeriod(trend[index]?.period || "")}: ${trend[index]?.volume.toLocaleString()} searches`}
+                >
+                  <circle className="rrugc-stage0-detail-hit" cx={dot.x} cy={dot.y} r="13" />
+                  <circle className="rrugc-stage0-detail-point" cx={dot.x} cy={dot.y} r="4" />
+                </g>)}
               </svg>
+              {hoveredTrendIndex !== null && chart.dots[hoveredTrendIndex] && trend[hoveredTrendIndex] && <div
+                className="rrugc-stage0-detail-chart-tooltip"
+                style={{
+                  left: `${(chart.dots[hoveredTrendIndex].x / 720) * 100}%`,
+                  top: `${(chart.dots[hoveredTrendIndex].y / 180) * 100}%`,
+                }}
+              >
+                <strong>{formatTrendPeriod(trend[hoveredTrendIndex].period)}</strong>
+                <span>Search volume</span>
+                <b>{trend[hoveredTrendIndex].volume.toLocaleString()}</b>
+              </div>}
             </div>
-            <div className="rrugc-stage0-detail-months">
-              {trend.map(point => <div key={point.period}><span>{point.period}</span><strong>{point.volume.toLocaleString()}</strong></div>)}
+            <div className="rrugc-stage0-detail-month-axis" aria-hidden="true">
+              {trend.map(point => <span key={point.period}>{formatTrendPeriod(point.period)}</span>)}
             </div>
           </> : <div className="rrugc-stage0-detail-no-trend">
             <Icon name="chart" />
@@ -293,8 +328,11 @@ export function KeywordDetailModal({
           </div>}
         </section>
 
-        <section className="rrugc-stage0-detail-metadata">
-          <div className="rrugc-stage0-detail-section-head"><div><small>METADATA</small><h3>Keyword record</h3></div></div>
+        <details className="rrugc-stage0-detail-metadata">
+          <summary>
+            <span><small>RECORD</small><strong>Technical details</strong></span>
+            <span className="rrugc-stage0-detail-metadata-summary">ID, provider account & timestamps</span>
+          </summary>
           <dl>
             <div><dt>Keyword ID</dt><dd>{item.id}</dd></div>
             <div><dt>Provider</dt><dd>{providerLabel(item.provider)}</dd></div>
@@ -308,7 +346,7 @@ export function KeywordDetailModal({
             <div><dt>Favorite since</dt><dd>{formatDetailDate(item.favorite_at)}</dd></div>
             <div><dt>Used since</dt><dd>{formatDetailDate(item.picked_at)}</dd></div>
           </dl>
-        </section>
+        </details>
       </div>
     </section>
   </div>;
