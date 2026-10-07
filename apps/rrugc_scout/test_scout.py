@@ -95,9 +95,36 @@ def test_browser_runtime_failure_detection_matches_closed_or_crashed_browser():
     assert scout_module._looks_like_browser_runtime_failure(
         RuntimeError("Page crashed while waiting for selector")
     )
+    assert scout_module._looks_like_browser_runtime_failure(
+        scout_module.ReviewBrowserStepTimeout("access_gate")
+    )
     assert not scout_module._looks_like_browser_runtime_failure(
         RuntimeError("Pinterest returned HTTP 429")
     )
+
+
+def test_review_browser_step_times_out_and_marks_browser_failure(monkeypatch):
+    async def never_finishes():
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        scout_module,
+        "REVIEW_BROWSER_STEP_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    with pytest.raises(
+        scout_module.ReviewBrowserStepTimeout,
+        match="access_gate",
+    ):
+        asyncio.run(
+            scout_module.review_browser_step(
+                "access_gate",
+                never_finishes(),
+                campaign_id="campaign-timeout",
+                run_id="run-timeout",
+            )
+        )
 
 
 def test_browser_session_recycles_when_closed_or_too_old():

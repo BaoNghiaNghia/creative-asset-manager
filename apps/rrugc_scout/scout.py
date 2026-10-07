@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v36"
+CLIENT_VERSION = "rrugc-scout-v37"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -73,6 +73,7 @@ HAND_HELD_QUERY_MARKERS = (
     "holding hat",
 )
 HEARTBEAT_INTERVAL_SECONDS = 10
+REVIEW_BROWSER_STEP_TIMEOUT_SECONDS = 15
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
 SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
@@ -521,6 +522,8 @@ def _looks_like_browser_runtime_failure(error: BaseException) -> bool:
             "page has been closed",
             "connection closed",
             "connection terminated",
+            "reviewbrowsersteptimeout",
+            "review browser step timeout",
         )
     )
 
@@ -788,6 +791,12 @@ class PinterestRateLimitedError(RuntimeError):
 
 class PinterestVideoPinError(RuntimeError):
     pass
+
+
+class ReviewBrowserStepTimeout(RuntimeError):
+    def __init__(self, step: str):
+        self.step = str(step)
+        super().__init__("Review browser step timeout: " + self.step)
 
 
 class ScoutRestartRequested(RuntimeError):
@@ -2212,6 +2221,29 @@ async def paced_scroll(page: Any, pace: ScoutPace) -> int:
     return total
 
 
+async def review_browser_step(
+    step: str,
+    operation: Any,
+    *,
+    campaign_id: str,
+    run_id: str,
+) -> Any:
+    try:
+        return await asyncio.wait_for(
+            operation,
+            timeout=REVIEW_BROWSER_STEP_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        scout_debug_event(
+            "review_browser_step_timeout",
+            campaign_id=campaign_id,
+            run_id=run_id,
+            step=step,
+            timeout_seconds=REVIEW_BROWSER_STEP_TIMEOUT_SECONDS,
+        )
+        raise ReviewBrowserStepTimeout(step) from exc
+
+
 def keyword_candidate_budgets(total_cap: int, query_count: int) -> list[int]:
     active_queries = min(
         max(0, int(query_count)),
@@ -2656,14 +2688,24 @@ async def scan_auto_run(
         await heartbeat_if_due(force=True)
         response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         guard_pinterest_response(response)
-        loaded_count = await wait_for_pin_growth(
-            page,
-            previous_count=0,
-            timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+        loaded_count = await review_browser_step(
+            "initial_pin_growth",
+            wait_for_pin_growth(
+                page,
+                previous_count=0,
+                timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+            ),
+            campaign_id=campaign_id,
+            run_id=run_id,
         )
         initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
 
-        gate = await access_gate(page)
+        gate = await review_browser_step(
+            "initial_access_gate",
+            access_gate(page),
+            campaign_id=campaign_id,
+            run_id=run_id,
+        )
         if gate is not None:
             raise PinterestAccessGateError(gate)
 
@@ -2700,7 +2742,12 @@ async def scan_auto_run(
         for batch in range(max_batch_attempts):
             await heartbeat_if_due()
             inspect_dwell = await paced_wait(page, pace.inspect_dwell_ms)
-            visible = await extract_visible(page)
+            visible = await review_browser_step(
+                "extract_visible",
+                extract_visible(page),
+                campaign_id=campaign_id,
+                run_id=run_id,
+            )
             visible_once: list[Candidate] = []
             for row in visible:
                 pin_key = pin_history_key(row.pin_url)
@@ -2970,7 +3017,12 @@ async def scan_auto_run(
             if discovery_batches >= max_scroll_batches:
                 break
 
-            gate = await access_gate(page)
+            gate = await review_browser_step(
+                "access_gate",
+                access_gate(page),
+                campaign_id=campaign_id,
+                run_id=run_id,
+            )
             if gate is not None:
                 access_ready = await wait_for_manual_access(
                     page,
@@ -2990,15 +3042,31 @@ async def scan_auto_run(
                 batch + 1 < max_batch_attempts
                 and discovery_batches < max_scroll_batches
             ):
+                current_pin_count = await review_browser_step(
+                    "loaded_pin_count",
+                    loaded_pin_count(page),
+                    campaign_id=campaign_id,
+                    run_id=run_id,
+                )
                 before_scroll_count = max(
                     loaded_count,
-                    await loaded_pin_count(page),
+                    current_pin_count,
                 )
-                scrolled_px = await paced_scroll(page, pace)
-                loaded_count = await wait_for_pin_growth(
-                    page,
-                    previous_count=before_scroll_count,
-                    timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+                scrolled_px = await review_browser_step(
+                    "paced_scroll",
+                    paced_scroll(page, pace),
+                    campaign_id=campaign_id,
+                    run_id=run_id,
+                )
+                loaded_count = await review_browser_step(
+                    "scroll_pin_growth",
+                    wait_for_pin_growth(
+                        page,
+                        previous_count=before_scroll_count,
+                        timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+                    ),
+                    campaign_id=campaign_id,
+                    run_id=run_id,
                 )
                 print(
                     "campaign="
