@@ -727,6 +727,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Low CPC ($)");
     expect(markup).toContain("High CPC ($)");
     expect(markup).toContain("Total keywords");
+    expect(markup).toContain('aria-label="Keyword overview filters"');
+    expect(markup).toContain("rrugc-stage0-total-kpi active");
+    expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
     expect(markup).toContain("Long-tail");
@@ -735,7 +738,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("5+ word keywords");
     expect(markup).not.toContain("Average CPC");
     expect(markup).toContain("Google Ads · AEBrowse");
-    expect(markup).toContain(">Unused<");
+    expect(markup).not.toContain("All usage");
+    expect(markup).not.toContain('aria-label="Keyword usage filter"');
+    expect(markup).not.toContain(">Unused<");
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
     expect(markup).toContain("Long-tail");

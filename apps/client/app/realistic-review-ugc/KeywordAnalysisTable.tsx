@@ -440,8 +440,23 @@ export function KeywordAnalysisTable({
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
   const start = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
-  const activeMainFilter = favoritesOnly ? "favorites" : tailFilter;
+  const activeOverviewFilter =
+    favoritesOnly ? "favorites"
+      : usageFilter === "used" ? "used"
+        : tailFilter !== "all" ? tailFilter
+          : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
+
+  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites") => {
+    const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
+    const nextTail: KeywordTailFilter =
+      filter === "short" || filter === "mid" || filter === "long" ? filter : "all";
+    const nextFavoritesOnly = filter === "favorites";
+
+    if (usageFilter !== nextUsage) onUsageFilterChange(nextUsage);
+    if (tailFilter !== nextTail) onTailFilterChange(nextTail);
+    if (favoritesOnly !== nextFavoritesOnly) onFavoritesOnlyChange(nextFavoritesOnly);
+  };
 
   return <>
   <section className="rrugc-card rrugc-stage0 rrugc-stage0-v2">
@@ -453,40 +468,77 @@ export function KeywordAnalysisTable({
       actions={<span className="rrugc-stage0-live-badge"><i aria-hidden="true" />Live keyword data</span>}
     />
 
-    <div className="rrugc-source-plan-kpis rrugc-stage0-kpis rrugc-stage0-kpis-restored" aria-label="Keyword overview">
-      <article><span>Total keywords</span><strong>{data.overview.total_keywords.toLocaleString()}</strong><small>{data.overview.total_search_volume.toLocaleString()} total monthly volume</small></article>
-      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-short">
+    <div className="rrugc-source-plan-kpis rrugc-stage0-kpis rrugc-stage0-kpis-restored" aria-label="Keyword overview filters">
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-total-kpi" + (activeOverviewFilter === "all" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "all"}
+        onClick={() => selectOverviewFilter("all")}
+      >
+        <span>Total keywords</span>
+        <strong>{data.overview.total_keywords.toLocaleString()}</strong>
+        <small>{data.overview.total_search_volume.toLocaleString()} total monthly volume</small>
+      </button>
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-short" + (activeOverviewFilter === "short" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "short"}
+        onClick={() => selectOverviewFilter("short")}
+      >
         <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="short" /></i><b>Short-tail</b></span>
         <strong>{data.overview.short_tail_keywords.toLocaleString()}</strong>
         <small>2-word keywords</small>
-      </article>
-      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-mid">
+      </button>
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-mid" + (activeOverviewFilter === "mid" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "mid"}
+        onClick={() => selectOverviewFilter("mid")}
+      >
         <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="mid" /></i><b>Mid-tail</b></span>
         <strong>{data.overview.mid_tail_keywords.toLocaleString()}</strong>
         <small>3–4 word keywords</small>
-      </article>
-      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-long">
+      </button>
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-long" + (activeOverviewFilter === "long" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "long"}
+        onClick={() => selectOverviewFilter("long")}
+      >
         <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="long" /></i><b>Long-tail</b></span>
         <strong>{data.overview.long_tail_keywords.toLocaleString()}</strong>
         <small>5+ word keywords</small>
-      </article>
-      <article className="rrugc-stage0-used-kpi"><span>Used</span><strong>{data.overview.picked_keywords.toLocaleString()}</strong><small>Picked for use</small></article>
-      <article className="rrugc-stage0-favorite-kpi"><span>Favorites</span><strong>{data.overview.favorite_keywords.toLocaleString()}</strong><small>Saved opportunities</small></article>
+      </button>
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-used-kpi" + (activeOverviewFilter === "used" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "used"}
+        onClick={() => selectOverviewFilter("used")}
+      >
+        <span>Used</span>
+        <strong>{data.overview.picked_keywords.toLocaleString()}</strong>
+        <small>Picked for use</small>
+      </button>
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-favorite-kpi" + (activeOverviewFilter === "favorites" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "favorites"}
+        onClick={() => selectOverviewFilter("favorites")}
+      >
+        <span>Favorites</span>
+        <strong>{data.overview.favorite_keywords.toLocaleString()}</strong>
+        <small>Saved opportunities</small>
+      </button>
     </div>
 
     <div className="rrugc-stage0-controlbar">
       <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={onQueryChange} /></div>
       <div className="rrugc-stage0-main-filters" role="group" aria-label="Keyword filters">
-        <button type="button" className={activeMainFilter === "all" && !query.trim() ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
-        <button type="button" className={favoritesOnly ? "active" : ""} onClick={() => onFavoritesOnlyChange(!favoritesOnly)}><Icon name="star" filled={favoritesOnly} />Favorites</button>
-        <button type="button" className={!favoritesOnly && tailFilter === "short" ? "active" : ""} onClick={() => onTailFilterChange(tailFilter === "short" ? "all" : "short")}>Short-tail</button>
-        <button type="button" className={!favoritesOnly && tailFilter === "mid" ? "active" : ""} onClick={() => onTailFilterChange(tailFilter === "mid" ? "all" : "mid")}>Mid-tail</button>
-        <button type="button" className={!favoritesOnly && tailFilter === "long" ? "active" : ""} onClick={() => onTailFilterChange(tailFilter === "long" ? "all" : "long")}>Long-tail</button>
-      </div>
-      <div className="rrugc-stage0-usage-switch" role="group" aria-label="Keyword usage filter">
-        <button type="button" className={usageFilter === "all" ? "active" : ""} onClick={() => onUsageFilterChange("all")}>All usage</button>
-        <button type="button" className={usageFilter === "unused" ? "active" : ""} onClick={() => onUsageFilterChange("unused")}>Unused</button>
-        <button type="button" className={usageFilter === "used" ? "active" : ""} onClick={() => onUsageFilterChange("used")}>Used</button>
+        <button type="button" className={activeOverviewFilter === "all" ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
+        <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="star" filled={activeOverviewFilter === "favorites"} />Favorites</button>
+        <button type="button" className={activeOverviewFilter === "short" ? "active" : ""} onClick={() => selectOverviewFilter("short")}>Short-tail</button>
+        <button type="button" className={activeOverviewFilter === "mid" ? "active" : ""} onClick={() => selectOverviewFilter("mid")}>Mid-tail</button>
+        <button type="button" className={activeOverviewFilter === "long" ? "active" : ""} onClick={() => selectOverviewFilter("long")}>Long-tail</button>
       </div>
     </div>
 
