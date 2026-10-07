@@ -25,7 +25,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v37"
+CLIENT_VERSION = "rrugc-scout-v38"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -78,6 +78,8 @@ SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
 SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
 HISTORY_REPLAY_EXTRA_SCROLL_BATCHES = 12
+REVIEW_LOW_RESULT_STAGNANT_BATCH_LIMIT = 5
+REVIEW_LOW_RESULT_PIN_THRESHOLD = 2
 SCOUT_DEBUG_LOG_FILENAME = "pinterest-scout.jsonl"
 SCOUT_DEBUG_LOG_RETENTION_DAYS = 10
 
@@ -1124,6 +1126,11 @@ def quality_search_query(value: str) -> str:
     )
     has_human_context = any(marker in lowered for marker in HUMAN_QUERY_MARKERS)
     if has_photo_context:
+        # Pinterest search becomes excessively narrow if natural candid or
+        # lifestyle scene queries are suffixed with generic product-review terms.
+        # The downstream image classifier already rejects non-UGC results.
+        if "candid" in lowered or "lifestyle" in lowered:
+            return clean
         if not has_human_context:
             return clean + " real person product review"
         return clean
@@ -2739,12 +2746,14 @@ async def scan_auto_run(
 
         max_batch_attempts = max_scroll_batches + HISTORY_REPLAY_EXTRA_SCROLL_BATCHES
         discovery_batches = 0
+        stagnant_batches = 0
+        max_visible_pin_count = 0
         for batch in range(max_batch_attempts):
             await heartbeat_if_due()
             inspect_dwell = await paced_wait(page, pace.inspect_dwell_ms)
             visible = await review_browser_step(
-                "extract_visible",
-                extract_visible(page),
+                "extract_visible_with_pin_links",
+                extract_visible_pin_candidates(page),
                 campaign_id=campaign_id,
                 run_id=run_id,
             )
@@ -2797,6 +2806,11 @@ async def scan_auto_run(
                     persistent_skipped=persistent_skipped,
                     replay_budget=HISTORY_REPLAY_EXTRA_SCROLL_BATCHES,
                 )
+            max_visible_pin_count = max(max_visible_pin_count, len(visible))
+            if not unseen and max_visible_pin_count <= REVIEW_LOW_RESULT_PIN_THRESHOLD:
+                stagnant_batches += 1
+            else:
+                stagnant_batches = 0
             filtered_rows = [
                 row for row in unseen
                 if synthetic_metadata_reason(row) is not None
@@ -2820,6 +2834,8 @@ async def scan_auto_run(
                 persistent_skipped=persistent_skipped,
                 quality_candidates=len(fresh),
                 metadata_filtered=metadata_filtered,
+                pin_link_only=sum(not row.image_url for row in visible),
+                stagnant_batches=stagnant_batches,
             )
             print(
                 "campaign="
@@ -3015,6 +3031,21 @@ async def scan_auto_run(
             if keyword_budget_reached or created_for_keyword >= keyword_candidate_cap:
                 break
             if discovery_batches >= max_scroll_batches:
+                break
+            if stagnant_batches >= REVIEW_LOW_RESULT_STAGNANT_BATCH_LIMIT:
+                scout_debug_event(
+                    "pinterest_search_stagnant",
+                    campaign_id=campaign_id,
+                    run_id=run_id,
+                    keyword_index=query_index + 1,
+                    keyword_count=len(search_queries),
+                    raw_query=raw_query,
+                    pinterest_query=search_query,
+                    batch_index=batch + 1,
+                    stagnant_batches=stagnant_batches,
+                    max_visible_pin_count=max_visible_pin_count,
+                    reason="few_pin_links_no_new_candidates",
+                )
                 break
 
             gate = await review_browser_step(

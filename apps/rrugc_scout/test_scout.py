@@ -315,6 +315,9 @@ def test_scout_history_merges_server_known_pins(tmp_path):
 def test_quality_first_query_and_metadata_prefilter():
     assert quality_search_query("cap man") == "cap man authentic smartphone candid photo real people"
     assert quality_search_query("cap man candid photo") == "cap man candid photo"
+    assert quality_search_query("relaxed weekend outfit candid phone photo") == (
+        "relaxed weekend outfit candid phone photo"
+    )
     assert quality_search_query("embroidered cap product photo") == (
         "embroidered cap product photo real person product review"
     )
@@ -1086,6 +1089,184 @@ def test_scan_auto_run_scrolls_past_history_only_results(tmp_path):
         "https://www.pinterest.com/pin/new-after-scroll/"
     ]
     assert client.completed == ["run-history-scroll:completed"]
+
+
+def test_review_uses_pin_link_when_search_card_has_no_image(monkeypatch):
+    pin_url = "https://www.pinterest.com/pin/link-only/"
+    image_url = "https://i.pinimg.com/originals/detail-real.jpg"
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "const out = []" in script:
+                return []
+            if "Array.from(document.querySelectorAll('a[href*" in script:
+                return [pin_url]
+            if "hrefs.size" in script:
+                return 1
+            return False
+
+    class FakeClient:
+        def __init__(self):
+            self.submitted = []
+            self.completed = []
+
+        async def heartbeat(self, *_args, **_kwargs):
+            return {}
+
+        async def submit(self, _run_id, rows, *, source_query=None):
+            self.submitted.extend(rows)
+            return {
+                "created": len(rows),
+                "existing": 0,
+                "progress": len(rows),
+                "pipeline_count": len(rows),
+                "target_count": 1,
+                "campaign_status": "completed",
+            }
+
+        async def complete(self, run_id, status, **_kwargs):
+            self.completed.append(run_id + ":" + status)
+            return {}
+
+    async def immediate_growth(_page, **_kwargs):
+        return 1
+
+    async def resolve_details(_page, chunk, **_kwargs):
+        assert [row.pin_url for row in chunk] == [pin_url]
+        assert chunk[0].image_url == ""
+        return [Candidate(pin_url, image_url)]
+
+    monkeypatch.setattr(scout_module, "wait_for_pin_growth", immediate_growth)
+    monkeypatch.setattr(scout_module, "resolve_pin_details", resolve_details)
+    client = FakeClient()
+    asyncio.run(scan_auto_run(
+        FakePage(),
+        client,
+        {
+            "run": {"id": "run-link-only"},
+            "campaign_id": "campaign-link-only",
+            "query": "cap selfie candid",
+            "search_queries": ["cap selfie candid"],
+            "target_count": 1,
+            "max_scroll_batches": 1,
+            "progress": 0,
+            "pipeline_count": 0,
+        },
+        login_wait_seconds=60,
+    ))
+    assert [(row.pin_url, row.image_url) for row in client.submitted] == [
+        (pin_url, image_url)
+    ]
+    assert client.completed == ["run-link-only:completed"]
+
+
+def test_review_skips_stagnant_one_pin_query_instead_of_sixty_scrolls(
+    monkeypatch,
+    tmp_path,
+):
+    old_url = "https://www.pinterest.com/pin/stale-result/"
+
+    class FakeMouse:
+        async def wheel(self, _x, _y):
+            return None
+
+    class FakePage:
+        def __init__(self):
+            self.url = ""
+            self.mouse = FakeMouse()
+            self.visited = []
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+            self.visited.append(url)
+
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+        async def evaluate(self, script):
+            if "const selectors" in script:
+                return False
+            if "const out = []" in script:
+                return [{
+                    "pin_url": old_url,
+                    "image_url": "https://i.pinimg.com/736x/stale.jpg",
+                    "alt_text": "known old reference",
+                }]
+            if "hrefs.size" in script:
+                return 1
+            if "Array.from(document.querySelectorAll('a[href*" in script:
+                return [old_url]
+            return False
+
+    class FakeClient:
+        def __init__(self):
+            self.completed = []
+
+        async def heartbeat(self, *_args, **_kwargs):
+            return {}
+
+        async def submit(self, *_args, **_kwargs):
+            raise AssertionError("previously known Pin must not be submitted")
+
+        async def complete(self, run_id, status, **_kwargs):
+            self.completed.append(run_id + ":" + status)
+            return {}
+
+    async def immediate_growth(_page, **_kwargs):
+        return 1
+
+    events = []
+    monkeypatch.setattr(scout_module, "wait_for_pin_growth", immediate_growth)
+    monkeypatch.setattr(
+        scout_module,
+        "scout_debug_event",
+        lambda event, **details: events.append((event, details)),
+    )
+
+    history = ScoutHistory(tmp_path / "stagnant-history.json")
+    history.remember(
+        "campaign-stagnant",
+        [Candidate(old_url, "https://i.pinimg.com/736x/stale.jpg")],
+    )
+    page = FakePage()
+    client = FakeClient()
+    asyncio.run(scan_auto_run(
+        page,
+        client,
+        {
+            "run": {"id": "run-stagnant"},
+            "campaign_id": "campaign-stagnant",
+            "query": "first outfit candid photo",
+            "search_queries": [
+                "first outfit candid photo",
+                "second outfit candid photo",
+            ],
+            "target_count": 12,
+            "max_scroll_batches": 50,
+            "progress": 0,
+            "pipeline_count": 0,
+        },
+        login_wait_seconds=60,
+        history=history,
+    ))
+    stagnant_events = [
+        detail for event, detail in events if event == "pinterest_search_stagnant"
+    ]
+    assert len(page.visited) == 2
+    assert len(stagnant_events) == 2
+    assert [event["batch_index"] for event in stagnant_events] == [5, 5]
+    assert client.completed == ["run-stagnant:completed"]
 
 
 def test_related_seed_history_is_persistent_and_normalized(tmp_path):
