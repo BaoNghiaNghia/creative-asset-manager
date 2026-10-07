@@ -178,6 +178,8 @@ export type KeywordVolume = {
   source_pin_url: string | null;
   picked: boolean;
   picked_at: string | null;
+  favorite: boolean;
+  favorite_at: string | null;
   provider: string;
   fetched_at: string;
 };
@@ -188,6 +190,7 @@ export type KeywordVolumeOverview = {
   high_competition: number;
   zero_volume: number;
   picked_keywords: number;
+  favorite_keywords: number;
 };
 
 export type KeywordVolumePage = {

@@ -440,12 +440,18 @@ class KeywordVolumeResponse(BaseModel):
     source_pin_url: str | None = None
     picked: bool = False
     picked_at: datetime | None = None
+    favorite: bool = False
+    favorite_at: datetime | None = None
     provider: str
     fetched_at: datetime
 
 
 class KeywordVolumePickRequest(BaseModel):
     picked: bool = True
+
+
+class KeywordVolumeFavoriteRequest(BaseModel):
+    favorite: bool = True
 
 
 class KeywordVolumeResolveRequest(BaseModel):
@@ -484,6 +490,7 @@ class KeywordVolumeOverviewResponse(BaseModel):
     high_competition: int = 0
     zero_volume: int = 0
     picked_keywords: int = 0
+    favorite_keywords: int = 0
 
 
 class KeywordVolumePageResponse(BaseModel):

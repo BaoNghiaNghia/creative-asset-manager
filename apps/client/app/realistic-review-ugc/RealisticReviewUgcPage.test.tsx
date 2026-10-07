@@ -587,6 +587,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               source_pin_url: "https://www.pinterest.com/pin/123456789/",
               picked: true,
               picked_at: "2026-10-05T11:00:00Z",
+              favorite: true,
+              favorite_at: "2026-10-05T11:00:00Z",
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
             },
@@ -601,6 +603,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               source_pin_url: null,
               picked: false,
               picked_at: null,
+              favorite: false,
+              favorite_at: null,
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
             },
@@ -614,16 +618,23 @@ describe("Realistic Review UGC source-first workspace", () => {
             high_competition: 1,
             zero_volume: 0,
             picked_keywords: 1,
+            favorite_keywords: 1,
           },
         }}
         query=""
         sortBy="search_volume"
         sortDirection="desc"
         usageFilter="all"
+        tailFilter="all"
+        favoritesOnly={false}
         pickingIds={new Set()}
+        favoritingIds={new Set()}
         onSortChange={() => undefined}
         onUsageFilterChange={() => undefined}
+        onTailFilterChange={() => undefined}
+        onFavoritesOnlyChange={() => undefined}
         onPickChange={() => undefined}
+        onFavoriteChange={() => undefined}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
         onQueryChange={() => undefined}
@@ -644,6 +655,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">Used<");
     expect(markup).toContain(">Unused <");
     expect(markup).toContain(">Pick<");
+    expect(markup).toContain(">Favorite<");
+    expect(markup).toContain(">Saved<");
+    expect(markup).toContain("Short-tail");
+    expect(markup).toContain("Mid-tail");
+    expect(markup).toContain("Long-tail");
+    expect(markup).toContain('aria-label="Remove favorite: Bad Day To Be A Hotdog hat"');
+    expect(markup).toContain('aria-label="Add favorite: funny hotdog cap"');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('aria-pressed="false"');
     expect(markup).toContain('aria-sort="descending"');

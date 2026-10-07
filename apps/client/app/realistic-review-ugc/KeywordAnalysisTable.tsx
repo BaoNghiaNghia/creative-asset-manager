@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection, KeywordUsageFilter } from "./api";
+import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection, KeywordTailFilter, KeywordUsageFilter } from "./api";
 import type { KeywordVolumePage } from "./types";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -53,10 +53,16 @@ export function KeywordAnalysisTable({
   sortBy,
   sortDirection,
   usageFilter,
+  tailFilter,
+  favoritesOnly,
   pickingIds,
+  favoritingIds,
   onSortChange,
   onUsageFilterChange,
+  onTailFilterChange,
+  onFavoritesOnlyChange,
   onPickChange,
+  onFavoriteChange,
   onPageChange,
   onPageSizeChange,
   onQueryChange,
@@ -67,10 +73,16 @@ export function KeywordAnalysisTable({
   sortBy: KeywordAnalysisSortBy;
   sortDirection: KeywordAnalysisSortDirection;
   usageFilter: KeywordUsageFilter;
+  tailFilter: KeywordTailFilter;
+  favoritesOnly: boolean;
   pickingIds: Set<string>;
+  favoritingIds: Set<string>;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
+  onTailFilterChange: (filter: KeywordTailFilter) => void;
+  onFavoritesOnlyChange: (value: boolean) => void;
   onPickChange: (keywordId: string, picked: boolean) => void;
+  onFavoriteChange: (keywordId: string, favorite: boolean) => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
@@ -114,6 +126,7 @@ export function KeywordAnalysisTable({
       <article><span>High competition</span><strong>{data.overview.high_competition}</strong><small>Google Ads HIGH</small></article>
       <article><span>Zero volume</span><strong>{data.overview.zero_volume}</strong><small>Can deprioritize</small></article>
       <article className="rrugc-stage0-used-kpi"><span>Used</span><strong>{data.overview.picked_keywords}</strong><small>Picked for use</small></article>
+      <article className="rrugc-stage0-favorite-kpi"><span>Favorites</span><strong>{data.overview.favorite_keywords}</strong><small>Saved for later</small></article>
     </div>
 
     <div className="rrugc-stage0-toolbar">
@@ -126,6 +139,18 @@ export function KeywordAnalysisTable({
           <button type="button" className={usageFilter === "all" ? "active" : ""} onClick={() => onUsageFilterChange("all")}>All <b>{data.overview.total_keywords}</b></button>
           <button type="button" className={usageFilter === "unused" ? "active" : ""} onClick={() => onUsageFilterChange("unused")}>Unused <b>{Math.max(0, data.overview.total_keywords - data.overview.picked_keywords)}</b></button>
           <button type="button" className={usageFilter === "used" ? "active" : ""} onClick={() => onUsageFilterChange("used")}>Used <b>{data.overview.picked_keywords}</b></button>
+        </div>
+        <button
+          type="button"
+          className={"rrugc-stage0-favorite-filter" + (favoritesOnly ? " active" : "")}
+          aria-pressed={favoritesOnly}
+          onClick={() => onFavoritesOnlyChange(!favoritesOnly)}
+        ><span aria-hidden="true">★</span> Favorites <b>{data.overview.favorite_keywords}</b></button>
+        <div className="rrugc-stage0-tail-filter" role="group" aria-label="Filter keyword length">
+          <button type="button" className={tailFilter === "all" ? "active" : ""} aria-pressed={tailFilter === "all"} onClick={() => onTailFilterChange("all")}>All lengths</button>
+          <button type="button" className={tailFilter === "short" ? "active" : ""} aria-pressed={tailFilter === "short"} title="2-word keywords" onClick={() => onTailFilterChange("short")}>Short-tail <small>2</small></button>
+          <button type="button" className={tailFilter === "mid" ? "active" : ""} aria-pressed={tailFilter === "mid"} title="3–4 word keywords" onClick={() => onTailFilterChange("mid")}>Mid-tail <small>3–4</small></button>
+          <button type="button" className={tailFilter === "long" ? "active" : ""} aria-pressed={tailFilter === "long"} title="5 or more words" onClick={() => onTailFilterChange("long")}>Long-tail <small>5+</small></button>
         </div>
         <div className="rrugc-stage0-filter" role="group" aria-label="Filter keyword volume">
           <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Any volume</button>
@@ -145,7 +170,7 @@ export function KeywordAnalysisTable({
           <SortHeader column="competition" label="Competition" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="cpc" label="CPC range" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="fetched_at" label="Last checked" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
-          <th>Used</th>
+          <th>Actions</th>
         </tr></thead>
         <tbody>
           {loading ? Array.from({length: 5}, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={7}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : items.map(item => (
@@ -163,6 +188,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-cpc">{formatCpc(item.cpc_low)}–{formatCpc(item.cpc_high)}</td>
               <td className="rrugc-stage0-fetched"><strong>{new Date(item.fetched_at).toLocaleDateString()}</strong><small>{new Date(item.fetched_at).toLocaleTimeString()}</small></td>
               <td className="rrugc-stage0-pick-cell">
+                <div className="rrugc-stage0-row-actions">
                 <button
                   type="button"
                   className={"rrugc-stage0-pick" + (item.picked ? " is-picked" : "")}
@@ -174,11 +200,24 @@ export function KeywordAnalysisTable({
                   <span aria-hidden="true">{item.picked ? "✓" : "+"}</span>
                   {pickingIds.has(item.id) ? "Saving…" : item.picked ? "Used" : "Pick"}
                 </button>
-                {item.picked && item.picked_at && <small>{new Date(item.picked_at).toLocaleDateString()}</small>}
+                <button
+                  type="button"
+                  className={"rrugc-stage0-favorite" + (item.favorite ? " is-favorite" : "")}
+                  aria-pressed={item.favorite}
+                  aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword}
+                  title={item.favorite ? "Remove from favorites" : "Add to favorites"}
+                  disabled={favoritingIds.has(item.id)}
+                  onClick={() => onFavoriteChange(item.id, !item.favorite)}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill={item.favorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2.5 2.9 5.9 6.5.94-4.7 4.58 1.11 6.48L12 17.34l-5.81 3.06 1.11-6.48-4.7-4.58 6.5-.94z" /></svg>
+                  {favoritingIds.has(item.id) ? "Saving…" : item.favorite ? "Saved" : "Favorite"}
+                </button>
+                </div>
+                {item.picked && item.picked_at && <small>Used {new Date(item.picked_at).toLocaleDateString()}</small>}
               </td>
             </tr>
           ))}
-          {!loading && items.length === 0 && <tr><td colSpan={7} className="rrugc-source-plan-empty">{query.trim() ? "No keyword matches this search/filter." : usageFilter !== "all" ? "No keywords in this usage state." : "No keyword data yet. Start the separate quote-scout terminal and submit discovered keywords."}</td></tr>}
+          {!loading && items.length === 0 && <tr><td colSpan={7} className="rrugc-source-plan-empty">{query.trim() || tailFilter !== "all" || favoritesOnly ? "No keywords match these filters." : usageFilter !== "all" ? "No keywords in this usage state." : "No keyword data yet. Start the separate quote-scout terminal and submit discovered keywords."}</td></tr>}
         </tbody>
       </table>
     </div>

@@ -21,6 +21,22 @@
   "sources": [],
   "folders": {},
   "apiRoutes": [
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"items":[],"skills":[],"default_skill_id":null}},
+    {
+      "method": "GET",
+      "path": "/api/v1/realistic-review-ugc/keyword-analysis",
+      "body": {
+        "items": [
+          {"id":"qa-keyword-short","keyword":"Houston Astros","search_volume":4400,"competition":"HIGH","cpc_low":0.55,"cpc_high":1.92,"source_image_url":null,"source_pin_url":null,"picked":false,"picked_at":null,"favorite":true,"favorite_at":"2026-10-06T10:00:00Z","provider":"aebrowse_google_ads","fetched_at":"2026-10-06T10:00:00Z"},
+          {"id":"qa-keyword-mid","keyword":"Bad Day To Be A Hotdog","search_volume":2100,"competition":"MEDIUM","cpc_low":0.24,"cpc_high":0.86,"source_image_url":null,"source_pin_url":null,"picked":true,"picked_at":"2026-10-06T10:00:00Z","favorite":false,"favorite_at":null,"provider":"aebrowse_google_ads","fetched_at":"2026-10-06T10:00:00Z"},
+          {"id":"qa-keyword-long","keyword":"Keep Your Head Up And Your Hat On","search_volume":980,"competition":"LOW","cpc_low":0.18,"cpc_high":0.68,"source_image_url":null,"source_pin_url":null,"picked":false,"picked_at":null,"favorite":false,"favorite_at":null,"provider":"aebrowse_google_ads","fetched_at":"2026-10-06T10:00:00Z"}
+        ],
+        "page": 1,
+        "page_size": 20,
+        "total": 3,
+        "overview": {"total_keywords":3,"total_search_volume":7480,"high_competition":1,"zero_volume":0,"picked_keywords":1,"favorite_keywords":1}
+      }
+    },
     {
       "method": "GET",
       "path": "/api/v1/realistic-review-ugc/campaigns",

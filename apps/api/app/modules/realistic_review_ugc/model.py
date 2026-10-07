@@ -197,6 +197,9 @@ class RrugcKeywordVolumeModel(Base):
     picked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     picked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     picked_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    favorite_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    favorite_by_user_id: Mapped[str | None] = mapped_column(String(255))
     provider: Mapped[str] = mapped_column(
         String(64), nullable=False, default="aebrowse_google_ads"
     )

@@ -160,6 +160,7 @@ export type SourcePlanSortDirection = "asc" | "desc";
 export type KeywordAnalysisSortBy = "keyword" | "search_volume" | "competition" | "cpc" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
 export type KeywordUsageFilter = "all" | "unused" | "used";
+export type KeywordTailFilter = "all" | "short" | "mid" | "long";
 
 export const listSourcePlans = (
   filters: {
@@ -199,6 +200,8 @@ export const listKeywordAnalysis = (
     sortBy?: KeywordAnalysisSortBy;
     sortDirection?: KeywordAnalysisSortDirection;
     usage?: KeywordUsageFilter;
+    tail?: KeywordTailFilter;
+    favoritesOnly?: boolean;
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -208,6 +211,8 @@ export const listKeywordAnalysis = (
     sort_by: filters.sortBy ?? "search_volume",
     sort_dir: filters.sortDirection ?? "desc",
     usage: filters.usage ?? "all",
+    tail: filters.tail ?? "all",
+    favorites_only: String(filters.favoritesOnly ?? false),
   });
   if (filters.query?.trim()) params.set("query", filters.query.trim());
   return request<KeywordVolumePage>(
@@ -223,6 +228,12 @@ export const setKeywordAnalysisPicked = (keywordId: string, picked: boolean) =>
       method: "PATCH",
       body: JSON.stringify({ picked }),
     },
+  );
+
+export const setKeywordAnalysisFavorite = (keywordId: string, favorite: boolean) =>
+  request<import("./types").KeywordVolume>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/favorite",
+    { method: "PATCH", body: JSON.stringify({ favorite }) },
   );
 
 export const listCampaigns = (signal?: AbortSignal) =>

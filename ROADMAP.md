@@ -165,4 +165,5 @@
 
 - [x] RRUGC-PINTEREST-AUTO-SCOUT-V2 Persistent tenant Scout Agent pairing, durable campaign leases/scheduling, repeated bounded Pinterest pulls, Pin-level dedupe, automatic analysis/import handoff, login/challenge pause-and-resume, and production UI controls.
 - [x] RRUGC-PINTEREST-SCOUT-V40: repair Pin-detail timeout/Pin-link-only HTTP 422 batch failures; bound alt/query lengths; support active older Scouts through auto-agent-only sanitized API requests, without changing strict manual ingestion.
-- [ ] Follow-up operational verification: restart Review + Keyword CMD launchers on every Windows Scout machine; confirm both report v40 and no new 422 in server logs.
+- [ ] Follow-up operational verification: restart Review + Keyword CMD launchers on every Windows Scout machine; confirm both report v41 and no new 422 in server logs.
+- [x] RRUGC-STAGE0-FAVORITES-TAILS: persist independent Favorites next to Pick/Used; add favorite-only and server-side Short-tail (2 words), Mid-tail (3–4 words), and Long-tail (5+ words) filters with correct total/pagination; add Alembic 0137 and tenant-scoped API regression tests.

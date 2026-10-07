@@ -143,6 +143,7 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordVolumeOverviewResponse,
     KeywordVolumePageResponse,
     KeywordVolumePickRequest,
+    KeywordVolumeFavoriteRequest,
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
     KeywordVolumeResponse,
@@ -2879,6 +2880,8 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         source_pin_url=row.source_pin_url,
         picked=bool(row.picked),
         picked_at=row.picked_at,
+        favorite=bool(row.favorite),
+        favorite_at=row.favorite_at,
         provider=row.provider,
         fetched_at=row.fetched_at,
     )
@@ -3405,6 +3408,8 @@ def list_keyword_analysis(
     page_size: int = Query(default=20, ge=1, le=100),
     query: str = Query(default="", max_length=200),
     usage: str = Query(default="all", pattern="^(all|unused|used)$"),
+    tail: str = Query(default="all", pattern="^(all|short|mid|long)$"),
+    favorites_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
         pattern="^(keyword|search_volume|competition|cpc|fetched_at)$",
@@ -3423,6 +3428,22 @@ def list_keyword_analysis(
         )
 
     conditions = list(base_conditions)
+    if favorites_only:
+        conditions.append(RrugcKeywordVolumeModel.favorite.is_(True))
+
+    # Keyword ingestion normalizes whitespace, so one space separates each
+    # word. Compute the bucket in SQL to filter before pagination/counting.
+    keyword_text = func.trim(RrugcKeywordVolumeModel.keyword_normalized)
+    word_count = func.length(keyword_text) - func.length(
+        func.replace(keyword_text, " ", "")
+    ) + 1
+    if tail == "short":
+        conditions.append(word_count <= 2)
+    elif tail == "mid":
+        conditions.extend([word_count >= 3, word_count <= 4])
+    elif tail == "long":
+        conditions.append(word_count >= 5)
+
     if usage == "used":
         conditions.append(RrugcKeywordVolumeModel.picked.is_(True))
     elif usage == "unused":
@@ -3465,6 +3486,14 @@ def list_keyword_analysis(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
                 *base_conditions,
                 RrugcKeywordVolumeModel.picked.is_(True),
+            )
+        ) or 0
+    )
+    favorite_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *base_conditions,
+                RrugcKeywordVolumeModel.favorite.is_(True),
             )
         ) or 0
     )
@@ -3536,6 +3565,7 @@ def list_keyword_analysis(
             high_competition=high_competition,
             zero_volume=zero_volume,
             picked_keywords=picked_keywords,
+            favorite_keywords=favorite_keywords,
         ),
     )
 
@@ -3562,6 +3592,33 @@ def set_keyword_analysis_pick(
     row.picked = bool(request.picked)
     row.picked_at = datetime.now(timezone.utc) if request.picked else None
     row.picked_by_user_id = principal.user_id if request.picked else None
+    session.commit()
+    session.refresh(row)
+    return _keyword_volume_response(row)
+
+
+@router.patch(
+    "/keyword-analysis/{keyword_id}/favorite",
+    response_model=KeywordVolumeResponse,
+)
+def set_keyword_analysis_favorite(
+    keyword_id: str,
+    request: KeywordVolumeFavoriteRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    row = session.scalar(
+        select(RrugcKeywordVolumeModel).where(
+            RrugcKeywordVolumeModel.id == keyword_id,
+            RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword row not found.")
+
+    row.favorite = bool(request.favorite)
+    row.favorite_at = datetime.now(timezone.utc) if request.favorite else None
+    row.favorite_by_user_id = principal.user_id if request.favorite else None
     session.commit()
     session.refresh(row)
     return _keyword_volume_response(row)

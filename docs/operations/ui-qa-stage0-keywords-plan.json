@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"stage0-default","waitFor":".rrugc-stage0-keyword-name strong","waitMs":900},
+    {"name":"tail-short-selected","click":".rrugc-stage0-tail-filter button:nth-child(2)","waitFor":".rrugc-stage0-tail-filter button.active"},
+    {"name":"favorite-only-selected","click":".rrugc-stage0-favorite-filter","waitFor":".rrugc-stage0-favorite-filter.active"},
+    {"name":"favorite-row-hover","hover":".rrugc-stage0-favorite.is-favorite"}
+  ]
+}

@@ -491,6 +491,7 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         "high_competition": 1,
         "zero_volume": 1,
         "picked_keywords": 1,
+        "favorite_keywords": 0,
     }
     assert [row["keyword"] for row in payload["items"]] == [
         "matching couple hoodies",
@@ -568,6 +569,94 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         )
         assert sorted_response.status_code == 200
         assert [row["keyword"] for row in sorted_response.json()["items"]] == expected
+
+
+def test_keyword_analysis_tail_filters_and_favorites_are_persisted_and_tenant_scoped(api, database):
+    now = datetime(2026, 10, 7, 10, 0, tzinfo=timezone.utc)
+    with database() as session:
+        for keyword in (
+            "funny hat",
+            "custom cap design",
+            "a nice little hat",
+            "a very nice little cap",
+        ):
+            session.add(RrugcKeywordVolumeModel(
+                tenant_id="tenant-a",
+                keyword=keyword,
+                keyword_normalized=keyword,
+                provider="aebrowse_google_ads",
+                search_volume=300,
+                fetched_at=now,
+                last_requested_at=now,
+            ))
+        session.add(RrugcKeywordVolumeModel(
+            tenant_id="tenant-b",
+            keyword="other tenant secret keyword",
+            keyword_normalized="other tenant secret keyword",
+            provider="aebrowse_google_ads",
+            search_volume=800,
+            fetched_at=now,
+            last_requested_at=now,
+        ))
+        session.commit()
+
+    route = "/api/v1/realistic-review-ugc/keyword-analysis"
+    short = api.get(route, params={"tail": "short", "page_size": 1})
+    assert short.status_code == 200
+    assert short.json()["total"] == 1
+    assert [item["keyword"] for item in short.json()["items"]] == ["funny hat"]
+
+    mid = api.get(route, params={"tail": "mid", "page_size": 1})
+    assert mid.status_code == 200
+    assert mid.json()["total"] == 2
+    assert len(mid.json()["items"]) == 1
+    mid_page_2 = api.get(route, params={"tail": "mid", "page": 2, "page_size": 1})
+    assert mid_page_2.status_code == 200
+    assert len(mid_page_2.json()["items"]) == 1
+    assert {mid.json()["items"][0]["keyword"], mid_page_2.json()["items"][0]["keyword"]} == {
+        "custom cap design", "a nice little hat"
+    }
+
+    long = api.get(route, params={"tail": "long"})
+    assert long.status_code == 200
+    assert long.json()["total"] == 1
+    target = long.json()["items"][0]
+    assert target["keyword"] == "a very nice little cap"
+    assert target["favorite"] is False
+    assert target["picked"] is False
+
+    favorite = api.patch(
+        f"{route}/{target['id']}/favorite",
+        json={"favorite": True},
+    )
+    assert favorite.status_code == 200
+    assert favorite.json()["favorite"] is True
+    assert favorite.json()["favorite_at"] is not None
+    assert favorite.json()["picked"] is False
+
+    favorites = api.get(route, params={"favorites_only": True, "tail": "long"})
+    assert favorites.status_code == 200
+    assert favorites.json()["total"] == 1
+    assert favorites.json()["overview"]["favorite_keywords"] == 1
+    assert favorites.json()["items"][0]["id"] == target["id"]
+    assert api.get(route, params={"favorites_only": True, "tail": "short"}).json()["total"] == 0
+    assert api.get(route, params={"favorites_only": True, "usage": "used"}).json()["total"] == 0
+
+    # Scout's future refreshes should not overwrite manual curation state.
+    repeated = api.patch(f"{route}/{target['id']}/favorite", json={"favorite": True})
+    assert repeated.status_code == 200
+    assert repeated.json()["favorite"] is True
+    assert api.patch(f"{route}/{target['id']}/favorite", json={"favorite": False}).json()["favorite"] is False
+    assert api.get(route, params={"favorites_only": True}).json()["total"] == 0
+    assert api.get(route, params={"tail": "invalid"}).status_code == 422
+    assert api.patch(f"{route}/missing-id/favorite", json={"favorite": True}).status_code == 404
+    with database() as session:
+        tenant_b = session.scalar(
+            select(RrugcKeywordVolumeModel).where(RrugcKeywordVolumeModel.tenant_id == "tenant-b")
+        )
+    assert tenant_b is not None
+    assert api.patch(f"{route}/{tenant_b.id}/favorite", json={"favorite": True}).status_code == 404
+    assert api.get(route, params={"query": "other tenant"}).json()["total"] == 0
 
 
 def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, database, monkeypatch):
