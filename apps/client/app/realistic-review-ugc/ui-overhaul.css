@@ -1347,7 +1347,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-detail-badges{gap:4px}
 .rrugc-stage0-detail-badges span{min-height:19px;padding:2px 6px;font-size:6.8px}
 .rrugc-stage0-detail-close{flex-basis:30px;width:30px;height:30px;border-radius:8px;font-size:17px}
-.rrugc-stage0-detail-body{padding:10px 12px 12px}
+.rrugc-stage0-detail-body{padding:10px 12px 12px;overflow-x:hidden}
 .rrugc-stage0-detail-hero{grid-template-columns:116px minmax(0,1fr);gap:8px;margin-bottom:8px}
 .rrugc-stage0-detail-source{min-height:82px}
 .rrugc-stage0-detail-source>a,.rrugc-stage0-detail-source-empty{height:82px;border-radius:9px}
@@ -1376,8 +1376,12 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-detail-chart .rrugc-stage0-detail-point{fill:#537dbd;stroke:#fff;stroke-width:1.5;pointer-events:none;transition:r .12s ease,stroke-width .12s ease}
 .rrugc-stage0-detail-chart g.is-active .rrugc-stage0-detail-point{r:5.5px;stroke-width:2.2}
 .rrugc-stage0-detail-chart g:focus{outline:none}
-.rrugc-stage0-detail-chart-tooltip{position:absolute;z-index:4;display:grid;min-width:116px;gap:1px;padding:7px 9px;border-radius:7px;background:#1f2530;color:#fff;box-shadow:0 8px 24px rgba(15,23,42,.22);pointer-events:none;transform:translate(-50%,calc(-100% - 12px))}
+.rrugc-stage0-detail-chart-tooltip{position:absolute;z-index:4;display:grid;box-sizing:border-box;min-width:116px;max-width:calc(100% - 2px);gap:1px;padding:7px 9px;border-radius:7px;background:#1f2530;color:#fff;box-shadow:0 8px 24px rgba(15,23,42,.22);pointer-events:none;white-space:nowrap;transform:translate(-50%,calc(-100% - 12px))}
 .rrugc-stage0-detail-chart-tooltip:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;background:#1f2530;transform:translateX(-50%) rotate(45deg)}
+.rrugc-stage0-detail-chart-tooltip.is-left-edge{transform:translate(-5px,calc(-100% - 12px))}
+.rrugc-stage0-detail-chart-tooltip.is-left-edge:after{left:5px}
+.rrugc-stage0-detail-chart-tooltip.is-right-edge{transform:translate(calc(-100% + 5px),calc(-100% - 12px))}
+.rrugc-stage0-detail-chart-tooltip.is-right-edge:after{right:5px;left:auto;transform:translateX(50%) rotate(45deg)}
 .rrugc-stage0-detail-chart-tooltip strong{font-size:8px;line-height:1.25}
 .rrugc-stage0-detail-chart-tooltip span{color:#b9c1ce;font-size:6.7px}
 .rrugc-stage0-detail-chart-tooltip b{font-size:11px;font-variant-numeric:tabular-nums}

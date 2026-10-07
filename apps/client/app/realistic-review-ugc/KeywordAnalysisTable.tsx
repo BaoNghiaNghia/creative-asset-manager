@@ -89,6 +89,13 @@ function Icon({
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>;
 }
 
+function detailTooltipPlacement(x: number, width = 720): "is-left-edge" | "is-centered" | "is-right-edge" {
+  const ratio = width > 0 ? x / width : .5;
+  if (ratio <= .24) return "is-left-edge";
+  if (ratio >= .76) return "is-right-edge";
+  return "is-centered";
+}
+
 function makeChartGeometry(points: KeywordVolumeTrendPoint[], width: number, height: number, pad = 4) {
   const source = points.length > 1 ? points : points.length === 1 ? [points[0], points[0]] : [];
   if (!source.length) return { line: "", area: "", dots: [] as Array<{ x: number; y: number }> };
@@ -307,7 +314,7 @@ export function KeywordDetailModal({
                 </g>)}
               </svg>
               {hoveredTrendIndex !== null && chart.dots[hoveredTrendIndex] && trend[hoveredTrendIndex] && <div
-                className="rrugc-stage0-detail-chart-tooltip"
+                className={"rrugc-stage0-detail-chart-tooltip " + detailTooltipPlacement(chart.dots[hoveredTrendIndex].x)}
                 style={{
                   left: `${(chart.dots[hoveredTrendIndex].x / 720) * 100}%`,
                   top: `${(chart.dots[hoveredTrendIndex].y / 180) * 100}%`,
