@@ -537,6 +537,9 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         "total_search_volume": 4400,
         "high_competition": 1,
         "zero_volume": 1,
+        "short_tail_keywords": 0,
+        "mid_tail_keywords": 2,
+        "long_tail_keywords": 0,
         "picked_keywords": 1,
         "favorite_keywords": 0,
     }
@@ -651,6 +654,9 @@ def test_keyword_analysis_tail_filters_and_favorites_are_persisted_and_tenant_sc
     short = api.get(route, params={"tail": "short", "page_size": 1})
     assert short.status_code == 200
     assert short.json()["total"] == 1
+    assert short.json()["overview"]["short_tail_keywords"] == 1
+    assert short.json()["overview"]["mid_tail_keywords"] == 2
+    assert short.json()["overview"]["long_tail_keywords"] == 1
     assert [item["keyword"] for item in short.json()["items"]] == ["funny hat"]
 
     mid = api.get(route, params={"tail": "mid", "page_size": 1})

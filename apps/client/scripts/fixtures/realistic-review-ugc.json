@@ -35,7 +35,7 @@
         "page": 1,
         "page_size": 20,
         "total": 3,
-        "overview": {"total_keywords":3,"total_search_volume":7480,"high_competition":1,"zero_volume":0,"picked_keywords":1,"favorite_keywords":1}
+        "overview": {"total_keywords":3,"total_search_volume":7480,"high_competition":1,"zero_volume":0,"short_tail_keywords":1,"mid_tail_keywords":0,"long_tail_keywords":2,"picked_keywords":1,"favorite_keywords":1}
       }
     },
     {

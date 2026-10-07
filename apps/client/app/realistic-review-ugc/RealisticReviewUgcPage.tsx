@@ -40,6 +40,9 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
     total_search_volume: 0,
     high_competition: 0,
     zero_volume: 0,
+    short_tail_keywords: 0,
+    mid_tail_keywords: 0,
+    long_tail_keywords: 0,
     picked_keywords: 0,
     favorite_keywords: 0,
   },
@@ -719,6 +722,15 @@ export function RealisticReviewUgcPage() {
               setKeywordLoading(true);
               setKeywordPageNumber(1);
               setKeywordFavoritesOnly(value);
+            }}
+            onResetAll={() => {
+              setKeywordLoading(true);
+              setKeywordPageNumber(1);
+              setKeywordQuery("");
+              setDebouncedKeywordQuery("");
+              setKeywordUsageFilter("all");
+              setKeywordTailFilter("all");
+              setKeywordFavoritesOnly(false);
             }}
             onPageChange={value => {
               setKeywordLoading(true);

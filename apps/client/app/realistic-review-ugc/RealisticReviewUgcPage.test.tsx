@@ -617,6 +617,9 @@ describe("Realistic Review UGC source-first workspace", () => {
             total_search_volume: 4660,
             high_competition: 1,
             zero_volume: 0,
+            short_tail_keywords: 0,
+            mid_tail_keywords: 1,
+            long_tail_keywords: 1,
             picked_keywords: 1,
             favorite_keywords: 1,
           },
@@ -633,6 +636,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         onUsageFilterChange={() => undefined}
         onTailFilterChange={() => undefined}
         onFavoritesOnlyChange={() => undefined}
+        onResetAll={() => undefined}
         onPickChange={() => undefined}
         onFavoriteChange={() => undefined}
         onPageChange={() => undefined}
@@ -650,7 +654,12 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">4,400<");
     expect(markup).toContain("HIGH");
     expect(markup).toContain("$0.56–$1.96");
-    expect(markup).toContain(">4,660<");
+    expect(markup).not.toContain("Monthly volume");
+    expect(markup).not.toContain("High competition");
+    expect(markup).not.toContain("Zero volume");
+    expect(markup).toContain("2-word keywords");
+    expect(markup).toContain("3–4 word keywords");
+    expect(markup).toContain("5+ word keywords");
     expect(markup).toContain("AEBrowse · Google Ads");
     expect(markup).toContain(">Used<");
     expect(markup).toContain(">Unused <");
@@ -660,6 +669,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
     expect(markup).toContain("Long-tail");
+    expect(markup).toContain('title="Clear all Stage 0 filters and show every keyword"');
     expect(markup).toContain('role="combobox"');
     expect(markup).toContain('aria-autocomplete="list"');
     expect(markup).not.toContain("Any volume");

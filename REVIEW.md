@@ -2750,3 +2750,10 @@ npm run typecheck -- --pretty false (passed).
 - The frontend shows the blank-pane Create folder action to every authenticated Google Drive user. Pure Viewers do not get the action at an unscoped source root; once inside an assigned folder, they do. No other provider is presented as supporting folder creation.
 - The context-menu Folder+ glyph was redrawn with a clearer folder silhouette and heavier plus, increased to 22 px for this action, with stronger hover/focus contrast while preserving the existing menu spacing and keyboard focus behavior.
 - No database migration, new secret, external dependency, or source-data rewrite is required. Rollback is code-only; reverting the frontend/backend commit restores the prior `assets.manage` gate.
+
+## RRUGC Stage 0 — tail KPI cards and unified filter icons (October 7, 2026)
+
+- Replaced the visible `Monthly volume`, `High competition`, and `Zero volume` KPI cards with `Short-tail`, `Mid-tail`, and `Long-tail`. Counts are computed in the tenant-scoped backend before pagination using the same word-count rules as the existing filters: Short = 2 words, Mid = 3–4, Long = 5+.
+- Added a consistent word-token icon language: two tokens for Short-tail, four for Mid-tail, and six for Long-tail. The same SVGs are reused on KPI cards and filter buttons; All, Used/Unused, Favorite and Pick use matching stroke icons rather than text glyphs.
+- The master `All` button now means no Stage 0 filter: it clears keyword search, usage state, favorite-only state, tail state and returns to page 1. Sort order is intentionally preserved because sorting is not filtering.
+- Existing search volume/competition data and table columns remain unchanged; only the summary cards change. No database migration or Scout restart is needed for this UI/API overview extension. Rollback is code-only.

@@ -3526,6 +3526,31 @@ def list_keyword_analysis(
             )
         ) or 0
     )
+    short_tail_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *base_conditions,
+                word_count <= 2,
+            )
+        ) or 0
+    )
+    mid_tail_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *base_conditions,
+                word_count >= 3,
+                word_count <= 4,
+            )
+        ) or 0
+    )
+    long_tail_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *base_conditions,
+                word_count >= 5,
+            )
+        ) or 0
+    )
     picked_keywords = int(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
@@ -3609,6 +3634,9 @@ def list_keyword_analysis(
             total_search_volume=total_search_volume,
             high_competition=high_competition,
             zero_volume=zero_volume,
+            short_tail_keywords=short_tail_keywords,
+            mid_tail_keywords=mid_tail_keywords,
+            long_tail_keywords=long_tail_keywords,
             picked_keywords=picked_keywords,
             favorite_keywords=favorite_keywords,
         ),

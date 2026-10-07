@@ -4,6 +4,30 @@ import type { KeywordVolumePage } from "./types";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
+type KeywordTailKind = Exclude<KeywordTailFilter, "all">;
+
+function KeywordTailIcon({ kind, className = "" }: { kind: KeywordTailKind; className?: string }) {
+  const tokens = kind === "short"
+    ? [[2, 8, 8, 7], [12, 8, 13, 7]]
+    : kind === "mid"
+      ? [[2, 4, 8, 6], [12, 4, 13, 6], [2, 14, 11, 6], [15, 14, 9, 6]]
+      : [[2, 2, 8, 5], [12, 2, 13, 5], [2, 9.5, 11, 5], [15, 9.5, 9, 5], [2, 17, 6, 5], [10, 17, 14, 5]];
+  return <svg className={className} viewBox="0 0 27 24" aria-hidden="true" focusable="false">
+    {tokens.map(([x, y, width, height], index) => (
+      <rect key={index} x={x} y={y} width={width} height={height} rx={height / 2} fill="currentColor" opacity={1 - index * .08} />
+    ))}
+  </svg>;
+}
+
+function Stage0ActionIcon({ kind }: { kind: "all" | "unused" | "used" | "favorite" | "pick" | "picked" }) {
+  if (kind === "all") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.5" /><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.5" /><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.5" /><rect x="14" y="14" width="6.5" height="6.5" rx="1.5" /></svg>;
+  if (kind === "unused") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" /><path d="M8.5 12h7" /></svg>;
+  if (kind === "used") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="m8.4 12.1 2.3 2.3 4.9-5.1" /></svg>;
+  if (kind === "favorite") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.1 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" /></svg>;
+  if (kind === "picked") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="m8.4 12.1 2.3 2.3 4.9-5.1" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 8v8M8 12h8" /></svg>;
+}
+
 function formatCpc(value: number | null): string {
   return typeof value === "number" ? "$" + value.toFixed(2) : "—";
 }
@@ -61,6 +85,7 @@ export function KeywordAnalysisTable({
   onUsageFilterChange,
   onTailFilterChange,
   onFavoritesOnlyChange,
+  onResetAll,
   onPickChange,
   onFavoriteChange,
   onPageChange,
@@ -81,6 +106,7 @@ export function KeywordAnalysisTable({
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
   onFavoritesOnlyChange: (value: boolean) => void;
+  onResetAll: () => void;
   onPickChange: (keywordId: string, picked: boolean) => void;
   onFavoriteChange: (keywordId: string, favorite: boolean) => void;
   onPageChange: (page: number) => void;
@@ -117,9 +143,21 @@ export function KeywordAnalysisTable({
 
     <div className="rrugc-source-plan-kpis rrugc-stage0-kpis">
       <article><span>Total keywords</span><strong>{data.overview.total_keywords}</strong><small>Stored in Stage 0</small></article>
-      <article><span>Monthly volume</span><strong>{data.overview.total_search_volume.toLocaleString()}</strong><small>Combined search volume</small></article>
-      <article><span>High competition</span><strong>{data.overview.high_competition}</strong><small>Google Ads HIGH</small></article>
-      <article><span>Zero volume</span><strong>{data.overview.zero_volume}</strong><small>Can deprioritize</small></article>
+      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-short">
+        <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="short" /></i><b>Short-tail</b></span>
+        <strong>{data.overview.short_tail_keywords}</strong>
+        <small>2-word keywords</small>
+      </article>
+      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-mid">
+        <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="mid" /></i><b>Mid-tail</b></span>
+        <strong>{data.overview.mid_tail_keywords}</strong>
+        <small>3–4 word keywords</small>
+      </article>
+      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-long">
+        <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="long" /></i><b>Long-tail</b></span>
+        <strong>{data.overview.long_tail_keywords}</strong>
+        <small>5+ word keywords</small>
+      </article>
       <article className="rrugc-stage0-used-kpi"><span>Used</span><strong>{data.overview.picked_keywords}</strong><small>Picked for use</small></article>
       <article className="rrugc-stage0-favorite-kpi"><span>Favorites</span><strong>{data.overview.favorite_keywords}</strong><small>Saved for later</small></article>
     </div>
@@ -127,22 +165,27 @@ export function KeywordAnalysisTable({
     <div className="rrugc-stage0-toolbar">
       <KeywordSearchInput query={query} onQueryChange={onQueryChange} />
       <div className="rrugc-stage0-filter-groups">
-        <div className="rrugc-stage0-usage-filter" role="group" aria-label="Filter keyword usage">
-          <button type="button" className={usageFilter === "all" ? "active" : ""} onClick={() => onUsageFilterChange("all")}>All <b>{data.overview.total_keywords}</b></button>
-          <button type="button" className={usageFilter === "unused" ? "active" : ""} onClick={() => onUsageFilterChange("unused")}>Unused <b>{Math.max(0, data.overview.total_keywords - data.overview.picked_keywords)}</b></button>
-          <button type="button" className={usageFilter === "used" ? "active" : ""} onClick={() => onUsageFilterChange("used")}>Used <b>{data.overview.picked_keywords}</b></button>
+        <div className="rrugc-stage0-usage-filter" role="group" aria-label="Filter Stage 0 keywords">
+          <button
+            type="button"
+            className={usageFilter === "all" && tailFilter === "all" && !favoritesOnly && !query.trim() ? "active" : ""}
+            aria-pressed={usageFilter === "all" && tailFilter === "all" && !favoritesOnly && !query.trim()}
+            title="Clear all Stage 0 filters and show every keyword"
+            onClick={onResetAll}
+          ><Stage0ActionIcon kind="all" />All <b>{data.overview.total_keywords}</b></button>
+          <button type="button" className={usageFilter === "unused" ? "active" : ""} aria-pressed={usageFilter === "unused"} onClick={() => onUsageFilterChange("unused")}><Stage0ActionIcon kind="unused" />Unused <b>{Math.max(0, data.overview.total_keywords - data.overview.picked_keywords)}</b></button>
+          <button type="button" className={usageFilter === "used" ? "active" : ""} aria-pressed={usageFilter === "used"} onClick={() => onUsageFilterChange("used")}><Stage0ActionIcon kind="used" />Used <b>{data.overview.picked_keywords}</b></button>
         </div>
         <button
           type="button"
           className={"rrugc-stage0-favorite-filter" + (favoritesOnly ? " active" : "")}
           aria-pressed={favoritesOnly}
           onClick={() => onFavoritesOnlyChange(!favoritesOnly)}
-        ><span aria-hidden="true">★</span> Favorites <b>{data.overview.favorite_keywords}</b></button>
+        ><Stage0ActionIcon kind="favorite" />Favorites <b>{data.overview.favorite_keywords}</b></button>
         <div className="rrugc-stage0-tail-filter" role="group" aria-label="Filter keyword length">
-          <button type="button" className={tailFilter === "all" ? "active" : ""} aria-pressed={tailFilter === "all"} onClick={() => onTailFilterChange("all")}>All lengths</button>
-          <button type="button" className={tailFilter === "short" ? "active" : ""} aria-pressed={tailFilter === "short"} title="2-word keywords" onClick={() => onTailFilterChange("short")}>Short-tail <small>2</small></button>
-          <button type="button" className={tailFilter === "mid" ? "active" : ""} aria-pressed={tailFilter === "mid"} title="3–4 word keywords" onClick={() => onTailFilterChange("mid")}>Mid-tail <small>3–4</small></button>
-          <button type="button" className={tailFilter === "long" ? "active" : ""} aria-pressed={tailFilter === "long"} title="5 or more words" onClick={() => onTailFilterChange("long")}>Long-tail <small>5+</small></button>
+          <button type="button" className={tailFilter === "short" ? "active" : ""} aria-pressed={tailFilter === "short"} title="2-word keywords" onClick={() => onTailFilterChange("short")}><KeywordTailIcon kind="short" />Short-tail <small>2</small></button>
+          <button type="button" className={tailFilter === "mid" ? "active" : ""} aria-pressed={tailFilter === "mid"} title="3–4 word keywords" onClick={() => onTailFilterChange("mid")}><KeywordTailIcon kind="mid" />Mid-tail <small>3–4</small></button>
+          <button type="button" className={tailFilter === "long" ? "active" : ""} aria-pressed={tailFilter === "long"} title="5 or more words" onClick={() => onTailFilterChange("long")}><KeywordTailIcon kind="long" />Long-tail <small>5+</small></button>
         </div>
       </div>
       <span className="rrugc-stage0-toolbar-count">{data.total} rows</span>
@@ -184,7 +227,7 @@ export function KeywordAnalysisTable({
                   onClick={() => onPickChange(item.id, !item.picked)}
                   title={item.picked ? "Mark this keyword as unused" : "Mark this keyword as used"}
                 >
-                  <span aria-hidden="true">{item.picked ? "✓" : "+"}</span>
+                  <Stage0ActionIcon kind={item.picked ? "picked" : "pick"} />
                   {pickingIds.has(item.id) ? "Saving…" : item.picked ? "Used" : "Pick"}
                 </button>
                 <button

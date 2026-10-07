@@ -189,6 +189,9 @@ export type KeywordVolumeOverview = {
   total_search_volume: number;
   high_competition: number;
   zero_volume: number;
+  short_tail_keywords: number;
+  mid_tail_keywords: number;
+  long_tail_keywords: number;
   picked_keywords: number;
   favorite_keywords: number;
 };

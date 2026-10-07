@@ -5,7 +5,8 @@
     {"name":"stage0-autocomplete","fill":{"selector":"#rrugc-stage0-search-input","value":"Hou"},"waitFor":".rrugc-stage0-suggest-panel","waitMs":450},
     {"name":"stage0-suggestion-selected","click":".rrugc-stage0-suggest-item","waitFor":"#rrugc-stage0-search-input","waitMs":350},
     {"name":"stage0-history-open","click":"#rrugc-stage0-search-input","waitFor":".rrugc-stage0-suggest-panel","waitMs":250},
-    {"name":"tail-short-selected","click":".rrugc-stage0-tail-filter button:nth-child(2)","waitFor":".rrugc-stage0-tail-filter button.active"},
-    {"name":"favorite-only-selected","click":".rrugc-stage0-favorite-filter","waitFor":".rrugc-stage0-favorite-filter.active"}
+    {"name":"tail-short-selected","click":".rrugc-stage0-tail-filter button:nth-child(1)","waitFor":".rrugc-stage0-tail-filter button.active"},
+    {"name":"favorite-only-selected","click":".rrugc-stage0-favorite-filter","waitFor":".rrugc-stage0-favorite-filter.active"},
+    {"name":"all-reset","click":".rrugc-stage0-usage-filter button:first-child","waitFor":".rrugc-stage0-usage-filter button:first-child.active","waitMs":350}
   ]
 }

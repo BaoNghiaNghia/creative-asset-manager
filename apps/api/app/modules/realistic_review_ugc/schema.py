@@ -496,6 +496,9 @@ class KeywordVolumeOverviewResponse(BaseModel):
     total_search_volume: int = 0
     high_competition: int = 0
     zero_volume: int = 0
+    short_tail_keywords: int = 0
+    mid_tail_keywords: int = 0
+    long_tail_keywords: int = 0
     picked_keywords: int = 0
     favorite_keywords: int = 0
 
