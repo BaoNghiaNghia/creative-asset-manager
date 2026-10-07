@@ -1,5 +1,6 @@
 import json
 import unittest
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -130,6 +131,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request.headers["x-goog-api-key"], "secret")
             body = json.loads(request.content)
             self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
+            self.assertNotIn("responseJsonSchema", body["generationConfig"])
             self.assertEqual(body["contents"][0]["parts"][0]["text"], "Return metadata")
             return httpx.Response(
                 200,
@@ -152,6 +154,63 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.metadata, {"subject": "cat"})
         self.assertEqual(result.provider_request_id, "request-1")
         self.assertEqual(result.usage["totalTokenCount"], 9)
+
+    async def test_forwards_full_response_json_schema_without_mutation(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "minLength": 1},
+                "score": {
+                    "anyOf": [
+                        {"type": "number", "minimum": 0, "maximum": 1},
+                        {"type": "null"},
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 6,
+                },
+            },
+            "required": ["subject"],
+            "additionalProperties": False,
+        }
+        original = deepcopy(schema)
+
+        async def handler(request):
+            body = json.loads(request.content)
+            generation = body["generationConfig"]
+            self.assertEqual(generation["responseMimeType"], "application/json")
+            self.assertEqual(generation["responseJsonSchema"], original)
+            self.assertNotIn("responseSchema", generation)
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "text": '{"subject":"cat","score":0.8,"tags":["ugc"]}'
+                            }]
+                        },
+                        "finishReason": "STOP",
+                    }],
+                    "modelVersion": "gemini-test",
+                },
+            )
+
+        provider = configured_gemini_provider(
+            "secret",
+            model="gemini-test",
+            transport=httpx.MockTransport(handler),
+        )
+        structured_input = replace(analysis_input(), json_schema=schema)
+        result = await provider.analyze_single(structured_input)
+
+        self.assertEqual(
+            result.metadata,
+            {"subject": "cat", "score": 0.8, "tags": ["ugc"]},
+        )
+        self.assertEqual(schema, original)
 
     async def test_accepts_json_wrapped_by_a_whole_document_markdown_fence(self):
         async def handler(_request):

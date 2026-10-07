@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from copy import deepcopy
 import json
 import math
 import logging
@@ -292,6 +293,16 @@ class GeminiAiMetadataProvider:
     async def _analyze_model(
         self, model: str, input: AiMetadataAnalysisInput
     ) -> AiMetadataAnalysisResult:
+        generation_config: dict[str, Any] = {
+            "responseMimeType": "application/json"
+        }
+        if input.json_schema is not None:
+            # Gemini's generateContent endpoint accepts full JSON Schema via
+            # responseJsonSchema.  Forward the caller's schema unchanged so
+            # structured metadata jobs are constrained at generation time
+            # instead of relying on a retry after Pydantic validation fails.
+            generation_config["responseJsonSchema"] = deepcopy(dict(input.json_schema))
+
         body = {
             "contents": [{
                 "role": "user",
@@ -303,7 +314,7 @@ class GeminiAiMetadataProvider:
                     }},
                 ],
             }],
-            "generationConfig": {"responseMimeType": "application/json"},
+            "generationConfig": generation_config,
         }
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
