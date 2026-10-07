@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { KeywordSearchInput } from "./KeywordSearchInput";
 import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection, KeywordTailFilter, KeywordUsageFilter } from "./api";
 import type { KeywordVolumePage } from "./types";
 
@@ -87,15 +87,10 @@ export function KeywordAnalysisTable({
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
 }) {
-  const [filter, setFilter] = useState<"all" | "high" | "zero">("all");
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
   const start = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
-  const items = data.items.filter(item => {
-    if (filter === "high") return item.competition === "HIGH";
-    if (filter === "zero") return item.search_volume <= 0;
-    return true;
-  });
+  const items = data.items;
 
   return <section className="rrugc-card rrugc-stage0">
     <div className="rrugc-section-heading rrugc-stage0-heading">
@@ -130,10 +125,7 @@ export function KeywordAnalysisTable({
     </div>
 
     <div className="rrugc-stage0-toolbar">
-      <label className="rrugc-source-plan-search">
-        <span className="sr-only">Search Stage 0 keywords</span>
-        <input type="search" value={query} placeholder="Search keyword…" onChange={event => onQueryChange(event.target.value)} />
-      </label>
+      <KeywordSearchInput query={query} onQueryChange={onQueryChange} />
       <div className="rrugc-stage0-filter-groups">
         <div className="rrugc-stage0-usage-filter" role="group" aria-label="Filter keyword usage">
           <button type="button" className={usageFilter === "all" ? "active" : ""} onClick={() => onUsageFilterChange("all")}>All <b>{data.overview.total_keywords}</b></button>
@@ -151,11 +143,6 @@ export function KeywordAnalysisTable({
           <button type="button" className={tailFilter === "short" ? "active" : ""} aria-pressed={tailFilter === "short"} title="2-word keywords" onClick={() => onTailFilterChange("short")}>Short-tail <small>2</small></button>
           <button type="button" className={tailFilter === "mid" ? "active" : ""} aria-pressed={tailFilter === "mid"} title="3–4 word keywords" onClick={() => onTailFilterChange("mid")}>Mid-tail <small>3–4</small></button>
           <button type="button" className={tailFilter === "long" ? "active" : ""} aria-pressed={tailFilter === "long"} title="5 or more words" onClick={() => onTailFilterChange("long")}>Long-tail <small>5+</small></button>
-        </div>
-        <div className="rrugc-stage0-filter" role="group" aria-label="Filter keyword volume">
-          <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Any volume</button>
-          <button type="button" className={filter === "high" ? "active" : ""} onClick={() => setFilter("high")}>High competition</button>
-          <button type="button" className={filter === "zero" ? "active" : ""} onClick={() => setFilter("zero")}>Zero volume</button>
         </div>
       </div>
       <span className="rrugc-stage0-toolbar-count">{data.total} rows</span>

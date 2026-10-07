@@ -22,6 +22,7 @@
   "folders": {},
   "apiRoutes": [
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"items":[],"skills":[],"default_skill_id":null}},
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/keyword-analysis/suggestions","body":[{"keyword":"Houston Astros","search_volume":4400,"favorite":true,"picked":false},{"keyword":"Houston Astros Trucker Hat","search_volume":900,"favorite":false,"picked":false}]},
     {
       "method": "GET",
       "path": "/api/v1/realistic-review-ugc/keyword-analysis",

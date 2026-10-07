@@ -660,6 +660,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
     expect(markup).toContain("Long-tail");
+    expect(markup).toContain('role="combobox"');
+    expect(markup).toContain('aria-autocomplete="list"');
+    expect(markup).not.toContain("Any volume");
+    expect(markup).not.toContain('aria-label="Filter keyword volume"');
     expect(markup).toContain('aria-label="Remove favorite: Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('aria-label="Add favorite: funny hotdog cap"');
     expect(markup).toContain('aria-pressed="true"');

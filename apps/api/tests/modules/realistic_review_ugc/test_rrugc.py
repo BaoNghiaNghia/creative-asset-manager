@@ -445,6 +445,53 @@ def test_keyword_volume_persists_quote_before_provider_failure(database):
     asyncio.run(scenario())
 
 
+def test_keyword_analysis_suggestions_are_tenant_scoped_ranked_and_literal(api, database):
+    now = datetime(2026, 10, 7, 10, 0, tzinfo=timezone.utc)
+    rows = [
+        ("tenant-a", "HOUSTON ASTROS", 250, False),
+        ("tenant-a", "Houston Astros Trucker Hat", 110, True),
+        ("tenant-a", "Houston City Cap", 400, False),
+        ("tenant-a", "Vintage Houston Hat", 10000, False),
+        ("tenant-a", "100% Houston Hat", 8000, False),
+        ("tenant-a", "Holiday_Houston Hat", 5000, False),
+        ("tenant-b", "Houston Secret Keyword", 999999, True),
+    ]
+    with database() as session:
+        session.add_all([
+            RrugcKeywordVolumeModel(
+                tenant_id=tenant,
+                keyword=keyword,
+                keyword_normalized=keyword.lower(),
+                search_volume=volume,
+                favorite=favorite,
+                fetched_at=now,
+                last_requested_at=now,
+            )
+            for tenant, keyword, volume, favorite in rows
+        ])
+        session.commit()
+
+    endpoint = "/api/v1/realistic-review-ugc/keyword-analysis/suggestions"
+    match = api.get(endpoint, params={"q": " houston  "})
+    assert match.status_code == 200
+    assert [row["keyword"] for row in match.json()] == [
+        "Houston Astros Trucker Hat", "Houston City Cap",
+        "HOUSTON ASTROS", "Vintage Houston Hat",
+        "100% Houston Hat", "Holiday_Houston Hat",
+    ]
+    assert all(row["search_volume"] < 999999 for row in match.json())
+    assert match.json()[0]["favorite"] is True
+    assert api.get(endpoint, params={"q": "hou", "limit": 2}).json() == [
+        match.json()[0], match.json()[1],
+    ]
+    assert [row["keyword"] for row in api.get(endpoint, params={"q": "%"}).json()] == ["100% Houston Hat"]
+    assert [row["keyword"] for row in api.get(endpoint, params={"q": "_"}).json()] == ["Holiday_Houston Hat"]
+    assert api.get(endpoint, params={"q": "not-existing"}).json() == []
+    assert api.get(endpoint, params={"q": ""}).status_code == 422
+    assert api.get(endpoint, params={"q": "a" * 101}).status_code == 422
+    assert api.get(endpoint, params={"q": "houston", "limit": 99}).status_code == 422
+
+
 def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
     with database() as session:

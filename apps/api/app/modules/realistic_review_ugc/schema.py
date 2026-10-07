@@ -446,6 +446,13 @@ class KeywordVolumeResponse(BaseModel):
     fetched_at: datetime
 
 
+class KeywordSuggestionResponse(BaseModel):
+    keyword: str
+    search_volume: int = 0
+    favorite: bool = False
+    picked: bool = False
+
+
 class KeywordVolumePickRequest(BaseModel):
     picked: bool = True
 

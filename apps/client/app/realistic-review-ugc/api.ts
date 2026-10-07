@@ -221,6 +221,21 @@ export const listKeywordAnalysis = (
   );
 };
 
+export type KeywordSearchSuggestion = {
+  keyword: string;
+  search_volume: number;
+  favorite: boolean;
+  picked: boolean;
+};
+
+export const suggestKeywordAnalysis = (query: string, signal?: AbortSignal) => {
+  const params = new URLSearchParams({ q: query.trim(), limit: "8" });
+  return request<KeywordSearchSuggestion[]>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/suggestions?" + params.toString(),
+    { signal },
+  );
+};
+
 export const setKeywordAnalysisPicked = (keywordId: string, picked: boolean) =>
   request<import("./types").KeywordVolume>(
     "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/pick",

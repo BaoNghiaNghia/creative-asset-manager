@@ -144,6 +144,7 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordVolumePageResponse,
     KeywordVolumePickRequest,
     KeywordVolumeFavoriteRequest,
+    KeywordSuggestionResponse,
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
     KeywordVolumeResponse,
@@ -3397,6 +3398,50 @@ def _keyword_volume_resolve_response(result) -> KeywordVolumeResolveResponse:
         cached=result.cached,
         items=[_keyword_volume_response(row) for row in result.rows],
     )
+
+
+@router.get(
+    "/keyword-analysis/suggestions",
+    response_model=list[KeywordSuggestionResponse],
+)
+def suggest_keyword_analysis(
+    q: str = Query(min_length=1, max_length=100),
+    limit: int = Query(default=8, ge=1, le=10),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    clean = " ".join(q.split())
+    if not clean:
+        return []
+    # Literal matching: user-entered %, _ and backslashes are not SQL wildcards.
+    escaped = clean.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    prefix_pattern = f"{escaped}%"
+    match_pattern = f"%{escaped}%"
+    prefix_match = RrugcKeywordVolumeModel.keyword.ilike(prefix_pattern, escape="\\")
+    rows = session.scalars(
+        select(RrugcKeywordVolumeModel)
+        .where(
+            RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+            RrugcKeywordVolumeModel.keyword.ilike(match_pattern, escape="\\"),
+        )
+        .order_by(
+            case((prefix_match, 0), else_=1),
+            RrugcKeywordVolumeModel.favorite.desc(),
+            RrugcKeywordVolumeModel.search_volume.desc(),
+            RrugcKeywordVolumeModel.keyword.asc(),
+            RrugcKeywordVolumeModel.id.asc(),
+        )
+        .limit(limit)
+    ).all()
+    return [
+        KeywordSuggestionResponse(
+            keyword=row.keyword,
+            search_volume=int(row.search_volume or 0),
+            favorite=bool(row.favorite),
+            picked=bool(row.picked),
+        )
+        for row in rows
+    ]
 
 
 @router.get(
