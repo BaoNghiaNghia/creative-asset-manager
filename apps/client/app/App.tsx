@@ -281,6 +281,17 @@ export function curateSearchSuggestions(query: string, values: SearchSuggestion[
   return result;
 }
 
+export function canCreateFolderForExplorer(
+  provider: string,
+  authenticated: boolean,
+  pureViewer: boolean | null,
+  pathLength: number,
+): boolean {
+  return provider === "google-drive"
+    && authenticated
+    && (pureViewer !== true || pathLength > 0);
+}
+
 export function reviewFolderTarget(
   item: Asset | undefined,
   activeExternalSourceId: string | null | undefined,
@@ -300,8 +311,12 @@ export default function App() {
   const [assetViewMode, setAssetViewMode] = useState<"grid" | "list">("grid");
   const explorer = useDriveExplorer(true);
   const canManageReviewLinks = explorer.applicationPermissions.includes("public_review.manage");
-  const canCreateFolder = explorer.provider === "google-drive"
-    && explorer.applicationPermissions.includes("assets.manage");
+  const canCreateFolder = canCreateFolderForExplorer(
+    explorer.provider,
+    explorer.applicationAuthenticated === true,
+    explorer.pureViewer,
+    explorer.path.length,
+  );
   const canSearchAllResources = explorer.pureViewer === null
     ? null
     : explorer.applicationPermissions.includes("search.read");

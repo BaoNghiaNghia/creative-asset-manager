@@ -36,7 +36,7 @@ function MenuIcon({ name }: { name: IconName }) {
     move: <><path d="M3 7h7l2 2h9v10H3z" /><path d="m13 13 2-2 2 2m-2-2v6" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></>,
     trash: <><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6" /></>,
-    folderAdd: <><path d="M3 7h7l2 2h9v10H3z" /><path d="M12 14h6m-3-3v6" /></>,
+    folderAdd: <><path d="M3.5 7.25h5.3l2 2.15h9.7v8.1a1.75 1.75 0 0 1-1.75 1.75H5.25A1.75 1.75 0 0 1 3.5 17.5z" /><path d="M14.25 14.15h4.5M16.5 11.9v4.5" strokeWidth="2.2" /></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
@@ -209,6 +209,7 @@ export function ExplorerPaneContextMenu({
     <button
       type="button"
       role="menuitem"
+      className="create-folder-action"
       autoFocus
       onClick={() => {
         onClose();

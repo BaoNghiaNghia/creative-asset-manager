@@ -1260,6 +1260,29 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   color: #b3261e;
 }
 
+.explorer-pane-context-menu .create-folder-action {
+  min-height: 46px;
+  padding-block: 9px;
+}
+
+.explorer-pane-context-menu .create-folder-action > svg {
+  width: 22px;
+  height: 22px;
+  color: #53657b;
+  stroke-width: 1.9;
+}
+
+.explorer-pane-context-menu .create-folder-action > b {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+
+.explorer-pane-context-menu .create-folder-action:hover > svg,
+.explorer-pane-context-menu .create-folder-action:focus-visible > svg {
+  color: #315f9e;
+}
+
 .asset-context-separator {
   height: 1px;
   margin: 6px 0;

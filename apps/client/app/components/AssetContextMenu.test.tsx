@@ -29,6 +29,8 @@ describe("AssetContextMenu", () => {
       onClose={noop}
     />);
     expect(markup).toContain("Create folder");
+    expect(markup).toContain('class="create-folder-action"');
+    expect(markup).toContain('stroke-width="2.2"');
     expect(markup).toContain('aria-label="Folder actions"');
   });
 

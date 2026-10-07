@@ -1,7 +1,9 @@
 import asyncio
+import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from app.modules.authorization.principal import require_authenticated_principal
 from app.modules.explorer.router import create_folder, delete_item, move_item, rename_item
 from app.modules.explorer.schema import AssetNode
 
@@ -79,7 +81,66 @@ def _context_patches(provider, invalidate):
             "app.modules.explorer.router.invalidate_drive_listings",
             invalidate,
         ),
+        patch(
+            "app.modules.explorer.router._require_viewer_folder_scope_from_provider",
+            new=AsyncMock(),
+        ),
     )
+
+
+def test_create_folder_route_requires_authentication_without_assets_manage_permission():
+    dependency = inspect.signature(create_folder).parameters["principal"].default
+    assert dependency.dependency is require_authenticated_principal
+
+
+def test_create_folder_preserves_viewer_folder_scope():
+    async def scenario():
+        provider = FakeMutationProvider()
+        scope_service = Mock()
+        access = object()
+        scope_service.return_value.access.return_value = access
+        require_scope = AsyncMock()
+        principal = SimpleNamespace(
+            membership_id="viewer-membership",
+            effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset(),
+        )
+        with (
+            patch(
+                "app.modules.explorer.router._source_context",
+                new=AsyncMock(return_value=("token", "account-a", "tenant-a", "source-a")),
+            ),
+            patch("app.modules.explorer.router.create_source_provider", return_value=provider),
+            patch("app.modules.explorer.router.ViewerFolderScopeService", scope_service),
+            patch("app.modules.explorer.router._require_viewer_folder_scope_from_provider", require_scope),
+            patch("app.modules.explorer.router.invalidate_drive_listings"),
+        ):
+            await create_folder(
+                SimpleNamespace(),
+                name="Viewer folder",
+                parent_id="parent-a",
+                provider="google-drive",
+                session=SimpleNamespace(close=Mock()),
+                principal=principal,
+                external_source_id="source-a",
+            )
+        scope_service.return_value.access.assert_called_once_with(
+            tenant_id="tenant-a",
+            membership_id="viewer-membership",
+            roles=frozenset({"viewer"}),
+            external_source_id="source-a",
+        )
+        require_scope.assert_awaited_once_with(
+            scope_service.return_value,
+            tenant_id="tenant-a",
+            access=access,
+            provider="google-drive",
+            token="token",
+            folder_id="parent-a",
+            allow_root=False,
+        )
+
+    asyncio.run(scenario())
 
 
 def test_create_folder_invalidates_destination_listing():
@@ -87,13 +148,13 @@ def test_create_folder_invalidates_destination_listing():
         provider = FakeMutationProvider()
         invalidate = Mock()
         patches = _context_patches(provider, invalidate)
-        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
             await create_folder(
                 SimpleNamespace(),
                 name="New",
                 parent_id="parent-a",
                 provider="google-drive",
-                session=SimpleNamespace(),
+                session=SimpleNamespace(close=Mock()),
                 principal=_principal(),
                 external_source_id="source-a",
             )

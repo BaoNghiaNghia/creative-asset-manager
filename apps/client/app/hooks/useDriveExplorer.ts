@@ -962,7 +962,10 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       + "&parent_id=" + encodeURIComponent(parentId)
       + "&provider=" + encodeURIComponent(provider)
       + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" });
-    if (!response.ok) throw Error("Unable to create folder");
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null);
+      throw Error(apiErrorMessage(payload, "Unable to create folder"));
+    }
     await refreshCurrentFolder();
   }
 

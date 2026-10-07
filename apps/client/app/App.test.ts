@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountAvatarLabel, explorerSourceBootstrapPending, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, reviewFolderTarget, toggleVisualSearchOpen } from "./App";
+import { accountAvatarLabel, canCreateFolderForExplorer, explorerSourceBootstrapPending, formatSearchDuration, getAnalysisSelectionState, getSearchSuggestionKeyAction, isEligibleAnalysisItem, curateSearchSuggestions, dragContainsFiles, isExternalFileDrag, reviewFolderTarget, toggleVisualSearchOpen } from "./App";
 import { ASSET_DRAG_OUT_MIME } from "./components/AssetGrid";
 import { pruneSelectedIds } from "./hooks/useDriveExplorer";
 import { isSearchRequestInFlight, isSearchV3Active, shouldFetchSearchSuggestions } from "./hooks/useSearchV3";
@@ -41,6 +41,19 @@ describe("External file drag detection", () => {
 
   it("still rejects CAM internal drag-out payloads inside the desktop shell", () => {
     expect(isExternalFileDrag(dragTransfer(["Files", ASSET_DRAG_OUT_MIME], ["file"]), true)).toBe(false);
+  });
+});
+
+describe("Create folder availability", () => {
+  it("allows every authenticated Google Drive user regardless of role permission", () => {
+    expect(canCreateFolderForExplorer("google-drive", true, false, 0)).toBe(true);
+    expect(canCreateFolderForExplorer("google-drive", true, true, 2)).toBe(true);
+  });
+
+  it("keeps unauthenticated, unsupported-provider and unscoped viewer roots hidden", () => {
+    expect(canCreateFolderForExplorer("google-drive", false, false, 0)).toBe(false);
+    expect(canCreateFolderForExplorer("onedrive", true, false, 0)).toBe(false);
+    expect(canCreateFolderForExplorer("google-drive", true, true, 0)).toBe(false);
   });
 });
 

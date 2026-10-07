@@ -60,7 +60,12 @@ from app.modules.explorer.preview import (
     preview_cache_put,
 )
 from app.modules.explorer.tenant_source import TenantSourceResolver
-from app.modules.authorization.principal import CurrentPrincipal, require_permission, is_pure_viewer
+from app.modules.authorization.principal import (
+    CurrentPrincipal,
+    is_pure_viewer,
+    require_authenticated_principal,
+    require_permission,
+)
 from app.modules.authorization.folder_scope import (
     ViewerFolderAccess,
     ViewerFolderScopeModel,
@@ -1067,9 +1072,12 @@ async def create_folder(
     parent_id: str = Query("root"),
     provider: Provider = Query("google-drive"),
     session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    principal: CurrentPrincipal = Depends(require_authenticated_principal),
     external_source_id: str | None = Query(None),
 ):
+    # Folder creation is a baseline authenticated Explorer action. Provider
+    # write scope and Viewer folder-scope checks below still constrain where a
+    # user can create content; other asset mutations keep their own permissions.
     if provider != "google-drive":
         raise HTTPException(status_code=501, detail="Folder creation is not supported for this provider yet.")
     token, _account, tenant_id, source_id = await _source_context(
@@ -1082,9 +1090,18 @@ async def create_folder(
         tenant_id=tenant_id, membership_id=principal.membership_id,
         roles=principal.effective_roles, external_source_id=source_id,
     )
-    _require_viewer_folder_scope(
-        scope_service, tenant_id=tenant_id, access=access, folder_id=parent_id, allow_root=False,
+    await _require_viewer_folder_scope_from_provider(
+        scope_service,
+        tenant_id=tenant_id,
+        access=access,
+        provider=provider,
+        token=token,
+        folder_id=parent_id,
+        allow_root=False,
     )
+    # Folder creation is provider I/O; do not keep a DB connection checked out
+    # while Google Drive creates the child.
+    session.close()
     try:
         async with create_source_provider(provider, token) as client:
             parent = await client.get_node(parent_id)
