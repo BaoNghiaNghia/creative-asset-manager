@@ -1731,6 +1731,61 @@ def test_scout_remote_log_posts_events_without_blocking_local_logger(
     assert "secret-token" not in str(event)
 
 
+def test_scout_remote_log_spool_replays_after_reconnect(tmp_path, monkeypatch):
+    import sqlite3
+    from time import monotonic, sleep
+
+    attempted = Event()
+    delivered = Event()
+    online = {"up": False}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def post(self, *_args, **_kwargs):
+            attempted.set()
+            if not online["up"]:
+                raise RuntimeError("offline")
+            delivered.set()
+            return type("Response", (), {"raise_for_status": lambda self: None})()
+
+    monkeypatch.setattr(scout_module.httpx, "Client", FakeClient)
+    configure_scout_debug_log(tmp_path)
+    params = dict(base_url="https://example.test", agent_id="agent-1", token="unit-test")
+    configure_scout_remote_log(**params)
+    try:
+        scout_debug_event("sample_unacknowledged_event")
+        assert attempted.wait(2.0)
+    finally:
+        shutdown_scout_remote_log(timeout_seconds=1.0)
+
+    spool = tmp_path / "logs" / "pinterest-scout-remote-spool.sqlite3"
+    with sqlite3.connect(spool) as db:
+        assert db.execute("SELECT count(*) FROM events").fetchone()[0] == 1
+
+    online["up"] = True
+    configure_scout_remote_log(**params)
+    try:
+        assert delivered.wait(3.0)
+        deadline = monotonic() + 2.0
+        while monotonic() < deadline:
+            with sqlite3.connect(spool) as db:
+                remaining = db.execute("SELECT count(*) FROM events").fetchone()[0]
+            if remaining == 0:
+                break
+            sleep(0.02)
+        assert remaining == 0
+    finally:
+        shutdown_scout_remote_log(timeout_seconds=1.0)
+
+
 def test_scout_debug_log_supports_keyword_specific_jsonl(tmp_path):
     log_path = configure_scout_debug_log(
         tmp_path,

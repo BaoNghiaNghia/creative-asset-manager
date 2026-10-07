@@ -246,6 +246,12 @@ class RrugcKeywordVolumeService:
                 not force
                 and row.provider == KEYWORD_VOLUME_PROVIDER
                 and provider_query_matches
+                # Preserve legacy verified non-zero cached rows, but retry
+                # suspicious zeros whose provider payload had no measurement.
+                and (
+                    int(row.search_volume or 0) > 0
+                    or (row.provider_raw_json or {}).get("search_volume") is not None
+                )
                 and fetched_at is not None
                 and fetched_at >= fresh_after
             ):
@@ -286,12 +292,29 @@ class RrugcKeywordVolumeService:
 
             for clean in provider_keywords:
                 clean, normalized = normalize_keyword(clean)
-                item = provider_rows_by_key.get(normalized, {"keyword": clean})
+                item = provider_rows_by_key.get(normalized)
                 row = existing_by_key.get(normalized)
                 if row is None:
                     continue
+                # An HTTP 200 can omit individual keywords. Missing/invalid
+                # volume is not a verified zero and must remain retryable.
+                raw_volume = item.get("search_volume") if item else None
+                try:
+                    parsed_volume = float(raw_volume)
+                    valid_volume = (
+                        raw_volume is not None
+                        and 0 <= parsed_volume < float("inf")
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    valid_volume = False
+                if not valid_volume:
+                    _LOGGER.warning(
+                        "rrugc_keyword_volume_partial_result",
+                        extra={"keyword_missing_or_invalid": True},
+                    )
+                    continue
                 row.keyword = clean
-                row.search_volume = _as_int(item.get("search_volume"))
+                row.search_volume = _as_int(raw_volume)
                 competition = str(item.get("competition") or "").strip().upper()
                 row.competition = competition or None
                 row.cpc_low = _as_float(item.get("cpc_low"))

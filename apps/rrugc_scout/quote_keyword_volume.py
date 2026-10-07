@@ -304,6 +304,26 @@ def _dedupe(values: list[Any]) -> list[str]:
     return result
 
 
+def _partition_volume_result(
+    keywords: list[str], response: dict[str, Any],
+) -> tuple[list[str], list[str]]:
+    """Keep missing or provider-pending volumes queued instead of marking them seen."""
+    rows = {
+        str(item.get("keyword") or "").strip().casefold(): item
+        for item in (response.get("items") or [])
+        if isinstance(item, dict)
+    }
+    resolved: list[str] = []
+    pending: list[str] = []
+    for quote in _dedupe(keywords):
+        item = rows.get(quote.casefold())
+        if item is None or str(item.get("provider") or "").casefold() == "pending":
+            pending.append(quote)
+        else:
+            resolved.append(quote)
+    return resolved, pending
+
+
 def _quote_extract_status_is_terminal(status: int) -> bool:
     return int(status) in {400, 413, 422}
 
@@ -803,15 +823,18 @@ async def _flush_pending_quote_volumes(
                 + " quote(s) for the next cycle."
             )
             break
-        history.remember_quotes(chunk)
-        saved += len(chunk)
+        resolved, still_pending = _partition_volume_result(chunk, result)
+        if resolved:
+            history.remember_quotes(resolved)
+        saved += len(resolved)
         scout_debug_event(
             "keyword_scout_pending_volume_saved",
-            count=len(chunk),
+            count=len(resolved),
+            remaining=len(still_pending),
             provider_requested=int(result.get("provider_requested") or 0),
             cached=int(result.get("cached") or 0),
         )
-        print("Recovered pending keyword volumes: " + str(len(chunk)))
+        print("Recovered pending keyword volumes: " + str(len(resolved)))
     return saved
 
 
@@ -1067,11 +1090,27 @@ async def _process_keyword_candidate(
             quotes=tuple(new_quotes),
         )
 
-    history.remember_quotes(new_quotes)
+    verified_quotes, pending_quotes = _partition_volume_result(
+        new_quotes, volume,
+    )
+    if verified_quotes:
+        history.remember_quotes(verified_quotes)
+    if pending_quotes:
+        history.remember_pending_quotes(pending_quotes)
+        scout_debug_event(
+            "keyword_scout_partial_volume_deferred",
+            source=source,
+            pin_url=candidate.pin_url,
+            pending_quotes=pending_quotes,
+            pending_count=len(pending_quotes),
+        )
     items = [
         item
         for item in (volume.get("items") or [])
         if isinstance(item, dict)
+        and str(item.get("keyword") or "").casefold() in {
+            quote.casefold() for quote in verified_quotes
+        }
     ]
     volume_by_keyword = {
         str(item.get("keyword") or "").casefold(): int(
@@ -1109,7 +1148,7 @@ async def _process_keyword_candidate(
         hard_market_match
         or market_score >= MARKET_DEEP_DIVE_SCORE_THRESHOLD
     )
-    for quote in new_quotes:
+    for quote in verified_quotes:
         print(
             "quote="
             + quote
@@ -1125,8 +1164,9 @@ async def _process_keyword_candidate(
         root_pin_url=root_pin_url,
         pin_url=candidate.pin_url,
         image_url=candidate.image_url,
-        quote_count=len(new_quotes),
-        quotes=new_quotes,
+        quote_count=len(verified_quotes),
+        pending_count=len(pending_quotes),
+        quotes=verified_quotes,
         volumes=[
             {
                 "keyword": str(item.get("keyword") or ""),
@@ -1159,7 +1199,7 @@ async def _process_keyword_candidate(
         )
     return KeywordCandidateResult(
         quote_delta=1,
-        saved_delta=len(new_quotes),
+        saved_delta=len(verified_quotes),
         priority_score=priority_score,
         quotes=tuple(new_quotes),
         max_search_volume=max_search_volume,
@@ -1244,6 +1284,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     detail_page = None
     runtime_error_streak = 0
     successful_cycles_since_restart = 0
+    no_quote_cycles = 0
 
     async def open_browser_runtime() -> None:
         nonlocal playwright, context, page, detail_page
@@ -1992,6 +2033,21 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
 
                 runtime_error_streak = 0
                 successful_cycles_since_restart += 1
+                no_quote_cycles = no_quote_cycles + 1 if saved_quotes == 0 else 0
+                if no_quote_cycles >= 3 and no_quote_cycles % 3 == 0:
+                    scout_debug_event(
+                        "keyword_scout_no_progress_warning",
+                        consecutive_cycles=no_quote_cycles,
+                        last_cycle_processed=processed,
+                        last_cycle_quote_pins=extracted,
+                        last_cycle_saved_quotes=saved_quotes,
+                        action="cooldown_to_protect_pinterest_access",
+                    )
+                    print(
+                        "Keyword Scout has found no new saved quotes for "
+                        + str(no_quote_cycles)
+                        + " cycles; reducing Pinterest request frequency."
+                    )
                 scout_debug_event(
                     "keyword_scout_cycle_completed",
                     query=args.seed_query,
@@ -2012,6 +2068,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     if processed > 0
                     else min(args.cycle_seconds, EMPTY_CYCLE_RETRY_SECONDS)
                 )
+                if no_quote_cycles >= 3:
+                    next_cycle_seconds = max(next_cycle_seconds, 600)
                 print(
                     "Keyword Scout cycle complete. "
                     + "processed="

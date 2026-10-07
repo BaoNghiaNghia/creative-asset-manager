@@ -373,6 +373,56 @@ def test_keyword_history_is_durable_and_separate_from_review_history():
         assert "retry me later" in completed.seen_quotes
 
 
+def test_partial_volume_response_keeps_missing_keywords_for_retry():
+    verified, pending = keyword_scout._partition_volume_result(
+        ["Houston Astros", "Morgan Wallen", "Blank Result"],
+        {
+            "items": [
+                {"keyword": "Houston Astros", "provider": "aebrowse_google_ads", "search_volume": 0},
+                {"keyword": "Morgan Wallen", "provider": "pending", "search_volume": 0},
+            ]
+        },
+    )
+    assert verified == ["Houston Astros"]
+    assert pending == ["Morgan Wallen", "Blank Result"]
+
+
+def test_keyword_scout_partial_volume_is_queued_not_marked_seen(tmp_path):
+    class TestCandidate:
+        pin_url = "https://www.pinterest.com/pin/999/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/cc.jpg"
+        alt_text = "hat"
+
+    class FakeClient:
+        async def extract_quote(self, candidate):
+            return {
+                "quotes": ["Morgan Wallen"],
+                "is_target_cap": True,
+                "confidence": 0.95,
+            }
+
+        async def resolve_volume(self, *args, **kwargs):
+            return {
+                "items": [
+                    {"keyword": "Morgan Wallen", "search_volume": 0, "provider": "pending"}
+                ],
+                "provider_requested": 1,
+            }
+
+    history = KeywordScoutHistory(tmp_path / "pending-test-history.json")
+    result = asyncio.run(keyword_scout._process_keyword_candidate(
+        FakeClient(),
+        history,
+        TestCandidate(),
+        source="root",
+        root_pin_url=TestCandidate.pin_url,
+    ))
+    assert result.quote_delta == 1
+    assert result.saved_delta == 0
+    assert history.pending_quotes == ["Morgan Wallen"]
+    assert "morgan wallen" not in history.seen_quotes
+
+
 def test_keyword_volume_skips_http_when_all_keywords_have_fewer_than_two_words(monkeypatch):
     async def fail_post(*_args, **_kwargs):
         raise AssertionError("HTTP request must not run for one-word keywords")

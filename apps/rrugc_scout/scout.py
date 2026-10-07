@@ -9,6 +9,7 @@ import queue
 import random
 import re
 import shutil
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -25,7 +26,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v38"
+CLIENT_VERSION = "rrugc-scout-v39"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -88,13 +89,14 @@ _SCOUT_DEBUG_LOGGER.setLevel(logging.INFO)
 _SCOUT_DEBUG_LOGGER.propagate = False
 _SCOUT_DEBUG_LOG_PATH: Path | None = None
 _SCOUT_DEBUG_BASE_FIELDS: dict[str, Any] = {}
-_SCOUT_REMOTE_LOG_QUEUE: queue.Queue[dict[str, Any]] | None = None
+_SCOUT_REMOTE_LOG_QUEUE: queue.Queue[bool] | None = None
 _SCOUT_REMOTE_LOG_THREAD: threading.Thread | None = None
 _SCOUT_REMOTE_LOG_STOP = threading.Event()
 _SCOUT_REMOTE_LOG_ENDPOINT: str | None = None
 _SCOUT_REMOTE_LOG_TOKEN: str | None = None
+_SCOUT_REMOTE_LOG_SPOOL: Path | None = None
 _SCOUT_REMOTE_LOG_BATCH_SIZE = 50
-_SCOUT_REMOTE_LOG_QUEUE_LIMIT = 5_000
+_SCOUT_REMOTE_LOG_RETENTION_DAYS = 10
 
 
 def _scout_remote_log_level(event: str) -> str:
@@ -106,38 +108,43 @@ def _scout_remote_log_level(event: str) -> str:
     return "info"
 
 
-def _scout_remote_log_worker() -> None:
-    pending: list[dict[str, Any]] = []
+def _scout_remote_log_worker(
+    *, stop: threading.Event, wake: queue.Queue[bool], spool: Path,
+    endpoint: str, token: str,
+) -> None:
+    """Replay committed log events. HTTP success precedes deletion for idempotency."""
     with httpx.Client(timeout=httpx.Timeout(8.0, connect=4.0)) as client:
-        while not _SCOUT_REMOTE_LOG_STOP.is_set() or pending:
-            current_queue = _SCOUT_REMOTE_LOG_QUEUE
-            endpoint = _SCOUT_REMOTE_LOG_ENDPOINT
-            token = _SCOUT_REMOTE_LOG_TOKEN
-            if current_queue is None or not endpoint or not token:
-                return
-
-            if not pending:
-                try:
-                    pending.append(current_queue.get(timeout=0.5))
-                except queue.Empty:
-                    continue
-                while len(pending) < _SCOUT_REMOTE_LOG_BATCH_SIZE:
-                    try:
-                        pending.append(current_queue.get_nowait())
-                    except queue.Empty:
-                        break
-
+        while not stop.is_set():
             try:
-                response = client.post(
-                    endpoint,
-                    headers={"Authorization": "Bearer " + token},
-                    json={"events": list(pending)},
-                )
-                response.raise_for_status()
-                pending.clear()
+                with sqlite3.connect(str(spool), timeout=2.0) as db:
+                    rows = db.execute(
+                        "SELECT event_id, event_json FROM events ORDER BY created_at, rowid LIMIT ?",
+                        (_SCOUT_REMOTE_LOG_BATCH_SIZE,),
+                    ).fetchall()
+                if rows:
+                    events = [json.loads(encoded) for _, encoded in rows]
+                    response = client.post(
+                        endpoint,
+                        headers={"Authorization": "Bearer " + token},
+                        json={"events": events},
+                    )
+                    response.raise_for_status()
+                    with sqlite3.connect(str(spool), timeout=2.0) as db:
+                        db.executemany(
+                            "DELETE FROM events WHERE event_id = ?",
+                            [(event_id,) for event_id, _ in rows],
+                        )
+                    continue
             except Exception:
-                if _SCOUT_REMOTE_LOG_STOP.wait(2.0):
-                    return
+                # The SQLite spool retains unsent events across network outages
+                # and process restarts. The Pinterest worker must never wait.
+                if stop.wait(2.0):
+                    break
+                continue
+            try:
+                wake.get(timeout=0.5)
+            except queue.Empty:
+                pass
 
 
 def configure_scout_remote_log(
@@ -150,10 +157,41 @@ def configure_scout_remote_log(
     global _SCOUT_REMOTE_LOG_THREAD
     global _SCOUT_REMOTE_LOG_ENDPOINT
     global _SCOUT_REMOTE_LOG_TOKEN
+    global _SCOUT_REMOTE_LOG_SPOOL
+    global _SCOUT_REMOTE_LOG_STOP
 
     shutdown_scout_remote_log(timeout_seconds=1.0)
-    _SCOUT_REMOTE_LOG_STOP.clear()
-    _SCOUT_REMOTE_LOG_QUEUE = queue.Queue(maxsize=_SCOUT_REMOTE_LOG_QUEUE_LIMIT)
+    if _SCOUT_DEBUG_LOG_PATH is None:
+        raise RuntimeError("Configure the Scout local JSONL log before remote logging.")
+    spool = _SCOUT_DEBUG_LOG_PATH.with_name(
+        _SCOUT_DEBUG_LOG_PATH.stem + "-remote-spool.sqlite3"
+    )
+    # Use the already profile-isolated logs directory (no shared database and
+    # no secrets on disk). Old, unsent records expire with local log retention.
+    try:
+        with sqlite3.connect(str(spool), timeout=3.0) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS events ("
+                "event_id TEXT PRIMARY KEY, event_json TEXT NOT NULL, "
+                "created_at REAL NOT NULL)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS ix_scout_spool_created ON events(created_at)"
+            )
+            db.execute(
+                "DELETE FROM events WHERE created_at < ?",
+                (time.time() - _SCOUT_REMOTE_LOG_RETENTION_DAYS * 86400,),
+            )
+    except sqlite3.Error as exc:
+        # A damaged/unwritable log spool must not prevent Pinterest scouting.
+        scout_debug_event(
+            "scout_remote_spool_unavailable",
+            error_type=type(exc).__name__,
+        )
+        return
+    _SCOUT_REMOTE_LOG_SPOOL = spool
+    _SCOUT_REMOTE_LOG_STOP = threading.Event()
+    _SCOUT_REMOTE_LOG_QUEUE = queue.Queue(maxsize=1)
     _SCOUT_REMOTE_LOG_ENDPOINT = (
         base_url.rstrip("/")
         + "/api/v1/realistic-review-ugc/scout-agents/"
@@ -163,6 +201,13 @@ def configure_scout_remote_log(
     _SCOUT_REMOTE_LOG_TOKEN = token
     _SCOUT_REMOTE_LOG_THREAD = threading.Thread(
         target=_scout_remote_log_worker,
+        kwargs={
+            "stop": _SCOUT_REMOTE_LOG_STOP,
+            "wake": _SCOUT_REMOTE_LOG_QUEUE,
+            "spool": spool,
+            "endpoint": _SCOUT_REMOTE_LOG_ENDPOINT,
+            "token": token,
+        },
         name="rrugc-scout-remote-log",
         daemon=True,
     )
@@ -174,6 +219,7 @@ def shutdown_scout_remote_log(*, timeout_seconds: float = 3.0) -> None:
     global _SCOUT_REMOTE_LOG_THREAD
     global _SCOUT_REMOTE_LOG_ENDPOINT
     global _SCOUT_REMOTE_LOG_TOKEN
+    global _SCOUT_REMOTE_LOG_SPOOL
 
     thread = _SCOUT_REMOTE_LOG_THREAD
     _SCOUT_REMOTE_LOG_STOP.set()
@@ -183,6 +229,7 @@ def shutdown_scout_remote_log(*, timeout_seconds: float = 3.0) -> None:
     _SCOUT_REMOTE_LOG_THREAD = None
     _SCOUT_REMOTE_LOG_ENDPOINT = None
     _SCOUT_REMOTE_LOG_TOKEN = None
+    _SCOUT_REMOTE_LOG_SPOOL = None
 
 
 def configure_scout_debug_log(
@@ -251,19 +298,35 @@ def scout_debug_event(event: str, **fields: Any) -> None:
             pass
 
     remote_queue = _SCOUT_REMOTE_LOG_QUEUE
-    if remote_queue is not None:
+    spool = _SCOUT_REMOTE_LOG_SPOOL
+    if remote_queue is not None and spool is not None:
+        event_id = uuid4().hex
+        remote_event = {
+            "event_id": event_id,
+            "event_type": str(event),
+            "level": _scout_remote_log_level(str(event)),
+            "occurred_at": payload["ts"],
+            "payload": payload,
+        }
         try:
-            remote_queue.put_nowait(
-                {
-                    "event_id": uuid4().hex,
-                    "event_type": str(event),
-                    "level": _scout_remote_log_level(str(event)),
-                    "occurred_at": payload["ts"],
-                    "payload": payload,
-                }
-            )
-        except queue.Full:
-            # Remote logging is best-effort; local JSONL remains the fallback.
+            # Commit locally BEFORE the worker attempts HTTP. A process crash
+            # or a full in-memory wake queue cannot lose this event.
+            with sqlite3.connect(str(spool), timeout=0.3) as db:
+                db.execute(
+                    "INSERT INTO events (event_id, event_json, created_at) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        event_id,
+                        json.dumps(remote_event, ensure_ascii=False, default=str),
+                        time.time(),
+                    ),
+                )
+            try:
+                remote_queue.put_nowait(True)
+            except queue.Full:
+                pass  # Wake signal only; the event is durable on disk.
+        except sqlite3.Error:
+            # Local rotating JSONL stays available if the spool is unwritable.
             pass
 
 
@@ -3123,6 +3186,16 @@ async def scan_auto_run(
                 + str(keyword_pause)
             )
 
+    if created_this_run == 0:
+        scout_debug_event(
+            "review_scout_no_progress_warning",
+            campaign_id=campaign_id,
+            run_id=run_id,
+            source_plan_id=source_plan_id,
+            search_queries=len(search_queries),
+            candidate_budget=run_candidate_cap,
+            action="yield_to_next_campaign_and_re_rank_queries",
+        )
     await client.complete(run_id, "completed")
 
 
