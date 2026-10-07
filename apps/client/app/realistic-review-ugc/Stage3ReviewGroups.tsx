@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RrugcStageHeader } from "./RrugcStageHeader";
 import type {
   Stage3AnalysisStatus,
   Stage3ReviewGroup,
@@ -291,16 +292,12 @@ export function Stage3ReviewGroups({
     : -1;
 
   return <section className="rrugc-stage3">
-    <header className="rrugc-stage3-header">
-      <div>
-        <p className="rrugc-stage-kicker">STAGE 4 · FOLDER GROUPS → UGC REVIEW</p>
-        <h2>UGC Review</h2>
-        <p>
-          Stage 3 outputs stay grouped by destination folder. Each image is analyzed once
-          for visible person/product, UGC feel, photorealism and review-card suitability.
-        </p>
-      </div>
-      <div className="rrugc-stage3-header-actions">
+    <RrugcStageHeader
+      className="rrugc-stage4-heading"
+      kicker="STAGE 4 · FOLDER GROUPS → UGC REVIEW"
+      title="UGC Review"
+      description="Stage 3 outputs stay grouped by destination folder. Each image is analyzed once for visible person/product, UGC feel, photorealism and review-card suitability."
+      actions={<div className="rrugc-stage3-header-actions">
         <div className="rrugc-stage3-stats" aria-label="Stage 4 summary">
           <span><strong>{data.total_groups}</strong><small>Folders</small></span>
           <span><strong>{data.total_images}</strong><small>Images</small></span>
@@ -314,8 +311,8 @@ export function Stage3ReviewGroups({
         >
           {analyzing ? "Queueing…" : "Analyze all"}
         </button>
-      </div>
-    </header>
+      </div>}
+    />
 
     {message && <div className="rrugc-stage3-message">{message}</div>}
 

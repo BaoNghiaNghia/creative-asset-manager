@@ -21,7 +21,8 @@ import {
   type KeywordUsageFilter,
   type KeywordTailFilter,
 } from "./api";
-import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
+import { RrugcWorkflowSettingsModal } from "./RrugcWorkflowSettingsModal";
+import { SkillManagerModal } from "./SkillManagerModal";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { SourcePlanTable } from "./SourcePlanTable";
@@ -87,7 +88,7 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   },
 };
 
-type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4" | "settings";
+type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4";
 
 const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
   { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
@@ -95,7 +96,6 @@ const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: s
   { id: "stage2", label: "Stage 2", description: "Pinterest References", marker: "2" },
   { id: "stage3", label: "Stage 3", description: "Image Generation", marker: "3" },
   { id: "stage4", label: "Stage 4", description: "UGC Review", marker: "4" },
-  { id: "settings", label: "Settings", description: "Auto Scout", marker: "⚙" },
 ];
 
 export function sourcePlanPageRenderFingerprint(page: SourcePlanPage): string {
@@ -165,6 +165,9 @@ export function RealisticReviewUgcPage() {
   const [stage3Message, setStage3Message] = useState("");
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
+  const [skillManagerOpen, setSkillManagerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [skillCatalogRevision, setSkillCatalogRevision] = useState(0);
   const groupsStageActive = activeStage === "stage2" || activeStage === "stage3";
   const visibleStage2SourcePlanIds = useMemo(
     () => Array.from(new Set(
@@ -723,7 +726,19 @@ export function RealisticReviewUgcPage() {
         route="realistic-review-ugc"
         description="Analyze keyword demand, prepare embroidery designs across 13 hat colors, discover Pinterest references, generate UGC images, then build review-ready outputs."
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}
-        actions={<WorkspaceBackToAssets />}
+        actions={<div className="rrugc-global-management-actions">
+          <button
+            type="button"
+            className="rrugc-global-management-button"
+            onClick={() => setSkillManagerOpen(true)}
+          >Manage skills</button>
+          <button
+            type="button"
+            className="rrugc-global-management-button"
+            onClick={() => setSettingsOpen(true)}
+          >Settings</button>
+          <WorkspaceBackToAssets />
+        </div>}
       />
       <div className="rrugc-stage-tabs-shell">
         <nav
@@ -823,6 +838,7 @@ export function RealisticReviewUgcPage() {
         >
           <EmbroideryColorwayStage
             active={activeStage === "stage1"}
+            skillCatalogRevision={skillCatalogRevision}
             data={embroideryPage}
             loading={embroideryLoading}
             syncing={syncingSourcePlans}
@@ -902,6 +918,8 @@ export function RealisticReviewUgcPage() {
             cancellingPlanIds={cancellingStage2PlanIds}
             loading={sourcePageLoading}
             message={stage2Message}
+            skillCatalogRevision={skillCatalogRevision}
+            onManageSkills={() => setSkillManagerOpen(true)}
             onPageChange={value => {
               setSourcePageLoading(true);
               setSourcePageNumber(value);
@@ -933,19 +951,17 @@ export function RealisticReviewUgcPage() {
           />
         </section>
 
-        <section
-          id="rrugc-panel-settings"
-          className="rrugc-stage-panel rrugc-settings-panel"
-          role="tabpanel"
-          aria-labelledby="rrugc-tab-settings"
-          tabIndex={activeStage === "settings" ? 0 : -1}
-          hidden={activeStage !== "settings"}
-        >
-          <div id="rrugc-scout" className="rrugc-anchor-section rrugc-source-scout-panel">
-            <PinterestAutoScoutPanel onError={setError} />
-          </div>
-        </section>
       </div>
+      <SkillManagerModal
+        open={skillManagerOpen}
+        onClose={() => setSkillManagerOpen(false)}
+        onChanged={() => setSkillCatalogRevision(current => current + 1)}
+      />
+      <RrugcWorkflowSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onError={setError}
+      />
     </section>
   </main>;
 }

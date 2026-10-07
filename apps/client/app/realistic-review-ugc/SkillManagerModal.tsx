@@ -155,9 +155,9 @@ export function SkillManagerModal({
     >
       <header className="rrugc-skill-modal-header">
         <div>
-          <small>STAGE 2 · SKILL REGISTRY</small>
+          <small>WORKFLOW · SHARED SKILL REGISTRY</small>
           <h2 id="rrugc-skill-modal-title">Manage Skills</h2>
-          <p>CAM-local skills can be uploaded and used immediately. OpenAI-hosted skills remain an optional sync source.</p>
+          <p>Manage the shared skill catalog once. Any stage that needs a skill can select an enabled version from this registry without owning its own skill settings.</p>
         </div>
         <button type="button" className="rrugc-skill-modal-close" onClick={onClose} disabled={Boolean(busyKey)} aria-label="Close skill manager">×</button>
       </header>

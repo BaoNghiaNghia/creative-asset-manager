@@ -1,4 +1,5 @@
 import { KeywordSearchInput } from "./KeywordSearchInput";
+import { RrugcStageHeader } from "./RrugcStageHeader";
 import type { KeywordAnalysisSortBy, KeywordAnalysisSortDirection, KeywordTailFilter, KeywordUsageFilter } from "./api";
 import type { KeywordVolumePage } from "./types";
 
@@ -119,17 +120,16 @@ export function KeywordAnalysisTable({
   const items = data.items;
 
   return <section className="rrugc-card rrugc-stage0">
-    <div className="rrugc-section-heading rrugc-stage0-heading">
-      <div>
-        <small>QUOTE SCOUT → KEYWORD → GOOGLE ADS VOLUME</small>
-        <h2>Stage 0 · Analysis Keyword</h2>
-        <p>A separate quote-scout terminal discovers hat quote keywords, sends them to Creative Asset Manager, and CAM resolves Google Ads volume through AEBrowse.</p>
-      </div>
-      <div className="rrugc-stage0-heading-meta">
+    <RrugcStageHeader
+      className="rrugc-stage0-heading"
+      kicker="STAGE 0 · QUOTE SCOUT → KEYWORD → GOOGLE ADS VOLUME"
+      title="Analysis Keyword"
+      description="A separate quote-scout terminal discovers hat quote keywords, sends them to Creative Asset Manager, and CAM resolves Google Ads volume through AEBrowse."
+      actions={<div className="rrugc-stage0-heading-meta">
         <span className="rrugc-stage0-lane"><i aria-hidden="true" />Quote Scout · separate terminal</span>
         <small>Independent from the Stage 2 Pinterest reference scout.</small>
-      </div>
-    </div>
+      </div>}
+    />
 
     <div className="rrugc-stage0-flow" aria-label="Keyword analysis workflow">
       <div><b>01</b><span><strong>Discover keyword</strong><small>Quote scout terminal</small></span></div>

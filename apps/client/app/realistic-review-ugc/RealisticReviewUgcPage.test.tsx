@@ -423,7 +423,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">302<");
     expect(markup).toContain(">7<");
     expect(markup).toContain("Generate selected");
-    expect(markup).toContain("Manage skills");
+    expect(markup).not.toContain("Manage skills");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).toContain('aria-label="Stage 3 rows per page"');
     expect(markup).toContain("1–1 of 1");
@@ -584,7 +584,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders Stage 0 through Stage 4 and Settings as accessible AI Operations-style tabs", () => {
+  it("renders only Stage 0 through Stage 4 as accessible workflow tabs with global management actions", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
     expect(markup).toContain('aria-label="Realistic Review UGC sections"');
@@ -593,30 +593,27 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('id="rrugc-tab-stage2"');
     expect(markup).toContain('id="rrugc-tab-stage3"');
     expect(markup).toContain('id="rrugc-tab-stage4"');
-    expect(markup).toContain('id="rrugc-tab-settings"');
+    expect(markup).not.toContain('id="rrugc-tab-settings"');
     expect(markup).toContain("Analysis Keyword");
     expect(markup).toContain("Embroidery → 13 Colors");
     expect(markup).toContain("Pinterest References");
     expect(markup).toContain("Image Generation");
     expect(markup).toContain("UGC Review");
+    expect(markup).toContain("Manage skills");
     expect(markup).toContain("Settings");
-    expect(markup).toContain("Auto Scout");
     expect(markup).toContain('aria-selected="true"');
     expect(markup).toContain('id="rrugc-panel-stage0"');
     expect(markup).toContain('id="rrugc-panel-stage1"');
     expect(markup).toContain('id="rrugc-panel-stage2"');
     expect(markup).toContain('id="rrugc-panel-stage3"');
     expect(markup).toContain('id="rrugc-panel-stage4"');
-    expect(markup).toContain('id="rrugc-panel-settings"');
+    expect(markup).not.toContain('id="rrugc-panel-settings"');
     expect(markup.indexOf('id="rrugc-tab-stage0"')).toBeLessThan(markup.indexOf('id="rrugc-tab-stage1"'));
-    expect(markup.indexOf('id="rrugc-tab-settings"')).toBeGreaterThan(markup.indexOf('id="rrugc-tab-stage4"'));
 
     const stage1Start = markup.indexOf('id="rrugc-panel-stage1"');
     const stage2Start = markup.indexOf('id="rrugc-panel-stage2"');
-    const settingsStart = markup.indexOf('id="rrugc-panel-settings"');
     expect(markup.slice(stage1Start, stage2Start)).toContain("Embroidery design → 13 colorways");
-    expect(markup.slice(stage1Start, stage2Start)).not.toContain('aria-label="Pinterest Auto Scout"');
-    expect(markup.indexOf('aria-label="Pinterest Auto Scout"')).toBeGreaterThan(settingsStart);
+    expect(markup).not.toContain('aria-label="Pinterest Auto Scout"');
     expect(markup).toContain("hidden");
   });
 
@@ -694,7 +691,7 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
 
-    expect(markup).toContain("Stage 0 · Analysis Keyword");
+    expect(markup).toContain("<h2>Analysis Keyword</h2>");
     expect(markup).toContain("Quote Scout · separate terminal");
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
     expect(markup).toContain(">Image<");

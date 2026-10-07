@@ -5,7 +5,7 @@ import {
   stage2JobOutputUrl,
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
-import { SkillManagerModal } from "./SkillManagerModal";
+import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type {
@@ -504,7 +504,9 @@ export function Stage2JobTable({
   cancellingPlanIds = new Set<string>(),
   loading = false,
   message,
+  skillCatalogRevision = 0,
   onCreateJob,
+  onManageSkills = () => undefined,
   onCancelJobs = () => undefined,
   onPageChange = () => undefined,
   onPageSizeChange = () => undefined,
@@ -519,11 +521,13 @@ export function Stage2JobTable({
   cancellingPlanIds?: ReadonlySet<string>;
   loading?: boolean;
   message?: string;
+  skillCatalogRevision?: number;
   onCreateJob: (
     plan: SourcePlan,
     candidateIds: string[],
     skill: Stage2SkillSelection,
   ) => void;
+  onManageSkills?: () => void;
   onCancelJobs?: (plan: SourcePlan) => void;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
@@ -533,7 +537,6 @@ export function Stage2JobTable({
   const [skillKeyByPlan, setSkillKeyByPlan] = useState<Record<string, string>>({});
   const [skillVersionByPlan, setSkillVersionByPlan] = useState<Record<string, string>>({});
   const [refreshingSkills, setRefreshingSkills] = useState(false);
-  const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [outputReview, setOutputReview] = useState<{
@@ -567,7 +570,7 @@ export function Stage2JobTable({
       .then(setCatalog)
       .catch(() => undefined);
     return () => controller.abort();
-  }, []);
+  }, [skillCatalogRevision]);
 
   useEffect(() => {
     setNowMs(Date.now());
@@ -659,13 +662,12 @@ export function Stage2JobTable({
   }
 
   return <section className="rrugc-card rrugc-stage2">
-    <div className="rrugc-section-heading rrugc-stage2-heading">
-      <div>
-        <small>STAGE 3 · EMBROIDERY GROUP → PINTEREST REFS → SKILL</small>
-        <h2>Pinterest references → image generation</h2>
-        <p>Stage 2 grouping is preserved. Select any number of Drive-ready references; generation automatically runs them in groups of up to {REFS_PER_RUN} refs plus 1 random hat input until the selection is queued.</p>
-      </div>
-      <div className="rrugc-stage2-registry-actions">
+    <RrugcStageHeader
+      className="rrugc-stage2-heading"
+      kicker="STAGE 3 · EMBROIDERY GROUP → PINTEREST REFS → SKILL"
+      title="Pinterest references → image generation"
+      description={<>Stage 2 grouping is preserved. Select any number of Drive-ready references; generation automatically runs them in groups of up to {REFS_PER_RUN} refs plus 1 random hat input until the selection is queued.</>}
+      actions={<div className="rrugc-stage2-registry-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} refs + 1 random hat / run</span>
         <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
           <i aria-hidden="true" />
@@ -683,15 +685,8 @@ export function Stage2JobTable({
         >
           {refreshingSkills ? "Refreshing…" : "Refresh skills"}
         </button>
-        <button
-          type="button"
-          className="rrugc-stage2-manage"
-          onClick={() => setSkillManagerOpen(true)}
-        >
-          Manage skills
-        </button>
-      </div>
-    </div>
+      </div>}
+    />
 
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
     {skillMessage && <p className="rrugc-editor-product-result" role="status">{skillMessage}</p>}
@@ -824,7 +819,7 @@ export function Stage2JobTable({
                   type="button"
                   className="rrugc-stage2-sync"
                   disabled={busy}
-                  onClick={() => setSkillManagerOpen(true)}
+                  onClick={onManageSkills}
                 >
                   Manage / sync skill
                 </button>}
@@ -997,13 +992,5 @@ export function Stage2JobTable({
       jobs={outputReview.jobs}
       onClose={() => setOutputReview(null)}
     />}
-    <SkillManagerModal
-      open={skillManagerOpen}
-      onClose={() => setSkillManagerOpen(false)}
-      onChanged={async () => {
-        const refreshed = await listStage2Skills(false);
-        setCatalog(refreshed);
-      }}
-    />
   </section>;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { listStage2Skills } from "./api";
+import { RrugcStageHeader } from "./RrugcStageHeader";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog } from "./types";
 
 const COLOR_SLOT_COUNT = 13;
@@ -63,6 +64,7 @@ export function EmbroideryColorwayStage({
   message,
   executionReady = false,
   active = true,
+  skillCatalogRevision = 0,
   onSync,
   onQueryChange,
   onPageChange,
@@ -74,6 +76,7 @@ export function EmbroideryColorwayStage({
   message?: string;
   executionReady?: boolean;
   active?: boolean;
+  skillCatalogRevision?: number;
   onSync: () => void;
   onQueryChange: (value: string) => void;
   onPageChange: (page: number) => void;
@@ -103,7 +106,7 @@ export function EmbroideryColorwayStage({
         if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => controller.abort();
-  }, [active]);
+  }, [active, skillCatalogRevision]);
 
   const selectedSkill = useMemo(
     () => catalog.items.find(item => skillKey(item) === selectedSkillKey) || null,
@@ -135,23 +138,18 @@ export function EmbroideryColorwayStage({
   }
 
   return <section className="rrugc-card rrugc-colorway-stage">
-    <header className="rrugc-colorway-header">
-      <div>
-        <small>EMBROIDERY_ SOURCE → SKILL → 13 HAT COLORS</small>
-        <h2>Embroidery design → 13 colorways</h2>
-        <p>
-          Stage 1 scans only source images whose filename starts with <code>embroidery_</code>.
-          Each design becomes one 13-color batch so the same embroidery can be applied consistently
-          across every hat color before Pinterest reference discovery begins.
-        </p>
-      </div>
-      <div className="rrugc-colorway-header-actions">
+    <RrugcStageHeader
+      className="rrugc-colorway-header"
+      kicker="STAGE 1 · EMBROIDERY_ SOURCE → SKILL → 13 HAT COLORS"
+      title="Embroidery design → 13 colorways"
+      description={<>Scans only source images whose filename starts with <code>embroidery_</code>. Each design becomes one 13-color batch so the same embroidery can be applied consistently across every hat color before Pinterest reference discovery begins.</>}
+      actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Prefix scan · embroidery_</span>
         <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>
           {syncing ? "Scanning…" : "Scan source"}
         </button>
-      </div>
-    </header>
+      </div>}
+    />
 
     {(message || catalogMessage) && <p className="rrugc-editor-product-result" role="status">{message || catalogMessage}</p>}
 

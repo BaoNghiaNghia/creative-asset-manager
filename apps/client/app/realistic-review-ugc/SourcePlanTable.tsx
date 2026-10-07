@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { RrugcStageHeader } from "./RrugcStageHeader";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanOverview, SourcePlanReferencePreview } from "./types";
 
@@ -557,18 +558,17 @@ export function SourcePlanTable({
   const end = total === 0 ? 0 : Math.min((page - 1) * pageSize + plans.length, total);
 
   return <section id="rrugc-source-plans" className="rrugc-card rrugc-source-plans">
-    <div className="rrugc-section-heading rrugc-source-plans-heading">
-      <div>
-        <small>STAGE 2 · DRIVE → AI CONTEXT → PINTEREST</small>
-        <h2>Embroidery source → Pinterest refs</h2>
-        <p>New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool.</p>
-      </div>
-      <div className="rrugc-source-plan-heading-actions">
+    <RrugcStageHeader
+      className="rrugc-source-plans-heading"
+      kicker="STAGE 2 · DRIVE → AI CONTEXT → PINTEREST"
+      title="Embroidery source → Pinterest refs"
+      description="New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool."
+      actions={<div className="rrugc-source-plan-heading-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Auto scan on</span>
         <span className="rrugc-source-root" title={SOURCE_ROOT_FOLDER_ID}>Drive · {SOURCE_ROOT_FOLDER_ID}</span>
         <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>{syncing ? "Scanning…" : "Scan now"}</button>
-      </div>
-    </div>
+      </div>}
+    />
 
     {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
 
