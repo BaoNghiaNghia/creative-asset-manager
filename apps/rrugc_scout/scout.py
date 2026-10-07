@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v42"
+CLIENT_VERSION = "rrugc-scout-v43"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -40,6 +40,9 @@ PIN_RELATED_SCAN_LIMIT = 60
 PIN_RELATED_HARD_LIMIT = 150
 PIN_RELATED_MAX_SCROLL_STEPS = 12
 PIN_DETAIL_TIMEOUT_MS = 15_000
+PIN_DETAIL_RETRY_TIMEOUT_MS = 25_000
+PIN_DETAIL_NAVIGATION_ATTEMPTS = 2
+PIN_DETAIL_RETRY_PAUSE_MS = 900
 PIN_DETAIL_SETTLE_MS = 650
 PIN_DETAIL_NAVIGATION_PAUSE_MS = 2_500
 PIN_ACCESS_GATE_COOLDOWN_SECONDS = 300
@@ -104,7 +107,10 @@ def _scout_remote_log_level(event: str) -> str:
     lowered = str(event).casefold()
     if any(marker in lowered for marker in ("failed", "error", "recovering")):
         return "error"
-    if any(marker in lowered for marker in ("rate_limited", "challenge", "warning")):
+    if any(
+        marker in lowered
+        for marker in ("rate_limited", "challenge", "warning", "retry", "timeout")
+    ):
         return "warning"
     return "info"
 
@@ -592,6 +598,67 @@ def _looks_like_browser_runtime_failure(error: BaseException) -> bool:
             "review browser step timeout",
         )
     )
+
+
+def _looks_like_navigation_timeout(error: BaseException) -> bool:
+    message = (error.__class__.__name__ + " " + str(error)).casefold()
+    if "timeout" not in message and "timed out" not in message:
+        return False
+    return any(
+        marker in message
+        for marker in (
+            "page.goto",
+            "navigation",
+            "pinterest pin",
+            "domcontentloaded",
+        )
+    )
+
+
+async def _goto_pin_detail_with_retry(page: Any, pin_url: str) -> Any:
+    """Retry only transient Pin navigation timeouts, never access/runtime failures."""
+    last_error: BaseException | None = None
+    for attempt in range(PIN_DETAIL_NAVIGATION_ATTEMPTS):
+        timeout_ms = (
+            PIN_DETAIL_TIMEOUT_MS
+            if attempt == 0
+            else PIN_DETAIL_RETRY_TIMEOUT_MS
+        )
+        try:
+            response = await page.goto(
+                pin_url,
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+            guard_pinterest_response(response)
+            return response
+        except (PinterestAccessGateError, PinterestRateLimitedError):
+            raise
+        except Exception as exc:
+            if _looks_like_browser_runtime_failure(exc):
+                raise
+            last_error = exc
+            should_retry = (
+                _looks_like_navigation_timeout(exc)
+                and attempt + 1 < PIN_DETAIL_NAVIGATION_ATTEMPTS
+            )
+            if not should_retry:
+                raise
+            scout_debug_event(
+                "pinterest_pin_detail_retry",
+                pin_url=pin_url,
+                error_type=exc.__class__.__name__,
+                error=str(exc)[:300],
+                attempt=attempt + 1,
+                next_attempt=attempt + 2,
+                timeout_ms=timeout_ms,
+                next_timeout_ms=PIN_DETAIL_RETRY_TIMEOUT_MS,
+            )
+            await page.wait_for_timeout(PIN_DETAIL_RETRY_PAUSE_MS)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Pinterest Pin detail navigation failed without an error.")
 
 
 def _browser_session_needs_recycle(
@@ -1604,12 +1671,7 @@ def choose_pin_detail_candidate(
 
 async def extract_pin_detail_candidate(page: Any, seed: Candidate) -> Candidate:
     """Resolve a discovered Pin through its detail page before submission."""
-    response = await page.goto(
-        seed.pin_url,
-        wait_until="domcontentloaded",
-        timeout=PIN_DETAIL_TIMEOUT_MS,
-    )
-    guard_pinterest_response(response)
+    await _goto_pin_detail_with_retry(page, seed.pin_url)
     await page.wait_for_timeout(PIN_DETAIL_SETTLE_MS)
     gate = await access_gate(page)
     if gate is not None:
@@ -1737,12 +1799,7 @@ async def extract_related_candidates(
 ) -> list[Candidate]:
     """Collect the first related Pins shown under one approved Pin detail page."""
     wanted = max(1, min(int(limit), PIN_RELATED_HARD_LIMIT))
-    response = await page.goto(
-        seed.pin_url,
-        wait_until="domcontentloaded",
-        timeout=PIN_DETAIL_TIMEOUT_MS,
-    )
-    guard_pinterest_response(response)
+    await _goto_pin_detail_with_retry(page, seed.pin_url)
     await page.wait_for_timeout(PIN_DETAIL_SETTLE_MS)
     gate = await access_gate(page)
     if gate is not None:
@@ -1863,23 +1920,31 @@ async def resolve_pin_details(
             except Exception as exc:
                 if _looks_like_browser_runtime_failure(exc):
                     raise
+                can_fallback = fallback_on_error and has_submittable_image(seed)
+                timeout_error = _looks_like_navigation_timeout(exc)
                 scout_debug_event(
-                    "pinterest_pin_detail_failed",
+                    (
+                        "pinterest_pin_detail_timeout_fallback"
+                        if timeout_error and can_fallback
+                        else "pinterest_pin_detail_failed"
+                    ),
                     pin_url=seed.pin_url,
                     error_type=exc.__class__.__name__,
                     error=str(exc)[:500],
+                    fallback_used=can_fallback,
+                    navigation_timeout=timeout_error,
                     index=index + 1,
                     total=len(rows),
                 )
                 print(
                     "Pinterest Pin detail "
-                    + ("fallback: " if fallback_on_error else "failed: ")
+                    + ("fallback: " if can_fallback else "failed: ")
                     + seed.pin_url
                     + " ("
                     + exc.__class__.__name__
                     + ")"
                 )
-                if fallback_on_error and has_submittable_image(seed):
+                if can_fallback:
                     resolved.append(seed)
                 else:
                     scout_debug_event(

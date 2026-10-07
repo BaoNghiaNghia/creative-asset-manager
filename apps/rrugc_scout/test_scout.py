@@ -511,6 +511,47 @@ def test_pin_detail_selection_prefers_same_asset_highest_rendition():
     assert resolved.alt_text == "search thumbnail"
 
 
+def test_pin_detail_navigation_retries_transient_timeout_once(monkeypatch):
+    events = []
+
+    class RetryPage:
+        def __init__(self):
+            self.calls = []
+            self.waits = []
+
+        async def goto(self, url, *, wait_until, timeout):
+            self.calls.append((url, wait_until, timeout))
+            if len(self.calls) == 1:
+                raise TimeoutError(
+                    "Page.goto: Timeout 15000ms exceeded while waiting until domcontentloaded"
+                )
+            return None
+
+        async def wait_for_timeout(self, milliseconds):
+            self.waits.append(milliseconds)
+
+    monkeypatch.setattr(
+        scout_module,
+        "scout_debug_event",
+        lambda event, **payload: events.append((event, payload)),
+    )
+    page = RetryPage()
+    asyncio.run(
+        scout_module._goto_pin_detail_with_retry(
+            page,
+            "https://www.pinterest.com/pin/123/",
+        )
+    )
+
+    assert [call[2] for call in page.calls] == [
+        scout_module.PIN_DETAIL_TIMEOUT_MS,
+        scout_module.PIN_DETAIL_RETRY_TIMEOUT_MS,
+    ]
+    assert page.waits == [scout_module.PIN_DETAIL_RETRY_PAUSE_MS]
+    assert events[0][0] == "pinterest_pin_detail_retry"
+    assert scout_module._scout_remote_log_level(events[0][0]) == "warning"
+
+
 def test_pin_detail_resolver_reuses_one_sequential_detail_tab():
     class FakeContext:
         def __init__(self):
