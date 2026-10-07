@@ -645,6 +645,7 @@ describe("Realistic Review UGC source-first workspace", () => {
               favorite_at: "2026-10-05T11:00:00Z",
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
+              created_at: "2026-10-01T10:00:00Z",
             },
             {
               id: "kv-2",
@@ -666,6 +667,7 @@ describe("Realistic Review UGC source-first workspace", () => {
               favorite_at: null,
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
+              created_at: "2026-09-30T10:00:00Z",
             },
           ],
           page: 1,
@@ -720,6 +722,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Avg searches / mo");
     expect(markup).toContain("3-mo change");
     expect(markup).toContain("YoY change");
+    expect(markup).toContain('aria-label="Sort by 3-mo change ascending"');
+    expect(markup).toContain('aria-label="Sort by YoY change ascending"');
     expect(markup).toContain("Low CPC ($)");
     expect(markup).toContain("High CPC ($)");
     expect(markup).toContain("Total keywords");
@@ -751,6 +755,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by Avg searches / mo ascending"');
     expect(markup).toContain('aria-label="Sort by Competition ascending"');
     expect(markup).toContain('aria-label="Sort by Low CPC ($) ascending"');
+    expect(markup).toContain('aria-label="Sort by High CPC ($) ascending"');
+    expect(markup).toContain('aria-label="Sort by Created date ascending"');
+    expect(markup).toContain("Created date");
     expect(markup).toContain('title="Open keyword details"');
     expect(markup).toContain('aria-label="Open details and 12-month Google Ads trend for Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('role="tooltip"');

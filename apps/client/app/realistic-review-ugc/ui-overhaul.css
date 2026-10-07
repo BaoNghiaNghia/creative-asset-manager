@@ -1224,7 +1224,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 @media(max-width:760px){.rrugc-stage0-kpis-restored{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-stage0-searchbox .rrugc-stage0-suggest-panel{width:100%}}
 
 /* Stage 0 Google Ads columns + keyword detail modal */
-.rrugc-stage0-v2 .rrugc-stage0-keyword-table{min-width:1180px}
+.rrugc-stage0-v2 .rrugc-stage0-keyword-table{min-width:1280px}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table thead th{height:40px;padding:0 9px;font-size:8.5px;letter-spacing:.015em;text-transform:none}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table tbody td{height:64px;padding:7px 9px}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(1){width:56px}
@@ -1236,7 +1236,8 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(7){width:104px;text-align:left}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(8),
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(9){width:92px}
-.rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(10){width:76px;text-align:right}
+.rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(10){width:108px}
+.rrugc-stage0-v2 .rrugc-stage0-keyword-table th:nth-child(11){width:76px;text-align:right}
 .rrugc-stage0-keyword-link{display:block;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .rrugc-stage0-keyword-link strong{transition:color .15s}
 .rrugc-stage0-keyword-link:hover strong,.rrugc-stage0-keyword-link:focus-visible strong{color:#315f9c}
@@ -1247,6 +1248,8 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-change strong.neutral{color:#65758b}
 .rrugc-stage0-competition-index{display:inline-block;margin-left:6px;color:#9aa5b4;font-size:7px;font-variant-numeric:tabular-nums}
 .rrugc-stage0-v2 .rrugc-stage0-cpc strong{font-size:9.5px}
+.rrugc-stage0-v2 .rrugc-stage0-created-date{white-space:nowrap}
+.rrugc-stage0-v2 .rrugc-stage0-created-date strong{display:block;color:#53677f;font-size:8.8px;font-weight:800;font-variant-numeric:tabular-nums}
 .rrugc-stage0-trend{cursor:pointer}
 .rrugc-stage0-trend:hover .rrugc-stage0-spark-line,.rrugc-stage0-trend:focus .rrugc-stage0-spark-line{stroke:#386fca}
 .rrugc-stage0-trend:focus-visible{border-radius:7px;outline:2px solid rgba(82,107,206,.3);outline-offset:2px}

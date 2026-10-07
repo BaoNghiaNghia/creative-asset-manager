@@ -539,6 +539,7 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
                 },
                 fetched_at=now,
                 last_requested_at=now,
+                created_at=now,
             ),
             RrugcKeywordVolumeModel(
                 tenant_id="tenant-a",
@@ -549,8 +550,13 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
                 cpc_low=0.12,
                 cpc_high=0.44,
                 provider="aebrowse_google_ads",
+                provider_raw_json={
+                    "three_month_change_pct": 12.4,
+                    "yoy_change_pct": 83.1,
+                },
                 fetched_at=now - timedelta(hours=1),
                 last_requested_at=now - timedelta(hours=1),
+                created_at=now - timedelta(days=2),
             ),
         ])
         session.commit()
@@ -641,10 +647,18 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         ("keyword", "desc"): ["matching couple hoodies", "custom initial hoodie"],
         ("search_volume", "asc"): ["custom initial hoodie", "matching couple hoodies"],
         ("search_volume", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("three_month_change", "asc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("three_month_change", "desc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("yoy_change", "asc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("yoy_change", "desc"): ["custom initial hoodie", "matching couple hoodies"],
         ("competition", "asc"): ["custom initial hoodie", "matching couple hoodies"],
         ("competition", "desc"): ["matching couple hoodies", "custom initial hoodie"],
         ("cpc", "asc"): ["custom initial hoodie", "matching couple hoodies"],
         ("cpc", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("high_cpc", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("high_cpc", "desc"): ["matching couple hoodies", "custom initial hoodie"],
+        ("created_at", "asc"): ["custom initial hoodie", "matching couple hoodies"],
+        ("created_at", "desc"): ["matching couple hoodies", "custom initial hoodie"],
         ("fetched_at", "asc"): ["custom initial hoodie", "matching couple hoodies"],
         ("fetched_at", "desc"): ["matching couple hoodies", "custom initial hoodie"],
     }

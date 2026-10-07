@@ -3556,7 +3556,7 @@ def list_keyword_analysis(
     favorites_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
-        pattern="^(keyword|search_volume|competition|cpc|fetched_at)$",
+        pattern="^(keyword|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|created_at|fetched_at)$",
     ),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
@@ -3703,11 +3703,29 @@ def list_keyword_analysis(
         (RrugcKeywordVolumeModel.competition == "HIGH", 3),
         else_=None,
     )
+    three_month_change = (
+        RrugcKeywordVolumeModel.provider_raw_json["three_month_change_pct"].as_float()
+    )
+    yoy_change = (
+        RrugcKeywordVolumeModel.provider_raw_json["yoy_change_pct"].as_float()
+    )
     if sort_by == "keyword":
         primary_order = [
             RrugcKeywordVolumeModel.keyword.asc()
             if sort_dir == "asc"
             else RrugcKeywordVolumeModel.keyword.desc()
+        ]
+    elif sort_by == "three_month_change":
+        primary_order = [
+            three_month_change.asc().nulls_last()
+            if sort_dir == "asc"
+            else three_month_change.desc().nulls_last()
+        ]
+    elif sort_by == "yoy_change":
+        primary_order = [
+            yoy_change.asc().nulls_last()
+            if sort_dir == "asc"
+            else yoy_change.desc().nulls_last()
         ]
     elif sort_by == "competition":
         primary_order = [
@@ -3727,6 +3745,18 @@ def list_keyword_analysis(
                 if sort_dir == "asc"
                 else RrugcKeywordVolumeModel.cpc_high.desc().nulls_last()
             ),
+        ]
+    elif sort_by == "high_cpc":
+        primary_order = [
+            RrugcKeywordVolumeModel.cpc_high.asc().nulls_last()
+            if sort_dir == "asc"
+            else RrugcKeywordVolumeModel.cpc_high.desc().nulls_last()
+        ]
+    elif sort_by == "created_at":
+        primary_order = [
+            RrugcKeywordVolumeModel.created_at.asc()
+            if sort_dir == "asc"
+            else RrugcKeywordVolumeModel.created_at.desc()
         ]
     elif sort_by == "fetched_at":
         primary_order = [
