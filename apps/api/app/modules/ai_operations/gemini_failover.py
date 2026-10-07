@@ -67,6 +67,7 @@ def rate_limit_provider_key(
     session: Session, settings: Settings, tenant_id: str, provider: str, *,
     model: str | None = None, rpm: int | None = None,
     minimum_interval_seconds: float | None = None, now: datetime | None = None,
+    state_provider_prefix: str = "",
 ) -> str:
     """Select primary/backup by availability, keeping primary as tie-breaker."""
     if provider != "gemini" or not _backup_is_configured(session, tenant_id):
@@ -87,10 +88,17 @@ def rate_limit_provider_key(
         tenant_id,
         candidates,
     )
+    def state_provider(candidate: str) -> str:
+        return state_provider_prefix + candidate
+
     decisions = {
         candidate: limiter.next_start(
-            tenant_id=tenant_id, provider=candidate, model=model, rpm=rpm,
-            minimum_interval_seconds=minimum_interval_seconds, now=now,
+            tenant_id=tenant_id,
+            provider=state_provider(candidate),
+            model=model,
+            rpm=rpm,
+            minimum_interval_seconds=minimum_interval_seconds,
+            now=now,
         )
         for candidate in candidates
     }
@@ -112,19 +120,20 @@ def rate_limit_provider_key(
                 project_rpd=settings.gemini_project_daily_request_limit,
                 now=now,
             )
+    state_providers = tuple(state_provider(candidate) for candidate in candidates)
     states = {
         state.provider: state
         for state in session.scalars(
             select(AiModelRateLimitStateModel).where(
                 AiModelRateLimitStateModel.tenant_id == tenant_id,
                 AiModelRateLimitStateModel.model == model,
-                AiModelRateLimitStateModel.provider.in_(candidates),
+                AiModelRateLimitStateModel.provider.in_(state_providers),
             )
         )
     }
 
     def rank(candidate: str) -> tuple[bool, bool, datetime, bool]:
-        state = states.get(candidate)
+        state = states.get(state_provider(candidate))
         last_started = (
             state.last_started_at
             if state is not None and state.last_started_at is not None

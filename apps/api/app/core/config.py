@@ -312,6 +312,14 @@ class Settings(BaseSettings):
     # the same provider pool used by normal image analysis.
     RRUGC_GEMINI_MIN_INTERVAL_SECONDS: float = 20.0
     RRUGC_GEMINI_MAX_CONCURRENCY: int = 1
+    # When the visible Pinterest candidate queue grows large and several
+    # independent Gemini credentials are healthy, drain it faster without
+    # changing the normal low-impact RRUGC background pace.
+    RRUGC_GEMINI_DRAIN_MODE_ENABLED: bool = True
+    RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD: int = 120
+    RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS: int = 4
+    RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS: float = 8.0
+    RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY: int = 2
     AI_JOB_RATE_LIMIT_SAFETY_SECONDS: float = 0.5
     AI_RATE_LIMIT_429_MAX_RETRIES: int = 8
     AI_RATE_LIMIT_BACKOFF_MAX_SECONDS: float = 300.0
@@ -1462,6 +1470,20 @@ class Settings(BaseSettings):
             raise ValueError("RRUGC_GEMINI_MIN_INTERVAL_SECONDS must be positive")
         if not 1 <= self.RRUGC_GEMINI_MAX_CONCURRENCY <= 8:
             raise ValueError("RRUGC_GEMINI_MAX_CONCURRENCY must be between 1 and 8")
+        if self.RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD < 1:
+            raise ValueError("RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD must be positive")
+        if self.RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS < 1:
+            raise ValueError("RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS must be positive")
+        if not 0 < self.RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS <= self.RRUGC_GEMINI_MIN_INTERVAL_SECONDS:
+            raise ValueError(
+                "RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS must be positive and "
+                "no slower than RRUGC_GEMINI_MIN_INTERVAL_SECONDS"
+            )
+        if not self.RRUGC_GEMINI_MAX_CONCURRENCY <= self.RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY <= 8:
+            raise ValueError(
+                "RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY must be between the normal "
+                "RRUGC concurrency and 8"
+            )
         if self.AI_JOB_RATE_LIMIT_SAFETY_SECONDS < 0:
             raise ValueError("AI_JOB_RATE_LIMIT_SAFETY_SECONDS cannot be negative")
         if self.AI_RATE_LIMIT_429_MAX_RETRIES < 0:

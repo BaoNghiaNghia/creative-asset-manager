@@ -705,6 +705,93 @@ class RateLimitedClaimTest(unittest.TestCase):
             )
         )
 
+    def test_rrugc_backlog_drain_uses_two_workers_and_rotates_credentials(self):
+        key = base64.urlsafe_b64encode(b"F" * 32).decode().rstrip("=")
+        settings = Settings(
+            GEMINI_API_KEY="primary-key",
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=key,
+            RRUGC_GEMINI_DRAIN_MODE_ENABLED=True,
+            RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD=1,
+            RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS=2,
+            RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS=8.0,
+            RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY=2,
+        )
+        with self.sessions.begin() as session:
+            CreativeAiCredentialRepository(
+                session, creative_credential_cipher(settings)
+            ).replace(
+                "tenant",
+                secret="backup-key",
+                provider="gemini_backup_1",
+            )
+
+        first_id = self._rrugc_job("drain-one")
+        second_id = self._rrugc_job("drain-two")
+        self._rrugc_job("drain-three")
+
+        with self.sessions() as session:
+            service = ProcessingJobService(ProcessingRepository(session, settings))
+            first = service.claim_next(
+                worker_id="rrugc-drain-1",
+                lease_seconds=60,
+                now=NOW,
+                enforce_tenant_policy=True,
+                allowed_job_types=("rrugc_candidate_analyze",),
+            )
+        self.assertIsNotNone(first)
+        self.assertEqual(first.id, first_id)
+        first_marker = first.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        self.assertTrue(first_marker["rrugc_drain_mode"])
+        self.assertEqual(first_marker["rrugc_min_interval_seconds"], 8.0)
+        self.assertEqual(first_marker["rrugc_concurrency_limit"], 2)
+        self.assertEqual(first_marker["credential_provider"], "gemini")
+
+        with self.sessions() as session:
+            service = ProcessingJobService(ProcessingRepository(session, settings))
+            second = service.claim_next(
+                worker_id="rrugc-drain-2",
+                lease_seconds=60,
+                now=NOW + timedelta(seconds=8),
+                enforce_tenant_policy=True,
+                allowed_job_types=("rrugc_candidate_analyze",),
+            )
+        self.assertIsNotNone(second)
+        self.assertEqual(second.id, second_id)
+        second_marker = second.payload_json[AI_MODEL_SLOT_PAYLOAD_KEY]
+        self.assertTrue(second_marker["rrugc_drain_mode"])
+        self.assertEqual(
+            second_marker["credential_provider"],
+            "gemini_backup_1",
+        )
+
+        # Two long-running RRUGC requests are enough to saturate drain mode;
+        # a third worker must wait rather than burst through the provider pool.
+        with self.sessions() as session:
+            service = ProcessingJobService(ProcessingRepository(session, settings))
+            third = service.claim_next(
+                worker_id="rrugc-drain-3",
+                lease_seconds=60,
+                now=NOW + timedelta(seconds=16),
+                enforce_tenant_policy=True,
+                allowed_job_types=("rrugc_candidate_analyze",),
+            )
+        self.assertIsNone(third)
+
+        with self.sessions() as session:
+            lane = session.get(
+                AiModelRateLimitStateModel,
+                {
+                    "tenant_id": "tenant",
+                    "provider": RRUGC_GEMINI_LANE_PROVIDER,
+                    "model": RRUGC_GEMINI_LANE_MODEL,
+                },
+            )
+            self.assertIsNotNone(lane)
+            self.assertEqual(
+                lane.next_eligible_at.replace(tzinfo=timezone.utc),
+                NOW + timedelta(seconds=16),
+            )
+
     def test_rrugc_lane_block_does_not_block_normal_image_analysis(self):
         self._rrugc_job("background", priority=100)
         image_job_id = self._analysis_job("foreground", priority=0)

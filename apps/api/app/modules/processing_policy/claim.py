@@ -9,6 +9,7 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.types import JobStatus
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository, configured_model_rates
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.assets.model import AssetModel
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
@@ -141,7 +142,7 @@ class TenantAwareJobClaimer:
                 return None
 
             already_accounted = candidate.concurrency_accounted
-            if not already_accounted and not self._reserve(candidate):
+            if not already_accounted and not self._reserve(candidate, now):
                 if candidate.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
                     excluded_rrugc_scopes.add(
                         (candidate.tenant_id, candidate.provider_key)
@@ -184,15 +185,25 @@ class TenantAwareJobClaimer:
             }
             if model_slot is not None:
                 payload = dict(candidate.payload_json or {})
-                payload[AI_MODEL_SLOT_PAYLOAD_KEY] = {
+                slot_marker = {
                     "provider": model_slot["provider"],
-                    "credential_provider": model_slot.get("credential_provider", model_slot["provider"]),
+                    "credential_provider": model_slot.get(
+                        "credential_provider", model_slot["provider"]
+                    ),
                     "model": model_slot["model"],
                     "reserved_at": now.isoformat(),
                     "next_eligible_at": model_slot["next_eligible_at"].isoformat(),
                     "attempt_count": candidate.attempt_count + 1,
                     "worker_id": worker_id,
                 }
+                for optional_key in (
+                    "rrugc_drain_mode",
+                    "rrugc_min_interval_seconds",
+                    "rrugc_concurrency_limit",
+                ):
+                    if optional_key in model_slot:
+                        slot_marker[optional_key] = model_slot[optional_key]
+                payload[AI_MODEL_SLOT_PAYLOAD_KEY] = slot_marker
                 values["payload_json"] = payload
             claimed = self.session.scalars(
                 update(ProcessingJobModel)
@@ -306,7 +317,78 @@ class TenantAwareJobClaimer:
         for job in jobs:
             self.release(job)
 
-    def _reserve(self, job: ProcessingJobModel) -> bool:
+    def _rrugc_active_credential_count(self, tenant_id: str) -> int:
+        repository = CreativeAiCredentialRepository(self.session, None)
+        primary = repository.get_metadata(tenant_id, provider="gemini")
+        primary_available = bool(
+            (primary is not None and primary.status == "active")
+            or ((self.settings.GEMINI_API_KEY or "").strip())
+        )
+        backups = sum(
+            1
+            for item in repository.list_backup_metadata(tenant_id)
+            if item.status == "active"
+        )
+        return int(primary_available) + backups
+
+    def _rrugc_due_candidate_backlog(
+        self, tenant_id: str, now: datetime
+    ) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count(ProcessingJobModel.id)).where(
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                    ProcessingJobModel.status.in_(
+                        (JobStatus.PENDING.value, JobStatus.RETRY.value)
+                    ),
+                    ProcessingJobModel.cancellation_requested.is_(False),
+                    ProcessingJobModel.attempt_count
+                    < ProcessingJobModel.max_attempts,
+                    or_(
+                        ProcessingJobModel.next_attempt_at.is_(None),
+                        ProcessingJobModel.next_attempt_at <= now,
+                    ),
+                )
+            )
+            or 0
+        )
+
+    def _rrugc_drain_mode(
+        self, job: ProcessingJobModel, now: datetime
+    ) -> bool:
+        if (
+            not self.settings.RRUGC_GEMINI_DRAIN_MODE_ENABLED
+            or job.job_type != "rrugc_candidate_analyze"
+        ):
+            return False
+        if (
+            self._rrugc_active_credential_count(job.tenant_id)
+            < self.settings.RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS
+        ):
+            return False
+        return (
+            self._rrugc_due_candidate_backlog(job.tenant_id, now)
+            >= self.settings.RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD
+        )
+
+    def _rrugc_lane_profile(
+        self, job: ProcessingJobModel, now: datetime
+    ) -> tuple[float, int, bool]:
+        drain_mode = self._rrugc_drain_mode(job, now)
+        if drain_mode:
+            return (
+                self.settings.RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS,
+                self.settings.RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY,
+                True,
+            )
+        return (
+            self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS,
+            self.settings.RRUGC_GEMINI_MAX_CONCURRENCY,
+            False,
+        )
+
+    def _reserve(self, job: ProcessingJobModel, now: datetime) -> bool:
         category = self._category(job.job_type)
         conditions = [
             TenantProcessingPolicyModel.tenant_id == job.tenant_id,
@@ -334,6 +416,9 @@ class TenantAwareJobClaimer:
             return False
 
         if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
+            _interval_seconds, rrugc_concurrency_limit, _drain_mode = (
+                self._rrugc_lane_profile(job, now)
+            )
             active_rrugc = int(
                 self.session.scalar(
                     select(func.count(ProcessingJobModel.id)).where(
@@ -348,7 +433,7 @@ class TenantAwareJobClaimer:
                 )
                 or 0
             )
-            if active_rrugc >= self.settings.RRUGC_GEMINI_MAX_CONCURRENCY:
+            if active_rrugc >= rrugc_concurrency_limit:
                 self._release_tenant_reservation(job)
                 return False
 
@@ -675,7 +760,11 @@ class TenantAwareJobClaimer:
             return _ANALYSIS_MODEL_GATE_UNRESOLVABLE
 
         limiter = AiModelRateLimitRepository(self.session)
-        rrugc_min_interval_seconds = self.settings.RRUGC_GEMINI_MIN_INTERVAL_SECONDS
+        (
+            rrugc_min_interval_seconds,
+            _rrugc_concurrency_limit,
+            rrugc_drain_mode,
+        ) = self._rrugc_lane_profile(job, now)
         lane = limiter.reserve_start(
             tenant_id=job.tenant_id,
             provider=RRUGC_GEMINI_LANE_PROVIDER,
@@ -707,6 +796,7 @@ class TenantAwareJobClaimer:
                 rpm=rpm,
                 minimum_interval_seconds=rrugc_min_interval_seconds,
                 now=now,
+                state_provider_prefix=RRUGC_GEMINI_MODEL_GATE_PREFIX,
             )
             rrugc_model_gate_provider = (
                 RRUGC_GEMINI_MODEL_GATE_PREFIX + credential_provider
@@ -725,6 +815,9 @@ class TenantAwareJobClaimer:
                     "credential_provider": credential_provider,
                     "model": model,
                     "next_eligible_at": decision.next_eligible_at,
+                    "rrugc_drain_mode": rrugc_drain_mode,
+                    "rrugc_min_interval_seconds": rrugc_min_interval_seconds,
+                    "rrugc_concurrency_limit": _rrugc_concurrency_limit,
                 }
         return None
 
