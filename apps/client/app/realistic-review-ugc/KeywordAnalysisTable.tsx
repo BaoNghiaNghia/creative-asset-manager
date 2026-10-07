@@ -458,6 +458,11 @@ export function KeywordAnalysisTable({
     if (favoritesOnly !== nextFavoritesOnly) onFavoritesOnlyChange(nextFavoritesOnly);
   };
 
+  const handleQueryChange = (nextQuery: string) => {
+    if (nextQuery.trim()) selectOverviewFilter("all");
+    onQueryChange(nextQuery);
+  };
+
   return <>
   <section className="rrugc-card rrugc-stage0 rrugc-stage0-v2">
     <RrugcStageHeader
@@ -532,7 +537,7 @@ export function KeywordAnalysisTable({
     </div>
 
     <div className="rrugc-stage0-controlbar">
-      <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={onQueryChange} /></div>
+      <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
       <div className="rrugc-stage0-main-filters" role="group" aria-label="Keyword filters">
         <button type="button" className={activeOverviewFilter === "all" ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
         <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="star" filled={activeOverviewFilter === "favorites"} />Favorites</button>
