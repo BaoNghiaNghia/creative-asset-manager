@@ -4,13 +4,17 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.core.database import Base
-from app.modules.ai_governance.model import AiModelRateLimitStateModel
+from app.modules.ai_governance.model import (
+    AiModelRateLimitStateModel,
+    GeminiProjectQuotaStateModel,
+)
 from app.modules.ai_governance.rate_limit import configured_model_rates
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, creative_credential_cipher
 from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
@@ -343,6 +347,58 @@ class RateLimitedClaimTest(unittest.TestCase):
                 session, self.settings, "tenant", "gemini",
                 model=model, rpm=rpm, minimum_interval_seconds=1, now=NOW,
             )
+        self.assertEqual(selected, "gemini_backup_1")
+
+    def test_active_active_selector_skips_credential_with_exhausted_model_quota(self):
+        key = base64.urlsafe_b64encode(b"E" * 32).decode().rstrip("=")
+        self.settings = Settings(
+            GEMINI_API_KEY="primary-key",
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=key,
+        )
+        model, rpm = configured_model_rates(self.settings, "gemini", None)[0]
+        model_limit = self.settings.gemini_model_limits[model]
+        with self.sessions.begin() as session:
+            repository = CreativeAiCredentialRepository(
+                session, creative_credential_cipher(self.settings)
+            )
+            primary = repository.replace(
+                "tenant", secret="primary-key", provider="gemini"
+            )
+            repository.replace(
+                "tenant", secret="backup-key", provider="gemini_backup_1"
+            )
+            session.add_all((
+                AiModelRateLimitStateModel(
+                    tenant_id="tenant", provider="gemini", model=model,
+                    last_started_at=NOW - timedelta(minutes=5),
+                    next_eligible_at=NOW, blocked_until=None, updated_at=NOW,
+                ),
+                AiModelRateLimitStateModel(
+                    tenant_id="tenant", provider="gemini_backup_1", model=model,
+                    last_started_at=NOW - timedelta(minutes=1),
+                    next_eligible_at=NOW, blocked_until=None, updated_at=NOW,
+                ),
+                GeminiProjectQuotaStateModel(
+                    quota_scope=(
+                        f"{self.settings.GEMINI_PROJECT_QUOTA_SCOPE}:"
+                        f"tenant:{primary.secret_fingerprint}"
+                    ),
+                    model=model,
+                    quota_day=NOW.astimezone(
+                        ZoneInfo("America/Los_Angeles")
+                    ).date(),
+                    reserved_requests=model_limit.rpd,
+                    blocked_until=None,
+                    updated_at=NOW,
+                ),
+            ))
+
+        with self.sessions() as session:
+            selected = rate_limit_provider_key(
+                session, self.settings, "tenant", "gemini",
+                model=model, rpm=rpm, minimum_interval_seconds=1, now=NOW,
+            )
+
         self.assertEqual(selected, "gemini_backup_1")
 
     def test_null_gemini_model_resolves_configured_pool(self):
