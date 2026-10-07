@@ -344,6 +344,9 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 assert first.rows[0].source_pin_url == (
                     "https://www.pinterest.com/pin/123456789/"
                 )
+                assert first.rows[0].provider_raw_json[
+                    "_observed_volume_history"
+                ] == [{"period": "2026-10-05", "volume": 4400}]
                 assert calls == [[
                     "Bad Day To Be A Hotdog hat",
                     "funny hotdog cap hat",
@@ -365,7 +368,7 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                     tenant_id="tenant-a",
                     keywords=["Bad Day To Be A Hotdog hat"],
                     force=True,
-                    now=now + timedelta(hours=2),
+                    now=now + timedelta(days=1),
                 )
                 assert forced.provider_requested == 1
                 assert forced.cached == 0
@@ -379,6 +382,14 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                     )
                 )
                 assert len(persisted) == 2
+                hotdog = next(
+                    row for row in persisted
+                    if row.keyword_normalized == "bad day to be a hotdog hat"
+                )
+                assert hotdog.provider_raw_json["_observed_volume_history"] == [
+                    {"period": "2026-10-05", "volume": 4400},
+                    {"period": "2026-10-06", "volume": 4400},
+                ]
                 assert {row.keyword_normalized for row in persisted} == {
                     "bad day to be a hotdog hat",
                     "funny hotdog cap",
@@ -805,6 +816,9 @@ def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     assert payload["provider_requested"] == 0
     assert payload["cached"] == 1
     assert payload["items"][0]["search_volume"] == 4400
+    assert payload["items"][0]["trend"] == [
+        {"period": now.strftime("%Y-%m-%d"), "volume": 4400}
+    ]
     assert payload["items"][0]["source_image_url"] == (
         "https://i.pinimg.com/1200x/cc/dd/new-source.jpg"
     )

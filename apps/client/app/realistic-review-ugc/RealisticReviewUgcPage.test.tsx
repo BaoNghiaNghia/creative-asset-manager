@@ -629,6 +629,11 @@ describe("Realistic Review UGC source-first workspace", () => {
               competition: "HIGH",
               cpc_low: 0.56,
               cpc_high: 1.96,
+              trend: [
+                { period: "2026-08", volume: 2900 },
+                { period: "2026-09", volume: 3600 },
+                { period: "2026-10", volume: 4400 },
+              ],
               source_image_url: "https://i.pinimg.com/736x/aa/bb/hotdog.jpg",
               source_pin_url: "https://www.pinterest.com/pin/123456789/",
               picked: true,
@@ -645,6 +650,11 @@ describe("Realistic Review UGC source-first workspace", () => {
               competition: "MEDIUM",
               cpc_low: 0.31,
               cpc_high: 0.88,
+              trend: [
+                { period: "2026-08", volume: 210 },
+                { period: "2026-09", volume: 230 },
+                { period: "2026-10", volume: 260 },
+              ],
               source_image_url: null,
               source_pin_url: null,
               picked: false,
@@ -661,6 +671,8 @@ describe("Realistic Review UGC source-first workspace", () => {
           overview: {
             total_keywords: 2,
             total_search_volume: 4660,
+            average_search_volume: 2330,
+            average_cpc: 0.9275,
             high_competition: 1,
             zero_volume: 0,
             short_tail_keywords: 0,
@@ -692,26 +704,21 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
 
     expect(markup).toContain("<h2>Analysis Keyword</h2>");
-    expect(markup).toContain("Quote Scout · separate terminal");
+    expect(markup).toContain("Live keyword data");
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
-    expect(markup).toContain(">Image<");
+    expect(markup).toContain(">Preview<");
+    expect(markup).toContain(">Trend<");
     expect(markup).toContain("https://i.pinimg.com/736x/aa/bb/hotdog.jpg");
     expect(markup).toContain("https://www.pinterest.com/pin/123456789/");
     expect(markup).toContain(">4,400<");
     expect(markup).toContain("HIGH");
     expect(markup).toContain("$0.56–$1.96");
-    expect(markup).not.toContain("Monthly volume");
-    expect(markup).not.toContain("High competition");
+    expect(markup).toContain("Average volume");
+    expect(markup).toContain("Average CPC");
+    expect(markup).toContain("High competition");
     expect(markup).not.toContain("Zero volume");
-    expect(markup).toContain("2-word keywords");
-    expect(markup).toContain("3–4 word keywords");
-    expect(markup).toContain("5+ word keywords");
-    expect(markup).toContain("AEBrowse · Google Ads");
-    expect(markup).toContain(">Used<");
-    expect(markup).toContain(">Unused <");
-    expect(markup).toContain(">Pick<");
-    expect(markup).toContain(">Favorite<");
-    expect(markup).toContain(">Saved<");
+    expect(markup).toContain("Google Ads · AEBrowse");
+    expect(markup).toContain(">Unused<");
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
     expect(markup).toContain("Long-tail");
@@ -722,14 +729,19 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain('aria-label="Filter keyword volume"');
     expect(markup).toContain('aria-label="Remove favorite: Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('aria-label="Add favorite: funny hotdog cap"');
+    expect(markup).toContain('aria-label="Mark unused: Bad Day To Be A Hotdog hat"');
+    expect(markup).toContain('aria-label="Pick keyword: funny hotdog cap"');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('aria-pressed="false"');
     expect(markup).toContain('aria-sort="descending"');
     expect(markup).toContain('aria-label="Sort by Keyword ascending"');
-    expect(markup).toContain('aria-label="Sort by Search volume ascending"');
+    expect(markup).toContain('aria-label="Sort by Volume ascending"');
     expect(markup).toContain('aria-label="Sort by Competition ascending"');
-    expect(markup).toContain('aria-label="Sort by CPC range ascending"');
-    expect(markup).toContain('aria-label="Sort by Last checked ascending"');
+    expect(markup).toContain('aria-label="Sort by CPC ascending"');
+    expect(markup).toContain('role="tooltip"');
+    expect(markup).toContain("Search-volume trend");
+    expect(markup).toContain("2026-08");
+    expect(markup).toContain("2026-10");
   });
 
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {

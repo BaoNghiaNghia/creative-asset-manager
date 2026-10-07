@@ -429,6 +429,11 @@ class SourcePlanGroupImageResponse(BaseModel):
     source_size_bytes: int | None = None
 
 
+class KeywordVolumeTrendPointResponse(BaseModel):
+    period: str
+    volume: int = 0
+
+
 class KeywordVolumeResponse(BaseModel):
     id: str
     keyword: str
@@ -436,6 +441,7 @@ class KeywordVolumeResponse(BaseModel):
     competition: str | None = None
     cpc_low: float | None = None
     cpc_high: float | None = None
+    trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
     source_image_url: str | None = None
     source_pin_url: str | None = None
     picked: bool = False
@@ -494,6 +500,8 @@ class QuoteScoutAnalyzeResponse(BaseModel):
 class KeywordVolumeOverviewResponse(BaseModel):
     total_keywords: int = 0
     total_search_volume: int = 0
+    average_search_volume: float = 0.0
+    average_cpc: float | None = None
     high_competition: int = 0
     zero_volume: int = 0
     short_tail_keywords: int = 0

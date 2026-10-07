@@ -148,6 +148,7 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
     KeywordVolumeResponse,
+    KeywordVolumeTrendPointResponse,
     QuoteScoutAnalyzeRequest,
     QuoteScoutAnalyzeResponse,
     ReferenceAssetResponse,
@@ -2869,6 +2870,85 @@ def _source_plan_group_image_response(
     )
 
 
+def _keyword_volume_trend(
+    row: RrugcKeywordVolumeModel,
+) -> list[KeywordVolumeTrendPointResponse]:
+    raw = row.provider_raw_json or {}
+
+    # Prefer provider-native monthly history when the upstream endpoint exposes
+    # it. The parser intentionally accepts the common Google Ads field names so
+    # the UI does not need another API contract when AEBrowse starts returning
+    # richer historical metrics.
+    candidates = (
+        raw.get("monthly_search_volumes"),
+        raw.get("monthly_searches"),
+        raw.get("history"),
+        raw.get("trend"),
+    )
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        points: list[KeywordVolumeTrendPointResponse] = []
+        for item in candidate:
+            if not isinstance(item, dict):
+                continue
+            volume = (
+                item.get("monthly_searches")
+                if item.get("monthly_searches") is not None
+                else item.get("search_volume")
+                if item.get("search_volume") is not None
+                else item.get("volume")
+            )
+            try:
+                parsed_volume = max(0, int(float(volume)))
+            except (TypeError, ValueError):
+                continue
+            period = str(item.get("period") or item.get("date") or "").strip()
+            if not period:
+                year = item.get("year")
+                month = item.get("month")
+                if year is not None and month is not None:
+                    try:
+                        month_number = int(month)
+                        period = f"{int(year):04d}-{month_number:02d}"
+                    except (TypeError, ValueError):
+                        period = f"{year}-{month}"
+            if period:
+                points.append(
+                    KeywordVolumeTrendPointResponse(
+                        period=period,
+                        volume=parsed_volume,
+                    )
+                )
+        if points:
+            return points[-24:]
+
+    observed = raw.get("_observed_volume_history")
+    if isinstance(observed, list):
+        points = []
+        for item in observed[-24:]:
+            if not isinstance(item, dict):
+                continue
+            period = str(item.get("period") or "").strip()
+            try:
+                volume = max(0, int(float(item.get("volume"))))
+            except (TypeError, ValueError):
+                continue
+            if period:
+                points.append(
+                    KeywordVolumeTrendPointResponse(period=period, volume=volume)
+                )
+        if points:
+            return points
+
+    return [
+        KeywordVolumeTrendPointResponse(
+            period=row.fetched_at.astimezone(timezone.utc).strftime("%Y-%m-%d"),
+            volume=int(row.search_volume or 0),
+        )
+    ]
+
+
 def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeResponse:
     return KeywordVolumeResponse(
         id=row.id,
@@ -2877,6 +2957,7 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         competition=row.competition,
         cpc_low=row.cpc_low,
         cpc_high=row.cpc_high,
+        trend=_keyword_volume_trend(row),
         source_image_url=row.source_image_url,
         source_pin_url=row.source_pin_url,
         picked=bool(row.picked),
@@ -3518,6 +3599,37 @@ def list_keyword_analysis(
             .where(*base_conditions)
         ) or 0
     )
+    average_search_volume = (
+        float(total_search_volume) / float(total_keywords)
+        if total_keywords
+        else 0.0
+    )
+    cpc_midpoint = (
+        func.coalesce(
+            RrugcKeywordVolumeModel.cpc_low,
+            RrugcKeywordVolumeModel.cpc_high,
+            0.0,
+        )
+        + func.coalesce(
+            RrugcKeywordVolumeModel.cpc_high,
+            RrugcKeywordVolumeModel.cpc_low,
+            0.0,
+        )
+    ) / 2.0
+    average_cpc_raw = session.scalar(
+        select(func.avg(cpc_midpoint)).where(
+            *base_conditions,
+            or_(
+                RrugcKeywordVolumeModel.cpc_low.is_not(None),
+                RrugcKeywordVolumeModel.cpc_high.is_not(None),
+            ),
+        )
+    )
+    average_cpc = (
+        round(float(average_cpc_raw), 4)
+        if average_cpc_raw is not None
+        else None
+    )
     high_competition = int(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
@@ -3640,6 +3752,8 @@ def list_keyword_analysis(
         overview=KeywordVolumeOverviewResponse(
             total_keywords=total_keywords,
             total_search_volume=total_search_volume,
+            average_search_volume=round(average_search_volume, 2),
+            average_cpc=average_cpc,
             high_competition=high_competition,
             zero_volume=zero_volume,
             short_tail_keywords=short_tail_keywords,

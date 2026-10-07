@@ -40,6 +40,8 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   overview: {
     total_keywords: 0,
     total_search_volume: 0,
+    average_search_volume: 0,
+    average_cpc: null,
     high_competition: 0,
     zero_volume: 0,
     short_tail_keywords: 0,

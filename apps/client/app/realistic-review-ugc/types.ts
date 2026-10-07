@@ -167,6 +167,11 @@ export type SourcePlanGroupImage = {
   source_size_bytes: number | null;
 };
 
+export type KeywordVolumeTrendPoint = {
+  period: string;
+  volume: number;
+};
+
 export type KeywordVolume = {
   id: string;
   keyword: string;
@@ -174,6 +179,7 @@ export type KeywordVolume = {
   competition: string | null;
   cpc_low: number | null;
   cpc_high: number | null;
+  trend?: KeywordVolumeTrendPoint[];
   source_image_url: string | null;
   source_pin_url: string | null;
   picked: boolean;
@@ -187,6 +193,8 @@ export type KeywordVolume = {
 export type KeywordVolumeOverview = {
   total_keywords: number;
   total_search_volume: number;
+  average_search_volume?: number;
+  average_cpc?: number | null;
   high_competition: number;
   zero_volume: number;
   short_tail_keywords: number;

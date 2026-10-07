@@ -158,6 +158,42 @@ def _aware(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc)
 
 
+def _with_observed_volume_history(
+    previous: dict | None,
+    provider_item: dict,
+    *,
+    fetched_at: datetime,
+    search_volume: int,
+) -> dict:
+    """Keep a bounded real observation series while preserving provider data."""
+    raw = dict(provider_item)
+    existing = previous or {}
+    history = existing.get("_observed_volume_history")
+    points: list[dict[str, object]] = []
+    if isinstance(history, list):
+        for point in history[-23:]:
+            if not isinstance(point, dict):
+                continue
+            period = str(point.get("period") or "").strip()
+            volume = point.get("volume")
+            if not period:
+                continue
+            try:
+                parsed = max(0, int(float(volume)))
+            except (TypeError, ValueError):
+                continue
+            points.append({"period": period, "volume": parsed})
+
+    period = fetched_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    next_point = {"period": period, "volume": max(0, int(search_volume))}
+    if points and points[-1]["period"] == period:
+        points[-1] = next_point
+    else:
+        points.append(next_point)
+    raw["_observed_volume_history"] = points[-24:]
+    return raw
+
+
 class RrugcKeywordVolumeService:
     def __init__(
         self,
@@ -326,7 +362,12 @@ class RrugcKeywordVolumeService:
                 row.provider_customer_id = (
                     str(provider_payload.get("customer_id") or "").strip() or None
                 )
-                row.provider_raw_json = dict(item)
+                row.provider_raw_json = _with_observed_volume_history(
+                    row.provider_raw_json,
+                    item,
+                    fetched_at=current_time,
+                    search_volume=row.search_volume,
+                )
                 row.fetched_at = current_time
                 row.last_requested_at = current_time
 
