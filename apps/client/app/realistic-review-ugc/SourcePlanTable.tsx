@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanOverview, SourcePlanReferencePreview } from "./types";
 
@@ -554,6 +555,16 @@ export function SourcePlanTable({
   ) => void;
 }) {
   const pageCount = sourcePlanPageCount(total, pageSize);
+  const searchSuggestions = useMemo(() => plans.flatMap(plan => {
+    const folder = plan.source_relative_path.includes("/")
+      ? plan.source_relative_path.split("/").slice(0, -1).join("/")
+      : "";
+    return [
+      { value: plan.source_name, meta: folder || "Source file", badge: "File" },
+      ...(folder ? [{ value: folder, meta: plan.source_name, badge: "Folder" }] : []),
+      ...plan.search_queries.slice(0, 2).map(value => ({ value, meta: plan.source_name, badge: "Pinterest" })),
+    ];
+  }), [plans]);
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = total === 0 ? 0 : Math.min((page - 1) * pageSize + plans.length, total);
 
@@ -580,15 +591,16 @@ export function SourcePlanTable({
     </div>
 
     <div className="rrugc-source-plan-toolbar rrugc-source-plan-toolbar-server">
-      <label className="rrugc-source-plan-search">
-        <span className="sr-only">Search source plans</span>
-        <input
-          type="search"
-          value={query}
-          placeholder="Search source file or folder…"
-          onChange={event => onQueryChange(event.target.value)}
+      <div className="rrugc-source-plan-search">
+        <RrugcSmartSearchInput
+          stageId="stage2"
+          query={query}
+          onQueryChange={onQueryChange}
+          suggestions={searchSuggestions}
+          placeholder="Search source file, folder, or Pinterest query…"
+          label="Search Stage 2 source plans"
         />
-      </label>
+      </div>
       <div className="rrugc-source-plan-sort" role="group" aria-label="Sort source plans">
         <span className="rrugc-source-plan-sort-title">Sort</span>
         <label>

@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type {
@@ -505,6 +506,8 @@ export function Stage2JobTable({
   loading = false,
   message,
   skillCatalogRevision = 0,
+  query = "",
+  onQueryChange = () => undefined,
   onCreateJob,
   onManageSkills = () => undefined,
   onCancelJobs = () => undefined,
@@ -522,6 +525,8 @@ export function Stage2JobTable({
   loading?: boolean;
   message?: string;
   skillCatalogRevision?: number;
+  query?: string;
+  onQueryChange?: (query: string) => void;
   onCreateJob: (
     plan: SourcePlan,
     candidateIds: string[],
@@ -563,6 +568,16 @@ export function Stage2JobTable({
   const pageEnd = stage2Total === 0
     ? 0
     : Math.min((currentPage - 1) * pageSize + stage2Plans.length, stage2Total);
+  const searchSuggestions = useMemo(() => stage2Plans.flatMap(plan => {
+    const folder = plan.source_relative_path.includes("/")
+      ? plan.source_relative_path.split("/").slice(0, -1).join("/")
+      : "";
+    return [
+      { value: plan.source_name, meta: folder || "Embroidery group", badge: "Group" },
+      ...(folder ? [{ value: folder, meta: plan.source_name, badge: "Folder" }] : []),
+      ...plan.search_queries.slice(0, 2).map(value => ({ value, meta: plan.source_name, badge: "Query" })),
+    ];
+  }), [stage2Plans]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -696,6 +711,18 @@ export function Stage2JobTable({
       <article><span>Source images</span><strong>{overview.source_images}</strong></article>
       <article><span>Drive-ready refs</span><strong>{overview.stage2_drive_ready_refs}</strong></article>
       <article><span>Active jobs</span><strong>{overview.stage2_active_jobs}</strong></article>
+    </div>
+
+    <div className="rrugc-stage-search-toolbar rrugc-stage3-search-toolbar">
+      <RrugcSmartSearchInput
+        stageId="stage3"
+        query={query}
+        onQueryChange={onQueryChange}
+        suggestions={searchSuggestions}
+        placeholder="Search embroidery group, folder, or Pinterest query…"
+        label="Search Stage 3 generation groups"
+      />
+      <span>{stage2Total.toLocaleString()} groups</span>
     </div>
 
     <div className="rrugc-source-plan-table-wrap">

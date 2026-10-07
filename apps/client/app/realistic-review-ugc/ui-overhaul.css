@@ -1412,3 +1412,29 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-stage0-detail-month-axis span{flex:0 0 64px}
   .rrugc-stage0-detail-metadata-summary{display:none}
 }
+
+/* Shared Stage 1–4 smart search: scoped history, completion and recommendations. */
+.rrugc-colorway-stage,.rrugc-source-plans,.rrugc-stage2,.rrugc-stage3{overflow:visible}
+.rrugc-smart-search{position:relative;z-index:24;width:100%;min-width:0}
+.rrugc-smart-search .rrugc-stage0-search-field{position:relative;width:100%;min-width:0}
+.rrugc-smart-search .rrugc-stage0-search-field>input{width:100%;min-height:34px;box-sizing:border-box;padding:7px 34px 7px 34px;border:1px solid #ccd8e8;border-radius:8px;background:#fff;color:#34475f;font:inherit;font-size:10px;box-shadow:0 1px 2px rgba(31,48,72,.03);appearance:none;outline:none}
+.rrugc-smart-search .rrugc-stage0-search-field>input::placeholder{color:#98a5b5}
+.rrugc-smart-search .rrugc-stage0-search-field>input:focus{border-color:#87a6d3;box-shadow:0 0 0 3px rgba(84,126,187,.1)}
+.rrugc-smart-search .rrugc-stage0-search-icon{top:9px}
+.rrugc-smart-search-panel{top:calc(100% + 6px);left:0;width:min(540px,100%);max-width:100%;max-height:340px}
+.rrugc-smart-search-label{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px}
+.rrugc-smart-search-label button{padding:0;border:0;background:transparent;color:#426da7;font:inherit;font-size:8.5px;font-weight:800;cursor:pointer}
+.rrugc-smart-search-label button:hover{text-decoration:underline}
+.rrugc-smart-search-badge{flex:0 0 auto;padding:2px 5px;border:1px solid #d8e2ef;border-radius:999px;background:#f5f8fc;color:#6f829c;font-size:7px;font-weight:850;letter-spacing:.02em}
+.rrugc-stage-search-toolbar{position:relative;z-index:18;display:grid;grid-template-columns:minmax(280px,520px) auto;align-items:center;gap:10px;margin:10px 0;padding:7px;border:1px solid var(--rrugc-border);border-radius:9px;background:#fafbfd}
+.rrugc-stage-search-toolbar>span{color:#7c8da4;font-size:9px;font-weight:800;white-space:nowrap}
+.rrugc-stage3-search-toolbar{margin-top:10px}
+.rrugc-stage4-search-toolbar{margin-top:0;margin-bottom:0}
+.rrugc-source-plan-toolbar,.rrugc-colorway-toolbar{position:relative;z-index:18;overflow:visible}
+.rrugc-source-plan-toolbar-server>.rrugc-source-plan-search{position:relative;z-index:20}
+.rrugc-colorway-search{position:relative;z-index:20}
+@media(max-width:760px){
+  .rrugc-stage-search-toolbar{grid-template-columns:minmax(0,1fr)}
+  .rrugc-stage-search-toolbar>span{justify-self:start}
+  .rrugc-smart-search-panel{width:100%;max-height:min(340px,60vh)}
+}

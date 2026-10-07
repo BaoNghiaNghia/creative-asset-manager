@@ -339,7 +339,7 @@ export const listStage3ReviewGroups = (
   signal?: AbortSignal,
 ) =>
   request<Stage3ReviewGroupList>(
-    "/api/v1/realistic-review-ugc/stage3/review-groups",
+    "/api/v1/realistic-review-ugc/stage3/review-groups?limit=500",
     { signal },
   );
 

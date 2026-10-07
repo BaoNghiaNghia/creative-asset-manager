@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listStage2Skills } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog } from "./types";
 
 const COLOR_SLOT_COUNT = 13;
@@ -118,6 +119,15 @@ export function EmbroideryColorwayStage({
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const ready = Boolean(selectedSkill?.ready);
   const canQueue = executionReady && ready && selectedIds.size > 0;
+  const searchSuggestions = useMemo(() => data.items.flatMap(plan => {
+    const folder = plan.source_relative_path.includes("/")
+      ? plan.source_relative_path.split("/").slice(0, -1).join("/")
+      : "";
+    return [
+      { value: cleanDesignName(plan.source_name), meta: folder || "Embroidery design", badge: "Design" },
+      ...(folder ? [{ value: folder, meta: cleanDesignName(plan.source_name), badge: "Folder" }] : []),
+    ];
+  }), [data.items]);
 
   function togglePage() {
     setSelectedIds(current => {
@@ -161,15 +171,16 @@ export function EmbroideryColorwayStage({
     </div>
 
     <div className="rrugc-colorway-toolbar">
-      <label className="rrugc-colorway-search">
-        <span className="sr-only">Search embroidery designs</span>
-        <input
-          type="search"
-          value={query}
+      <div className="rrugc-colorway-search">
+        <RrugcSmartSearchInput
+          stageId="stage1"
+          query={query}
+          onQueryChange={onQueryChange}
+          suggestions={searchSuggestions}
           placeholder="Search embroidery design or folder…"
-          onChange={event => onQueryChange(event.target.value)}
+          label="Search Stage 1 embroidery designs"
         />
-      </label>
+      </div>
       <label className="rrugc-colorway-skill">
         <span>Generation skill</span>
         <select

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import type {
   Stage3AnalysisStatus,
   Stage3ReviewGroup,
@@ -13,6 +14,8 @@ type Props = {
   loading: boolean;
   analyzing: boolean;
   message: string;
+  query?: string;
+  onQueryChange?: (query: string) => void;
   onAnalyze: (folderId?: string) => void;
 };
 
@@ -274,11 +277,41 @@ export function Stage3ReviewGroups({
   loading,
   analyzing,
   message,
+  query = "",
+  onQueryChange = () => undefined,
   onAnalyze,
 }: Props) {
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const finished = data.ready_images + data.rejected_images;
-  const reviewEntries: Stage3ReviewModalEntry[] = data.items.flatMap(group => (
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleGroups = useMemo(() => {
+    if (!normalizedQuery) return data.items;
+    return data.items.filter(group => {
+      const searchable = [
+        group.folder_name,
+        group.folder_path,
+        group.status,
+        ...group.images.flatMap(image => [
+          image.source_name || "",
+          image.reviewer_name || "",
+          image.review_text || "",
+          image.scene_type || "",
+          image.framing_type || "",
+          image.analysis_status || "",
+        ]),
+      ].join(" ").toLocaleLowerCase();
+      return searchable.includes(normalizedQuery);
+    });
+  }, [data.items, normalizedQuery]);
+  const searchSuggestions = useMemo(() => data.items.flatMap(group => [
+    { value: group.folder_name, meta: group.folder_path || "Review folder", badge: "Folder" },
+    ...group.images.slice(0, 4).flatMap(image => [
+      ...(image.source_name ? [{ value: image.source_name, meta: group.folder_name, badge: "Image" }] : []),
+      ...(image.reviewer_name ? [{ value: image.reviewer_name, meta: image.source_name || group.folder_name, badge: "Reviewer" }] : []),
+      ...(image.scene_type ? [{ value: image.scene_type, meta: group.folder_name, badge: "Scene" }] : []),
+    ]),
+  ]), [data.items]);
+  const reviewEntries: Stage3ReviewModalEntry[] = visibleGroups.flatMap(group => (
     group.images
       .filter(hasReview)
       .map(image => ({
@@ -316,6 +349,18 @@ export function Stage3ReviewGroups({
 
     {message && <div className="rrugc-stage3-message">{message}</div>}
 
+    <div className="rrugc-stage-search-toolbar rrugc-stage4-search-toolbar">
+      <RrugcSmartSearchInput
+        stageId="stage4"
+        query={query}
+        onQueryChange={onQueryChange}
+        suggestions={searchSuggestions}
+        placeholder="Search folder, image, reviewer, or scene…"
+        label="Search Stage 4 UGC reviews"
+      />
+      <span>{normalizedQuery ? visibleGroups.length + " matching folders" : data.total_groups + " folders"}</span>
+    </div>
+
     {loading ? (
       <div className="rrugc-stage3-skeletons" aria-label="Loading Stage 4 groups">
         {Array.from({ length: 4 }, (_, index) => (
@@ -325,14 +370,14 @@ export function Stage3ReviewGroups({
           </div>
         ))}
       </div>
-    ) : data.items.length === 0 ? (
+    ) : visibleGroups.length === 0 ? (
       <div className="rrugc-stage3-empty">
-        <strong>No Stage 3 outputs yet</strong>
-        <span>Completed Stage 3 images will appear here automatically, grouped by folder.</span>
+        <strong>{normalizedQuery ? "No reviews match this search" : "No Stage 3 outputs yet"}</strong>
+        <span>{normalizedQuery ? "Try a folder, source image, reviewer, scene, or status from the recommendations." : "Completed Stage 3 images will appear here automatically, grouped by folder."}</span>
       </div>
     ) : (
       <div className="rrugc-stage3-groups">
-        {data.items.map(group => (
+        {visibleGroups.map(group => (
           <article className="rrugc-stage3-group" key={group.folder_id}>
             <div className="rrugc-stage3-group-head">
               <div>

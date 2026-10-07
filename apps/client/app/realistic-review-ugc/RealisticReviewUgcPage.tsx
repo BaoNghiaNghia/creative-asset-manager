@@ -151,6 +151,9 @@ export function RealisticReviewUgcPage() {
   const [sourcePageSize, setSourcePageSize] = useState(10);
   const [sourceQuery, setSourceQuery] = useState("");
   const [debouncedSourceQuery, setDebouncedSourceQuery] = useState("");
+  const [stage3Query, setStage3Query] = useState("");
+  const [debouncedStage3Query, setDebouncedStage3Query] = useState("");
+  const [stage4Query, setStage4Query] = useState("");
   const [sourceSortBy, setSourceSortBy] = useState<SourcePlanSortBy>("source");
   const [sourceSortDirection, setSourceSortDirection] = useState<SourcePlanSortDirection>("asc");
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
@@ -171,6 +174,7 @@ export function RealisticReviewUgcPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillCatalogRevision, setSkillCatalogRevision] = useState(0);
   const groupsStageActive = activeStage === "stage2" || activeStage === "stage3";
+  const activeSourceQuery = activeStage === "stage3" ? debouncedStage3Query : debouncedSourceQuery;
   const visibleStage2SourcePlanIds = useMemo(
     () => Array.from(new Set(
       sourcePage.items.flatMap(plan => [
@@ -284,7 +288,7 @@ export function RealisticReviewUgcPage() {
       {
         page: sourcePageNumber,
         pageSize: sourcePageSize,
-        query: debouncedSourceQuery,
+        query: activeSourceQuery,
         sortBy: sourceSortBy,
         sortDirection: sourceSortDirection,
       },
@@ -528,6 +532,14 @@ export function RealisticReviewUgcPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setSourcePageNumber(1);
+      setDebouncedStage3Query(stage3Query.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [stage3Query]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
       setEmbroideryPageNumber(1);
       setDebouncedEmbroideryQuery(embroideryQuery.trim());
     }, 250);
@@ -638,7 +650,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [groupsStageActive, sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
+  }, [groupsStageActive, activeStage, sourcePageNumber, sourcePageSize, activeSourceQuery, sourceSortBy, sourceSortDirection]);
 
   useEffect(() => {
     if (activeStage !== "stage3") return;
@@ -699,6 +711,10 @@ export function RealisticReviewUgcPage() {
   }, [activeStage]);
 
   function selectStage(nextStage: RrugcStageTab) {
+    if (nextStage === "stage2" || nextStage === "stage3") {
+      setSourcePageNumber(1);
+      setSourcePageLoading(true);
+    }
     setActiveStage(nextStage);
     window.requestAnimationFrame?.(() => {
       document.getElementById("rrugc-tab-" + nextStage)?.focus();
@@ -921,6 +937,8 @@ export function RealisticReviewUgcPage() {
             loading={sourcePageLoading}
             message={stage2Message}
             skillCatalogRevision={skillCatalogRevision}
+            query={stage3Query}
+            onQueryChange={setStage3Query}
             onManageSkills={() => setSkillManagerOpen(true)}
             onPageChange={value => {
               setSourcePageLoading(true);
@@ -949,6 +967,8 @@ export function RealisticReviewUgcPage() {
             loading={stage3Loading}
             analyzing={stage3Analyzing}
             message={stage3Message}
+            query={stage4Query}
+            onQueryChange={setStage4Query}
             onAnalyze={folderId => void analyzeStage3(folderId)}
           />
         </section>
