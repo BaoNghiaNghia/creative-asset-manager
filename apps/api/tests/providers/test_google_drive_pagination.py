@@ -84,6 +84,49 @@ class GoogleDrivePaginationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(requests[0].url.params["pageSize"], "200")
         self.assertEqual(requests[1].url.params["pageToken"], "page-2")
 
+    async def test_move_rejects_self_without_provider_request(self) -> None:
+        client, requests = await self._client_with_pages([])
+
+        with self.assertRaisesRegex(ValueError, "cannot be moved into itself"):
+            await client.move_file("folder-a", "folder-a")
+
+        self.assertEqual(requests, [])
+
+    async def test_move_is_idempotent_when_item_is_already_in_destination(self) -> None:
+        client, requests = await self._client_with_pages([{
+            "id": "file-a",
+            "name": "file-a.png",
+            "mimeType": "image/png",
+            "parents": ["folder-1"],
+        }])
+
+        moved = await client.move_file("file-a", "folder-1")
+
+        self.assertEqual(moved.parent_id, "folder-1")
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].method, "GET")
+
+    async def test_move_rejects_folder_descendant_destination_before_patch(self) -> None:
+        client, requests = await self._client_with_pages([
+            {
+                "id": "folder-a",
+                "name": "Folder A",
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": ["root"],
+            },
+            {
+                "id": "child-b",
+                "name": "Child B",
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": ["folder-a"],
+            },
+        ])
+
+        with self.assertRaisesRegex(ValueError, "descendants"):
+            await client.move_file("folder-a", "child-b")
+
+        self.assertEqual([request.method for request in requests], ["GET", "GET"])
+
     async def test_get_retries_transient_read_timeout(self) -> None:
         calls = 0
 

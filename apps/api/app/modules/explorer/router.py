@@ -1326,27 +1326,120 @@ async def copy_item(
 
 @router.post("/items/{item_id}/move")
 async def move_item(
-    request: Request, item_id: str, destination_parent_id: str = Query(...), provider: Provider = Query("google-drive"),
-    session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(require_permission("assets.manage")),
+    request: Request,
+    item_id: str,
+    destination_parent_id: str = Query(...),
+    provider: Provider = Query("google-drive"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_authenticated_principal),
     external_source_id: str | None = Query(None),
 ):
-    if provider != "google-drive": raise HTTPException(status_code=501, detail="Move is not supported for this provider yet.")
-    token, _account, tenant_id, resolved_source_id = await _source_context(request, provider, session, principal, external_source_id)
-    if not token: raise HTTPException(status_code=401, detail="Connect Google Drive before moving files.")
-    async with create_source_provider(provider, token) as client:
-        destination = await client.get_node(destination_parent_id)
-        if destination.kind != "folder": raise HTTPException(status_code=422, detail="Destination must be a folder.")
-        node = await client.move_file(item_id, destination_parent_id)
+    # Move is a baseline authenticated Explorer action, like folder creation.
+    # Provider write scope plus tenant/source and Viewer folder-scope checks
+    # below remain authoritative for both the source and destination.
+    if provider != "google-drive":
+        raise HTTPException(status_code=501, detail="Move is not supported for this provider yet.")
+
+    token, _account, tenant_id, resolved_source_id = await _source_context(
+        request,
+        provider,
+        session,
+        principal,
+        external_source_id,
+        require_drive_write_scope=True,
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="Connect Google Drive before moving files.")
+
+    scope_service = ViewerFolderScopeService(session)
+    access = scope_service.access(
+        tenant_id=tenant_id,
+        membership_id=principal.membership_id,
+        roles=principal.effective_roles,
+        external_source_id=resolved_source_id,
+    )
+
+    try:
+        async with create_source_provider(provider, token) as client:
+            current = await client.get_node(item_id)
+            destination = await client.get_node(destination_parent_id)
+            if destination.kind != "folder":
+                raise HTTPException(status_code=422, detail="Destination must be a folder.")
+
+        await _require_viewer_folder_scope_from_provider(
+            scope_service,
+            tenant_id=tenant_id,
+            access=access,
+            provider=provider,
+            token=token,
+            folder_id=current.parent_id or "root",
+            allow_root=False,
+        )
+        await _require_viewer_folder_scope_from_provider(
+            scope_service,
+            tenant_id=tenant_id,
+            access=access,
+            provider=provider,
+            token=token,
+            folder_id=destination_parent_id,
+            allow_root=False,
+        )
+
+        # All authorization is complete before the provider mutation. Avoid
+        # holding a database checkout during remote Drive I/O.
+        session.close()
+        async with create_source_provider(provider, token) as client:
+            node = await client.move_file(item_id, destination_parent_id)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise _provider_error(exc, "Google Drive could not move this item.") from exc
+
+    # Keep the authoritative local source hierarchy aligned immediately. A
+    # subsequent source sync can enrich path metadata without waiting to repair
+    # the parent edge first.
+    if resolved_source_id:
+        source_asset = session.execute(
+            select(SourceAssetModel).where(
+                SourceAssetModel.tenant_id == tenant_id,
+                SourceAssetModel.external_source_id == resolved_source_id,
+                SourceAssetModel.external_asset_id == item_id,
+                SourceAssetModel.deleted_at.is_(None),
+            )
+        ).scalar_one_or_none()
+        if source_asset is not None:
+            metadata = dict(source_asset.source_metadata or {})
+            metadata["parents"] = [destination_parent_id]
+            metadata["parent_id"] = destination_parent_id
+            source_asset.source_metadata = metadata
+            source_asset.parent_external_id = destination_parent_id
+            session.commit()
+
     viewer_folder_hierarchy_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
     viewer_folder_remote_parent_cache.invalidate(
         tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
-    location_breadcrumb_cache.invalidate(tenant_id=tenant_id, external_source_id=resolved_source_id, item_id=item_id)
-    invalidate_drive_listings(
-        tenant_id=tenant_id, external_source_id=resolved_source_id
+    # Moving a folder changes the breadcrumb of every descendant, so invalidate
+    # the source-level breadcrumb cache rather than only the moved node.
+    location_breadcrumb_cache.invalidate(
+        tenant_id=tenant_id, external_source_id=resolved_source_id,
     )
+    old_parent_id = current.parent_id or "root"
+    invalidate_drive_listings(
+        tenant_id=tenant_id,
+        external_source_id=resolved_source_id,
+        parent_id=old_parent_id,
+    )
+    if destination_parent_id != old_parent_id:
+        invalidate_drive_listings(
+            tenant_id=tenant_id,
+            external_source_id=resolved_source_id,
+            parent_id=destination_parent_id,
+        )
     return {"id": node.id, "parent_id": node.parent_id}
 
 @router.get("/thumbnail/{item_id}")

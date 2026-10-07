@@ -179,7 +179,35 @@ class GoogleDriveClient:
         return map_drive_file(response.json())
 
     async def move_file(self, item_id: str, destination_parent_id: str):
-        current = await self.client.get(f"/files/{item_id}", params={"fields": "id,parents", "supportsAllDrives": "true"}); current.raise_for_status(); old=",".join(current.json().get("parents", [])); response=await self.client.patch(f"/files/{item_id}", params={"addParents": destination_parent_id, "removeParents": old, "supportsAllDrives": "true", "fields": FIELDS}); response.raise_for_status(); return map_drive_file(response.json())
+        if item_id == destination_parent_id:
+            raise ValueError("An item cannot be moved into itself.")
+
+        source = await self.get(item_id)
+        if source.parent_id == destination_parent_id:
+            return source
+        if source.kind == "folder" and await self._is_same_or_descendant(
+            destination_parent_id,
+            item_id,
+        ):
+            raise ValueError("A folder cannot be moved into itself or one of its descendants.")
+
+        current = await self.client.get(
+            f"/files/{item_id}",
+            params={"fields": "id,parents", "supportsAllDrives": "true"},
+        )
+        current.raise_for_status()
+        old_parents = ",".join(current.json().get("parents", []))
+        response = await self.client.patch(
+            f"/files/{item_id}",
+            params={
+                "addParents": destination_parent_id,
+                "removeParents": old_parents,
+                "supportsAllDrives": "true",
+                "fields": FIELDS,
+            },
+        )
+        response.raise_for_status()
+        return map_drive_file(response.json())
 
     async def ensure_child_folder(self, parent_id: str, name: str):
         """Return an existing direct child folder or create it once."""

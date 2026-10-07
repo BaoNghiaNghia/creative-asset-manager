@@ -176,6 +176,36 @@ describe("AssetGrid file-list view", () => {
 });
 
 
+describe("AssetGrid internal move targets", () => {
+  it("makes folders draggable move targets without removing file drag-out", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(AssetGrid, {
+      items: [
+        { provider: "google-drive", id: "folder-1", name: "Destination", kind: "folder", mime_type: "application/vnd.google-apps.folder", external_source_id: "source-1" },
+        { provider: "google-drive", id: "image-1", name: "hero.png", kind: "image", mime_type: "image/png", external_source_id: "source-1" },
+      ],
+      path: [],
+      selected: new Set<string>(),
+      metadataByItem: {},
+      onOpen: noop,
+      onReplaceSelection: noop,
+      onPrefetch: noop,
+      onCancelPrefetch: noop,
+      onPreview: noop,
+      onDetails: noop,
+      onFocus: noop,
+      onContextMenu: noop,
+      onMoveItems: noop,
+      activeExternalSourceId: "source-1",
+    }));
+
+    expect(markup).toContain('data-folder-drop-target="true"');
+    expect(markup).toContain('title="Drag to move this folder · drop items here to move them"');
+    expect(markup).toContain('title="Drag the card to move · drag the preview to another application"');
+    expect(markup).toContain('title="Drag original file outside Creative Assets"');
+  });
+});
+
 describe("AssetGrid marquee selection and drag-out", () => {
   it("selects every card intersecting a drag rectangle", () => {
     const ids = assetIdsInSelectionRectangle(
@@ -292,7 +322,7 @@ describe("AssetGrid marquee selection and drag-out", () => {
     expect(markup).toContain("Discovered");
   });
 
-  it("marks files, but not folders, as draggable originals", () => {
+  it("keeps file original drag-out while making file and folder cards movable internally", () => {
     const noop = () => undefined;
     const markup = renderToStaticMarkup(createElement(AssetGrid, {
       items: [
@@ -312,7 +342,8 @@ describe("AssetGrid marquee selection and drag-out", () => {
       onContextMenu: noop,
     }));
     expect(markup).toContain('data-asset-id="file-1" draggable="true"');
-    expect(markup).toContain('data-asset-id="folder-1" draggable="false"');
+    expect(markup).toContain('data-asset-id="folder-1" data-folder-drop-target="true" draggable="true"');
+    expect(markup).toContain('class="preview folder" draggable="false"');
   });
 });
 

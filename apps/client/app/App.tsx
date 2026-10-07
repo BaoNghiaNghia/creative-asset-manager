@@ -27,6 +27,11 @@ import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import { assetPreviewUrl, explorerAssetUrl } from "./utils/mediaUrls";
 import { folderNotePreview, productFolderKind } from "./utils/folderNotes";
 import { addSearchHistory, loadSearchHistory, saveSearchHistory } from "./utils/searchHistory";
+import {
+  buildExplorerMoveDragPayload,
+  explorerMoveTargetAllowed,
+  type ExplorerMoveDragPayload,
+} from "./utils/explorerMove";
 import type { Asset, SearchSuggestion } from "./types";
 
 export function toggleVisualSearchOpen(currentOpen: boolean, clear: () => void): boolean {
@@ -362,6 +367,8 @@ export default function App() {
   const [reviewLinkShareIds, setReviewLinkShareIds] = useState<Map<string, string>>(() => new Map());
   const [generationItem, setGenerationItem] = useState<Asset | null>(null);
   const [shortcutNotice, setShortcutNotice] = useState<ShortcutNotice | null>(null);
+  const [movingExplorerItems, setMovingExplorerItems] = useState(false);
+  const moveInFlightRef = useRef(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [desktopIngestion, setDesktopIngestion] = useState<DesktopIngestionJob | null>(null);
   const [folderNoteOpen, setFolderNoteOpen] = useState(false);
@@ -510,6 +517,92 @@ export default function App() {
     if (action === "select") { event.preventDefault(); applySuggestion(suggestions[suggestionIndex].text); return; }
     if (action === "submit") { event.preventDefault(); setSuggestionIndex(-1); setSuggestionsDismissed(true); }
   }
+  function currentMoveDestination(): Asset {
+    return explorer.path.at(-1) || {
+      provider: explorer.provider,
+      id: explorer.currentFolderId,
+      name: "Drive root",
+      kind: "folder",
+      mime_type: "application/vnd.google-apps.folder",
+      external_source_id: explorer.activeExternalSourceId || undefined,
+    };
+  }
+
+  async function moveExplorerItems(payload: ExplorerMoveDragPayload, destination: Asset) {
+    if (moveInFlightRef.current) return;
+    if (explorer.provider !== "google-drive" || payload.provider !== "google-drive") {
+      setShortcutNotice({ tone: "error", message: "Move is currently available for Google Drive items only." });
+      return;
+    }
+    if (!explorerMoveTargetAllowed(payload, destination, explorer.activeExternalSourceId)) {
+      setShortcutNotice({ tone: "error", message: "Choose another folder in the same Google Drive source." });
+      return;
+    }
+    if (
+      payload.externalSourceId
+      && explorer.activeExternalSourceId
+      && payload.externalSourceId !== explorer.activeExternalSourceId
+    ) {
+      setShortcutNotice({ tone: "error", message: "Items cannot be moved between different Drive sources." });
+      return;
+    }
+
+    moveInFlightRef.current = true;
+    setMovingExplorerItems(true);
+    const count = payload.itemIds.length;
+    try {
+      await explorer.moveItems(payload.itemIds, destination.id);
+      explorer.clearSelection();
+      setClipboard(current => {
+        if (current?.operation !== "cut") return current;
+        const currentIds = new Set(current.items.map(item => item.id));
+        return payload.itemIds.every(id => currentIds.has(id)) ? null : current;
+      });
+      setShortcutNotice({
+        tone: "success",
+        message: "Moved " + count + " item" + (count === 1 ? "" : "s") + " to “" + destination.name + "”.",
+      });
+    } catch (reason) {
+      setShortcutNotice({
+        tone: "error",
+        message: reason instanceof Error ? reason.message : "Could not move the selected items.",
+      });
+    } finally {
+      moveInFlightRef.current = false;
+      setMovingExplorerItems(false);
+    }
+  }
+
+  async function pasteExplorerClipboard() {
+    if (!clipboard?.items.length || movingExplorerItems) return;
+    if (explorer.provider !== "google-drive") {
+      setShortcutNotice({ tone: "error", message: "Copy, cut and paste are currently available for Google Drive only." });
+      return;
+    }
+    const destination = currentMoveDestination();
+    const count = clipboard.items.length;
+    if (clipboard.operation === "cut") {
+      const payload = buildExplorerMoveDragPayload(clipboard.items, explorer.activeExternalSourceId);
+      if (!payload) {
+        setShortcutNotice({ tone: "error", message: "The cut items are not from the same Drive source." });
+        return;
+      }
+      await moveExplorerItems(payload, destination);
+      return;
+    }
+    try {
+      await explorer.copyItems(clipboard.items.map(item => item.id), destination.id);
+      explorer.clearSelection();
+      const itemLabel = count + " item" + (count === 1 ? "" : "s");
+      setShortcutNotice({ tone: "success", message: "Copied " + itemLabel + " to this folder." });
+    } catch {
+      setShortcutNotice({
+        tone: "error",
+        message: "Could not paste the copied items. Check that you can edit this folder.",
+      });
+    }
+  }
+
   useEffect(() => {
     if (!shortcutNotice) return;
     const timer = window.setTimeout(() => setShortcutNotice(null), 4_000);
@@ -554,25 +647,9 @@ export default function App() {
         event.preventDefault(); storeClipboard("cut"); return;
       }
       if (command && event.key.toLowerCase() === "v") {
-        if (!clipboard?.items.length) return;
+        if (!clipboard?.items.length || movingExplorerItems) return;
         event.preventDefault();
-        if (explorer.provider !== "google-drive") {
-          setShortcutNotice({ tone: "error", message: "Copy, cut and paste are currently available for Google Drive only." }); return;
-        }
-        const destination = explorer.currentFolderId;
-        const count = clipboard.items.length;
-        const action = clipboard.operation === "cut"
-          ? Promise.all(clipboard.items.map(item => explorer.moveItem(item.id, destination)))
-          : explorer.copyItems(clipboard.items.map(item => item.id), destination);
-        void action.then(() => {
-          explorer.clearSelection();
-          if (clipboard.operation === "cut") setClipboard(null);
-          const itemLabel = count + " item" + (count === 1 ? "" : "s");
-          setShortcutNotice({ tone: "success", message: (clipboard.operation === "cut" ? "Moved " : "Copied ") + itemLabel + " to this folder." });
-        }).catch(() => setShortcutNotice({
-          tone: "error",
-          message: clipboard.operation === "cut" ? "Could not move all cut items. Check that you can edit this folder." : "Could not paste the copied items. Check that you can edit this folder.",
-        }));
+        void pasteExplorerClipboard();
         return;
       }
       if (event.key === "Delete") {
@@ -834,9 +911,27 @@ export default function App() {
     else openDetails(item);
   }
 
+  function contextClipboardItems(item: Asset): Asset[] {
+    const selectedItems = selectedExplorerItems();
+    return explorer.selected.has(item.id) && selectedItems.length ? selectedItems : [item];
+  }
+
   function copyContextItem(item: Asset) {
-    setClipboard({ items: [item], operation: "copy" });
-    setShortcutNotice({ tone: "copy", message: "Copied 1 item. Open a destination folder and press Ctrl+V." });
+    const items = contextClipboardItems(item);
+    setClipboard({ items, operation: "copy" });
+    setShortcutNotice({
+      tone: "copy",
+      message: "Copied " + items.length + " item" + (items.length === 1 ? "" : "s") + ". Open a destination folder and press Ctrl+V.",
+    });
+  }
+
+  function cutContextItem(item: Asset) {
+    const items = contextClipboardItems(item);
+    setClipboard({ items, operation: "cut" });
+    setShortcutNotice({
+      tone: "cut",
+      message: "Cut " + items.length + " item" + (items.length === 1 ? "" : "s") + ". Open a destination folder and press Ctrl+V to move.",
+    });
   }
 
   function moveContextItem(item: Asset) {
@@ -984,6 +1079,7 @@ export default function App() {
       reviewLinkShareIds={canManageReviewLinks ? reviewLinkShareIds : undefined}
       onCopyReviewLink={copyCurrentReviewLink}
       onRefreshReviewLink={refreshReviewLink}
+      onMoveItems={moveExplorerItems}
       onCollapse={sidebar.collapse}
       onResizeStart={sidebar.startResize}
       applicationAuthenticated={explorer.applicationAuthenticated === true}
@@ -1341,6 +1437,7 @@ export default function App() {
             activeExternalSourceId={explorer.activeExternalSourceId}
             onCopyReviewLink={copyCurrentReviewLink}
             onRefreshReviewLink={refreshReviewLink}
+            onMoveItems={moveExplorerItems}
           />}
 
           {!visualSearchOpen && explorer.searchV3.active && explorer.searchV3.hasMore && <button
@@ -1388,7 +1485,9 @@ export default function App() {
 
     {paneContextMenu && <ExplorerPaneContextMenu
       position={paneContextMenu}
+      canPaste={Boolean(clipboard?.items.length) && explorer.provider === "google-drive" && !movingExplorerItems}
       onCreateFolder={createFolderFromPane}
+      onPaste={() => void pasteExplorerClipboard()}
       onClose={() => setPaneContextMenu(null)}
     />}
     {assetContextMenu && <AssetContextMenu
@@ -1402,6 +1501,7 @@ export default function App() {
         link.click();
       }}
       onCopy={() => copyContextItem(assetContextMenu.item)}
+      onCut={() => cutContextItem(assetContextMenu.item)}
       onRename={() => renameContextItem(assetContextMenu.item)}
       onMove={() => moveContextItem(assetContextMenu.item)}
       onGenerate={assetContextMenu.item.kind === "image" && Boolean(assetContextMenu.item.internal_asset_id) ? () => openGenerator(assetContextMenu.item) : undefined}

@@ -12,6 +12,7 @@ type Props = {
   onOpen: () => void;
   onDownload: () => void;
   onCopy: () => void;
+  onCut: () => void;
   onRename: () => void;
   onMove: () => void;
   onGenerate?: () => void;
@@ -23,7 +24,7 @@ type Props = {
 
 const VIEWPORT_GAP = 8;
 
-type IconName = "open" | "preview" | "generate" | "download" | "copy" | "rename" | "move" | "info" | "trash" | "folderAdd";
+type IconName = "open" | "preview" | "generate" | "download" | "copy" | "cut" | "paste" | "rename" | "move" | "info" | "trash" | "folderAdd";
 
 function MenuIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -32,6 +33,8 @@ function MenuIcon({ name }: { name: IconName }) {
     generate: <><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" /><path d="M5 17v4M3 19h4" /></>,
     download: <><path d="M12 3v12m-4-4 4 4 4-4" /><path d="M4 19h16" /></>,
     copy: <><rect x="8" y="8" width="11" height="11" rx="1" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
+    cut: <><circle cx="6" cy="7" r="2.5" /><circle cx="6" cy="17" r="2.5" /><path d="m8.2 8.2 10.3 8.3M8.2 15.8 18.5 7.5" /></>,
+    paste: <><path d="M8 5h8M9 3h6v4H9z" /><path d="M6 6h12v15H6z" /></>,
     rename: <><path d="m4 16-.8 4 4-.8L18.5 7.9l-3.2-3.2z" /><path d="m13.8 6.2 3.2 3.2M4 21h16" /></>,
     move: <><path d="M3 7h7l2 2h9v10H3z" /><path d="m13 13 2-2 2 2m-2-2v6" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></>,
@@ -60,6 +63,7 @@ export function AssetContextMenu({
   onOpen,
   onDownload,
   onCopy,
+  onCut,
   onRename,
   onMove,
   onGenerate,
@@ -132,7 +136,10 @@ export function AssetContextMenu({
     <div className="asset-context-separator" role="separator" />
     {item.kind === "folder" && onShareForReview && <button type="button" role="menuitem" onClick={() => run(onShareForReview)}><MenuIcon name="copy" /><b>Share for review</b></button>}
     <button type="button" role="menuitem" onClick={() => run(onCopy)}>
-      <MenuIcon name="copy" /><b>Make a copy</b><kbd>Ctrl+C</kbd>
+      <MenuIcon name="copy" /><b>Copy</b><kbd>Ctrl+C</kbd>
+    </button>
+    <button type="button" role="menuitem" onClick={() => run(onCut)}>
+      <MenuIcon name="cut" /><b>Cut</b><kbd>Ctrl+X</kbd>
     </button>
     {item.provider === "google-drive" && <button type="button" role="menuitem" onClick={() => run(onRename)}>
       <MenuIcon name="rename" /><b>Rename</b>
@@ -152,13 +159,17 @@ export function AssetContextMenu({
 
 type ExplorerPaneContextMenuProps = {
   position: AssetContextMenuPosition;
+  canPaste?: boolean;
   onCreateFolder: () => void;
+  onPaste?: () => void;
   onClose: () => void;
 };
 
 export function ExplorerPaneContextMenu({
   position,
+  canPaste = false,
   onCreateFolder,
+  onPaste,
   onClose,
 }: ExplorerPaneContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -206,11 +217,24 @@ export function ExplorerPaneContextMenu({
     aria-label="Folder actions"
     onContextMenu={event => event.preventDefault()}
   >
+    {canPaste && onPaste && <button
+      type="button"
+      role="menuitem"
+      autoFocus
+      onClick={() => {
+        onClose();
+        onPaste();
+      }}
+    >
+      <MenuIcon name="paste" />
+      <b>Paste</b>
+      <kbd>Ctrl+V</kbd>
+    </button>}
     <button
       type="button"
       role="menuitem"
       className="create-folder-action"
-      autoFocus
+      autoFocus={!canPaste}
       onClick={() => {
         onClose();
         onCreateFolder();

@@ -6,6 +6,15 @@ import { VisualSearchIcon } from "./VisualSearchIcon";
 import { fileTypeGlyph, fileTypeLabel, fileTypeLogo, fileTypeTone, getFileType, isAvifAsset, isPreviewableAsset } from "../utils/fileType";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 import { prefetchExplorerPlaybackTicket } from "../utils/videoPlayback";
+import {
+  ASSET_EXPLORER_MOVE_MIME,
+  buildExplorerMoveDragPayload,
+  decodeExplorerMoveDragPayload,
+  dragTypesIncludeExplorerMove,
+  encodeExplorerMoveDragPayload,
+  explorerMoveTargetAllowed,
+  type ExplorerMoveDragPayload,
+} from "../utils/explorerMove";
 
 
 export const THUMBNAIL_CONCURRENCY_LIMIT = 6;
@@ -405,6 +414,7 @@ type Props = {
   activeExternalSourceId?: string | null;
   onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
   onRefreshReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
+  onMoveItems?: (payload: ExplorerMoveDragPayload, destination: Asset) => void | Promise<void>;
 };
 
 type FolderShareMenuState = {
@@ -434,6 +444,7 @@ export function AssetGrid({
   activeExternalSourceId,
   onCopyReviewLink,
   onRefreshReviewLink,
+  onMoveItems,
 }: Props) {
   function resultAncestors(item: Asset) {
     if (
@@ -466,6 +477,7 @@ export function AssetGrid({
   const nativeDragPreparing = useRef(new Map<string, Promise<void>>());
   const [marquee, setMarquee] = useState<SelectionRectangle | null>(null);
   const [shareMenu, setShareMenu] = useState<FolderShareMenuState | null>(null);
+  const [moveDropFolderId, setMoveDropFolderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectionAnchorRef.current && !items.some(item => item.id === selectionAnchorRef.current)) {
@@ -498,7 +510,11 @@ export function AssetGrid({
 
   useEffect(() => {
     const rejectInternalDrop = (event: globalThis.DragEvent) => {
-      if (!dragTypesIncludeAssetPayload(event.dataTransfer?.types || [])) return;
+      const moveDrag = dragTypesIncludeExplorerMove(event.dataTransfer?.types || []);
+      const dragOut = dragTypesIncludeAssetPayload(event.dataTransfer?.types || []);
+      if (!moveDrag && !dragOut) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (moveDrag && target?.closest('[data-folder-drop-target="true"]')) return;
       event.preventDefault();
       event.stopPropagation();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
@@ -599,11 +615,14 @@ export function AssetGrid({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function dragItemsFor(item: Asset): Asset[] {
-    if (item.kind === "folder") return [];
+  function moveDragItemsFor(item: Asset): Asset[] {
     return selected.has(item.id)
-      ? items.filter(candidate => selected.has(candidate.id) && candidate.kind !== "folder")
+      ? items.filter(candidate => selected.has(candidate.id))
       : [item];
+  }
+
+  function originalDragItemsFor(item: Asset): Asset[] {
+    return moveDragItemsFor(item).filter(candidate => candidate.kind !== "folder");
   }
 
   function cancelNativeOriginalPrewarm() {
@@ -646,7 +665,7 @@ export function AssetGrid({
   function scheduleNativeOriginalPrewarm(item: Asset) {
     cancelNativeOriginalPrewarm();
     if (!window.camDesktop?.nativeDrag) return;
-    const allDragItems = dragItemsFor(item);
+    const allDragItems = originalDragItemsFor(item);
     const prewarmItems = nativeOriginalPrewarmItems(allDragItems, item.id);
     if (!prewarmItems.length || prewarmItems.length !== allDragItems.length) return;
     nativeDragPrewarmTimer.current = setTimeout(() => {
@@ -655,11 +674,57 @@ export function AssetGrid({
     }, 100);
   }
 
+  function startExplorerMoveDrag(event: DragEvent<HTMLElement>, item: Asset) {
+    cancelNativeOriginalPrewarm();
+    marqueeRef.current = null;
+    setMarquee(null);
+    const payload = buildExplorerMoveDragPayload(moveDragItemsFor(item), activeExternalSourceId);
+    if (!payload) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(ASSET_EXPLORER_MOVE_MIME, encodeExplorerMoveDragPayload(payload));
+  }
+
+  function moveDropPayload(event: DragEvent<HTMLElement>): ExplorerMoveDragPayload | null {
+    if (!dragTypesIncludeExplorerMove(event.dataTransfer.types)) return null;
+    return decodeExplorerMoveDragPayload(event.dataTransfer.getData(ASSET_EXPLORER_MOVE_MIME));
+  }
+
+  function moveDragOverFolder(event: DragEvent<HTMLElement>, destination: Asset) {
+    if (!onMoveItems || destination.kind !== "folder" || !dragTypesIncludeExplorerMove(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setMoveDropFolderId(destination.id);
+  }
+
+  function moveDragLeaveFolder(event: DragEvent<HTMLElement>, destination: Asset) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    if (moveDropFolderId === destination.id) setMoveDropFolderId(null);
+  }
+
+  function dropIntoFolder(event: DragEvent<HTMLElement>, destination: Asset) {
+    if (!onMoveItems || destination.kind !== "folder") return;
+    const payload = moveDropPayload(event);
+    if (!payload) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMoveDropFolderId(null);
+    if (!explorerMoveTargetAllowed(payload, destination, activeExternalSourceId)) {
+      event.dataTransfer.dropEffect = "none";
+      return;
+    }
+    void onMoveItems(payload, destination);
+  }
+
   function dragOriginalFiles(event: DragEvent<HTMLElement>, item: Asset) {
     cancelNativeOriginalPrewarm();
     marqueeRef.current = null;
     setMarquee(null);
-    const dragItems = dragItemsFor(item);
+    const dragItems = originalDragItemsFor(item);
     if (!dragItems.length) {
       event.preventDefault();
       return;
@@ -690,8 +755,12 @@ export function AssetGrid({
       }
     }
 
+    const movePayload = buildExplorerMoveDragPayload(moveDragItemsFor(item), activeExternalSourceId);
     const payload = originalAssetDragPayload(dragItems, window.location.origin);
-    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.effectAllowed = movePayload ? "copyMove" : "copy";
+    if (movePayload) {
+      event.dataTransfer.setData(ASSET_EXPLORER_MOVE_MIME, encodeExplorerMoveDragPayload(movePayload));
+    }
     event.dataTransfer.setData(ASSET_DRAG_OUT_MIME, payload.sourceIds);
     event.dataTransfer.setData("DownloadURL", payload.downloadUrl);
     event.dataTransfer.setData("text/uri-list", payload.uriList);
@@ -699,7 +768,11 @@ export function AssetGrid({
   }
 
   function blockInternalDrop(event: DragEvent<HTMLDivElement>) {
-    if (!dragTypesIncludeAssetPayload(event.dataTransfer.types)) return;
+    const moveDrag = dragTypesIncludeExplorerMove(event.dataTransfer.types);
+    const dragOut = dragTypesIncludeAssetPayload(event.dataTransfer.types);
+    if (!moveDrag && !dragOut) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (moveDrag && target?.closest('[data-folder-drop-target="true"]')) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "none";
@@ -730,19 +803,31 @@ export function AssetGrid({
     </div>}
     {marquee && <span className="asset-selection-marquee" style={marqueeStyle} aria-hidden="true" />}
     {items.map((item, index) => <article
-      className={(selected.has(item.id) ? "selected" : "") + ((item.kind === "image" || item.kind === "video") ? " media-card" : "") + (viewMode === "list" ? " asset-list-row" : "")}
+      className={[
+        selected.has(item.id) ? "selected" : "",
+        item.kind === "image" || item.kind === "video" ? "media-card" : "",
+        viewMode === "list" ? "asset-list-row" : "",
+        moveDropFolderId === item.id ? "asset-move-drop-target" : "",
+      ].filter(Boolean).join(" ")}
       key={item.id}
       data-asset-id={item.id}
-      draggable={item.kind !== "folder"}
-      title={item.kind === "folder" ? undefined : "Drag the original file to another application"}
+      data-folder-drop-target={item.kind === "folder" ? "true" : undefined}
+      draggable
+      title={item.kind === "folder"
+        ? "Drag to move this folder · drop items here to move them"
+        : "Drag the card to move · drag the preview to another application"}
       onPointerDown={() => {
         cancelNativeOriginalPrewarm();
         if (item.kind === "folder") onPrefetchNow?.(item.id);
-        else void prepareNativeOriginalDrag(dragItemsFor(item));
       }}
       onPointerUp={cancelNativeOriginalPrewarm}
       onPointerCancel={cancelNativeOriginalPrewarm}
-      onDragStart={event => dragOriginalFiles(event, item)}
+      onDragStart={event => startExplorerMoveDrag(event, item)}
+      onDragEnd={() => setMoveDropFolderId(null)}
+      onDragOver={item.kind === "folder" ? event => moveDragOverFolder(event, item) : undefined}
+      onDragEnter={item.kind === "folder" ? event => moveDragOverFolder(event, item) : undefined}
+      onDragLeave={item.kind === "folder" ? event => moveDragLeaveFolder(event, item) : undefined}
+      onDrop={item.kind === "folder" ? event => dropIntoFolder(event, item) : undefined}
       onClick={event => {
         const next = explorerSelectionForClick(
           items.map(candidate => candidate.id),
@@ -773,7 +858,16 @@ export function AssetGrid({
     >
       {onFindSimilar && item.kind === "image" && item.internal_asset_id && <button type="button" className="asset-find-similar" onClick={event => { event.stopPropagation(); onFindSimilar(item); }} aria-label={"Find similar images to " + item.name} title="Find similar images"><VisualSearchIcon /></button>}
       <button className="asset-info" onClick={event => { event.stopPropagation(); onDetails(item); }} aria-label={"View details for " + item.name}>i</button>
-      <button className={"preview " + item.kind} onDoubleClick={() => openItem(item)}>
+      <button
+        className={"preview " + item.kind}
+        draggable={item.kind !== "folder"}
+        title={item.kind === "folder" ? undefined : "Drag original file outside Creative Assets"}
+        onDragStart={item.kind !== "folder" ? event => {
+          event.stopPropagation();
+          dragOriginalFiles(event, item);
+        } : undefined}
+        onDoubleClick={() => openItem(item)}
+      >
         <AssetPreview item={item} fetchPriority={thumbnailFetchPriority(index)} />
         {item.kind === "video" && <span className="video-thumbnail-badge" aria-hidden="true">▶</span>}
       </button>

@@ -1,7 +1,9 @@
 import asyncio
 import inspect
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
+
+from fastapi import HTTPException
 
 from app.modules.authorization.principal import require_authenticated_principal
 from app.modules.explorer.router import create_folder, delete_item, move_item, rename_item
@@ -197,22 +199,188 @@ def test_delete_invalidates_original_parent_listing():
     asyncio.run(scenario())
 
 
-def test_move_invalidates_source_listings_for_old_and_new_parent():
+def test_move_route_requires_authentication_without_assets_manage_permission():
+    dependency = inspect.signature(move_item).parameters["principal"].default
+    assert dependency.dependency is require_authenticated_principal
+
+
+def test_move_preserves_viewer_source_and_destination_scope_and_requires_write_scope():
     async def scenario():
         provider = FakeMutationProvider()
-        invalidate = Mock()
-        patches = _context_patches(provider, invalidate)
-        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        source_context = AsyncMock(
+            return_value=("token", "account-a", "tenant-a", "source-a")
+        )
+        scope_factory = Mock()
+        access = object()
+        scope_factory.return_value.access.return_value = access
+        require_scope = AsyncMock()
+        session = Mock()
+        session.execute.return_value.scalar_one_or_none.return_value = None
+        principal = SimpleNamespace(
+            membership_id="viewer-membership",
+            effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset(),
+        )
+        with (
+            patch("app.modules.explorer.router._source_context", new=source_context),
+            patch("app.modules.explorer.router.create_source_provider", return_value=provider),
+            patch("app.modules.explorer.router.ViewerFolderScopeService", scope_factory),
+            patch(
+                "app.modules.explorer.router._require_viewer_folder_scope_from_provider",
+                new=require_scope,
+            ),
+            patch("app.modules.explorer.router.invalidate_drive_listings"),
+        ):
             await move_item(
                 SimpleNamespace(),
                 "file-a",
                 destination_parent_id="destination",
                 provider="google-drive",
-                session=SimpleNamespace(),
+                session=session,
+                principal=principal,
+                external_source_id="source-a",
+            )
+
+        assert source_context.await_args.kwargs["require_drive_write_scope"] is True
+        scope_factory.return_value.access.assert_called_once_with(
+            tenant_id="tenant-a",
+            membership_id="viewer-membership",
+            roles=frozenset({"viewer"}),
+            external_source_id="source-a",
+        )
+        assert require_scope.await_count == 2
+        assert require_scope.await_args_list[0].kwargs["folder_id"] == "old-parent"
+        assert require_scope.await_args_list[0].kwargs["allow_root"] is False
+        assert require_scope.await_args_list[1].kwargs["folder_id"] == "destination"
+        assert require_scope.await_args_list[1].kwargs["allow_root"] is False
+
+    asyncio.run(scenario())
+
+
+def test_move_viewer_scope_denial_happens_before_provider_mutation():
+    async def scenario():
+        provider = FakeMutationProvider()
+        provider.move_file = AsyncMock()
+        scope_factory = Mock()
+        scope_factory.return_value.access.return_value = object()
+        session = Mock()
+        require_scope = AsyncMock(
+            side_effect=HTTPException(
+                status_code=403,
+                detail={"code": "viewer_folder_scope_denied"},
+            )
+        )
+        principal = SimpleNamespace(
+            membership_id="viewer-membership",
+            effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset(),
+        )
+        with (
+            patch(
+                "app.modules.explorer.router._source_context",
+                new=AsyncMock(
+                    return_value=("token", "account-a", "tenant-a", "source-a")
+                ),
+            ),
+            patch("app.modules.explorer.router.create_source_provider", return_value=provider),
+            patch("app.modules.explorer.router.ViewerFolderScopeService", scope_factory),
+            patch(
+                "app.modules.explorer.router._require_viewer_folder_scope_from_provider",
+                new=require_scope,
+            ),
+        ):
+            try:
+                await move_item(
+                    SimpleNamespace(),
+                    "file-a",
+                    destination_parent_id="destination",
+                    provider="google-drive",
+                    session=session,
+                    principal=principal,
+                    external_source_id="source-a",
+                )
+            except HTTPException as exc:
+                assert exc.status_code == 403
+            else:
+                raise AssertionError("Viewer move outside folder scope must be denied")
+
+        provider.move_file.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+def test_move_updates_authoritative_source_parent_after_provider_success():
+    async def scenario():
+        provider = FakeMutationProvider()
+        source_asset = SimpleNamespace(
+            source_metadata={"parents": ["old-parent"], "caption": "keep"},
+            parent_external_id="old-parent",
+        )
+        session = Mock()
+        session.execute.return_value.scalar_one_or_none.return_value = source_asset
+        patches = _context_patches(provider, Mock())
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            await move_item(
+                SimpleNamespace(),
+                "file-a",
+                destination_parent_id="destination",
+                provider="google-drive",
+                session=session,
                 principal=_principal(),
                 external_source_id="source-a",
             )
-        invalidate.assert_called_once_with(
+
+        assert source_asset.source_metadata["parents"] == ["destination"]
+        assert source_asset.source_metadata["parent_id"] == "destination"
+        assert source_asset.source_metadata["caption"] == "keep"
+        assert source_asset.parent_external_id == "destination"
+        session.commit.assert_called_once()
+
+    asyncio.run(scenario())
+
+
+def test_move_invalidates_source_listings_for_old_and_new_parent():
+    async def scenario():
+        provider = FakeMutationProvider()
+        invalidate = Mock()
+        breadcrumb_invalidate = Mock()
+        patches = _context_patches(provider, invalidate)
+        session = Mock()
+        session.execute.return_value.scalar_one_or_none.return_value = None
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patch(
+                "app.modules.explorer.router.location_breadcrumb_cache.invalidate",
+                breadcrumb_invalidate,
+            ),
+        ):
+            await move_item(
+                SimpleNamespace(),
+                "file-a",
+                destination_parent_id="destination",
+                provider="google-drive",
+                session=session,
+                principal=_principal(),
+                external_source_id="source-a",
+            )
+        assert invalidate.call_args_list == [
+            call(
+                tenant_id="tenant-a",
+                external_source_id="source-a",
+                parent_id="old-parent",
+            ),
+            call(
+                tenant_id="tenant-a",
+                external_source_id="source-a",
+                parent_id="destination",
+            ),
+        ]
+        breadcrumb_invalidate.assert_called_once_with(
             tenant_id="tenant-a",
             external_source_id="source-a",
         )

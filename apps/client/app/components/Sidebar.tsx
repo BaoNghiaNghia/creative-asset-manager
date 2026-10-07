@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState, type PointerEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, TreeCache } from "../types";
+import type { ExplorerMoveDragPayload } from "../utils/explorerMove";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
 import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
@@ -32,6 +33,7 @@ type Props = {
   reviewLinkShareIds?: ReadonlyMap<string, string>;
   onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
   onRefreshReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
+  onMoveItems?: (payload: ExplorerMoveDragPayload, destination: Asset) => void | Promise<void>;
   onCollapse: () => void;
   onResizeStart: PointerEventHandler<HTMLDivElement>;
   applicationAuthenticated?: boolean;
@@ -114,7 +116,7 @@ function beginProviderLogin(provider: Provider, applicationAuthenticated: boolea
 export function Sidebar({
   provider, auth, authByProvider, sources: connectedSources, activeExternalSourceId, path, activeId, rootFolders,
   childrenByParent, expanded, loadingNodes, onSelectProvider, onSelectSource, onDisconnectSource, onSyncSource, onOpen,
-  onToggle, onPrefetch, onPrefetchNow, onCancelPrefetch, reviewLinkShareIds, onCopyReviewLink, onRefreshReviewLink, onCollapse, onResizeStart,
+  onToggle, onPrefetch, onPrefetchNow, onCancelPrefetch, reviewLinkShareIds, onCopyReviewLink, onRefreshReviewLink, onMoveItems, onCollapse, onResizeStart,
   applicationAuthenticated = false,
 }: Props) {
   const currentRoot = provider === "sharepoint" ? "sharepoint-root" : provider === "onedrive" ? "onedrive-root" : "root";
@@ -215,6 +217,7 @@ export function Sidebar({
                   onCancelPrefetch={onCancelPrefetch}
                   reviewLinkShareIds={reviewLinkShareIds} activeExternalSourceId={connected.id}
                   onCopyReviewLink={onCopyReviewLink} onRefreshReviewLink={onRefreshReviewLink}
+                  onMoveItems={onMoveItems}
                 />)}
               </div>}
             </div>;

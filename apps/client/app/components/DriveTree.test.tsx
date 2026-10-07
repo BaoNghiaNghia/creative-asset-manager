@@ -33,5 +33,6 @@ describe("DriveTreeNode", () => {
     expect(markup).toContain("Child folder");
     expect(markup).not.toContain("tree-review-link");
     expect(markup).not.toContain("Shared link actions");
+    expect(markup).toContain('data-folder-drop-target="true"');
   });
 });

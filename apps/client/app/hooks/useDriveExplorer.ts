@@ -1010,7 +1010,32 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     await refreshCurrentFolder();
     return renamed.name || name;
   }
-  async function moveItem(itemId: string, destinationParentId: string) { const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/move?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" }); if (!response.ok) throw Error("Unable to move file"); await refreshCurrentFolder(); }
+  async function moveItems(itemIds: string[], destinationParentId: string) {
+    const uniqueIds = [...new Set(itemIds.filter(Boolean))];
+    if (!uniqueIds.length) return;
+    let completed = 0;
+    try {
+      for (const itemId of uniqueIds) {
+        const response = await fetch(
+          "/api/explorer/items/" + encodeURIComponent(itemId)
+            + "/move?provider=" + encodeURIComponent(provider)
+            + "&destination_parent_id=" + encodeURIComponent(destinationParentId)
+            + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""),
+          { method: "POST" },
+        );
+        const payload: unknown = await response.json().catch(() => null);
+        if (!response.ok) throw Error(apiErrorMessage(payload, "Unable to move this item."));
+        completed += 1;
+      }
+    } catch (reason) {
+      if (completed > 0) await refreshCurrentFolder();
+      throw reason;
+    }
+    await refreshCurrentFolder();
+  }
+  async function moveItem(itemId: string, destinationParentId: string) {
+    await moveItems([itemId], destinationParentId);
+  }
   async function copyItems(itemIds: string[], destinationParentId: string) {
     for (const itemId of itemIds) {
       const response = await fetch("/api/explorer/items/" + encodeURIComponent(itemId) + "/copy?provider=" + encodeURIComponent(provider) + "&destination_parent_id=" + encodeURIComponent(destinationParentId) + (activeExternalSourceId ? "&external_source_id=" + encodeURIComponent(activeExternalSourceId) : ""), { method: "POST" });
@@ -1372,6 +1397,6 @@ export function useDriveExplorer(imageSearchEnabled = true) {
     toggleSelection,
     replaceSelection,
     clearSelection: () => setSelected(new Set()),
-    uploads, uploadFiles, createFolder, createTextFile, deleteItem, deleteItems, renameItem, moveItem, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
+    uploads, uploadFiles, createFolder, createTextFile, deleteItem, deleteItems, renameItem, moveItem, moveItems, copyItems, clearUploads: () => setUploads([]), currentFolderId: path.at(-1)?.id || rootId(provider),
   };
 }

@@ -1,4 +1,12 @@
+import { useState, type DragEvent } from "react";
 import type { Asset, TreeCache } from "../types";
+import {
+  ASSET_EXPLORER_MOVE_MIME,
+  decodeExplorerMoveDragPayload,
+  dragTypesIncludeExplorerMove,
+  explorerMoveTargetAllowed,
+  type ExplorerMoveDragPayload,
+} from "../utils/explorerMove";
 import { FolderReviewLinkActions, reviewShareIdForFolder } from "./FolderReviewLinkActions";
 import { ChevronIcon, SourceFolderIcon } from "./Icons";
 
@@ -27,6 +35,7 @@ type Props = {
   activeExternalSourceId?: string | null;
   onCopyReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
   onRefreshReviewLink?: (shareId: string, item: Asset) => void | Promise<void>;
+  onMoveItems?: (payload: ExplorerMoveDragPayload, destination: Asset) => void | Promise<void>;
 };
 
 export function DriveTreeNode({
@@ -46,7 +55,9 @@ export function DriveTreeNode({
   activeExternalSourceId,
   onCopyReviewLink,
   onRefreshReviewLink,
+  onMoveItems,
 }: Props) {
+  const [moveDropActive, setMoveDropActive] = useState(false);
   const isExpanded = expanded.has(node.id);
   const isLoading = loadingNodes.has(node.id);
   const children = childrenByParent[node.id] ?? [];
@@ -59,8 +70,43 @@ export function DriveTreeNode({
     ? reviewShareIdForFolder(node, activeExternalSourceId, reviewLinkShareIds)
     : null;
 
+  function moveDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!onMoveItems || !dragTypesIncludeExplorerMove(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setMoveDropActive(true);
+  }
+
+  function moveDragLeave(event: DragEvent<HTMLDivElement>) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setMoveDropActive(false);
+  }
+
+  function moveDrop(event: DragEvent<HTMLDivElement>) {
+    if (!onMoveItems || !dragTypesIncludeExplorerMove(event.dataTransfer.types)) return;
+    const payload = decodeExplorerMoveDragPayload(event.dataTransfer.getData(ASSET_EXPLORER_MOVE_MIME));
+    if (!payload) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMoveDropActive(false);
+    if (!explorerMoveTargetAllowed(payload, node, activeExternalSourceId)) {
+      event.dataTransfer.dropEffect = "none";
+      return;
+    }
+    void onMoveItems(payload, node);
+  }
+
   return <div className="tree-node">
-    <div className={"tree-row " + rowState}>
+    <div
+      className={"tree-row " + rowState + (moveDropActive ? " tree-row-move-target" : "")}
+      data-folder-drop-target="true"
+      onDragOver={moveDragOver}
+      onDragEnter={moveDragOver}
+      onDragLeave={moveDragLeave}
+      onDrop={moveDrop}
+    >
       {canExpand ? <button
         className={"tree-toggle " + (isLoading ? "loading" : "")}
         onClick={() => onToggle(node)}
@@ -108,6 +154,7 @@ export function DriveTreeNode({
           activeExternalSourceId={activeExternalSourceId}
           onCopyReviewLink={onCopyReviewLink}
           onRefreshReviewLink={onRefreshReviewLink}
+          onMoveItems={onMoveItems}
         />)}
       </div>
     )}

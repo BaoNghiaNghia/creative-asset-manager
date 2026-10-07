@@ -32,6 +32,20 @@ describe("AssetContextMenu", () => {
     expect(markup).toContain('class="create-folder-action"');
     expect(markup).toContain('stroke-width="2.2"');
     expect(markup).toContain('aria-label="Folder actions"');
+    expect(markup).not.toContain(">Paste<");
+  });
+
+  it("shows Paste in the explorer pane when a clipboard payload is available", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(<ExplorerPaneContextMenu
+      position={{ x: 10, y: 10 }}
+      canPaste
+      onPaste={noop}
+      onCreateFolder={noop}
+      onClose={noop}
+    />);
+    expect(markup).toContain("<b>Paste</b>");
+    expect(markup).toContain("Ctrl+V");
   });
 
   it("renders the expected file actions", () => {
@@ -42,6 +56,7 @@ describe("AssetContextMenu", () => {
       onOpen={noop}
       onDownload={noop}
       onCopy={noop}
+      onCut={noop}
       onRename={noop}
       onMove={noop}
       onGenerate={noop}
@@ -52,7 +67,10 @@ describe("AssetContextMenu", () => {
     expect(markup).toContain("Open preview");
     expect(markup).toContain("Download");
     expect(markup).toContain("Generate square 1:1");
-    expect(markup).toContain("Make a copy");
+    expect(markup).toContain("<b>Copy</b>");
+    expect(markup).toContain("Ctrl+C");
+    expect(markup).toContain("<b>Cut</b>");
+    expect(markup).toContain("Ctrl+X");
     expect(markup).toContain("Rename");
     expect(markup).toContain("Move to");
     expect(markup).toContain("File information");

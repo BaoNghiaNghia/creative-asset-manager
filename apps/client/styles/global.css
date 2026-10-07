@@ -138,6 +138,10 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .upload:active,.connect-drive button:active,.drive-empty button:active{transform:translateY(0)}
 .grid article:hover{transform:translateY(-2px);border-color:#cbd4e1;box-shadow:0 8px 22px #18213317}
 .grid article.selected:hover,.grid article.selected:focus-within{border-color:#2463eb;box-shadow:0 0 0 2px #2463eb22,0 8px 22px #18213317}
+.grid article.asset-move-drop-target{border-color:#2463eb;box-shadow:0 0 0 3px #2463eb2b,0 10px 28px #1821331f;background:#f5f8ff}
+.grid article.asset-move-drop-target::after{content:"Move here";position:absolute;z-index:9;left:50%;top:12px;transform:translateX(-50%);padding:5px 9px;border-radius:999px;background:#1f5eea;color:#fff;font-size:10px;font-weight:800;letter-spacing:.02em;pointer-events:none;box-shadow:0 3px 10px #1f5eea33}
+.tree-row.tree-row-move-target{background:#e6efff;color:#1849b5;box-shadow:inset 0 0 0 1px #8eaff1}
+.tree-row.tree-row-move-target .tree-label{color:#1849b5;font-weight:700}
 .grid article:hover .preview{background:#e9edf3}
 .grid article:hover .preview.folder{background:#f5eedc}
 .preview,.name,.check{cursor:pointer}
