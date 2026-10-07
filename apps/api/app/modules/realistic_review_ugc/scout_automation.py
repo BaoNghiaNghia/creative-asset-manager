@@ -8,9 +8,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcScoutAgentModel,
@@ -50,6 +51,39 @@ SCOUT_EMPTY_BACKOFF_MAX_MULTIPLIER = 3.0
 SCOUT_LOGIN_BACKOFF_CAP_SECONDS = 30 * 60
 SCOUT_FAILURE_BACKOFF_CAP_SECONDS = 60 * 60
 SCOUT_MAX_SCROLL_BATCHES = 50
+# Keep autonomous Pinterest discovery from outrunning the shared Gemini
+# analysis lane when provider quota is exhausted. This is a tenant-wide
+# circuit breaker, NOT a change to Gemini quotas or to existing queued jobs.
+SCOUT_ANALYSIS_BACKLOG_LIMIT = 200
+SCOUT_ANALYSIS_BACKLOG_MIN_AGE_SECONDS = 15 * 60
+
+
+def scout_analysis_backpressure(
+    session: Session, tenant_id: str, *, now: datetime | None = None,
+) -> dict[str, int | bool]:
+    current = now or datetime.now(timezone.utc)
+    backlog, oldest = session.execute(
+        select(
+            func.count(ProcessingJobModel.id),
+            func.min(ProcessingJobModel.created_at),
+        ).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+            ProcessingJobModel.status.in_(("pending", "retry")),
+        )
+    ).one()
+    backlog = int(backlog or 0)
+    oldest_seconds = max(
+        0, int((current - _as_utc(oldest)).total_seconds())
+    ) if oldest is not None else 0
+    return {
+        "active": (
+            backlog >= SCOUT_ANALYSIS_BACKLOG_LIMIT
+            and oldest_seconds >= SCOUT_ANALYSIS_BACKLOG_MIN_AGE_SECONDS
+        ),
+        "pending_jobs": backlog,
+        "oldest_wait_seconds": oldest_seconds,
+    }
 
 
 def scout_client_version_number(value: str | None) -> int | None:
@@ -1064,6 +1098,9 @@ class RrugcAutoScoutService:
             raw_token=raw_token,
         )
         now = datetime.now(timezone.utc)
+        analysis_pressure = scout_analysis_backpressure(
+            self.session, agent.tenant_id, now=now,
+        )
         campaigns = self.repository.list_campaigns(agent.tenant_id, limit=50)
         campaign_ids = [campaign.id for campaign in campaigns]
         counts_by_campaign = self.repository.campaign_usable_counts_many(
@@ -1133,6 +1170,9 @@ class RrugcAutoScoutService:
                 reason = "scheduled_later"
             else:
                 reason = "claimable"
+
+            if reason == "claimable" and analysis_pressure["active"]:
+                reason = "analysis_backpressure"
 
             jev_shadow_summary = None
             if jev_shadow_enabled:
@@ -1231,6 +1271,7 @@ class RrugcAutoScoutService:
             "agent_id": agent.id,
             "campaigns": rows,
             "claimable": claimable_count,
+            "analysis_backpressure": analysis_pressure,
             "duration_ms": duration_ms,
         }
 
@@ -1254,6 +1295,23 @@ class RrugcAutoScoutService:
         agent.client_version = (client_version or "").strip()[:64] or agent.client_version
         agent.machine_label = (machine_label or "").strip()[:160] or agent.machine_label
         agent.last_error_code = None
+
+        analysis_pressure = scout_analysis_backpressure(
+            self.session, agent.tenant_id, now=now,
+        )
+        if analysis_pressure["active"]:
+            # Maintain the heartbeat and do not claim more campaigns while
+            # the tenant's existing candidates wait for Gemini capacity.
+            self.session.commit()
+            _LOGGER.info(
+                "rrugc_scout_claim_backpressured",
+                extra={
+                    "agent_id": agent.id,
+                    "pending_jobs": analysis_pressure["pending_jobs"],
+                    "oldest_wait_seconds": analysis_pressure["oldest_wait_seconds"],
+                },
+            )
+            return None
 
         source_plan_only = scout_client_supports_source_plans(client_version)
         campaigns = self.repository.claimable_campaigns(

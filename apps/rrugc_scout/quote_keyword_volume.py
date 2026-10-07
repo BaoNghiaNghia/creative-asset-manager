@@ -551,6 +551,14 @@ class KeywordScoutHistory:
         temporary.replace(self.path)
 
 
+class KeywordScoutCapacityPaused(Exception):
+    """Server is protecting the shared Gemini pool; resume on the next cycle."""
+
+    def __init__(self, retry_seconds: int = 180):
+        self.retry_seconds = max(30, min(900, int(retry_seconds)))
+        super().__init__("Shared Gemini analysis backlog")
+
+
 class QuoteScoutClient:
     def __init__(self, base_url: str, agent_id: str, token: str) -> None:
         self.agent_id = agent_id
@@ -581,6 +589,20 @@ class QuoteScoutClient:
                     json=payload,
                     timeout=httpx.Timeout(timeout_seconds, connect=10.0),
                 )
+                if response.status_code == 503 and operation.startswith("extract_hat_quote"):
+                    try:
+                        error_detail = response.json().get("detail")
+                    except (TypeError, ValueError, AttributeError):
+                        error_detail = None
+                    if (
+                        isinstance(error_detail, dict)
+                        and error_detail.get("code") == "rrugc_analysis_backpressure"
+                    ):
+                        try:
+                            wait_seconds = int(response.headers.get("Retry-After", "180"))
+                        except ValueError:
+                            wait_seconds = 180
+                        raise KeywordScoutCapacityPaused(wait_seconds)
                 if response.status_code == 429 or response.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"CAM returned HTTP {response.status_code}",
@@ -921,6 +943,10 @@ async def _process_keyword_candidate(
                 + candidate.pin_url
             )
             return KeywordCandidateResult()
+    except KeywordScoutCapacityPaused:
+        # Do not mark the Pin as seen: this is capacity deferral, not a negative
+        # vision result. Abort the current Pinterest scan until Gemini recovers.
+        raise
     except Exception as exc:
         scout_debug_event(
             "keyword_scout_quote_extract_failed",
@@ -2086,6 +2112,20 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     + (" (empty-search fast retry)" if processed == 0 else "")
                 )
                 await asyncio.sleep(next_cycle_seconds)
+            except KeywordScoutCapacityPaused as exc:
+                scout_debug_event(
+                    "keyword_scout_gemini_backpressure_paused",
+                    retry_seconds=exc.retry_seconds,
+                )
+                print(
+                    "Gemini shared analysis backlog is high. Keyword Scout "
+                    + "will retry in "
+                    + str(exc.retry_seconds)
+                    + " seconds without marking the Pin as processed."
+                )
+                if args.once:
+                    raise
+                await asyncio.sleep(exc.retry_seconds)
             except PinterestRateLimitedError:
                 wait_seconds = max(args.cycle_seconds, 600)
                 print(

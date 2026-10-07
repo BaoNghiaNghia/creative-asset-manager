@@ -235,6 +235,7 @@ from app.modules.realistic_review_ugc.scout_automation import (
     effective_agent_status,
     keyword_health_rows,
     quality_pipeline_count,
+    scout_analysis_backpressure,
 )
 from app.modules.realistic_review_ugc.scout_log import (
     RrugcScoutLogService,
@@ -3659,6 +3660,21 @@ async def quote_scout_extract_hat_quote(
             agent_id=agent_id,
             raw_token=token,
         )
+        analysis_pressure = scout_analysis_backpressure(
+            session, agent.tenant_id,
+        )
+        if analysis_pressure["active"]:
+            # Quote extraction uses the SAME Gemini project quota as Stage 1.
+            # A transient 503 preserves retryable Pin history in old Scouts;
+            # never report fabricated negative quotes to avoid data loss.
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "rrugc_analysis_backpressure",
+                    "message": "Gemini reference analysis is backlogged; retry quote extraction later.",
+                },
+                headers={"Retry-After": "180"},
+            )
         settings = get_settings()
         registry = build_ai_provider_registry(
             settings,

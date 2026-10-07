@@ -479,6 +479,48 @@ def test_quote_extract_uses_extended_timeout_for_gemini_failover(monkeypatch):
     asyncio.run(client.close())
 
 
+def test_keyword_gemini_backpressure_stops_cycle_without_losing_pin(tmp_path):
+    class Candidate:
+        pin_url = "https://www.pinterest.com/pin/551/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/cap.jpg"
+        alt_text = "cap"
+
+    requests = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(
+            503,
+            headers={"Retry-After": "240"},
+            json={"detail": {
+                "code": "rrugc_analysis_backpressure",
+                "message": "Shared AI backlog",
+            }},
+        )
+
+    async def scenario():
+        history = KeywordScoutHistory(tmp_path / "keyword-history.json")
+        client = QuoteScoutClient("https://cam.example", "agent-1", "unit-test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            with pytest.raises(keyword_scout.KeywordScoutCapacityPaused) as exc:
+                await keyword_scout._process_keyword_candidate(
+                    client, history, Candidate(),
+                    source="root", root_pin_url=Candidate.pin_url,
+                )
+            assert exc.value.retry_seconds == 240
+            assert Candidate.pin_url not in history.seen_pins
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+    assert len(requests) == 1
+
+
 def test_keyword_volume_request_includes_pinterest_source(monkeypatch):
     captured = {}
 

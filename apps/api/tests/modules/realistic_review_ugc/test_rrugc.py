@@ -570,6 +570,58 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         assert [row["keyword"] for row in sorted_response.json()["items"]] == expected
 
 
+def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, database, monkeypatch):
+    import app.modules.realistic_review_ugc.scout_automation as automation
+    import app.modules.realistic_review_ugc.router as scout_router
+
+    active_pressure = lambda *args, **kwargs: {
+        "active": True, "pending_jobs": 430, "oldest_wait_seconds": 2000,
+    }
+    monkeypatch.setattr(automation, "scout_analysis_backpressure", active_pressure)
+    monkeypatch.setattr(scout_router, "scout_analysis_backpressure", active_pressure)
+    with database() as session:
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Backpressure test",
+        )
+        agent_id = agent.id
+
+    campaign = api.post(
+        "/api/v1/realistic-review-ugc/campaigns",
+        json={
+            "name": "Backpressure source",
+            "query": "cap review",
+            "target_count": 10,
+            "max_scroll_batches": 2,
+            "auto_import": True,
+            "auto_scout": True,
+            "scan_interval_seconds": 180,
+        },
+    )
+    assert campaign.status_code == 201
+
+    auth = {"Authorization": f"Bearer {token}"}
+    claimed = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/claim",
+        headers={**auth, "X-Scout-Version": "rrugc-scout-v41"},
+    )
+    assert claimed.status_code == 200
+    assert claimed.json() is None
+
+    deferred = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/quote-analysis/extract",
+        headers=auth,
+        json={
+            "image_url": "https://i.pinimg.com/736x/aa/bb/cap.jpg",
+            "pin_url": "https://www.pinterest.com/pin/123/",
+        },
+    )
+    assert deferred.status_code == 503
+    assert deferred.headers["retry-after"] == "180"
+    assert deferred.json()["detail"]["code"] == "rrugc_analysis_backpressure"
+
+
 def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     now = datetime.now(timezone.utc)
     with database() as session:

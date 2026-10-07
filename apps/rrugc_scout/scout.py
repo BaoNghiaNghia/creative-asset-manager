@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v40"
+CLIENT_VERSION = "rrugc-scout-v41"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -3494,6 +3494,7 @@ def idle_diagnostic_message(payload: dict[str, Any]) -> str:
     reason = str(campaign.get("reason") or "waiting")
     reason_labels = {
         "pipeline_full": "pipeline is full; waiting for analysis/import workers",
+        "analysis_backpressure": "shared Gemini analysis backlog is high; pausing new discovery",
         "target_reached": "target has been reached",
         "scheduled_later": "next scan is scheduled later",
         "campaign_leased": "campaign is currently leased by another run",
