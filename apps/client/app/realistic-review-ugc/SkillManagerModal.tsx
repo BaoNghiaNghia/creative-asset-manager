@@ -112,7 +112,7 @@ export function SkillManagerModal({
     await mutate(
       "create",
       () => createStage2Skill(createFile),
-      "Skill uploaded, installed and added to the Stage 2 registry.",
+      "Skill uploaded, installed and added to the image-generation registry.",
     );
     setCreateFile(null);
   }
@@ -132,7 +132,7 @@ export function SkillManagerModal({
   }
 
   async function hardDelete(item: Stage2SkillRegistryItem) {
-    if (!window.confirm('Delete "' + item.display_name + '" from OpenAI Skills? Historical Stage 2 jobs will be kept.')) {
+    if (!window.confirm('Delete "' + item.display_name + '" from OpenAI Skills? Historical generation jobs will be kept.')) {
       return;
     }
     await mutate(
@@ -175,8 +175,8 @@ export function SkillManagerModal({
 
       {registry.can_manage && <div className="rrugc-skill-upload">
         <div>
-          <strong>Add Stage 2 skill</strong>
-          <small>Upload a ZIP containing exactly one SKILL.md. CAM validates it and installs it directly into the Stage 2 runtime.</small>
+          <strong>Add image-generation skill</strong>
+          <small>Upload a ZIP containing exactly one SKILL.md. CAM validates it and installs it into the shared image-generation runtime.</small>
         </div>
         <label className="rrugc-skill-file">
           <span>{createFile?.name || "Choose skill ZIP"}</span>
@@ -201,7 +201,7 @@ export function SkillManagerModal({
         </div>}
         {!loading && registry.items.length === 0 && <div className="rrugc-skill-empty">
           <strong>No skills found</strong>
-          <span>{registry.can_manage ? "Upload the first Stage 2 skill ZIP." : "Ask an admin to add or enable a Stage 2 skill."}</span>
+          <span>{registry.can_manage ? "Upload the first image-generation skill ZIP." : "Ask an admin to add or enable an image-generation skill."}</span>
         </div>}
         {registry.items.map(item => {
           const selected = selectedVersions[item.id] || defaultSelectedVersion(item);

@@ -3091,6 +3091,7 @@ def get_source_plans(
     ),
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     stage2_only: bool = False,
+    source_prefix: str | None = Query(default=None, max_length=80),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3104,6 +3105,13 @@ def get_source_plans(
             )
         )
     )
+
+    prefix = source_prefix.strip().casefold() if isinstance(source_prefix, str) else ""
+    if prefix:
+        all_plans = [
+            row for row in all_plans
+            if row.source_name.casefold().startswith(prefix)
+        ]
 
     needle = str(q or "").strip().lower()
     groups = _group_source_plan_rows(all_plans)

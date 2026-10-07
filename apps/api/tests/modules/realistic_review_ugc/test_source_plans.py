@@ -237,7 +237,10 @@ def test_reconcile_refreshes_stale_source_campaign_profile_without_gemini():
         session.flush()
 
         assert campaign.product_context_json["version"] == PRODUCT_CONTEXT_PROFILE_VERSION
-        assert campaign.product_context_json["reference_contexts"] == ["hand_holding_hat"]
+        assert campaign.product_context_json["reference_contexts"] == [
+            "selfie_wearing_hat",
+            "hand_holding_hat",
+        ]
         assert any(
             "held in hand" in query.casefold()
             for query in campaign.search_queries_json
@@ -882,6 +885,60 @@ def test_source_plan_list_is_server_paginated_and_searchable():
         assert [item.source_name for item in search.items] == ["teacher-cap.png"]
 
 
+def test_source_plan_list_filters_embroidery_prefix_before_grouping_and_pagination():
+    factory = make_database()
+
+    with factory() as session:
+        session.add_all([
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="embroidery-a",
+                source_parent_folder_id="folder-a",
+                source_relative_path="Designs/embroidery_hotdog.png",
+                source_name="embroidery_hotdog.png",
+                source_mime_type="image/png",
+                source_revision="a" * 64,
+                analysis_revision=1,
+                target_count=20,
+                status="ready",
+                created_by_user_id="user-a",
+            ),
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="regular-b",
+                source_parent_folder_id="folder-b",
+                source_relative_path="Designs/front_hotdog.png",
+                source_name="front_hotdog.png",
+                source_mime_type="image/png",
+                source_revision="b" * 64,
+                analysis_revision=1,
+                target_count=20,
+                status="ready",
+                created_by_user_id="user-a",
+            ),
+        ])
+        session.commit()
+
+        page = get_source_plans(
+            page=1,
+            page_size=20,
+            q=None,
+            source_prefix="embroidery_",
+            session=session,
+            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+
+        assert page.total == 1
+        assert page.overview.embroidery_groups == 1
+        assert page.overview.source_images == 1
+        assert [item.source_name for item in page.items] == [
+            "embroidery_hotdog.png"
+        ]
+
+
+
 def test_source_plan_list_stage2_only_filters_before_pagination():
     factory = make_database()
 
@@ -1360,7 +1417,7 @@ def test_old_visual_context_version_requeues_source_for_text_aware_analysis():
         )
         session.refresh(plan)
 
-        assert PRODUCT_VISUAL_CONTEXT_VERSION == "rrugc-product-visual-context-v3-hand-held-hat"
+        assert PRODUCT_VISUAL_CONTEXT_VERSION == "rrugc-product-visual-context-v4-hat-review-scenes"
         assert result.plans_updated == 1
         assert result.jobs_queued == 1
         assert plan.analysis_revision == original_analysis_revision + 1

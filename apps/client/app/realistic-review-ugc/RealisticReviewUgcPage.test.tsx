@@ -8,6 +8,7 @@ import {
   scoutLocalConfig,
 } from "./PinterestAutoScoutPanel";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
+import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import {
   RealisticReviewUgcPage,
   sourcePlanPageRenderFingerprint,
@@ -341,6 +342,47 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">" + GLOBAL_OVERVIEW.source_images + "<");
   });
 
+  it("renders the new Stage 1 embroidery-to-13-colors workspace", () => {
+    const plan = makePlan();
+    plan.source_name = "embroidery_bad-day-hotdog.png";
+    plan.source_relative_path = "Designs/embroidery_bad-day-hotdog.png";
+    plan.source_group_images = [{
+      id: plan.id,
+      source_name: plan.source_name,
+      source_relative_path: plan.source_relative_path,
+      source_preview_url: plan.source_preview_url,
+      source_web_url: plan.source_web_url,
+      source_width: plan.source_width,
+      source_height: plan.source_height,
+      source_size_bytes: plan.source_size_bytes,
+    }];
+    const markup = renderToStaticMarkup(
+      <EmbroideryColorwayStage
+        data={{
+          items: [plan],
+          page: 1,
+          page_size: 12,
+          total: 1,
+          overview: GLOBAL_OVERVIEW,
+        }}
+        loading={false}
+        syncing={false}
+        query=""
+        onSync={() => undefined}
+        onQueryChange={() => undefined}
+        onPageChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("EMBROIDERY_ SOURCE");
+    expect(markup).toContain("Embroidery design → 13 colorways");
+    expect(markup).toContain("embroidery_");
+    expect(markup).toContain("bad day hotdog");
+    expect(markup).toContain("13-color batch");
+    expect((markup.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
+    expect(markup).toContain("Run selected · 0");
+    expect(markup).toContain("Runner wiring pending");
+  });
+
   it("splits unlimited Stage 2 selections into continuous groups of three refs", () => {
     expect(stage2ReferenceBatches(["a", "b", "c", "d", "e", "f", "g"])).toEqual([
       ["a", "b", "c"],
@@ -360,7 +402,7 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
     expect(markup).toContain("EMBROIDERY GROUP");
-    expect(markup).toContain("Embroidery groups → image generation");
+    expect(markup).toContain("Pinterest references → image generation");
     expect(markup).toContain("3 refs + 1 random hat / run");
     expect(markup).toContain("References · unlimited selection");
     expect(markup).toContain("Run status · latest 10");
@@ -383,7 +425,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Generate selected");
     expect(markup).toContain("Manage skills");
     expect(markup).toContain("Page 1 / 1");
-    expect(markup).toContain('aria-label="Stage 2 rows per page"');
+    expect(markup).toContain('aria-label="Stage 3 rows per page"');
     expect(markup).toContain("1–1 of 1");
   });
 
@@ -542,30 +584,37 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders Stage 0, Stage 1, Stage 2, and Settings as accessible AI Operations-style tabs", () => {
+  it("renders Stage 0 through Stage 4 and Settings as accessible AI Operations-style tabs", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
     expect(markup).toContain('aria-label="Realistic Review UGC sections"');
     expect(markup).toContain('id="rrugc-tab-stage0"');
     expect(markup).toContain('id="rrugc-tab-stage1"');
     expect(markup).toContain('id="rrugc-tab-stage2"');
+    expect(markup).toContain('id="rrugc-tab-stage3"');
+    expect(markup).toContain('id="rrugc-tab-stage4"');
     expect(markup).toContain('id="rrugc-tab-settings"');
     expect(markup).toContain("Analysis Keyword");
+    expect(markup).toContain("Embroidery → 13 Colors");
     expect(markup).toContain("Pinterest References");
     expect(markup).toContain("Image Generation");
+    expect(markup).toContain("UGC Review");
     expect(markup).toContain("Settings");
     expect(markup).toContain("Auto Scout");
     expect(markup).toContain('aria-selected="true"');
     expect(markup).toContain('id="rrugc-panel-stage0"');
     expect(markup).toContain('id="rrugc-panel-stage1"');
     expect(markup).toContain('id="rrugc-panel-stage2"');
+    expect(markup).toContain('id="rrugc-panel-stage3"');
+    expect(markup).toContain('id="rrugc-panel-stage4"');
     expect(markup).toContain('id="rrugc-panel-settings"');
     expect(markup.indexOf('id="rrugc-tab-stage0"')).toBeLessThan(markup.indexOf('id="rrugc-tab-stage1"'));
-    expect(markup.indexOf('id="rrugc-tab-settings"')).toBeGreaterThan(markup.indexOf('id="rrugc-tab-stage2"'));
+    expect(markup.indexOf('id="rrugc-tab-settings"')).toBeGreaterThan(markup.indexOf('id="rrugc-tab-stage4"'));
 
     const stage1Start = markup.indexOf('id="rrugc-panel-stage1"');
     const stage2Start = markup.indexOf('id="rrugc-panel-stage2"');
     const settingsStart = markup.indexOf('id="rrugc-panel-settings"');
+    expect(markup.slice(stage1Start, stage2Start)).toContain("Embroidery design → 13 colorways");
     expect(markup.slice(stage1Start, stage2Start)).not.toContain('aria-label="Pinterest Auto Scout"');
     expect(markup.indexOf('aria-label="Pinterest Auto Scout"')).toBeGreaterThan(settingsStart);
     expect(markup).toContain("hidden");

@@ -23,6 +23,7 @@ import {
 } from "./api";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
+import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
@@ -86,13 +87,14 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   },
 };
 
-type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "settings";
+type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4" | "settings";
 
 const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
   { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
-  { id: "stage1", label: "Stage 1", description: "Pinterest References", marker: "1" },
-  { id: "stage2", label: "Stage 2", description: "Image Generation", marker: "2" },
-  { id: "stage3", label: "Stage 3", description: "UGC Review", marker: "3" },
+  { id: "stage1", label: "Stage 1", description: "Embroidery → 13 Colors", marker: "1" },
+  { id: "stage2", label: "Stage 2", description: "Pinterest References", marker: "2" },
+  { id: "stage3", label: "Stage 3", description: "Image Generation", marker: "3" },
+  { id: "stage4", label: "Stage 4", description: "UGC Review", marker: "4" },
   { id: "settings", label: "Settings", description: "Auto Scout", marker: "⚙" },
 ];
 
@@ -137,6 +139,11 @@ export function RealisticReviewUgcPage() {
   const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
   const [keywordFavoritingIds, setKeywordFavoritingIds] = useState<Set<string>>(new Set());
   const [keywordLoading, setKeywordLoading] = useState(true);
+  const [embroideryPage, setEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
+  const [embroideryPageNumber, setEmbroideryPageNumber] = useState(1);
+  const [embroideryQuery, setEmbroideryQuery] = useState("");
+  const [debouncedEmbroideryQuery, setDebouncedEmbroideryQuery] = useState("");
+  const [embroideryLoading, setEmbroideryLoading] = useState(true);
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
   const [sourcePageSize, setSourcePageSize] = useState(10);
@@ -158,7 +165,7 @@ export function RealisticReviewUgcPage() {
   const [stage3Message, setStage3Message] = useState("");
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
-  const groupsStageActive = activeStage === "stage1" || activeStage === "stage2";
+  const groupsStageActive = activeStage === "stage2" || activeStage === "stage3";
   const visibleStage2SourcePlanIds = useMemo(
     () => Array.from(new Set(
       sourcePage.items.flatMap(plan => [
@@ -247,6 +254,26 @@ export function RealisticReviewUgcPage() {
     );
   }
 
+  async function refreshEmbroideryDesigns(signal?: AbortSignal) {
+    const result = await listSourcePlans(
+      {
+        page: embroideryPageNumber,
+        pageSize: 12,
+        query: debouncedEmbroideryQuery,
+        sortBy: "source",
+        sortDirection: "asc",
+        sourcePrefix: "embroidery_",
+      },
+      signal,
+    );
+    const nextFingerprint = sourcePlanPageRenderFingerprint(result);
+    setEmbroideryPage(current => (
+      sourcePlanPageRenderFingerprint(current) === nextFingerprint
+        ? current
+        : result
+    ));
+  }
+
   async function refreshSourcePlans(signal?: AbortSignal) {
     const result = await listSourcePlans(
       {
@@ -284,7 +311,7 @@ export function RealisticReviewUgcPage() {
       );
       await refreshStage3Groups();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to queue Stage 3 analysis.");
+      setError(reason instanceof Error ? reason.message : "Unable to queue Stage 4 analysis.");
     } finally {
       setStage3Analyzing(false);
     }
@@ -351,7 +378,7 @@ export function RealisticReviewUgcPage() {
         refreshSourcePlans(),
       ]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to queue Stage 2 generation.");
+      setError(reason instanceof Error ? reason.message : "Unable to queue Stage 3 generation.");
     } finally {
       setCreatingStage2PlanIds(current => {
         const next = new Set(current);
@@ -378,7 +405,7 @@ export function RealisticReviewUgcPage() {
         refreshSourcePlans(),
       ]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to cancel Stage 2 generation.");
+      setError(reason instanceof Error ? reason.message : "Unable to cancel Stage 3 generation.");
       await refreshStage2Jobs().catch(() => undefined);
     } finally {
       setCancellingStage2PlanIds(current => {
@@ -402,7 +429,10 @@ export function RealisticReviewUgcPage() {
         + (result.plans_missing ? "; " + result.plans_missing + " temporarily missing sources retained safely" : "")
         + "; current target " + result.target_count + " refs per source.",
       );
-      await refreshSourcePlans();
+      await Promise.all([
+        refreshSourcePlans(),
+        refreshEmbroideryDesigns(),
+      ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan the embroidery source folder.");
     } finally {
@@ -492,6 +522,14 @@ export function RealisticReviewUgcPage() {
   }, [sourceQuery]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setEmbroideryPageNumber(1);
+      setDebouncedEmbroideryQuery(embroideryQuery.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [embroideryQuery]);
+
+  useEffect(() => {
     if (sourcePageNumber > sourcePageCount) {
       setSourcePageNumber(sourcePageCount);
     }
@@ -535,6 +573,36 @@ export function RealisticReviewUgcPage() {
   }, [keywordPage.total, keywordPageNumber, keywordPageSize, keywordLoading]);
 
   useEffect(() => {
+    if (activeStage !== "stage1") return;
+    const controller = new AbortController();
+    let refreshInFlight = true;
+    setEmbroideryLoading(true);
+    void refreshEmbroideryDesigns(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Unable to load embroidery designs.");
+        }
+      })
+      .finally(() => {
+        refreshInFlight = false;
+        if (!controller.signal.aborted) setEmbroideryLoading(false);
+      });
+    const timer = window.setInterval(() => {
+      if (document.hidden || refreshInFlight) return;
+      refreshInFlight = true;
+      void refreshEmbroideryDesigns()
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
+    }, 10000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [activeStage, embroideryPageNumber, debouncedEmbroideryQuery]);
+
+  useEffect(() => {
     if (!groupsStageActive) return;
     const controller = new AbortController();
     let refreshInFlight = true;
@@ -568,13 +636,13 @@ export function RealisticReviewUgcPage() {
   }, [groupsStageActive, sourcePageNumber, sourcePageSize, debouncedSourceQuery, sourceSortBy, sourceSortDirection]);
 
   useEffect(() => {
-    if (activeStage !== "stage2") return;
+    if (activeStage !== "stage3") return;
     const controller = new AbortController();
     let refreshInFlight = true;
     void refreshStage2Jobs(controller.signal)
       .catch(reason => {
         if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "Unable to load Stage 2 jobs.");
+          setError(reason instanceof Error ? reason.message : "Unable to load Stage 3 jobs.");
         }
       })
       .finally(() => {
@@ -596,14 +664,14 @@ export function RealisticReviewUgcPage() {
   }, [activeStage, visibleStage2SourcePlanIdsKey]);
 
   useEffect(() => {
-    if (activeStage !== "stage3") return;
+    if (activeStage !== "stage4") return;
     const controller = new AbortController();
     let refreshInFlight = true;
     setStage3Loading(true);
     void refreshStage3Groups(controller.signal)
       .catch(reason => {
         if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "Unable to load Stage 3 review groups.");
+          setError(reason instanceof Error ? reason.message : "Unable to load Stage 4 review groups.");
         }
       })
       .finally(() => {
@@ -653,7 +721,7 @@ export function RealisticReviewUgcPage() {
       <WorkspacePageHeader
         className="rrugc-header"
         route="realistic-review-ugc"
-        description="Run two Pinterest discovery lanes in parallel: quote keyword scouting and context-matched visual references."
+        description="Analyze keyword demand, prepare embroidery designs across 13 hat colors, discover Pinterest references, generate UGC images, then build review-ready outputs."
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}
         actions={<WorkspaceBackToAssets />}
       />
@@ -753,6 +821,30 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage1" ? 0 : -1}
           hidden={activeStage !== "stage1"}
         >
+          <EmbroideryColorwayStage
+            active={activeStage === "stage1"}
+            data={embroideryPage}
+            loading={embroideryLoading}
+            syncing={syncingSourcePlans}
+            query={embroideryQuery}
+            message={sourcePlanMessage}
+            onSync={() => void syncDriveSourcePlans()}
+            onQueryChange={setEmbroideryQuery}
+            onPageChange={value => {
+              setEmbroideryLoading(true);
+              setEmbroideryPageNumber(value);
+            }}
+          />
+        </section>
+
+        <section
+          id="rrugc-panel-stage2"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-stage2"
+          tabIndex={activeStage === "stage2" ? 0 : -1}
+          hidden={activeStage !== "stage2"}
+        >
           <SourcePlanTable
             plans={sourcePage.items}
             total={sourcePage.total}
@@ -792,12 +884,12 @@ export function RealisticReviewUgcPage() {
         </section>
 
         <section
-          id="rrugc-panel-stage2"
+          id="rrugc-panel-stage3"
           className="rrugc-stage-panel"
           role="tabpanel"
-          aria-labelledby="rrugc-tab-stage2"
-          tabIndex={activeStage === "stage2" ? 0 : -1}
-          hidden={activeStage !== "stage2"}
+          aria-labelledby="rrugc-tab-stage3"
+          tabIndex={activeStage === "stage3" ? 0 : -1}
+          hidden={activeStage !== "stage3"}
         >
           <Stage2JobTable
             plans={sourcePage.items}
@@ -825,12 +917,12 @@ export function RealisticReviewUgcPage() {
         </section>
 
         <section
-          id="rrugc-panel-stage3"
+          id="rrugc-panel-stage4"
           className="rrugc-stage-panel"
           role="tabpanel"
-          aria-labelledby="rrugc-tab-stage3"
-          tabIndex={activeStage === "stage3" ? 0 : -1}
-          hidden={activeStage !== "stage3"}
+          aria-labelledby="rrugc-tab-stage4"
+          tabIndex={activeStage === "stage4" ? 0 : -1}
+          hidden={activeStage !== "stage4"}
         >
           <Stage3ReviewGroups
             data={stage3Groups}

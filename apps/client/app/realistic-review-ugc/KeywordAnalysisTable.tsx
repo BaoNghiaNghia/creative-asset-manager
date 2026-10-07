@@ -127,7 +127,7 @@ export function KeywordAnalysisTable({
       </div>
       <div className="rrugc-stage0-heading-meta">
         <span className="rrugc-stage0-lane"><i aria-hidden="true" />Quote Scout · separate terminal</span>
-        <small>Independent from the Stage 1 Pinterest reference scout.</small>
+        <small>Independent from the Stage 2 Pinterest reference scout.</small>
       </div>
     </div>
 

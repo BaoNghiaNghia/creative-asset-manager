@@ -559,7 +559,7 @@ export function SourcePlanTable({
   return <section id="rrugc-source-plans" className="rrugc-card rrugc-source-plans">
     <div className="rrugc-section-heading rrugc-source-plans-heading">
       <div>
-        <small>DRIVE → AI CONTEXT → PINTEREST</small>
+        <small>STAGE 2 · DRIVE → AI CONTEXT → PINTEREST</small>
         <h2>Embroidery source → Pinterest refs</h2>
         <p>New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool.</p>
       </div>
