@@ -67,6 +67,7 @@ export type KeywordHealth = {
   found: number;
   new: number;
   duplicate: number;
+  failed_scans: number;
   approved: number;
   ref_good: number;
   ref_bad: number;
@@ -75,6 +76,7 @@ export type KeywordHealth = {
   approved_yield: number;
   reference_yield: number;
   duplicate_rate: number;
+  failure_rate: number;
 };
 
 export type Campaign = {
