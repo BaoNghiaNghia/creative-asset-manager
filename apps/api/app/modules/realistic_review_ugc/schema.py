@@ -441,6 +441,9 @@ class KeywordVolumeResponse(BaseModel):
     competition: str | None = None
     cpc_low: float | None = None
     cpc_high: float | None = None
+    competition_index: int | None = None
+    three_month_change_pct: float | None = None
+    yoy_change_pct: float | None = None
     trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
     source_image_url: str | None = None
     source_pin_url: str | None = None

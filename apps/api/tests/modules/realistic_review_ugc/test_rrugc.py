@@ -297,8 +297,15 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 "keyword": keyword,
                 "search_volume": 4400 if "hotdog" in keyword.casefold() else 260,
                 "competition": "HIGH",
+                "competition_index": 100,
                 "cpc_low": 0.56,
                 "cpc_high": 1.96,
+                "three_month_change_pct": -33.1,
+                "yoy_change_pct": -45.3,
+                "monthly_breakdown": [
+                    {"year": 2026, "month": 7, "period": "2026-07", "volume": 5400},
+                    {"year": 2026, "month": 8, "period": "2026-08", "volume": 4400},
+                ],
             })
         return httpx.Response(
             200,
@@ -521,6 +528,15 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
                 picked_at=now,
                 picked_by_user_id="user-a",
                 provider="aebrowse_google_ads",
+                provider_raw_json={
+                    "competition_index": 100,
+                    "three_month_change_pct": -33.1,
+                    "yoy_change_pct": -45.3,
+                    "monthly_breakdown": [
+                        {"year": 2026, "month": 7, "period": "2026-07", "volume": 5400},
+                        {"year": 2026, "month": 8, "period": "2026-08", "volume": 4400},
+                    ],
+                },
                 fetched_at=now,
                 last_requested_at=now,
             ),
@@ -546,6 +562,8 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     assert payload["overview"] == {
         "total_keywords": 2,
         "total_search_volume": 4400,
+        "average_search_volume": 2200.0,
+        "average_cpc": 0.77,
         "high_competition": 1,
         "zero_volume": 1,
         "short_tail_keywords": 0,
@@ -566,6 +584,13 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     )
     assert payload["items"][0]["picked"] is True
     assert payload["items"][0]["picked_at"] is not None
+    assert payload["items"][0]["competition_index"] == 100
+    assert payload["items"][0]["three_month_change_pct"] == -33.1
+    assert payload["items"][0]["yoy_change_pct"] == -45.3
+    assert payload["items"][0]["trend"] == [
+        {"period": "2026-07", "volume": 5400},
+        {"period": "2026-08", "volume": 4400},
+    ]
     assert payload["items"][1]["picked"] is False
     assert payload["items"][1]["source_image_url"] is None
     assert payload["items"][1]["source_pin_url"] is None
@@ -816,9 +841,7 @@ def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     assert payload["provider_requested"] == 0
     assert payload["cached"] == 1
     assert payload["items"][0]["search_volume"] == 4400
-    assert payload["items"][0]["trend"] == [
-        {"period": now.strftime("%Y-%m-%d"), "volume": 4400}
-    ]
+    assert payload["items"][0]["trend"] == []
     assert payload["items"][0]["source_image_url"] == (
         "https://i.pinimg.com/1200x/cc/dd/new-source.jpg"
     )

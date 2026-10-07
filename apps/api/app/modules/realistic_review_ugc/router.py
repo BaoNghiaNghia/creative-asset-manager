@@ -2880,6 +2880,7 @@ def _keyword_volume_trend(
     # the UI does not need another API contract when AEBrowse starts returning
     # richer historical metrics.
     candidates = (
+        raw.get("monthly_breakdown"),
         raw.get("monthly_search_volumes"),
         raw.get("monthly_searches"),
         raw.get("history"),
@@ -2923,30 +2924,24 @@ def _keyword_volume_trend(
         if points:
             return points[-24:]
 
-    observed = raw.get("_observed_volume_history")
-    if isinstance(observed, list):
-        points = []
-        for item in observed[-24:]:
-            if not isinstance(item, dict):
-                continue
-            period = str(item.get("period") or "").strip()
-            try:
-                volume = max(0, int(float(item.get("volume"))))
-            except (TypeError, ValueError):
-                continue
-            if period:
-                points.append(
-                    KeywordVolumeTrendPointResponse(period=period, volume=volume)
-                )
-        if points:
-            return points
+    # Never synthesize a trend from point-in-time refreshes. Stage 0 should
+    # only plot provider-native monthly history; otherwise the UI explicitly
+    # reports that historical data is not available yet.
+    return []
 
-    return [
-        KeywordVolumeTrendPointResponse(
-            period=row.fetched_at.astimezone(timezone.utc).strftime("%Y-%m-%d"),
-            volume=int(row.search_volume or 0),
-        )
-    ]
+
+def _keyword_metric_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _keyword_metric_int(value: object) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeResponse:
@@ -2957,6 +2952,15 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         competition=row.competition,
         cpc_low=row.cpc_low,
         cpc_high=row.cpc_high,
+        competition_index=_keyword_metric_int(
+            (row.provider_raw_json or {}).get("competition_index")
+        ),
+        three_month_change_pct=_keyword_metric_float(
+            (row.provider_raw_json or {}).get("three_month_change_pct")
+        ),
+        yoy_change_pct=_keyword_metric_float(
+            (row.provider_raw_json or {}).get("yoy_change_pct")
+        ),
         trend=_keyword_volume_trend(row),
         source_image_url=row.source_image_url,
         source_pin_url=row.source_pin_url,

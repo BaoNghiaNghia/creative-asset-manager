@@ -629,6 +629,9 @@ describe("Realistic Review UGC source-first workspace", () => {
               competition: "HIGH",
               cpc_low: 0.56,
               cpc_high: 1.96,
+              competition_index: 100,
+              three_month_change_pct: -33.1,
+              yoy_change_pct: -45.3,
               trend: [
                 { period: "2026-08", volume: 2900 },
                 { period: "2026-09", volume: 3600 },
@@ -713,10 +716,14 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">4,400<");
     expect(markup).toContain("HIGH");
     expect(markup).toContain("$0.56–$1.96");
-    expect(markup).toContain("Average volume");
-    expect(markup).toContain("Average CPC");
-    expect(markup).toContain("High competition");
-    expect(markup).not.toContain("Zero volume");
+    expect(markup).toContain("Total keywords");
+    expect(markup).toContain("Short-tail");
+    expect(markup).toContain("Mid-tail");
+    expect(markup).toContain("Long-tail");
+    expect(markup).toContain("2-word keywords");
+    expect(markup).toContain("3–4 word keywords");
+    expect(markup).toContain("5+ word keywords");
+    expect(markup).not.toContain("Average CPC");
     expect(markup).toContain("Google Ads · AEBrowse");
     expect(markup).toContain(">Unused<");
     expect(markup).toContain("Short-tail");
@@ -739,7 +746,11 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by Competition ascending"');
     expect(markup).toContain('aria-label="Sort by CPC ascending"');
     expect(markup).toContain('role="tooltip"');
-    expect(markup).toContain("Search-volume trend");
+    expect(markup).toContain("Google Ads monthly search volume");
+    expect(markup).toContain("3 mo");
+    expect(markup).toContain("-33.1%");
+    expect(markup).toContain("YoY");
+    expect(markup).toContain("-45.3%");
     expect(markup).toContain("2026-08");
     expect(markup).toContain("2026-10");
   });

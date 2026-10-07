@@ -10,16 +10,28 @@ import type { KeywordVolume, KeywordVolumePage, KeywordVolumeTrendPoint } from "
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
-function formatCompact(value: number): string {
-  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+type KeywordTailKind = Exclude<KeywordTailFilter, "all">;
+
+function KeywordTailIcon({ kind }: { kind: KeywordTailKind }) {
+  const tokens = kind === "short"
+    ? [[2, 8, 8, 7], [12, 8, 13, 7]]
+    : kind === "mid"
+      ? [[2, 4, 8, 6], [12, 4, 13, 6], [2, 14, 11, 6], [15, 14, 9, 6]]
+      : [[2, 2, 8, 5], [12, 2, 13, 5], [2, 9.5, 11, 5], [15, 9.5, 9, 5], [2, 17, 6, 5], [10, 17, 14, 5]];
+  return <svg viewBox="0 0 27 24" aria-hidden="true" focusable="false">
+    {tokens.map(([x, y, width, height], index) => (
+      <rect key={index} x={x} y={y} width={width} height={height} rx={height / 2} fill="currentColor" opacity={1 - index * .08} />
+    ))}
+  </svg>;
 }
 
 function formatCpc(value: number | null): string {
   return typeof value === "number" ? "$" + value.toFixed(2) : "—";
 }
 
-function formatAverageCpc(value: number | null | undefined): string {
-  return typeof value === "number" ? "$" + value.toFixed(2) : "—";
+function formatChange(value: number | null | undefined): string {
+  if (typeof value !== "number") return "—";
+  return (value > 0 ? "+" : "") + value.toFixed(1) + "%";
 }
 
 function competitionTone(value: string | null): string {
@@ -63,7 +75,14 @@ function makeChartGeometry(points: KeywordVolumeTrendPoint[], width: number, hei
 }
 
 function KeywordTrendChart({ item }: { item: KeywordVolume }) {
-  const trend = item.trend?.length ? item.trend : [{ period: item.fetched_at.slice(0, 10), volume: item.search_volume }];
+  const trend = item.trend ?? [];
+  if (trend.length < 2) {
+    return <div className="rrugc-stage0-trend rrugc-stage0-trend-empty" aria-label={"Monthly trend unavailable for " + item.keyword}>
+      <span>Trend unavailable</span>
+      <small>Waiting for Google Ads history</small>
+    </div>;
+  }
+
   const mini = makeChartGeometry(trend, 126, 38, 3);
   const large = makeChartGeometry(trend, 300, 118, 10);
   const volumes = trend.map(point => point.volume);
@@ -72,17 +91,21 @@ function KeywordTrendChart({ item }: { item: KeywordVolume }) {
   const first = trend[0];
   const last = trend[trend.length - 1];
 
-  return <div className="rrugc-stage0-trend" tabIndex={0} aria-label={"Search-volume trend for " + item.keyword}>
+  return <div className="rrugc-stage0-trend" tabIndex={0} aria-label={"12-month Google Ads trend for " + item.keyword}>
     <svg className="rrugc-stage0-sparkline" viewBox="0 0 126 38" preserveAspectRatio="none" aria-hidden="true">
       <path className="rrugc-stage0-spark-area" d={mini.area} />
       <path className="rrugc-stage0-spark-line" d={mini.line} />
-      {mini.dots.length > 1 && <circle cx={mini.dots[mini.dots.length - 1].x} cy={mini.dots[mini.dots.length - 1].y} r="2.2" />}
+      <circle cx={mini.dots[mini.dots.length - 1].x} cy={mini.dots[mini.dots.length - 1].y} r="2.2" />
     </svg>
-    <span className="rrugc-stage0-trend-caption">{trend.length > 1 ? trend.length + " points" : "Latest"}</span>
+    <span className="rrugc-stage0-trend-caption">{trend.length} mo</span>
     <div className="rrugc-stage0-trend-popover" role="tooltip">
       <div className="rrugc-stage0-trend-popover-head">
-        <div><strong>{item.keyword}</strong><small>Search-volume trend</small></div>
+        <div><strong>{item.keyword}</strong><small>Google Ads monthly search volume</small></div>
         <b>{item.search_volume.toLocaleString()}</b>
+      </div>
+      <div className="rrugc-stage0-trend-changes">
+        <span>3 mo <b className={(item.three_month_change_pct ?? 0) < 0 ? "negative" : "positive"}>{formatChange(item.three_month_change_pct)}</b></span>
+        <span>YoY <b className={(item.yoy_change_pct ?? 0) < 0 ? "negative" : "positive"}>{formatChange(item.yoy_change_pct)}</b></span>
       </div>
       <svg viewBox="0 0 300 118" preserveAspectRatio="none" aria-hidden="true">
         <line x1="10" y1="30" x2="290" y2="30" />
@@ -182,12 +205,25 @@ export function KeywordAnalysisTable({
       actions={<span className="rrugc-stage0-live-badge"><i aria-hidden="true" />Live keyword data</span>}
     />
 
-    <div className="rrugc-stage0-metrics" aria-label="Keyword overview">
-      <article><span className="rrugc-stage0-metric-icon"><Icon name="search" /></span><div><small>Keywords</small><strong>{data.overview.total_keywords.toLocaleString()}</strong><em>{formatCompact(data.overview.total_search_volume)} total monthly volume</em></div></article>
-      <article><span className="rrugc-stage0-metric-icon is-star"><Icon name="star" filled /></span><div><small>Favorites</small><strong>{data.overview.favorite_keywords.toLocaleString()}</strong><em>Saved opportunities</em></div></article>
-      <article><span className="rrugc-stage0-metric-icon"><Icon name="chart" /></span><div><small>Average volume</small><strong>{Math.round(data.overview.average_search_volume ?? (data.overview.total_keywords ? data.overview.total_search_volume / data.overview.total_keywords : 0)).toLocaleString()}</strong><em>Searches / month</em></div></article>
-      <article><span className="rrugc-stage0-metric-icon"><Icon name="money" /></span><div><small>Average CPC</small><strong>{formatAverageCpc(data.overview.average_cpc)}</strong><em>Average bid midpoint</em></div></article>
-      <article><span className="rrugc-stage0-metric-icon"><Icon name="competition" /></span><div><small>High competition</small><strong>{data.overview.high_competition.toLocaleString()}</strong><em>{data.overview.total_keywords ? Math.round(data.overview.high_competition / data.overview.total_keywords * 100) : 0}% of keywords</em></div></article>
+    <div className="rrugc-source-plan-kpis rrugc-stage0-kpis rrugc-stage0-kpis-restored" aria-label="Keyword overview">
+      <article><span>Total keywords</span><strong>{data.overview.total_keywords.toLocaleString()}</strong><small>{data.overview.total_search_volume.toLocaleString()} total monthly volume</small></article>
+      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-short">
+        <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="short" /></i><b>Short-tail</b></span>
+        <strong>{data.overview.short_tail_keywords.toLocaleString()}</strong>
+        <small>2-word keywords</small>
+      </article>
+      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-mid">
+        <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="mid" /></i><b>Mid-tail</b></span>
+        <strong>{data.overview.mid_tail_keywords.toLocaleString()}</strong>
+        <small>3–4 word keywords</small>
+      </article>
+      <article className="rrugc-stage0-tail-kpi rrugc-stage0-tail-kpi-long">
+        <span className="rrugc-stage0-tail-kpi-title"><i><KeywordTailIcon kind="long" /></i><b>Long-tail</b></span>
+        <strong>{data.overview.long_tail_keywords.toLocaleString()}</strong>
+        <small>5+ word keywords</small>
+      </article>
+      <article className="rrugc-stage0-used-kpi"><span>Used</span><strong>{data.overview.picked_keywords.toLocaleString()}</strong><small>Picked for use</small></article>
+      <article className="rrugc-stage0-favorite-kpi"><span>Favorites</span><strong>{data.overview.favorite_keywords.toLocaleString()}</strong><small>Saved opportunities</small></article>
     </div>
 
     <div className="rrugc-stage0-controlbar">
