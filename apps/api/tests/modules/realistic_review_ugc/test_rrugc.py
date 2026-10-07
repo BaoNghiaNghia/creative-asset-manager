@@ -843,6 +843,10 @@ def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
         assert candidates[0].ai_signal_json["scout_query"] == "casual woman outdoors"
         session.refresh(claim.run)
         assert claim.run.keyword_stats_json == {
+            "_scout_runtime": {
+                "client_version": "rrugc-scout-v3",
+                "machine_label": "studio-pc",
+            },
             "casual woman outdoors": {
                 "submitted": 2,
                 "created": 1,
@@ -4222,7 +4226,12 @@ def test_adaptive_keyword_ranking_penalizes_repeated_zero_new_scan_failures(monk
             SimpleNamespace(
                 status="failed",
                 query=bad,
-                keyword_stats_json=None,
+                keyword_stats_json={
+                    "_scout_runtime": {
+                        "client_version": "rrugc-scout-v36",
+                        "machine_label": "test-v36",
+                    }
+                },
                 submitted_count=0,
                 created_count=0,
                 existing_count=0,
@@ -4243,6 +4252,82 @@ def test_adaptive_keyword_ranking_penalizes_repeated_zero_new_scan_failures(monk
     assert health[bad]["failure_rate"] == pytest.approx(0.75)
     assert health[good]["failed_scans"] == 0
     assert health[good]["failure_rate"] == 0.0
+
+
+def test_adaptive_keyword_failure_penalty_trusts_v36_more_than_legacy(monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.random",
+        lambda: 0.9,
+    )
+    advantaged = "advantaged discovery query"
+    stable = "stable discovery query"
+
+    def ranked_for(version: str) -> list[str]:
+        runs = [
+            SimpleNamespace(
+                status="completed",
+                query=advantaged,
+                keyword_stats_json=None,
+                submitted_count=10,
+                created_count=6,
+                existing_count=4,
+                last_error_code=None,
+            ),
+            SimpleNamespace(
+                status="completed",
+                query=stable,
+                keyword_stats_json=None,
+                submitted_count=10,
+                created_count=5,
+                existing_count=5,
+                last_error_code=None,
+            ),
+            *[
+                SimpleNamespace(
+                    status="failed",
+                    query=advantaged,
+                    keyword_stats_json={
+                        "_scout_runtime": {
+                            "client_version": version,
+                            "machine_label": "test-machine",
+                        }
+                    },
+                    submitted_count=0,
+                    created_count=0,
+                    existing_count=0,
+                    last_error_code="pinterest_scan_failed",
+                )
+                for _ in range(3)
+            ],
+        ]
+        return adaptive_search_queries([advantaged, stable], runs, [])
+
+    assert ranked_for("rrugc-scout-v34")[0] == advantaged
+    assert ranked_for("rrugc-scout-v36")[0] == stable
+
+
+def test_keyword_health_counts_metadata_only_run_via_query_fallback():
+    query = "metadata-only query"
+    runs = [
+        SimpleNamespace(
+            status="completed",
+            query=query,
+            keyword_stats_json={
+                "_scout_runtime": {
+                    "client_version": "rrugc-scout-v36",
+                    "machine_label": "test-machine",
+                }
+            },
+            submitted_count=0,
+            created_count=0,
+            existing_count=0,
+            last_error_code=None,
+        )
+    ]
+    health = keyword_health_rows([query], runs, [])
+    assert health[0]["scans"] == 1
+    assert health[0]["found"] == 0
+    assert health[0]["new"] == 0
 
 
 def test_adaptive_keyword_ranking_does_not_penalize_cam_http_failures(monkeypatch):

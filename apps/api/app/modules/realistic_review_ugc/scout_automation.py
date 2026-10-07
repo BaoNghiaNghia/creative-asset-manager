@@ -29,6 +29,7 @@ from app.providers.decision.jev import JevClient
 _LOGGER = logging.getLogger("cam.rrugc.scout")
 _JEV_SHADOW_KEY = "_jev_shadow"
 _JEV_SHADOW_POLICY_VERSION = "rrugc-scout-query-shadow-v1"
+_SCOUT_RUN_META_KEY = "_scout_runtime"
 
 SCOUT_AGENT_VERSION = "rrugc-scout-v15"
 SCOUT_LEASE_SECONDS = 15 * 60
@@ -38,6 +39,8 @@ KEYWORD_OUTCOME_HISTORY = 2000
 KEYWORD_EXPLORATION_RATE = 0.20
 KEYWORD_FAILURE_PENALTY_MAX = 0.25
 KEYWORD_FAILURE_CONFIDENCE_RUNS = 3
+KEYWORD_LEGACY_FAILURE_WEIGHT = 0.25
+KEYWORD_FULL_FAILURE_VERSION = 36
 KEYWORD_SUPPRESSION_MIN_EVALUATED = 6
 KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS = 3
 KEYWORD_SUPPRESSION_MIN_RUNS = 4
@@ -49,15 +52,35 @@ SCOUT_FAILURE_BACKOFF_CAP_SECONDS = 60 * 60
 SCOUT_MAX_SCROLL_BATCHES = 50
 
 
-def scout_client_supports_source_plans(value: str | None) -> bool:
+def scout_client_version_number(value: str | None) -> int | None:
     raw = str(value or "").strip().casefold()
     prefix = "rrugc-scout-v"
     if not raw.startswith(prefix):
-        return False
+        return None
     try:
-        return int(raw[len(prefix):]) >= 12
+        return int(raw[len(prefix):])
     except ValueError:
-        return False
+        return None
+
+
+def scout_client_supports_source_plans(value: str | None) -> bool:
+    version = scout_client_version_number(value)
+    return version is not None and version >= 12
+
+
+def _scout_run_failure_weight(run: RrugcScoutRunModel) -> float:
+    """Discount legacy runtime failures while trusting versioned v36+ runs."""
+    stats = run.keyword_stats_json if isinstance(run.keyword_stats_json, dict) else {}
+    meta = stats.get(_SCOUT_RUN_META_KEY)
+    client_version = (
+        str(meta.get("client_version") or "").strip()
+        if isinstance(meta, dict)
+        else ""
+    )
+    version = scout_client_version_number(client_version)
+    if version is not None and version >= KEYWORD_FULL_FAILURE_VERSION:
+        return 1.0
+    return KEYWORD_LEGACY_FAILURE_WEIGHT
 
 
 def adaptive_scroll_batch_budget(
@@ -233,7 +256,7 @@ def adaptive_search_queries(
         return clean
 
     stats = {query: [0, 0, 0] for query in clean}
-    failure_stats = {query: 0 for query in clean}
+    failure_stats = {query: 0.0 for query in clean}
     for run in runs:
         if (
             run.status == "failed"
@@ -241,7 +264,7 @@ def adaptive_search_queries(
             and run.last_error_code == "pinterest_scan_failed"
             and int(run.created_count or 0) == 0
         ):
-            failure_stats[run.query] += 1
+            failure_stats[run.query] += _scout_run_failure_weight(run)
         if run.status != "completed":
             continue
         keyword_stats = (
@@ -249,6 +272,7 @@ def adaptive_search_queries(
             if isinstance(run.keyword_stats_json, dict)
             else None
         )
+        matched_query_stats = False
         if keyword_stats:
             for query, payload in keyword_stats.items():
                 if query not in stats or not isinstance(payload, dict):
@@ -257,6 +281,8 @@ def adaptive_search_queries(
                 row[0] += 1
                 row[1] += int(payload.get("submitted") or 0)
                 row[2] += int(payload.get("created") or 0)
+                matched_query_stats = True
+        if matched_query_stats:
             continue
         if run.query not in stats:
             continue
@@ -437,6 +463,7 @@ def keyword_health_rows(
             row = health[run.query]
             row["failed_scans"] = int(row["failed_scans"]) + 1
         stats = run.keyword_stats_json if isinstance(run.keyword_stats_json, dict) else None
+        matched_query_stats = False
         if stats:
             for query, payload in stats.items():
                 if query not in health or not isinstance(payload, dict):
@@ -446,7 +473,8 @@ def keyword_health_rows(
                 row["found"] = int(row["found"]) + int(payload.get("submitted") or 0)
                 row["new"] = int(row["new"]) + int(payload.get("created") or 0)
                 row["duplicate"] = int(row["duplicate"]) + int(payload.get("existing") or 0)
-        elif run.query in health:
+                matched_query_stats = True
+        if not matched_query_stats and run.query in health:
             row = health[run.query]
             row["scans"] = int(row["scans"]) + 1
             row["found"] = int(row["found"]) + int(run.submitted_count or 0)
@@ -1349,11 +1377,17 @@ class RrugcAutoScoutService:
             max_scroll_batches=effective_scroll_batches,
             auto_import=selected.auto_import,
             progress_before=progress,
-            keyword_stats_json=(
-                {_JEV_SHADOW_KEY: jev_shadow}
-                if jev_shadow is not None
-                else None
-            ),
+            keyword_stats_json={
+                _SCOUT_RUN_META_KEY: {
+                    "client_version": str(client_version or "").strip()[:64] or None,
+                    "machine_label": str(machine_label or "").strip()[:160] or None,
+                },
+                **(
+                    {_JEV_SHADOW_KEY: jev_shadow}
+                    if jev_shadow is not None
+                    else {}
+                ),
+            },
             last_heartbeat_at=now,
             started_at=now,
         )
