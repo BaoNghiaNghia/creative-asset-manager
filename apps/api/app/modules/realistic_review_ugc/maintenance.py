@@ -154,6 +154,7 @@ class RrugcMaintenanceService:
             ProcessingJobModel.job_type == ANALYZE_JOB_TYPE,
             ProcessingJobModel.status.in_(("pending", "retry")),
             ProcessingJobModel.last_error_code == _GEMINI_DEFER_CODE,
+            ProcessingJobModel.next_attempt_at > current,
         )
         gemini_deferred = int(
             self.session.scalar(select(func.count()).select_from(deferred_query.subquery())) or 0

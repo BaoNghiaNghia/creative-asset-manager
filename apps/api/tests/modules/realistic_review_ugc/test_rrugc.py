@@ -1163,6 +1163,7 @@ def test_rrugc_maintenance_wakes_deferred_gemini_jobs_when_capacity_returns(data
         if next_attempt.tzinfo is None:
             next_attempt = next_attempt.replace(tzinfo=timezone.utc)
         assert next_attempt <= now + timedelta(seconds=1)
+        assert service.health("tenant-a", now=now).gemini_deferred == 0
 
 
 def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):
