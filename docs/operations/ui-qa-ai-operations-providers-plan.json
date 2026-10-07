@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "steps": [
+    {"name":"providers-default","waitFor":".ops-provider-gemini-credentials","waitMs":500},
+    {"name":"image-pool-hover","hover":".gemini-creative-key-pool .gemini-backup-pool-row","waitMs":150},
+    {"name":"inventory-pool-focus","focus":".gemini-inventory-key-pool .gemini-backup-pool-row","waitMs":150},
+    {"name":"video-pool-add","focus":".ops-provider-gemini-credentials-grid>.gemini-creative-key-pool:last-child .gemini-backup-pool-add","waitMs":150}
+  ]
+}

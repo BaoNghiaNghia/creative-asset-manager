@@ -18,7 +18,16 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.processing_policy.service import TenantPolicyCache
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.ai.gemini import probe_gemini_api_key, validate_gemini_api_key
-from app.modules.ai_operations.credentials import CreativeAiCredentialRepository, CreativeCredentialError, CreativeGeminiCredentialResolver, creative_credential_cipher, gemini_backup_provider, gemini_backup_providers, gemini_video_backup_provider, gemini_video_backup_providers
+from app.modules.ai_operations.credentials import (
+    CreativeAiCredentialRepository,
+    CreativeCredentialError,
+    CreativeGeminiCredentialResolver,
+    creative_credential_cipher,
+    gemini_backup_provider,
+    gemini_backup_slot,
+    gemini_video_backup_provider,
+    gemini_video_backup_slot,
+)
 import logging
 
 _CREDENTIAL_LOGGER = logging.getLogger("cam.creative_gemini_credential")
@@ -366,10 +375,26 @@ def list_backup_gemini_credentials(
 ):
     target = _tenant(principal, tenant_id)
     with SessionLocal() as session:
-        items = {item.provider: item for item in CreativeAiCredentialRepository(session, None).list_backup_metadata(target)}
+        metadata = CreativeAiCredentialRepository(session, None).list_backup_metadata(target)
+    items = {
+        gemini_backup_slot(item.provider): item
+        for item in metadata
+        if gemini_backup_slot(item.provider) is not None
+    }
+    next_slot = 1
+    while next_slot in items:
+        next_slot += 1
+    slots = sorted((*items.keys(), next_slot))
     return [
-        {**_creative_credential_view(items.get(provider), source="configuration" if provider in items else "unavailable"), "provider": provider, "slot": slot}
-        for slot, provider in enumerate(gemini_backup_providers(), start=1)
+        {
+            **_creative_credential_view(
+                items.get(slot),
+                source="configuration" if slot in items else "unavailable",
+            ),
+            "provider": gemini_backup_provider(slot),
+            "slot": slot,
+        }
+        for slot in slots
     ]
 
 
@@ -438,22 +463,28 @@ def list_video_backup_gemini_credentials(
 ):
     target = _tenant(principal, tenant_id)
     with SessionLocal() as session:
-        items = {
-            item.provider: item
-            for item in CreativeAiCredentialRepository(
-                session, None
-            ).list_video_backup_metadata(target)
-        }
+        metadata = CreativeAiCredentialRepository(
+            session, None
+        ).list_video_backup_metadata(target)
+    items = {
+        gemini_video_backup_slot(item.provider): item
+        for item in metadata
+        if gemini_video_backup_slot(item.provider) is not None
+    }
+    next_slot = 1
+    while next_slot in items:
+        next_slot += 1
+    slots = sorted((*items.keys(), next_slot))
     return [
         {
             **_creative_credential_view(
-                items.get(provider),
-                source="configuration" if provider in items else "unavailable",
+                items.get(slot),
+                source="configuration" if slot in items else "unavailable",
             ),
-            "provider": provider,
+            "provider": gemini_video_backup_provider(slot),
             "slot": slot,
         }
-        for slot, provider in enumerate(gemini_video_backup_providers(), start=1)
+        for slot in slots
     ]
 
 

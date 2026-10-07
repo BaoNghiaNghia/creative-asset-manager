@@ -10,22 +10,54 @@ import {
   testVideoGeminiBackupCredential,
   type GeminiBackupCredential,
 } from "../../features/ai_operations";
+import { inventoryApi, type InventoryAiBackupCredential } from "../inventory/api";
 
 type Draft = { apiKey: string; label: string };
+type BackupKind = "image" | "video" | "inventory";
+type BackupCredentialRow = {
+  provider: string;
+  slot: number;
+  configured: boolean;
+  masked_key: string | null;
+  label: string | null;
+  status: string;
+  updated_at: string | null;
+};
+type BackupTestResult = { status: string; http_status?: number | null };
 
 const formatTime = (value: string | null) => value ? new Date(value).toLocaleString() : "Not available";
 
-export function GeminiBackupPoolSettings({ canManage = true, embedded = false, kind = "image" }: { canManage?: boolean; embedded?: boolean; kind?: "image" | "video" }) {
+export function GeminiBackupPoolSettings({ canManage = true, embedded = false, kind = "image" }: { canManage?: boolean; embedded?: boolean; kind?: BackupKind }) {
 const TestIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg>;
 const ReplaceIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 4 6 6M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /></svg>;
 const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-3h4l1 3m-9 0 1 13h10l1-13" /></svg>;
 
   const isVideo = kind === "video";
-  const listCredentials = isVideo ? listVideoGeminiBackupCredentials : listGeminiBackupCredentials;
-  const testCredential = isVideo ? testVideoGeminiBackupCredential : testGeminiBackupCredential;
-  const replaceCredential = isVideo ? replaceVideoGeminiBackupCredential : replaceGeminiBackupCredential;
-  const deleteCredential = isVideo ? deleteVideoGeminiBackupCredential : deleteGeminiBackupCredential;
-  const [items, setItems] = useState<GeminiBackupCredential[]>([]);
+  const isInventory = kind === "inventory";
+  const workloadLabel = isVideo ? "Video" : isInventory ? "Inventory" : "Image";
+  const listCredentials = async (): Promise<BackupCredentialRow[]> => {
+    if (isInventory) return inventoryApi.listAiBackupCredentials() as Promise<InventoryAiBackupCredential[]>;
+    return isVideo ? listVideoGeminiBackupCredentials() : listGeminiBackupCredentials();
+  };
+  const testCredential = async (slot: number, apiKey?: string, label?: string): Promise<BackupTestResult> => {
+    if (isInventory) return inventoryApi.testAiBackupCredential(slot, apiKey, label);
+    return isVideo
+      ? testVideoGeminiBackupCredential(slot, apiKey, label)
+      : testGeminiBackupCredential(slot, apiKey, label);
+  };
+  const replaceCredential = async (slot: number, apiKey: string, label?: string) => {
+    if (isInventory) return inventoryApi.replaceAiBackupCredential(slot, apiKey, label);
+    return isVideo
+      ? replaceVideoGeminiBackupCredential(slot, apiKey, label)
+      : replaceGeminiBackupCredential(slot, apiKey, label);
+  };
+  const deleteCredential = async (slot: number) => {
+    if (isInventory) return inventoryApi.deleteAiBackupCredential(slot);
+    return isVideo
+      ? deleteVideoGeminiBackupCredential(slot)
+      : deleteGeminiBackupCredential(slot);
+  };
+  const [items, setItems] = useState<BackupCredentialRow[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -105,17 +137,17 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
   const rows = items.filter(item => item.configured || drafts[item.slot]);
   const canAdd = canManage && items.some(item => !item.configured && !drafts[item.slot]);
 
-  return <section className={"gemini-backup-pool" + (embedded ? " gemini-backup-pool-embedded" : " inventory-settings-card")} aria-label={`Gemini ${isVideo ? "Video" : "Image"} backup key pool`}>
+  return <section className={"gemini-backup-pool" + (embedded ? " gemini-backup-pool-embedded" : " inventory-settings-card")} aria-label={`Gemini ${workloadLabel} backup key pool`}>
     <div className="gemini-backup-pool-heading">
       <div>
         <p className="inventory-kicker">FAILOVER AI</p>
         <h3>Backup key pool</h3>
-        <p className="inventory-muted">Active keys rotate automatically. Hover a row to manage it.</p>
+        <p className="inventory-muted">Pool grows as needed. Active keys rotate automatically.</p>
       </div>
-      <span className="inventory-credential-status status-connected">{items.filter(item => item.configured).length}/10 active</span>
+      <span className="inventory-credential-status status-connected">{items.filter(item => item.configured).length} active</span>
     </div>
 
-    <div className="gemini-backup-pool-table" role="table" aria-label={`${isVideo ? "Video" : "Image"} backup keys`}>
+    <div className="gemini-backup-pool-table" role="table" aria-label={`${workloadLabel} backup keys`}>
       <div className="gemini-backup-pool-head" role="row">
         <span role="columnheader">Backup key</span>
         <span role="columnheader">Label</span>

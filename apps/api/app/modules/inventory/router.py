@@ -17,6 +17,8 @@ from app.modules.inventory.credentials import (
     InventoryAiCredentialRepository,
     InventoryCredentialError,
     InventoryGeminiCredentialResolver,
+    inventory_backup_provider,
+    inventory_backup_slot,
     inventory_credential_cipher,
 )
 from app.modules.inventory.permissions import (
@@ -244,6 +246,191 @@ def replace_ai_credential(
         principal.active_tenant_id, principal.actor_id,
     )
     return _credential_view(metadata, source="configuration")
+
+
+def _inventory_backup_slot_provider(slot: int) -> str:
+    try:
+        return inventory_backup_provider(slot)
+    except ValueError as exc:
+        raise HTTPException(
+            422, detail={"code": "inventory_gemini_backup_slot_invalid"}
+        ) from exc
+
+
+@router.get("/configuration/ai-credential-backups")
+def list_ai_credential_backups(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    with SessionLocal() as session:
+        metadata = _credential_metadata_repository(session).list_backup_metadata(
+            principal.active_tenant_id
+        )
+    items = {
+        inventory_backup_slot(item.provider): item
+        for item in metadata
+        if inventory_backup_slot(item.provider) is not None
+    }
+    next_slot = 1
+    while next_slot in items:
+        next_slot += 1
+    slots = sorted((*items.keys(), next_slot))
+    return [
+        {
+            **_credential_view(
+                items.get(slot),
+                source="configuration" if slot in items else "unavailable",
+            ),
+            "provider": inventory_backup_provider(slot),
+            "slot": slot,
+        }
+        for slot in slots
+    ]
+
+
+@router.post("/configuration/ai-credential-backups/{slot}/test")
+def test_ai_credential_backup(
+    slot: int,
+    body: GeminiCredentialRequest,
+    principal: CurrentPrincipal = Depends(
+        require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)
+    ),
+):
+    provider = _inventory_backup_slot_provider(slot)
+    api_key = body.api_key
+    if api_key is None:
+        try:
+            with SessionLocal() as session:
+                api_key = _credential_repository(session).get_active_secret(
+                    principal.active_tenant_id, provider=provider
+                )
+        except InventoryCredentialError:
+            api_key = None
+    result = (
+        validate_gemini_candidate(api_key)
+        if api_key
+        else "PROVIDER_UNAVAILABLE"
+    )
+    tested_at = datetime.now(timezone.utc)
+    if body.api_key is None:
+        with SessionLocal() as session:
+            repository = _credential_metadata_repository(session)
+            metadata = repository.record_test_result(
+                principal.active_tenant_id,
+                provider=provider,
+                result=result,
+                tested_at=tested_at,
+            )
+            if metadata is not None:
+                repository.audit(
+                    principal.active_tenant_id,
+                    provider=provider,
+                    actor_id=principal.actor_id,
+                    action="credential_tested",
+                    result=result,
+                    previous_fingerprint=metadata.secret_fingerprint,
+                    new_fingerprint=metadata.secret_fingerprint,
+                )
+                session.commit()
+    return {"provider": provider, "status": result, "tested_at": tested_at}
+
+
+@router.put("/configuration/ai-credential-backups/{slot}")
+def replace_ai_credential_backup(
+    slot: int,
+    body: GeminiCredentialRequest,
+    principal: CurrentPrincipal = Depends(
+        require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)
+    ),
+):
+    provider = _inventory_backup_slot_provider(slot)
+    if body.api_key is None:
+        raise HTTPException(
+            422, detail={"code": "inventory_gemini_backup_credential_required"}
+        )
+    result = validate_gemini_candidate(body.api_key)
+    if result != "VALID":
+        raise HTTPException(
+            422,
+            detail={
+                "code": "inventory_gemini_backup_credential_invalid",
+                "status": result,
+            },
+        )
+    try:
+        with SessionLocal() as session:
+            repo = _credential_repository(session)
+            previous = _credential_metadata_repository(session).get_metadata(
+                principal.active_tenant_id, provider=provider
+            )
+            metadata = repo.replace(
+                principal.active_tenant_id,
+                provider=provider,
+                secret=body.api_key,
+                label=body.label,
+                updated_by=principal.actor_id,
+                last_test_status="VALID",
+            )
+            repo.audit(
+                principal.active_tenant_id,
+                provider=provider,
+                actor_id=principal.actor_id,
+                action="credential_replaced",
+                result="VALID",
+                previous_fingerprint=(
+                    previous.secret_fingerprint if previous else None
+                ),
+                new_fingerprint=metadata.secret_fingerprint,
+            )
+            session.commit()
+    except InventoryCredentialError as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "inventory_credential_encryption_unavailable",
+                "message": "Credential encryption is not configured correctly on the server.",
+            },
+        ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "inventory_credential_storage_unavailable",
+                "message": "Inventory credential storage is not ready.",
+            },
+        ) from exc
+    return {
+        **_credential_view(metadata, source="configuration"),
+        "provider": provider,
+        "slot": slot,
+    }
+
+
+@router.delete("/configuration/ai-credential-backups/{slot}")
+def delete_ai_credential_backup(
+    slot: int,
+    principal: CurrentPrincipal = Depends(
+        require_permission(INVENTORY_CREDENTIALS_MANAGE_PERMISSION)
+    ),
+):
+    provider = _inventory_backup_slot_provider(slot)
+    with SessionLocal() as session:
+        repo = _credential_metadata_repository(session)
+        previous = repo.get_metadata(
+            principal.active_tenant_id, provider=provider
+        )
+        deleted = repo.delete(principal.active_tenant_id, provider=provider)
+        if previous is not None:
+            repo.audit(
+                principal.active_tenant_id,
+                provider=provider,
+                actor_id=principal.actor_id,
+                action="credential_deleted",
+                result="DELETED",
+                previous_fingerprint=previous.secret_fingerprint,
+            )
+        session.commit()
+    return {"provider": provider, "deleted": deleted}
+
 
 class MaterialApprovalRequest(BaseModel):
     item_id: str | None = None

@@ -81,10 +81,18 @@ describe("Inventory Gemini credential settings", () => {
     await inventoryApi.getAiCredential();
     await inventoryApi.testAiCredential(secret, "Gemini Account B");
     await inventoryApi.replaceAiCredential(secret, "Gemini Account B");
+    await inventoryApi.listAiBackupCredentials();
+    await inventoryApi.testAiBackupCredential(11, secret, "Backup 11");
+    await inventoryApi.replaceAiBackupCredential(11, secret, "Backup 11");
+    await inventoryApi.deleteAiBackupCredential(11);
     expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
       "/api/inventory/configuration/ai-credential",
       "/api/inventory/configuration/ai-credential/test",
       "/api/inventory/configuration/ai-credential",
+      "/api/inventory/configuration/ai-credential-backups",
+      "/api/inventory/configuration/ai-credential-backups/11/test",
+      "/api/inventory/configuration/ai-credential-backups/11",
+      "/api/inventory/configuration/ai-credential-backups/11",
     ]);
     const allCalls = JSON.stringify(fetchMock.mock.calls);
     expect(allCalls).not.toContain("/api/ai");

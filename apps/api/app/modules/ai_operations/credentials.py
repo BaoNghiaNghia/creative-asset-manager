@@ -13,31 +13,38 @@ from app.modules.ai_operations.credential_model import CreativeAiCredentialAudit
 from app.modules.auth_persistence.encryption import TokenCipher, TokenEncryptionError
 
 
-MAX_GEMINI_BACKUPS = 10
-MAX_VIDEO_GEMINI_BACKUPS = 10
 _LEGACY_GEMINI_BACKUP_PROVIDER = "gemini_backup"
 
-def gemini_backup_provider(slot: int) -> str:
-    if not 1 <= slot <= MAX_GEMINI_BACKUPS:
-        raise ValueError("gemini_backup_slot_invalid")
-    return f"gemini_backup_{slot}"
+def _dynamic_backup_provider(prefix: str, slot: int, error_code: str) -> str:
+    if slot < 1:
+        raise ValueError(error_code)
+    return f"{prefix}{slot}"
 
-def gemini_backup_providers() -> tuple[str, ...]:
-    return tuple(gemini_backup_provider(slot) for slot in range(1, MAX_GEMINI_BACKUPS + 1))
+def _dynamic_backup_slot(provider: str, prefix: str) -> int | None:
+    if not provider.startswith(prefix):
+        return None
+    suffix = provider[len(prefix):]
+    if not suffix.isdigit():
+        return None
+    slot = int(suffix)
+    return slot if slot >= 1 else None
+
+def gemini_backup_provider(slot: int) -> str:
+    return _dynamic_backup_provider("gemini_backup_", slot, "gemini_backup_slot_invalid")
+
+def gemini_backup_slot(provider: str) -> int | None:
+    return _dynamic_backup_slot(provider, "gemini_backup_")
 
 def is_gemini_backup_provider(provider: str) -> bool:
-    return provider in gemini_backup_providers()
+    return gemini_backup_slot(provider) is not None
 
 def gemini_video_backup_provider(slot: int) -> str:
-    if not 1 <= slot <= MAX_VIDEO_GEMINI_BACKUPS:
-        raise ValueError("gemini_video_backup_slot_invalid")
-    return f"gemini_video_backup_{slot}"
-
-def gemini_video_backup_providers() -> tuple[str, ...]:
-    return tuple(
-        gemini_video_backup_provider(slot)
-        for slot in range(1, MAX_VIDEO_GEMINI_BACKUPS + 1)
+    return _dynamic_backup_provider(
+        "gemini_video_backup_", slot, "gemini_video_backup_slot_invalid"
     )
+
+def gemini_video_backup_slot(provider: str) -> int | None:
+    return _dynamic_backup_slot(provider, "gemini_video_backup_")
 
 class CreativeCredentialError(RuntimeError):
     def __init__(self, code: str):
@@ -92,10 +99,15 @@ class CreativeAiCredentialRepository:
         rows = self.session.scalars(
             select(CreativeAiCredentialModel).where(
                 CreativeAiCredentialModel.tenant_id == tenant_id,
-                CreativeAiCredentialModel.provider.in_(gemini_backup_providers()),
-            ).order_by(CreativeAiCredentialModel.provider)
+                CreativeAiCredentialModel.provider.like("gemini_backup_%"),
+            )
         ).all()
-        return [self._metadata(row) for row in rows]
+        valid = [
+            row for row in rows
+            if gemini_backup_slot(row.provider) is not None
+        ]
+        valid.sort(key=lambda row: gemini_backup_slot(row.provider) or 0)
+        return [self._metadata(row) for row in valid]
 
     def list_active_backup_providers(self, tenant_id: str) -> tuple[str, ...]:
         return tuple(item.provider for item in self.list_backup_metadata(tenant_id) if item.status == "active")
@@ -104,15 +116,15 @@ class CreativeAiCredentialRepository:
         rows = self.session.scalars(
             select(CreativeAiCredentialModel).where(
                 CreativeAiCredentialModel.tenant_id == tenant_id,
-                CreativeAiCredentialModel.provider.in_(gemini_video_backup_providers()),
+                CreativeAiCredentialModel.provider.like("gemini_video_backup_%"),
             )
         ).all()
-        by_provider = {row.provider: row for row in rows}
-        return [
-            self._metadata(by_provider[provider])
-            for provider in gemini_video_backup_providers()
-            if provider in by_provider
+        valid = [
+            row for row in rows
+            if gemini_video_backup_slot(row.provider) is not None
         ]
+        valid.sort(key=lambda row: gemini_video_backup_slot(row.provider) or 0)
+        return [self._metadata(row) for row in valid]
 
     def list_active_video_backup_providers(self, tenant_id: str) -> tuple[str, ...]:
         return tuple(

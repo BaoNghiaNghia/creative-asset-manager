@@ -529,7 +529,7 @@ export const repairSearchCoverage = (body: { confirmed: true; limit: number; ver
 
 export type CreativeGeminiCredential = { provider:"gemini"|"gemini_video"|"gemini_backup"|"gemini_backup_2"; configured:boolean; source:"configuration"|"environment"|"unavailable"; masked_key:string|null; label:string|null; status:string; last_tested_at:string|null; updated_at:string|null; updated_by:string|null };
 export type CreativeGeminiCredentialStatus = "VALID"|"INVALID_KEY"|"PERMISSION_DENIED"|"RATE_LIMITED"|"PROVIDER_UNAVAILABLE";
-export type GeminiCredentialTestResult = { provider: CreativeGeminiCredential["provider"]; status: CreativeGeminiCredentialStatus; http_status: number | null };
+export type GeminiCredentialTestResult = { provider: string; status: CreativeGeminiCredentialStatus; http_status: number | null };
 export const getCreativeGeminiCredential = (fetcher: Fetcher = fetch) => read<CreativeGeminiCredential>("/api/v1/admin/ai-operations/configuration/credentials/gemini", fetcher);
 export const testCreativeGeminiCredential = (api_key?:string, label?:string, fetcher: Fetcher = fetch) => mutate<GeminiCredentialTestResult>("/api/v1/admin/ai-operations/configuration/credentials/gemini/test", "POST", api_key ? {api_key,label} : {}, fetcher);
 export const deleteCreativeGeminiCredential = (fetcher: Fetcher = fetch) => mutate<{ provider: "gemini"; deleted: boolean }>("/api/v1/admin/ai-operations/configuration/credentials/gemini", "DELETE", undefined, fetcher);
@@ -570,7 +570,7 @@ export const testManagedStorageRefreshToken = (refresh_token: string, fetcher: F
 export const saveManagedStorageRefreshToken = (refresh_token: string, fetcher: Fetcher = fetch) =>
   mutate<ManagedStorageCredentialCheck>("/api/auth/google/managed-storage/credential", "PUT", { refresh_token }, fetcher);
 
-export type GeminiBackupCredential = CreativeGeminiCredential & { provider: string; slot: number };
+export type GeminiBackupCredential = Omit<CreativeGeminiCredential, "provider"> & { provider: string; slot: number };
 export const listGeminiBackupCredentials = (fetcher: Fetcher = fetch) =>
   read<GeminiBackupCredential[]>("/api/v1/admin/ai-operations/configuration/credentials/gemini-backups", fetcher);
 export const testGeminiBackupCredential = (slot: number, api_key?: string, label?: string, fetcher: Fetcher = fetch) =>

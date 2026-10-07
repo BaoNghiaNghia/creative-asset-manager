@@ -45,7 +45,10 @@ class InventoryAiCredentialModel(Base):
     __tablename__ = "inventory_ai_credentials"
     __table_args__ = (
         UniqueConstraint("tenant_id", "provider", name="uq_inventory_ai_credentials_tenant_provider"),
-        CheckConstraint("provider = 'gemini'", name="ck_inventory_ai_credentials_provider"),
+        CheckConstraint(
+            "provider = 'gemini' OR provider LIKE 'gemini!_backup!_%' ESCAPE '!'",
+            name="ck_inventory_ai_credentials_provider",
+        ),
         CheckConstraint("status IN ('active','disabled')", name="ck_inventory_ai_credentials_status"),
         CheckConstraint("length(secret_fingerprint) = 64", name="ck_inventory_ai_credentials_fingerprint"),
         CheckConstraint("length(secret_last4) = 4", name="ck_inventory_ai_credentials_last4"),

@@ -184,3 +184,9 @@ globally disabled feature. Unavailable selections fail with the stable
 publicly selectable providers, allowlisted models, defaults, and supported
 modes. It never returns keys, provider headers, organization configuration, raw
 environment values, or internal exception messages.
+
+## Tenant Gemini credential pools
+
+Creative Image, Creative Video, and Inventory Gemini credentials are isolated workload pools. Primary and backup secrets are encrypted at rest, returned to clients only as masked metadata, and queried with explicit tenant predicates. Backup slot identifiers are positive integers and are no longer capped at ten; the list APIs return configured slots plus the next free slot instead of materializing a fixed slot range.
+
+Inventory backup credentials require the existing Inventory credential-management permission and never inherit Creative provider authority. Inventory request resolution rotates through active tenant-configured primary and backup keys; the deployment fallback key is used only when no active tenant Inventory credential exists. A configured credential that cannot be decrypted fails closed rather than falling back silently.

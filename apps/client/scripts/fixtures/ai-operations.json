@@ -6,7 +6,7 @@
     "active_tenant_id": "qa-tenant",
     "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
     "roles": ["processing_admin"],
-    "permissions": ["assets.read","ai_operations.read","ai_operations.manage"],
+    "permissions": ["assets.read","ai_operations.read","ai_operations.manage","inventory.read","inventory.credentials.manage"],
     "is_processing_admin": true,
     "authorization_source": "tenant_rbac",
     "application_auth_provider": "google",
@@ -101,6 +101,36 @@
     },
     {
       "method":"GET",
+      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini",
+      "body":{"provider":"gemini","configured":true,"source":"configuration","masked_key":"••••••••IMG1","label":"Image primary","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"}
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini-video",
+      "body":{"provider":"gemini_video","configured":true,"source":"configuration","masked_key":"••••••••VID1","label":"Video primary","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"}
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini-backups",
+      "body":[{"provider":"gemini_backup_1","slot":1,"configured":true,"source":"configuration","masked_key":"••••••••I001","label":"Image key 1","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_2","slot":2,"configured":true,"source":"configuration","masked_key":"••••••••I002","label":"Image key 2","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_3","slot":3,"configured":true,"source":"configuration","masked_key":"••••••••I003","label":"Image key 3","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_4","slot":4,"configured":true,"source":"configuration","masked_key":"••••••••I004","label":"Image key 4","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_5","slot":5,"configured":true,"source":"configuration","masked_key":"••••••••I005","label":"Image key 5","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_6","slot":6,"configured":true,"source":"configuration","masked_key":"••••••••I006","label":"Image key 6","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_7","slot":7,"configured":true,"source":"configuration","masked_key":"••••••••I007","label":"Image key 7","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_8","slot":8,"configured":true,"source":"configuration","masked_key":"••••••••I008","label":"Image key 8","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_9","slot":9,"configured":true,"source":"configuration","masked_key":"••••••••I009","label":"Image key 9","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_10","slot":10,"configured":true,"source":"configuration","masked_key":"••••••••I010","label":"Image key 10","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_11","slot":11,"configured":true,"source":"configuration","masked_key":"••••••••I011","label":"Image key 11","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_12","slot":12,"configured":true,"source":"configuration","masked_key":"••••••••I012","label":"Image key 12","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_13","slot":13,"configured":false,"source":"unavailable","masked_key":null,"label":null,"status":"unavailable","last_tested_at":null,"updated_at":null,"updated_by":null}]
+    },
+    {
+      "method":"GET",
+      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups",
+      "body":[{"provider":"gemini_video_backup_1","slot":1,"configured":true,"source":"configuration","masked_key":"••••••••V001","label":"Video key 1","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_2","slot":2,"configured":true,"source":"configuration","masked_key":"••••••••V002","label":"Video key 2","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_3","slot":3,"configured":true,"source":"configuration","masked_key":"••••••••V003","label":"Video key 3","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_4","slot":4,"configured":true,"source":"configuration","masked_key":"••••••••V004","label":"Video key 4","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_5","slot":5,"configured":false,"source":"unavailable","masked_key":null,"label":null,"status":"unavailable","last_tested_at":null,"updated_at":null,"updated_by":null}]
+    },
+    {
+      "method":"GET",
+      "path":"/api/inventory/configuration/ai-credential",
+      "body":{"provider":"gemini","configured":true,"source":"configuration","masked_key":"••••••••INV1","label":"Inventory primary","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"}
+    },
+    {
+      "method":"GET",
+      "path":"/api/inventory/configuration/ai-credential-backups",
+      "body":[{"provider":"gemini_backup_1","slot":1,"configured":true,"source":"configuration","masked_key":"••••••••N001","label":"Inventory key 1","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_2","slot":2,"configured":true,"source":"configuration","masked_key":"••••••••N002","label":"Inventory key 2","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_3","slot":3,"configured":true,"source":"configuration","masked_key":"••••••••N003","label":"Inventory key 3","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_4","slot":4,"configured":true,"source":"configuration","masked_key":"••••••••N004","label":"Inventory key 4","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_5","slot":5,"configured":true,"source":"configuration","masked_key":"••••••••N005","label":"Inventory key 5","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_6","slot":6,"configured":true,"source":"configuration","masked_key":"••••••••N006","label":"Inventory key 6","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_7","slot":7,"configured":true,"source":"configuration","masked_key":"••••••••N007","label":"Inventory key 7","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_8","slot":8,"configured":true,"source":"configuration","masked_key":"••••••••N008","label":"Inventory key 8","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_9","slot":9,"configured":true,"source":"configuration","masked_key":"••••••••N009","label":"Inventory key 9","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_10","slot":10,"configured":true,"source":"configuration","masked_key":"••••••••N010","label":"Inventory key 10","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_11","slot":11,"configured":true,"source":"configuration","masked_key":"••••••••N011","label":"Inventory key 11","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_12","slot":12,"configured":false,"source":"unavailable","masked_key":null,"label":null,"status":"unavailable","health_status":"NOT_TESTED","last_test_status":null,"last_tested_at":null,"updated_at":null,"updated_by":null}]
+    },
+    {
+      "method":"GET",
       "path":"/api/v1/admin/ai-operations/configuration",
       "body":{
         "tenant_id":"qa-tenant",
@@ -136,7 +166,10 @@
           "batch_enabled":true,
           "emergency_stop":false
         },
-        "providers":[],
+        "providers":[
+          {"id":"gemini","label":"Google Gemini","enabled":true,"connection_configured":true,"processing_enabled":true,"paused":false,"single_enabled":true,"batch_enabled":false,"default_model":"gemini-fixture","allowed_models":["gemini-fixture","gemini-2.5-flash-lite","gemini-2.5-flash"],"active_jobs_limit":8,"single_concurrency":4,"batch_concurrency":1,"last_error":null},
+          {"id":"openai","label":"OpenAI","enabled":false,"connection_configured":false,"processing_enabled":false,"paused":false,"single_enabled":false,"batch_enabled":false,"default_model":null,"allowed_models":[],"active_jobs_limit":1,"single_concurrency":1,"batch_concurrency":1,"last_error":null}
+        ],
         "metadata_profiles":["default"],
         "metadata_prompt_template":null,
         "video_prompt_template":null,

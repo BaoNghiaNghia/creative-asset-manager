@@ -263,7 +263,10 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
         {provider.id === "gemini" && <section className="ops-provider-gemini-credentials" aria-label="Google Gemini credential settings">
           <div className="ops-provider-gemini-credentials-grid">
             <div className="gemini-creative-key-pool"><CreativeGeminiCredentialSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded /><GeminiBackupPoolSettings canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded /></div>
-            <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
+            <div className="gemini-creative-key-pool gemini-inventory-key-pool">
+              <InventoryGeminiCredentialSettings canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
+              <GeminiBackupPoolSettings kind="inventory" canManage={inventoryPermissions.includes("inventory.credentials.manage")} embedded />
+            </div>
             <div className="gemini-creative-key-pool">
               <CreativeGeminiCredentialSettings kind="video" canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />
               <GeminiBackupPoolSettings kind="video" canManage={configuration.permissions.can_configure_provider ?? configuration.permissions.can_manage_tenant} embedded />

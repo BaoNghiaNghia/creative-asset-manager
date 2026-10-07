@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
+from threading import Lock
 from typing import Callable
 from datetime import datetime, timezone
 from sqlalchemy import select
@@ -12,6 +13,27 @@ from app.modules.inventory.persistence_model import (
     InventoryAiCredentialModel,
 )
 class InventoryCredentialError(RuntimeError): pass
+
+def inventory_backup_provider(slot: int) -> str:
+    if slot < 1:
+        raise ValueError("inventory_gemini_backup_slot_invalid")
+    return f"gemini_backup_{slot}"
+
+
+def inventory_backup_slot(provider: str) -> int | None:
+    prefix = "gemini_backup_"
+    if not provider.startswith(prefix):
+        return None
+    suffix = provider[len(prefix):]
+    if not suffix.isdigit():
+        return None
+    slot = int(suffix)
+    return slot if slot >= 1 else None
+
+
+def is_inventory_gemini_provider(provider: str) -> bool:
+    return provider == "gemini" or inventory_backup_slot(provider) is not None
+
 def inventory_credential_cipher(settings: Settings) -> TokenCipher:
     value=settings.INVENTORY_CREDENTIAL_ENCRYPTION_KEY.strip()
     if not value: raise InventoryCredentialError("inventory_credential_encryption_unavailable")
@@ -29,6 +51,23 @@ class InventoryAiCredentialRepository:
         return InventoryCredentialMetadata(row.id,row.tenant_id,row.provider,row.secret_fingerprint,row.secret_last4,row.label,row.status,row.last_tested_at,row.last_test_status,row.created_at,row.updated_at,row.updated_by)
     def get_metadata(self,tenant_id:str,provider:str="gemini"):
         row=self.session.scalar(select(InventoryAiCredentialModel).where(InventoryAiCredentialModel.tenant_id==tenant_id,InventoryAiCredentialModel.provider==provider)); return self._metadata(row) if row else None
+    def list_backup_metadata(self,tenant_id:str):
+        rows=self.session.scalars(select(InventoryAiCredentialModel).where(
+            InventoryAiCredentialModel.tenant_id==tenant_id,
+            InventoryAiCredentialModel.provider.like("gemini_backup_%"),
+        )).all()
+        valid=[row for row in rows if inventory_backup_slot(row.provider) is not None]
+        valid.sort(key=lambda row: inventory_backup_slot(row.provider) or 0)
+        return [self._metadata(row) for row in valid]
+    def list_active_providers(self,tenant_id:str)->tuple[str,...]:
+        providers=[]
+        primary=self.get_metadata(tenant_id)
+        if primary is not None and primary.status=="active": providers.append("gemini")
+        providers.extend(
+            item.provider for item in self.list_backup_metadata(tenant_id)
+            if item.status=="active"
+        )
+        return tuple(providers)
     def get_active_secret(self,tenant_id:str,provider:str="gemini"):
         row=self.session.scalar(select(InventoryAiCredentialModel).where(InventoryAiCredentialModel.tenant_id==tenant_id,InventoryAiCredentialModel.provider==provider,InventoryAiCredentialModel.status=="active"))
         if not row:return None
@@ -38,7 +77,7 @@ class InventoryAiCredentialRepository:
         if not secret: raise InventoryCredentialError("inventory_ai_credential_decryption_failed")
         return secret
     def replace(self,tenant_id:str,*,provider:str="gemini",secret:str,label:str|None=None,updated_by:str|None=None,last_test_status:str|None=None):
-        if provider!="gemini":raise ValueError("inventory_ai_provider_unsupported")
+        if not is_inventory_gemini_provider(provider):raise ValueError("inventory_ai_provider_unsupported")
         if not secret or secret.strip()!=secret or len(secret)>512:raise ValueError("inventory_ai_credential_invalid")
         if label is not None and len(label.strip())>255:raise ValueError("inventory_ai_credential_label_invalid")
         if self.cipher is None: raise InventoryCredentialError("inventory_credential_encryption_unavailable")
@@ -71,25 +110,31 @@ class InventoryAiCredentialRepository:
 
 
 class InventoryGeminiCredentialResolver:
-    """Resolves a current tenant credential for each Inventory Gemini request."""
+    """Resolves and rotates tenant Inventory Gemini credentials."""
 
     def __init__(self, session_factory: Callable[[], Session], settings: Settings):
         self.session_factory = session_factory
         self.settings = settings
+        self._rotation_lock = Lock()
+        self._next_index_by_tenant: dict[str, int] = {}
 
     def resolve(self, tenant_id: str) -> str:
-        # Determine override existence before constructing the cipher. A broken
-        # configured override is never silently bypassed with an env key.
+        # Any configured Inventory credential takes precedence over the
+        # deployment fallback. Broken configured credentials fail closed.
         with self.session_factory() as session:
-            override = session.scalar(select(InventoryAiCredentialModel).where(
-                InventoryAiCredentialModel.tenant_id == tenant_id,
-                InventoryAiCredentialModel.provider == "gemini",
-                InventoryAiCredentialModel.status == "active",
-            ))
-        if override is not None:
+            providers = InventoryAiCredentialRepository(
+                session, None
+            ).list_active_providers(tenant_id)
+        if providers:
+            with self._rotation_lock:
+                index = self._next_index_by_tenant.get(tenant_id, 0) % len(providers)
+                self._next_index_by_tenant[tenant_id] = index + 1
+            provider = providers[index]
             cipher = inventory_credential_cipher(self.settings)
             with self.session_factory() as session:
-                secret = InventoryAiCredentialRepository(session, cipher).get_active_secret(tenant_id)
+                secret = InventoryAiCredentialRepository(
+                    session, cipher
+                ).get_active_secret(tenant_id, provider=provider)
             if secret is None:
                 raise InventoryCredentialError("inventory_ai_credential_decryption_failed")
             return secret

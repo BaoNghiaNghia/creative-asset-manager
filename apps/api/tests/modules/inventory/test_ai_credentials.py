@@ -107,6 +107,28 @@ class InventoryAiCredentialRepositoryTest(unittest.TestCase):
         with self.assertRaisesRegex(InventoryCredentialError, "credential_unavailable"):
             missing.resolve("tenant-b")
 
+    def test_dynamic_backup_pool_rotates_primary_and_slots_above_ten(self):
+        backup_1 = "AIzaSyInventoryBackupOne000000000000000000000"
+        backup_11 = "AIzaSyInventoryBackupEleven000000000000000000"
+        with self.sessions() as session:
+            repo = self.repo(session)
+            repo.replace("tenant-a", secret=SECRET)
+            repo.replace("tenant-a", provider="gemini_backup_1", secret=backup_1)
+            repo.replace("tenant-a", provider="gemini_backup_11", secret=backup_11)
+            session.commit()
+            metadata = repo.list_backup_metadata("tenant-a")
+            self.assertEqual([item.provider for item in metadata], ["gemini_backup_1", "gemini_backup_11"])
+            self.assertNotIn(backup_11, session.scalar(
+                select(InventoryAiCredentialModel.encrypted_secret).where(
+                    InventoryAiCredentialModel.provider == "gemini_backup_11"
+                )
+            ))
+        resolver = InventoryGeminiCredentialResolver(self.sessions, self.settings)
+        self.assertEqual(
+            [resolver.resolve("tenant-a") for _ in range(4)],
+            [SECRET, backup_1, backup_11, SECRET],
+        )
+
     def test_gateway_uses_current_tenant_key_without_drive_identity_coupling(self):
         with self.sessions() as session:
             self.repo(session).replace("tenant-a", secret=SECRET)

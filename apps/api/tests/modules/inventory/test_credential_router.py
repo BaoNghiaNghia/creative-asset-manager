@@ -274,5 +274,62 @@ class InventoryCredentialRouterTest(unittest.TestCase):
         self.assertNotIn(NEW_KEY, response.text)
 
 
+    def test_inventory_backup_pool_accepts_slots_above_ten_and_keeps_secrets_masked(self):
+        with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="VALID"):
+            saved = self.request(
+                self.manage,
+                "PUT",
+                "/api/inventory/configuration/ai-credential-backups/11",
+                json={"api_key": NEW_KEY, "label": "Inventory backup 11"},
+            )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["provider"], "gemini_backup_11")
+        self.assertEqual(saved.json()["slot"], 11)
+        self.assertNotIn(NEW_KEY, saved.text)
+
+        listed = self.request(
+            self.read, "GET", "/api/inventory/configuration/ai-credential-backups"
+        )
+        self.assertEqual(listed.status_code, 200)
+        by_slot = {item["slot"]: item for item in listed.json()}
+        self.assertTrue(by_slot[11]["configured"])
+        self.assertTrue(by_slot[11]["masked_key"].endswith(NEW_KEY[-4:]))
+        self.assertFalse(by_slot[1]["configured"])
+        self.assertNotIn(NEW_KEY, listed.text)
+
+        with patch("app.modules.inventory.router.validate_gemini_candidate", return_value="VALID"):
+            tested = self.request(
+                self.manage,
+                "POST",
+                "/api/inventory/configuration/ai-credential-backups/11/test",
+                json={},
+            )
+        self.assertEqual(tested.status_code, 200)
+        self.assertEqual(tested.json()["status"], "VALID")
+
+        denied = self.request(
+            self.read,
+            "PUT",
+            "/api/inventory/configuration/ai-credential-backups/12",
+            json={"api_key": NEW_KEY},
+        )
+        self.assertEqual(denied.status_code, 403)
+        invalid = self.request(
+            self.manage,
+            "DELETE",
+            "/api/inventory/configuration/ai-credential-backups/0",
+        )
+        self.assertEqual(invalid.status_code, 422)
+
+        removed = self.request(
+            self.manage,
+            "DELETE",
+            "/api/inventory/configuration/ai-credential-backups/11",
+        )
+        self.assertEqual(removed.status_code, 200)
+        self.assertTrue(removed.json()["deleted"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

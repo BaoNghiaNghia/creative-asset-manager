@@ -80,18 +80,28 @@ class CreativeCredentialRouterTest(unittest.TestCase):
   self.assertEqual(response.status_code,503); self.assertEqual(response.json()["detail"]["code"],"creative_credential_encryption_unavailable"); self.assertNotIn(NEW,response.text)
 
 
- def test_video_backup_pool_crud_is_tenant_scoped_and_masked(self):
+ def test_video_backup_pool_crud_is_tenant_scoped_masked_and_not_capped_at_ten(self):
   with patch.object(control_router,"validate_gemini_api_key",return_value="VALID"):
-   saved=self.request(self.pmanage,"PUT","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/3",json={"api_key":NEW,"label":"Video backup 3"})
-  self.assertEqual(saved.status_code,200); self.assertEqual(saved.json()["provider"],"gemini_video_backup_3"); self.assertNotIn(NEW,saved.text)
+   saved=self.request(self.pmanage,"PUT","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/11",json={"api_key":NEW,"label":"Video backup 11"})
+  self.assertEqual(saved.status_code,200); self.assertEqual(saved.json()["provider"],"gemini_video_backup_11"); self.assertNotIn(NEW,saved.text)
   listed=self.request(self.pread,"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups")
-  self.assertEqual(listed.status_code,200); self.assertEqual(len(listed.json()),10)
-  self.assertTrue(listed.json()[2]["configured"]); self.assertTrue(listed.json()[2]["masked_key"].endswith("2222"))
-  self.assertFalse(listed.json()[0]["configured"])
+  self.assertEqual(listed.status_code,200)
+  by_slot={item["slot"]:item for item in listed.json()}
+  self.assertTrue(by_slot[11]["configured"]); self.assertTrue(by_slot[11]["masked_key"].endswith("2222"))
+  self.assertFalse(by_slot[1]["configured"])
   with patch.object(control_router,"probe_gemini_api_key",return_value=GeminiApiKeyProbe("VALID",200)):
-   tested=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/3/test",json={})
+   tested=self.request(self.pmanage,"POST","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/11/test",json={})
   self.assertEqual(tested.json()["status"],"VALID")
-  removed=self.request(self.pmanage,"DELETE","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/3")
+  removed=self.request(self.pmanage,"DELETE","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/11")
   self.assertEqual(removed.status_code,200); self.assertTrue(removed.json()["deleted"])
+  self.assertEqual(self.request(self.pmanage,"PUT","/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups/0",json={"api_key":NEW}).status_code,422)
   with self.sessions() as s:
-   self.assertIsNone(CreativeAiCredentialRepository(s,None).get_metadata("tenant-a",provider="gemini_video_backup_3"))
+   self.assertIsNone(CreativeAiCredentialRepository(s,None).get_metadata("tenant-a",provider="gemini_video_backup_11"))
+
+ def test_image_backup_pool_accepts_slots_above_ten(self):
+  with patch.object(control_router,"validate_gemini_api_key",return_value="VALID"):
+   saved=self.request(self.pmanage,"PUT","/api/v1/admin/ai-operations/configuration/credentials/gemini-backups/12",json={"api_key":NEW,"label":"Image backup 12"})
+  self.assertEqual(saved.status_code,200); self.assertEqual(saved.json()["slot"],12); self.assertNotIn(NEW,saved.text)
+  listed=self.request(self.pread,"GET","/api/v1/admin/ai-operations/configuration/credentials/gemini-backups")
+  by_slot={item["slot"]:item for item in listed.json()}
+  self.assertTrue(by_slot[12]["configured"]); self.assertFalse(by_slot[1]["configured"])
