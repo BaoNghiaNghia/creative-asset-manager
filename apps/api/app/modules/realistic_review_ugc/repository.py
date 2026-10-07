@@ -1110,6 +1110,32 @@ class RrugcRepository:
             )
         )
 
+    def expired_scout_lease_campaigns(
+        self,
+        tenant_id: str,
+        *,
+        now,
+        limit: int = 100,
+    ) -> list[RrugcCampaignModel]:
+        return list(
+            self.session.scalars(
+                select(RrugcCampaignModel)
+                .where(
+                    RrugcCampaignModel.tenant_id == tenant_id,
+                    RrugcCampaignModel.scan_lease_run_id.is_not(None),
+                    RrugcCampaignModel.scan_lease_expires_at.is_not(None),
+                    RrugcCampaignModel.scan_lease_expires_at <= now,
+                )
+                .order_by(
+                    RrugcCampaignModel.scan_lease_expires_at.asc(),
+                    RrugcCampaignModel.updated_at.asc(),
+                    RrugcCampaignModel.id.asc(),
+                )
+                .limit(max(1, int(limit)))
+                .with_for_update(skip_locked=True)
+            )
+        )
+
     def candidate_keyword_outcomes(
         self,
         tenant_id: str,

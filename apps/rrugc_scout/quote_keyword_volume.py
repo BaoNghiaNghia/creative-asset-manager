@@ -251,23 +251,60 @@ _KEYWORD_HAT_METADATA_TERMS = (
 _KEYWORD_NON_HAT_PRODUCT_TERMS = (
     "t-shirt",
     "tshirt",
+    "tee shirt",
     "shirt",
     "hoodie",
     "sweatshirt",
+    "sweater",
+    "jacket",
+    "dress",
+    "skirt",
+    "pants",
+    "shorts",
+    "onesie",
+    "bodysuit",
     "mug",
     "tumbler",
+    "cup",
+    "water bottle",
     "bag",
     "tote",
+    "backpack",
+    "purse",
     "poster",
+    "wall art",
+    "wall decor",
+    "canvas print",
     "sticker",
+    "decal",
+    "magnet",
     "shoe",
     "sneaker",
+    "slipper",
     "phone case",
+    "pillow",
+    "blanket",
+    "sign",
+    "ornament",
+    "necklace",
+    "bracelet",
+    "earring",
+)
+_KEYWORD_DIGITAL_PRODUCT_TERMS = (
+    "digital download",
+    "instant download",
+    "printable",
+    "svg file",
+    "png file",
+    "clipart",
+    "template",
+    "cut file",
+    "sublimation design",
 )
 
 
-def _keyword_metadata_prefilter_reason(candidate: Candidate) -> str | None:
-    text = " ".join(
+def _keyword_metadata_text(candidate: Candidate) -> str:
+    return " ".join(
         value
         for value in (
             str(candidate.alt_text or "").strip(),
@@ -275,6 +312,10 @@ def _keyword_metadata_prefilter_reason(candidate: Candidate) -> str | None:
         )
         if value
     ).casefold()
+
+
+def _keyword_metadata_prefilter_reason(candidate: Candidate) -> str | None:
+    text = _keyword_metadata_text(candidate)
     if not text:
         return None
     has_hat = any(term in text for term in _KEYWORD_HAT_METADATA_TERMS)
@@ -283,6 +324,9 @@ def _keyword_metadata_prefilter_reason(candidate: Candidate) -> str | None:
     for term in _KEYWORD_NON_HAT_PRODUCT_TERMS:
         if term in text:
             return "explicit_non_hat_product:" + term
+    for term in _KEYWORD_DIGITAL_PRODUCT_TERMS:
+        if term in text:
+            return "explicit_digital_product:" + term
     return None
 
 

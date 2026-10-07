@@ -1275,6 +1275,54 @@ class RrugcAutoScoutService:
             "duration_ms": duration_ms,
         }
 
+    def _reconcile_expired_scout_leases(
+        self,
+        tenant_id: str,
+        *,
+        now: datetime,
+    ) -> int:
+        reconciled = 0
+        campaigns = self.repository.expired_scout_lease_campaigns(
+            tenant_id,
+            now=now,
+        )
+        for campaign in campaigns:
+            stale_run_id = campaign.scan_lease_run_id
+            stale_run = (
+                self.repository.lock_scout_run(tenant_id, stale_run_id)
+                if stale_run_id
+                else None
+            )
+            if stale_run is not None and stale_run.status in {"claimed", "running"}:
+                stale_run.status = "cancelled"
+                stale_run.last_error_code = "scout_lease_expired"
+                stale_run.completed_at = now
+                stale_run.last_heartbeat_at = now
+
+            campaign.scan_lease_agent_id = None
+            campaign.scan_lease_run_id = None
+            campaign.scan_lease_expires_at = None
+            campaign.scan_last_completed_at = now
+            campaign.scan_last_error_code = "scout_lease_expired"
+            if campaign.status == "running" and campaign.auto_scout:
+                campaign.scout_status = "ready"
+                if campaign.scan_next_at is None or _as_utc(campaign.scan_next_at) > now:
+                    campaign.scan_next_at = now
+            else:
+                campaign.scan_next_at = None
+            reconciled += 1
+
+        if reconciled:
+            self.session.flush()
+            _LOGGER.info(
+                "rrugc_scout_expired_leases_reconciled",
+                extra={
+                    "tenant_id": tenant_id,
+                    "reconciled_count": reconciled,
+                },
+            )
+        return reconciled
+
     def claim(
         self,
         *,
@@ -1292,6 +1340,7 @@ class RrugcAutoScoutService:
         now = datetime.now(timezone.utc)
         agent.last_seen_at = now
         agent.status = "ready"
+        self._reconcile_expired_scout_leases(agent.tenant_id, now=now)
         agent.client_version = (client_version or "").strip()[:64] or agent.client_version
         agent.machine_label = (machine_label or "").strip()[:160] or agent.machine_label
         agent.last_error_code = None

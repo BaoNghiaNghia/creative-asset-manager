@@ -2382,6 +2382,48 @@ def test_stage2_job_uses_up_to_three_drive_ready_pinterest_refs(database, monkey
         assert expired_processing.status == "pending"
 
 
+def test_auto_scout_claim_reconciles_expired_lease_even_when_campaign_not_claimable(database):
+    with database() as session:
+        campaign, _legacy_token = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Expired lease cleanup",
+            query="candid cap photo",
+            target_count=50,
+            max_scroll_batches=2,
+            auto_import=False,
+            auto_scout=True,
+            scan_interval_seconds=180,
+        )
+        service = RrugcAutoScoutService(session)
+        agent, token = service.create_agent(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Lease Cleanup Scout",
+        )
+
+        first = service.claim(agent_id=agent.id, raw_token=token)
+        assert first is not None
+        assert campaign.scan_lease_run_id == first.run.id
+
+        campaign.auto_scout = False
+        campaign.scan_lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        session.commit()
+
+        assert service.claim(agent_id=agent.id, raw_token=token) is None
+
+        session.refresh(campaign)
+        session.refresh(first.run)
+        assert first.run.status == "cancelled"
+        assert first.run.last_error_code == "scout_lease_expired"
+        assert first.run.completed_at is not None
+        assert campaign.scan_lease_agent_id is None
+        assert campaign.scan_lease_run_id is None
+        assert campaign.scan_lease_expires_at is None
+        assert campaign.scan_last_error_code == "scout_lease_expired"
+        assert campaign.scan_next_at is None
+
+
 def test_auto_scout_empty_runs_back_off_moderately(database, monkeypatch):
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.scout_automation.random.uniform",

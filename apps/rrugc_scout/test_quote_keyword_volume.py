@@ -266,6 +266,31 @@ def test_keyword_metadata_prefilter_only_rejects_explicit_non_hat_products():
     ) is None
 
 
+def test_keyword_metadata_prefilter_rejects_more_explicit_non_hat_and_digital_products():
+    assert keyword_scout._keyword_metadata_prefilter_reason(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/tumbler/",
+            "https://i.pinimg.com/736x/tumbler.jpg",
+            alt_text="funny quote insulated water bottle gift",
+        )
+    ) == "explicit_non_hat_product:water bottle"
+    assert keyword_scout._keyword_metadata_prefilter_reason(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/svg/",
+            "https://i.pinimg.com/736x/svg.jpg",
+            context_text="western saying SVG file instant download",
+        )
+    ) == "explicit_digital_product:instant download"
+    assert keyword_scout._keyword_metadata_prefilter_reason(
+        keyword_scout.Candidate(
+            "https://www.pinterest.com/pin/hat-with-shirt-context/",
+            "https://i.pinimg.com/736x/hat.jpg",
+            alt_text="embroidered trucker hat",
+            context_text="styled with a graphic shirt",
+        )
+    ) is None
+
+
 def test_deep_dive_prefers_market_before_style_only_and_caps_depth():
     style = keyword_scout.KeywordCandidateResult(
         priority_score=0.99,
