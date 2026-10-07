@@ -521,6 +521,96 @@ def test_keyword_gemini_backpressure_stops_cycle_without_losing_pin(tmp_path):
     assert len(requests) == 1
 
 
+def test_keyword_capacity_preflight_pauses_before_pinterest_work():
+    requests: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "analysis_backpressure": {
+                    "active": True,
+                    "pending_jobs": 245,
+                    "oldest_wait_seconds": 1800,
+                }
+            },
+        )
+
+    async def scenario():
+        client = QuoteScoutClient("https://cam.example", "agent-1", "unit-test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            with pytest.raises(keyword_scout.KeywordScoutCapacityPaused) as exc:
+                await client.ensure_analysis_capacity()
+            assert exc.value.retry_seconds == (
+                keyword_scout.KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS
+            )
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+    assert requests == [
+        "/api/v1/realistic-review-ugc/scout-agents/agent-1/diagnostics"
+    ]
+
+
+def test_keyword_capacity_preflight_is_fail_open_for_transient_diagnostics_errors():
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(502, json={"detail": "temporary proxy error"})
+
+    async def scenario():
+        client = QuoteScoutClient("https://cam.example", "agent-1", "unit-test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.ensure_analysis_capacity()
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+    assert calls == 1
+
+
+def test_keyword_capacity_preflight_allows_work_when_pressure_is_clear():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "analysis_backpressure": {
+                    "active": False,
+                    "pending_jobs": 12,
+                    "oldest_wait_seconds": 90,
+                }
+            },
+        )
+
+    async def scenario():
+        client = QuoteScoutClient("https://cam.example", "agent-1", "unit-test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.ensure_analysis_capacity()
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+
+
 def test_keyword_volume_request_includes_pinterest_source(monkeypatch):
     captured = {}
 

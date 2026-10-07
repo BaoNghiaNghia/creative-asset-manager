@@ -168,3 +168,4 @@
 - [ ] Follow-up operational verification: restart Review + Keyword CMD launchers on every Windows Scout machine; confirm both report v41 and no new 422 in server logs.
 - [x] RRUGC-STAGE0-FAVORITES-TAILS: persist independent Favorites next to Pick/Used; add favorite-only and server-side Short-tail (2 words), Mid-tail (3–4 words), and Long-tail (5+ words) filters with correct total/pagination; add Alembic 0137 and tenant-scoped API regression tests.
 - [x] RRUGC-STAGE0-SEARCH-ASSIST: remove the page-only volume segmented filter; provide tenant-scoped keyword autocomplete/suggestions and account+tenant-isolated browser search history with keyboard navigation, recent removal and clear-history controls.
+- [x] RRUGC-SCOUT-V42: reduce Review empty-claim polling during Gemini backpressure; preflight Keyword capacity before Pinterest detail expansion; commit root/deep expansion history only after child processing succeeds so capacity pauses remain retry-safe.

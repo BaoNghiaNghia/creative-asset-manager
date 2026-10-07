@@ -84,6 +84,7 @@ CAM_QUOTE_REQUEST_TIMEOUT_SECONDS = 90.0
 BROWSER_FALLBACK_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 KEYWORD_QUOTE_MIN_PRIORITY_SCORE = 0.60
 KEYWORD_QUOTE_HIGH_PRIORITY_SCORE = 0.85
+KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS = 180
 
 
 def _keywords_from_file(path: str | None) -> list[str]:
@@ -571,6 +572,60 @@ class QuoteScoutClient:
 
     async def close(self) -> None:
         await self.client.aclose()
+
+    async def ensure_analysis_capacity(self) -> None:
+        """Avoid expensive Pinterest detail work when CAM already reports AI pressure."""
+        started = time.monotonic()
+        path = (
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/diagnostics"
+        )
+        try:
+            response = await self.client.get(
+                path,
+                headers={"X-Scout-Version": CLIENT_VERSION},
+                timeout=httpx.Timeout(12.0, connect=5.0),
+            )
+            if response.status_code in {401, 403}:
+                response.raise_for_status()
+            if response.status_code >= 400:
+                scout_debug_event(
+                    "keyword_scout_capacity_preflight_warning",
+                    status_code=response.status_code,
+                    duration_ms=round((time.monotonic() - started) * 1000),
+                    action="fail_open_to_quote_endpoint",
+                )
+                return
+            payload = response.json()
+        except httpx.HTTPStatusError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            scout_debug_event(
+                "keyword_scout_capacity_preflight_warning",
+                error_type=exc.__class__.__name__,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                action="fail_open_to_quote_endpoint",
+            )
+            return
+
+        pressure = (
+            payload.get("analysis_backpressure")
+            if isinstance(payload, dict)
+            else None
+        )
+        active = isinstance(pressure, dict) and pressure.get("active") is True
+        if active:
+            pending_jobs = int(pressure.get("pending_jobs") or 0)
+            oldest_wait_seconds = int(pressure.get("oldest_wait_seconds") or 0)
+            scout_debug_event(
+                "keyword_scout_capacity_preflight_paused",
+                pending_jobs=pending_jobs,
+                oldest_wait_seconds=oldest_wait_seconds,
+                retry_seconds=KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS,
+                duration_ms=round((time.monotonic() - started) * 1000),
+            )
+            raise KeywordScoutCapacityPaused(
+                KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS
+            )
 
     async def _post(
         self,
@@ -1421,6 +1476,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 + quote_plus(args.seed_query)
             )
             try:
+                await client.ensure_analysis_capacity()
                 if page is None:
                     await open_browser_runtime()
                 response = await page.goto(
@@ -1634,16 +1690,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 args.related_per_pin <= 0
                                 or len(related_rows) > 0
                             )
-                            if expansion_complete:
-                                history.remember_expanded_pin(candidate.pin_url)
-                                scout_debug_event(
-                                    "keyword_scout_root_expanded",
-                                    root_pin_url=candidate.pin_url,
-                                    scanned=len(related_rows),
-                                    fresh=len(fresh_related),
-                                    resolved=len(valid_resolved_related),
-                                )
-                            else:
+                            if not expansion_complete:
                                 scout_debug_event(
                                     "keyword_scout_root_expansion_incomplete",
                                     root_pin_url=candidate.pin_url,
@@ -1768,6 +1815,16 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     random.randint(*pace.submit_pause_ms)
                                 )
 
+                            if expansion_complete:
+                                history.remember_expanded_pin(candidate.pin_url)
+                                scout_debug_event(
+                                    "keyword_scout_root_expanded",
+                                    root_pin_url=candidate.pin_url,
+                                    scanned=len(related_rows),
+                                    fresh=len(fresh_related),
+                                    resolved=len(valid_resolved_related),
+                                )
+
                             # Deep-dive has a reserved budget separate from root
                             # discovery. Previously root scanning could consume the
                             # complete max_pins_per_cycle budget, leaving every queued
@@ -1872,12 +1929,6 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     args.deep_dive_related_per_pin <= 0
                                     or len(deep_rows) > 0
                                 )
-                                if deep_complete:
-                                    history.remember_deep_expanded_pin(
-                                        seed.candidate.pin_url
-                                    )
-                                    deep_detail_expanded += 1
-
                                 scout_debug_event(
                                     "keyword_scout_deep_dive_scanned",
                                     pin_url=seed.candidate.pin_url,
@@ -2007,6 +2058,19 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                         )
                                     await page.wait_for_timeout(
                                         random.randint(*pace.submit_pause_ms)
+                                    )
+
+                                if deep_complete:
+                                    history.remember_deep_expanded_pin(
+                                        seed.candidate.pin_url
+                                    )
+                                    deep_detail_expanded += 1
+                                    scout_debug_event(
+                                        "keyword_scout_deep_dive_completed",
+                                        pin_url=seed.candidate.pin_url,
+                                        root_pin_url=seed.root_pin_url,
+                                        depth=seed.depth,
+                                        resolved=len(valid_deep),
                                     )
 
                         search_to_front = getattr(page, "bring_to_front", None)

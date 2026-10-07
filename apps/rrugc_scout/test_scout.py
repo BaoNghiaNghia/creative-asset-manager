@@ -26,6 +26,7 @@ from scout import (
     extract_visible_pin_candidates,
     merge_pin_link_candidates,
     idle_diagnostic_message,
+    review_idle_poll_delay_seconds,
     keyword_candidate_budgets,
     normalize_candidates,
     paced_scroll,
@@ -1905,6 +1906,16 @@ def test_scout_debug_log_rejects_unsafe_filename(tmp_path):
             filename="../outside.log",
             scout_type="keyword",
         )
+
+
+def test_review_idle_poll_delay_backs_off_only_for_analysis_pressure():
+    assert review_idle_poll_delay_seconds(None, 5) == 5
+    assert review_idle_poll_delay_seconds({"analysis_backpressure": {"active": False}}, 5) == 5
+    assert review_idle_poll_delay_seconds({"analysis_backpressure": {"active": True}}, 5) == 30
+    assert review_idle_poll_delay_seconds({
+        "campaigns": [{"reason": "analysis_backpressure"}],
+    }, 5) == 30
+    assert review_idle_poll_delay_seconds({"analysis_backpressure": {"active": True}}, 45) == 45
 
 
 def test_idle_diagnostic_message_explains_source_plan_wait():

@@ -26,8 +26,9 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v41"
+CLIENT_VERSION = "rrugc-scout-v42"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
+REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
 SCOUT_MAX_AUTOMATIC_RESTARTS = 3
@@ -3524,6 +3525,26 @@ def idle_diagnostic_message(payload: dict[str, Any]) -> str:
     return message
 
 
+def review_idle_poll_delay_seconds(
+    diagnostics: dict[str, Any] | None,
+    default_seconds: float,
+) -> float:
+    """Reduce empty claim traffic while the shared analysis lane is saturated."""
+    base = max(2.0, float(default_seconds))
+    if not isinstance(diagnostics, dict):
+        return base
+    pressure = diagnostics.get("analysis_backpressure")
+    if isinstance(pressure, dict) and pressure.get("active") is True:
+        return max(base, float(REVIEW_BACKPRESSURE_POLL_SECONDS))
+    campaigns = diagnostics.get("campaigns")
+    if isinstance(campaigns, list) and any(
+        isinstance(row, dict) and row.get("reason") == "analysis_backpressure"
+        for row in campaigns
+    ):
+        return max(base, float(REVIEW_BACKPRESSURE_POLL_SECONDS))
+    return base
+
+
 async def run_agent(args: argparse.Namespace) -> None:
     profile_dir = Path(args.profile_dir).expanduser().resolve()
     log_path = configure_scout_debug_log(profile_dir, scout_type="review")
@@ -3566,6 +3587,7 @@ async def run_agent(args: argparse.Namespace) -> None:
     )
     idle_failures = 0
     last_idle_diagnostic_at = 0.0
+    idle_poll_delay_seconds = max(2.0, float(args.poll_interval_seconds))
 
     async def open_browser_runtime() -> tuple[Any, Any, Any, Any]:
         next_playwright, next_context = await launch_context(args)
@@ -3693,7 +3715,23 @@ async def run_agent(args: argparse.Namespace) -> None:
                         >= IDLE_DIAGNOSTIC_INTERVAL_SECONDS
                     ):
                         try:
-                            print(idle_diagnostic_message(await client.diagnostics()))
+                            diagnostics = await client.diagnostics()
+                            print(idle_diagnostic_message(diagnostics))
+                            next_delay = review_idle_poll_delay_seconds(
+                                diagnostics,
+                                args.poll_interval_seconds,
+                            )
+                            if next_delay != idle_poll_delay_seconds:
+                                scout_debug_event(
+                                    "review_idle_poll_interval_changed",
+                                    previous_seconds=idle_poll_delay_seconds,
+                                    next_seconds=next_delay,
+                                    analysis_backpressure=bool(
+                                        isinstance(diagnostics.get("analysis_backpressure"), dict)
+                                        and diagnostics["analysis_backpressure"].get("active") is True
+                                    ),
+                                )
+                            idle_poll_delay_seconds = next_delay
                         except Exception as exc:
                             scout_debug_event(
                                 "idle_diagnostics_failed",
@@ -3704,8 +3742,16 @@ async def run_agent(args: argparse.Namespace) -> None:
                                 + exc.__class__.__name__
                             )
                         last_idle_diagnostic_at = now
-                    await asyncio.sleep(args.poll_interval_seconds)
+                    await asyncio.sleep(idle_poll_delay_seconds)
                     continue
+                if idle_poll_delay_seconds != max(2.0, float(args.poll_interval_seconds)):
+                    scout_debug_event(
+                        "review_idle_poll_interval_changed",
+                        previous_seconds=idle_poll_delay_seconds,
+                        next_seconds=max(2.0, float(args.poll_interval_seconds)),
+                        reason="campaign_claimed",
+                    )
+                    idle_poll_delay_seconds = max(2.0, float(args.poll_interval_seconds))
                 try:
                     if _browser_session_needs_recycle(
                         page,
