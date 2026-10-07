@@ -507,6 +507,19 @@ export type ScoutAgentCreated = ScoutAgent & {
   agent_token: string;
 };
 
+export type RrugcHealth = {
+  orphan_analysis_queued: number;
+  stale_importing: number;
+  gemini_deferred: number;
+  oldest_analysis_queue_age_seconds: number | null;
+  scout_total: number;
+  scout_online: number;
+  scout_offline: number;
+  scout_outdated: number;
+  gemini_capacity_available: boolean;
+  checked_at: string;
+};
+
 export type ScoutRun = {
   id: string;
   campaign_id: string;

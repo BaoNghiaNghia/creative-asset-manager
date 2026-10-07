@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 from collections import Counter
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
@@ -93,6 +94,7 @@ from app.modules.realistic_review_ugc.product_registry import (
     RrugcProductRegistry,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.maintenance import RrugcMaintenanceService
 from app.modules.realistic_review_ugc.seed_similarity import seed_visual_ranking_signal
 from app.modules.realistic_review_ugc.reference_library import (
     REFERENCE_ASSET_MAX_BYTES,
@@ -199,6 +201,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutAgentCreateRequest,
     ScoutAgentResponse,
     ScoutAgentCreatedResponse,
+    RrugcHealthResponse,
     ScoutAgentHeartbeatRequest,
     ScoutLogBatchRequest,
     ScoutLogBatchResponse,
@@ -6101,6 +6104,20 @@ def import_candidate(
             product_context=_ranking_product_context(campaign),
         )
     )
+
+
+@router.get(
+    "/health",
+    response_model=RrugcHealthResponse,
+)
+def rrugc_health(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    snapshot = RrugcMaintenanceService(session, get_settings()).health(
+        principal.active_tenant_id
+    )
+    return RrugcHealthResponse(**asdict(snapshot))
 
 
 @router.get(

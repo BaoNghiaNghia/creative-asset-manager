@@ -38,6 +38,7 @@ import type {
   ReviewTaskTransition,
   ScoutAgent,
   ScoutAgentCreated,
+  RrugcHealth,
   ScoutRun,
   SourcePlanPage,
   SourcePlanSyncResult,
@@ -299,6 +300,9 @@ export const configureCampaignScoutAutomation = (
       }),
     },
   );
+
+export const getRrugcHealth = (signal?: AbortSignal) =>
+  request<RrugcHealth>("/api/v1/realistic-review-ugc/health", { signal });
 
 export const listScoutAgents = (signal?: AbortSignal) =>
   request<ScoutAgent[]>("/api/v1/realistic-review-ugc/scout-agents", { signal });

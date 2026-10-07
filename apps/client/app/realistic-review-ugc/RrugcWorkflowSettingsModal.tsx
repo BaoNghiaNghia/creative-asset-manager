@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
+import { RrugcHealthPanel } from "./RrugcHealthPanel";
 
 export function RrugcWorkflowSettingsModal({
   open,
@@ -51,6 +52,7 @@ export function RrugcWorkflowSettingsModal({
         >×</button>
       </header>
       <div className="rrugc-settings-modal-body">
+        <RrugcHealthPanel onError={onError} />
         <PinterestAutoScoutPanel onError={onError} />
       </div>
     </section>

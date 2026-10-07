@@ -113,6 +113,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcReferenceSetItemModel,
     RrugcReferenceSeedModel,
 )
+from app.modules.realistic_review_ugc.maintenance import RrugcMaintenanceService
 from app.modules.realistic_review_ugc.keyword_volume import (
     KEYWORD_VOLUME_PENDING_PROVIDER,
     KeywordVolumeError,
@@ -1023,6 +1024,145 @@ def test_pinterest_pin_url_is_canonicalized_for_source_identity():
         )
         == "https://www.pinterest.com/pin/123456/"
     )
+
+
+
+
+
+def test_rrugc_maintenance_repairs_orphan_analysis_stale_import_and_scout(database, monkeypatch):
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a",
+            user_id="user-a",
+            name="Maintenance",
+            query="candid trucker hat",
+            target_count=10,
+            max_scroll_batches=2,
+            auto_import=True,
+            auto_scout=True,
+            scan_interval_seconds=120,
+        )
+        orphan = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="maintenance-orphan",
+            pin_url="https://www.pinterest.com/pin/900001/",
+            image_url="https://i.pinimg.com/736x/aa/bb/orphan.jpg",
+            status="analysis_queued",
+            analysis_revision=1,
+            updated_at=now - timedelta(hours=2),
+        )
+        stuck_import = RrugcCandidateModel(
+            tenant_id="tenant-a",
+            campaign_id=campaign.id,
+            source_key="maintenance-import",
+            pin_url="https://www.pinterest.com/pin/900002/",
+            image_url="https://i.pinimg.com/736x/aa/bb/import.jpg",
+            status="importing",
+            analysis_revision=1,
+            import_revision=1,
+            updated_at=now - timedelta(hours=2),
+        )
+        stale_agent = RrugcScoutAgentModel(
+            tenant_id="tenant-a",
+            name="Maintenance Scout",
+            token_hash="hash",
+            active=True,
+            status="ready",
+            client_version="rrugc-scout-v43",
+            last_seen_at=now - timedelta(minutes=5),
+            created_by_user_id="user-a",
+        )
+        session.add_all((orphan, stuck_import, stale_agent))
+        session.commit()
+
+        settings = Settings(
+            RRUGC_IMPORT_STALE_SECONDS=3600,
+            RRUGC_MAINTENANCE_BATCH_SIZE=100,
+            RRUGC_GEMINI_RETRY_WAKE_BATCH_SIZE=10,
+        )
+        service = RrugcMaintenanceService(session, settings)
+        monkeypatch.setattr(
+            service,
+            "gemini_capacity_available",
+            lambda _tenant_id, *, now: False,
+        )
+        before = service.health("tenant-a", now=now)
+        assert before.orphan_analysis_queued == 1
+        assert before.stale_importing == 1
+        assert before.scout_offline == 1
+
+        repaired = service.repair_tenant("tenant-a", now=now)
+        assert repaired["analysis_requeued"] == 1
+        assert repaired["imports_requeued"] == 1
+        assert repaired["scouts_offlined"] == 1
+
+        session.refresh(orphan)
+        session.refresh(stuck_import)
+        session.refresh(stale_agent)
+        assert orphan.status == "analysis_queued"
+        assert orphan.analysis_revision == 2
+        assert orphan.last_error_code == "rrugc_analysis_watchdog_requeued"
+        assert stuck_import.status == "import_queued"
+        assert stuck_import.import_revision == 2
+        assert stale_agent.status == "offline"
+
+        active_jobs = list(session.scalars(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.entity_id.in_((orphan.id, stuck_import.id)),
+                ProcessingJobModel.status == "pending",
+            )
+        ))
+        assert {job.job_type for job in active_jobs} == {
+            "rrugc_candidate_analyze",
+            "rrugc_candidate_import",
+        }
+
+        after = service.health("tenant-a", now=now)
+        assert after.orphan_analysis_queued == 0
+        assert after.stale_importing == 0
+
+def test_rrugc_maintenance_wakes_deferred_gemini_jobs_when_capacity_returns(database, monkeypatch):
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        job = ProcessingJobModel(
+            tenant_id="tenant-a",
+            job_type="rrugc_candidate_analyze",
+            entity_type="rrugc_candidate",
+            entity_id="candidate-deferred",
+            idempotency_key="maintenance-gemini-deferred",
+            payload_json={"candidate_id": "candidate-deferred"},
+            provider_key="gemini",
+            provider_scope="ai",
+            status="pending",
+            priority=0,
+            attempt_count=0,
+            max_attempts=3,
+            next_attempt_at=now + timedelta(hours=8),
+            last_error_code="gemini_model_pool_temporarily_unavailable",
+        )
+        session.add(job)
+        session.commit()
+
+        service = RrugcMaintenanceService(
+            session,
+            Settings(RRUGC_GEMINI_RETRY_WAKE_BATCH_SIZE=10),
+        )
+        monkeypatch.setattr(
+            service,
+            "gemini_capacity_available",
+            lambda _tenant_id, *, now: True,
+        )
+
+        repaired = service.repair_tenant("tenant-a", now=now)
+        assert repaired["gemini_jobs_woken"] == 1
+
+        session.refresh(job)
+        next_attempt = job.next_attempt_at
+        if next_attempt.tzinfo is None:
+            next_attempt = next_attempt.replace(tzinfo=timezone.utc)
+        assert next_attempt <= now + timedelta(seconds=1)
 
 
 def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):

@@ -632,6 +632,19 @@ class ScoutAgentCreatedResponse(ScoutAgentResponse):
     agent_token: str
 
 
+class RrugcHealthResponse(BaseModel):
+    orphan_analysis_queued: int = 0
+    stale_importing: int = 0
+    gemini_deferred: int = 0
+    oldest_analysis_queue_age_seconds: int | None = None
+    scout_total: int = 0
+    scout_online: int = 0
+    scout_offline: int = 0
+    scout_outdated: int = 0
+    gemini_capacity_available: bool = False
+    checked_at: datetime
+
+
 class ScoutAgentHeartbeatRequest(BaseModel):
     status: Literal["ready", "busy", "needs_login", "error"]
     client_version: str | None = Field(default=None, max_length=64)

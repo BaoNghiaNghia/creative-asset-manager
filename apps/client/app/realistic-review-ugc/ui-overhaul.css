@@ -1150,8 +1150,19 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-settings-modal-header small{color:#526bce;font-size:9px;font-weight:900;letter-spacing:.1em}
 .rrugc-settings-modal-header h2{margin:3px 0;color:#27364d;font-size:18px}
 .rrugc-settings-modal-header p{max-width:760px;margin:0;color:#768499;font-size:10px;line-height:1.5}
-.rrugc-settings-modal-body{min-height:0;overflow:auto;padding:16px 18px 20px;background:#f8fafc}
+.rrugc-settings-modal-body{display:grid;min-height:0;gap:12px;overflow:auto;padding:16px 18px 20px;background:#f8fafc}
 .rrugc-settings-modal-body>.rrugc-source-scout-panel{width:100%;max-width:none;margin:0}
+.rrugc-health-panel{width:100%;max-width:none;box-sizing:border-box;margin:0;padding:14px 16px}
+.rrugc-health-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.rrugc-health-heading p{margin:2px 0 0;color:#7b889a;font-size:9.6px;line-height:1.4}
+.rrugc-health-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-top:10px}
+.rrugc-health-grid article{display:grid;min-width:0;gap:2px;padding:9px 10px;border:1px solid #e1e7ef;border-radius:9px;background:#fbfcfe}
+.rrugc-health-grid article.is-warning{border-color:#ead6a6;background:#fffaf0}
+.rrugc-health-grid small{color:#8793a4;font-size:8.8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.rrugc-health-grid strong{color:#38506f;font-size:15px;font-variant-numeric:tabular-nums}
+.rrugc-health-grid span{overflow:hidden;color:#8591a1;font-size:8.8px;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-health-grid.is-loading{min-height:62px;border-radius:9px;background:linear-gradient(90deg,#f1f4f8 25%,#f8fafc 40%,#f1f4f8 60%);background-size:300% 100%;animation:rrugc-shimmer 1.4s infinite}
+@media(max-width:900px){.rrugc-health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-health-grid article:last-child{grid-column:1/-1}}
 @media(max-width:900px){.rrugc-stage-header{flex-direction:column}.rrugc-stage-header-actions{width:100%;justify-content:flex-start}.rrugc-stage0-heading-meta{min-width:0;justify-items:start}.rrugc-stage0-heading-meta>small{text-align:left}.rrugc-stage4-heading .rrugc-stage3-header-actions{width:100%;align-items:stretch}.rrugc-stage4-heading .rrugc-stage3-stats{width:100%}}
 @media(max-width:760px){.rrugc-global-management-actions{justify-content:flex-start}.rrugc-global-management-button{min-height:32px;padding:6px 9px;font-size:10px}.rrugc-settings-modal-backdrop{padding:8px}.rrugc-settings-modal{width:calc(100vw - 16px);max-height:calc(100vh - 16px);border-radius:12px}.rrugc-settings-modal-header{padding:14px}.rrugc-settings-modal-body{padding:10px}}
 
