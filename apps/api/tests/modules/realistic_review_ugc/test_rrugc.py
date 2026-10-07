@@ -4192,6 +4192,110 @@ def test_adaptive_keyword_ranking_prefers_human_approved_reference_yield(monkeyp
     assert ranked == ["phone selfie"]
 
 
+def test_adaptive_keyword_ranking_penalizes_repeated_zero_new_scan_failures(monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.random",
+        lambda: 0.9,
+    )
+    bad = "fragile pinterest query"
+    good = "stable pinterest query"
+    runs = [
+        SimpleNamespace(
+            status="completed",
+            query=bad,
+            keyword_stats_json=None,
+            submitted_count=10,
+            created_count=5,
+            existing_count=5,
+            last_error_code=None,
+        ),
+        SimpleNamespace(
+            status="completed",
+            query=good,
+            keyword_stats_json=None,
+            submitted_count=10,
+            created_count=5,
+            existing_count=5,
+            last_error_code=None,
+        ),
+        *[
+            SimpleNamespace(
+                status="failed",
+                query=bad,
+                keyword_stats_json=None,
+                submitted_count=0,
+                created_count=0,
+                existing_count=0,
+                last_error_code="pinterest_scan_failed",
+            )
+            for _ in range(3)
+        ],
+    ]
+
+    ranked = adaptive_search_queries([bad, good], runs, [])
+    assert ranked[0] == good
+
+    health = {
+        row["query"]: row
+        for row in keyword_health_rows([bad, good], runs, [])
+    }
+    assert health[bad]["failed_scans"] == 3
+    assert health[bad]["failure_rate"] == pytest.approx(0.75)
+    assert health[good]["failed_scans"] == 0
+    assert health[good]["failure_rate"] == 0.0
+
+
+def test_adaptive_keyword_ranking_does_not_penalize_cam_http_failures(monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.scout_automation.random.random",
+        lambda: 0.9,
+    )
+    first = "query with old submit bug"
+    second = "comparison query"
+    runs = [
+        SimpleNamespace(
+            status="completed",
+            query=first,
+            keyword_stats_json=None,
+            submitted_count=10,
+            created_count=5,
+            existing_count=5,
+            last_error_code=None,
+        ),
+        SimpleNamespace(
+            status="completed",
+            query=second,
+            keyword_stats_json=None,
+            submitted_count=10,
+            created_count=5,
+            existing_count=5,
+            last_error_code=None,
+        ),
+        *[
+            SimpleNamespace(
+                status="failed",
+                query=first,
+                keyword_stats_json=None,
+                submitted_count=0,
+                created_count=0,
+                existing_count=0,
+                last_error_code="cam_http_422",
+            )
+            for _ in range(3)
+        ],
+    ]
+
+    ranked = adaptive_search_queries([first, second], runs, [])
+    assert ranked == [first, second]
+
+    health = {
+        row["query"]: row
+        for row in keyword_health_rows([first, second], runs, [])
+    }
+    assert health[first]["failed_scans"] == 0
+    assert health[first]["failure_rate"] == 0.0
+
+
 def reference_document(**overrides) -> ReferenceAnalysisDocument:
     values = {
         "people_count": 1,

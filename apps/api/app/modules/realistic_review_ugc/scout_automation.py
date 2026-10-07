@@ -36,6 +36,8 @@ SCOUT_OFFLINE_SECONDS = 45
 KEYWORD_HISTORY_RUNS = 100
 KEYWORD_OUTCOME_HISTORY = 2000
 KEYWORD_EXPLORATION_RATE = 0.20
+KEYWORD_FAILURE_PENALTY_MAX = 0.25
+KEYWORD_FAILURE_CONFIDENCE_RUNS = 3
 KEYWORD_SUPPRESSION_MIN_EVALUATED = 6
 KEYWORD_SUPPRESSION_MIN_REFERENCE_REVIEWS = 3
 KEYWORD_SUPPRESSION_MIN_RUNS = 4
@@ -231,7 +233,15 @@ def adaptive_search_queries(
         return clean
 
     stats = {query: [0, 0, 0] for query in clean}
+    failure_stats = {query: 0 for query in clean}
     for run in runs:
+        if (
+            run.status == "failed"
+            and run.query in failure_stats
+            and run.last_error_code == "pinterest_scan_failed"
+            and int(run.created_count or 0) == 0
+        ):
+            failure_stats[run.query] += 1
         if run.status != "completed":
             continue
         keyword_stats = (
@@ -318,6 +328,22 @@ def adaptive_search_queries(
         run_confidence = min(1.0, run_count / 5.0)
         novelty = 1.0 / (1.0 + run_count)
         duplicate_rate = max(0.0, (submitted - created) / submitted) if submitted else (0.5 if run_count else 0.0)
+        failed_runs = failure_stats[query]
+        total_execution_runs = run_count + failed_runs
+        failure_rate = (
+            failed_runs / total_execution_runs
+            if total_execution_runs
+            else 0.0
+        )
+        failure_confidence = min(
+            1.0,
+            failed_runs / float(KEYWORD_FAILURE_CONFIDENCE_RUNS),
+        )
+        failure_penalty = (
+            KEYWORD_FAILURE_PENALTY_MAX
+            * failure_rate
+            * failure_confidence
+        )
         quality_weight = 0.35 + 0.45 * approval_confidence
         discovery_weight = 0.40 - 0.20 * approval_confidence
         human_reference_signal = (reference_yield - 0.5) * reference_confidence
@@ -341,6 +367,7 @@ def adaptive_search_queries(
             + 0.45 * human_context_signal
             + 0.20 * novelty
             - 0.15 * duplicate_rate
+            - failure_penalty
             + lifecycle_bonus
             + jitter[query]
         )
@@ -386,6 +413,7 @@ def keyword_health_rows(
             "found": 0,
             "new": 0,
             "duplicate": 0,
+            "failed_scans": 0,
             "approved": 0,
             "ref_good": 0,
             "ref_bad": 0,
@@ -394,11 +422,20 @@ def keyword_health_rows(
             "approved_yield": 0.0,
             "reference_yield": 0.0,
             "duplicate_rate": 0.0,
+            "failure_rate": 0.0,
         }
         for query in clean
     }
 
     for run in runs:
+        if (
+            run.status == "failed"
+            and run.query in health
+            and run.last_error_code == "pinterest_scan_failed"
+            and int(run.created_count or 0) == 0
+        ):
+            row = health[run.query]
+            row["failed_scans"] = int(row["failed_scans"]) + 1
         stats = run.keyword_stats_json if isinstance(run.keyword_stats_json, dict) else None
         if stats:
             for query, payload in stats.items():
@@ -455,6 +492,12 @@ def keyword_health_rows(
         duplicate = int(row["duplicate"])
         row["duplicate_rate"] = round(
             duplicate / found if found else 0.0,
+            4,
+        )
+        scans = int(row["scans"])
+        failed_scans = int(row["failed_scans"])
+        row["failure_rate"] = round(
+            failed_scans / scans if scans else 0.0,
             4,
         )
         row["state"] = keyword_lifecycle_state(

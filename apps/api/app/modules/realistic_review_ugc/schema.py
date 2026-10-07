@@ -327,6 +327,7 @@ class KeywordHealthResponse(BaseModel):
     found: int = 0
     new: int = 0
     duplicate: int = 0
+    failed_scans: int = 0
     approved: int = 0
     ref_good: int = 0
     ref_bad: int = 0
@@ -335,6 +336,7 @@ class KeywordHealthResponse(BaseModel):
     approved_yield: float = 0.0
     reference_yield: float = 0.0
     duplicate_rate: float = 0.0
+    failure_rate: float = 0.0
 
 
 class CampaignResponse(BaseModel):
