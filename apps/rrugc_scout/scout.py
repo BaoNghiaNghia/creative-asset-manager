@@ -3346,6 +3346,7 @@ async def run_agent(args: argparse.Namespace) -> None:
         agent_id=args.agent_id,
         token=args.token,
     )
+    print("Scout version         : " + CLIENT_VERSION)
     print("Pinterest Scout debug log: " + str(log_path))
     print("Remote Scout log      : API enabled · retention 5 days")
     machine_label = args.machine_label or socket.gethostname()

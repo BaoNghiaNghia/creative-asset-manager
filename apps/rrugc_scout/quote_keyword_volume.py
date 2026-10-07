@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 import httpx
 
 from scout import (
+    CLIENT_VERSION,
     Candidate,
     PIN_RELATED_HARD_LIMIT,
     PIN_RELATED_SCAN_LIMIT,
@@ -1186,6 +1187,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         token=args.token,
     )
 
+    print("Scout version         : " + CLIENT_VERSION)
     print("Stage 0 Keyword Scout log: " + str(log_path))
     print("Remote Scout log      : API enabled · retention 5 days")
     print("Pinterest query       : " + args.seed_query)

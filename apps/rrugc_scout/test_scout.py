@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 import re
 from threading import Event
 
@@ -41,6 +42,21 @@ from scout import (
     task_search_queries,
     wait_for_pin_growth,
 )
+
+
+def test_windows_scout_launcher_shows_actual_version_in_both_modes():
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "start_scout_auto_update.ps1"
+    ).read_text(encoding="utf-8")
+    assert 'Get-Content -LiteralPath $ScoutPath -Raw -Encoding UTF8' in script
+    assert "CLIENT_VERSION" in script
+    assert '$shortScoutVersion = $scoutVersion' in script
+    assert 'WindowTitle = "Review Scout | $shortScoutVersion | $head"' in script
+    assert 'WindowTitle = "Keyword Scout | $shortScoutVersion | $head"' in script
+    assert script.count('Write-Host ("Scout version       : " + $scoutVersion)') == 2
+    assert script.count('Write-Host ("Source commit       : " + $head)') == 2
 
 
 def test_windows_profile_argument_pattern_requires_exact_profile_path(tmp_path):

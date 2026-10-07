@@ -529,6 +529,20 @@ if ($LASTEXITCODE -ne 0) {
     $head = "unknown"
 }
 
+# Read the actual running client version AFTER auto-update. Keyword Scout
+# imports the same CLIENT_VERSION from scout.py; never hardcode a version in
+# the launcher so its window title and banner cannot silently drift.
+$scoutVersion = "unknown"
+$versionSource = Get-Content -LiteralPath $ScoutPath -Raw -Encoding UTF8
+$versionMatch = [regex]::Match(
+    $versionSource,
+    '(?m)^CLIENT_VERSION\s*=\s*"([^"]+)"'
+)
+if ($versionMatch.Success) {
+    $scoutVersion = $versionMatch.Groups[1].Value
+}
+$shortScoutVersion = $scoutVersion -replace '^rrugc-scout-', ''
+
 # Shared mutable setup is complete. From this point onward Review Scout and
 # Keyword Scout are independent. A mode-specific runner mutex prevents only
 # accidental duplicate starts of the same Scout.
@@ -544,13 +558,14 @@ try {
             Fail ("Keyword Scout entry point is missing: " + $KeywordScoutPath)
         }
         try {
-            $Host.UI.RawUI.WindowTitle = "Realistic Review UGC - Keyword Scout"
+            $Host.UI.RawUI.WindowTitle = "Keyword Scout | $shortScoutVersion | $head"
         }
         catch {
             # Window title is best-effort only.
         }
 
         Write-Step "Starting Stage 0 Keyword Scout"
+        Write-Host ("Scout version       : " + $scoutVersion) -ForegroundColor Cyan
         Write-Host ("Source commit       : " + $head) -ForegroundColor Green
         Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
         Write-Host ("Creative Asset URL  : " + $baseUrl) -ForegroundColor Green
@@ -593,15 +608,16 @@ try {
     }
     else {
         try {
-            $Host.UI.RawUI.WindowTitle = "Realistic Review UGC - Review Scout"
+            $Host.UI.RawUI.WindowTitle = "Review Scout | $shortScoutVersion | $head"
         }
         catch {
             # Window title is best-effort only.
         }
 
         Write-Step "Starting Pinterest Review Scout"
+        Write-Host ("Scout version       : " + $scoutVersion) -ForegroundColor Cyan
         Write-Host ("Source commit       : " + $head) -ForegroundColor Green
-        Write-Host "Scout mode          : pin-link fallback + low-result early exit + browser watchdog (v38)" -ForegroundColor Green
+        Write-Host "Scout mode          : pin-link fallback + low-result early exit + browser watchdog" -ForegroundColor Green
         Write-Host ("Agent ID            : " + $agentId) -ForegroundColor Green
         Write-Host ("Pinterest profile   : " + $profileDir) -ForegroundColor Green
         Write-Host "Browser isolation   : dedicated Review Chrome profile/process" -ForegroundColor Green
