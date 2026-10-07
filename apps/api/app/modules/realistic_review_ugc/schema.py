@@ -1249,6 +1249,43 @@ class CandidateBatchRequest(BaseModel):
     source_query: str | None = Field(default=None, min_length=1, max_length=500)
 
 
+class AutoScoutCandidateBatchRequest(CandidateBatchRequest):
+    """Tolerate incomplete Pinterest detail fallbacks from running v38 clients.
+
+    This compatibility repair applies ONLY to token-authenticated auto agents.
+    General candidate ingestion retains the original strict schema. Nonempty
+    URLs still receive full URL allowlist validation in the ingestion service.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_legacy_auto_scout_batch(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        raw_items = value.get("items")
+        if not isinstance(raw_items, list) or len(raw_items) > 50:
+            return value
+        clean_items = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                clean_items.append(item)
+                continue
+            image_url = item.get("image_url")
+            if image_url is None or (isinstance(image_url, str) and not image_url.strip()):
+                continue
+            clean = dict(item)
+            if isinstance(clean.get("alt_text"), str):
+                clean["alt_text"] = clean["alt_text"][:2000]
+            clean_items.append(clean)
+        clean_value = dict(value)
+        clean_value["items"] = clean_items
+        if isinstance(value.get("source_query"), str):
+            clean_value["source_query"] = " ".join(
+                value["source_query"].split()
+            )[:500] or None
+        return clean_value
+
+
 class CandidateResponse(BaseModel):
     id: str
     campaign_id: str

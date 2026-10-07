@@ -56,6 +56,8 @@ Keyword Scout also keeps a dedicated rotating JSONL debug log at `<keyword-profi
 
 Scout v39 also warns when Review completes a scan without newly created candidates, and automatically reduces Keyword polling after three consecutive quote-less cycles instead of hammering the same exhausted Pinterest results. AEBrowse partial responses are retried: a missing keyword-volume row is not treated as a real search-volume value of zero.
 
+Scout v40 fixes HTTP 422 submit failures caused by a Pinterest detail timeout leaving a Pin-link-only seed without an image, or by overly long Pinterest alt text/query metadata. Both launchers validate resolved image URLs and trim metadata to the API's existing field limits before submission. Review Scout retains transiently unresolved Pins for later retries rather than marking them as permanently scanned, while confirmed video Pins remain excluded. The authenticated auto-agent API endpoint also tolerates empty-image fallbacks from older running v38 clients, discarding only those incomplete entries instead of rejecting an entire valid batch. Other ingestion routes remain strictly validated. A schema-only diagnostic event identifies any future 422 validation field without leaking submitted content. Restart both Windows CMD launchers to install the latest version; a process already running v38 does not hot-swap Python code until it restarts.
+
 Direct Python usage remains available:
 
 ```powershell

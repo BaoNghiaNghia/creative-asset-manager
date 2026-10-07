@@ -121,6 +121,7 @@ from app.modules.realistic_review_ugc.schema import (
     CampaignResponse,
     CampaignScoutAutomationRequest,
     CandidateBatchRequest,
+    AutoScoutCandidateBatchRequest,
     AutoScoutCandidateBatchResponse,
     CandidateBatchResponse,
     CandidateResponse,
@@ -6142,7 +6143,7 @@ def auto_scout_agent_claim(
 def auto_scout_run_candidates(
     agent_id: str,
     run_id: str,
-    request: CandidateBatchRequest,
+    request: AutoScoutCandidateBatchRequest,
     authorization: str | None = Header(default=None),
     session: Session = Depends(get_db),
 ):

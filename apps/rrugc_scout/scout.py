@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v39"
+CLIENT_VERSION = "rrugc-scout-v40"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
 SCOUT_RUNTIME_ERRORS_BEFORE_RESTART = 5
@@ -935,10 +935,13 @@ class Candidate:
     context_text: str | None = None
 
     def as_json(self) -> dict[str, str | None]:
+        # Mirror CandidateSubmission's public API limits. Pinterest alt text
+        # can be arbitrarily long; a single oversized item previously made
+        # the entire 1–3 image batch fail validation with HTTP 422.
         return {
-            "pin_url": self.pin_url,
-            "image_url": self.image_url,
-            "alt_text": self.alt_text,
+            "pin_url": self.pin_url.strip(),
+            "image_url": self.image_url.strip(),
+            "alt_text": (self.alt_text[:2000] if self.alt_text else None),
         }
 
 
@@ -1780,8 +1783,9 @@ async def resolve_pin_details(
     detail_page: Any | None = None,
     concurrency: int = PIN_DETAIL_CONCURRENCY,
     fallback_on_error: bool = True,
+    video_skipped: set[str] | None = None,
 ) -> list[Candidate]:
-    """Resolve Pin details sequentially through one reusable detail tab."""
+    """Resolve Pin details; distinguish confirmed videos from temporary errors."""
     if not rows:
         return []
 
@@ -1792,12 +1796,20 @@ async def resolve_pin_details(
             + " was requested."
         )
 
+    def has_submittable_image(candidate: Candidate) -> bool:
+        return (
+            allowed_pin(candidate.pin_url)
+            and len(candidate.pin_url) <= 2048
+            and allowed_image(candidate.image_url)
+            and len(candidate.image_url) <= 4096
+        )
+
     owned_page = False
     if detail_page is None:
         context = getattr(search_page, "context", None)
         new_page = getattr(context, "new_page", None) if context is not None else None
         if not callable(new_page):
-            return rows
+            return [row for row in rows if has_submittable_image(row)]
         detail_page = await new_page()
         owned_page = True
 
@@ -1816,18 +1828,29 @@ async def resolve_pin_details(
                     total=len(rows),
                 )
                 candidate = await extract_pin_detail_candidate(detail_page, seed)
+                if not has_submittable_image(candidate):
+                    scout_debug_event(
+                        "pinterest_pin_detail_missing_image",
+                        pin_url=seed.pin_url,
+                        seed_has_image=allowed_image(seed.image_url),
+                        index=index + 1,
+                        total=len(rows),
+                    )
+                    continue
                 resolved.append(candidate)
                 scout_debug_event(
                     "pinterest_pin_detail_resolved",
                     pin_url=candidate.pin_url,
                     image_url=candidate.image_url,
-                    resolved_image=allowed_image(candidate.image_url),
+                    resolved_image=True,
                     index=index + 1,
                     total=len(rows),
                 )
             except (PinterestAccessGateError, PinterestRateLimitedError):
                 raise
             except PinterestVideoPinError:
+                if video_skipped is not None:
+                    video_skipped.add(pin_history_key(seed.pin_url))
                 scout_debug_event(
                     "pinterest_pin_detail_video_skipped",
                     pin_url=seed.pin_url,
@@ -1855,8 +1878,16 @@ async def resolve_pin_details(
                     + exc.__class__.__name__
                     + ")"
                 )
-                if fallback_on_error:
+                if fallback_on_error and has_submittable_image(seed):
                     resolved.append(seed)
+                else:
+                    scout_debug_event(
+                        "pinterest_pin_detail_unresolved_skipped",
+                        pin_url=seed.pin_url,
+                        seed_has_image=allowed_image(seed.image_url),
+                        index=index + 1,
+                        total=len(rows),
+                    )
 
             if index + 1 < len(rows):
                 await detail_page.wait_for_timeout(PIN_DETAIL_NAVIGATION_PAUSE_MS)
@@ -2097,6 +2128,25 @@ class AutoScoutClient:
                 round((time.monotonic() - started) * 1000),
             ),
         )
+        if response.status_code == 422 and operation == "submit_candidates":
+            # Validation response bodies can echo submitted values. Only log
+            # schema location/type so future failures are debuggable without
+            # persisting untrusted Pinterest content or private credentials.
+            try:
+                details = response.json().get("detail", [])
+                errors = [
+                    {
+                        "field": ".".join(
+                            str(part)[:32] for part in entry.get("loc", [])
+                        )[:120],
+                        "type": str(entry.get("type") or "")[:80],
+                    }
+                    for entry in details[:8]
+                    if isinstance(entry, dict)
+                ] if isinstance(details, list) else []
+            except (ValueError, TypeError, AttributeError):
+                errors = []
+            scout_debug_event("candidate_submit_validation_error", errors=errors)
         return response
 
     async def heartbeat(
@@ -2197,19 +2247,45 @@ class AutoScoutClient:
                 source_query=source_query,
             )
             raise ValueError("Scout candidate submit requires at least one resolved image")
+
+        # Defense in depth: Pinterest occasionally exposes a Pin href without
+        # any image, and a detail navigation timeout can leave that seed
+        # unresolved. Drop such rows before FastAPI validates the whole batch.
+        valid_rows = [
+            row for row in rows
+            if allowed_pin(row.pin_url)
+            and len(row.pin_url) <= 2048
+            and allowed_image(row.image_url)
+            and len(row.image_url) <= 4096
+        ]
+        if len(valid_rows) != len(rows):
+            scout_debug_event(
+                "candidate_submit_invalid_filtered",
+                run_id=run_id,
+                attempted=len(rows),
+                filtered=len(rows) - len(valid_rows),
+            )
+        if not valid_rows:
+            raise ValueError("Scout candidate submit requires at least one resolved image")
+        # Source queries are generated from product metadata and can exceed the
+        # API's 500-character field limit even when every image is valid.
+        safe_source_query = (
+            " ".join(str(source_query).split())[:500] or None
+            if source_query is not None else None
+        )
         scout_debug_event(
             "candidate_submit_start",
             run_id=run_id,
-            item_count=len(rows),
-            source_query=source_query,
+            item_count=len(valid_rows),
+            source_query=safe_source_query,
         )
         response = await self._request(
             "POST",
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/runs/{run_id}/candidates",
             operation="submit_candidates",
             json={
-                "items": [row.as_json() for row in rows],
-                "source_query": source_query,
+                "items": [row.as_json() for row in valid_rows],
+                "source_query": safe_source_query,
             },
         )
         response.raise_for_status()
@@ -2640,15 +2716,18 @@ async def scan_auto_run(
 
         related_created = 0
         related_existing = 0
+        retryable_detail_failures = 0
         for start in range(0, len(selected_related), pace.submit_batch_size):
             chunk = selected_related[start:start + pace.submit_batch_size]
             if not chunk:
                 continue
+            video_keys: set[str] = set()
             resolved_chunk = await resolve_pin_details(
                 page,
                 chunk,
                 detail_page=related_page,
                 concurrency=1,
+                video_skipped=video_keys,
             )
             resolved_keys = {
                 pin_history_key(row.pin_url)
@@ -2661,7 +2740,23 @@ async def scan_auto_run(
                 if pin_history_key(row.pin_url) not in resolved_keys
             ]
             if unresolved_chunk:
-                remember_history(unresolved_chunk)
+                known_videos = [
+                    row for row in unresolved_chunk
+                    if pin_history_key(row.pin_url) in video_keys
+                ]
+                if known_videos:
+                    remember_history(known_videos)
+                retryable_detail_failures += len(unresolved_chunk) - len(known_videos)
+                # Do not permanently mark missing-image/timeouts as seen.
+                # Revisit them in a later run when Pinterest responds again.
+                scout_debug_event(
+                    "related_pin_details_unresolved",
+                    campaign_id=campaign_id,
+                    run_id=run_id,
+                    attempted=len(unresolved_chunk),
+                    videos=len(known_videos),
+                    retryable=len(unresolved_chunk) - len(known_videos),
+                )
             if not resolved_chunk:
                 scout_debug_event(
                     "candidate_submit_skipped_empty",
@@ -2690,7 +2785,11 @@ async def scan_auto_run(
                 or progress >= target
                 or pipeline_count >= target
             ):
-                if history and len(selected_related) == len(fresh_related):
+                if (
+                    history
+                    and len(selected_related) == len(fresh_related)
+                    and retryable_detail_failures == 0
+                ):
                     history.remember_expanded_seed(
                         related_history_key,
                         seed.pin_url,
@@ -2699,7 +2798,11 @@ async def scan_auto_run(
                 return
             await paced_wait(page, pace.submit_pause_ms)
 
-        if history and len(selected_related) == len(fresh_related):
+        if (
+            history
+            and len(selected_related) == len(fresh_related)
+            and retryable_detail_failures == 0
+        ):
             history.remember_expanded_seed(
                 related_history_key,
                 seed.pin_url,
@@ -2959,11 +3062,13 @@ async def scan_auto_run(
                 ]
                 if not chunk:
                     continue
+                video_keys: set[str] = set()
                 resolved_chunk = await resolve_pin_details(
                     page,
                     chunk,
                     detail_page=detail_page,
                     concurrency=1,
+                    video_skipped=video_keys,
                 )
                 resolved_by_pin = {
                     pin_history_key(row.pin_url): row
@@ -2978,17 +3083,24 @@ async def scan_auto_run(
                     != resolved_by_pin[pin_history_key(before.pin_url)].image_url
                 )
                 resolved_pin_keys = set(resolved_by_pin)
-                video_filtered = [
+                unresolved_details = [
                     row for row in chunk
                     if pin_history_key(row.pin_url) not in resolved_pin_keys
                 ]
-                if video_filtered:
-                    remember_history(video_filtered)
+                if unresolved_details:
+                    confirmed_videos = [
+                        row for row in unresolved_details
+                        if pin_history_key(row.pin_url) in video_keys
+                    ]
+                    if confirmed_videos:
+                        remember_history(confirmed_videos)
                     scout_debug_event(
-                        "video_pins_filtered",
+                        "pin_details_unresolved",
                         campaign_id=str(task["campaign_id"]),
                         run_id=run_id,
-                        filtered=len(video_filtered),
+                        attempted=len(unresolved_details),
+                        videos=len(confirmed_videos),
+                        retryable=len(unresolved_details) - len(confirmed_videos),
                     )
                 if upgraded:
                     scout_debug_event(
@@ -3014,7 +3126,7 @@ async def scan_auto_run(
                         lane="keyword",
                         source_query=raw_query,
                         attempted=len(chunk),
-                        filtered=len(video_filtered),
+                        filtered=len(unresolved_details),
                     )
                     await heartbeat_if_due()
                     continue

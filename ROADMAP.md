@@ -164,3 +164,5 @@
 ## Realistic Review UGC
 
 - [x] RRUGC-PINTEREST-AUTO-SCOUT-V2 Persistent tenant Scout Agent pairing, durable campaign leases/scheduling, repeated bounded Pinterest pulls, Pin-level dedupe, automatic analysis/import handoff, login/challenge pause-and-resume, and production UI controls.
+- [x] RRUGC-PINTEREST-SCOUT-V40: repair Pin-detail timeout/Pin-link-only HTTP 422 batch failures; bound alt/query lengths; support active older Scouts through auto-agent-only sanitized API requests, without changing strict manual ingestion.
+- [ ] Follow-up operational verification: restart Review + Keyword CMD launchers on every Windows Scout machine; confirm both report v40 and no new 422 in server logs.

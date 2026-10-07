@@ -2707,3 +2707,12 @@ npm run typecheck -- --pretty false (passed).
 - Pinterest login/CAPTCHA/challenge solving is never automated. A challenge changes Agent/campaign state to `needs_login`, leaves the local browser open for manual resolution and resumes only after normal access returns.
 - Legacy per-campaign Scout endpoints remain available for compatibility, but the UI now promotes Auto Scout v2 and one-time pairing.
 - Rollback: stop paired Scout companions, disable Auto Scout on campaigns, then downgrade `0103_rrugc_pinterest_autoscout` to `0102_rrugc_delivery_automation`. Existing candidate and Managed Drive assets are unaffected.
+
+## RRUGC Scout v40 — October 7, 2026
+
+- Root cause: Review Scout v38 could enqueue a Pinterest Pin link without an image after detail navigation timed out. In a mixed batch, an empty `image_url` made FastAPI return HTTP 422, discarding valid candidate submissions in the same request. Overlong Pinterest alt text or source queries could independently cause 422.
+- Client fix: resolve only valid Pin/image pairs, fall back to thumbnails only when valid, cap text to server schema limits, filter partial batches, and log validation field names and types without echoing untrusted payload.
+- Server hot-compatibility: the token-authenticated auto-agent submission route alone strips Pin-link-only rows and trims overlong metadata from older active v38 clients. The manual ingest route retains strict `CandidateBatchRequest` validation. Non-empty untrusted image hosts still fail closed through the existing service allowlist.
+- No migration, dependency, credential rotation, DNS, firewall, IAM, or destructive data operation is required. Stage 0 quote extraction and its saved keywords are unchanged by this patch.
+- Release/rollback: use the immutable backend release rollback script if server compatibility regresses; Windows launchers can return to a prior reviewed Git commit if required. Rolling back the server does not modify existing source assets.
+- Operational validation outstanding until the Windows desktop runtime reports v40: restart both `START_SCOUT_REVIEW.cmd` and `START_SCOUT_KEYWORD.cmd`; monitor remote logs for zero HTTP 422 batch failures and normal candidate creation.

@@ -3123,6 +3123,25 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert empty_submitted.json()["existing"] == 0
     assert empty_submitted.json()["pipeline_count"] == 0
 
+    # A v38 desktop can submit a Pin href without an image after a Pinterest
+    # detail timeout. Auto-agent ingestion must treat it as a no-op, not abort
+    # the entire run with HTTP 422.
+    incomplete = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/candidates",
+        headers={"Authorization": "Bearer " + token},
+        json={
+            "items": [{
+                "pin_url": "https://www.pinterest.com/pin/9091/",
+                "image_url": "",
+                "alt_text": "Pinterest pin link only",
+            }],
+            "source_query": " ".join(["outdoors"] * 100),
+        },
+    )
+    assert incomplete.status_code == 200
+    assert incomplete.json()["created"] == 0
+    assert incomplete.json()["pipeline_count"] == 0
+
     submitted = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/candidates",
         headers={"Authorization": "Bearer " + token},
@@ -3130,7 +3149,7 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
             "items": [{
                 "pin_url": "https://www.pinterest.com/pin/9090/",
                 "image_url": "https://i.pinimg.com/736x/9/0/9.jpg",
-                "alt_text": "visible Pinterest candidate",
+                "alt_text": "x" * 2501,
             }],
             "source_query": "casual woman outdoors",
         },
@@ -3139,12 +3158,24 @@ def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database)
     assert submitted.json()["created"] == 1
     assert submitted.json()["progress"] == 0
     assert submitted.json()["pipeline_count"] == 1
+
+    denied = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/candidates",
+        headers={"Authorization": "Bearer " + token},
+        json={"items": [{
+            "pin_url": "https://www.pinterest.com/pin/9999/",
+            "image_url": "https://untrusted.example/unsafe.jpg",
+        }]},
+    )
+    assert denied.status_code == 400  # URL allowlist still enforced
+
     with database() as session:
         candidate = RrugcRepository(session).list_candidates(
             "tenant-a",
             campaign_id,
         )[0]
         assert candidate.ai_signal_json["scout_query"] == "casual woman outdoors"
+        assert len(candidate.alt_text or "") == 2000
 
     finished = api.post(
         f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/runs/{run_id}/complete",

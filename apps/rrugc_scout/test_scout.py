@@ -567,6 +567,92 @@ def test_pin_detail_resolver_reuses_one_sequential_detail_tab():
     assert page.context.closed == 1
 
 
+def test_pin_detail_timeout_does_not_fallback_to_missing_image():
+    class TimedOutDetailPage:
+        async def goto(self, *_args, **_kwargs):
+            raise TimeoutError("Pinterest Pin navigation timed out")
+
+    pin_only = Candidate("https://www.pinterest.com/pin/456/", "")
+    valid_thumbnail = Candidate(
+        "https://www.pinterest.com/pin/457/",
+        "https://i.pinimg.com/736x/aa/bb/pin.jpg",
+    )
+    assert asyncio.run(resolve_pin_details(
+        object(), [pin_only], detail_page=TimedOutDetailPage(),
+    )) == []
+
+    # A real thumbnail is still a safe fallback if Pinterest detail times out.
+    assert asyncio.run(resolve_pin_details(
+        object(), [valid_thumbnail], detail_page=TimedOutDetailPage(),
+    )) == [valid_thumbnail]
+
+
+def test_detail_resolver_keeps_transient_failures_retryable(monkeypatch):
+    class FakeDetailPage:
+        async def wait_for_timeout(self, _milliseconds):
+            return None
+
+    async def fake_detail(_page, candidate):
+        if candidate.pin_url.endswith("/101/"):
+            raise scout_module.PinterestVideoPinError("confirmed video")
+        raise TimeoutError("temporary Pinterest timeout")
+
+    monkeypatch.setattr(
+        scout_module, "extract_pin_detail_candidate", fake_detail,
+    )
+    video = Candidate("https://www.pinterest.com/pin/101/", "")
+    temporary = Candidate("https://www.pinterest.com/pin/102/", "")
+    confirmed_videos: set[str] = set()
+    rows = asyncio.run(resolve_pin_details(
+        object(), [video, temporary], detail_page=FakeDetailPage(),
+        video_skipped=confirmed_videos,
+    ))
+    assert rows == []
+    assert confirmed_videos == {"https://www.pinterest.com/pin/101/"}
+    assert scout_module.pin_history_key(temporary.pin_url) not in confirmed_videos
+
+
+def test_scout_submit_sanitizes_partial_pinterest_batch_and_oversized_metadata():
+    captured = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(scout_module.json.loads(request.content))
+        return httpx.Response(200, json={"created": 1, "existing": 0})
+
+    async def scenario():
+        client = AutoScoutClient(
+            "https://cam.example", "agent-1", "test-only",
+            machine_label="regression",
+        )
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            result = await client.submit(
+                "run-1",
+                [
+                    Candidate("https://www.pinterest.com/pin/200/", ""),
+                    Candidate(
+                        "https://www.pinterest.com/pin/201/",
+                        "https://i.pinimg.com/736x/a/b/good.jpg",
+                        alt_text="x" * 2700,
+                    ),
+                ],
+                source_query="context " * 110,
+            )
+            assert result["created"] == 1
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+    assert len(captured) == 1
+    assert len(captured[0]["items"]) == 1
+    assert len(captured[0]["items"][0]["alt_text"]) == 2000
+    assert len(captured[0]["source_query"]) <= 500
+
+
 def test_pin_detail_resolver_rethrows_closed_browser_runtime():
     class ClosedDetailPage:
         async def goto(self, *_args, **_kwargs):
