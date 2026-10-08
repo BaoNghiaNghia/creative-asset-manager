@@ -520,6 +520,15 @@ class KeywordVolumeOverviewResponse(BaseModel):
     favorite_keywords: int = 0
 
 
+class ScoutKeywordSummaryResponse(BaseModel):
+    total_keywords: int = 0
+    added_24h: int = 0
+    added_7d: int = 0
+    last_created_at: datetime | None = None
+    last_updated_at: datetime | None = None
+    fetched_at: datetime
+
+
 class KeywordVolumePageResponse(BaseModel):
     items: list[KeywordVolumeResponse] = Field(default_factory=list)
     page: int

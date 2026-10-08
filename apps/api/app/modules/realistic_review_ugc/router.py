@@ -144,6 +144,7 @@ from app.modules.realistic_review_ugc.schema import (
     ImportResponse,
     KeywordVolumeOverviewResponse,
     KeywordVolumePageResponse,
+    ScoutKeywordSummaryResponse,
     KeywordVolumePickRequest,
     KeywordVolumeFavoriteRequest,
     KeywordSuggestionResponse,
@@ -3895,6 +3896,55 @@ async def resolve_keyword_analysis(
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     return _keyword_volume_resolve_response(result)
+
+
+@router.get(
+    "/scout-agents/{agent_id}/keyword-analysis/summary",
+    response_model=ScoutKeywordSummaryResponse,
+)
+def quote_scout_keyword_summary(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    """Tenant-scoped keyword health counters for the paired desktop Scout.
+
+    No user/browser tokens or individual keyword strings are returned.
+    """
+    token = _bearer_token(authorization)
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id, raw_token=token
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    now = datetime.now(timezone.utc)
+    base = RrugcKeywordVolumeModel.tenant_id == agent.tenant_id
+    total, latest_created, latest_updated = session.execute(
+        select(
+            func.count(RrugcKeywordVolumeModel.id),
+            func.max(RrugcKeywordVolumeModel.created_at),
+            func.max(RrugcKeywordVolumeModel.updated_at),
+        ).where(base)
+    ).one()
+    day = session.scalar(
+        select(func.count(RrugcKeywordVolumeModel.id)).where(
+            base, RrugcKeywordVolumeModel.created_at >= now - timedelta(hours=24)
+        )
+    )
+    week = session.scalar(
+        select(func.count(RrugcKeywordVolumeModel.id)).where(
+            base, RrugcKeywordVolumeModel.created_at >= now - timedelta(days=7)
+        )
+    )
+    return ScoutKeywordSummaryResponse(
+        total_keywords=int(total or 0),
+        added_24h=int(day or 0),
+        added_7d=int(week or 0),
+        last_created_at=latest_created,
+        last_updated_at=latest_updated,
+        fetched_at=now,
+    )
 
 
 @router.post(

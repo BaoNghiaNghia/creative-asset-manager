@@ -8,7 +8,7 @@ const browser = await chromium.launch({ headless: true, executablePath: process.
 const url = process.env.SCOUT_MANAGER_PREVIEW_URL ?? "http://127.0.0.1:1420/";
 const issues = [];
 try {
-  for (const [name,width,height] of [["desktop",1180,830],["compact",960,680]]) {
+  for (const [name,width,height] of [["desktop",1062,747],["compact",864,612]]) {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     page.on("pageerror", e => issues.push(name + ": " + e.message));
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });

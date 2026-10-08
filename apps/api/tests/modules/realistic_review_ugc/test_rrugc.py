@@ -815,6 +815,39 @@ def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, 
     assert deferred.json()["detail"]["code"] == "rrugc_analysis_backpressure"
 
 
+def test_quote_scout_keyword_summary_is_tenant_scoped_and_requires_agent_token(api, database):
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a", user_id="user-a", name="Quote stats"
+        )
+        for tenant, text, age in [
+            ("tenant-a", "hello trucker", 1),
+            ("tenant-a", "hello cowboy", 48),
+            ("tenant-b", "private outsider", 1),
+        ]:
+            session.add(RrugcKeywordVolumeModel(
+                tenant_id=tenant, keyword=text, keyword_normalized=text,
+                search_volume=250, provider="aebrowse_google_ads",
+                created_at=now - timedelta(hours=age),
+                updated_at=now - timedelta(hours=age),
+                fetched_at=now, last_requested_at=now,
+            ))
+        session.commit()
+        agent_id = agent.id
+    url = f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/keyword-analysis/summary"
+    result = api.get(url, headers={"Authorization": f"Bearer {token}"})
+    assert result.status_code == 200
+    summary = result.json()
+    assert summary["total_keywords"] == 2
+    assert summary["added_24h"] == 1
+    assert summary["added_7d"] == 2
+    assert summary["last_created_at"] is not None
+    assert summary["fetched_at"] is not None
+    denied = api.get(url, headers={"Authorization": "Bearer incorrect-token"})
+    assert denied.status_code in (401, 403)
+
+
 def test_quote_scout_agent_can_submit_cached_keyword_batch(api, database):
     now = datetime.now(timezone.utc)
     with database() as session:

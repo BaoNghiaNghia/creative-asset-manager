@@ -338,22 +338,14 @@ class GeminiAiMetadataProvider:
                     error_details = self._error_details(
                         response, model=model, input=input
                     )
-                    error_message = str(
-                        error_details.get("google_error_message") or ""
-                    ).lower()
-                    # Some models reject responseJsonSchema even though they
-                    # support JSON MIME output.  Quote Scout validates the
-                    # returned document through HatQuoteDocument, so only this
-                    # known, locally validated pipeline may retry once without
-                    # the incompatible generation-time schema.
-                    if any(
-                        marker in error_message
-                        for marker in (
-                            "responsejsonschema",
-                            "response_json_schema",
-                            "response json schema",
-                        )
-                    ):
+                    # Quote Scout independently validates the returned JSON
+                    # with HatQuoteDocument. Gemini may report unsupported
+                    # responseJsonSchema properties with generic HTTP 400
+                    # messages (e.g. INVALID_ARGUMENT) that contain no schema
+                    # keyword. Retry ONCE without the optional schema, but
+                    # only in this known, locally validated quote pipeline.
+                    # Persistent 400s still surface as provider failures.
+                    if response.status_code == 400:
                         _LOGGER.warning(
                             "gemini_quote_schema_fallback model=%s "
                             "google_status=%s",

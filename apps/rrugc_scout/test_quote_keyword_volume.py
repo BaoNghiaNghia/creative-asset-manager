@@ -766,7 +766,7 @@ def test_quote_extract_http_status_retry_policy_preserves_transient_pins():
     assert not _quote_extract_status_is_terminal(500)
 
 
-def test_gemini_http_422_pauses_keyword_scout_without_losing_pin():
+def test_gemini_http_422_skips_one_pin_without_pausing_entire_keyword_scout():
     class Candidate:
         pin_url = "https://www.pinterest.com/pin/gemini-422/"
         image_url = "https://i.pinimg.com/736x/aa/bb/quote.jpg"
@@ -786,13 +786,13 @@ def test_gemini_http_422_pauses_keyword_scout_without_losing_pin():
 
     with TemporaryDirectory() as directory:
         history = KeywordScoutHistory(Path(directory) / "keyword-scout-history.json")
-        with pytest.raises(keyword_scout.KeywordScoutCapacityPaused):
-            asyncio.run(
-                keyword_scout._process_keyword_candidate(
-                    Client(), history, Candidate(),
-                    source="root", root_pin_url=Candidate.pin_url,
-                )
+        result = asyncio.run(
+            keyword_scout._process_keyword_candidate(
+                Client(), history, Candidate(),
+                source="root", root_pin_url=Candidate.pin_url,
             )
+        )
+        assert result.saved_delta == 0
         assert Candidate.pin_url not in history.seen_pins
 
 

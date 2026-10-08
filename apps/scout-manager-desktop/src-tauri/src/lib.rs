@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -36,6 +36,17 @@ struct Dashboard {
     controller_available: bool,
     automation_enabled: bool,
     modes: Vec<ModeInfo>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct KeywordSummary {
+    total_keywords: u64,
+    added_24h: u64,
+    added_7d: u64,
+    last_created_at: Option<String>,
+    last_updated_at: Option<String>,
+    fetched_at: String,
 }
 
 struct Scout {
@@ -732,6 +743,44 @@ mod winjob {
     }
 }
 #[tauri::command]
+async fn keyword_summary(
+    state: tauri::State<'_, Arc<Controller>>,
+) -> Result<KeywordSummary, String> {
+    let values = config_values(&state.repo);
+    let get = |key: &str| values.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+    let agent_id = get("RRUGC_AGENT_ID").filter(|v| !v.is_empty())
+        .ok_or("Pairing required to read live keyword counts.")?;
+    let token = get("RRUGC_SCOUT_TOKEN").filter(|v| !v.is_empty())
+        .ok_or("Pairing required to read live keyword counts.")?;
+    if !agent_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Invalid paired Agent ID.".into());
+    }
+    let base = get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+    // Require HTTPS so the agent token is never sent over plaintext.
+    let parsed = reqwest::Url::parse(base).map_err(|_| "Invalid Scout API URL.")?;
+    if parsed.scheme() != "https" || parsed.host_str().is_none() || !parsed.username().is_empty()
+        || parsed.password().is_some() || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Scout API must be an HTTPS origin.".into());
+    }
+    let url = format!(
+        "{}/api/v1/realistic-review-ugc/scout-agents/{}/keyword-analysis/summary",
+        base.trim_end_matches('/'), agent_id
+    );
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .map_err(|_| "Keyword API unreachable. Check network and Scout API.".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Keyword API returned HTTP {}.", response.status().as_u16()));
+    }
+    response.json::<KeywordSummary>().await
+        .map_err(|_| "Keyword API returned invalid summary data.".into())
+}
+
+#[tauri::command]
 fn dashboard(state: tauri::State<'_, Arc<Controller>>) -> Dashboard {
     state.dashboard()
 }
@@ -946,6 +995,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dashboard,
+            keyword_summary,
             log_tail,
             control_scout,
             control_all,

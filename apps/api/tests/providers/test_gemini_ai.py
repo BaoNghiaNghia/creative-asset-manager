@@ -257,7 +257,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
             {"responseMimeType": "application/json"},
         )
 
-    async def test_quote_scout_does_not_retry_unrelated_bad_request(self):
+    async def test_quote_scout_retries_any_bad_request_once_without_schema(self):
         calls = 0
 
         async def handler(_request):
@@ -284,7 +284,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(AiProviderError) as caught:
             await provider.analyze_single(inp)
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertEqual(calls, 1)
+        self.assertEqual(calls, 2)
 
     async def test_other_metadata_profiles_do_not_relax_json_schema(self):
         calls = 0

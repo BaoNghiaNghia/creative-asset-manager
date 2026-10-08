@@ -1026,7 +1026,7 @@ async def _process_keyword_candidate(
                     error=str(fallback_exc)[:500],
                 )
         if not fallback_used:
-            if status == 422 and error_code in {"gemini_http_error", "gemini_invalid_json", "gemini_invalid_document", "quote_scout_provider_payload_invalid"}:
+            if status == 422 and error_code in {"gemini_invalid_json", "gemini_invalid_document", "quote_scout_provider_payload_invalid"}:
                 scout_debug_event(
                     "keyword_scout_provider_error_paused",
                     source=source,

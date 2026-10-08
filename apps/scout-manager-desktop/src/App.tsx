@@ -4,6 +4,7 @@ import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, Fi
 
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
+type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
 const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
@@ -11,8 +12,9 @@ const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateStat
 ] };
 const isNative = typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 
-function Card({ info, version, commit, busy, automationEnabled, onAction }: {
+function Card({ info, version, commit, busy, automationEnabled, keywordSummary, keywordError, onAction }: {
   info: ModeInfo; version: string; commit: string; busy: boolean; automationEnabled: boolean;
+  keywordSummary?: KeywordSummary | null; keywordError?: string | null;
   onAction: (cmd: "start" | "stop" | "restart", mode: ModeName) => void;
 }) {
   const active = info.state === "Running";
@@ -24,6 +26,14 @@ function Card({ info, version, commit, busy, automationEnabled, onAction }: {
       <span className={"status-pill " + (active ? "success" : failed ? "danger" : "neutral")}><span className="status-dot"/>{info.state}</span>
     </div>
     <div className="meta-row"><div><span>PID</span><b>{info.pid ?? "—"}</b></div><div><span>Version</span><b>{version}</b></div><div><span>Commit</span><b>{commit}</b></div></div>
+    {info.mode === "keyword" && <div className="keyword-health">
+      <div className="keyword-metric"><span>Total saved</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") : "—"}</strong></div>
+      <div className="keyword-metric"><span>Added 24h</span><strong>+{keywordSummary?.added_24h ?? "—"}</strong></div>
+      <div className="keyword-metric"><span>Added 7d</span><strong>+{keywordSummary?.added_7d ?? "—"}</strong></div>
+      <div className="keyword-metric last"><span>Last saved</span><strong>{keywordSummary?.last_created_at ? new Date(keywordSummary.last_created_at).toLocaleString() : "No data"}</strong></div>
+      {keywordError && <div className="keyword-health-note">{keywordError}</div>}
+      {!keywordError && keywordSummary && keywordSummary.added_24h === 0 && <div className="keyword-health-note">No new keyword in the last 24 hours</div>}
+    </div>}
     <div className="chips"><div><RefreshCcw/><span>Auto restart</span></div><div><ShieldCheck/><span>Browser watchdog</span></div><div><LockKeyhole/><span>Isolated profile</span></div></div>
     {info.lastError && <div className="inline-error" title={info.lastError}><CircleAlert size={15}/><span>{info.lastError}</span></div>}
     <div className="card-actions">
@@ -53,6 +63,8 @@ export default function App() {
   const [state, setState] = useState<Dashboard>(EMPTY);
   const [mode, setMode] = useState<ModeName>("review");
   const [logs, setLogs] = useState("");
+  const [keywordSummary, setKeywordSummary] = useState<KeywordSummary | null>(null);
+  const [keywordError, setKeywordError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -81,6 +93,17 @@ export default function App() {
     return () => { alive = false; window.clearInterval(interval); };
   }, [refresh]);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [logs, mode]);
+  useEffect(() => {
+    if (!isNative) return;
+    let active = true;
+    const update = () => void invoke<KeywordSummary>("keyword_summary").then(
+      result => { if (active) { setKeywordSummary(result); setKeywordError(null); } },
+      error => { if (active) setKeywordError(typeof error === "string" ? error : "Keyword statistics unavailable"); }
+    );
+    update();
+    const interval = window.setInterval(update, 30000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
 
   const act = async (name: string, args: Record<string, unknown> = {}): Promise<boolean> => {
     if (!isNative) return false;
@@ -92,7 +115,6 @@ export default function App() {
   const onMode = (command: "start" | "stop" | "restart", which: ModeName) => void act("control_scout", { mode: which, command });
   const review = state.modes.find(m => m.mode === "review") ?? EMPTY.modes[0];
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
-  const running = state.modes.filter(m => m.state === "Running").length;
   const updateProblem = /error|paused|fail/i.test(state.updateState);
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
@@ -109,13 +131,13 @@ export default function App() {
       <div className="summary-item"><span className={"sum-icon " + (review.state === "Running" ? "ok" : "off")}><Check size={19}/></span><div><span className="sum-title">Review Scout</span><strong className={review.state === "Running" ? "ok-text" : ""}>{review.state}</strong></div></div>
       <div className="summary-item"><span className={"sum-icon " + (keyword.state === "Running" ? "ok" : "off")}><Check size={19}/></span><div><span className="sum-title">Keyword Scout</span><strong className={keyword.state === "Running" ? "ok-text" : ""}>{keyword.state}</strong></div></div>
       <div className="summary-item"><span className={"sum-icon " + (updateProblem ? "off" : "ok")}><RefreshCcw size={19}/></span><div><span className="sum-title">Auto update</span><strong className={updateProblem ? "warn-text" : ""}>{state.updateState}</strong></div></div>
-      <div className="summary-item"><span className="sum-icon ok"><ShieldCheck size={19}/></span><div><span className="sum-title">System protection</span><strong>{running === 2 ? "Both scouts running" : "Auto recovery enabled"}</strong></div></div>
+      <div className="summary-item"><span className="sum-icon ok"><Search size={19}/></span><div><span className="sum-title">Stage 0 keywords</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") + " saved · +" + keywordSummary.added_24h + " / 24h" : keywordError ? "Stats unavailable" : "Checking server..."}</strong></div></div>
     </div>
     {!state.controllerAvailable && <div className="alert"><CircleAlert size={18}/><span>Another Scout Manager is running. Close the legacy Manager before using automation controls in Tauri.</span></div>}
     {toast && <div className="alert"><CircleAlert size={18}/><span>{toast}</span><button onClick={() => setToast(null)} aria-label="Dismiss alert"><X size={16}/></button></div>}
     <section className="mode-grid">
       <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
-      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
+      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} onAction={onMode}/>
     </section>
     <section className="terminal-panel">
       <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
