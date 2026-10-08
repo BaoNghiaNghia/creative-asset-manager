@@ -5,6 +5,7 @@ import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog } from "./types";
 
 const COLOR_SLOT_COUNT = 13;
+const STAGE1_PAGE_SIZE_OPTIONS = [20, 50, 100, 500] as const;
 const EMPTY_CATALOG: Stage2SkillCatalog = {
   openai_configured: false,
   openai_status: "not_configured",
@@ -69,6 +70,7 @@ export function EmbroideryColorwayStage({
   onSync,
   onQueryChange,
   onPageChange,
+  onPageSizeChange,
 }: {
   data: SourcePlanPage;
   loading: boolean;
@@ -81,6 +83,7 @@ export function EmbroideryColorwayStage({
   onSync: () => void;
   onQueryChange: (value: string) => void;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
 }) {
   const [catalog, setCatalog] = useState<Stage2SkillCatalog>(EMPTY_CATALOG);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -279,6 +282,9 @@ export function EmbroideryColorwayStage({
       <div>
         <button type="button" disabled={loading || data.page <= 1} onClick={() => onPageChange(Math.max(1, data.page - 1))}>Previous</button>
         <button type="button" disabled={loading || data.page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, data.page + 1))}>Next</button>
+        <label>Rows <select aria-label="Stage 1 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>
+          {STAGE1_PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
+        </select></label>
       </div>
     </footer>
   </section>;

@@ -361,7 +361,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         data={{
           items: [plan],
           page: 1,
-          page_size: 12,
+          page_size: 20,
           total: 1,
           overview: GLOBAL_OVERVIEW,
         }}
@@ -371,8 +371,14 @@ describe("Realistic Review UGC source-first workspace", () => {
         onSync={() => undefined}
         onQueryChange={() => undefined}
         onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
       />,
     );
+    expect(markup).toContain('aria-label="Stage 1 rows per page"');
+    for (const size of [20, 50, 100, 500]) {
+      expect(markup).toContain(`<option value="${size}"`);
+    }
+    expect(markup).not.toContain('<option value="10"');
     expect(markup).toContain("EMBROIDERY_ SOURCE");
     expect(markup).toContain("Embroidery design → 13 colorways");
     expect(markup).toContain("embroidery_");

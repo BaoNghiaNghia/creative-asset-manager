@@ -1473,3 +1473,69 @@ def test_changed_source_image_gets_new_analysis_revision_and_job():
             )
         )
         assert len(jobs) == 2
+
+
+def test_stage1_embroidery_page_size_supports_500_rows_without_losing_groups():
+    from inspect import signature
+
+    pagination_field = signature(get_source_plans).parameters["page_size"].default
+    assert any(getattr(limit, "le", None) == 500 for limit in pagination_field.metadata)
+    factory = make_database()
+    with factory() as session:
+        session.add_all([
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id=f"design-{index:03}",
+                source_parent_folder_id="folder-a",
+                source_relative_path=f"Designs/embroidery_design_{index:03}.png",
+                source_name=f"embroidery_design_{index:03}.png",
+                source_mime_type="image/png",
+                source_revision=f"{index:064x}",
+                embroidery_signature=f"unique-embroidery-{index:03}",
+                analysis_revision=1,
+                target_count=20,
+                status="ready",
+                created_by_user_id="user-a",
+            )
+            for index in range(130)
+        ])
+        session.add(
+            RrugcSourcePlanModel(
+                tenant_id="tenant-b",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="other-tenant",
+                source_parent_folder_id="folder-b",
+                source_relative_path="Designs/embroidery_other_tenant.png",
+                source_name="embroidery_other_tenant.png",
+                source_mime_type="image/png",
+                source_revision="f" * 64,
+                embroidery_signature="other-tenant-embroidery",
+                analysis_revision=1,
+                target_count=20,
+                status="ready",
+                created_by_user_id="user-b",
+            )
+        )
+        session.commit()
+
+        def list_page(page_number: int, size: int):
+            return get_source_plans(
+                page=page_number,
+                page_size=size,
+                q=None,
+                source_prefix="embroidery_",
+                sort_by="source",
+                sort_dir="asc",
+                session=session,
+                principal=SimpleNamespace(active_tenant_id="tenant-a"),
+            )
+
+        page_500 = list_page(1, 500)
+        assert page_500.total == 130
+        assert page_500.page_size == 500
+        assert len(page_500.items) == 130
+        assert page_500.overview.embroidery_groups == 130
+        assert len({item.id for item in page_500.items}) == 130
+        assert len(list_page(1, 100).items) == 100
+        assert len(list_page(2, 100).items) == 30

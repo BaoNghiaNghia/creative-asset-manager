@@ -152,6 +152,7 @@ export function RealisticReviewUgcPage() {
   const [keywordLoading, setKeywordLoading] = useState(true);
   const [embroideryPage, setEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [embroideryPageNumber, setEmbroideryPageNumber] = useState(1);
+  const [embroideryPageSize, setEmbroideryPageSize] = useState(20);
   const [embroideryQuery, setEmbroideryQuery] = useState("");
   const [debouncedEmbroideryQuery, setDebouncedEmbroideryQuery] = useState("");
   const [embroideryLoading, setEmbroideryLoading] = useState(true);
@@ -315,7 +316,7 @@ export function RealisticReviewUgcPage() {
     const result = await listSourcePlans(
       {
         page: embroideryPageNumber,
-        pageSize: 12,
+        pageSize: embroideryPageSize,
         query: debouncedEmbroideryQuery,
         sortBy: "source",
         sortDirection: "asc",
@@ -665,7 +666,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, embroideryPageNumber, debouncedEmbroideryQuery]);
+  }, [activeStage, embroideryPageNumber, embroideryPageSize, debouncedEmbroideryQuery]);
 
   useEffect(() => {
     if (!groupsStageActive) return;
@@ -917,6 +918,11 @@ export function RealisticReviewUgcPage() {
             onPageChange={value => {
               setEmbroideryLoading(true);
               setEmbroideryPageNumber(value);
+            }}
+            onPageSizeChange={value => {
+              setEmbroideryLoading(true);
+              setEmbroideryPageNumber(1);
+              setEmbroideryPageSize(value);
             }}
           />
         </section>

@@ -3196,7 +3196,7 @@ def _group_source_plan_rows(
 @router.get("/source-plans", response_model=SourcePlanPageResponse)
 def get_source_plans(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=500),
     q: str | None = Query(default=None, max_length=200),
     sort_by: str = Query(
         default="source",
