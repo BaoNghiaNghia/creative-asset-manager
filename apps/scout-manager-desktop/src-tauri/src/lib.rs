@@ -89,6 +89,21 @@ fn repo_candidate(path: &Path) -> bool {
     path.join("scripts/start_scout_auto_update.ps1").is_file()
         && path.join("apps/rrugc_scout/scout.py").is_file()
 }
+fn shell_friendly_path(path: PathBuf) -> PathBuf {
+    // Windows canonicalize() prefixes paths with \\?\\. PowerShell 5.1
+    // does not reliably populate $PSScriptRoot when invoked with that form.
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{}", unc));
+        }
+        if let Some(local) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(local);
+        }
+    }
+    path
+}
 fn locate_repo() -> Result<PathBuf, String> {
     let mut candidates = Vec::new();
     if let Some(v) = std::env::var_os("CAM_SCOUT_REPO_ROOT") {
@@ -101,7 +116,7 @@ fn locate_repo() -> Result<PathBuf, String> {
         candidates.extend(exe.ancestors().map(Path::to_path_buf));
     }
     candidates.push(PathBuf::from(r"D:\Bot_Tool_Auto_Game\scan_pinterest"));
-    candidates.into_iter().find(|p| repo_candidate(p)).and_then(|p| p.canonicalize().ok())
+    candidates.into_iter().find(|p| repo_candidate(p)).and_then(|p| p.canonicalize().ok()).map(shell_friendly_path)
         .ok_or_else(|| "Scout checkout not found. Set CAM_SCOUT_REPO_ROOT to the existing scan_pinterest folder.".into())
 }
 fn config_values(repo: &Path) -> Vec<(String, String)> {
@@ -858,13 +873,16 @@ mod tests {
         fs::write(scripts.join("start_scout_auto_update.ps1"),
             "param([switch]$SkipUpdate, [switch]$KeywordMode)\nWrite-Host 'FAKE_SCOUT_STARTED'\nStart-Sleep -Seconds 30\n").unwrap();
         let controller = Controller {
-            repo: scratch.clone(),
+            // Real locate_repo canonicalizes first; keep the Windows smoke
+            // fixture on that exact path conversion route.
+            repo: shell_friendly_path(scratch.canonicalize().unwrap()),
             log_root: logs.clone(),
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword")]),
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
             updating: AtomicBool::new(false),
         };
+        assert!(!controller.repo.to_string_lossy().starts_with(r"\\?\"));
         let mut mock = Scout::new("review");
         controller
             .launch(&mut mock)
