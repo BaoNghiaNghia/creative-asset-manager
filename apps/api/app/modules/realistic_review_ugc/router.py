@@ -5165,10 +5165,15 @@ def list_stage2_jobs(
 )
 def list_stage3_review_groups(
     limit: int = Query(default=250, ge=1, le=500),
+    page_size: int = Query(default=250, ge=1, le=500),
+    cursor: str | None = Query(default=None, min_length=1, max_length=36),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    rows = (
+    # Keyset pagination: the previous 5,000-record cap hid old outputs and
+    # loaded thousands of rows on every 5-second UI refresh.
+    # (created_at, id) gives an immutable, deterministic ordering.
+    query = (
         session.query(RrugcStage2JobModel, RrugcSourcePlanModel)
         .join(
             RrugcSourcePlanModel,
@@ -5181,13 +5186,31 @@ def list_stage3_review_groups(
             RrugcStage2JobModel.output_remote_file_id.is_not(None),
             RrugcStage2JobModel.output_remote_folder_id.is_not(None),
         )
-        .order_by(
-            RrugcStage2JobModel.completed_at.desc(),
-            RrugcStage2JobModel.created_at.desc(),
-        )
-        .limit(5000)
-        .all()
     )
+    if cursor:
+        anchor = query.filter(RrugcStage2JobModel.id == cursor).first()
+        if anchor is None:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "stage5_cursor_invalid",
+                        "message": "The Stage 5 page cursor is no longer valid."},
+            )
+        anchor_job = anchor[0]
+        query = query.filter(or_(
+            RrugcStage2JobModel.created_at < anchor_job.created_at,
+            and_(
+                RrugcStage2JobModel.created_at == anchor_job.created_at,
+                RrugcStage2JobModel.id < anchor_job.id,
+            ),
+        ))
+    effective_size = min(limit, page_size)
+    page_rows = query.order_by(
+        RrugcStage2JobModel.created_at.desc(),
+        RrugcStage2JobModel.id.desc(),
+    ).limit(effective_size + 1).all()
+    has_more = len(page_rows) > effective_size
+    rows = page_rows[:effective_size]
+    next_cursor = rows[-1][0].id if has_more else None
 
     stage2_ids = [job.id for job, _plan in rows]
     analyses_by_job: dict[str, RrugcStage3AnalysisModel] = {}
@@ -5355,6 +5378,8 @@ def list_stage3_review_groups(
         items=items,
         total_groups=len(items),
         total_images=sum(len(item.images) for item in items),
+        has_more=has_more,
+        next_cursor=next_cursor,
         ready_images=totals["ready"],
         rejected_images=totals["rejected"],
         analyzing_images=totals["queued"] + totals["analyzing"],

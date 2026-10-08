@@ -432,9 +432,11 @@ export const listStage2Jobs = (
 
 export const listStage3ReviewGroups = (
   signal?: AbortSignal,
+  cursor?: string,
 ) =>
   request<Stage3ReviewGroupList>(
-    "/api/v1/realistic-review-ugc/stage3/review-groups?limit=500",
+    "/api/v1/realistic-review-ugc/stage3/review-groups?limit=500&page_size=250"
+      + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""),
     { signal },
   );
 

@@ -17,6 +17,9 @@ type Props = {
   query?: string;
   onQueryChange?: (query: string) => void;
   onAnalyze: (folderId?: string) => void;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
+  onRefresh?: () => void;
 };
 
 export type Stage3ReviewModalEntry = {
@@ -280,6 +283,9 @@ export function Stage3ReviewGroups({
   query = "",
   onQueryChange = () => undefined,
   onAnalyze,
+  onLoadMore = () => undefined,
+  loadingMore = false,
+  onRefresh = () => undefined,
 }: Props) {
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const finished = data.ready_images + data.rejected_images;
@@ -332,9 +338,9 @@ export function Stage3ReviewGroups({
       description="Stage 4 outputs stay grouped by destination folder. Each image is analyzed once for visible person/product, UGC feel, photorealism and review-card suitability."
       actions={<div className="rrugc-stage3-header-actions">
         <div className="rrugc-stage3-stats" aria-label="Stage 5 summary">
-          <span><strong>{data.total_groups}</strong><small>Folders</small></span>
-          <span><strong>{data.total_images}</strong><small>Images</small></span>
-          <span><strong>{finished}/{data.total_images}</strong><small>Analyzed</small></span>
+          <span><strong>{data.total_groups}</strong><small>Loaded folders</small></span>
+          <span><strong>{data.total_images}</strong><small>Loaded images</small></span>
+          <span><strong>{finished}/{data.total_images}</strong><small>Reviewed (loaded)</small></span>
         </div>
         <button
           type="button"
@@ -358,7 +364,10 @@ export function Stage3ReviewGroups({
         placeholder="Search folder, image, reviewer, or scene…"
         label="Search Stage 5 UGC reviews"
       />
-      <span>{normalizedQuery ? visibleGroups.length + " matching folders" : data.total_groups + " folders"}</span>
+      <span>{normalizedQuery ? visibleGroups.length + " matching loaded folders" : data.total_groups + " loaded folders"}</span>
+      <button type="button" className="rrugc-stage3-refresh" onClick={onRefresh} disabled={loading || loadingMore}>
+        Refresh
+      </button>
     </div>
 
     {loading ? (
@@ -485,6 +494,20 @@ export function Stage3ReviewGroups({
             )}
           </article>
         ))}
+      </div>
+    )}
+
+    {data.has_more && data.next_cursor && (
+      <div className="rrugc-stage3-load-more">
+        <button
+          type="button"
+          className="rrugc-stage3-analyze-all"
+          onClick={onLoadMore}
+          disabled={loading || loadingMore}
+        >
+          {loadingMore ? "Loading older images…" : "Load older images"}
+        </button>
+        <small>Showing {data.total_images} loaded images; older outputs remain available.</small>
       </div>
     )}
 

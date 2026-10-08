@@ -35,6 +35,7 @@ import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
+import { mergeStage5Pages } from "./stage5Pagination";
 import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection, Stage3ReviewGroupList } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
@@ -189,6 +190,9 @@ export function RealisticReviewUgcPage() {
   const stage4CancelRequestedPlans = useRef<Set<string>>(new Set());
   const [stage3Groups, setStage3Groups] = useState<Stage3ReviewGroupList>(EMPTY_STAGE3_GROUPS);
   const [stage3Loading, setStage3Loading] = useState(true);
+  const [stage3MoreLoading, setStage3MoreLoading] = useState(false);
+  const stage3PaginationActive = useRef(false);
+  const stage3MoreInFlight = useRef(false);
   const [stage3Analyzing, setStage3Analyzing] = useState(false);
   const [stage3Message, setStage3Message] = useState("");
   const [error, setError] = useState("");
@@ -367,7 +371,33 @@ export function RealisticReviewUgcPage() {
 
   async function refreshStage3Groups(signal?: AbortSignal) {
     const result = await listStage3ReviewGroups(signal);
-    setStage3Groups(result);
+    if (signal?.aborted) return;
+    // A poll that started before "Load older images" must not overwrite
+    // the accumulated pages when it completes afterward. Newest data wins
+    // for duplicate job IDs, while the loaded history and cursor survive.
+    setStage3Groups(current => stage3PaginationActive.current
+      ? mergeStage5Pages(result, current)
+      : result);
+  }
+
+  async function loadMoreStage3Groups() {
+    const cursor = stage3Groups.next_cursor;
+    if (!cursor || !stage3Groups.has_more || stage3MoreInFlight.current) return;
+    stage3MoreInFlight.current = true;
+    // Set this before the request: a concurrent first-page poll may finish
+    // while the next page is still loading.
+    stage3PaginationActive.current = true;
+    setStage3MoreLoading(true);
+    try {
+      const page = await listStage3ReviewGroups(undefined, cursor);
+      setStage3Groups(current => current.next_cursor === cursor
+        ? mergeStage5Pages(current, page) : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load older UGC review images.");
+    } finally {
+      stage3MoreInFlight.current = false;
+      setStage3MoreLoading(false);
+    }
   }
 
   async function analyzeStage3(folderId?: string) {
@@ -824,14 +854,17 @@ export function RealisticReviewUgcPage() {
         if (!controller.signal.aborted) setStage3Loading(false);
       });
     const timer = window.setInterval(() => {
-      if (document.hidden || refreshInFlight) return;
+      // Preserve explicitly loaded history; a first-page poll would remove
+      // older groups from the UI. Refresh becomes an explicit user action.
+      if (document.hidden || refreshInFlight || stage3PaginationActive.current
+        || stage3MoreInFlight.current) return;
       refreshInFlight = true;
       void refreshStage3Groups()
         .catch(() => undefined)
         .finally(() => {
           refreshInFlight = false;
         });
-    }, 5000);
+    }, 30000);
     return () => {
       controller.abort();
       window.clearInterval(timer);
@@ -1128,6 +1161,9 @@ export function RealisticReviewUgcPage() {
             query={stage4Query}
             onQueryChange={setStage4Query}
             onAnalyze={folderId => void analyzeStage3(folderId)}
+            onLoadMore={() => void loadMoreStage3Groups()}
+            loadingMore={stage3MoreLoading}
+            onRefresh={() => void refreshStage3Groups()}
           />
         </section>
 

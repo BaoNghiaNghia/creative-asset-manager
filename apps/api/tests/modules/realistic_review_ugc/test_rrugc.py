@@ -2501,6 +2501,37 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
         for image in groups["folder-a"]["images"]
     )
 
+    # Keyset pages must cover all completed outputs exactly once, including
+    # two images from one folder that may land on separate page boundaries.
+    ids_seen = []
+    cursor = None
+    for index in range(3):
+        query = "?page_size=1" + (f"&cursor={cursor}" if cursor else "")
+        paged = api.get("/api/v1/realistic-review-ugc/stage3/review-groups" + query)
+        assert paged.status_code == 200
+        page_data = paged.json()
+        assert page_data["total_images"] == 1
+        ids_seen.extend(
+            image["stage2_job_id"]
+            for folder in page_data["items"]
+            for image in folder["images"]
+        )
+        if index < 2:
+            assert page_data["has_more"] is True
+            assert page_data["next_cursor"]
+        else:
+            assert page_data["has_more"] is False
+            assert page_data["next_cursor"] is None
+        cursor = page_data["next_cursor"]
+    assert len(set(ids_seen)) == 3
+    assert set(ids_seen) == {job.id for job in jobs[:3]}
+
+    invalid = api.get(
+        "/api/v1/realistic-review-ugc/stage3/review-groups"
+        "?page_size=1&cursor=missing-id"
+    )
+    assert invalid.status_code == 422
+
     queued = api.post(
         "/api/v1/realistic-review-ugc/stage3/review-groups/analyze",
         json={"folder_id": "folder-a", "force": False},

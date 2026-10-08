@@ -505,6 +505,8 @@ export type Stage3ReviewGroupList = {
   items: Stage3ReviewGroup[];
   total_groups: number;
   total_images: number;
+  has_more?: boolean;
+  next_cursor?: string | null;
   ready_images: number;
   rejected_images: number;
   analyzing_images: number;

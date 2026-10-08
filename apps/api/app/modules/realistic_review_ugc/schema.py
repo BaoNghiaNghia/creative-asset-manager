@@ -1048,6 +1048,8 @@ class Stage3ReviewGroupListResponse(BaseModel):
     items: list[Stage3ReviewGroupResponse] = Field(default_factory=list)
     total_groups: int
     total_images: int
+    has_more: bool = False
+    next_cursor: str | None = None
     ready_images: int = 0
     rejected_images: int = 0
     analyzing_images: int = 0
