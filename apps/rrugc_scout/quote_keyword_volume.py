@@ -816,6 +816,13 @@ class QuoteScoutClient:
         task = payload.get("task")
         return task if isinstance(task, dict) else None
 
+    async def renew_feedback_task(self, task_id: str, lease_token: str) -> None:
+        await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/priority/renew",
+            {"id": task_id, "lease_token": lease_token},
+            operation="renew_keyword_priority",
+        )
+
     async def finish_feedback_task(self, task_id: str, lease_token: str, success: bool) -> None:
         await self._post(
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/priority/complete",
@@ -1398,6 +1405,20 @@ async def _process_keyword_candidate(
     )
 
 
+def _priority_task_success(
+    task: dict[str, Any] | None,
+    *,
+    processed: int,
+    priority_pin_expanded: bool,
+) -> bool:
+    """Only the requested target can complete an explicit priority request."""
+    if not task:
+        return False
+    if task.get("type") == "pin":
+        return priority_pin_expanded
+    return task.get("type") == "keyword" and processed > 0
+
+
 async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
     profile_dir = Path(args.profile_dir).expanduser().resolve()
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -1573,6 +1594,23 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             )
             await bootstrap_keyword_login()
 
+    async def release_claimed_priority(task: dict[str, Any] | None) -> None:
+        if not task:
+            return
+        try:
+            await client.finish_feedback_task(
+                str(task["id"]), str(task["lease_token"]), success=False,
+            )
+        except Exception as exc:
+            # A crashed cycle must not delete a claimed priority task.
+            # The API lease is the final recovery path if this request fails.
+            scout_debug_event(
+                "keyword_scout_priority_release_failed",
+                error_type=exc.__class__.__name__,
+                error=str(exc)[:250],
+            )
+
+    priority_task: dict[str, Any] | None = None
     try:
         await ensure_keyword_startup_login()
 
@@ -1584,16 +1622,35 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 directives = await client.fetch_feedback()
                 blocked_keywords = directives["blocked_keywords"]
                 blocked_pins = directives["blocked_pins"]
+                feedback_synced_at = time.monotonic()
+                lease_renewed_at = feedback_synced_at
+
+                async def refresh_feedback_if_due() -> None:
+                    nonlocal blocked_keywords, blocked_pins, feedback_synced_at, lease_renewed_at
+                    now = time.monotonic()
+                    if priority_task and now - lease_renewed_at >= 300:
+                        await client.renew_feedback_task(
+                            str(priority_task["id"]), str(priority_task["lease_token"]),
+                        )
+                        lease_renewed_at = time.monotonic()
+                    if now - feedback_synced_at < 60:
+                        return
+                    current = await client.fetch_feedback()
+                    blocked_keywords = current["blocked_keywords"]
+                    blocked_pins = current["blocked_pins"]
+                    feedback_synced_at = time.monotonic()
+
                 await _flush_pending_quote_volumes(client, history, blocked_keywords)
                 priority_task = await client.claim_feedback_task()
                 current_query = str(priority_task.get("keyword") or args.seed_query) if priority_task else args.seed_query
                 priority_pin = (
-                    Candidate(pin_url=priority_task["pin_url"], image_url=priority_task["image_url"])
+                    Candidate(pin_url=priority_task["pin_url"], image_url=priority_task.get("image_url") or "")
                     if priority_task and priority_task.get("type") == "pin"
-                    and priority_task.get("pin_url") and priority_task.get("image_url")
+                    and priority_task.get("pin_url")
                     else None
                 )
                 priority_pin_key = pin_history_key(priority_pin.pin_url) if priority_pin else None
+                priority_pin_expanded = False
                 search_url = (
                     "https://www.pinterest.com/search/pins/?q="
                     + quote_plus(current_query)
@@ -1727,6 +1784,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             fallback_on_error=False,
                         )
                         for candidate in resolved:
+                            await refresh_feedback_if_due()
+                            if pin_history_key(candidate.pin_url) in blocked_pins:
+                                continue
                             if processed >= args.max_pins_per_cycle:
                                 break
                             pin_key = pin_history_key(candidate.pin_url)
@@ -1861,6 +1921,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             deep_queue: list[DeepDiveSeed] = []
                             deep_queued_keys: set[str] = set()
                             for source, row, root_pin_url in processing_queue:
+                                await refresh_feedback_if_due()
+                                if pin_history_key(row.pin_url) in blocked_pins:
+                                    continue
                                 if source == "related":
                                     row_pin_key = pin_history_key(row.pin_url)
                                     row_asset_key = pinimg_asset_key(row.image_url)
@@ -1946,6 +2009,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 )
 
                             if expansion_complete:
+                                if pin_key == priority_pin_key:
+                                    priority_pin_expanded = True
                                 history.remember_expanded_pin(candidate.pin_url)
                                 scout_debug_event(
                                     "keyword_scout_root_expanded",
@@ -1968,6 +2033,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     reverse=True,
                                 )
                                 seed = deep_queue.pop(0)
+                                await refresh_feedback_if_due()
                                 seed_key = pin_history_key(seed.candidate.pin_url)
                                 seed_max_depth = _deep_dive_max_depth(
                                     seed.result,
@@ -1978,6 +2044,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     not seed_key
                                     or seed.depth > seed_max_depth
                                     or seed_key in history.deep_expanded_pins
+                                    or seed_key in blocked_pins
                                 ):
                                     continue
 
@@ -2099,7 +2166,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 )
 
                                 for child in valid_deep:
+                                    await refresh_feedback_if_due()
                                     child_key = pin_history_key(child.pin_url)
+                                    if child_key in blocked_pins:
+                                        continue
                                     child_asset_key = pinimg_asset_key(
                                         child.image_url
                                     )
@@ -2289,15 +2359,29 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         found_quotes=extracted, new_keywords=saved_quotes,
                         duplicate_pins=duplicate_pins,
                     )
-                    if priority_task:
-                        await client.finish_feedback_task(
-                            str(priority_task["id"]), str(priority_task["lease_token"]), success=processed > 0,
-                        )
                 except Exception as exc:
                     scout_debug_event(
-                        "keyword_scout_feedback_sync_failed",
+                        "keyword_scout_metric_sync_failed",
                         error_type=exc.__class__.__name__, error=str(exc)[:300],
                     )
+                # A telemetry outage must never prevent priority completion.
+                if priority_task:
+                    priority_success = _priority_task_success(
+                        priority_task, processed=processed,
+                        priority_pin_expanded=priority_pin_expanded,
+                    )
+                    try:
+                        await client.finish_feedback_task(
+                            str(priority_task["id"]),
+                            str(priority_task["lease_token"]),
+                            success=priority_success,
+                        )
+                    except Exception as exc:
+                        scout_debug_event(
+                            "keyword_scout_priority_finish_failed",
+                            error_type=exc.__class__.__name__, error=str(exc)[:300],
+                        )
+                    priority_task = None
                 if args.once:
                     return
                 next_cycle_seconds = (
@@ -2324,6 +2408,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 )
                 await asyncio.sleep(next_cycle_seconds)
             except KeywordScoutCapacityPaused as exc:
+                await release_claimed_priority(priority_task)
+                priority_task = None
                 scout_debug_event(
                     "keyword_scout_gemini_backpressure_paused",
                     retry_seconds=exc.retry_seconds,
@@ -2338,6 +2424,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     raise
                 await asyncio.sleep(exc.retry_seconds)
             except PinterestRateLimitedError:
+                await release_claimed_priority(priority_task)
+                priority_task = None
                 wait_seconds = max(args.cycle_seconds, 600)
                 print(
                     "Pinterest rate limited Keyword Scout; waiting "
@@ -2352,6 +2440,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     raise
                 await asyncio.sleep(wait_seconds)
             except PinterestAccessGateError as exc:
+                await release_claimed_priority(priority_task)
+                priority_task = None
                 if exc.gate == "login":
                     await bootstrap_keyword_login()
                     continue
@@ -2360,6 +2450,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     continue
                 await _wait_for_pinterest_access(page)
             except Exception as exc:
+                await release_claimed_priority(priority_task)
+                priority_task = None
                 if args.once:
                     raise
                 runtime_error_streak += 1
@@ -2416,6 +2508,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(retry_seconds)
                 continue
     finally:
+        await release_claimed_priority(priority_task)
         await close_browser_runtime()
         shutdown_scout_remote_log(timeout_seconds=3.0)
         await client.close()

@@ -102,6 +102,27 @@ def claim_priority(session: Session, tenant_id: str, agent_id: str):
     return None
 
 
+def renew_priority(
+    session: Session, tenant_id: str, agent_id: str,
+    item_id: str, lease_token: str,
+) -> bool:
+    """Extend a long-running claim only while its exact lease is still owned."""
+    now = now_utc()
+    result = session.execute(update(RrugcScoutFeedbackModel).where(
+        RrugcScoutFeedbackModel.id == item_id,
+        RrugcScoutFeedbackModel.tenant_id == tenant_id,
+        RrugcScoutFeedbackModel.claimed_by_agent_id == agent_id,
+        RrugcScoutFeedbackModel.lease_token == lease_token,
+        RrugcScoutFeedbackModel.status == "suggested",
+        RrugcScoutFeedbackModel.processed_at.is_(None),
+    ).values(lease_expires_at=now + timedelta(minutes=30)))
+    if result.rowcount:
+        session.commit()
+        return True
+    session.rollback()
+    return False
+
+
 def finish_priority(session: Session, tenant_id: str, agent_id: str, item_id: str, lease_token: str, success: bool):
     row = session.scalar(select(RrugcScoutFeedbackModel).where(
         RrugcScoutFeedbackModel.id == item_id,

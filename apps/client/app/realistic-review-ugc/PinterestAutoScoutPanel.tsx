@@ -14,7 +14,7 @@ const time = (value: string | null) =>
 const DEFAULT_PROFILE_DIR =
   "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
 
-export const MIN_SCOUT_CLIENT_VERSION = 47;
+export const MIN_SCOUT_CLIENT_VERSION = 48;
 
 export function scoutClientIsCurrent(value: string | null | undefined): boolean {
   const match = /^rrugc-scout-v(\d+)$/.exec((value || "").trim());
@@ -221,10 +221,18 @@ export function PinterestAutoScoutPanel({
       <span><small>New refs</small><b>{createdCount}</b></span>
     </div>
 
+    <div className="rrugc-scout-keyword-summary" role="status" aria-label="Tenant-wide Keyword Scout counters">
+      <span><small>Total keywords</small><b>{metrics?.overview.total_keywords.toLocaleString() ?? "—"}</b></span>
+      <span><small>New / 24h</small><b>{metrics?.overview.added_24h.toLocaleString() ?? "—"}</b></span>
+      <span><small>New / 7d</small><b>{metrics?.overview.added_7d.toLocaleString() ?? "—"}</b></span>
+      <span><small>Priority pending</small><b>{metrics?.overview.priority_pending.toLocaleString() ?? "—"}</b></span>
+      <span><small>Đề xuất</small><b>{metrics ? (metrics.feedback.suggested || 0).toLocaleString() : "—"}</b></span>
+      <span><small>Bỏ đề xuất</small><b>{metrics ? (metrics.feedback.blocked || 0).toLocaleString() : "—"}</b></span>
+    </div>
+
     {agents.length > 0 && <div className="rrugc-scout-machine-cards" aria-label="Scout metrics by machine">
       {(metrics?.items.filter(item => item.mode === "keyword") || []).map(item => {
         const agent = agents.find(row => row.id === item.agent_id);
-        const reviewRuns = recentRuns.filter(row => row.agent_id === item.agent_id && row.status === "completed");
         return <article key={item.agent_id + ":" + item.machine_label} className="rrugc-scout-machine-card">
           <header><strong>{item.machine_label}</strong><small>Keyword Scout · Last 7 days</small></header>
           <div className="rrugc-scout-machine-counts">
@@ -234,12 +242,27 @@ export function PinterestAutoScoutPanel({
             <span><small>Duplicates</small><b>{item.duplicate_pins.toLocaleString()}</b></span>
             <span><small>Errors</small><b>{item.errors.toLocaleString()}</b></span>
           </div>
-          <footer>Last report: {time(item.last_activity_at)} · {agent?.status || "Unpaired"}
-            {reviewRuns.length > 0 && <span> · Review refs (recent runs): {reviewRuns.reduce((total, row) => total + row.created_count, 0)}</span>}
-          </footer>
+          <footer>Last report: {time(item.last_activity_at)} · {agent?.status || "Unpaired"}</footer>
         </article>;
       })}
-      {agents.filter(agent => !metrics?.items.some(item => item.agent_id === agent.id && item.mode === "keyword")).map(agent =>
+      {(metrics?.review_items || []).map(item => {
+        const agent = agents.find(row => row.id === item.agent_id);
+        return <article key={"review:" + item.agent_id} className="rrugc-scout-machine-card">
+          <header>
+            <strong>{agent?.machine_label || agent?.name || item.agent_id}</strong>
+            <small>Review Scout · Last 7 days</small>
+          </header>
+          <div className="rrugc-scout-machine-counts">
+            <span><small>Pins submitted</small><b>{item.submitted.toLocaleString()}</b></span>
+            <span><small>New refs</small><b>{item.new_references.toLocaleString()}</b></span>
+            <span><small>Duplicates</small><b>{item.duplicates.toLocaleString()}</b></span>
+            <span><small>Runs</small><b>{item.runs.toLocaleString()}</b></span>
+            <span><small>Failed runs</small><b>{item.failed_runs.toLocaleString()}</b></span>
+          </div>
+          <footer>Last run: {time(item.last_activity_at)} · Aggregated by Scout Agent</footer>
+        </article>;
+      })}
+      {metrics && agents.filter(agent => !metrics.items.some(item => item.agent_id === agent.id && item.mode === "keyword")).map(agent =>
         <article key={agent.id} className="rrugc-scout-machine-card">
           <header><strong>{agent.machine_label || agent.name}</strong><small>Keyword Scout · Last 7 days</small></header>
           <p className="rrugc-scout-metrics-empty">No cycle metrics yet. Update and restart Keyword Scout v{MIN_SCOUT_CLIENT_VERSION} to enable reporting.</p>

@@ -224,6 +224,12 @@
 .rrugc-auto-scout-health.is-online{border-color:#cfe6d6;background:#f0faf3}
 .rrugc-auto-scout-health.is-offline{border-color:#e0e5ec;background:#f6f7f9}
 
+.rrugc-scout-keyword-summary{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:7px;width:100%;max-width:1240px}
+.rrugc-scout-keyword-summary span{display:grid;gap:3px;min-width:0;padding:9px 10px;border:1px solid #e0e7f0;border-radius:8px;background:#f9fbfd}
+.rrugc-scout-keyword-summary small{color:#7d8ca0;font-size:9px;white-space:nowrap}
+.rrugc-scout-keyword-summary b{font-size:15px;color:#365475;font-variant-numeric:tabular-nums}
+@media(max-width:1020px){.rrugc-scout-keyword-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:580px){.rrugc-scout-keyword-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* Machine-level telemetry, scoped to the actual reporting desktop. */
 .rrugc-scout-machine-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:9px;width:100%;max-width:1240px}
 .rrugc-scout-machine-card{min-width:0;padding:11px 12px;border:1px solid #dfe6ef;border-radius:10px;background:#fff}

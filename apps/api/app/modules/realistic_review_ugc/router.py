@@ -152,6 +152,7 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordVolumeFavoriteRequest,
     ScoutFeedbackRequest,
     ScoutFeedbackFinishRequest,
+    ScoutFeedbackLeaseRequest,
     ScoutMetricCycleRequest,
     KeywordSuggestionResponse,
     KeywordVolumeResolveRequest,
@@ -244,7 +245,7 @@ from app.modules.realistic_review_ugc.schema import (
 )
 from app.modules.realistic_review_ugc.scout_feedback import (
     update_feedback, statuses_for_rows, feedback_targets, blocked_targets,
-    claim_priority, finish_priority,
+    claim_priority, finish_priority, renew_priority,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -3866,10 +3867,33 @@ def list_scout_metrics(
         func.sum(metric.errors), func.max(metric.created_at),
     ).where(metric.tenant_id == tenant_id, metric.created_at >= last_week)
      .group_by(metric.agent_id, metric.machine_label, metric.mode)).all()
+    review = RrugcScoutRunModel
+    review_rows = session.execute(select(
+        review.agent_id,
+        func.sum(review.submitted_count), func.sum(review.created_count),
+        func.sum(review.existing_count), func.count(review.id),
+        func.sum(case((review.status.in_(("failed", "cancelled")), 1), else_=0)),
+        func.max(review.updated_at),
+    ).where(review.tenant_id == tenant_id, review.started_at >= last_week)
+     .group_by(review.agent_id)).all()
+    keyword_base = RrugcKeywordVolumeModel.tenant_id == tenant_id
+    now = datetime.now(timezone.utc)
+    keyword_total = session.scalar(select(func.count(RrugcKeywordVolumeModel.id)).where(keyword_base)) or 0
+    keyword_new_24h = session.scalar(select(func.count(RrugcKeywordVolumeModel.id)).where(
+        keyword_base, RrugcKeywordVolumeModel.created_at >= now - timedelta(hours=24)
+    )) or 0
+    keyword_new_7d = session.scalar(select(func.count(RrugcKeywordVolumeModel.id)).where(
+        keyword_base, RrugcKeywordVolumeModel.created_at >= last_week
+    )) or 0
     fb = session.execute(select(
         RrugcScoutFeedbackModel.status, func.count(RrugcScoutFeedbackModel.id)
     ).where(RrugcScoutFeedbackModel.tenant_id == tenant_id)
      .group_by(RrugcScoutFeedbackModel.status)).all()
+    pending_priority = session.scalar(select(func.count(RrugcScoutFeedbackModel.id)).where(
+        RrugcScoutFeedbackModel.tenant_id == tenant_id,
+        RrugcScoutFeedbackModel.status == "suggested",
+        RrugcScoutFeedbackModel.processed_at.is_(None),
+    )) or 0
     return {
         "items": [
             {"agent_id": r[0], "machine_label": r[1], "mode": r[2],
@@ -3878,6 +3902,23 @@ def list_scout_metrics(
              "errors": int(r[7] or 0), "last_activity_at": r[8]}
             for r in rows
         ],
+        "review_items": [
+            {
+                "agent_id": r[0],
+                "submitted": int(r[1] or 0),
+                "new_references": int(r[2] or 0),
+                "duplicates": int(r[3] or 0),
+                "runs": int(r[4] or 0),
+                "failed_runs": int(r[5] or 0),
+                "last_activity_at": r[6],
+            } for r in review_rows
+        ],
+        "overview": {
+            "total_keywords": int(keyword_total),
+            "added_24h": int(keyword_new_24h),
+            "added_7d": int(keyword_new_7d),
+            "priority_pending": int(pending_priority),
+        },
         "feedback": {status: int(count) for status, count in fb},
         "period": "7d",
     }
@@ -3907,7 +3948,9 @@ def set_keyword_analysis_pick(
     row.picked_by_user_id = principal.user_id if request.picked else None
     session.commit()
     session.refresh(row)
-    return _keyword_volume_response(row)
+    return _keyword_volume_response(
+        row, statuses_for_rows(session, principal.active_tenant_id, [row]),
+    )
 
 
 @router.patch(
@@ -3934,7 +3977,9 @@ def set_keyword_analysis_favorite(
     row.favorite_by_user_id = principal.user_id if request.favorite else None
     session.commit()
     session.refresh(row)
-    return _keyword_volume_response(row)
+    return _keyword_volume_response(
+        row, statuses_for_rows(session, principal.active_tenant_id, [row]),
+    )
 
 
 @router.post(
@@ -4052,6 +4097,19 @@ def claim_keyword_scout_priority(
     token = _bearer_token(authorization)
     agent = RrugcAutoScoutService(session).authenticate_agent(agent_id=agent_id, raw_token=token)
     return {"task": claim_priority(session, agent.tenant_id, agent_id)}
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/priority/renew")
+def renew_keyword_scout_priority(
+    agent_id: str, request: ScoutFeedbackLeaseRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    agent = RrugcAutoScoutService(session).authenticate_agent(agent_id=agent_id, raw_token=token)
+    if not renew_priority(session, agent.tenant_id, agent_id, request.id, request.lease_token):
+        raise HTTPException(status_code=409, detail="Priority task lease is no longer assigned to this Scout.")
+    return {"ok": True}
 
 
 @router.post("/scout-agents/{agent_id}/keyword-analysis/priority/complete")

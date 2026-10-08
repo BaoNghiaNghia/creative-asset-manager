@@ -475,6 +475,11 @@ class ScoutFeedbackRequest(BaseModel):
     scope: Literal["keyword", "pin", "both"] = "both"
 
 
+class ScoutFeedbackLeaseRequest(BaseModel):
+    id: str = Field(min_length=36, max_length=36)
+    lease_token: str = Field(min_length=36, max_length=36)
+
+
 class ScoutFeedbackFinishRequest(BaseModel):
     lease_token: str = Field(min_length=36, max_length=36)
     id: str = Field(min_length=36, max_length=36)

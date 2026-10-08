@@ -1254,7 +1254,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v44")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v45")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v46")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v47")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v47")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v48")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 

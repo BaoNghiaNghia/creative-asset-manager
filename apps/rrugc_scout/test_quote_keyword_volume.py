@@ -48,6 +48,14 @@ def test_blocked_keyword_is_not_sent_to_aebrowse():
     asyncio.run(exercise())
 
 
+def test_priority_pin_requires_its_own_success_not_unrelated_scans():
+    complete = keyword_scout._priority_task_success
+    assert complete({"type": "pin"}, processed=30, priority_pin_expanded=False) is False
+    assert complete({"type": "pin"}, processed=0, priority_pin_expanded=True) is True
+    assert complete({"type": "keyword"}, processed=0, priority_pin_expanded=True) is False
+    assert complete({"type": "keyword"}, processed=1, priority_pin_expanded=False) is True
+
+
 def test_keyword_supervisor_stops_and_reports_after_restart_limit(monkeypatch):
     calls = 0
     reports = []

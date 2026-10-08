@@ -251,6 +251,15 @@ export const setKeywordScoutFeedback = (keywordId: string, action: ScoutFeedback
 export const listScoutMetrics = (signal?: AbortSignal) =>
   request<{
     items: Array<{ agent_id: string; machine_label: string; mode: "keyword" | "review"; scanned_pins: number; found_quotes: number; new_keywords: number; duplicate_pins: number; errors: number; last_activity_at: string | null }>;
+    review_items: Array<{
+      agent_id: string; submitted: number; new_references: number;
+      duplicates: number; runs: number; failed_runs: number;
+      last_activity_at: string | null;
+    }>;
+    overview: {
+      total_keywords: number; added_24h: number; added_7d: number;
+      priority_pending: number;
+    };
     feedback: { suggested?: number; blocked?: number };
     period: string;
   }>("/api/v1/realistic-review-ugc/scout-metrics", { signal });
