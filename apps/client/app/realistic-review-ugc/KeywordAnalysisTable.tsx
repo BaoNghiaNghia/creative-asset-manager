@@ -582,7 +582,7 @@ export function KeywordAnalysisTable({
                   <small>{providerLabel(item.provider)} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
                 </button>
                 {(item.scout_keyword_feedback === "blocked" || item.scout_pin_feedback === "blocked") ?
-                  <span className="rrugc-scout-feedback-state is-blocked">Bỏ đề xuất</span> :
+                  <span className="rrugc-scout-feedback-state is-blocked">Bỏ đề xuất · Ẩn sau 10 giây</span> :
                  (item.scout_keyword_feedback === "suggested" || item.scout_pin_feedback === "suggested") ?
                   <span className="rrugc-scout-feedback-state is-suggested">Đã đề xuất</span> : null}
                 <div className="rrugc-scout-feedback-actions" role="group" aria-label={"Scout feedback: " + item.keyword}>

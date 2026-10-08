@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -3587,6 +3587,26 @@ def list_keyword_analysis(
     base_conditions = [
         RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id
     ]
+    # Feedback is reversible during the first 10 seconds, then omitted from
+    # every Stage 0 view (search, filters, counts and pagination). Persisting
+    # this in the query prevents a reload from resurrecting rejected rows.
+    hidden_cutoff = datetime.now(timezone.utc) - timedelta(seconds=10)
+    hidden_by_feedback = select(RrugcScoutFeedbackModel.id).where(
+        RrugcScoutFeedbackModel.tenant_id == RrugcKeywordVolumeModel.tenant_id,
+        RrugcScoutFeedbackModel.status == "blocked",
+        RrugcScoutFeedbackModel.updated_at <= hidden_cutoff,
+        or_(
+            and_(
+                RrugcScoutFeedbackModel.target_type == "keyword",
+                RrugcScoutFeedbackModel.target_key == RrugcKeywordVolumeModel.keyword_normalized,
+            ),
+            and_(
+                RrugcScoutFeedbackModel.target_type == "pin",
+                RrugcScoutFeedbackModel.target_key == RrugcKeywordVolumeModel.source_pin_url,
+            ),
+        ),
+    ).correlate(RrugcKeywordVolumeModel).exists()
+    base_conditions.append(~hidden_by_feedback)
     clean_query = query.strip()
     if clean_query:
         base_conditions.append(

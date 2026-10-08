@@ -87,6 +87,28 @@ BROWSER_FALLBACK_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 KEYWORD_QUOTE_MIN_PRIORITY_SCORE = 0.60
 KEYWORD_QUOTE_HIGH_PRIORITY_SCORE = 0.85
 KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS = 180
+# Manual feedback is an exploration hint, not a replacement for hat discovery.
+KEYWORD_SUGGESTION_EVERY_N_CYCLES = 5
+KEYWORD_SUGGESTION_HAT_CONTEXTS = (
+    "trucker hat",
+    "embroidered cap",
+    "baseball cap with saying",
+    "trucker hat embroidery",
+)
+
+
+def _should_claim_suggested_task(cycle_number: int) -> bool:
+    return cycle_number > 0 and cycle_number % KEYWORD_SUGGESTION_EVERY_N_CYCLES == 0
+
+
+def _suggested_hat_search_query(keyword: str, assisted_cycle: int) -> str:
+    """Search for cap products inspired by the phrase, not bare text Pins."""
+    phrase = _clean_keyword(keyword)[:120]
+    if not phrase:
+        return DEFAULT_PINTEREST_QUERY
+    suffix = KEYWORD_SUGGESTION_HAT_CONTEXTS[assisted_cycle % len(KEYWORD_SUGGESTION_HAT_CONTEXTS)]
+    return f"{phrase} {suffix}"
+
 
 
 def _keywords_from_file(path: str | None) -> list[str]:
@@ -1611,10 +1633,12 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             )
 
     priority_task: dict[str, Any] | None = None
+    cycle_number = 0
     try:
         await ensure_keyword_startup_login()
 
         while True:
+            cycle_number += 1
             cycle_id = str(uuid4())
             priority_task: dict[str, Any] | None = None
             try:
@@ -1641,8 +1665,14 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     feedback_synced_at = time.monotonic()
 
                 await _flush_pending_quote_volumes(client, history, blocked_keywords)
-                priority_task = await client.claim_feedback_task()
-                current_query = str(priority_task.get("keyword") or args.seed_query) if priority_task else args.seed_query
+                # Four baseline cycles for every one assisted exploration cycle.
+                assisted_cycle = cycle_number // KEYWORD_SUGGESTION_EVERY_N_CYCLES
+                if _should_claim_suggested_task(cycle_number):
+                    priority_task = await client.claim_feedback_task()
+                current_query = (
+                    _suggested_hat_search_query(str(priority_task.get("keyword") or ""), assisted_cycle)
+                    if priority_task else args.seed_query
+                )
                 priority_pin = (
                     Candidate(pin_url=priority_task["pin_url"], image_url=priority_task.get("image_url") or "")
                     if priority_task and priority_task.get("type") == "pin"
@@ -1675,7 +1705,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
                 scout_debug_event(
                     "keyword_scout_cycle_started",
-                    query=args.seed_query,
+                    query=current_query,
+                    discovery_lane="suggested_hat_context" if priority_task else "baseline",
+                    suggested_keyword=str(priority_task.get("keyword") or "") if priority_task else None,
                     initial_dwell_ms=initial_dwell,
                     seen_pins=len(history.seen_pins),
                     seen_quotes=len(history.seen_quotes),
@@ -2342,7 +2374,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     )
                 scout_debug_event(
                     "keyword_scout_cycle_completed",
-                    query=args.seed_query,
+                    query=current_query,
+                    discovery_lane="suggested_hat_context" if priority_task else "baseline",
                     processed=processed,
                     related_scanned=related_scanned,
                     related_fresh=related_fresh,

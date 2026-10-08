@@ -48,6 +48,17 @@ def test_blocked_keyword_is_not_sent_to_aebrowse():
     asyncio.run(exercise())
 
 
+def test_suggested_feedback_remains_hat_context_and_a_minor_discovery_lane():
+    assert [cycle for cycle in range(1, 21) if keyword_scout._should_claim_suggested_task(cycle)] == [5, 10, 15, 20]
+    assert keyword_scout._suggested_hat_search_query("Houston Astros", 0) == "Houston Astros trucker hat"
+    assert keyword_scout._suggested_hat_search_query("Morgan Wallen", 1) == "Morgan Wallen embroidered cap"
+    assert keyword_scout._suggested_hat_search_query("", 3) == DEFAULT_PINTEREST_QUERY
+    for iteration in range(8):
+        search = keyword_scout._suggested_hat_search_query("Wild West", iteration).lower()
+        assert "wild west" in search
+        assert "hat" in search or "cap" in search
+
+
 def test_priority_pin_requires_its_own_success_not_unrelated_scans():
     complete = keyword_scout._priority_task_success
     assert complete({"type": "pin"}, processed=30, priority_pin_expanded=False) is False

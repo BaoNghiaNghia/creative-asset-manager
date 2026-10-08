@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -144,6 +144,11 @@ export function RealisticReviewUgcPage() {
   const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
   const [keywordFavoritingIds, setKeywordFavoritingIds] = useState<Set<string>>(new Set());
   const [keywordFeedbackIds, setKeywordFeedbackIds] = useState<Set<string>>(new Set());
+  const keywordRejectTimers = useRef<Map<string, number>>(new Map());
+  useEffect(() => () => {
+    for (const timer of keywordRejectTimers.current.values()) window.clearTimeout(timer);
+    keywordRejectTimers.current.clear();
+  }, []);
   const [keywordLoading, setKeywordLoading] = useState(true);
   const [embroideryPage, setEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [embroideryPageNumber, setEmbroideryPageNumber] = useState(1);
@@ -263,6 +268,24 @@ export function RealisticReviewUgcPage() {
         ...current,
         items: current.items.map(item => item.id === updated.id ? updated : item),
       }));
+      const previousTimer = keywordRejectTimers.current.get(keywordId);
+      if (previousTimer !== undefined) window.clearTimeout(previousTimer);
+      keywordRejectTimers.current.delete(keywordId);
+      if (action === "blocked") {
+        // Match the server's 10-second grace period. This keeps the UI
+        // responsive even when the 5-second Stage 0 poll is delayed.
+        const timer = window.setTimeout(() => {
+          keywordRejectTimers.current.delete(keywordId);
+          setKeywordPage(current => ({
+            ...current,
+            items: current.items.filter(item => item.id !== keywordId),
+            total: Math.max(0, current.total - (current.items.some(item => item.id === keywordId) ? 1 : 0)),
+          }));
+          // The existing Stage 0 polling will replenish the correct page
+          // without a stale request from the click-time filter closure.
+        }, 10_100);
+        keywordRejectTimers.current.set(keywordId, timer);
+      }
       await refreshKeywordAnalysis();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to update Scout feedback.");

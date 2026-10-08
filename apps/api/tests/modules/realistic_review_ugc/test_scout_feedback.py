@@ -114,3 +114,45 @@ def test_keyword_and_pin_feedback_are_independently_reversible():
             assert again is not None and again["id"] == claim["id"]
     finally:
         engine.dispose()
+
+def test_blocked_keyword_disappears_from_stage0_only_after_grace_period():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc.router import list_keyword_analysis
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    RrugcKeywordVolumeModel.__table__.create(engine)
+    RrugcScoutFeedbackModel.__table__.create(engine)
+    try:
+        with Session(engine) as session:
+            row = RrugcKeywordVolumeModel(
+                tenant_id="tenant-a", keyword="Houston Astros",
+                keyword_normalized="houston astros",
+                source_pin_url="https://www.pinterest.com/pin/123/",
+            )
+            session.add(row)
+            session.commit()
+
+            def visible_rows():
+                return list_keyword_analysis(
+                    page=1, page_size=20, query="", usage="all", tail="all",
+                    favorites_only=False, sort_by="search_volume", sort_dir="desc",
+                    session=session,
+                    principal=SimpleNamespace(active_tenant_id="tenant-a"),
+                )
+
+            assert visible_rows().total == 1
+            update_feedback(session, row, "blocked", "keyword", "user-a")
+            session.commit()
+            assert visible_rows().total == 1
+            record = session.query(RrugcScoutFeedbackModel).one()
+            record.updated_at = datetime.now(timezone.utc) - timedelta(seconds=11)
+            session.commit()
+            result = visible_rows()
+            assert result.total == 0 and result.overview.total_keywords == 0
+            assert result.items == []
+            update_feedback(session, row, "neutral", "keyword", "user-a")
+            session.commit()
+            assert visible_rows().total == 1
+    finally:
+        engine.dispose()
