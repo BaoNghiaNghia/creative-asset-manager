@@ -342,7 +342,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">" + GLOBAL_OVERVIEW.source_images + "<");
   });
 
-  it("renders the new Stage 1 embroidery-to-13-colors workspace", () => {
+  it("renders the Stage 2 embroidery-to-13-colors workspace", () => {
     const plan = makePlan();
     plan.source_name = "embroidery_bad-day-hotdog.png";
     plan.source_relative_path = "Designs/embroidery_bad-day-hotdog.png";
@@ -374,7 +374,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         onPageSizeChange={() => undefined}
       />,
     );
-    expect(markup).toContain('aria-label="Stage 1 rows per page"');
+    expect(markup).toContain('aria-label="Stage 2 rows per page"');
     for (const size of [20, 50, 100, 500]) {
       expect(markup).toContain(`<option value="${size}"`);
     }
@@ -431,7 +431,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Generate selected");
     expect(markup).not.toContain("Manage skills");
     expect(markup).toContain("Page 1 / 1");
-    expect(markup).toContain('aria-label="Stage 3 rows per page"');
+    expect(markup).toContain('aria-label="Stage 4 rows per page"');
     expect(markup).toContain("1–1 of 1");
   });
 
@@ -518,7 +518,7 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
     expect(markup).toContain('role="dialog"');
-    expect(markup).toContain("STAGE 2 REFERENCE PREVIEW");
+    expect(markup).toContain("STAGE 3 REFERENCE PREVIEW");
     expect(markup).toContain("3 images · 1 selected");
     expect(markup).toContain("rrugc-stage2-reference-review-card");
     expect(markup).toContain("rrugc-stage2-review-toggle");
@@ -590,7 +590,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders only Stage 0 through Stage 4 as accessible workflow tabs with global management actions", () => {
+  it("renders Stage 0 through Stage 5 as accessible workflow tabs with global management actions", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
     expect(markup).toContain('aria-label="Realistic Review UGC sections"');
@@ -599,6 +599,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('id="rrugc-tab-stage2"');
     expect(markup).toContain('id="rrugc-tab-stage3"');
     expect(markup).toContain('id="rrugc-tab-stage4"');
+    expect(markup).toContain('id="rrugc-tab-stage5"');
     expect(markup).not.toContain('id="rrugc-tab-settings"');
     expect(markup).toContain("Analysis Keyword");
     expect(markup).toContain("Embroidery → 13 Colors");
@@ -613,12 +614,15 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('id="rrugc-panel-stage2"');
     expect(markup).toContain('id="rrugc-panel-stage3"');
     expect(markup).toContain('id="rrugc-panel-stage4"');
+    expect(markup).toContain('id="rrugc-panel-stage5"');
     expect(markup).not.toContain('id="rrugc-panel-settings"');
     expect(markup.indexOf('id="rrugc-tab-stage0"')).toBeLessThan(markup.indexOf('id="rrugc-tab-stage1"'));
 
     const stage1Start = markup.indexOf('id="rrugc-panel-stage1"');
     const stage2Start = markup.indexOf('id="rrugc-panel-stage2"');
-    expect(markup.slice(stage1Start, stage2Start)).toContain("Embroidery design → 13 colorways");
+    expect(markup.slice(stage1Start, stage2Start)).toContain("Generate images from used keywords");
+    const stage3Start = markup.indexOf('id="rrugc-panel-stage3"');
+    expect(markup.slice(stage2Start, stage3Start)).toContain("Embroidery design → 13 colorways");
     expect(markup).not.toContain('aria-label="Pinterest Auto Scout"');
     expect(markup).toContain("hidden");
   });

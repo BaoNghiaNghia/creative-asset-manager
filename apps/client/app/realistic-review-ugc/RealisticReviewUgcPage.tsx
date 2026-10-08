@@ -31,6 +31,7 @@ import { SkillManagerModal } from "./SkillManagerModal";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { SearchIntelligencePanel } from "./SearchIntelligencePanel";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
+import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
@@ -97,14 +98,15 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
   },
 };
 
-type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4";
+type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
 
 const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
   { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
-  { id: "stage1", label: "Stage 1", description: "Embroidery → 13 Colors", marker: "1" },
-  { id: "stage2", label: "Stage 2", description: "Pinterest References", marker: "2" },
-  { id: "stage3", label: "Stage 3", description: "Image Generation", marker: "3" },
-  { id: "stage4", label: "Stage 4", description: "UGC Review", marker: "4" },
+  { id: "stage1", label: "Stage 1", description: "Keyword Image Generation", marker: "1" },
+  { id: "stage2", label: "Stage 2", description: "Embroidery → 13 Colors", marker: "2" },
+  { id: "stage3", label: "Stage 3", description: "Pinterest References", marker: "3" },
+  { id: "stage4", label: "Stage 4", description: "Image Generation", marker: "4" },
+  { id: "stage5", label: "Stage 5", description: "UGC Review", marker: "5" },
 ];
 
 export function sourcePlanPageRenderFingerprint(page: SourcePlanPage): string {
@@ -191,8 +193,8 @@ export function RealisticReviewUgcPage() {
   const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillCatalogRevision, setSkillCatalogRevision] = useState(0);
-  const groupsStageActive = activeStage === "stage2" || activeStage === "stage3";
-  const activeSourceQuery = activeStage === "stage3" ? debouncedStage3Query : debouncedSourceQuery;
+  const groupsStageActive = activeStage === "stage3" || activeStage === "stage4";
+  const activeSourceQuery = activeStage === "stage4" ? debouncedStage3Query : debouncedSourceQuery;
   const visibleStage2SourcePlanIds = useMemo(
     () => Array.from(new Set(
       sourcePage.items.flatMap(plan => [
@@ -676,7 +678,7 @@ export function RealisticReviewUgcPage() {
   }, [keywordPage.total, keywordPageNumber, keywordPageSize, keywordLoading]);
 
   useEffect(() => {
-    if (activeStage !== "stage1") return;
+    if (activeStage !== "stage2") return;
     const controller = new AbortController();
     let refreshInFlight = true;
     setEmbroideryLoading(true);
@@ -739,7 +741,7 @@ export function RealisticReviewUgcPage() {
   }, [groupsStageActive, activeStage, sourcePageNumber, sourcePageSize, activeSourceQuery, sourceSortBy, sourceSortDirection]);
 
   useEffect(() => {
-    if (activeStage !== "stage3") return;
+    if (activeStage !== "stage4") return;
     const controller = new AbortController();
     let refreshInFlight = true;
     void refreshStage2Jobs(controller.signal)
@@ -767,7 +769,7 @@ export function RealisticReviewUgcPage() {
   }, [activeStage, visibleStage2SourcePlanIdsKey]);
 
   useEffect(() => {
-    if (activeStage !== "stage4") return;
+    if (activeStage !== "stage5") return;
     const controller = new AbortController();
     let refreshInFlight = true;
     setStage3Loading(true);
@@ -797,7 +799,7 @@ export function RealisticReviewUgcPage() {
   }, [activeStage]);
 
   function selectStage(nextStage: RrugcStageTab) {
-    if (nextStage === "stage2" || nextStage === "stage3") {
+    if (nextStage === "stage3" || nextStage === "stage4") {
       setSourcePageNumber(1);
       setSourcePageLoading(true);
     }
@@ -828,7 +830,7 @@ export function RealisticReviewUgcPage() {
       <WorkspacePageHeader
         className="rrugc-header"
         route="realistic-review-ugc"
-        description="Analyze keyword demand, prepare embroidery designs across 13 hat colors, discover Pinterest references, generate UGC images, then build review-ready outputs."
+        description="Analyze keyword demand, generate artwork for used quotes, prepare 13 cap colorways, discover Pinterest references, generate UGC images, and publish review-ready outputs."
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}
         actions={<div className="rrugc-global-management-actions">
           <button
@@ -954,8 +956,19 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage1" ? 0 : -1}
           hidden={activeStage !== "stage1"}
         >
+          <KeywordImageStage active={activeStage === "stage1"} skillCatalogRevision={skillCatalogRevision} onManageSkills={() => setSkillManagerOpen(true)} />
+        </section>
+
+        <section
+          id="rrugc-panel-stage2"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-stage2"
+          tabIndex={activeStage === "stage2" ? 0 : -1}
+          hidden={activeStage !== "stage2"}
+        >
           <EmbroideryColorwayStage
-            active={activeStage === "stage1"}
+            active={activeStage === "stage2"}
             skillCatalogRevision={skillCatalogRevision}
             data={embroideryPage}
             loading={embroideryLoading}
@@ -977,12 +990,12 @@ export function RealisticReviewUgcPage() {
         </section>
 
         <section
-          id="rrugc-panel-stage2"
+          id="rrugc-panel-stage3"
           className="rrugc-stage-panel"
           role="tabpanel"
-          aria-labelledby="rrugc-tab-stage2"
-          tabIndex={activeStage === "stage2" ? 0 : -1}
-          hidden={activeStage !== "stage2"}
+          aria-labelledby="rrugc-tab-stage3"
+          tabIndex={activeStage === "stage3" ? 0 : -1}
+          hidden={activeStage !== "stage3"}
         >
           <SourcePlanTable
             plans={sourcePage.items}
@@ -1023,12 +1036,12 @@ export function RealisticReviewUgcPage() {
         </section>
 
         <section
-          id="rrugc-panel-stage3"
+          id="rrugc-panel-stage4"
           className="rrugc-stage-panel"
           role="tabpanel"
-          aria-labelledby="rrugc-tab-stage3"
-          tabIndex={activeStage === "stage3" ? 0 : -1}
-          hidden={activeStage !== "stage3"}
+          aria-labelledby="rrugc-tab-stage4"
+          tabIndex={activeStage === "stage4" ? 0 : -1}
+          hidden={activeStage !== "stage4"}
         >
           <Stage2JobTable
             plans={sourcePage.items}
@@ -1060,12 +1073,12 @@ export function RealisticReviewUgcPage() {
         </section>
 
         <section
-          id="rrugc-panel-stage4"
+          id="rrugc-panel-stage5"
           className="rrugc-stage-panel"
           role="tabpanel"
-          aria-labelledby="rrugc-tab-stage4"
-          tabIndex={activeStage === "stage4" ? 0 : -1}
-          hidden={activeStage !== "stage4"}
+          aria-labelledby="rrugc-tab-stage5"
+          tabIndex={activeStage === "stage5" ? 0 : -1}
+          hidden={activeStage !== "stage5"}
         >
           <Stage3ReviewGroups
             data={stage3Groups}

@@ -872,6 +872,45 @@ class Stage2SkillDefaultVersionRequest(BaseModel):
     version: str = Field(min_length=1, max_length=64)
 
 
+
+class KeywordImageCreateRequest(BaseModel):
+    skill_source: Literal["local", "openai"] | None = None
+    skill_id: str | None = Field(default=None, max_length=255)
+    skill_name: str | None = Field(default=None, max_length=128)
+    skill_version: str | None = Field(default=None, max_length=64)
+    prompt: str | None = Field(default=None, max_length=4000)
+
+
+class KeywordImageRowResponse(BaseModel):
+    keyword_id: str
+    keyword: str
+    search_volume: int
+    source_image_url: str | None = None
+    status: Literal["not_run", "queued", "running", "completed", "failed"]
+    job_id: str | None = None
+    skill_name: str | None = None
+    skill_version: str | None = None
+    retry_count: int = 0
+    attempt_count: int = 0
+    max_attempts: int = 3
+    error_code: str | None = None
+    error_message: str | None = None
+    output_url: str | None = None
+    updated_at: str | None = None
+
+
+class KeywordImagePageResponse(BaseModel):
+    items: list[KeywordImageRowResponse]
+    total: int
+    page: int
+    page_size: int
+    overview: dict[str, int]
+
+
+class KeywordImageQueuedResponse(BaseModel):
+    created: bool
+    job: KeywordImageRowResponse
+
 class Stage2JobCreateRequest(BaseModel):
     selected_candidate_ids: list[str] = Field(min_length=1, max_length=3)
     skill_source: Literal["local", "openai"] | None = None

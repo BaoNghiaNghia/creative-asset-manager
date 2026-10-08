@@ -571,7 +571,7 @@ export function SourcePlanTable({
   return <section id="rrugc-source-plans" className="rrugc-card rrugc-source-plans">
     <RrugcStageHeader
       className="rrugc-source-plans-heading"
-      kicker="STAGE 2 · DRIVE → AI CONTEXT → PINTEREST"
+      kicker="STAGE 3 · DRIVE → AI CONTEXT → PINTEREST"
       title="Embroidery source → Pinterest refs"
       description="New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool."
       actions={<div className="rrugc-source-plan-heading-actions">
@@ -593,12 +593,12 @@ export function SourcePlanTable({
     <div className="rrugc-source-plan-toolbar rrugc-source-plan-toolbar-server">
       <div className="rrugc-source-plan-search">
         <RrugcSmartSearchInput
-          stageId="stage2"
+          stageId="stage3"
           query={query}
           onQueryChange={onQueryChange}
           suggestions={searchSuggestions}
           placeholder="Search source file, folder, or Pinterest query…"
-          label="Search Stage 2 source plans"
+          label="Search Stage 3 source plans"
         />
       </div>
       <div className="rrugc-source-plan-sort" role="group" aria-label="Sort source plans">

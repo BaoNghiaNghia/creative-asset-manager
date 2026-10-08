@@ -21,7 +21,9 @@
   "sources": [],
   "folders": {},
   "apiRoutes": [
-    {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"items":[],"skills":[],"default_skill_id":null}},
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"openai_configured":false,"openai_status":"not_configured","error_code":null,"items":[{"source":"local","skill_id":null,"skill_name":"gatorhats-8869-image-studio","display_name":"GatorHats 8869 Image Studio","description":"Generate cap artwork","default_version":"1.0","latest_version":"1.0","local_version":"1.0","synced_version":"1.0","ready":true,"sync_state":"ready","version_options":["1.0"]}]}},
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/keyword-images","body":{"items":[{"keyword_id":"qa-keyword-mid","keyword":"Bad Day To Be A Hotdog","search_volume":2100,"source_image_url":null,"status":"not_run","job_id":null,"skill_name":null,"skill_version":null,"retry_count":0,"attempt_count":0,"max_attempts":3,"error_code":null,"error_message":null,"output_url":null,"updated_at":null},{"keyword_id":"qa-used-2","keyword":"Keep On Truckin","search_volume":1250,"source_image_url":null,"status":"queued","job_id":"qa-job-2","skill_name":"gatorhats-8869-image-studio","skill_version":"1.0","retry_count":0,"attempt_count":0,"max_attempts":3,"error_code":null,"error_message":null,"output_url":null,"updated_at":null},{"keyword_id":"qa-used-3","keyword":"Houston Astros Hats","search_volume":950,"source_image_url":null,"status":"failed","job_id":"qa-job-3","skill_name":"gatorhats-8869-image-studio","skill_version":"1.0","retry_count":1,"attempt_count":3,"max_attempts":3,"error_code":"codex_image_timeout","error_message":"Image generation exceeded time limit","output_url":null,"updated_at":null}],"page":1,"page_size":20,"total":3,"overview":{"not_run":1,"queued":1,"running":0,"completed":0,"failed":1}}},
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/keyword-analysis/search-intelligence","body":{"total_queries":0,"cycles_completed":0,"new_keywords":0,"duplicate_pins":0,"active_leases":0,"lanes":[],"recent":[]}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/keyword-analysis/suggestions","body":[{"keyword":"Houston Astros","search_volume":4400,"favorite":true,"picked":false},{"keyword":"Houston Astros Trucker Hat","search_volume":900,"favorite":false,"picked":false}]},
     {
       "method": "GET",
@@ -35,7 +37,7 @@
         "page": 1,
         "page_size": 20,
         "total": 3,
-        "overview": {"total_keywords":3,"total_search_volume":7480,"high_competition":1,"zero_volume":0,"short_tail_keywords":1,"mid_tail_keywords":0,"long_tail_keywords":2,"picked_keywords":1,"favorite_keywords":1}
+        "overview": {"total_keywords":3,"total_search_volume":7480,"high_competition":1,"zero_volume":0,"short_tail_keywords":1,"mid_tail_keywords":0,"long_tail_keywords":2,"picked_keywords":1,"favorite_keywords":1,"suggested_keywords":0}
       }
     },
     {

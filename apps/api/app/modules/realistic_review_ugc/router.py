@@ -62,6 +62,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcScoutFeedbackModel,
     RrugcScoutMetricCycleModel,
     RrugcStage2JobModel,
+    RrugcKeywordImageJobModel,
     RrugcStage3AnalysisModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
@@ -236,6 +237,8 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2SkillEnabledRequest,
     Stage2SkillDefaultVersionRequest,
     Stage2JobCreateRequest,
+    KeywordImageCreateRequest,
+    KeywordImagePageResponse,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
     Stage2JobsCancelledResponse,
@@ -288,6 +291,7 @@ from app.modules.realistic_review_ugc.stage2 import (
     RrugcStage2Service,
     STAGE2_CANCEL_GRACE_SECONDS,
 )
+from app.modules.realistic_review_ugc.keyword_images import KeywordImageService, KeywordImageError
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
@@ -4869,6 +4873,153 @@ def sync_stage2_skill(
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     return _stage2_skill(item)
+
+
+@router.get("/keyword-images", response_model=KeywordImagePageResponse)
+def list_keyword_images(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q: str = Query(default="", max_length=150),
+    status: str = Query(default="all", pattern="^(all|not_run|queued|running|completed|failed)$"),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    return KeywordImageService(session).list_used(
+        tenant_id=principal.active_tenant_id,
+        page=page, page_size=page_size, q=q, status=status,
+    )
+
+
+
+@router.post("/keyword-images/batch", status_code=202)
+def queue_keyword_images_batch(
+    request: KeywordImageCreateRequest,
+    limit: int = Query(default=50, ge=1, le=100),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Queue used keywords without a job; idempotently skip finished/active work."""
+    tenant_id = principal.active_tenant_id
+    keyword_ids = list(session.scalars(
+        select(RrugcKeywordVolumeModel.id).outerjoin(
+            RrugcKeywordImageJobModel,
+            (RrugcKeywordImageJobModel.keyword_id == RrugcKeywordVolumeModel.id)
+            & (RrugcKeywordImageJobModel.tenant_id == tenant_id),
+        ).where(
+            RrugcKeywordVolumeModel.tenant_id == tenant_id,
+            RrugcKeywordVolumeModel.picked.is_(True),
+            RrugcKeywordImageJobModel.id.is_(None),
+        ).order_by(RrugcKeywordVolumeModel.search_volume.desc(), RrugcKeywordVolumeModel.id)
+        .limit(limit),
+    ))
+    queued = 0
+    for keyword_id in keyword_ids:
+        try:
+            _, created = KeywordImageService(session).queue(
+                tenant_id=tenant_id, user_id=principal.user_id, keyword_id=keyword_id,
+                skill_source=request.skill_source, skill_id=request.skill_id,
+                skill_name=request.skill_name, skill_version=request.skill_version,
+                prompt=request.prompt,
+            )
+        except KeywordImageError as exc:
+            raise HTTPException(status_code=exc.status_code,
+                                detail={"code": exc.code, "message": exc.message}) from exc
+        if created:
+            queued += 1
+    remaining = int(session.scalar(select(func.count(RrugcKeywordVolumeModel.id)).outerjoin(
+        RrugcKeywordImageJobModel,
+        (RrugcKeywordImageJobModel.keyword_id == RrugcKeywordVolumeModel.id)
+        & (RrugcKeywordImageJobModel.tenant_id == tenant_id),
+    ).where(
+        RrugcKeywordVolumeModel.tenant_id == tenant_id,
+        RrugcKeywordVolumeModel.picked.is_(True),
+        RrugcKeywordImageJobModel.id.is_(None),
+    )) or 0)
+    return {"queued": queued, "remaining": remaining}
+
+
+@router.post("/keyword-images/{keyword_id}", status_code=202)
+def create_keyword_image(
+    keyword_id: str,
+    request: KeywordImageCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row, created = KeywordImageService(session).queue(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            keyword_id=keyword_id,
+            skill_source=request.skill_source,
+            skill_id=request.skill_id,
+            skill_name=request.skill_name,
+            skill_version=request.skill_version,
+            prompt=request.prompt,
+        )
+    except KeywordImageError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {"created": created, "job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
+
+
+@router.post("/keyword-images/{keyword_id}/retry", status_code=202)
+def retry_keyword_image(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = KeywordImageService(session).retry(
+            tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
+        )
+    except KeywordImageError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {"job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
+
+
+@router.get("/keyword-images/jobs/{job_id}/output")
+async def keyword_image_output(
+    job_id: str,
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=256, ge=128, le=1024),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    row = session.scalar(select(RrugcKeywordImageJobModel).where(
+        RrugcKeywordImageJobModel.id == job_id,
+        RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword generation not found")
+    if row.status != "completed" or not row.output_remote_file_id:
+        raise HTTPException(status_code=409, detail="Keyword generation is not ready")
+    remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
+    session.close()
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail="Managed storage is unavailable")
+    if thumbnail:
+        compact = await _managed_drive_thumbnail_response(
+            storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
+            size_pixels=size, cache_control="private, max-age=3600",
+            cache_version=job_id + ":" + remote_id,
+        )
+        if compact is not None:
+            return compact
+    try:
+        stream = await storage.open_asset(OpenStoredAssetInput(
+            tenant_id=principal.active_tenant_id, asset_id="rrugc-keyword-image:" + job_id,
+            remote_file_id=remote_id, content_type=content_type, size_bytes=size_bytes,
+        ))
+    except StorageProviderError as exc:
+        raise HTTPException(status_code=503 if exc.retryable else 502,
+                            detail={"code": exc.code, "message": "Keyword output unavailable"}) from exc
+    return StreamingResponse(
+        stream.body, media_type=content_type or stream.content_type,
+        background=BackgroundTask(stream.close),
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("/stage2-jobs", response_model=list[Stage2JobResponse])

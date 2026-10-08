@@ -227,6 +227,33 @@ export type KeywordVolumeOverview = {
   suggested_keywords: number;
 };
 
+
+export type KeywordImageStatus = "not_run" | "queued" | "running" | "completed" | "failed";
+export type KeywordImageRow = {
+  keyword_id: string;
+  keyword: string;
+  search_volume: number;
+  source_image_url: string | null;
+  status: KeywordImageStatus;
+  job_id: string | null;
+  skill_name: string | null;
+  skill_version: string | null;
+  retry_count: number;
+  attempt_count: number;
+  max_attempts: number;
+  error_code: string | null;
+  error_message: string | null;
+  output_url: string | null;
+  updated_at: string | null;
+};
+export type KeywordImagePage = {
+  items: KeywordImageRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  overview: Record<KeywordImageStatus, number>;
+};
+
 export type KeywordVolumePage = {
   items: KeywordVolume[];
   page: number;

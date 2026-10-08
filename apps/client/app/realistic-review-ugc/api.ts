@@ -20,6 +20,7 @@ import type {
   GenerationCapability,
   GenerationSkillCatalog,
   KeywordVolumePage,
+  KeywordImagePage,
   ReferenceAsset,
   ReferenceSet,
   ReferenceSetRecommendation,
@@ -213,6 +214,50 @@ export const getQueryIntelligence = (signal?: AbortSignal) =>
   request<QueryIntelligenceSummary>(
     "/api/v1/realistic-review-ugc/keyword-analysis/search-intelligence", { signal },
   );
+
+
+export const listKeywordImages = (
+  filters: { page?: number; pageSize?: number; query?: string; status?: string } = {},
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({
+    page: String(filters.page ?? 1),
+    page_size: String(filters.pageSize ?? 20),
+    q: filters.query ?? "",
+    status: filters.status ?? "all",
+  });
+  return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
+};
+
+export const createKeywordImage = (
+  keywordId: string,
+  skill: Stage2SkillSelection,
+  prompt?: string,
+) => request<{ created: boolean; job_id: string; status: string }>(
+  "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId),
+  { method: "POST", body: JSON.stringify({
+    skill_source: skill.source, skill_id: skill.skill_id,
+    skill_name: skill.skill_name, skill_version: skill.skill_version,
+    ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
+  }) },
+);
+
+
+export const queueAllKeywordImages = (skill: Stage2SkillSelection, signal?: AbortSignal) =>
+  request<{ queued: number; remaining: number }>(
+    "/api/v1/realistic-review-ugc/keyword-images/batch?limit=50",
+    { method: "POST", signal, body: JSON.stringify({
+      skill_source: skill.source, skill_id: skill.skill_id,
+      skill_name: skill.skill_name, skill_version: skill.skill_version,
+    }) },
+  );
+
+export const retryKeywordImage = (keywordId: string) =>
+  request<{ job_id: string; status: string }>(
+    "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/retry",
+    { method: "POST" },
+  );
+
 
 export const listKeywordAnalysis = (
   filters: {

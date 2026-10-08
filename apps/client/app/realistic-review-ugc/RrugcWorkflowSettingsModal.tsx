@@ -42,7 +42,7 @@ export function RrugcWorkflowSettingsModal({
         <div>
           <small>WORKFLOW SETTINGS</small>
           <h2 id="rrugc-settings-modal-title">Scout & automation settings</h2>
-          <p>Global controls live outside the stage sequence so Stage 0–4 stay focused on production work.</p>
+          <p>Global controls live outside the stage sequence so Stage 0–5 stay focused on production work.</p>
         </div>
         <button
           type="button"

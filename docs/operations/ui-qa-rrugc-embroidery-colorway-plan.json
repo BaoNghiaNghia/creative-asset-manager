@@ -1,9 +1,9 @@
 {
   "viewports": ["desktop", "tabletPortrait", "mobile"],
   "steps": [
-    {"name":"stage1-open","click":"#rrugc-tab-stage1","waitFor":".rrugc-colorway-stage","waitMs":400},
-    {"name":"stage1-design-hover","hover":".rrugc-colorway-table tbody tr","waitMs":120},
-    {"name":"stage1-search-focus","focus":".rrugc-colorway-search input","waitMs":120},
-    {"name":"stage1-select-page","click":".rrugc-colorway-select","waitFor":".rrugc-colorway-table tbody tr.is-selected","waitMs":120}
+    {"name":"stage2-open","click":"#rrugc-tab-stage2","waitFor":".rrugc-colorway-stage","waitMs":400},
+    {"name":"stage2-design-hover","hover":".rrugc-colorway-table tbody tr","waitMs":120},
+    {"name":"stage2-search-focus","focus":".rrugc-colorway-search input","waitMs":120},
+    {"name":"stage2-select-page","click":".rrugc-colorway-select","waitFor":".rrugc-colorway-table tbody tr.is-selected","waitMs":120}
   ]
 }

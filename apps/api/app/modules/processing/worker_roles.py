@@ -18,7 +18,7 @@ IMAGE_AI_JOB_TYPES = (
     "asset_analyze", "ai_batch_prepare", "ai_batch_submit", "ai_batch_poll",
     "ai_batch_import", "ai_batch_retry_items", "image_generate",
     "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
-    "rrugc_stage2_generate",
+    "rrugc_stage2_generate", "rrugc_keyword_image_generate",
     "rrugc_stage3_analyze",
     "rrugc_supervisor_qa",
 )

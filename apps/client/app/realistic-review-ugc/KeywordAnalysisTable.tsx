@@ -585,7 +585,7 @@ export function KeywordAnalysisTable({
         onClick={() => selectOverviewFilter("suggested")}
       >
         <span>Đề xuất</span>
-        <strong>{data.overview.suggested_keywords.toLocaleString()}</strong>
+        <strong>{(data.overview.suggested_keywords ?? 0).toLocaleString()}</strong>
         <small>Keywords / Pins suggested</small>
       </button>
       <button

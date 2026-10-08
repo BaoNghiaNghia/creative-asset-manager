@@ -327,11 +327,11 @@ export function Stage3ReviewGroups({
   return <section className="rrugc-stage3">
     <RrugcStageHeader
       className="rrugc-stage4-heading"
-      kicker="STAGE 4 · FOLDER GROUPS → UGC REVIEW"
+      kicker="STAGE 5 · FOLDER GROUPS → UGC REVIEW"
       title="UGC Review"
-      description="Stage 3 outputs stay grouped by destination folder. Each image is analyzed once for visible person/product, UGC feel, photorealism and review-card suitability."
+      description="Stage 4 outputs stay grouped by destination folder. Each image is analyzed once for visible person/product, UGC feel, photorealism and review-card suitability."
       actions={<div className="rrugc-stage3-header-actions">
-        <div className="rrugc-stage3-stats" aria-label="Stage 4 summary">
+        <div className="rrugc-stage3-stats" aria-label="Stage 5 summary">
           <span><strong>{data.total_groups}</strong><small>Folders</small></span>
           <span><strong>{data.total_images}</strong><small>Images</small></span>
           <span><strong>{finished}/{data.total_images}</strong><small>Analyzed</small></span>
@@ -351,18 +351,18 @@ export function Stage3ReviewGroups({
 
     <div className="rrugc-stage-search-toolbar rrugc-stage4-search-toolbar">
       <RrugcSmartSearchInput
-        stageId="stage4"
+        stageId="stage5"
         query={query}
         onQueryChange={onQueryChange}
         suggestions={searchSuggestions}
         placeholder="Search folder, image, reviewer, or scene…"
-        label="Search Stage 4 UGC reviews"
+        label="Search Stage 5 UGC reviews"
       />
       <span>{normalizedQuery ? visibleGroups.length + " matching folders" : data.total_groups + " folders"}</span>
     </div>
 
     {loading ? (
-      <div className="rrugc-stage3-skeletons" aria-label="Loading Stage 4 groups">
+      <div className="rrugc-stage3-skeletons" aria-label="Loading Stage 5 groups">
         {Array.from({ length: 4 }, (_, index) => (
           <div className="rrugc-stage3-skeleton-card" key={index}>
             <span />
@@ -372,8 +372,8 @@ export function Stage3ReviewGroups({
       </div>
     ) : visibleGroups.length === 0 ? (
       <div className="rrugc-stage3-empty">
-        <strong>{normalizedQuery ? "No reviews match this search" : "No Stage 3 outputs yet"}</strong>
-        <span>{normalizedQuery ? "Try a folder, source image, reviewer, scene, or status from the recommendations." : "Completed Stage 3 images will appear here automatically, grouped by folder."}</span>
+        <strong>{normalizedQuery ? "No reviews match this search" : "No Stage 4 outputs yet"}</strong>
+        <span>{normalizedQuery ? "Try a folder, source image, reviewer, scene, or status from the recommendations." : "Completed Stage 4 images will appear here automatically, grouped by folder."}</span>
       </div>
     ) : (
       <div className="rrugc-stage3-groups">
@@ -432,7 +432,7 @@ export function Stage3ReviewGroups({
                   <div className="rrugc-stage3-image-media">
                     <img
                       src={image.preview_url}
-                      alt={image.source_name ? "Stage 3 output for " + image.source_name : "Stage 3 output"}
+                      alt={image.source_name ? "Stage 4 output for " + image.source_name : "Stage 4 output"}
                       loading="lazy"
                       decoding="async"
                     />
@@ -479,7 +479,7 @@ export function Stage3ReviewGroups({
 
             {group.latest_completed_at && (
               <footer className="rrugc-stage3-group-foot">
-                Latest Stage 3 output: {completedLabel(group.latest_completed_at)}
+                Latest Stage 4 output: {completedLabel(group.latest_completed_at)}
               </footer>
             )}
           </article>

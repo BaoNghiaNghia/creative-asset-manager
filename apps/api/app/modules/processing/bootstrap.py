@@ -65,6 +65,7 @@ from app.modules.realistic_review_ugc.maintenance import RrugcMaintenanceSchedul
 from app.modules.realistic_review_ugc.source_plans import RrugcSourcePlanAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.stage2 import RrugcStage2GenerateJobHandler
+from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3AnalyzeJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.delivery_automation import (
@@ -126,6 +127,10 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
         "IMAGE_GENERATION_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED",
     ),
+    "rrugc_keyword_image_generate": (
+        "PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED",
+        "MANAGED_ASSET_STORAGE_ENABLED", "CODEX_IMAGE_GENERATION_ENABLED",
+    ),
     "rrugc_stage2_generate": (
         "PROCESSING_JOBS_ENABLED",
         "IMAGE_GENERATION_ENABLED",
@@ -159,7 +164,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
                 and settings.UNIFIED_ASSET_INGESTION_ENABLED
                 and (settings.ELASTICSEARCH_V2_ENABLED or settings.SEARCH_V3_ENABLED)
             )
-        if job_type == "rrugc_stage2_generate":
+        if job_type in {"rrugc_stage2_generate", "rrugc_keyword_image_generate"}:
             return all(bool(getattr(settings, flag)) for flag in flags)
         if job_type == "rrugc_generate":
             provider = str(
@@ -401,6 +406,7 @@ def build_worker_runtime(
                 ("rrugc_candidate_import", RrugcCandidateImportJobHandler(settings)),
                 ("rrugc_generate", RrugcGenerateJobHandler(settings)),
                 ("rrugc_stage2_generate", RrugcStage2GenerateJobHandler(settings)),
+                ("rrugc_keyword_image_generate", KeywordImageGenerateHandler(settings)),
                 ("rrugc_stage3_analyze", RrugcStage3AnalyzeJobHandler()),
                 ("rrugc_supervisor_qa", RrugcSupervisorQaJobHandler(settings)),
                 (

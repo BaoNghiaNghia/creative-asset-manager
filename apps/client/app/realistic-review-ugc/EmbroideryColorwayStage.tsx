@@ -153,7 +153,7 @@ export function EmbroideryColorwayStage({
   return <section className="rrugc-card rrugc-colorway-stage">
     <RrugcStageHeader
       className="rrugc-colorway-header"
-      kicker="STAGE 1 · EMBROIDERY_ SOURCE → SKILL → 13 HAT COLORS"
+      kicker="STAGE 2 · EMBROIDERY_ SOURCE → SKILL → 13 HAT COLORS"
       title="Embroidery design → 13 colorways"
       description={<>Scans only source images whose filename starts with <code>embroidery_</code>. Each design becomes one 13-color batch so the same embroidery can be applied consistently across every hat color before Pinterest reference discovery begins.</>}
       actions={<div className="rrugc-colorway-header-actions">
@@ -176,12 +176,12 @@ export function EmbroideryColorwayStage({
     <div className="rrugc-colorway-toolbar">
       <div className="rrugc-colorway-search">
         <RrugcSmartSearchInput
-          stageId="stage1"
+          stageId="stage2"
           query={query}
           onQueryChange={onQueryChange}
           suggestions={searchSuggestions}
           placeholder="Search embroidery design or folder…"
-          label="Search Stage 1 embroidery designs"
+          label="Search Stage 2 embroidery designs"
         />
       </div>
       <label className="rrugc-colorway-skill">
@@ -282,7 +282,7 @@ export function EmbroideryColorwayStage({
       <div>
         <button type="button" disabled={loading || data.page <= 1} onClick={() => onPageChange(Math.max(1, data.page - 1))}>Previous</button>
         <button type="button" disabled={loading || data.page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, data.page + 1))}>Next</button>
-        <label>Rows <select aria-label="Stage 1 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>
+        <label>Rows <select aria-label="Stage 2 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>
           {STAGE1_PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
         </select></label>
       </div>

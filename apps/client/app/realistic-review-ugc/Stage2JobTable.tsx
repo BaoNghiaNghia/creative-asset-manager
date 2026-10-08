@@ -195,7 +195,7 @@ export function Stage2ReferenceReviewModal({
     >
       <header className="rrugc-source-review-header">
         <div>
-          <small>STAGE 2 REFERENCE PREVIEW</small>
+          <small>STAGE 3 REFERENCE PREVIEW</small>
           <h2 id={"rrugc-stage2-reference-review-title-" + planId}>{planName}</h2>
           <p>{references.length} images · {selected.length} selected</p>
         </div>
@@ -679,9 +679,9 @@ export function Stage2JobTable({
   return <section className="rrugc-card rrugc-stage2">
     <RrugcStageHeader
       className="rrugc-stage2-heading"
-      kicker="STAGE 3 · EMBROIDERY GROUP → PINTEREST REFS → SKILL"
+      kicker="STAGE 4 · EMBROIDERY GROUP → PINTEREST REFS → SKILL"
       title="Pinterest references → image generation"
-      description={<>Stage 2 grouping is preserved. Select any number of Drive-ready references; generation automatically runs them in groups of up to {REFS_PER_RUN} refs plus 1 random hat input until the selection is queued.</>}
+      description={<>Stage 3 grouping is preserved. Select any number of Drive-ready references; generation automatically runs them in groups of up to {REFS_PER_RUN} refs plus 1 random hat input until the selection is queued.</>}
       actions={<div className="rrugc-stage2-registry-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} refs + 1 random hat / run</span>
         <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
@@ -715,12 +715,12 @@ export function Stage2JobTable({
 
     <div className="rrugc-stage-search-toolbar rrugc-stage3-search-toolbar">
       <RrugcSmartSearchInput
-        stageId="stage3"
+        stageId="stage4"
         query={query}
         onQueryChange={onQueryChange}
         suggestions={searchSuggestions}
         placeholder="Search embroidery group, folder, or Pinterest query…"
-        label="Search Stage 3 generation groups"
+        label="Search Stage 4 generation groups"
       />
       <span>{stage2Total.toLocaleString()} groups</span>
     </div>
@@ -988,7 +988,7 @@ export function Stage2JobTable({
               </td>
             </tr>;
           })}
-          {!loading && stage2Plans.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">Stage 3 jobs will appear here after Stage 2 finishes embroidery context analysis.</td></tr>}
+          {!loading && stage2Plans.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">Stage 4 jobs will appear here after Stage 3 finishes embroidery context analysis.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -996,11 +996,11 @@ export function Stage2JobTable({
     <div className="rrugc-source-pagination rrugc-stage2-pagination">
       <span>{pageStart}–{pageEnd} of {stage2Total}</span>
       <div className="rrugc-source-page-controls">
-        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 3 page">«</button>
-        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 3 page">‹</button>
+        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 4 page">«</button>
+        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 4 page">‹</button>
         <strong>Page {currentPage} / {pageCount}</strong>
-        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 3 page">›</button>
-        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 3 page">»</button>
+        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 4 page">›</button>
+        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 4 page">»</button>
       </div>
       <label>
         Rows
@@ -1008,7 +1008,7 @@ export function Stage2JobTable({
           value={pageSize}
           disabled={loading}
           onChange={event => onPageSizeChange(Number(event.target.value))}
-          aria-label="Stage 3 rows per page"
+          aria-label="Stage 4 rows per page"
         >
           {STAGE2_PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
         </select>

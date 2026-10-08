@@ -84,7 +84,7 @@
         },
         {
           "name": "stage3-review",
-          "click": "#rrugc-tab-stage3",
+          "click": "#rrugc-tab-stage5",
           "waitFor": ".rrugc-stage3",
           "assertions": [
             {

@@ -1,0 +1,26 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "bootstrap",
+      "waitFor": "#rrugc-tab-stage1",
+      "waitMs": 900
+    },
+    {
+      "name": "stage1-open",
+      "click": "#rrugc-tab-stage1",
+      "waitFor": ".rrugc-keyword-gen-table",
+      "waitMs": 800
+    },
+    {
+      "name": "stage1-status-failed",
+      "click": ".rrugc-keyword-gen-stats button:nth-child(6)",
+      "waitFor": ".rrugc-keyword-gen-table",
+      "waitMs": 350
+    }
+  ]
+}

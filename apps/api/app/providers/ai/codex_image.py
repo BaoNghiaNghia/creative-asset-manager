@@ -297,7 +297,7 @@ class CodexImageGenRunner:
         self,
         *,
         attempt_id: str,
-        person: PreparedImage,
+        person: PreparedImage | None,
         references: list[ReferenceImageInput],
         prompt: str,
     ) -> GeneratedImageResult:
@@ -327,8 +327,9 @@ class CodexImageGenRunner:
             shutil.rmtree(workspace)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        person_name = "person" + _extension(person.mime_type)
-        (workspace / person_name).write_bytes(person.image_bytes)
+        person_name = "person" + _extension(person.mime_type) if person is not None else None
+        if person_name and person is not None:
+            (workspace / person_name).write_bytes(person.image_bytes)
         reference_names: list[tuple[str, str]] = []
         seen: dict[str, int] = {}
         for index, item in enumerate(references, start=1):
@@ -450,7 +451,7 @@ class CodexImageGenRunner:
     def _prompt(
         self,
         *,
-        person_name: str,
+        person_name: str | None,
         references: list[tuple[str, str]],
         user_prompt: str,
     ) -> str:
@@ -461,11 +462,11 @@ class CodexImageGenRunner:
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
         return (
             "Use $" + self.config.skill_name + " and $imagegen.\n\n"
-            f"Edit target:\n{person_name}\n\n"
-            f"Role-labeled references:\n{reference_lines}\n"
-            f"{extra_block}\n"
-            "Generate exactly one final image. "
-            "Save it to output/final.png. "
-            "Do not use an API-key-backed image generation fallback. "
-            "Do not run extra Python/PIL validation commands; the caller validates the PNG after Codex exits."
+            + (f"Edit target:\n{person_name}\n\n" if person_name else "Create a new original image from the keyword instruction.\n\n")
+            + f"Role-labeled references:\n{reference_lines}\n"
+            + f"{extra_block}\n"
+            + "Generate exactly one final image. "
+            + "Save it to output/final.png. "
+            + "Do not use an API-key-backed image generation fallback. "
+            + "Do not run extra Python/PIL validation commands; the caller validates the PNG after Codex exits."
         )
