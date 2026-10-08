@@ -369,8 +369,16 @@ def _partition_volume_result(
     return resolved, pending
 
 
-def _quote_extract_status_is_terminal(status: int) -> bool:
-    return int(status) in {400, 413, 422}
+def _quote_extract_status_is_terminal(status: int, error_code: str | None = None) -> bool:
+    # Gemini/provider failures can be mapped to HTTP 422 by the API. Never
+    # permanently discard a Pinterest Pin due to an upstream AI outage.
+    if int(status) == 422:
+        return error_code in {
+            "quote_scout_image_base64_invalid",
+            "quote_scout_image_type_rejected",
+            "quote_scout_image_empty",
+        }
+    return int(status) in {400, 413}
 
 
 def _quote_extract_error_code(exc: httpx.HTTPStatusError) -> str | None:
@@ -1018,9 +1026,18 @@ async def _process_keyword_candidate(
                     error=str(fallback_exc)[:500],
                 )
         if not fallback_used:
-            if _quote_extract_status_is_terminal(status):
+            if status == 422 and error_code in {"gemini_http_error", "gemini_invalid_json", "gemini_invalid_document", "quote_scout_provider_payload_invalid"}:
+                scout_debug_event(
+                    "keyword_scout_provider_error_paused",
+                    source=source,
+                    error_code=error_code,
+                    status_code=status,
+                    retry_seconds=KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS,
+                )
+                raise KeywordScoutCapacityPaused(KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
+            if _quote_extract_status_is_terminal(status, error_code):
                 history.remember_candidate(candidate.pin_url, candidate.image_url)
-            retryable = not _quote_extract_status_is_terminal(status)
+            retryable = not _quote_extract_status_is_terminal(status, error_code)
             scout_debug_event(
                 "keyword_scout_quote_extract_failed",
                 source=source,

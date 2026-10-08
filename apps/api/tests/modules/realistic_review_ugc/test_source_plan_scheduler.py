@@ -94,6 +94,25 @@ class RrugcSourcePlanSyncSchedulerTest(unittest.TestCase):
         self.assertEqual(calls[0]["root_folder_id"], RRUGC_SOURCE_ROOT_FOLDER_ID)
         self.assertEqual(scheduler.interval_seconds, 120)
 
+    def test_idle_source_scans_back_off_and_resume_after_change(self):
+        scheduler = RrugcSourcePlanSyncScheduler(self.factory, self.settings)
+        unchanged = SourcePlanSyncResult(
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            folders_scanned=1, images_found=236, plans_created=0,
+            plans_updated=0, plans_missing=0, jobs_queued=0, unchanged=236,
+        )
+        self.assertEqual(scheduler._next_wait_seconds((unchanged,)), 240)
+        self.assertEqual(scheduler._next_wait_seconds((unchanged,)), 480)
+        self.assertEqual(scheduler._next_wait_seconds((unchanged,)), 600)
+        self.assertEqual(scheduler._next_wait_seconds((unchanged,)), 600)
+        changed = SourcePlanSyncResult(
+            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            folders_scanned=1, images_found=236, plans_created=1,
+            plans_updated=0, plans_missing=0, jobs_queued=1, unchanged=235,
+        )
+        self.assertEqual(scheduler._next_wait_seconds((changed,)), 120)
+        self.assertEqual(scheduler._next_wait_seconds(()), 120)
+
     def test_disabled_scheduler_does_not_scan(self):
         settings = self.settings.model_copy(
             update={"RRUGC_SOURCE_AUTO_SYNC_ENABLED": False}

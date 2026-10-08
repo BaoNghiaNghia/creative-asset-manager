@@ -29,7 +29,7 @@ from app.modules.realistic_review_ugc.service import (
 
 _ACTIVE_JOB_STATUSES = ("pending", "retry", "processing")
 _GEMINI_DEFER_CODE = "gemini_model_pool_temporarily_unavailable"
-_MIN_SCOUT_VERSION = 44
+_MIN_SCOUT_VERSION = 45
 _VERSION_RE = re.compile(r"(\d+)$")
 
 

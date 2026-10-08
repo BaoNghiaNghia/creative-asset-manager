@@ -1243,10 +1243,11 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(sourcePlanProgressPercent({ progress_count: 60, target_count: 50 })).toBe(100);
   });
 
-  it("flags both Review and Keyword Scout clients older than v44", () => {
+  it("flags both Review and Keyword Scout clients older than v45", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v42")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v43")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v44")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v44")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v45")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 

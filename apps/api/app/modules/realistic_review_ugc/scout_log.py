@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from threading import Lock
+from time import monotonic
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,10 +16,24 @@ from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutServ
 
 SCOUT_LOG_APPLICATION_SLUG = "rrugc-scout"
 SCOUT_LOG_RETENTION_DAYS = 5
+SCOUT_LOG_PURGE_INTERVAL_SECONDS = 600
 
 
 class RrugcScoutLogService:
     """Persist authenticated Scout diagnostics in the shared application log store."""
+
+    _purge_guard = Lock()
+    _last_purge: dict[str, float] = {}
+
+    @classmethod
+    def _purge_due(cls, tenant_id: str, *, now: float | None = None) -> bool:
+        current = monotonic() if now is None else now
+        with cls._purge_guard:
+            last = cls._last_purge.get(tenant_id)
+            if last is not None and 0 <= current - last < SCOUT_LOG_PURGE_INTERVAL_SECONDS:
+                return False
+            cls._last_purge[tenant_id] = current
+            return True
 
     def __init__(self, session: Session):
         self.session = session
@@ -54,7 +70,10 @@ class RrugcScoutLogService:
         )
         application = self._application(agent.tenant_id)
         now = datetime.now(timezone.utc)
-        self.repository.purge_expired(now=now, tenant_id=agent.tenant_id)
+        # Expiry is also covered by the retention worker; do not run a
+        # tenant-wide DELETE for every Scout event batch.
+        if self._purge_due(agent.tenant_id):
+            self.repository.purge_expired(now=now, tenant_id=agent.tenant_id)
 
         created = 0
         for event in events:

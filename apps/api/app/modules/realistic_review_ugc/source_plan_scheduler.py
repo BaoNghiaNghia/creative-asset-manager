@@ -42,6 +42,7 @@ class RrugcSourcePlanSyncScheduler:
         self.syncer = syncer
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._idle_scan_streak = 0
 
     @property
     def enabled(self) -> bool:
@@ -72,13 +73,26 @@ class RrugcSourcePlanSyncScheduler:
         if thread is not None:
             thread.join(timeout if timeout is not None else self.interval_seconds + 1)
 
+    def _next_wait_seconds(self, results: tuple[SourcePlanSyncResult, ...]) -> int:
+        # Back off unchanged full-tree scans; a new or updated plan restores
+        # the configured interval immediately. Cap delay at 10 minutes.
+        unchanged = bool(results) and all(
+            item.images_found == item.unchanged
+            and not (item.plans_created or item.plans_updated or item.plans_missing or item.jobs_queued)
+            for item in results
+        )
+        self._idle_scan_streak = min(self._idle_scan_streak + 1, 3) if unchanged else 0
+        return min(600, self.interval_seconds * (2 ** self._idle_scan_streak))
+
     def _run(self) -> None:
         while not self._stop.is_set():
+            wait_seconds = self.interval_seconds
             try:
-                self.tick()
+                wait_seconds = self._next_wait_seconds(self.tick())
             except Exception:
+                self._idle_scan_streak = 0
                 self.logger.exception("rrugc_source_auto_sync_tick_failed")
-            self._stop.wait(self.interval_seconds)
+            self._stop.wait(wait_seconds)
 
     def _tenant_ids(self) -> tuple[str, ...]:
         root_folder_id = str(

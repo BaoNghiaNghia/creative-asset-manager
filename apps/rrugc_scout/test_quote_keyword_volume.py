@@ -757,11 +757,43 @@ def test_challenge_gate_can_be_resolved_in_open_browser(monkeypatch):
 def test_quote_extract_http_status_retry_policy_preserves_transient_pins():
     assert _quote_extract_status_is_terminal(400)
     assert _quote_extract_status_is_terminal(413)
-    assert _quote_extract_status_is_terminal(422)
+    assert not _quote_extract_status_is_terminal(422)
+    assert not _quote_extract_status_is_terminal(422, "gemini_http_error")
+    assert _quote_extract_status_is_terminal(422, "quote_scout_image_type_rejected")
     assert not _quote_extract_status_is_terminal(401)
     assert not _quote_extract_status_is_terminal(404)
     assert not _quote_extract_status_is_terminal(429)
     assert not _quote_extract_status_is_terminal(500)
+
+
+def test_gemini_http_422_pauses_keyword_scout_without_losing_pin():
+    class Candidate:
+        pin_url = "https://www.pinterest.com/pin/gemini-422/"
+        image_url = "https://i.pinimg.com/736x/aa/bb/quote.jpg"
+        alt_text = "trucker cap"
+
+    class Client:
+        async def extract_quote(self, _candidate):
+            request = httpx.Request("POST", "https://creative-assets.example/quote")
+            response = httpx.Response(
+                422,
+                request=request,
+                json={"detail": {"code": "gemini_http_error"}},
+            )
+            raise httpx.HTTPStatusError(
+                "Gemini rejected the request", request=request, response=response
+            )
+
+    with TemporaryDirectory() as directory:
+        history = KeywordScoutHistory(Path(directory) / "keyword-scout-history.json")
+        with pytest.raises(keyword_scout.KeywordScoutCapacityPaused):
+            asyncio.run(
+                keyword_scout._process_keyword_candidate(
+                    Client(), history, Candidate(),
+                    source="root", root_pin_url=Candidate.pin_url,
+                )
+            )
+        assert Candidate.pin_url not in history.seen_pins
 
 
 def test_quote_extract_preserves_final_http_status_after_retries(monkeypatch):
