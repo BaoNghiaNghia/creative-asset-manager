@@ -242,6 +242,7 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordImagePageResponse,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
+    Stage2JobsCancelRequest,
     Stage2JobsCancelledResponse,
     Stage3AnalyzeRequest,
     Stage3AnalyzeResponse,
@@ -295,7 +296,7 @@ from app.modules.realistic_review_ugc.stage2 import (
 from app.modules.realistic_review_ugc.keyword_images import KeywordImageService, KeywordImageError
 from app.modules.realistic_review_ugc.colorways import ColorwayService, ColorwayError
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel
-from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service
+from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service, STAGE3_ANALYSIS_VERSION
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
     Stage2SkillRegistryError,
@@ -5372,7 +5373,13 @@ def analyze_stage3_review_groups(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
-    query = session.query(RrugcStage2JobModel).filter(
+    # Analyze only unfinished/stale outputs. A capped query over *all* outputs
+    # would repeatedly select the newest 500 and starve older unprocessed ones.
+    query = session.query(RrugcStage2JobModel).outerjoin(
+        RrugcStage3AnalysisModel,
+        (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
+        & (RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id),
+    ).filter(
         RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
         RrugcStage2JobModel.status == "completed",
         RrugcStage2JobModel.output_remote_file_id.is_not(None),
@@ -5382,10 +5389,20 @@ def analyze_stage3_review_groups(
         query = query.filter(
             RrugcStage2JobModel.output_remote_folder_id == request.folder_id
         )
-
+    if not request.force:
+        query = query.filter(or_(
+            RrugcStage3AnalysisModel.id.is_(None),
+            RrugcStage3AnalysisModel.status.in_(("error", "failed")),
+            RrugcStage3AnalysisModel.analysis_version != STAGE3_ANALYSIS_VERSION,
+            RrugcStage3AnalysisModel.output_content_hash.is_distinct_from(
+                RrugcStage2JobModel.output_content_hash
+            ),
+        ))
+    eligible_count = query.count()
     rows = query.order_by(
-        RrugcStage2JobModel.completed_at.desc(),
-        RrugcStage2JobModel.created_at.desc(),
+        RrugcStage2JobModel.completed_at.asc(),
+        RrugcStage2JobModel.created_at.asc(),
+        RrugcStage2JobModel.id.asc(),
     ).limit(500).all()
 
     service = RrugcStage3Service(session)
@@ -5400,9 +5417,11 @@ def analyze_stage3_review_groups(
             queued += 1
     session.commit()
     return Stage3AnalyzeResponse(
-        eligible=len(rows),
+        eligible=eligible_count,
         queued=queued,
         existing=max(0, len(rows) - queued),
+        remaining=max(0, eligible_count - len(rows)),
+        has_more=eligible_count > len(rows),
     )
 
 
@@ -5446,6 +5465,7 @@ def create_stage2_job(
 )
 def cancel_stage2_jobs(
     source_plan_id: str,
+    request: Stage2JobsCancelRequest | None = None,
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
@@ -5454,6 +5474,7 @@ def cancel_stage2_jobs(
             tenant_id=principal.active_tenant_id,
             user_id=principal.user_id,
             source_plan_id=source_plan_id,
+            job_ids=request.job_ids if request else None,
         )
     except RrugcStage2Error as exc:
         raise HTTPException(

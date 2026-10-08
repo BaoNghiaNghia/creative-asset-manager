@@ -533,7 +533,7 @@ export function Stage2JobTable({
     skill: Stage2SkillSelection,
   ) => void;
   onManageSkills?: () => void;
-  onCancelJobs?: (plan: SourcePlan) => void;
+  onCancelJobs?: (plan: SourcePlan, jobIds: string[]) => void;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
 }) {
@@ -856,7 +856,7 @@ export function Stage2JobTable({
                     type="button"
                     className="rrugc-stage2-cancel"
                     disabled={cancelling}
-                    onClick={() => onCancelJobs(plan)}
+                    onClick={() => onCancelJobs(plan, cancellableJobs.map(job => job.id))}
                   >
                     {cancelling ? "Cancelling…" : "Cancel · " + cancelSeconds + "s"}
                   </button>

@@ -184,6 +184,9 @@ export function RealisticReviewUgcPage() {
   const [creatingStage2PlanIds, setCreatingStage2PlanIds] = useState<Set<string>>(new Set());
   const [cancellingStage2PlanIds, setCancellingStage2PlanIds] = useState<Set<string>>(new Set());
   const [stage2Message, setStage2Message] = useState("");
+  // Only the latest newly-created generation batch may be cancelled.
+  // Never accidentally cancel another user's or older group job.
+  const stage4CancelRequestedPlans = useRef<Set<string>>(new Set());
   const [stage3Groups, setStage3Groups] = useState<Stage3ReviewGroupList>(EMPTY_STAGE3_GROUPS);
   const [stage3Loading, setStage3Loading] = useState(true);
   const [stage3Analyzing, setStage3Analyzing] = useState(false);
@@ -372,12 +375,22 @@ export function RealisticReviewUgcPage() {
     setStage3Message("");
     setError("");
     try {
-      const result = await analyzeStage3ReviewGroups(folderId);
-      setStage3Message(
-        result.queued > 0
-          ? `Queued ${result.queued} of ${result.eligible} image${result.eligible === 1 ? "" : "s"} for UGC analysis.`
-          : `All ${result.eligible} eligible image${result.eligible === 1 ? "" : "s"} are already queued or analyzed.`,
-      );
+      let queued = 0;
+      let eligible = 0;
+      let remaining = 0;
+      // The backend selects only incomplete analyses per call. Drain bounded
+      // 500-row batches until older completed outputs are also covered.
+      for (let batch = 0; batch < 200; batch += 1) {
+        const result = await analyzeStage3ReviewGroups(folderId);
+        queued += result.queued;
+        eligible += result.eligible;
+        remaining = result.remaining || 0;
+        setStage3Message(`Queued ${queued} UGC analyses${remaining ? "; continuing older outputs…" : "."}`);
+        if (!remaining || result.queued === 0) break;
+      }
+      setStage3Message(queued > 0
+        ? `Queued ${queued} UGC analyses.${remaining ? " Some outputs still need attention; run Analyze again." : ""}`
+        : "All eligible images are already queued or analyzed.");
       await refreshStage3Groups();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to queue Stage 4 analysis.");
@@ -411,9 +424,34 @@ export function RealisticReviewUgcPage() {
     setError("");
     try {
       const batches = stage2ReferenceBatches(candidateIds);
-      const results = await Promise.allSettled(
-        batches.map(batch => createStage2Job(plan.id, batch, skill)),
-      );
+      // Submit one 3-reference batch at a time: avoid bursts of hundreds of
+      // simultaneous HTTP requests and preserve each returned durable job ID.
+      const results: PromiseSettledResult<Awaited<ReturnType<typeof createStage2Job>>>[] = [];
+      stage4CancelRequestedPlans.current.delete(plan.id);
+      for (const batch of batches) {
+        if (stage4CancelRequestedPlans.current.has(plan.id)) break;
+        try {
+          const result = await createStage2Job(plan.id, batch, skill);
+          results.push({ status: "fulfilled", value: result });
+          if (result.created) {
+            // Surface each job as soon as it is queued: otherwise an entire
+            // long selection can consume the first 10-second cancel windows.
+            setStage2Jobs(current => current.some(job => job.id === result.job.id)
+              ? current : [result.job, ...current]);
+            // A cancellation may arrive while a create request was in flight.
+            // Best-effort cancel this late arrival; never submit more groups.
+            if (stage4CancelRequestedPlans.current.has(plan.id)) {
+              try {
+                await cancelStage2Jobs(plan.id, [result.job.id]);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Late Stage 4 job could not be cancelled.");
+              }
+            }
+          }
+        } catch (reason) {
+          results.push({ status: "rejected", reason });
+        }
+      }
       const queued = results.filter(
         (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof createStage2Job>>> =>
           result.status === "fulfilled",
@@ -457,13 +495,15 @@ export function RealisticReviewUgcPage() {
     }
   }
 
-  async function cancelStage2Batch(plan: SourcePlan) {
+  async function cancelStage2Batch(plan: SourcePlan, cancellableJobIds: string[]) {
+    if (cancellableJobIds.length === 0) return;
     if (cancellingStage2PlanIds.has(plan.id)) return;
     setCancellingStage2PlanIds(current => new Set(current).add(plan.id));
     setStage2Message("");
     setError("");
     try {
-      const result = await cancelStage2Jobs(plan.id);
+      stage4CancelRequestedPlans.current.add(plan.id);
+      const result = await cancelStage2Jobs(plan.id, cancellableJobIds);
       setStage2Message(
         "Cancelled " + result.cancelled + " queued output generation"
         + (result.cancelled === 1 ? "" : "s")
@@ -1068,7 +1108,7 @@ export function RealisticReviewUgcPage() {
               setSourcePageSize(value);
             }}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
-            onCancelJobs={plan => void cancelStage2Batch(plan)}
+            onCancelJobs={(plan, jobIds) => void cancelStage2Batch(plan, jobIds)}
           />
         </section>
 

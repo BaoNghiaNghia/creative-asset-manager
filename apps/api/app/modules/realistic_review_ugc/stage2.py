@@ -406,6 +406,7 @@ class RrugcStage2Service:
         user_id: str,
         source_plan_id: str,
         now: datetime | None = None,
+        job_ids: list[str] | None = None,
     ) -> list[RrugcStage2JobModel]:
         plan = self.session.get(RrugcSourcePlanModel, source_plan_id)
         if plan is None or plan.tenant_id != tenant_id:
@@ -416,6 +417,8 @@ class RrugcStage2Service:
             )
 
         cancelled_at = now or datetime.now(timezone.utc)
+        if cancelled_at.tzinfo is None:
+            cancelled_at = cancelled_at.replace(tzinfo=timezone.utc)
         cancel_cutoff = cancelled_at - timedelta(seconds=STAGE2_CANCEL_GRACE_SECONDS)
         source_group_ids = [
             member.id
@@ -425,17 +428,33 @@ class RrugcStage2Service:
                 plan=plan,
             )
         ]
-        rows = list(
-            self.session.query(RrugcStage2JobModel)
-            .filter(
-                RrugcStage2JobModel.tenant_id == tenant_id,
-                RrugcStage2JobModel.source_plan_id.in_(source_group_ids),
-                RrugcStage2JobModel.created_by_user_id == user_id,
-                RrugcStage2JobModel.status == "queued",
-                RrugcStage2JobModel.queued_at.is_not(None),
+        if job_ids is not None and (not job_ids or len(job_ids) > 250 or len(set(job_ids)) != len(job_ids)):
+            raise RrugcStage2Error(
+                "stage2_cancel_ids_invalid", "Select between 1 and 250 unique jobs to cancel.",
+                status_code=422,
             )
-            .order_by(RrugcStage2JobModel.queued_at.asc())
+        scoped = self.session.query(RrugcStage2JobModel).filter(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcStage2JobModel.source_plan_id.in_(source_group_ids),
+            RrugcStage2JobModel.created_by_user_id == user_id,
         )
+        if job_ids is not None:
+            # Never silently ignore cross-tenant/cross-user targets, even if
+            # some other IDs in the same batch are eligible to cancel.
+            owned_count = scoped.filter(RrugcStage2JobModel.id.in_(job_ids)).count()
+            if owned_count != len(job_ids):
+                raise RrugcStage2Error(
+                    "stage2_cancel_ids_invalid", "Some selected jobs are not owned by this user.",
+                    status_code=409,
+                )
+            scoped = scoped.filter(RrugcStage2JobModel.id.in_(job_ids))
+        rows = list(scoped.filter(
+            RrugcStage2JobModel.status == "queued",
+            RrugcStage2JobModel.queued_at.is_not(None),
+            RrugcStage2JobModel.queued_at > cancel_cutoff,
+        ).order_by(RrugcStage2JobModel.queued_at.asc()).with_for_update())
+        # Old work is intentionally skipped. An older queued job should not
+        # veto cancellation of a newer job from the same submitted batch.
         if not rows:
             self.session.rollback()
             raise RrugcStage2Error(

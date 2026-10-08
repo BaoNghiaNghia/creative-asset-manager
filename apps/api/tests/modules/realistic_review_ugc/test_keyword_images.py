@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.keyword_images import (
-    KeywordImageError, KeywordImageService, effective_status, keyword_prompt,
+    DEFAULT_SKILL, KeywordImageError, KeywordImageService, effective_status, keyword_prompt,
 )
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
@@ -103,6 +103,21 @@ def test_completed_job_remains_untouched_by_manual_retry(db):
     with pytest.raises(KeywordImageError, match="Only failed generations"):
         KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
     assert db.get(RrugcKeywordImageJobModel, row.id).output_remote_file_id == "output-safe"
+
+
+def test_stage1_ships_dedicated_zero_reference_keyword_skill():
+    from pathlib import Path
+    import json
+
+    root = Path(__file__).resolve().parents[5]
+    skill_dir = root / "deploy" / "codex" / "skills" / DEFAULT_SKILL
+    manifest = json.loads((skill_dir / "manifest.json").read_text(encoding="utf-8"))
+    instructions = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    assert manifest["skill_name"] == DEFAULT_SKILL
+    assert "keyword_artwork" in manifest["workflows"]
+    assert manifest["required_reference_roles"] == []
+    assert "output/final.png" in instructions
+    assert "No edit-target image" in instructions
 
 
 def test_codex_keyword_prompt_does_not_require_an_input_image():

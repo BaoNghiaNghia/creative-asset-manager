@@ -46,6 +46,7 @@ def skill_stubs(monkeypatch):
     monkeypatch.setattr(colorways, "assert_skill_enabled", lambda *args, **kwargs: None)
     monkeypatch.setattr(colorways, "installed_stage2_skill_sha256", lambda *args, **kwargs: "a" * 64)
     monkeypatch.setattr(colorways, "_stock_bytes", lambda settings, key: key.encode())
+    monkeypatch.setattr(colorways, "_codex_runtime_available", lambda settings: True)
 
 
 def plan(db, tenant="tenant-a", *, name="embroidery_design.png", source_id="plan-a"):
@@ -125,6 +126,16 @@ def test_disabled_colorway_provider_does_not_leave_permanently_queued_jobs(db):
         )
     assert exc.value.status_code == 503
     assert db.query(RrugcColorwayJobModel).count() == 0
+    assert db.query(ProcessingJobModel).count() == 0
+
+
+def test_readiness_rejects_missing_runtime_even_with_all_stocks(db, monkeypatch):
+    monkeypatch.setattr(colorways, "_codex_runtime_available", lambda settings: False)
+    status = ColorwayService(db).readiness()
+    assert status == {
+        "ready": False, "error_code": "colorway_runtime_missing",
+        "stock_ready_count": 13, "stock_total_count": 13,
+    }
     assert db.query(ProcessingJobModel).count() == 0
 
 

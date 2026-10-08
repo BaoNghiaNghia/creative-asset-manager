@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-keyword-embroidery",
+  "display_name": "GatorHats \u00b7 Keyword Embroidery",
+  "description": "Generate one original cap embroidery concept directly from a Stage 0 keyword; no reference image required.",
+  "workflows": [
+    "image_studio",
+    "keyword_artwork"
+  ],
+  "product_types": [
+    "hat",
+    "trucker_hat",
+    "baseball_cap",
+    "valucap_8869"
+  ],
+  "required_reference_roles": [],
+  "optional_reference_roles": [],
+  "max_references": 1
+}

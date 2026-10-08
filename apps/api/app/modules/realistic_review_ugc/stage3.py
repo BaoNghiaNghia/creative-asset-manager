@@ -136,6 +136,17 @@ def evaluate_stage3(document: Stage3UgcAnalysisDocument) -> Stage3Decision:
         reasons.append("no_visible_person")
     if not document.hat_visible and not document.product_visible:
         reasons.append("product_not_visible")
+    # Avoid rendering low-fidelity synthetic imagery as a review-ready card.
+    # Embroidery itself may be hard to read in an authentic lifestyle shot,
+    # so this deliberately does not make embroidery visibility mandatory.
+    if document.photorealism_score < 0.55:
+        reasons.append("photorealism_below_threshold")
+    if document.mobile_ugc_score < 0.45:
+        reasons.append("ugc_authenticity_below_threshold")
+    if document.product_visibility_score < 0.50:
+        reasons.append("product_clarity_below_threshold")
+    if document.review_fit_score < 0.55:
+        reasons.append("review_fit_below_threshold")
     final_score = round(
         0.30 * document.review_fit_score
         + 0.25 * document.mobile_ugc_score

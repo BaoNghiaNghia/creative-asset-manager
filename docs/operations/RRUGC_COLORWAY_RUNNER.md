@@ -35,7 +35,7 @@ of the six user-facing stages or link Stage 1 keyword outputs to Stage 2.
 ## Live readiness preflight
 
 - An authenticated READ user can query `GET /api/v1/realistic-review-ugc/colorways/readiness` to see safe booleans and the count of valid stock images (no raw filesystem paths or credentials).
-- Stage 2 checks readiness on entry and when Skills are refreshed. The `Run selected` action stays disabled if provider/storage flags or any stock photo is missing/invalid. The UI shows a failure reason; this check **never** queues jobs.
+- Stage 2 checks readiness on entry and when Skills are refreshed, including Codex CLI executable and installed Scale Image Skill presence (not paid-provider authentication). The `Run selected` action stays disabled if provider/storage flags or any stock photo is missing/invalid. The UI shows a failure reason; this check **never** queues jobs.
 - The queue endpoint repeats mandatory validations to avoid trusting a stale browser result. Successful readiness is **not** proof of a real image generation, a valid login, or the final embroidery fidelity. A single authenticated, production-generated 13-color set still needs verification.
 
 ## Pre-release checks

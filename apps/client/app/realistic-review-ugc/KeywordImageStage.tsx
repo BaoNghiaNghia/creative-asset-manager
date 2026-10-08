@@ -64,7 +64,12 @@ export function KeywordImageStage({
     return () => controller.abort();
   }, [active, skillCatalogRevision]);
 
-  const readySkills = useMemo(() => (catalog?.items || []).filter(item => item.ready), [catalog]);
+  // Prefer the no-reference keyword concept workflow; full-set/scale
+  // skills require input artwork that Stage 1 deliberately does not send.
+  const readySkills = useMemo(() => (catalog?.items || [])
+    .filter(item => item.ready)
+    .sort((a, b) => Number(b.skill_name === "gatorhats-keyword-embroidery")
+      - Number(a.skill_name === "gatorhats-keyword-embroidery")), [catalog]);
   useEffect(() => {
     if (readySkills.length === 0) return;
     if (!readySkills.some(item => skillKey(item) === selectedSkillKey)) {

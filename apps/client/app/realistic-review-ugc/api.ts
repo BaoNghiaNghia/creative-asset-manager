@@ -621,12 +621,12 @@ export const createStage2Job = (
     },
   );
 
-export const cancelStage2Jobs = (sourcePlanId: string) =>
+export const cancelStage2Jobs = (sourcePlanId: string, jobIds?: string[]) =>
   request<{ cancelled: number; job_ids: string[] }>(
     "/api/v1/realistic-review-ugc/source-plans/"
       + encodeURIComponent(sourcePlanId)
       + "/stage2-jobs/cancel",
-    { method: "POST" },
+    { method: "POST", ...(jobIds?.length ? { body: JSON.stringify({ job_ids: jobIds }) } : {}) },
   );
 
 export const stage2JobOutputUrl = (jobId: string) =>

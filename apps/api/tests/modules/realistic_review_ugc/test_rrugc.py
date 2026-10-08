@@ -2048,7 +2048,7 @@ def test_auto_scout_v19_diagnostics_matches_source_plan_claim_eligibility(
         assert diagnostics["claimable"] == 1
 
 
-def test_stage3_ugc_decision_only_rejects_missing_person_or_product():
+def test_stage3_ugc_decision_rejects_low_fidelity_or_missing_product():
     ready = evaluate_stage3(
         Stage3UgcAnalysisDocument(
             people_count=1,
@@ -2144,8 +2144,13 @@ def test_stage3_ugc_decision_only_rejects_missing_person_or_product():
             review_text="I like the casual look of this hat and would wear it for everyday errands.",
         )
     )
-    assert soft_scores_are_diagnostic.status == "ready"
-    assert soft_scores_are_diagnostic.reject_reasons == []
+    assert soft_scores_are_diagnostic.status == "rejected"
+    assert set(soft_scores_are_diagnostic.reject_reasons) == {
+        "photorealism_below_threshold",
+        "ugc_authenticity_below_threshold",
+        "product_clarity_below_threshold",
+        "review_fit_below_threshold",
+    }
 
     rejected = evaluate_stage3(
         Stage3UgcAnalysisDocument(
@@ -2166,7 +2171,7 @@ def test_stage3_ugc_decision_only_rejects_missing_person_or_product():
         )
     )
     assert rejected.status == "rejected"
-    assert rejected.reject_reasons == ["no_visible_person"]
+    assert rejected.reject_reasons == ["no_visible_person", "ugc_authenticity_below_threshold", "review_fit_below_threshold"]
 
 
 def test_stage3_analysis_worker_persists_ready_result(database):
@@ -2501,14 +2506,14 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
         json={"folder_id": "folder-a", "force": False},
     )
     assert queued.status_code == 202
-    assert queued.json() == {"eligible": 2, "queued": 2, "existing": 0}
+    assert queued.json() == {"eligible": 2, "queued": 2, "existing": 0, "remaining": 0, "has_more": False}
 
     duplicate = api.post(
         "/api/v1/realistic-review-ugc/stage3/review-groups/analyze",
         json={"folder_id": "folder-a", "force": False},
     )
     assert duplicate.status_code == 202
-    assert duplicate.json() == {"eligible": 2, "queued": 0, "existing": 2}
+    assert duplicate.json() == {"eligible": 0, "queued": 0, "existing": 0, "remaining": 0, "has_more": False}
 
     with database() as session:
         analyses = session.scalars(
@@ -2536,6 +2541,51 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
     assert refreshed_payload["pending_images"] == 1
     assert refreshed_groups["folder-a"]["status"] == "analyzing"
     assert refreshed_groups["folder-a"]["analyzing_count"] == 2
+
+
+def test_stage5_analyze_all_drains_older_outputs_beyond_initial_500(api, database):
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Large review batch",
+            query="UGC test", target_count=10, max_scroll_batches=1,
+            auto_import=False, auto_scout=False,
+        )
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a", root_folder_id="root", source_file_id="source-large",
+            source_parent_folder_id="folder-large", source_relative_path="Items/design.png",
+            source_name="design.png", source_mime_type="image/png",
+            source_revision="a" * 64, status="ready",
+            campaign_id=campaign.id, created_by_user_id="user-a",
+        )
+        session.add(plan)
+        session.flush()
+        session.add_all([
+            RrugcStage2JobModel(
+                tenant_id="tenant-a", source_plan_id=plan.id,
+                campaign_id=campaign.id, source_revision=plan.source_revision,
+                skill_name="test", selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[], status="completed",
+                idempotency_key=f"large-{i}", output_remote_file_id=f"large-{i}",
+                output_remote_folder_id="folder-large",
+                output_content_hash=f"{i:064x}", created_by_user_id="user-a",
+            )
+            for i in range(502)
+        ])
+        session.commit()
+
+    route = "/api/v1/realistic-review-ugc/stage3/review-groups/analyze"
+    first = api.post(route, json={"folder_id": "folder-large"})
+    assert first.status_code == 202, first.text
+    assert first.json() == {"eligible": 502, "queued": 500, "existing": 0, "remaining": 2, "has_more": True}
+    second = api.post(route, json={"folder_id": "folder-large"})
+    assert second.status_code == 202, second.text
+    assert second.json() == {"eligible": 2, "queued": 2, "existing": 0, "remaining": 0, "has_more": False}
+    third = api.post(route, json={"folder_id": "folder-large"})
+    assert third.json() == {"eligible": 0, "queued": 0, "existing": 0, "remaining": 0, "has_more": False}
+    with database() as session:
+        assert session.query(RrugcStage3AnalysisModel).filter(
+            RrugcStage3AnalysisModel.tenant_id == "tenant-a"
+        ).count() == 502
 
 
 def test_stage2_job_uses_up_to_three_drive_ready_pinterest_refs(database, monkeypatch):
@@ -2726,6 +2776,33 @@ def test_stage2_job_uses_up_to_three_drive_ready_pinterest_refs(database, monkey
         expired_processing = session.get(ProcessingJobModel, expired_run.processing_job_id)
         assert expired_processing is not None
         assert expired_processing.status == "pending"
+
+        # A prior expired queued job must never block cancelling a new batch.
+        fresh, fresh_created = service.create_job(
+            tenant_id="tenant-a", user_id="user-a",
+            source_plan_id=plan.id,
+            selected_candidate_ids=[candidates[4].id],
+        )
+        assert fresh_created
+        # Reproduce a queued job from an earlier run, not another one
+        # enqueued within the same 10-second grace window.
+        expired_run.queued_at = fresh.queued_at - timedelta(seconds=25)
+        session.flush()
+        cancelled = service.cancel_recent_batch(
+            tenant_id="tenant-a", user_id="user-a",
+            source_plan_id=plan.id, job_ids=[expired_run.id, fresh.id],
+            now=fresh.queued_at + timedelta(seconds=1),
+        )
+        assert [job.id for job in cancelled] == [fresh.id]
+        session.refresh(expired_run)
+        assert expired_run.status == "queued"
+        assert session.get(ProcessingJobModel, expired_run.processing_job_id).status == "pending"
+        with pytest.raises(RrugcStage2Error) as forbidden:
+            service.cancel_recent_batch(
+                tenant_id="tenant-a", user_id="user-b",
+                source_plan_id=plan.id, job_ids=[expired_run.id],
+            )
+        assert forbidden.value.code == "stage2_cancel_ids_invalid"
 
 
 def test_auto_scout_claim_reconciles_expired_lease_even_when_campaign_not_claimable(database):

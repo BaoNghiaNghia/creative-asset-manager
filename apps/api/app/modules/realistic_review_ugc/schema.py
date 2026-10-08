@@ -982,6 +982,10 @@ class Stage2JobCreatedResponse(BaseModel):
     job: Stage2JobResponse
 
 
+class Stage2JobsCancelRequest(BaseModel):
+    job_ids: list[str] | None = Field(default=None, min_length=1, max_length=250)
+
+
 class Stage2JobsCancelledResponse(BaseModel):
     cancelled: int
     job_ids: list[str] = Field(default_factory=list)
@@ -1060,6 +1064,8 @@ class Stage3AnalyzeResponse(BaseModel):
     eligible: int
     queued: int
     existing: int
+    has_more: bool = False
+    remaining: int = 0
 
 
 class ScoutRunCompleteRequest(BaseModel):

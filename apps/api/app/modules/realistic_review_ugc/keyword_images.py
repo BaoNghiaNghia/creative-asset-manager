@@ -25,11 +25,12 @@ from app.modules.realistic_review_ugc.stage2_skills import (
 )
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageProviderError, CodexImageRunnerConfig,
+    load_codex_skill_manifest,
 )
 
 JOB_TYPE = "rrugc_keyword_image_generate"
 MAX_MANUAL_RETRIES = 3
-DEFAULT_SKILL = "gatorhats-8869-image-studio"
+DEFAULT_SKILL = "gatorhats-keyword-embroidery"
 
 
 class KeywordImageError(RuntimeError):
@@ -112,6 +113,13 @@ class KeywordImageService:
                 self.session, tenant_id=tenant_id, source=skill.source,
                 skill_id=skill.skill_id, skill_name=skill.skill_name,
             )
+            manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, skill.skill_name)
+            if manifest is None or "keyword_artwork" not in manifest.workflows or manifest.required_reference_roles:
+                raise KeywordImageError(
+                    "keyword_image_skill_requires_references",
+                    "Stage 1 requires a Skill that can generate from keyword text without source images.",
+                    422,
+                )
         except Stage2SkillRegistryError as exc:
             raise KeywordImageError(exc.code, exc.message, exc.status_code) from exc
         job = RrugcKeywordImageJobModel(

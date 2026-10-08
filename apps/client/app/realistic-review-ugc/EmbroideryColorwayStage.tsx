@@ -152,7 +152,9 @@ export function EmbroideryColorwayStage({
   const readinessWarning = serverReadiness && !serverReadiness.ready
     ? serverReadiness.error_code === "colorway_stock_missing"
       ? "Missing or invalid stock photos: " + serverReadiness.stock_ready_count + "/" + serverReadiness.stock_total_count + " verified."
-      : "The image generation service is not enabled for Stage 2."
+      : serverReadiness.error_code === "colorway_runtime_missing"
+        ? "Codex CLI or the 8869 scale Skill is missing from the server runtime."
+        : "The image generation service is not enabled for Stage 2."
     : readinessMessage;
   const pagePlanIds = data.items.map(item => item.id);
   const pagePlanKey = pagePlanIds.join(",");

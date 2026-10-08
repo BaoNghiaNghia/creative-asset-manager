@@ -516,6 +516,7 @@ export type Stage3AnalyzeResult = {
   eligible: number;
   queued: number;
   existing: number;
+  remaining?: number;
 };
 
 export type SourcePlanSyncResult = {

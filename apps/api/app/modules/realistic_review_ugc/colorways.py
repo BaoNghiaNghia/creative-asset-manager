@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from io import BytesIO
@@ -98,6 +99,17 @@ def effective_status(row: RrugcColorwayJobModel, processing: ProcessingJobModel 
     return row.status
 
 
+def _codex_runtime_available(settings: Settings) -> bool:
+    """Cheap readiness gate. Provider login/quota still require a live smoke."""
+    binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
+    home = Path(str(getattr(settings, "CODEX_IMAGE_HOME",
+                            "/var/lib/creative-asset-manager/codex"))).resolve()
+    return bool(
+        shutil.which(binary)
+        and (home / "skills" / DEFAULT_COLORWAY_SKILL / "SKILL.md").is_file()
+    )
+
+
 class ColorwayService:
     def __init__(self, session: Session, settings: Settings | None = None):
         self.session = session
@@ -120,7 +132,8 @@ class ColorwayService:
                 continue
         error_code = (
             "colorway_disabled" if not configured else
-            "colorway_stock_missing" if available_colors != len(COLORS) else None
+            "colorway_stock_missing" if available_colors != len(COLORS) else
+            "colorway_runtime_missing" if not _codex_runtime_available(self.settings) else None
         )
         return {
             "ready": error_code is None,

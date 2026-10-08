@@ -1,0 +1,21 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "stage4-open",
+      "click": "#rrugc-tab-stage4",
+      "waitFor": ".rrugc-stage2",
+      "waitMs": 400
+    },
+    {
+      "name": "stage5-open",
+      "click": "#rrugc-tab-stage5",
+      "waitFor": ".rrugc-stage3",
+      "waitMs": 400
+    }
+  ]
+}

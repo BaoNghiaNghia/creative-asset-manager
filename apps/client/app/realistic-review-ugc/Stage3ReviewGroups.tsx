@@ -468,6 +468,7 @@ export function Stage3ReviewGroups({
                           </span>
                         </div>
                         <blockquote title={image.review_text || ""}>{image.review_text}</blockquote>
+                        <small className="rrugc-stage3-synthetic-notice">AI-generated review concept · Not a real customer testimonial</small>
                       </div>
                     ) : (
                       <p title={imageDetail(image)}>{imageDetail(image)}</p>
