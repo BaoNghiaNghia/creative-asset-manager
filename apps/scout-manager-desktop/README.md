@@ -20,7 +20,7 @@ The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor
 
 - Same Scout Python runtime, API, pairing keys and histories; no API/database migration.
 - Tauri Rust backend owns fixed, allowlisted commands (start, pause, restart, check update, save pairing and bounded log reads).
-- No arbitrary command execution from the React webview. The webview does not receive Scout secrets.
+- No arbitrary command execution from the React webview. Dashboard/read-log IPC never returns saved Scout tokens; pairing input is submitted once over a privileged command and is not persisted by React.
 - Child processes use Windows Job Objects with KILL_ON_JOB_CLOSE. Minimize/close hides the window into system tray **without** stopping Scouts; Quit and stop Scouts from the tray stops both.
 - Local source update checks every 60s and performs git fetch + fast-forward merge **only on clean main**. Managed Scout script changes stop/restart affected modes. Git branch/dirty failures never reset files or delete profiles. Updates to the desktop binary require a new installer; signed binary auto-update is not yet enabled.
 - Bounded restart attempts and exponential delay. After four failures Scout pauses, requiring operator intervention. Desktop does not bundle Playwright/Chrome/Python environments.

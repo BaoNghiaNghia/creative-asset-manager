@@ -73,11 +73,11 @@ export default function App() {
   }, [refresh]);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [logs, mode]);
 
-  const act = async (name: string, args: Record<string, unknown> = {}) => {
-    if (!isNative) return;
+  const act = async (name: string, args: Record<string, unknown> = {}): Promise<boolean> => {
+    if (!isNative) return false;
     setBusy(true); setToast(null);
-    try { await invoke(name, args); await refresh(); }
-    catch (e) { setToast(typeof e === "string" ? e : e instanceof Error ? e.message : "Request failed"); }
+    try { await invoke(name, args); await refresh(); return true; }
+    catch (e) { setToast(typeof e === "string" ? e : e instanceof Error ? e.message : "Request failed"); return false; }
     finally { setBusy(false); }
   };
   const onMode = (command: "start" | "stop" | "restart", which: ModeName) => void act("control_scout", { mode: which, command });
@@ -113,6 +113,6 @@ export default function App() {
     </section>
     <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Minimize to tray to keep working</span></footer>
   </div>
-  {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { await act("save_pairing", { agentId, token }); setPairing(false); })(); }}/>}
+  {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { if (await act("save_pairing", { agentId, token })) { setPairing(false); await act("control_all", { command: "start" }); } })(); }}/>}
   </main>;
 }
