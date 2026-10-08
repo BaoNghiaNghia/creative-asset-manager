@@ -141,6 +141,16 @@ def scout_jobs_snapshot(
         feedback.status == "suggested",
         feedback.processed_at.is_(None),
     )
+    # Manual priority discovery uses its own lease table; a Keyword Scout
+    # processing a priority quote legitimately holds zero query-pool leases.
+    priority_active = _scalar_count(
+        session, feedback,
+        feedback.tenant_id == tenant_id,
+        feedback.status == "suggested",
+        feedback.processed_at.is_(None),
+        feedback.claimed_by_agent_id == agent_id,
+        feedback.lease_expires_at > now,
+    )
     added_24h = _scalar_count(
         session, RrugcKeywordVolumeModel,
         RrugcKeywordVolumeModel.tenant_id == tenant_id,
@@ -178,6 +188,7 @@ def scout_jobs_snapshot(
             "completed_cycles_total": int(cycle_totals[0]),
             "failed_cycles_total": int(cycle_totals[1]),
             "suggestions_pending": feedback_pending,
+            "active_priority_tasks": priority_active,
             "new_keywords_24h": added_24h,
             "new_keywords_1h": added_hour,
             "scanned_pins_24h_agent": int(last_day_metrics[1]),

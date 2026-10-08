@@ -88,6 +88,8 @@ struct KeywordJobCounts {
     completed_cycles_total: u64,
     failed_cycles_total: u64,
     suggestions_pending: u64,
+    #[serde(default)]
+    active_priority_tasks: u64,
     new_keywords_24h: u64,
     new_keywords_1h: u64,
     scanned_pins_24h_agent: u64,

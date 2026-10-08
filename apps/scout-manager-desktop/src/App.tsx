@@ -18,7 +18,7 @@ type OperationsSummary = {
     active_searches: number; tenant_active_searches: number; older_outstanding_leases: number; ready_queries: number;
     cooling_queries?: number; blocked_queries?: number; leased_queries?: number;
     total_queries: number; completed_cycles_total: number; failed_cycles_total: number;
-    suggestions_pending: number; new_keywords_24h: number; new_keywords_1h: number;
+    suggestions_pending: number; active_priority_tasks?: number; new_keywords_24h: number; new_keywords_1h: number;
     scanned_pins_24h_agent: number; saved_keywords_24h_agent: number;
     last_cycle_at?: string | null;
   };
@@ -93,11 +93,11 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
             ["Failed cycles · total", operations?.keyword.failed_cycles_total, "warn"],
           ]}/>
           <div className="scout-jobs-foot">Query pool: {operations?.keyword.total_queries ?? "—"} · Cooling down: {operations?.keyword.cooling_queries ?? "—"} · Blocked: {operations?.keyword.blocked_queries ?? "—"} · Leased (tenant): {operations?.keyword.leased_queries ?? "—"} · Stale leases: {operations?.keyword.older_outstanding_leases ?? "—"}</div>
-          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · New keywords (tenant): {operations?.keyword.new_keywords_1h ?? "—"} / hour · {operations?.keyword.new_keywords_24h ?? "—"} / 24h · Last completed agent cycle (24h): {operations?.keyword.last_cycle_at ? new Date(operations.keyword.last_cycle_at).toLocaleTimeString() : "none"}</div>
+          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Active priority leases (this machine): {operations?.keyword.active_priority_tasks ?? "—"} · New keywords (tenant): {operations?.keyword.new_keywords_1h ?? "—"} / hour · {operations?.keyword.new_keywords_24h ?? "—"} / 24h · Last completed agent cycle (24h): {operations?.keyword.last_cycle_at ? new Date(operations.keyword.last_cycle_at).toLocaleTimeString() : "none"}</div>
           <div className="scout-jobs-foot">Done/failed cycles count only the dynamic query pool; saved keywords include all discovery sources.</div>
-          {active && operations?.keyword.active_searches === 0 && (operations.keyword.ready_queries || 0) > 0 &&
-            <div className="scout-jobs-foot">No active query lease in this snapshot despite eligible searches. Running confirms the process, not successful discovery; inspect Live activity if this persists.</div>}
-          {active && operations?.keyword.active_searches === 0 && operations.keyword.ready_queries === 0 &&
+          {active && operations?.keyword.active_searches === 0 && (operations.keyword.active_priority_tasks || 0) === 0 && (operations.keyword.ready_queries || 0) > 0 &&
+            <div className="scout-jobs-foot">No active query or priority lease in this snapshot, despite eligible queries. The Scout may be between scans or waiting on Gemini/Pinterest; check Live activity if prolonged.</div>}
+          {active && operations?.keyword.active_searches === 0 && (operations.keyword.active_priority_tasks || 0) === 0 && operations.keyword.ready_queries === 0 &&
             (operations.keyword.cooling_queries || 0) > 0 &&
             <div className="scout-jobs-foot">Query pool is cooling down. Running means the process is alive; the next scan must wait until a query becomes eligible.</div>}
         </>

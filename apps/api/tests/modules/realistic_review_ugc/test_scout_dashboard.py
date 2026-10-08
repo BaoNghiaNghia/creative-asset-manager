@@ -93,6 +93,9 @@ def test_scout_jobs_snapshot_tenant_and_agent_isolation():
                     target_key="retro hat", keyword="Retro Hat",
                     display_value="Retro Hat", status="suggested",
                     updated_by_user_id="owner",
+                    claimed_by_agent_id="agent-a",
+                    lease_token="priority-token",
+                    lease_expires_at=now + timedelta(minutes=5),
                 ),
                 RrugcScoutMetricCycleModel(
                     tenant_id="tenant-a", agent_id="agent-a", mode="keyword",
@@ -125,9 +128,12 @@ def test_scout_jobs_snapshot_tenant_and_agent_isolation():
             assert keyword["completed_cycles_total"] == 5
             assert keyword["failed_cycles_total"] == 1
             assert keyword["suggestions_pending"] == 1
+            assert keyword["active_priority_tasks"] == 1
             assert keyword["new_keywords_24h"] == 1
             assert keyword["scanned_pins_24h_agent"] == 32
             assert keyword["saved_keywords_24h_agent"] == 5
+            other = scout_jobs_snapshot(session, "tenant-a", "agent-other", now=now)
+            assert other["keyword"]["active_priority_tasks"] == 0
     finally:
         engine.dispose()
 
