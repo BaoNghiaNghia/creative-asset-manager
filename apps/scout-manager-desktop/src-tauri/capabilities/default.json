@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "RRUGC Scout Manager front-end window capabilities",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show"
+  ]
+}

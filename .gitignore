@@ -11,6 +11,8 @@
 
 # Local Pinterest Scout runtime/config
 scout.local.env
+scout.local.env.*
+apps/scout-manager-desktop/src-tauri/target/
 .rrugc-scout-requirements.sha256
 pinterest-profile/
 pinterest-profile-keyword/
