@@ -20,6 +20,34 @@ from quote_keyword_volume import (
 from scout import PinterestAccessGateError
 
 
+def test_blocked_keyword_is_not_sent_to_aebrowse():
+    from unittest.mock import AsyncMock
+    from scout import Candidate
+    from quote_keyword_volume import _process_keyword_candidate
+
+    async def exercise():
+        with TemporaryDirectory() as directory:
+            history = KeywordScoutHistory(Path(directory) / "history.json")
+            client = type("Client", (), {})()
+            client.extract_quote = AsyncMock(return_value={
+                "quotes": ["Cowboy Hat"], "is_target_cap": True,
+                "confidence": 0.97, "provider": "mock",
+            })
+            client.resolve_volume = AsyncMock()
+            candidate = Candidate(
+                pin_url="https://www.pinterest.com/pin/100/",
+                image_url="https://i.pinimg.com/originals/aa.jpg",
+            )
+            result = await _process_keyword_candidate(
+                client, history, candidate, source="root",
+                root_pin_url=candidate.pin_url, blocked_keywords={"cowboy hat"},
+            )
+            assert result.saved_delta == 0
+            client.resolve_volume.assert_not_awaited()
+
+    asyncio.run(exercise())
+
+
 def test_keyword_supervisor_stops_and_reports_after_restart_limit(monkeypatch):
     calls = 0
     reports = []

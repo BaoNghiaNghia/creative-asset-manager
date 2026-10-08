@@ -447,6 +447,8 @@ class KeywordVolumeResponse(BaseModel):
     trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
     source_image_url: str | None = None
     source_pin_url: str | None = None
+    scout_keyword_feedback: Literal["suggested", "blocked", "neutral"] = "neutral"
+    scout_pin_feedback: Literal["suggested", "blocked", "neutral"] = "neutral"
     picked: bool = False
     picked_at: datetime | None = None
     favorite: bool = False
@@ -466,6 +468,28 @@ class KeywordSuggestionResponse(BaseModel):
     search_volume: int = 0
     favorite: bool = False
     picked: bool = False
+
+
+class ScoutFeedbackRequest(BaseModel):
+    action: Literal["suggested", "blocked", "neutral"]
+    scope: Literal["keyword", "pin", "both"] = "both"
+
+
+class ScoutFeedbackFinishRequest(BaseModel):
+    lease_token: str = Field(min_length=36, max_length=36)
+    id: str = Field(min_length=36, max_length=36)
+    success: bool = True
+
+
+class ScoutMetricCycleRequest(BaseModel):
+    machine_label: str = Field(default="unknown", min_length=1, max_length=160)
+    mode: Literal["keyword", "review"] = "keyword"
+    cycle_id: str = Field(min_length=8, max_length=64)
+    scanned_pins: int = Field(default=0, ge=0, le=100_000)
+    found_quotes: int = Field(default=0, ge=0, le=100_000)
+    new_keywords: int = Field(default=0, ge=0, le=100_000)
+    duplicate_pins: int = Field(default=0, ge=0, le=100_000)
+    errors: int = Field(default=0, ge=0, le=100_000)
 
 
 class KeywordVolumePickRequest(BaseModel):

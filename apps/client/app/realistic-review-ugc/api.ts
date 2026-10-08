@@ -239,6 +239,22 @@ export const suggestKeywordAnalysis = (query: string, signal?: AbortSignal) => {
   );
 };
 
+export type ScoutFeedbackAction = "suggested" | "blocked" | "neutral";
+export type ScoutFeedbackScope = "keyword" | "pin" | "both";
+
+export const setKeywordScoutFeedback = (keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) =>
+  request<import("./types").KeywordVolume>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/feedback",
+    { method: "PATCH", body: JSON.stringify({ action, scope }) },
+  );
+
+export const listScoutMetrics = (signal?: AbortSignal) =>
+  request<{
+    items: Array<{ agent_id: string; machine_label: string; mode: "keyword" | "review"; scanned_pins: number; found_quotes: number; new_keywords: number; duplicate_pins: number; errors: number; last_activity_at: string | null }>;
+    feedback: { suggested?: number; blocked?: number };
+    period: string;
+  }>("/api/v1/realistic-review-ugc/scout-metrics", { signal });
+
 export const setKeywordAnalysisPicked = (keywordId: string, picked: boolean) =>
   request<import("./types").KeywordVolume>(
     "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/pick",

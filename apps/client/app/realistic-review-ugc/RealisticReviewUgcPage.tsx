@@ -13,6 +13,9 @@ import {
   markCandidateReferenceFeedback,
   setKeywordAnalysisPicked,
   setKeywordAnalysisFavorite,
+  setKeywordScoutFeedback,
+  type ScoutFeedbackAction,
+  type ScoutFeedbackScope,
   syncSourcePlans,
   type SourcePlanSortBy,
   type SourcePlanSortDirection,
@@ -140,6 +143,7 @@ export function RealisticReviewUgcPage() {
   const [keywordFavoritesOnly, setKeywordFavoritesOnly] = useState(false);
   const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
   const [keywordFavoritingIds, setKeywordFavoritingIds] = useState<Set<string>>(new Set());
+  const [keywordFeedbackIds, setKeywordFeedbackIds] = useState<Set<string>>(new Set());
   const [keywordLoading, setKeywordLoading] = useState(true);
   const [embroideryPage, setEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [embroideryPageNumber, setEmbroideryPageNumber] = useState(1);
@@ -243,6 +247,27 @@ export function RealisticReviewUgcPage() {
       setError(reason instanceof Error ? reason.message : "Unable to update keyword favorite.");
     } finally {
       setKeywordFavoritingIds(current => {
+        const next = new Set(current);
+        next.delete(keywordId);
+        return next;
+      });
+    }
+  }
+
+  async function changeKeywordFeedback(keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) {
+    setKeywordFeedbackIds(current => new Set(current).add(keywordId));
+    setError("");
+    try {
+      const updated = await setKeywordScoutFeedback(keywordId, action, scope);
+      setKeywordPage(current => ({
+        ...current,
+        items: current.items.map(item => item.id === updated.id ? updated : item),
+      }));
+      await refreshKeywordAnalysis();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update Scout feedback.");
+    } finally {
+      setKeywordFeedbackIds(current => {
         const next = new Set(current);
         next.delete(keywordId);
         return next;
@@ -806,6 +831,8 @@ export function RealisticReviewUgcPage() {
             favoritesOnly={keywordFavoritesOnly}
             pickingIds={keywordPickingIds}
             favoritingIds={keywordFavoritingIds}
+            feedbackUpdatingIds={keywordFeedbackIds}
+            onFeedbackChange={changeKeywordFeedback}
             onSortChange={changeKeywordSort}
             onUsageFilterChange={value => {
               setKeywordLoading(true);

@@ -3,6 +3,7 @@ import {
   createScoutAgent,
   listScoutAgents,
   listScoutRuns,
+  listScoutMetrics,
   resetScoutAgentPairing,
 } from "./api";
 import type { ScoutAgent, ScoutAgentCreated, ScoutRun } from "./types";
@@ -13,7 +14,7 @@ const time = (value: string | null) =>
 const DEFAULT_PROFILE_DIR =
   "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
 
-export const MIN_SCOUT_CLIENT_VERSION = 45;
+export const MIN_SCOUT_CLIENT_VERSION = 47;
 
 export function scoutClientIsCurrent(value: string | null | undefined): boolean {
   const match = /^rrugc-scout-v(\d+)$/.exec((value || "").trim());
@@ -69,6 +70,7 @@ export function PinterestAutoScoutPanel({
 }) {
   const [agents, setAgents] = useState<ScoutAgent[]>([]);
   const [runs, setRuns] = useState<ScoutRun[]>([]);
+  const [metrics, setMetrics] = useState<Awaited<ReturnType<typeof listScoutMetrics>> | null>(null);
   const [created, setCreated] = useState<ScoutAgentCreated | null>(null);
   const [name, setName] = useState("Pinterest Auto Scout");
   const [profileDir, setProfileDir] = useState(DEFAULT_PROFILE_DIR);
@@ -98,12 +100,14 @@ export function PinterestAutoScoutPanel({
   );
 
   async function refresh(signal?: AbortSignal) {
-    const [agentRows, runRows] = await Promise.all([
+    const [agentRows, runRows, metricRows] = await Promise.all([
       listScoutAgents(signal),
       listScoutRuns(undefined, signal),
+      listScoutMetrics(signal),
     ]);
     setAgents(agentRows);
     setRuns(runRows);
+    setMetrics(metricRows);
   }
 
   useEffect(() => {
@@ -216,6 +220,33 @@ export function PinterestAutoScoutPanel({
       <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
       <span><small>New refs</small><b>{createdCount}</b></span>
     </div>
+
+    {agents.length > 0 && <div className="rrugc-scout-machine-cards" aria-label="Scout metrics by machine">
+      {(metrics?.items.filter(item => item.mode === "keyword") || []).map(item => {
+        const agent = agents.find(row => row.id === item.agent_id);
+        const reviewRuns = recentRuns.filter(row => row.agent_id === item.agent_id && row.status === "completed");
+        return <article key={item.agent_id + ":" + item.machine_label} className="rrugc-scout-machine-card">
+          <header><strong>{item.machine_label}</strong><small>Keyword Scout · Last 7 days</small></header>
+          <div className="rrugc-scout-machine-counts">
+            <span><small>Pins scanned</small><b>{item.scanned_pins.toLocaleString()}</b></span>
+            <span><small>Keywords found</small><b>{item.found_quotes.toLocaleString()}</b></span>
+            <span><small>New keywords</small><b>{item.new_keywords.toLocaleString()}</b></span>
+            <span><small>Duplicates</small><b>{item.duplicate_pins.toLocaleString()}</b></span>
+            <span><small>Errors</small><b>{item.errors.toLocaleString()}</b></span>
+          </div>
+          <footer>Last report: {time(item.last_activity_at)} · {agent?.status || "Unpaired"}
+            {reviewRuns.length > 0 && <span> · Review refs (recent runs): {reviewRuns.reduce((total, row) => total + row.created_count, 0)}</span>}
+          </footer>
+        </article>;
+      })}
+      {agents.filter(agent => !metrics?.items.some(item => item.agent_id === agent.id && item.mode === "keyword")).map(agent =>
+        <article key={agent.id} className="rrugc-scout-machine-card">
+          <header><strong>{agent.machine_label || agent.name}</strong><small>Keyword Scout · Last 7 days</small></header>
+          <p className="rrugc-scout-metrics-empty">No cycle metrics yet. Update and restart Keyword Scout v{MIN_SCOUT_CLIENT_VERSION} to enable reporting.</p>
+          <footer>Agent {agent.status} · Last seen: {time(agent.last_seen_at)}</footer>
+        </article>
+      )}
+    </div>}
 
     {(health.tone !== "is-online" || activeRun) && <div className={"rrugc-scout-health-note " + health.tone}>
       <strong>{health.label}</strong>

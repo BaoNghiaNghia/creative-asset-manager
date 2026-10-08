@@ -185,6 +185,8 @@ export type KeywordVolume = {
   trend?: KeywordVolumeTrendPoint[];
   source_image_url: string | null;
   source_pin_url: string | null;
+  scout_keyword_feedback?: "suggested" | "blocked" | "neutral";
+  scout_pin_feedback?: "suggested" | "blocked" | "neutral";
   picked: boolean;
   picked_at: string | null;
   favorite: boolean;

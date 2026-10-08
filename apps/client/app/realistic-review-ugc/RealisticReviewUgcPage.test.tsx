@@ -695,6 +695,8 @@ describe("Realistic Review UGC source-first workspace", () => {
         favoritesOnly={false}
         pickingIds={new Set()}
         favoritingIds={new Set()}
+        feedbackUpdatingIds={new Set()}
+        onFeedbackChange={() => undefined}
         onSortChange={() => undefined}
         onUsageFilterChange={() => undefined}
         onTailFilterChange={() => undefined}
@@ -711,6 +713,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("<h2>Analysis Keyword</h2>");
     expect(markup).toContain("Live keyword data");
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
+    expect(markup).toContain("Đề xuất");
+    expect(markup).toContain("Bỏ đề xuất");
+    expect(markup).toContain('value="both"');
     expect(markup).toContain(">Preview<");
     expect(markup).toContain(">Trend<");
     expect(markup).toContain("https://i.pinimg.com/736x/aa/bb/hotdog.jpg");
@@ -1247,7 +1252,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(scoutClientIsCurrent("rrugc-scout-v42")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v43")).toBe(false);
     expect(scoutClientIsCurrent("rrugc-scout-v44")).toBe(false);
-    expect(scoutClientIsCurrent("rrugc-scout-v45")).toBe(true);
+    expect(scoutClientIsCurrent("rrugc-scout-v45")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v46")).toBe(false);
+    expect(scoutClientIsCurrent("rrugc-scout-v47")).toBe(true);
     expect(scoutClientIsCurrent(null)).toBe(false);
   });
 

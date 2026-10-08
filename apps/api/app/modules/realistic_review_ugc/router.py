@@ -11,6 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -57,6 +58,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
+    RrugcScoutFeedbackModel,
+    RrugcScoutMetricCycleModel,
     RrugcStage2JobModel,
     RrugcStage3AnalysisModel,
     RrugcSupervisorResultModel,
@@ -147,6 +150,9 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutKeywordSummaryResponse,
     KeywordVolumePickRequest,
     KeywordVolumeFavoriteRequest,
+    ScoutFeedbackRequest,
+    ScoutFeedbackFinishRequest,
+    ScoutMetricCycleRequest,
     KeywordSuggestionResponse,
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
@@ -235,6 +241,10 @@ from app.modules.realistic_review_ugc.schema import (
     Stage3ReviewGroupListResponse,
     Stage3ReviewGroupResponse,
     Stage3ReviewImageResponse,
+)
+from app.modules.realistic_review_ugc.scout_feedback import (
+    update_feedback, statuses_for_rows, feedback_targets, blocked_targets,
+    claim_priority, finish_priority,
 )
 from app.modules.realistic_review_ugc.review import RrugcReviewService
 from app.modules.realistic_review_ugc.scout_automation import (
@@ -2949,7 +2959,11 @@ def _keyword_metric_int(value: object) -> int | None:
         return None
 
 
-def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeResponse:
+def _keyword_volume_response(
+    row: RrugcKeywordVolumeModel, feedback: dict | None = None,
+) -> KeywordVolumeResponse:
+    feedback = feedback or {}
+    keys = list(feedback_targets(row, "both"))
     return KeywordVolumeResponse(
         id=row.id,
         keyword=row.keyword,
@@ -2969,6 +2983,8 @@ def _keyword_volume_response(row: RrugcKeywordVolumeModel) -> KeywordVolumeRespo
         trend=_keyword_volume_trend(row),
         source_image_url=row.source_image_url,
         source_pin_url=row.source_pin_url,
+        scout_keyword_feedback=feedback.get(("keyword", row.keyword_normalized), "neutral"),
+        scout_pin_feedback=next((feedback.get((kind, key), "neutral") for kind, key, _ in keys if kind == "pin"), "neutral"),
         picked=bool(row.picked),
         picked_at=row.picked_at,
         favorite=bool(row.favorite),
@@ -3789,8 +3805,9 @@ def list_keyword_analysis(
             .limit(page_size)
         )
     )
+    feedback = statuses_for_rows(session, principal.active_tenant_id, rows)
     return KeywordVolumePageResponse(
-        items=[_keyword_volume_response(row) for row in rows],
+        items=[_keyword_volume_response(row, feedback) for row in rows],
         page=page,
         page_size=page_size,
         total=total,
@@ -3808,6 +3825,62 @@ def list_keyword_analysis(
             favorite_keywords=favorite_keywords,
         ),
     )
+
+
+@router.patch(
+    "/keyword-analysis/{keyword_id}/feedback",
+    response_model=KeywordVolumeResponse,
+)
+def set_keyword_scout_feedback(
+    keyword_id: str,
+    request: ScoutFeedbackRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    row = session.scalar(select(RrugcKeywordVolumeModel).where(
+        RrugcKeywordVolumeModel.id == keyword_id,
+        RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword row not found.")
+    try:
+        update_feedback(session, row, request.action, request.scope, principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    session.commit()
+    return _keyword_volume_response(row, statuses_for_rows(session, principal.active_tenant_id, [row]))
+
+
+@router.get("/scout-metrics")
+def list_scout_metrics(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    tenant_id = principal.active_tenant_id
+    metric = RrugcScoutMetricCycleModel
+    last_week = datetime.now(timezone.utc) - timedelta(days=7)
+    rows = session.execute(select(
+        metric.agent_id, metric.machine_label, metric.mode,
+        func.sum(metric.scanned_pins), func.sum(metric.found_quotes),
+        func.sum(metric.new_keywords), func.sum(metric.duplicate_pins),
+        func.sum(metric.errors), func.max(metric.created_at),
+    ).where(metric.tenant_id == tenant_id, metric.created_at >= last_week)
+     .group_by(metric.agent_id, metric.machine_label, metric.mode)).all()
+    fb = session.execute(select(
+        RrugcScoutFeedbackModel.status, func.count(RrugcScoutFeedbackModel.id)
+    ).where(RrugcScoutFeedbackModel.tenant_id == tenant_id)
+     .group_by(RrugcScoutFeedbackModel.status)).all()
+    return {
+        "items": [
+            {"agent_id": r[0], "machine_label": r[1], "mode": r[2],
+             "scanned_pins": int(r[3] or 0), "found_quotes": int(r[4] or 0),
+             "new_keywords": int(r[5] or 0), "duplicate_pins": int(r[6] or 0),
+             "errors": int(r[7] or 0), "last_activity_at": r[8]}
+            for r in rows
+        ],
+        "feedback": {status: int(count) for status, count in fb},
+        "period": "7d",
+    }
 
 
 @router.patch(
@@ -3959,6 +4032,70 @@ def quote_scout_keyword_summary(
         last_updated_at=latest_updated,
         fetched_at=now,
     )
+
+
+@router.get("/scout-agents/{agent_id}/keyword-analysis/feedback")
+def get_keyword_scout_directives(
+    agent_id: str, authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    agent = RrugcAutoScoutService(session).authenticate_agent(agent_id=agent_id, raw_token=token)
+    return blocked_targets(session, agent.tenant_id)
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/priority/claim")
+def claim_keyword_scout_priority(
+    agent_id: str, authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    agent = RrugcAutoScoutService(session).authenticate_agent(agent_id=agent_id, raw_token=token)
+    return {"task": claim_priority(session, agent.tenant_id, agent_id)}
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/priority/complete")
+def complete_keyword_scout_priority(
+    agent_id: str, request: ScoutFeedbackFinishRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    agent = RrugcAutoScoutService(session).authenticate_agent(agent_id=agent_id, raw_token=token)
+    if not finish_priority(session, agent.tenant_id, agent_id, request.id, request.lease_token, request.success):
+        raise HTTPException(status_code=409, detail="Priority task is no longer assigned to this Scout.")
+    return {"ok": True}
+
+
+@router.post("/scout-agents/{agent_id}/metrics")
+def record_keyword_scout_cycle(
+    agent_id: str, request: ScoutMetricCycleRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    agent = RrugcAutoScoutService(session).authenticate_agent(agent_id=agent_id, raw_token=token)
+    row = session.scalar(select(RrugcScoutMetricCycleModel.id).where(
+        RrugcScoutMetricCycleModel.tenant_id == agent.tenant_id,
+        RrugcScoutMetricCycleModel.agent_id == agent_id,
+        RrugcScoutMetricCycleModel.mode == request.mode,
+        RrugcScoutMetricCycleModel.cycle_id == request.cycle_id,
+    ))
+    if row is not None:
+        return {"ok": True, "duplicate": True}
+    session.add(RrugcScoutMetricCycleModel(
+        tenant_id=agent.tenant_id, agent_id=agent_id, mode=request.mode,
+        cycle_id=request.cycle_id, machine_label=request.machine_label,
+        scanned_pins=request.scanned_pins,
+        found_quotes=request.found_quotes, new_keywords=request.new_keywords,
+        duplicate_pins=request.duplicate_pins, errors=request.errors,
+    ))
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        return {"ok": True, "duplicate": True}
+    return {"ok": True, "duplicate": False}
 
 
 @router.post(

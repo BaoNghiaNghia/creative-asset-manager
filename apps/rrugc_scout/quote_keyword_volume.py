@@ -10,8 +10,10 @@ import os
 from pathlib import Path
 import random
 import re
+import socket
 import sys
 import time
+from uuid import uuid4
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -796,6 +798,42 @@ class QuoteScoutClient:
             raise last_error
         raise RuntimeError(f"{operation} failed after retries")
 
+    async def fetch_feedback(self) -> dict[str, set[str]]:
+        path = f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/feedback"
+        response = await self.client.get(path, timeout=httpx.Timeout(15.0, connect=5.0))
+        response.raise_for_status()
+        payload = response.json()
+        return {
+            "blocked_keywords": {str(x).casefold() for x in payload.get("blocked_keywords", [])},
+            "blocked_pins": {pin_history_key(str(x)) for x in payload.get("blocked_pins", [])},
+        }
+
+    async def claim_feedback_task(self) -> dict[str, Any] | None:
+        payload = await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/priority/claim",
+            {}, operation="claim_keyword_priority",
+        )
+        task = payload.get("task")
+        return task if isinstance(task, dict) else None
+
+    async def finish_feedback_task(self, task_id: str, lease_token: str, success: bool) -> None:
+        await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/priority/complete",
+            {"id": task_id, "lease_token": lease_token, "success": success}, operation="finish_keyword_priority",
+        )
+
+    async def submit_cycle_metrics(self, cycle_id: str, *, scanned_pins: int,
+                                   found_quotes: int, new_keywords: int,
+                                   duplicate_pins: int) -> None:
+        await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/metrics",
+            {"mode": "keyword", "cycle_id": cycle_id,
+             "machine_label": socket.gethostname()[:160],
+             "scanned_pins": scanned_pins, "found_quotes": found_quotes,
+             "new_keywords": new_keywords, "duplicate_pins": duplicate_pins},
+            operation="record_keyword_cycle_metrics",
+        )
+
     async def extract_quote(
         self,
         candidate,
@@ -935,8 +973,9 @@ async def _search_page_diagnostics(page: Any) -> dict[str, Any]:
 async def _flush_pending_quote_volumes(
     client: QuoteScoutClient,
     history: KeywordScoutHistory,
+    blocked_keywords: set[str] | None = None,
 ) -> int:
-    pending = history.pending_quotes
+    pending = [q for q in history.pending_quotes if q.casefold() not in (blocked_keywords or set())]
     if not pending:
         return 0
 
@@ -981,6 +1020,7 @@ async def _process_keyword_candidate(
     root_pin_url: str,
     deep_dive_min_search_volume: int = DEFAULT_DEEP_DIVE_MIN_SEARCH_VOLUME,
     browser_page: Any | None = None,
+    blocked_keywords: set[str] | None = None,
 ) -> KeywordCandidateResult:
     scout_debug_event(
         "keyword_scout_pin_processing",
@@ -1118,6 +1158,7 @@ async def _process_keyword_candidate(
         quote
         for quote in quotes
         if quote.casefold() not in history.known_quote_keys
+        and quote.casefold() not in (blocked_keywords or set())
     ]
     priority_score = _quote_priority_score(result)
     priority_label = _quote_priority_label(priority_score)
@@ -1536,13 +1577,27 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
         await ensure_keyword_startup_login()
 
         while True:
-            await _flush_pending_quote_volumes(client, history)
-            search_url = (
-                "https://www.pinterest.com/search/pins/?q="
-                + quote_plus(args.seed_query)
-            )
+            cycle_id = str(uuid4())
+            priority_task: dict[str, Any] | None = None
             try:
                 await client.ensure_analysis_capacity()
+                directives = await client.fetch_feedback()
+                blocked_keywords = directives["blocked_keywords"]
+                blocked_pins = directives["blocked_pins"]
+                await _flush_pending_quote_volumes(client, history, blocked_keywords)
+                priority_task = await client.claim_feedback_task()
+                current_query = str(priority_task.get("keyword") or args.seed_query) if priority_task else args.seed_query
+                priority_pin = (
+                    Candidate(pin_url=priority_task["pin_url"], image_url=priority_task["image_url"])
+                    if priority_task and priority_task.get("type") == "pin"
+                    and priority_task.get("pin_url") and priority_task.get("image_url")
+                    else None
+                )
+                priority_pin_key = pin_history_key(priority_pin.pin_url) if priority_pin else None
+                search_url = (
+                    "https://www.pinterest.com/search/pins/?q="
+                    + quote_plus(current_query)
+                )
                 if page is None:
                     await open_browser_runtime()
                 # Pinterest often holds DOMContentLoaded behind third-party
@@ -1570,6 +1625,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 )
 
                 processed = 0
+                duplicate_pins = 0
                 extracted = 0
                 saved_quotes = 0
                 related_scanned = 0
@@ -1583,6 +1639,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 for batch in range(args.max_scroll_batches):
                     await paced_wait(page, pace.inspect_dwell_ms)
                     visible = await extract_visible_pin_candidates(page)
+                    if priority_pin is not None and batch == 0 and pin_history_key(priority_pin.pin_url) not in blocked_pins:
+                        visible = [priority_pin, *visible]
                     if visible:
                         empty_batch_streak = 0
                     else:
@@ -1642,17 +1700,19 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     for candidate in visible:
                         pin_key = pin_history_key(candidate.pin_url)
                         asset_key = pinimg_asset_key(candidate.image_url)
-                        if not pin_key or pin_key in cycle_seen:
+                        if not pin_key or pin_key in cycle_seen or pin_key in blocked_pins:
                             continue
                         cycle_seen.add(pin_key)
-                        needs_expansion = pin_key not in expanded_pins
+                        needs_expansion = pin_key not in expanded_pins or pin_key == priority_pin_key
                         if pin_key in persistent_pins and not needs_expansion:
+                            duplicate_pins += 1
                             continue
                         if (
                             asset_key
                             and asset_key in persistent_assets
                             and not needs_expansion
                         ):
+                            duplicate_pins += 1
                             continue
                         candidates.append(candidate)
 
@@ -1671,7 +1731,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 break
                             pin_key = pin_history_key(candidate.pin_url)
                             asset_key = pinimg_asset_key(candidate.image_url)
-                            needs_expansion = pin_key not in history.expanded_pins
+                            needs_expansion = pin_key not in history.expanded_pins or pin_key == priority_pin_key
                             root_needs_quote = (
                                 pin_key not in history.seen_pins
                                 and (
@@ -1728,7 +1788,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             for related in related_rows:
                                 related_pin_key = pin_history_key(related.pin_url)
                                 related_asset_key = pinimg_asset_key(related.image_url)
-                                if not related_pin_key or related_pin_key in cycle_seen:
+                                if not related_pin_key or related_pin_key in cycle_seen or related_pin_key in blocked_pins:
                                     continue
                                 if related_pin_key in persistent_pins:
                                     continue
@@ -1838,6 +1898,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                         args.deep_dive_min_search_volume
                                     ),
                                     browser_page=detail_page or page,
+                                    blocked_keywords=blocked_keywords,
                                 )
                                 extracted += candidate_result.quote_delta
                                 saved_quotes += candidate_result.saved_delta
@@ -1968,6 +2029,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     if (
                                         not deep_pin_key
                                         or deep_pin_key in cycle_seen
+                                        or deep_pin_key in blocked_pins
                                         or deep_pin_key in persistent_pins
                                     ):
                                         continue
@@ -2076,6 +2138,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                                 args.deep_dive_min_search_volume
                                             ),
                                             browser_page=detail_page or page,
+                                            blocked_keywords=blocked_keywords,
                                         )
                                     )
                                     extracted += child_result.quote_delta
@@ -2220,6 +2283,21 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     saved_quotes=saved_quotes,
                     cycle_seconds=args.cycle_seconds,
                 )
+                try:
+                    await client.submit_cycle_metrics(
+                        cycle_id, scanned_pins=processed + related_processed,
+                        found_quotes=extracted, new_keywords=saved_quotes,
+                        duplicate_pins=duplicate_pins,
+                    )
+                    if priority_task:
+                        await client.finish_feedback_task(
+                            str(priority_task["id"]), str(priority_task["lease_token"]), success=processed > 0,
+                        )
+                except Exception as exc:
+                    scout_debug_event(
+                        "keyword_scout_feedback_sync_failed",
+                        error_type=exc.__class__.__name__, error=str(exc)[:300],
+                    )
                 if args.once:
                     return
                 next_cycle_seconds = (

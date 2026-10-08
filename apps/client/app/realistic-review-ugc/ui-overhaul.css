@@ -224,6 +224,19 @@
 .rrugc-auto-scout-health.is-online{border-color:#cfe6d6;background:#f0faf3}
 .rrugc-auto-scout-health.is-offline{border-color:#e0e5ec;background:#f6f7f9}
 
+/* Machine-level telemetry, scoped to the actual reporting desktop. */
+.rrugc-scout-machine-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:9px;width:100%;max-width:1240px}
+.rrugc-scout-machine-card{min-width:0;padding:11px 12px;border:1px solid #dfe6ef;border-radius:10px;background:#fff}
+.rrugc-scout-machine-card header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}
+.rrugc-scout-machine-card header strong{overflow:hidden;color:#304a6a;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-scout-machine-card header small{color:#8594a7;font-size:9px;white-space:nowrap}
+.rrugc-scout-machine-counts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.rrugc-scout-machine-counts span{display:grid;gap:4px;min-width:0;padding:6px 5px;border-radius:7px;background:#f5f8fc;text-align:center}
+.rrugc-scout-machine-counts small{color:#7b8b9f;font-size:7.5px}
+.rrugc-scout-machine-counts b{color:#3b5779;font-size:14px;font-variant-numeric:tabular-nums}
+.rrugc-scout-machine-card footer{margin-top:8px;color:#8190a3;font-size:8.5px}
+.rrugc-scout-metrics-empty{margin:9px 0;color:#8290a2;font-size:10px;line-height:1.5}
+
 .rrugc-scout-overview{display:grid;grid-template-columns:repeat(4,minmax(150px,220px));gap:7px;justify-content:start}
 .rrugc-scout-overview>span{display:grid;gap:2px;min-width:0;padding:9px 10px;border:1px solid #e1e7ef;border-radius:9px;background:#fbfcfe}
 .rrugc-scout-overview small{color:#8793a4;font-size:9.4px;text-transform:uppercase;letter-spacing:.04em}
@@ -1209,6 +1222,20 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-row-actions-v2{display:flex;justify-content:flex-end;gap:5px}.rrugc-stage0-icon-action{display:grid;width:30px;height:30px;padding:0;place-items:center;border:1px solid #d7dfe9;border-radius:8px;background:#fff;color:#7e8ba0;cursor:pointer}.rrugc-stage0-icon-action:hover:not(:disabled){border-color:#a8b9d2;background:#f7f9fd;color:#48698f}.rrugc-stage0-icon-action.active.favorite{border-color:#e5cf91;background:#fff8df;color:#b48114}.rrugc-stage0-icon-action.active.pick{border-color:#a9d1b5;background:#eff8f2;color:#3d8055}.rrugc-stage0-icon-action:disabled{cursor:wait;opacity:.5}.rrugc-stage0-icon-action svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.rrugc-stage0-pagination{margin-top:10px}
 @media(max-width:1180px){.rrugc-stage0-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.rrugc-stage0-controlbar{grid-template-columns:1fr}.rrugc-stage0-usage-switch{padding-left:0;border-left:0}.rrugc-stage0-v2 .rrugc-stage0-table-wrap{overflow-x:auto;overflow-y:hidden}.rrugc-stage0-trend-popover{position:fixed;left:50%;bottom:18px;transform:translateX(-50%)}.rrugc-stage0-trend-popover:after{display:none}}
 @media(max-width:760px){.rrugc-stage0-v2{padding:14px}.rrugc-stage0-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-stage0-metrics article:last-child{grid-column:1/-1}.rrugc-stage0-controlbar{padding:8px}.rrugc-stage0-main-filters,.rrugc-stage0-usage-switch{overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}.rrugc-stage0-trend-popover{position:fixed;left:50%;bottom:16px;width:min(330px,calc(100vw - 24px));transform:translateX(-50%)}.rrugc-stage0-trend-popover:after{display:none}}
+/* Stage 0: user-directed Scout exploration (hover/focus/touch). */
+.rrugc-stage0-v2 .rrugc-stage0-keyword-name{position:relative;padding-bottom:34px!important}
+.rrugc-scout-feedback-actions{position:absolute;right:6px;bottom:5px;left:8px;display:flex;align-items:center;gap:4px;visibility:hidden;opacity:0;pointer-events:none}
+.rrugc-stage0-keyword-table tr:hover .rrugc-scout-feedback-actions,
+.rrugc-stage0-keyword-table tr:focus-within .rrugc-scout-feedback-actions{visibility:visible;opacity:1;pointer-events:auto}
+.rrugc-scout-feedback-actions select,.rrugc-scout-feedback-actions button{min-height:23px;max-width:90px;padding:2px 5px;border:1px solid #dce3eb;border-radius:5px;background:#fff;color:#52667e;font-size:8px;font-weight:700;cursor:pointer}
+.rrugc-scout-feedback-actions select{min-width:60px}
+.rrugc-scout-feedback-actions button.is-suggested{color:#28734d;border-color:#b9dcc8;background:#f4faf6}
+.rrugc-scout-feedback-actions button.is-blocked{color:#a45050;border-color:#eed1d1;background:#fff8f8}
+.rrugc-scout-feedback-actions :is(button,select):focus-visible{outline:2px solid #6688c0;outline-offset:1px}
+.rrugc-scout-feedback-actions :disabled{opacity:.5;cursor:wait}
+.rrugc-scout-feedback-state{display:inline-flex;max-width:max-content;margin-top:3px;padding:2px 5px;border-radius:5px;background:#eaf7ef;color:#28734d;font-size:8px;font-weight:800}
+.rrugc-scout-feedback-state.is-blocked{background:#fff0f0;color:#a45050}
+@media(hover:none){.rrugc-scout-feedback-actions{visibility:visible;opacity:1;pointer-events:auto}}
 @media(prefers-reduced-motion:reduce){.rrugc-stage0-icon-action,.rrugc-stage0-main-filters button{transition:none}}
 
 /* Stage 0 follow-up: restored tail KPI cards, corrected search box and provider-native trend states. */

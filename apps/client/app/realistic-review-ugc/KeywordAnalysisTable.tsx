@@ -6,10 +6,13 @@ import type {
   KeywordAnalysisSortDirection,
   KeywordTailFilter,
   KeywordUsageFilter,
+  ScoutFeedbackAction,
+  ScoutFeedbackScope,
 } from "./api";
 import type { KeywordVolume, KeywordVolumePage, KeywordVolumeTrendPoint } from "./types";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+// Scout feedback controls are scoped to a keyword and its source Pin.
 
 type KeywordTailKind = Exclude<KeywordTailFilter, "all">;
 
@@ -405,6 +408,8 @@ export function KeywordAnalysisTable({
   favoritesOnly,
   pickingIds,
   favoritingIds,
+  feedbackUpdatingIds,
+  onFeedbackChange,
   onSortChange,
   onUsageFilterChange,
   onTailFilterChange,
@@ -426,6 +431,8 @@ export function KeywordAnalysisTable({
   favoritesOnly: boolean;
   pickingIds: Set<string>;
   favoritingIds: Set<string>;
+  feedbackUpdatingIds: Set<string>;
+  onFeedbackChange: (keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) => void;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
@@ -446,6 +453,7 @@ export function KeywordAnalysisTable({
         : tailFilter !== "all" ? tailFilter
           : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
+  const [feedbackScopes, setFeedbackScopes] = useState<Record<string, ScoutFeedbackScope>>({});
 
   const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites") => {
     const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
@@ -573,6 +581,28 @@ export function KeywordAnalysisTable({
                   <strong>{item.keyword}</strong>
                   <small>{providerLabel(item.provider)} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
                 </button>
+                {(item.scout_keyword_feedback === "blocked" || item.scout_pin_feedback === "blocked") ?
+                  <span className="rrugc-scout-feedback-state is-blocked">Bỏ đề xuất</span> :
+                 (item.scout_keyword_feedback === "suggested" || item.scout_pin_feedback === "suggested") ?
+                  <span className="rrugc-scout-feedback-state is-suggested">Đã đề xuất</span> : null}
+                <div className="rrugc-scout-feedback-actions" role="group" aria-label={"Scout feedback: " + item.keyword}>
+                  <select aria-label={"Feedback target: " + item.keyword}
+                    value={feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword")}
+                    disabled={feedbackUpdatingIds.has(item.id)}
+                    onChange={event => setFeedbackScopes(current => ({ ...current, [item.id]: event.target.value as ScoutFeedbackScope }))}>
+                    <option value="keyword">Keyword</option>
+                    {item.source_pin_url && <option value="pin">Pin</option>}
+                    {item.source_pin_url && <option value="both">Cả hai</option>}
+                  </select>
+                  <button type="button" className="is-suggested" disabled={feedbackUpdatingIds.has(item.id)}
+                    onClick={() => onFeedbackChange(item.id, "suggested", feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword"))}>Đề xuất</button>
+                  <button type="button" className="is-blocked" disabled={feedbackUpdatingIds.has(item.id)}
+                    onClick={() => onFeedbackChange(item.id, "blocked", feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword"))}>Bỏ đề xuất</button>
+                  {(item.scout_keyword_feedback !== "neutral" && item.scout_keyword_feedback ||
+                    item.scout_pin_feedback !== "neutral" && item.scout_pin_feedback) &&
+                    <button type="button" disabled={feedbackUpdatingIds.has(item.id)}
+                      onClick={() => onFeedbackChange(item.id, "neutral", feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword"))}>↶</button>}
+                </div>
               </td>
               <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} onOpen={() => setDetailItem(item)} /></td>
               <td className="rrugc-stage0-volume"><strong>{item.search_volume.toLocaleString()}</strong><small>avg / month</small></td>

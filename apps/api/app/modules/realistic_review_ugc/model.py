@@ -221,6 +221,47 @@ class RrugcKeywordVolumeModel(Base):
     )
 
 
+class RrugcScoutFeedbackModel(Base):
+    __tablename__ = "rrugc_scout_feedback"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "target_type", "target_key", name="uq_rrugc_scout_feedback_target"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    display_value: Mapped[str] = mapped_column(String(2048), nullable=False)
+    keyword: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_image_url: Mapped[str | None] = mapped_column(String(2048))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="neutral")
+    updated_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    claimed_by_agent_id: Mapped[str | None] = mapped_column(String(36))
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcScoutMetricCycleModel(Base):
+    __tablename__ = "rrugc_scout_metric_cycles"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "agent_id", "mode", "cycle_id", name="uq_rrugc_scout_metric_cycle"),
+        Index("ix_rrugc_scout_metric_cycle_tenant", "tenant_id", "mode", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    agent_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    machine_label: Mapped[str] = mapped_column(String(160), nullable=False, default="unknown")
+    cycle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scanned_pins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    found_quotes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    new_keywords: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duplicate_pins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class RrugcScoutAgentModel(Base):
     __tablename__ = "rrugc_scout_agents"
     __table_args__ = (
