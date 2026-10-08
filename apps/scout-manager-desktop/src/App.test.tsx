@@ -21,7 +21,9 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Processing");
     expect(html).toContain("Done · 24h");
     expect(html).toContain("Failed · 24h");
-    expect(html).toContain("Ready queries");
+    expect(html).toContain("Eligible now");
+    expect(html).toContain("Cooling down");
+    expect(html).toContain("Last completed agent cycle");
     expect(html).toContain("Gemini");
     expect(html).toContain("Checking Gemini key pool");
     expect(html).toContain("Run automation");

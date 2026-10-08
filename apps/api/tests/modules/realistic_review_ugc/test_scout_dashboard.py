@@ -192,3 +192,62 @@ def test_review_soft_throttle_uses_tenant_recent_runs_and_ignores_other_tenants(
             )
     finally:
         engine.dispose()
+
+def test_ready_queries_use_the_same_cooldown_and_blocked_rules_as_the_scheduler():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    for table in (
+        ProcessingJobModel.__table__,
+        RrugcScoutRunModel.__table__,
+        RrugcScoutQueryModel.__table__,
+        RrugcScoutMetricCycleModel.__table__,
+        RrugcKeywordVolumeModel.__table__,
+        RrugcScoutFeedbackModel.__table__,
+    ):
+        table.create(engine)
+    now = datetime.now(timezone.utc)
+    try:
+        with Session(engine) as session:
+            session.add_all([
+                RrugcScoutQueryModel(
+                    tenant_id="tenant-a", query="fresh trucker cap",
+                    query_normalized="fresh trucker cap", lane="product",
+                ),
+                # Last searched two hours ago: old dashboard called this
+                # "ready", but 3 empty cycles require 360 minutes.
+                RrugcScoutQueryModel(
+                    tenant_id="tenant-a", query="dry trucker cap",
+                    query_normalized="dry trucker cap", lane="product",
+                    empty_cycles=3, last_searched_at=now - timedelta(hours=2),
+                ),
+                RrugcScoutQueryModel(
+                    tenant_id="tenant-a", query="blocked quote trucker cap",
+                    query_normalized="blocked quote trucker cap",
+                    lane="suggested", source_keyword="BLOCKED QUOTE",
+                ),
+                RrugcScoutQueryModel(
+                    tenant_id="tenant-a", query="leased baseball cap",
+                    query_normalized="leased baseball cap", lane="explore",
+                    lease_expires_at=now + timedelta(minutes=30),
+                    lease_token="token", claimed_by_agent_id="agent-a",
+                ),
+                RrugcScoutFeedbackModel(
+                    tenant_id="tenant-a", target_type="keyword",
+                    target_key="blocked quote", keyword="Blocked Quote",
+                    display_value="Blocked Quote", status="blocked",
+                    updated_by_user_id="owner",
+                ),
+            ])
+            session.commit()
+            result = scout_jobs_snapshot(session, "tenant-a", "agent-a", now=now)
+            keyword = result["keyword"]
+            assert keyword["total_queries"] == 4
+            assert keyword["ready_queries"] == 1
+            assert keyword["cooling_queries"] == 1
+            assert keyword["blocked_queries"] == 1
+            assert keyword["leased_queries"] == 1
+            assert sum(keyword[key] for key in (
+                "ready_queries", "cooling_queries", "blocked_queries",
+                "leased_queries",
+            )) == keyword["total_queries"]
+    finally:
+        engine.dispose()

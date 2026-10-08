@@ -17,6 +17,7 @@ from .model import (
     RrugcScoutMetricCycleModel, RrugcScoutQueryModel, RrugcScoutRunModel,
 )
 from .service import ANALYZE_JOB_TYPE, IMPORT_JOB_TYPE
+from .query_intelligence import blocked_query_keywords, query_readiness
 
 
 def _scalar_count(session: Session, *filters) -> int:
@@ -109,12 +110,16 @@ def scout_jobs_snapshot(
     older_leases = _scalar_count(
         session, query, *qbase, *leased, query.updated_at < now - timedelta(minutes=10),
     )
-    available = _scalar_count(
-        session, query, *qbase,
-        or_(query.lease_expires_at.is_(None), query.lease_expires_at <= now),
-        or_(query.last_searched_at.is_(None), query.last_searched_at < now - timedelta(minutes=90)),
-    )
-    total_queries = _scalar_count(session, query, *qbase)
+    # Calculate exactly the same eligibility as claim_query, including
+    # exponential dry-query cooldown and blocked manual suggestions.
+    # The former fixed 90-minute cutoff overstated ready-to-claim queries.
+    blocked = blocked_query_keywords(session, tenant_id)
+    query_rows = session.scalars(select(query).where(*qbase)).all()
+    readiness_counts = {"ready": 0, "cooldown": 0, "blocked": 0, "leased": 0}
+    for row in query_rows:
+        readiness_counts[query_readiness(row, now, blocked)] += 1
+    available = readiness_counts["ready"]
+    total_queries = len(query_rows)
     # Durable counters are cumulative, not a false 24h promise.
     cycle_totals = session.execute(select(
         func.coalesce(func.sum(query.completed_cycles), 0),
@@ -124,6 +129,7 @@ def scout_jobs_snapshot(
     last_day_metrics = session.execute(select(
         func.coalesce(func.sum(metric.new_keywords), 0),
         func.coalesce(func.sum(metric.scanned_pins), 0),
+        func.max(metric.created_at),
     ).where(
         metric.tenant_id == tenant_id, metric.agent_id == agent_id,
         metric.mode == "keyword", metric.created_at >= day,
@@ -165,6 +171,9 @@ def scout_jobs_snapshot(
             "tenant_active_searches": global_active,
             "older_outstanding_leases": older_leases,
             "ready_queries": available,
+            "cooling_queries": readiness_counts["cooldown"],
+            "blocked_queries": readiness_counts["blocked"],
+            "leased_queries": readiness_counts["leased"],
             "total_queries": total_queries,
             "completed_cycles_total": int(cycle_totals[0]),
             "failed_cycles_total": int(cycle_totals[1]),
@@ -173,6 +182,10 @@ def scout_jobs_snapshot(
             "new_keywords_1h": added_hour,
             "scanned_pins_24h_agent": int(last_day_metrics[1]),
             "saved_keywords_24h_agent": int(last_day_metrics[0]),
+            "last_cycle_at": (
+                last_day_metrics[2].isoformat()
+                if last_day_metrics[2] is not None else None
+            ),
         },
         "fetched_at": now.isoformat(),
     }

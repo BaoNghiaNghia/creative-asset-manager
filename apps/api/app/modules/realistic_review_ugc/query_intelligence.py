@@ -187,18 +187,43 @@ def _score(row: RrugcScoutQueryModel, now: datetime) -> float:
     return 30 + min(45, novelty * 3) - 25 * duplicates - dry_penalty + min(22, age * 2)
 
 
+def query_readiness(
+    row: RrugcScoutQueryModel, now: datetime, blocked_keywords: set[str],
+) -> str:
+    """Single source of truth for lease eligibility and dashboard counters.
+
+    A repeated empty query needs 90, 180, 270 or 360 minutes of rest.
+    Dashboard must not count it as ready after just 90 minutes.
+    """
+    if (row.lane == "suggested" and row.source_keyword
+            and normalized(row.source_keyword) in blocked_keywords):
+        return "blocked"
+    if row.lease_expires_at and _aware(row.lease_expires_at) >= now:
+        return "leased"
+    reuse = MIN_REUSE * min(4, 1 + max(0, int(row.empty_cycles or 0)))
+    if row.last_searched_at and _aware(row.last_searched_at) >= now - reuse:
+        return "cooldown"
+    return "ready"
+
+
+def blocked_query_keywords(session: Session, tenant_id: str) -> set[str]:
+    return {normalized(key) for key in session.scalars(select(
+        RrugcScoutFeedbackModel.target_key,
+    ).where(
+        RrugcScoutFeedbackModel.tenant_id == tenant_id,
+        RrugcScoutFeedbackModel.target_type == "keyword",
+        RrugcScoutFeedbackModel.status == "blocked",
+    )).all()}
+
+
 def claim_query(session: Session, tenant_id: str, agent_id: str) -> dict | None:
     now = utcnow()
     seed_pool(session, tenant_id)
     rows = session.scalars(select(RrugcScoutQueryModel).where(
         RrugcScoutQueryModel.tenant_id == tenant_id,
     )).all()
-    available = [
-        row for row in rows
-        if (not row.lease_expires_at or _aware(row.lease_expires_at) < now)
-        and (not row.last_searched_at or
-             _aware(row.last_searched_at) < now - (MIN_REUSE * min(4, 1 + row.empty_cycles)))
-    ]
+    blocked = blocked_query_keywords(session, tenant_id)
+    available = [row for row in rows if query_readiness(row, now, blocked) == "ready"]
     if not available:
         # Don't re-run the same exhausted seed; let caller back off.
         return None
@@ -207,15 +232,6 @@ def claim_query(session: Session, tenant_id: str, agent_id: str) -> dict | None:
     count = sum(history.values())
     by_lane: dict[str, list[RrugcScoutQueryModel]] = {name: [] for name in LANE_WEIGHTS}
     for row in available:
-        if row.source_keyword and row.lane == "suggested":
-            blocked = session.scalar(select(RrugcScoutFeedbackModel.id).where(
-                RrugcScoutFeedbackModel.tenant_id == tenant_id,
-                RrugcScoutFeedbackModel.target_type == "keyword",
-                RrugcScoutFeedbackModel.target_key == normalized(row.source_keyword),
-                RrugcScoutFeedbackModel.status == "blocked",
-            ))
-            if blocked:
-                continue
         by_lane[row.lane].append(row)
     # Fair-share deficit prevents a high-volume lane starving other lanes.
     lanes = sorted(

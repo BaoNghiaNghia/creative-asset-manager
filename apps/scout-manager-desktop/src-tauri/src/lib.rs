@@ -78,6 +78,12 @@ struct KeywordJobCounts {
     tenant_active_searches: u64,
     older_outstanding_leases: u64,
     ready_queries: u64,
+    #[serde(default)]
+    cooling_queries: u64,
+    #[serde(default)]
+    blocked_queries: u64,
+    #[serde(default)]
+    leased_queries: u64,
     total_queries: u64,
     completed_cycles_total: u64,
     failed_cycles_total: u64,
@@ -86,6 +92,8 @@ struct KeywordJobCounts {
     new_keywords_1h: u64,
     scanned_pins_24h_agent: u64,
     saved_keywords_24h_agent: u64,
+    #[serde(default)]
+    last_cycle_at: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct GeminiPoolHealth {
