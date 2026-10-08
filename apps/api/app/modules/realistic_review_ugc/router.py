@@ -4179,7 +4179,7 @@ def complete_dynamic_keyword_query(
         session, agent.tenant_id, agent_id, request.id, request.lease_token,
         success=request.success, scanned_pins=request.scanned_pins,
         found_quotes=request.found_quotes, new_keywords=request.new_keywords,
-        duplicate_pins=request.duplicate_pins,
+        duplicate_pins=request.duplicate_pins, retryable=request.retryable,
     ):
         raise HTTPException(status_code=409, detail="Query lease is no longer owned by this Scout.")
     return {"ok": True}

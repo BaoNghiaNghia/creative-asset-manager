@@ -155,3 +155,31 @@ def test_query_renewal_preserves_exclusive_lease():
             assert row.lease_token is None
     finally:
         engine.dispose()
+
+def test_transient_gemini_backpressure_releases_without_penalizing_quality():
+    engine = create_db()
+    try:
+        with Session(engine) as session:
+            task = claim_query(session, "tenant-a", "agent-1")
+            assert task is not None
+            row = session.get(RrugcScoutQueryModel, task["id"])
+            assert finish_query(
+                session, "tenant-a", "agent-1", task["id"], task["lease_token"],
+                success=False, retryable=True, scanned_pins=3,
+                found_quotes=2, new_keywords=1, duplicate_pins=0,
+            )
+            session.refresh(row)
+            assert row.completed_cycles == 0
+            assert row.failed_cycles == 0
+            assert row.empty_cycles == 0
+            assert row.last_searched_at is None
+            assert row.lease_token is None
+            assert row.claimed_by_agent_id is None
+            # The query is still available for a future cycle.
+            remaining = session.scalars(select(RrugcScoutQueryModel).where(
+                RrugcScoutQueryModel.tenant_id == "tenant-a",
+                RrugcScoutQueryModel.id == task["id"],
+            )).one()
+            assert remaining.query == task["query"]
+    finally:
+        engine.dispose()

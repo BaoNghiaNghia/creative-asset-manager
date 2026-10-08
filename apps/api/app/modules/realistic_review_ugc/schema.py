@@ -505,6 +505,7 @@ class ScoutQueryCompleteRequest(BaseModel):
     found_quotes: int = Field(default=0, ge=0, le=100_000)
     new_keywords: int = Field(default=0, ge=0, le=100_000)
     duplicate_pins: int = Field(default=0, ge=0, le=100_000)
+    retryable: bool = False  # transient Gemini/Pinterest pause; do not penalize a query
 
 
 class ScoutMetricCycleRequest(BaseModel):

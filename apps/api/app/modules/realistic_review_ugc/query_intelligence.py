@@ -263,6 +263,7 @@ def finish_query(
     session: Session, tenant_id: str, agent_id: str, item_id: str,
     lease_token: str, *, success: bool, scanned_pins: int,
     found_quotes: int, new_keywords: int, duplicate_pins: int,
+    retryable: bool = False,
 ) -> bool:
     row = session.scalar(select(RrugcScoutQueryModel).where(
         RrugcScoutQueryModel.id == item_id,
@@ -282,10 +283,13 @@ def finish_query(
         row.duplicate_pins += duplicate_pins
         row.empty_cycles = row.empty_cycles + 1 if new_keywords == 0 else 0
         row.last_searched_at = now
-    else:
+    elif not retryable:
         row.failed_cycles += 1
         row.last_searched_at = now
         row.empty_cycles += 1
+    # A Gemini-capacity pause, Pinterest rate-limit or browser access gate
+    # is not evidence that this query is low quality. Release the lease
+    # without modifying learning counters/cooldown.
     row.claimed_by_agent_id = None
     row.lease_token = None
     row.lease_expires_at = None

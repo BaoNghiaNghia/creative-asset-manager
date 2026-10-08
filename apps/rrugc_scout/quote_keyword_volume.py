@@ -847,14 +847,14 @@ class QuoteScoutClient:
 
     async def finish_dynamic_query(
         self, task: dict[str, Any], *,
-        success: bool, scanned_pins: int = 0,
+        success: bool, retryable: bool = False, scanned_pins: int = 0,
         found_quotes: int = 0, new_keywords: int = 0,
         duplicate_pins: int = 0,
     ) -> None:
         await self._post(
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/query/complete",
             {"id": task["id"], "lease_token": task["lease_token"],
-             "success": success, "scanned_pins": scanned_pins,
+             "success": success, "retryable": retryable, "scanned_pins": scanned_pins,
              "found_quotes": found_quotes, "new_keywords": new_keywords,
              "duplicate_pins": duplicate_pins},
             operation="complete_dynamic_keyword_query",
@@ -1662,11 +1662,37 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 error=str(exc)[:250],
             )
 
-    async def release_dynamic_query(task: dict[str, Any] | None) -> None:
+    def interrupted_query_progress() -> dict[str, int]:
+        return {
+            "scanned_pins": processed + related_processed,
+            "found_quotes": extracted,
+            "new_keywords": saved_quotes,
+            "duplicate_pins": duplicate_pins,
+        }
+
+    async def release_dynamic_query(
+        task: dict[str, Any] | None, *, retryable: bool = False,
+        progress: dict[str, int] | None = None,
+    ) -> None:
         if not task:
             return
+        progress = progress or {}
+        # Partial results are real scouting progress. A Gemini capacity pause
+        # must not lose those results or label a productive query as failed.
+        partial_success = retryable and (
+            progress.get("scanned_pins", 0) > 0 or progress.get("new_keywords", 0) > 0
+        )
         try:
-            await client.finish_dynamic_query(task, success=False)
+            await client.finish_dynamic_query(
+                task, success=partial_success,
+                retryable=retryable and not partial_success,
+                **(progress if partial_success else {}),
+            )
+            if partial_success:
+                scout_debug_event(
+                    "keyword_query_partial_progress_saved",
+                    query=task.get("query"), **progress,
+                )
         except Exception as exc:
             scout_debug_event(
                 "keyword_query_lease_release_failed",
@@ -1684,6 +1710,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             cycle_id = str(uuid4())
             priority_task: dict[str, Any] | None = None
             dynamic_query: dict[str, Any] | None = None
+            # Initialize before browser/navigation steps; interruption can
+            # happen before normal per-cycle counters are allocated.
+            processed = duplicate_pins = extracted = saved_quotes = related_processed = 0
             try:
                 await client.ensure_analysis_capacity()
                 directives = await client.fetch_feedback()
@@ -2522,7 +2551,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(next_cycle_seconds)
             except KeywordScoutCapacityPaused as exc:
                 await release_claimed_priority(priority_task)
-                await release_dynamic_query(dynamic_query)
+                await release_dynamic_query(
+                    dynamic_query, retryable=True,
+                    progress=interrupted_query_progress(),
+                )
                 dynamic_query = None
                 priority_task = None
                 scout_debug_event(
@@ -2540,7 +2572,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(exc.retry_seconds)
             except PinterestRateLimitedError:
                 await release_claimed_priority(priority_task)
-                await release_dynamic_query(dynamic_query)
+                await release_dynamic_query(
+                    dynamic_query, retryable=True,
+                    progress=interrupted_query_progress(),
+                )
                 dynamic_query = None
                 priority_task = None
                 wait_seconds = max(args.cycle_seconds, 600)
@@ -2558,7 +2593,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(wait_seconds)
             except PinterestAccessGateError as exc:
                 await release_claimed_priority(priority_task)
-                await release_dynamic_query(dynamic_query)
+                await release_dynamic_query(
+                    dynamic_query, retryable=True,
+                    progress=interrupted_query_progress(),
+                )
                 dynamic_query = None
                 priority_task = None
                 if exc.gate == "login":
