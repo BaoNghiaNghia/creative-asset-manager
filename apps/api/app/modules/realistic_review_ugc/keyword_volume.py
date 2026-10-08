@@ -505,20 +505,20 @@ class RrugcKeywordVolumeService:
             [original for original, _ in requested], tm_only=True,
         )
         data = tm_payload.get("data")
-        matched = 0
+        matched_rows: set[str] = set()
         for item in data if isinstance(data, list) else []:
             if not isinstance(item, dict):
                 continue
             raw_keyword = str(item.get("keyword") or "").strip()
             row = by_key.get(raw_keyword.casefold())
-            if row is None:
+            if row is None or row.id in matched_rows:
                 continue
             if apply_provider_trademark(
                 row, item, checked_at=now or datetime.now(timezone.utc),
             ):
-                matched += 1
+                matched_rows.add(row.id)
         self.session.commit()
-        return matched, len(requested)
+        return len(matched_rows), len(requested)
 
     async def _fetch_provider(self, keywords: list[str], *, tm_only: bool = False) -> dict:
         owned_client = self.http_client is None

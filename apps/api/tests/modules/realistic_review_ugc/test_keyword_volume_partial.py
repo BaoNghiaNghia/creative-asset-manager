@@ -370,3 +370,34 @@ def test_trademark_backfill_rechecks_legacy_markers_without_changing_volume():
             assert trademark_backfill.count_statuses(session) == {"danger": 1, "safe": 1}
     finally:
         engine.dispose()
+
+def test_trademark_duplicate_provider_rows_count_once_per_keyword():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    RrugcKeywordVolumeModel.__table__.create(engine)
+    try:
+        with Session(engine) as session:
+            session.add(RrugcKeywordVolumeModel(
+                tenant_id="tenant-a", keyword="Houston Astros",
+                keyword_normalized="houston astros",
+                search_volume=999, provider=KEYWORD_VOLUME_PROVIDER,
+            ))
+            session.commit()
+            service = RrugcKeywordVolumeService(session)
+            service._fetch_provider = AsyncMock(return_value={
+                "data": [
+                    {"keyword": "Houston Astros", "trademark": {
+                        "status": "DANGER", "conflict_count": 3}},
+                    {"keyword": "Houston Astros", "trademark": {
+                        "status": "SAFE", "conflict_count": 0}},
+                ],
+            })
+            checked, requested = asyncio.run(service.refresh_trademark(
+                tenant_id="tenant-a", keywords=["Houston Astros"],
+            ))
+            assert (checked, requested) == (1, 1)
+            row = session.scalar(select(RrugcKeywordVolumeModel))
+            assert row.trademark_status == "danger"
+            assert row.search_volume == 999
+            service._fetch_provider.assert_awaited_once_with(["Houston Astros"], tm_only=True)
+    finally:
+        engine.dispose()
