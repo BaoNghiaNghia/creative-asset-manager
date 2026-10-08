@@ -10469,8 +10469,8 @@ def test_scout_operations_summary_reports_live_job_counts_without_leaking_keys(a
         ])
         session.commit()
         agent_id = agent.id
-    monkeypatch.setattr(RrugcMaintenanceService, "gemini_capacity_available",
-                        lambda self, tenant_id, now: True)
+    monkeypatch.setattr(RrugcMaintenanceService, "gemini_available_credential_count",
+                        lambda self, tenant_id, now: 1)
     url = f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/operations-summary"
     response = api.get(url, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200, response.text

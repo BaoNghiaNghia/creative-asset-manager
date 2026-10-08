@@ -378,6 +378,26 @@ def _dedupe(values: list[Any]) -> list[str]:
     return result
 
 
+def _merge_ocr_fragment_variants(quotes: list[str]) -> list[str]:
+    """Merge high-confidence edge-clipped OCR variants from ONE Pin only.
+
+    Distinct hats/Pin sources are not merged. Require at least five identical
+    trailing words and a one-token prefix difference; do not merge sentences
+    whose words/meaning differ in the middle (e.g. "NOT" versus "NOW").
+    Keep the complete (longer) expression for Google Ads and Trademark.
+    """
+    tokens = [tuple(_KEYWORD_WORD_RE.findall(value.casefold())) for value in quotes]
+    suppressed: set[int] = set()
+    for i, left in enumerate(tokens):
+        for j, right in enumerate(tokens):
+            if i == j or i in suppressed:
+                continue
+            if len(right) > len(left) and len(left) >= 5 and len(right) == len(left) + 1:
+                if right[1:] == left:
+                    suppressed.add(i)
+    return [quote for i, quote in enumerate(quotes) if i not in suppressed]
+
+
 def _partition_volume_result(
     keywords: list[str], response: dict[str, Any],
 ) -> tuple[list[str], list[str]]:
@@ -1232,7 +1252,14 @@ async def _process_keyword_candidate(
         if (clean := _clean_keyword(raw))
         and _keyword_word_count(clean) < KEYWORD_MIN_WORDS
     ]
-    quotes = _dedupe(raw_quotes)
+    quotes_before_merge = _dedupe(raw_quotes)
+    quotes = _merge_ocr_fragment_variants(quotes_before_merge)
+    if len(quotes) != len(quotes_before_merge):
+        scout_debug_event(
+            "keyword_scout_ocr_variants_merged",
+            pin_url=candidate.pin_url,
+            before_count=len(quotes_before_merge), after_count=len(quotes),
+        )
     if rejected_min_words:
         scout_debug_event(
             "keyword_scout_keyword_rejected",

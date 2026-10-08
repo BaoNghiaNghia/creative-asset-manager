@@ -65,6 +65,10 @@ struct ReviewJobCounts {
     stage1_running: u64,
     stage1_completed_24h: u64,
     stage1_failed_24h: u64,
+    discovery_throttled: bool,
+    stage1_completed_1h: u64,
+    stage1_deferred_gemini: u64,
+    stage1_oldest_wait_minutes: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct KeywordJobCounts {
@@ -77,6 +81,7 @@ struct KeywordJobCounts {
     failed_cycles_total: u64,
     suggestions_pending: u64,
     new_keywords_24h: u64,
+    new_keywords_1h: u64,
     scanned_pins_24h_agent: u64,
     saved_keywords_24h_agent: u64,
 }
@@ -85,6 +90,8 @@ struct GeminiPoolHealth {
     primary_configured: bool,
     backup_keys: u64,
     configured_keys: u64,
+    unique_credentials: u64,
+    daily_quota_available_credentials: u64,
     capacity_available: bool,
     failover_enabled: bool,
     strategy: String,

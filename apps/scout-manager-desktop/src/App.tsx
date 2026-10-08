@@ -9,15 +9,18 @@ type OperationsSummary = {
   review: {
     scout_active: number; scout_completed_24h: number; scout_failed_24h: number;
     stage1_pending: number; stage1_running: number; stage1_completed_24h: number; stage1_failed_24h: number;
+    discovery_throttled: boolean;
+    stage1_completed_1h: number; stage1_deferred_gemini: number; stage1_oldest_wait_minutes: number;
   };
   keyword: {
     active_searches: number; tenant_active_searches: number; older_outstanding_leases: number; ready_queries: number;
     total_queries: number; completed_cycles_total: number; failed_cycles_total: number;
-    suggestions_pending: number; new_keywords_24h: number;
+    suggestions_pending: number; new_keywords_24h: number; new_keywords_1h: number;
     scanned_pins_24h_agent: number; saved_keywords_24h_agent: number;
   };
   gemini: {
     primary_configured: boolean; backup_keys: number; configured_keys: number;
+    unique_credentials: number; daily_quota_available_credentials: number;
     capacity_available: boolean; failover_enabled: boolean; strategy: string;
     review_backpressure: boolean; keyword_fair_share_limited: boolean;
     keyword_next_slot_seconds: number; keyword_max_rate_per_minute: number | null;
@@ -74,6 +77,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
             ["Done · 24h", operations?.review.stage1_completed_24h, "ok"],
             ["Failed · 24h", operations?.review.stage1_failed_24h, "warn"],
           ]}/>
+          <div className="scout-jobs-foot">{operations?.review.discovery_throttled ? "Review discovery throttled to protect Gemini queue · " : ""}AI throughput: {operations?.review.stage1_completed_1h ?? "—"} done / hour · Gemini-deferred: {operations?.review.stage1_deferred_gemini ?? "—"} · Oldest waiting: {operations?.review.stage1_oldest_wait_minutes ?? "—"} min</div>
           <div className="scout-jobs-foot">Pinterest scan jobs: {operations ? operations.review.scout_active + " active · " + operations.review.scout_completed_24h + " done / 24h · " + operations.review.scout_failed_24h + " failed / 24h" : "Waiting for server…"}</div>
         </>
       : <>
@@ -83,14 +87,14 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
             ["Done · total", operations?.keyword.completed_cycles_total, "ok"],
             ["Failed · total", operations?.keyword.failed_cycles_total, "warn"],
           ]}/>
-          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Query pool: {operations?.keyword.total_queries ?? "—"} · Older leases: {operations?.keyword.older_outstanding_leases ?? "—"} · New keywords / 24h: {operations?.keyword.new_keywords_24h ?? "—"}</div>
+          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Query pool: {operations?.keyword.total_queries ?? "—"} · Older leases: {operations?.keyword.older_outstanding_leases ?? "—"} · New keywords / hour: {operations?.keyword.new_keywords_1h ?? "—"} · 24h: {operations?.keyword.new_keywords_24h ?? "—"}</div>
         </>
     }
     <div className="scout-gemini-status" role="status">
       <span className={"gemini-status-indicator " + (operations?.gemini.capacity_available && !operations.gemini.review_backpressure ? "ready" : operations ? "limited" : "")}/>
       {operations
         ? <>Gemini: <strong>{operations.gemini.configured_keys ? operations.gemini.review_backpressure ? "Stage 1 backlog / Keyword fair-share" : operations.gemini.capacity_available ? "Model quota available" : "Model quota limited" : "No key"}</strong>
-          <span> · {operations.gemini.configured_keys} configured, {operations.gemini.backup_keys} backup · {operations.gemini.failover_enabled ? "Auto failover" : "No backup configured"}{operations.gemini.keyword_max_rate_per_minute != null ? " · Keyword max 1 quote/min" : ""}{operations.gemini.keyword_fair_share_limited ? " · next slot ~" + operations.gemini.keyword_next_slot_seconds + "s" : ""}</span></>
+          <span> · {operations.gemini.configured_keys} configured ({operations.gemini.unique_credentials} unique), {operations.gemini.daily_quota_available_credentials} daily-quota available, {operations.gemini.backup_keys} backup · {operations.gemini.failover_enabled ? "Auto failover" : "No backup configured"}{operations.gemini.keyword_max_rate_per_minute != null ? " · Keyword max 1 quote/min" : ""}{operations.gemini.keyword_fair_share_limited ? " · next slot ~" + operations.gemini.keyword_next_slot_seconds + "s" : ""}</span></>
         : "Checking Gemini key pool…"}
     </div>
     {operationsError && <div className="scout-jobs-error">{operationsError}</div>}

@@ -295,6 +295,32 @@ class RateLimitedClaimTest(unittest.TestCase):
 
         self.assertEqual(selected, "gemini_backup_1")
 
+    def test_duplicate_backup_secret_does_not_count_as_an_independent_key(self):
+        key = base64.urlsafe_b64encode(b"Z" * 32).decode().rstrip("=")
+        self.settings = Settings(
+            GEMINI_API_KEY="same-secret",
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=key,
+        )
+        model, rpm = configured_model_rates(self.settings, "gemini", None)[0]
+        with self.sessions.begin() as session:
+            repo = CreativeAiCredentialRepository(
+                session, creative_credential_cipher(self.settings),
+            )
+            repo.replace("tenant", secret="same-secret", provider="gemini_backup_1")
+            session.add(AiModelRateLimitStateModel(
+                tenant_id="tenant", provider="gemini", model=model,
+                last_started_at=NOW,
+                next_eligible_at=NOW + timedelta(minutes=5),
+                blocked_until=None, updated_at=NOW,
+            ))
+        with self.sessions() as session:
+            selected = rate_limit_provider_key(
+                session, self.settings, "tenant", "gemini",
+                model=model, rpm=rpm, minimum_interval_seconds=1, now=NOW,
+            )
+        # The backup is the same project/key and must not evade the cooldown.
+        self.assertEqual(selected, "gemini")
+
     def test_active_active_selector_uses_backup_when_primary_slot_is_busy(self):
         key = base64.urlsafe_b64encode(b"B" * 32).decode().rstrip("=")
         self.settings = Settings(

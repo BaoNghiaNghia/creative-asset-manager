@@ -81,13 +81,23 @@ def rate_limit_provider_key(
         )
     from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
     limiter = AiModelRateLimitRepository(session)
-    candidates = ("gemini",) + repository.list_active_backup_providers(tenant_id)
+    all_candidates = ("gemini",) + repository.list_active_backup_providers(tenant_id)
     fingerprints = _credential_fingerprints(
-        repository,
-        settings,
-        tenant_id,
-        candidates,
+        repository, settings, tenant_id, all_candidates,
     )
+    # One underlying secret is one quota pool regardless of the number of
+    # credential slots it was entered into. Prevent duplicate secret aliases
+    # from being treated as independent healthy providers.
+    known_fingerprints: set[str] = set()
+    unique: list[str] = []
+    for candidate in all_candidates:
+        fingerprint = fingerprints.get(candidate)
+        if fingerprint is not None and fingerprint in known_fingerprints:
+            continue
+        if fingerprint:
+            known_fingerprints.add(fingerprint)
+        unique.append(candidate)
+    candidates = tuple(unique)
     def state_provider(candidate: str) -> str:
         return state_provider_prefix + candidate
 

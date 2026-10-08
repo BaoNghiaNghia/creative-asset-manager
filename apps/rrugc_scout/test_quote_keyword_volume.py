@@ -1014,3 +1014,19 @@ def test_pressured_scan_budget_is_bounded_without_changing_default_search_depth(
     assert keyword_scout.PRESSURED_ROOT_DETAILS_PER_CYCLE <= 4
     assert keyword_scout.PRESSURED_RELATED_DETAILS_PER_ROOT <= 8
     assert keyword_scout.PRESSURED_FAIR_SHARE_RETRIES >= 2
+
+def test_ocr_edge_clipping_merges_only_near_identical_phrases_from_one_pin():
+    merge = keyword_scout._merge_ocr_fragment_variants
+    assert merge([
+        "AM A STAR BECAUSE I JUST AM", "I AM A STAR BECAUSE I JUST AM",
+        "NOT A STAR BECAUSE I JUST AM", "ACTUALLY THIS IS MY FIRST RODEO",
+    ]) == [
+        "I AM A STAR BECAUSE I JUST AM",
+        "NOT A STAR BECAUSE I JUST AM",
+        "ACTUALLY THIS IS MY FIRST RODEO",
+    ]
+    # Distinct complete 2-4 word sayings remain separate, including multi-hat Pins.
+    assert merge(["GAME DAY", "MY GAME DAY", "LOVE MORE", "LOVE LESS"]) == [
+        "GAME DAY", "MY GAME DAY", "LOVE MORE", "LOVE LESS",
+    ]
+    # Same phrase in a different Pin is intentionally handled by durable history.

@@ -29,6 +29,7 @@ def scout_jobs_snapshot(
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     day = now - timedelta(hours=24)
+    hour = now - timedelta(hours=1)
 
     # Review Pinterest scan runs are scoped to this exact paired agent.
     review = RrugcScoutRunModel
@@ -61,6 +62,21 @@ def scout_jobs_snapshot(
         session, job, *jbase,
         job.status == "failed", job.updated_at >= day,
     )
+    stage1_completed_hour = _scalar_count(
+        session, job, *jbase,
+        job.status == "completed", job.updated_at >= hour,
+    )
+    stage1_deferred = _scalar_count(
+        session, job, *jbase,
+        job.status.in_(("pending", "retry")),
+        job.last_error_code == "gemini_model_pool_temporarily_unavailable",
+    )
+    oldest_pending = session.scalar(select(func.min(job.created_at)).where(
+        *jbase, job.status.in_(("pending", "retry")),
+    ))
+    if oldest_pending is not None:
+        oldest_pending = oldest_pending.replace(tzinfo=timezone.utc) if oldest_pending.tzinfo is None else oldest_pending
+    oldest_wait_minutes = max(0, int((now - oldest_pending).total_seconds() // 60)) if oldest_pending else 0
 
     # Keyword Scout runs leased queries; a leased query is an active search
     # job and is not the same as a queued Stage 1 Gemini job.
@@ -110,6 +126,11 @@ def scout_jobs_snapshot(
         RrugcKeywordVolumeModel.tenant_id == tenant_id,
         RrugcKeywordVolumeModel.created_at >= day,
     )
+    added_hour = _scalar_count(
+        session, RrugcKeywordVolumeModel,
+        RrugcKeywordVolumeModel.tenant_id == tenant_id,
+        RrugcKeywordVolumeModel.created_at >= hour,
+    )
     return {
         "review": {
             "scout_active": active_review,
@@ -119,6 +140,9 @@ def scout_jobs_snapshot(
             "stage1_running": stage1_running,
             "stage1_completed_24h": stage1_completed,
             "stage1_failed_24h": stage1_failed,
+            "stage1_completed_1h": stage1_completed_hour,
+            "stage1_deferred_gemini": stage1_deferred,
+            "stage1_oldest_wait_minutes": oldest_wait_minutes,
         },
         "keyword": {
             "active_searches": agent_active,
@@ -130,6 +154,7 @@ def scout_jobs_snapshot(
             "failed_cycles_total": int(cycle_totals[1]),
             "suggestions_pending": feedback_pending,
             "new_keywords_24h": added_24h,
+            "new_keywords_1h": added_hour,
             "scanned_pins_24h_agent": int(last_day_metrics[1]),
             "saved_keywords_24h_agent": int(last_day_metrics[0]),
         },

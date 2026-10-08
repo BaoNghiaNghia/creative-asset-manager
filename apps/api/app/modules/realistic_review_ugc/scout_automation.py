@@ -57,6 +57,10 @@ SCOUT_MAX_SCROLL_BATCHES = 50
 # circuit breaker, NOT a change to Gemini quotas or to existing queued jobs.
 SCOUT_ANALYSIS_BACKLOG_LIMIT = 200
 SCOUT_ANALYSIS_BACKLOG_MIN_AGE_SECONDS = 15 * 60
+# Gradually throttle new Review discovery before the hard backlog circuit breaker.
+SCOUT_ANALYSIS_SOFT_LIMIT = 125
+SCOUT_ANALYSIS_SOFT_MIN_AGE_SECONDS = 10 * 60
+SCOUT_ANALYSIS_SOFT_CLAIM_GAP_SECONDS = 5 * 60
 # During Review backlog, let Keyword Scout make slow, fair progress through
 # the normal Gemini quota/key pool instead of disabling an entire Scout lane.
 # An atomic DB gate caps this *additional* quote traffic per tenant.
@@ -89,6 +93,25 @@ def scout_analysis_backpressure(
         "pending_jobs": backlog,
         "oldest_wait_seconds": oldest_seconds,
     }
+
+
+def review_scout_soft_throttle(
+    session: Session, tenant_id: str, *,
+    pressure: dict[str, int | bool], now: datetime,
+) -> bool:
+    """Permit at most one new Review scan per 5 min under rising backlog.
+
+    Existing jobs and runs are untouched. The caller holds the agent lock,
+    and a tenant's last run is shared across its Scout machines.
+    """
+    if (int(pressure['pending_jobs']) < SCOUT_ANALYSIS_SOFT_LIMIT
+            or int(pressure['oldest_wait_seconds']) < SCOUT_ANALYSIS_SOFT_MIN_AGE_SECONDS):
+        return False
+    recent = session.scalar(select(RrugcScoutRunModel.id).where(
+        RrugcScoutRunModel.tenant_id == tenant_id,
+        RrugcScoutRunModel.created_at > now - timedelta(seconds=SCOUT_ANALYSIS_SOFT_CLAIM_GAP_SECONDS),
+    ).order_by(RrugcScoutRunModel.created_at.desc()).limit(1))
+    return recent is not None
 
 
 def keyword_quote_backlog_gate(
@@ -1413,6 +1436,18 @@ class RrugcAutoScoutService:
                     "pending_jobs": analysis_pressure["pending_jobs"],
                     "oldest_wait_seconds": analysis_pressure["oldest_wait_seconds"],
                 },
+            )
+            return None
+
+        if review_scout_soft_throttle(
+            self.session, agent.tenant_id, pressure=analysis_pressure, now=now,
+        ):
+            self.session.commit()
+            _LOGGER.info(
+                "rrugc_review_soft_backpressure",
+                extra={"agent_id": agent.id,
+                       "pending_jobs": analysis_pressure["pending_jobs"],
+                       "oldest_wait_seconds": analysis_pressure["oldest_wait_seconds"]},
             )
             return None
 

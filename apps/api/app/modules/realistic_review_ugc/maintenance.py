@@ -108,13 +108,19 @@ class RrugcMaintenanceService:
         )
         return tuple(dict.fromkeys(values))
 
-    def gemini_capacity_available(self, tenant_id: str, *, now: datetime) -> bool:
+    def gemini_available_credential_count(self, tenant_id: str, *, now: datetime) -> int:
+        """Count DISTINCT configured credentials with quota on any model.
+
+        No fingerprints or API keys leave the backend. This is daily quota
+        availability, not proof that a request can bypass an RPM/cooldown gate.
+        """
         fingerprints = self._credential_fingerprints(tenant_id)
         if not fingerprints:
-            return False
+            return 0
         quota = GeminiProjectQuotaRepository(self.session)
-        for model, limit in self.settings.gemini_model_limits.items():
-            for fingerprint in fingerprints:
+        available = 0
+        for fingerprint in fingerprints:
+            for model, limit in self.settings.gemini_model_limits.items():
                 decision = quota.check_request_availability(
                     quota_scope=(
                         f"{self.settings.GEMINI_PROJECT_QUOTA_SCOPE}:"
@@ -126,8 +132,12 @@ class RrugcMaintenanceService:
                     now=now,
                 )
                 if decision.allowed:
-                    return True
-        return False
+                    available += 1
+                    break
+        return available
+
+    def gemini_capacity_available(self, tenant_id: str, *, now: datetime) -> bool:
+        return self.gemini_available_credential_count(tenant_id, now=now) > 0
 
     def health(self, tenant_id: str, *, now: datetime | None = None) -> RrugcHealthSnapshot:
         current = now or datetime.now(timezone.utc)

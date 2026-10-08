@@ -260,6 +260,7 @@ from app.modules.realistic_review_ugc.scout_automation import (
     keyword_health_rows,
     quality_pipeline_count,
     scout_analysis_backpressure,
+    review_scout_soft_throttle,
     keyword_quote_backlog_gate,
 )
 from app.modules.realistic_review_ugc.scout_log import (
@@ -4193,18 +4194,28 @@ def scout_operations_summary(
     backups = repo.list_active_backup_providers(agent.tenant_id)
     # Capacity gate is shared with Stage 1 and Image Analysis; do not
     # incorrectly claim every configured key is available for a new request.
-    capacity = RrugcMaintenanceService(session, settings).gemini_capacity_available(
+    maintenance = RrugcMaintenanceService(session, settings)
+    available_credentials = maintenance.gemini_available_credential_count(
         agent.tenant_id, now=now,
     )
+    capacity = available_credentials > 0
     analysis_pressure = scout_analysis_backpressure(session, agent.tenant_id, now=now)
     keyword_gate = keyword_quote_backlog_gate(
         session, agent.tenant_id, pressure=analysis_pressure,
         now=now, reserve=False,
     )
+    result["review"]["discovery_throttled"] = (
+        bool(analysis_pressure["active"])
+        or review_scout_soft_throttle(
+            session, agent.tenant_id, pressure=analysis_pressure, now=now,
+        )
+    )
     result["gemini"] = {
         "primary_configured": bool(primary_configured),
         "backup_keys": len(backups),
         "configured_keys": int(primary_configured) + len(backups),
+        "unique_credentials": len(maintenance._credential_fingerprints(agent.tenant_id)),
+        "daily_quota_available_credentials": available_credentials,
         "capacity_available": capacity,
         "failover_enabled": bool(backups),
         "strategy": "capacity_aware_failover",

@@ -146,3 +146,43 @@ def test_scout_jobs_snapshot_zero_is_real_zero():
             assert result["keyword"]["new_keywords_24h"] == 0
     finally:
         engine.dispose()
+
+def test_review_soft_throttle_uses_tenant_recent_runs_and_ignores_other_tenants():
+    from app.modules.realistic_review_ugc.scout_automation import (
+        review_scout_soft_throttle, SCOUT_ANALYSIS_SOFT_LIMIT,
+    )
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    RrugcScoutRunModel.__table__.create(engine)
+    now = datetime.now(timezone.utc)
+    pressure = {"pending_jobs": SCOUT_ANALYSIS_SOFT_LIMIT,
+                "oldest_wait_seconds": 12 * 60, "active": False}
+    try:
+        with Session(engine) as session:
+            assert not review_scout_soft_throttle(
+                session, "tenant-a", pressure=pressure, now=now,
+            )
+            session.add(RrugcScoutRunModel(
+                tenant_id="tenant-b", agent_id="other", campaign_id="other",
+                query="Cowboy hat", target_count=5, max_scroll_batches=2,
+                auto_import=True, created_at=now,
+            ))
+            session.commit()
+            assert not review_scout_soft_throttle(
+                session, "tenant-a", pressure=pressure, now=now,
+            )
+            session.add(RrugcScoutRunModel(
+                tenant_id="tenant-a", agent_id="agent-a", campaign_id="campaign",
+                query="Embroidered cap", target_count=5, max_scroll_batches=2,
+                auto_import=True, created_at=now - timedelta(minutes=2),
+            ))
+            session.commit()
+            assert review_scout_soft_throttle(
+                session, "tenant-a", pressure=pressure, now=now,
+            )
+            assert not review_scout_soft_throttle(
+                session, "tenant-a",
+                pressure={"pending_jobs": 25, "oldest_wait_seconds": 0, "active": False},
+                now=now,
+            )
+    finally:
+        engine.dispose()
