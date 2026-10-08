@@ -785,12 +785,12 @@ try {
         $status.Location = New-Object System.Drawing.Point(14, 28)
         $group.Controls.Add($status)
 
-        $pid = New-Object System.Windows.Forms.Label
-        $pid.Text = "PID -"
-        $pid.AutoSize = $true
-        $pid.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
-        $pid.Location = New-Object System.Drawing.Point(15, 55)
-        $group.Controls.Add($pid)
+        $pidLabel = New-Object System.Windows.Forms.Label
+        $pidLabel.Text = "PID -"
+        $pidLabel.AutoSize = $true
+        $pidLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
+        $pidLabel.Location = New-Object System.Drawing.Point(15, 55)
+        $group.Controls.Add($pidLabel)
 
         $start = New-Object System.Windows.Forms.Button
         $start.Text = "Start"
@@ -818,7 +818,7 @@ try {
 
         $cards[$modeName] = @{
             Status = $status
-            Pid = $pid
+            Pid = $pidLabel
         }
     }
 

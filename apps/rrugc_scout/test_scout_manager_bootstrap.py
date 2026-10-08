@@ -25,6 +25,17 @@ def test_scout_manager_repairs_missing_scripts_without_resetting_checkout():
     assert "scout.local.env" in launcher
 
 
+def test_manager_does_not_assign_powershell_read_only_pid_variable():
+    manager = (REPO_ROOT / "scripts/start_scout_manager.ps1").read_text(
+        encoding="utf-8"
+    )
+    # PowerShell variable names are case-insensitive. $pid is the built-in
+    # read-only process id and cannot be reused for a WinForms label.
+    assert not re.search(r"(?im)^\\s*\\$pid\\s*=", manager)
+    assert "$pidLabel = New-Object System.Windows.Forms.Label" in manager
+    assert "Pid = $pidLabel" in manager
+
+
 def test_manager_version_reads_runtime_client_version():
     manager = (REPO_ROOT / "scripts/start_scout_manager.ps1").read_text(
         encoding="utf-8"
