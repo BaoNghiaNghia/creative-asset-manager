@@ -33,6 +33,18 @@ def test_native_commands_do_not_spawn_flashing_consoles_or_block_ui_on_exit():
     assert "refreshInFlight.current" in react
 
 
+def test_tauri_long_running_native_operations_run_off_webview_thread():
+    source = (ROOT / "apps/scout-manager-desktop/src-tauri/src/lib.rs").read_text(
+        encoding="utf-8"
+    )
+    for command in ("control_scout", "control_all", "check_update"):
+        assert f"async fn {command}(" in source
+    assert source.count("tauri::async_runtime::spawn_blocking(move ||") >= 3
+    assert "winjob::focus_existing_manager()" in source
+    assert "FindWindowW(" in source
+    assert "ShowWindow(window, SW_RESTORE)" in source
+
+
 def test_build_script_publishes_portable_and_installer_together():
     text = (ROOT / "scripts/build_scout_manager_tauri.ps1").read_text(encoding="utf-8")
     assert "RRUGC_Scout_Manager_Latest_x64.exe" in text

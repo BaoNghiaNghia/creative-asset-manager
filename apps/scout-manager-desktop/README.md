@@ -20,6 +20,10 @@ The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor
 
 The Windows 0.1.3 release uses `CREATE_NO_WINDOW` for both Git commands and the PowerShell Scout launcher. Commit metadata is cached on startup and after successful fast-forward updates rather than spawning Git on every 2-second dashboard refresh. The React polling loop deduplicates concurrent requests. The tray Quit and **Quit and stop** footer action shut down Scout process trees on background threads, with bounded per-child waits and a 10-second fallback exit. Closing the window with X hides it to tray and does not interrupt automation. Test this via an isolated `CAM_SCOUT_REPO_ROOT` mock before switching from WinForms; do not terminate real Scout processes during validation.
 
+## Native 0.1.4 responsiveness and single-instance release
+
+Starting with 0.1.4, the native Start / Pause / Restart and Git update commands run on blocking worker threads rather than the Windows WebView message thread. Launching a second Manager focuses the existing `RRUGC Scout Manager` window when the shared Windows mutex is held, avoiding duplicate WebViews, tray icons, and misleading start prompts. The runner mutexes and isolated Chrome profiles are unchanged. The existing 0.1.3 mitigations for hidden Git/PowerShell consoles, bounded shutdown, and background Quit remain in effect. Windows validation uses isolated fake Scouts only; do not interrupt live production Scouts during cutover.
+
 ## Opt-in launch and rollback
 
 A new `START_SCOUT_TAURI.cmd` in the Windows Scout checkout launches `scout-manager-releases/RRUGC_Scout_Manager_Latest_x64.exe` (portable binary from the verified build). It explicitly sets `CAM_SCOUT_REPO_ROOT` to the checkout when absent. The packaged installer is optional and no administrator-level change is required for the portable app. The launcher does **not** automatically fall back to WinForms on errors, so the user can see what failed; run `START_SCOUT_MANAGER.cmd` directly to roll back.

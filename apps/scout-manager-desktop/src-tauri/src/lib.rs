@@ -601,6 +601,19 @@ mod winjob {
     use std::process::Child;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
     use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+    pub fn focus_existing_manager() -> bool {
+        let title: Vec<u16> = "RRUGC Scout Manager".encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            let window = FindWindowW(std::ptr::null(), title.as_ptr());
+            if window.is_null() { return false; }
+            ShowWindow(window, SW_RESTORE);
+            SetForegroundWindow(window);
+            true
+        }
+    }
 
     // This matches the lock held by scripts/start_scout_manager.ps1.
     // A second Manager becomes read-only rather than launching duplicate Scouts.
@@ -695,20 +708,32 @@ fn log_tail(
     ))
 }
 #[tauri::command]
-fn control_scout(
+async fn control_scout(
     state: tauri::State<'_, Arc<Controller>>,
     mode: String,
     command: String,
 ) -> Result<(), String> {
-    state.control(&mode, &command)
+    let controller = state.inner().clone();
+    // Process launch, recovery and shutdown are blocking OS operations.
+    // Never perform them on the WebView/Windows event thread.
+    tauri::async_runtime::spawn_blocking(move || controller.control(&mode, &command))
+        .await
+        .map_err(|_| "Scout process operation failed unexpectedly.".to_string())?
 }
 #[tauri::command]
-fn control_all(state: tauri::State<'_, Arc<Controller>>, command: String) -> Result<(), String> {
-    state.control_all(&command)
+async fn control_all(state: tauri::State<'_, Arc<Controller>>, command: String) -> Result<(), String> {
+    let controller = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || controller.control_all(&command))
+        .await
+        .map_err(|_| "Scout automation operation failed unexpectedly.".to_string())?
 }
 #[tauri::command]
-fn check_update(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
-    state.check_update()
+async fn check_update(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
+    let controller = state.inner().clone();
+    // Git fetch can take minutes on a slow connection. Keep the UI responsive.
+    tauri::async_runtime::spawn_blocking(move || controller.check_update())
+        .await
+        .map_err(|_| "Scout source update failed unexpectedly.".to_string())?
 }
 // Always exit off the Windows message-pump thread; stopping two managed
 // process trees must never freeze the close or tray menu handlers.
@@ -798,6 +823,11 @@ fn save_pairing(
 }
 pub fn run() {
     let controller = Controller::new().expect("A compatible scan_pinterest checkout is required");
+    #[cfg(windows)]
+    if !controller.owns_manager_lock() && winjob::focus_existing_manager() {
+        // Do not create a second WebView/tray icon. Reopen the original Manager.
+        return;
+    }
     let state = Arc::new(controller);
     let polling = Arc::clone(&state);
     thread::spawn(move || {
