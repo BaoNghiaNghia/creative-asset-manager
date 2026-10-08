@@ -296,11 +296,13 @@ class GeminiAiMetadataProvider:
         generation_config: dict[str, Any] = {
             "responseMimeType": "application/json"
         }
-        if input.json_schema is not None:
-            # Gemini's generateContent endpoint accepts full JSON Schema via
-            # responseJsonSchema.  Forward the caller's schema unchanged so
-            # structured metadata jobs are constrained at generation time
-            # instead of relying on a retry after Pydantic validation fails.
+        if input.json_schema is not None and input.metadata_profile != "rrugc_quote_scout":
+            # Other pipelines use provider-side JSON Schema. Quote Scout has
+            # repeatedly received HTTP 400 INVALID_ARGUMENT for this field on
+            # production Gemini models, then succeeded using plain JSON mode.
+            # It validates every response with HatQuoteDocument on the server;
+            # skip the known-invalid first request, without relaxing anyone
+            # else's structured-output configuration.
             generation_config["responseJsonSchema"] = deepcopy(dict(input.json_schema))
 
         body = {
@@ -330,38 +332,6 @@ class GeminiAiMetadataProvider:
                     headers={"x-goog-api-key": self._api_key},
                     json=body,
                 )
-                if (
-                    input.metadata_profile == "rrugc_quote_scout"
-                    and input.json_schema is not None
-                    and response.status_code == 400
-                ):
-                    error_details = self._error_details(
-                        response, model=model, input=input
-                    )
-                    # Quote Scout independently validates the returned JSON
-                    # with HatQuoteDocument. Gemini may report unsupported
-                    # responseJsonSchema properties with generic HTTP 400
-                    # messages (e.g. INVALID_ARGUMENT) that contain no schema
-                    # keyword. Retry ONCE without the optional schema, but
-                    # only in this known, locally validated quote pipeline.
-                    # Persistent 400s still surface as provider failures.
-                    if response.status_code == 400:
-                        _LOGGER.warning(
-                            "gemini_quote_schema_fallback model=%s "
-                            "google_status=%s",
-                            model,
-                            error_details.get("google_error_status"),
-                        )
-                        response = await client.post(
-                            url,
-                            headers={"x-goog-api-key": self._api_key},
-                            json={
-                                **body,
-                                "generationConfig": {
-                                    "responseMimeType": "application/json"
-                                },
-                            },
-                        )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             raise AiProviderError(
                 "Gemini request could not be completed.",

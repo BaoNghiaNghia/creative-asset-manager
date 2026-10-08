@@ -212,25 +212,12 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(schema, original)
 
-    async def test_quote_scout_retries_once_when_response_json_schema_is_rejected(self):
+    async def test_quote_scout_uses_plain_json_in_one_request(self):
         requests = []
 
         async def handler(request):
             body = json.loads(request.content)
             requests.append(body)
-            if len(requests) == 1:
-                return httpx.Response(
-                    400,
-                    json={
-                        "error": {
-                            "status": "INVALID_ARGUMENT",
-                            "message": (
-                                "Invalid JSON payload received. Unknown name "
-                                "'response_json_schema' at generation_config."
-                            ),
-                        }
-                    },
-                )
             return httpx.Response(
                 200,
                 json={
@@ -250,14 +237,13 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         )
         result = await provider.analyze_single(inp)
         self.assertEqual(result.metadata["is_hat"], True)
-        self.assertEqual(len(requests), 2)
-        self.assertIn("responseJsonSchema", requests[0]["generationConfig"])
+        self.assertEqual(len(requests), 1)
         self.assertEqual(
-            requests[1]["generationConfig"],
+            requests[0]["generationConfig"],
             {"responseMimeType": "application/json"},
         )
 
-    async def test_quote_scout_retries_any_bad_request_once_without_schema(self):
+    async def test_quote_scout_bad_request_is_not_retried_unnecessarily(self):
         calls = 0
 
         async def handler(_request):
@@ -284,7 +270,7 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(AiProviderError) as caught:
             await provider.analyze_single(inp)
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertEqual(calls, 2)
+        self.assertEqual(calls, 1)
 
     async def test_other_metadata_profiles_do_not_relax_json_schema(self):
         calls = 0
