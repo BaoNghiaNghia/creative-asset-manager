@@ -11,7 +11,7 @@ type OperationsSummary = {
     stage1_pending: number; stage1_running: number; stage1_completed_24h: number; stage1_failed_24h: number;
   };
   keyword: {
-    active_searches: number; tenant_active_searches: number; ready_queries: number;
+    active_searches: number; tenant_active_searches: number; older_outstanding_leases: number; ready_queries: number;
     total_queries: number; completed_cycles_total: number; failed_cycles_total: number;
     suggestions_pending: number; new_keywords_24h: number;
     scanned_pins_24h_agent: number; saved_keywords_24h_agent: number;
@@ -19,6 +19,8 @@ type OperationsSummary = {
   gemini: {
     primary_configured: boolean; backup_keys: number; configured_keys: number;
     capacity_available: boolean; failover_enabled: boolean; strategy: string;
+    review_backpressure: boolean; keyword_fair_share_limited: boolean;
+    keyword_next_slot_seconds: number; keyword_max_rate_per_minute: number | null;
   };
   fetched_at: string;
 };
@@ -76,19 +78,19 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
         </>
       : <>
           <JobCounters title="Keyword search jobs" rows={[
-            ["Active · this agent", operations?.keyword.active_searches, "normal"],
+            ["Active leases", operations?.keyword.active_searches, "normal"],
             ["Ready queries", operations?.keyword.ready_queries, "normal"],
             ["Done · total", operations?.keyword.completed_cycles_total, "ok"],
             ["Failed · total", operations?.keyword.failed_cycles_total, "warn"],
           ]}/>
-          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Query pool: {operations?.keyword.total_queries ?? "—"} · New keywords / 24h: {operations?.keyword.new_keywords_24h ?? "—"}</div>
+          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Query pool: {operations?.keyword.total_queries ?? "—"} · Older leases: {operations?.keyword.older_outstanding_leases ?? "—"} · New keywords / 24h: {operations?.keyword.new_keywords_24h ?? "—"}</div>
         </>
     }
     <div className="scout-gemini-status" role="status">
-      <span className={"gemini-status-indicator " + (operations?.gemini.capacity_available ? "ready" : operations ? "limited" : "")}/>
+      <span className={"gemini-status-indicator " + (operations?.gemini.capacity_available && !operations.gemini.review_backpressure ? "ready" : operations ? "limited" : "")}/>
       {operations
-        ? <>Gemini: <strong>{operations.gemini.configured_keys ? operations.gemini.capacity_available ? "Quota available" : "Quota limited / unavailable" : "No key"}</strong>
-          <span> · {operations.gemini.configured_keys} key(s), {operations.gemini.backup_keys} backup · {operations.gemini.failover_enabled ? "Auto failover" : "No backup configured"}</span></>
+        ? <>Gemini: <strong>{operations.gemini.configured_keys ? operations.gemini.review_backpressure ? "Stage 1 backlog / Keyword fair-share" : operations.gemini.capacity_available ? "Model quota available" : "Model quota limited" : "No key"}</strong>
+          <span> · {operations.gemini.configured_keys} configured, {operations.gemini.backup_keys} backup · {operations.gemini.failover_enabled ? "Auto failover" : "No backup configured"}{operations.gemini.keyword_max_rate_per_minute != null ? " · Keyword max 1 quote/min" : ""}{operations.gemini.keyword_fair_share_limited ? " · next slot ~" + operations.gemini.keyword_next_slot_seconds + "s" : ""}</span></>
         : "Checking Gemini key pool…"}
     </div>
     {operationsError && <div className="scout-jobs-error">{operationsError}</div>}

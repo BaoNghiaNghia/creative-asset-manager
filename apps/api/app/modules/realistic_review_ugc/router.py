@@ -4196,6 +4196,11 @@ def scout_operations_summary(
     capacity = RrugcMaintenanceService(session, settings).gemini_capacity_available(
         agent.tenant_id, now=now,
     )
+    analysis_pressure = scout_analysis_backpressure(session, agent.tenant_id, now=now)
+    keyword_gate = keyword_quote_backlog_gate(
+        session, agent.tenant_id, pressure=analysis_pressure,
+        now=now, reserve=False,
+    )
     result["gemini"] = {
         "primary_configured": bool(primary_configured),
         "backup_keys": len(backups),
@@ -4203,6 +4208,10 @@ def scout_operations_summary(
         "capacity_available": capacity,
         "failover_enabled": bool(backups),
         "strategy": "capacity_aware_failover",
+        "review_backpressure": bool(analysis_pressure["active"]),
+        "keyword_fair_share_limited": bool(keyword_gate["active"]),
+        "keyword_next_slot_seconds": int(keyword_gate["retry_seconds"]),
+        "keyword_max_rate_per_minute": 1 if analysis_pressure["active"] else None,
     }
     return result
 

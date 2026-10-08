@@ -70,6 +70,7 @@ struct ReviewJobCounts {
 struct KeywordJobCounts {
     active_searches: u64,
     tenant_active_searches: u64,
+    older_outstanding_leases: u64,
     ready_queries: u64,
     total_queries: u64,
     completed_cycles_total: u64,
@@ -87,6 +88,10 @@ struct GeminiPoolHealth {
     capacity_available: bool,
     failover_enabled: bool,
     strategy: String,
+    review_backpressure: bool,
+    keyword_fair_share_limited: bool,
+    keyword_next_slot_seconds: u64,
+    keyword_max_rate_per_minute: Option<u64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct OperationsSummary {

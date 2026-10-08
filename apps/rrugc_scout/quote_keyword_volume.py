@@ -87,6 +87,11 @@ BROWSER_FALLBACK_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 KEYWORD_QUOTE_MIN_PRIORITY_SCORE = 0.60
 KEYWORD_QUOTE_HIGH_PRIORITY_SCORE = 0.85
 KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS = 180
+# When Stage 1 has a long AI backlog, avoid opening hundreds of Pin details
+# before a single 60-second Keyword fair-share slot can be used.
+PRESSURED_ROOT_DETAILS_PER_CYCLE = 3
+PRESSURED_RELATED_DETAILS_PER_ROOT = 6
+PRESSURED_FAIR_SHARE_RETRIES = 3
 # Manual feedback is an exploration hint, not a replacement for hat discovery.
 KEYWORD_SUGGESTION_EVERY_N_CYCLES = 5
 KEYWORD_SUGGESTION_HAT_CONTEXTS = (
@@ -649,7 +654,7 @@ class QuoteScoutClient:
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def ensure_analysis_capacity(self) -> None:
+    async def ensure_analysis_capacity(self) -> bool:
         """Avoid expensive Pinterest detail work when CAM already reports AI pressure."""
         started = time.monotonic()
         path = (
@@ -670,7 +675,7 @@ class QuoteScoutClient:
                     duration_ms=round((time.monotonic() - started) * 1000),
                     action="fail_open_to_quote_endpoint",
                 )
-                return
+                return False
             payload = response.json()
         except httpx.HTTPStatusError:
             raise
@@ -681,7 +686,7 @@ class QuoteScoutClient:
                 duration_ms=round((time.monotonic() - started) * 1000),
                 action="fail_open_to_quote_endpoint",
             )
-            return
+            return False
 
         pressure = (
             payload.get("analysis_backpressure")
@@ -707,6 +712,7 @@ class QuoteScoutClient:
                 duration_ms=round((time.monotonic() - started) * 1000),
             )
             raise KeywordScoutCapacityPaused(retry_seconds)
+        return isinstance(pressure, dict) and pressure.get("active") is True
 
     async def _post(
         self,
@@ -1068,6 +1074,37 @@ async def _flush_pending_quote_volumes(
         )
         print("Recovered pending keyword volumes: " + str(len(resolved)))
     return saved
+
+
+async def process_keyword_candidate_with_fair_share(
+    process_candidate: Any,
+    *,
+    refresh_lease: Any,
+    source: str,
+    root_pin_url: str,
+    retry_limit: int = PRESSURED_FAIR_SHARE_RETRIES,
+) -> KeywordCandidateResult:
+    """Resume an in-flight Pin on the next fair-share slot, not a new search.
+
+    Never bypass the API Gemini limiter; wait for its Retry-After and retry the
+    same Pin. The caller refreshes the query lease before/after waiting.
+    """
+    for attempt in range(max(0, retry_limit) + 1):
+        await refresh_lease()
+        try:
+            return await process_candidate()
+        except KeywordScoutCapacityPaused as exc:
+            if attempt >= retry_limit:
+                raise
+            scout_debug_event(
+                "keyword_scout_fair_share_wait_in_cycle",
+                source=source, root_pin_url=root_pin_url,
+                wait_seconds=exc.retry_seconds,
+                attempt=attempt + 1,
+            )
+            await asyncio.sleep(exc.retry_seconds)
+            await refresh_lease()
+    raise AssertionError("unreachable fair-share state")
 
 
 async def _process_keyword_candidate(
@@ -1714,7 +1751,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             # happen before normal per-cycle counters are allocated.
             processed = duplicate_pins = extracted = saved_quotes = related_processed = 0
             try:
-                await client.ensure_analysis_capacity()
+                ai_backlog_active = await client.ensure_analysis_capacity()
                 directives = await client.fetch_feedback()
                 blocked_keywords = directives["blocked_keywords"]
                 blocked_pins = directives["blocked_pins"]
@@ -1741,6 +1778,13 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     feedback_synced_at = time.monotonic()
 
                 await _flush_pending_quote_volumes(client, history, blocked_keywords)
+                if ai_backlog_active:
+                    scout_debug_event(
+                        "keyword_scout_capacity_aware_scan_budget",
+                        max_root_details=PRESSURED_ROOT_DETAILS_PER_CYCLE,
+                        max_related_details=PRESSURED_RELATED_DETAILS_PER_ROOT,
+                        retry_slots=PRESSURED_FAIR_SHARE_RETRIES,
+                    )
                 # Four baseline cycles for every one assisted exploration cycle.
                 assisted_cycle = cycle_number // KEYWORD_SUGGESTION_EVERY_N_CYCLES
                 if _should_claim_suggested_task(cycle_number):
@@ -1900,6 +1944,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         candidates.append(candidate)
 
                     remaining = args.max_pins_per_cycle - processed
+                    if ai_backlog_active:
+                        remaining = min(
+                            remaining, PRESSURED_ROOT_DETAILS_PER_CYCLE - processed,
+                        )
                     candidates = candidates[:max(0, remaining)]
                     if candidates:
                         resolved = await resolve_pin_details(
@@ -1989,9 +2037,13 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             related_fresh += len(fresh_related)
                             resolved_related: list[Candidate] = []
                             if fresh_related:
+                                detail_batch = (
+                                    fresh_related[:PRESSURED_RELATED_DETAILS_PER_ROOT]
+                                    if ai_backlog_active else fresh_related
+                                )
                                 resolved_related = await resolve_pin_details(
                                     page,
-                                    fresh_related,
+                                    detail_batch,
                                     detail_page=detail_page,
                                     concurrency=1,
                                     fallback_on_error=False,
@@ -2002,8 +2054,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                 if allowed_image(row.image_url)
                             ]
                             expansion_complete = (
-                                args.related_per_pin <= 0
-                                or len(related_rows) > 0
+                                (args.related_per_pin <= 0 or len(related_rows) > 0)
+                                and (not ai_backlog_active
+                                     or len(fresh_related) <= PRESSURED_RELATED_DETAILS_PER_ROOT)
                             )
                             if not expansion_complete:
                                 scout_debug_event(
@@ -2077,17 +2130,20 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                     )
                                     continue
 
-                                candidate_result = await _process_keyword_candidate(
-                                    client,
-                                    history,
-                                    row,
-                                    source=source,
-                                    root_pin_url=root_pin_url,
-                                    deep_dive_min_search_volume=(
-                                        args.deep_dive_min_search_volume
-                                    ),
-                                    browser_page=detail_page or page,
-                                    blocked_keywords=blocked_keywords,
+                                async def analyze_current_pin() -> KeywordCandidateResult:
+                                    return await _process_keyword_candidate(
+                                        client, history, row,
+                                        source=source, root_pin_url=root_pin_url,
+                                        deep_dive_min_search_volume=args.deep_dive_min_search_volume,
+                                        browser_page=detail_page or page,
+                                        blocked_keywords=blocked_keywords,
+                                    )
+
+                                candidate_result = await process_keyword_candidate_with_fair_share(
+                                    analyze_current_pin,
+                                    refresh_lease=refresh_feedback_if_due,
+                                    source=source, root_pin_url=root_pin_url,
+                                    retry_limit=PRESSURED_FAIR_SHARE_RETRIES if ai_backlog_active else 0,
                                 )
                                 extracted += candidate_result.quote_delta
                                 saved_quotes += candidate_result.saved_delta
@@ -2152,6 +2208,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             # 150-image deep-dive seed unprocessed.
                             while (
                                 deep_queue
+                                and not ai_backlog_active
                                 and deep_processed < args.deep_dive_seeds_per_cycle
                             ):
                                 deep_queue.sort(
@@ -2323,19 +2380,20 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                                             reason=metadata_skip,
                                         )
                                         continue
-                                    child_result = (
-                                        await _process_keyword_candidate(
-                                            client,
-                                            history,
-                                            child,
-                                            source="deep_related",
+                                    async def analyze_deep_pin() -> KeywordCandidateResult:
+                                        return await _process_keyword_candidate(
+                                            client, history, child, source="deep_related",
                                             root_pin_url=seed.root_pin_url,
-                                            deep_dive_min_search_volume=(
-                                                args.deep_dive_min_search_volume
-                                            ),
+                                            deep_dive_min_search_volume=args.deep_dive_min_search_volume,
                                             browser_page=detail_page or page,
                                             blocked_keywords=blocked_keywords,
                                         )
+
+                                    child_result = await process_keyword_candidate_with_fair_share(
+                                        analyze_deep_pin,
+                                        refresh_lease=refresh_feedback_if_due,
+                                        source="deep_related", root_pin_url=seed.root_pin_url,
+                                        retry_limit=PRESSURED_FAIR_SHARE_RETRIES if ai_backlog_active else 0,
                                     )
                                     extracted += child_result.quote_delta
                                     saved_quotes += child_result.saved_delta
@@ -2445,7 +2503,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         + " saved_quotes="
                         + str(saved_quotes)
                     )
-                    if processed >= args.max_pins_per_cycle:
+                    if processed >= (
+                        min(args.max_pins_per_cycle, PRESSURED_ROOT_DETAILS_PER_CYCLE)
+                        if ai_backlog_active else args.max_pins_per_cycle
+                    ):
                         break
                     await _scroll_search_page(page, pace)
 

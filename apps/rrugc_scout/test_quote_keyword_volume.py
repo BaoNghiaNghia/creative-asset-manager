@@ -962,3 +962,55 @@ def test_quote_extract_preserves_final_http_status_after_retries(monkeypatch):
     monkeypatch.setattr(keyword_scout.random, "random", lambda: 0.0)
     asyncio.run(scenario())
     assert attempts == 3
+
+def test_fair_share_retries_same_pin_and_refreshes_lease(monkeypatch):
+    calls = {"process": 0, "refresh": 0, "waits": []}
+    async def fake_sleep(seconds):
+        calls["waits"].append(seconds)
+    monkeypatch.setattr(keyword_scout.asyncio, "sleep", fake_sleep)
+
+    expected = object()
+    async def process():
+        calls["process"] += 1
+        if calls["process"] < 3:
+            raise keyword_scout.KeywordScoutCapacityPaused(56)
+        return expected
+    async def renew():
+        calls["refresh"] += 1
+    actual = asyncio.run(keyword_scout.process_keyword_candidate_with_fair_share(
+        process, refresh_lease=renew, source="related",
+        root_pin_url="https://www.pinterest.com/pin/123/",
+        retry_limit=3,
+    ))
+    assert actual is expected
+    assert calls["process"] == 3
+    assert calls["waits"] == [56, 56]
+    assert calls["refresh"] >= 3
+
+
+def test_fair_share_retry_limit_preserves_unprocessed_pin(monkeypatch):
+    async def fake_sleep(_seconds):
+        return None
+    monkeypatch.setattr(keyword_scout.asyncio, "sleep", fake_sleep)
+    calls = 0
+    async def process():
+        nonlocal calls
+        calls += 1
+        raise keyword_scout.KeywordScoutCapacityPaused(60)
+    async def refresh():
+        return None
+    with pytest.raises(keyword_scout.KeywordScoutCapacityPaused):
+        asyncio.run(keyword_scout.process_keyword_candidate_with_fair_share(
+            process, refresh_lease=refresh, source="root",
+            root_pin_url="https://www.pinterest.com/pin/456/",
+            retry_limit=2,
+        ))
+    assert calls == 3
+
+
+def test_pressured_scan_budget_is_bounded_without_changing_default_search_depth():
+    assert keyword_scout.DEFAULT_RELATED_PER_PIN == 60
+    assert keyword_scout.DEFAULT_DEEP_DIVE_RELATED_PER_PIN == 150
+    assert keyword_scout.PRESSURED_ROOT_DETAILS_PER_CYCLE <= 4
+    assert keyword_scout.PRESSURED_RELATED_DETAILS_PER_ROOT <= 8
+    assert keyword_scout.PRESSURED_FAIR_SHARE_RETRIES >= 2

@@ -67,10 +67,18 @@ def scout_jobs_snapshot(
     query = RrugcScoutQueryModel
     qbase = (query.tenant_id == tenant_id,)
     leased = (query.lease_expires_at.is_not(None), query.lease_expires_at > now)
+    # A 45-minute valid lease can outlive a browser crash. Only call a lease
+    # "active" when it was claimed/renewed in the last 10 minutes. Display
+    # older outstanding leases separately instead of calling them jobs.
+    fresh = query.updated_at >= now - timedelta(minutes=10)
     agent_active = _scalar_count(
-        session, query, *qbase, *leased, query.claimed_by_agent_id == agent_id,
+        session, query, *qbase, *leased, fresh,
+        query.claimed_by_agent_id == agent_id,
     )
-    global_active = _scalar_count(session, query, *qbase, *leased)
+    global_active = _scalar_count(session, query, *qbase, *leased, fresh)
+    older_leases = _scalar_count(
+        session, query, *qbase, *leased, query.updated_at < now - timedelta(minutes=10),
+    )
     available = _scalar_count(
         session, query, *qbase,
         or_(query.lease_expires_at.is_(None), query.lease_expires_at <= now),
@@ -115,6 +123,7 @@ def scout_jobs_snapshot(
         "keyword": {
             "active_searches": agent_active,
             "tenant_active_searches": global_active,
+            "older_outstanding_leases": older_leases,
             "ready_queries": available,
             "total_queries": total_queries,
             "completed_cycles_total": int(cycle_totals[0]),
