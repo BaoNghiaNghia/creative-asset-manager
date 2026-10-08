@@ -155,6 +155,7 @@ from app.modules.realistic_review_ugc.schema import (
     ScoutFeedbackFinishRequest,
     ScoutFeedbackLeaseRequest,
     ScoutMetricCycleRequest,
+    ScoutQueryCompleteRequest,
     KeywordSuggestionResponse,
     KeywordVolumeResolveRequest,
     KeywordVolumeResolveResponse,
@@ -243,6 +244,9 @@ from app.modules.realistic_review_ugc.schema import (
     Stage3ReviewGroupListResponse,
     Stage3ReviewGroupResponse,
     Stage3ReviewImageResponse,
+)
+from app.modules.realistic_review_ugc.query_intelligence import (
+    claim_query, renew_query, finish_query, intelligence_summary,
 )
 from app.modules.realistic_review_ugc.scout_feedback import (
     update_feedback, statuses_for_rows, feedback_targets, blocked_targets,
@@ -4127,6 +4131,58 @@ def quote_scout_keyword_summary(
         last_updated_at=latest_updated,
         fetched_at=now,
     )
+
+
+@router.get("/keyword-analysis/search-intelligence")
+def get_keyword_search_intelligence(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    return intelligence_summary(session, principal.active_tenant_id)
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/query/claim")
+def claim_dynamic_keyword_query(
+    agent_id: str, authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    agent = RrugcAutoScoutService(session).authenticate_agent(
+        agent_id=agent_id, raw_token=_bearer_token(authorization),
+    )
+    return {"task": claim_query(session, agent.tenant_id, agent_id)}
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/query/renew")
+def renew_dynamic_keyword_query(
+    agent_id: str, request: ScoutFeedbackLeaseRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    agent = RrugcAutoScoutService(session).authenticate_agent(
+        agent_id=agent_id, raw_token=_bearer_token(authorization),
+    )
+    if not renew_query(session, agent.tenant_id, agent_id, request.id, request.lease_token):
+        raise HTTPException(status_code=409, detail="Query lease has expired or is no longer owned.")
+    return {"ok": True}
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/query/complete")
+def complete_dynamic_keyword_query(
+    agent_id: str, request: ScoutQueryCompleteRequest,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    agent = RrugcAutoScoutService(session).authenticate_agent(
+        agent_id=agent_id, raw_token=_bearer_token(authorization),
+    )
+    if not finish_query(
+        session, agent.tenant_id, agent_id, request.id, request.lease_token,
+        success=request.success, scanned_pins=request.scanned_pins,
+        found_quotes=request.found_quotes, new_keywords=request.new_keywords,
+        duplicate_pins=request.duplicate_pins,
+    ):
+        raise HTTPException(status_code=409, detail="Query lease is no longer owned by this Scout.")
+    return {"ok": True}
 
 
 @router.get("/scout-agents/{agent_id}/keyword-analysis/feedback")

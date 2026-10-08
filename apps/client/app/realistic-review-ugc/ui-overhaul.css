@@ -1526,3 +1526,28 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-tm-badge.is-danger>span{background:#c04c59}
 .rrugc-stage0-tm-detail .rrugc-stage0-tm-badge{margin-top:3px}
 .rrugc-stage0-tm-detail p{white-space:normal;overflow-wrap:anywhere}
+
+/* Stage 0 shared Pinterest Search Intelligence */
+.rrugc-search-intelligence{margin:0 0 12px;padding:12px 14px;border:1px solid #dce6f0;border-radius:12px;background:#fff;color:#32485f;box-shadow:0 2px 9px rgba(28,56,83,.04)}
+.rrugc-search-intelligence-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.rrugc-search-intelligence-top>div{display:flex;flex-direction:column;gap:3px}
+.rrugc-search-intelligence-top strong{font-size:13px;letter-spacing:-.02em}
+.rrugc-search-intelligence-top span{font-size:10px;color:#77899b}
+.rrugc-search-intelligence-top button{flex:none;border:1px solid #d7e2ee;border-radius:7px;background:#f6f9fd;color:#3f6692;padding:7px 10px;font-size:10px;font-weight:700;cursor:pointer}
+.rrugc-search-intelligence-top button:hover,.rrugc-search-intelligence-top button:focus-visible{background:#eaf3fc;outline:2px solid #a5bedf}
+.rrugc-search-intelligence-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:11px}
+.rrugc-search-intelligence-metrics>div{display:flex;flex-direction:column;gap:2px;min-width:0;padding:8px 10px;border:1px solid #ecf0f6;border-radius:8px;background:#fafbfd}
+.rrugc-search-intelligence-metrics small{font-size:9px;color:#7d8ca0}
+.rrugc-search-intelligence-metrics strong{font-size:17px;color:#283f5b;font-variant-numeric:tabular-nums}
+.rrugc-search-intelligence-expanded{margin-top:12px;border-top:1px solid #edf2f8;padding-top:12px}
+.rrugc-search-intelligence-lanes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.rrugc-search-intelligence-lanes>div{display:flex;flex-direction:column;gap:3px;border:1px solid #e1e9f3;border-radius:8px;padding:9px 10px;min-width:0}
+.rrugc-search-intelligence-lanes strong{font-size:10px}
+.rrugc-search-intelligence-lanes span{font-size:9px;color:#8191a5}
+.rrugc-search-intelligence-table-wrap{overflow:auto;max-height:360px;border:1px solid #e3eaf2;border-radius:8px}
+.rrugc-search-intelligence-table-wrap table{width:100%;min-width:650px;border-collapse:collapse;text-align:left;font-size:10px}
+.rrugc-search-intelligence-table-wrap th,.rrugc-search-intelligence-table-wrap td{padding:8px 10px;border-bottom:1px solid #edf1f6}
+.rrugc-search-intelligence-table-wrap th{position:sticky;top:0;background:#f7f9fc;color:#526a85;font-weight:700}
+.rrugc-search-intelligence-table-wrap td:first-child{max-width:350px;overflow-wrap:anywhere;font-weight:600}
+.rrugc-search-intelligence-error{font-size:10px;color:#a86430}
+@media(max-width:740px){.rrugc-search-intelligence-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.rrugc-search-intelligence-lanes{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-search-intelligence-top{align-items:flex-start}.rrugc-search-intelligence-top>div{min-width:0}}

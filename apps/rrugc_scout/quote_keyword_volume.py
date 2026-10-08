@@ -830,6 +830,36 @@ class QuoteScoutClient:
             "blocked_pins": {pin_history_key(str(x)) for x in payload.get("blocked_pins", [])},
         }
 
+    async def claim_dynamic_query(self) -> dict[str, Any] | None:
+        payload = await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/query/claim",
+            {}, operation="claim_dynamic_keyword_query",
+        )
+        task = payload.get("task")
+        return task if isinstance(task, dict) else None
+
+    async def renew_dynamic_query(self, task: dict[str, Any]) -> None:
+        await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/query/renew",
+            {"id": task["id"], "lease_token": task["lease_token"]},
+            operation="renew_dynamic_keyword_query",
+        )
+
+    async def finish_dynamic_query(
+        self, task: dict[str, Any], *,
+        success: bool, scanned_pins: int = 0,
+        found_quotes: int = 0, new_keywords: int = 0,
+        duplicate_pins: int = 0,
+    ) -> None:
+        await self._post(
+            f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/query/complete",
+            {"id": task["id"], "lease_token": task["lease_token"],
+             "success": success, "scanned_pins": scanned_pins,
+             "found_quotes": found_quotes, "new_keywords": new_keywords,
+             "duplicate_pins": duplicate_pins},
+            operation="complete_dynamic_keyword_query",
+        )
+
     async def claim_feedback_task(self) -> dict[str, Any] | None:
         payload = await self._post(
             f"/api/v1/realistic-review-ugc/scout-agents/{self.agent_id}/keyword-analysis/priority/claim",
@@ -1632,7 +1662,19 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 error=str(exc)[:250],
             )
 
+    async def release_dynamic_query(task: dict[str, Any] | None) -> None:
+        if not task:
+            return
+        try:
+            await client.finish_dynamic_query(task, success=False)
+        except Exception as exc:
+            scout_debug_event(
+                "keyword_query_lease_release_failed",
+                error_type=exc.__class__.__name__, error=str(exc)[:250],
+            )
+
     priority_task: dict[str, Any] | None = None
+    dynamic_query: dict[str, Any] | None = None
     cycle_number = 0
     try:
         await ensure_keyword_startup_login()
@@ -1641,6 +1683,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             cycle_number += 1
             cycle_id = str(uuid4())
             priority_task: dict[str, Any] | None = None
+            dynamic_query: dict[str, Any] | None = None
             try:
                 await client.ensure_analysis_capacity()
                 directives = await client.fetch_feedback()
@@ -1648,10 +1691,14 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 blocked_pins = directives["blocked_pins"]
                 feedback_synced_at = time.monotonic()
                 lease_renewed_at = feedback_synced_at
+                dynamic_lease_renewed_at = feedback_synced_at
 
                 async def refresh_feedback_if_due() -> None:
-                    nonlocal blocked_keywords, blocked_pins, feedback_synced_at, lease_renewed_at
+                    nonlocal blocked_keywords, blocked_pins, feedback_synced_at, lease_renewed_at, dynamic_lease_renewed_at
                     now = time.monotonic()
+                    if dynamic_query and now - dynamic_lease_renewed_at >= 300:
+                        await client.renew_dynamic_query(dynamic_query)
+                        dynamic_lease_renewed_at = time.monotonic()
                     if priority_task and now - lease_renewed_at >= 300:
                         await client.renew_feedback_task(
                             str(priority_task["id"]), str(priority_task["lease_token"]),
@@ -1669,9 +1716,27 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 assisted_cycle = cycle_number // KEYWORD_SUGGESTION_EVERY_N_CYCLES
                 if _should_claim_suggested_task(cycle_number):
                     priority_task = await client.claim_feedback_task()
+                if not priority_task or priority_task.get("type") == "pin":
+                    dynamic_query = await client.claim_dynamic_query()
                 current_query = (
                     _suggested_hat_search_query(str(priority_task.get("keyword") or ""), assisted_cycle)
-                    if priority_task else args.seed_query
+                    if priority_task and priority_task.get("type") == "keyword"
+                    else str(dynamic_query.get("query") or "") if dynamic_query else ""
+                )
+                if not current_query:
+                    # All available queries are leased or cooling down.
+                    # Avoid repeatedly searching the exhausted default seed.
+                    scout_debug_event("keyword_query_pool_wait", reason="no_eligible_queries")
+                    if priority_task:
+                        await release_claimed_priority(priority_task)
+                        priority_task = None
+                    if args.once:
+                        return
+                    await asyncio.sleep(max(args.cycle_seconds, 180))
+                    continue
+                discovery_lane = (
+                    "manual_priority" if priority_task and priority_task.get("type") == "keyword"
+                    else str(dynamic_query.get("lane") or "dynamic") if dynamic_query else "pin_priority"
                 )
                 priority_pin = (
                     Candidate(pin_url=priority_task["pin_url"], image_url=priority_task.get("image_url") or "")
@@ -1706,7 +1771,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 scout_debug_event(
                     "keyword_scout_cycle_started",
                     query=current_query,
-                    discovery_lane="suggested_hat_context" if priority_task else "baseline",
+                    discovery_lane=discovery_lane,
                     suggested_keyword=str(priority_task.get("keyword") or "") if priority_task else None,
                     initial_dwell_ms=initial_dwell,
                     seen_pins=len(history.seen_pins),
@@ -2375,7 +2440,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 scout_debug_event(
                     "keyword_scout_cycle_completed",
                     query=current_query,
-                    discovery_lane="suggested_hat_context" if priority_task else "baseline",
+                    discovery_lane=discovery_lane,
                     processed=processed,
                     related_scanned=related_scanned,
                     related_fresh=related_fresh,
@@ -2397,6 +2462,21 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         "keyword_scout_metric_sync_failed",
                         error_type=exc.__class__.__name__, error=str(exc)[:300],
                     )
+                # Shared query performance is tracked separately from metrics.
+                if dynamic_query:
+                    try:
+                        await client.finish_dynamic_query(
+                            dynamic_query, success=True,
+                            scanned_pins=processed + related_processed,
+                            found_quotes=extracted, new_keywords=saved_quotes,
+                            duplicate_pins=duplicate_pins,
+                        )
+                    except Exception as exc:
+                        scout_debug_event(
+                            "keyword_query_performance_sync_failed",
+                            error_type=exc.__class__.__name__, error=str(exc)[:300],
+                        )
+                    dynamic_query = None
                 # A telemetry outage must never prevent priority completion.
                 if priority_task:
                     priority_success = _priority_task_success(
@@ -2442,6 +2522,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(next_cycle_seconds)
             except KeywordScoutCapacityPaused as exc:
                 await release_claimed_priority(priority_task)
+                await release_dynamic_query(dynamic_query)
+                dynamic_query = None
                 priority_task = None
                 scout_debug_event(
                     "keyword_scout_gemini_backpressure_paused",
@@ -2458,6 +2540,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(exc.retry_seconds)
             except PinterestRateLimitedError:
                 await release_claimed_priority(priority_task)
+                await release_dynamic_query(dynamic_query)
+                dynamic_query = None
                 priority_task = None
                 wait_seconds = max(args.cycle_seconds, 600)
                 print(
@@ -2474,6 +2558,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await asyncio.sleep(wait_seconds)
             except PinterestAccessGateError as exc:
                 await release_claimed_priority(priority_task)
+                await release_dynamic_query(dynamic_query)
+                dynamic_query = None
                 priority_task = None
                 if exc.gate == "login":
                     await bootstrap_keyword_login()
@@ -2484,6 +2570,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await _wait_for_pinterest_access(page)
             except Exception as exc:
                 await release_claimed_priority(priority_task)
+                await release_dynamic_query(dynamic_query)
+                dynamic_query = None
                 priority_task = None
                 if args.once:
                     raise

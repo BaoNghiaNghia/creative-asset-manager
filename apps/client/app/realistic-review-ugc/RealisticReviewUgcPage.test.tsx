@@ -1299,3 +1299,37 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(config).toContain("RRUGC_AGENT_ID=agent-1");
   });
 });
+
+describe("Search Intelligence panel", () => {
+  it("shows shared query pool, learned performance and source lane labels", async () => {
+    const { SearchIntelligencePanel } = await import("./SearchIntelligencePanel");
+    const html = renderToStaticMarkup(
+      <SearchIntelligencePanel
+        summary={{
+          total_queries: 35,
+          cycles_completed: 11,
+          new_keywords: 9,
+          duplicate_pins: 12,
+          active_leases: 2,
+          lanes: [
+            { lane: "suggested", queries: 6, cycles: 4 },
+            { lane: "style", queries: 8, cycles: 3 },
+            { lane: "product", queries: 15, cycles: 2 },
+            { lane: "explore", queries: 6, cycles: 2 },
+          ],
+          recent: [],
+        }}
+        loading={false}
+        error={null}
+      />,
+    );
+    expect(html).toContain("Search Intelligence");
+    expect(html).toContain("Dynamic Query Pool");
+    expect(html).toContain(">35<");
+    expect(html).toContain(">11<");
+    expect(html).toContain(">9<");
+    expect(html).toContain(">12<");
+    expect(html).toContain(">2<");
+    expect(html).toContain('aria-expanded="false"');
+  });
+});

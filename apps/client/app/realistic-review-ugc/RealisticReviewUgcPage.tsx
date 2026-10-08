@@ -7,6 +7,8 @@ import {
   cancelStage2Jobs,
   createStage2Job,
   listKeywordAnalysis,
+  getQueryIntelligence,
+  type QueryIntelligenceSummary,
   listSourcePlans,
   listStage2Jobs,
   listStage3ReviewGroups,
@@ -27,6 +29,7 @@ import {
 import { RrugcWorkflowSettingsModal } from "./RrugcWorkflowSettingsModal";
 import { SkillManagerModal } from "./SkillManagerModal";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
+import { SearchIntelligencePanel } from "./SearchIntelligencePanel";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
@@ -132,6 +135,9 @@ export function stage2JobsRenderFingerprint(jobs: Stage2Job[]): string {
 
 export function RealisticReviewUgcPage() {
   const [keywordPage, setKeywordPage] = useState<KeywordVolumePage>(EMPTY_KEYWORD_PAGE);
+  const [queryIntelligence, setQueryIntelligence] = useState<QueryIntelligenceSummary | null>(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(true);
+  const [intelligenceError, setIntelligenceError] = useState<string | null>(null);
   const [keywordPageNumber, setKeywordPageNumber] = useState(1);
   const [keywordPageSize, setKeywordPageSize] = useState(20);
   const [keywordQuery, setKeywordQuery] = useState("");
@@ -632,6 +638,34 @@ export function RealisticReviewUgcPage() {
   }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordFavoritesOnly]);
 
   useEffect(() => {
+    if (activeStage !== "stage0") return;
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        const data = await getQueryIntelligence(controller.signal);
+        if (!controller.signal.aborted) {
+          setQueryIntelligence(data);
+          setIntelligenceError(null);
+        }
+      } catch (reason) {
+        if (!controller.signal.aborted) setIntelligenceError(
+          reason instanceof Error ? reason.message : "Unavailable",
+        );
+      } finally {
+        if (!controller.signal.aborted) setIntelligenceLoading(false);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 30000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [activeStage]);
+
+  useEffect(() => {
     const pageCount = Math.max(1, Math.ceil(keywordPage.total / keywordPageSize));
     if (keywordPageNumber > pageCount && !keywordLoading) {
       setKeywordPageNumber(pageCount);
@@ -844,6 +878,11 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage0" ? 0 : -1}
           hidden={activeStage !== "stage0"}
         >
+          <SearchIntelligencePanel
+            summary={queryIntelligence}
+            loading={intelligenceLoading}
+            error={intelligenceError}
+          />
           <KeywordAnalysisTable
             data={keywordPage}
             query={keywordQuery}

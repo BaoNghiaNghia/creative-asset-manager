@@ -497,6 +497,16 @@ class ScoutFeedbackFinishRequest(BaseModel):
     success: bool = True
 
 
+class ScoutQueryCompleteRequest(BaseModel):
+    id: str = Field(min_length=36, max_length=36)
+    lease_token: str = Field(min_length=36, max_length=36)
+    success: bool = True
+    scanned_pins: int = Field(default=0, ge=0, le=100_000)
+    found_quotes: int = Field(default=0, ge=0, le=100_000)
+    new_keywords: int = Field(default=0, ge=0, le=100_000)
+    duplicate_pins: int = Field(default=0, ge=0, le=100_000)
+
+
 class ScoutMetricCycleRequest(BaseModel):
     machine_label: str = Field(default="unknown", min_length=1, max_length=160)
     mode: Literal["keyword", "review"] = "keyword"

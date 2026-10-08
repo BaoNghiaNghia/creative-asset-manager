@@ -195,6 +195,25 @@ export const syncSourcePlans = () =>
     method: "POST",
   });
 
+export type QueryIntelligenceSummary = {
+  total_queries: number;
+  cycles_completed: number;
+  new_keywords: number;
+  duplicate_pins: number;
+  active_leases: number;
+  lanes: Array<{ lane: string; queries: number; cycles: number }>;
+  recent: Array<{
+    query: string; lane: string; cycles: number;
+    new_keywords: number; scanned_pins: number; duplicate_pins: number;
+    last_searched_at: string | null;
+  }>;
+};
+
+export const getQueryIntelligence = (signal?: AbortSignal) =>
+  request<QueryIntelligenceSummary>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/search-intelligence", { signal },
+  );
+
 export const listKeywordAnalysis = (
   filters: {
     page?: number;

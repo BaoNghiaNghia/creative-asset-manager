@@ -247,6 +247,35 @@ class RrugcScoutFeedbackModel(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+
+class RrugcScoutQueryModel(Base):
+    """Tenant-scoped query pool with cross-machine exclusive search leases."""
+    __tablename__ = "rrugc_scout_queries"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "query_normalized", name="uq_rrugc_scout_query_unique"),
+        Index("ix_rrugc_scout_query_lease", "tenant_id", "lease_expires_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    query: Mapped[str] = mapped_column(String(240), nullable=False)
+    query_normalized: Mapped[str] = mapped_column(String(240), nullable=False)
+    lane: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_keyword: Mapped[str | None] = mapped_column(String(500))
+    completed_cycles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_cycles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scanned_pins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    found_quotes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    new_keywords: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duplicate_pins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    empty_cycles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claimed_by_agent_id: Mapped[str | None] = mapped_column(String(36))
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_searched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class RrugcScoutMetricCycleModel(Base):
     __tablename__ = "rrugc_scout_metric_cycles"
     __table_args__ = (
