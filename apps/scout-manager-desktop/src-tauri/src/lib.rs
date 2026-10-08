@@ -84,6 +84,8 @@ struct Controller {
     manager_lock: Option<winjob::ManagerLock>,
     update_state: Mutex<String>,
     updating: AtomicBool,
+    cached_commit: Mutex<String>,
+    shutdown_requested: AtomicBool,
 }
 fn repo_candidate(path: &Path) -> bool {
     path.join("scripts/start_scout_auto_update.ps1").is_file()
@@ -142,17 +144,30 @@ fn is_paired(repo: &Path) -> bool {
         .all(|key| entries.iter().any(|(k, v)| k == key && !v.is_empty()))
 }
 fn execute_git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .output()
+    let mut process = Command::new("git");
+    process.arg("-C").arg(repo).args(args);
+    hide_console(&mut process);
+    let output = process.output()
         .map_err(|_| "Git is not installed or unavailable.".to_string())?;
     if !output.status.success() {
         return Err("Git operation failed. Check your repository and network.".into());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+fn commit_short(repo: &Path) -> String {
+    execute_git(repo, &["rev-parse", "--short=8", "HEAD"])
+        .unwrap_or_else(|_| "unknown".into())
+}
+
+fn hide_console(process: &mut Command) {
+    // Git (including a Git launcher that shells out to cmd.exe) must not
+    // create a visible console during each updater check.
+    #[cfg(windows)]
+    { process.creation_flags(0x08000000); } // CREATE_NO_WINDOW
+    #[cfg(not(windows))]
+    { let _ = process; }
+}
+
 fn log_file(root: &Path, mode: &str) -> PathBuf {
     root.join(format!("{}.stdout.log", mode))
 }
@@ -206,6 +221,7 @@ impl Controller {
             });
         fs::create_dir_all(&log_root)
             .map_err(|_| "Cannot initialize local Scout logs.".to_string())?;
+        let commit = commit_short(&repo);
         Ok(Self {
             repo,
             log_root,
@@ -214,6 +230,8 @@ impl Controller {
             manager_lock: winjob::ManagerLock::acquire()?,
             update_state: Mutex::new("Checking every 60 seconds".into()),
             updating: AtomicBool::new(false),
+            cached_commit: Mutex::new(commit),
+            shutdown_requested: AtomicBool::new(false),
         })
     }
     fn owns_manager_lock(&self) -> bool {
@@ -268,8 +286,7 @@ impl Controller {
         if name == "keyword" {
             process.arg("-KeywordMode");
         }
-        #[cfg(windows)]
-        process.creation_flags(0x08000000); // CREATE_NO_WINDOW: suppress duplicate CMD consoles
+        hide_console(&mut process); // no flashing PowerShell console
         let mut child = process
             .spawn()
             .map_err(|_| "Could not start Scout Python launcher.".to_string())?;
@@ -297,7 +314,14 @@ impl Controller {
                 scout.job.take();
             } // closing the job handle kills the entire process tree
             let _ = child.kill();
-            let _ = child.wait();
+            // Avoid blocking UI / shutdown indefinitely if PowerShell, Chrome,
+            // or an antivirus holds an exit handle. Job Object already killed
+            // the complete child tree on Windows.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                if child.try_wait().ok().flatten().is_some() { break; }
+                thread::sleep(Duration::from_millis(30));
+            }
         }
         scout.state = "Stopped".into();
         scout.started_at = None;
@@ -357,7 +381,7 @@ impl Controller {
         }
     }
     fn tick(&self) {
-        if !self.owns_manager_lock() || self.updating.load(Ordering::SeqCst) {
+        if !self.owns_manager_lock() || self.shutdown_requested.load(Ordering::SeqCst) || self.updating.load(Ordering::SeqCst) {
             return;
         }
         let Ok(mut all) = self.lock_modes() else {
@@ -439,8 +463,8 @@ impl Controller {
                     .map(|s| s.trim_matches('"').to_string())
             })
             .unwrap_or_else(|| "unknown".into());
-        let commit = execute_git(&self.repo, &["rev-parse", "--short=8", "HEAD"])
-            .unwrap_or_else(|_| "unknown".into());
+        // No Git process on the 2-second UI polling path.
+        let commit = self.cached_commit.lock().map(|v| v.clone()).unwrap_or_else(|_| "unknown".into());
         let modes = self
             .lock_modes()
             .map(|a| a.iter().map(Scout::info).collect())
@@ -461,6 +485,9 @@ impl Controller {
     }
     fn check_update(&self) -> Result<(), String> {
         self.require_manager_lock()?;
+        if self.shutdown_requested.load(Ordering::SeqCst) {
+            return Err("Scout Manager is shutting down.".into());
+        }
         if self.updating.swap(true, Ordering::SeqCst) {
             return Err("An update is already running.".into());
         }
@@ -531,6 +558,11 @@ impl Controller {
             }
         }
         let merged = execute_git(&self.repo, &["merge", "--ff-only", "origin/main"]);
+        if merged.is_ok() {
+            if let Ok(mut cached) = self.cached_commit.lock() {
+                *cached = commit_short(&self.repo);
+            }
+        }
         if restart {
             let mut modes = self.lock_modes()?;
             for scout in modes.iter_mut().filter(|m| previous.contains(&m.name)) {
@@ -553,6 +585,7 @@ impl Controller {
         }
     }
     fn shutdown(&self) {
+        self.shutdown_requested.store(true, Ordering::SeqCst);
         if let Ok(mut modes) = self.lock_modes() {
             for scout in modes.iter_mut() {
                 scout.desired = false;
@@ -677,6 +710,27 @@ fn control_all(state: tauri::State<'_, Arc<Controller>>, command: String) -> Res
 fn check_update(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
     state.check_update()
 }
+// Always exit off the Windows message-pump thread; stopping two managed
+// process trees must never freeze the close or tray menu handlers.
+fn request_shutdown(app: tauri::AppHandle) {
+    let controller = app.state::<Arc<Controller>>().inner().clone();
+    if controller.shutdown_requested.swap(true, Ordering::SeqCst) { return; }
+    // Keep the UI responsive and guarantee a bounded quit even when a child
+    // or an updater stalls. Windows Job Object handles close on process exit.
+    let timeout_app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(10));
+        timeout_app.exit(0);
+    });
+    thread::spawn(move || {
+        controller.shutdown();
+        app.exit(0);
+    });
+}
+#[tauri::command]
+fn quit_manager(app: tauri::AppHandle) {
+    request_shutdown(app);
+}
 #[tauri::command]
 fn save_pairing(
     state: tauri::State<'_, Arc<Controller>>,
@@ -779,12 +833,10 @@ pub fn run() {
                         }
                     }
                     "pause" => {
-                        let _ = app.state::<Arc<Controller>>().control_all("stop");
+                        let manager = app.state::<Arc<Controller>>().inner().clone();
+                        thread::spawn(move || { let _ = manager.control_all("stop"); });
                     }
-                    "quit" => {
-                        app.state::<Arc<Controller>>().shutdown();
-                        app.exit(0);
-                    }
+                    "quit" => request_shutdown(app.clone()),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, _| {
@@ -800,7 +852,8 @@ pub fn run() {
             let managed = app.state::<Arc<Controller>>();
             // Preserve legacy behavior: both Scouts auto-start after valid pairing.
             if managed.owns_manager_lock() && is_paired(&managed.repo) {
-                let _ = managed.control_all("start");
+                let controller = managed.inner().clone();
+                thread::spawn(move || { let _ = controller.control_all("start"); });
             }
             Ok(())
         })
@@ -824,7 +877,8 @@ pub fn run() {
             control_scout,
             control_all,
             check_update,
-            save_pairing
+            save_pairing,
+            quit_manager
         ])
         .run(tauri::generate_context!())
         .expect("Scout Manager desktop runtime failed");
@@ -881,6 +935,8 @@ mod tests {
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
             updating: AtomicBool::new(false),
+            cached_commit: Mutex::new("fixture".into()),
+            shutdown_requested: AtomicBool::new(false),
         };
         assert!(!controller.repo.to_string_lossy().starts_with(r"\\?\"));
         let mut mock = Scout::new("review");

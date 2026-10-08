@@ -57,11 +57,20 @@ export default function App() {
   const [pairing, setPairing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const scrollRef = useRef<HTMLPreElement>(null);
+  const refreshInFlight = useRef(false);
   const refresh = useCallback(async () => {
-    if (!isNative) return;
-    const dashboard = await invoke<Dashboard>("dashboard");
-    setState(dashboard);
-    setLogs(await invoke<string>("log_tail", { mode, maxLines: 80 }));
+    if (!isNative || refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    try {
+      const [dashboard, tail] = await Promise.all([
+        invoke<Dashboard>("dashboard"),
+        invoke<string>("log_tail", { mode, maxLines: 80 }),
+      ]);
+      setState(dashboard);
+      setLogs(tail);
+    } finally {
+      refreshInFlight.current = false;
+    }
   }, [mode]);
   useEffect(() => {
     let alive = true;
@@ -113,7 +122,7 @@ export default function App() {
       <pre className="log-pre" ref={scrollRef}>{logs || (isNative ? "Waiting for Scout activity…" : "Browser preview — logs appear in the Windows desktop application.")}</pre>
       <div className="terminal-footer"><span><span className="live-dot"/> Monitor refreshes every 2 seconds</span><span>Scout {state.version}</span></div>
     </section>
-    <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Minimize to tray to keep working</span></footer>
+    <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop both Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>
   </div>
   {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { if (await act("save_pairing", { agentId, token })) { setPairing(false); await act("control_all", { command: "start" }); } })(); }}/>}
   </main>;
