@@ -584,6 +584,66 @@ def test_keyword_capacity_preflight_pauses_before_pinterest_work():
     ]
 
 
+def test_keyword_capacity_preflight_uses_keyword_fair_share_not_review_backlog():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={
+                "analysis_backpressure": {
+                    "active": True, "pending_jobs": 430,
+                    "oldest_wait_seconds": 3600,
+                },
+                "keyword_quote_backpressure": {
+                    "active": False, "retry_seconds": 0,
+                    "reason": "keyword_fair_share_allowed",
+                },
+            },
+        )
+
+    async def scenario():
+        client = QuoteScoutClient("https://cam.example", "agent-1", "test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.ensure_analysis_capacity()
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_keyword_capacity_preflight_respects_fair_share_wait():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={
+                "analysis_backpressure": {"active": True, "pending_jobs": 430,
+                                           "oldest_wait_seconds": 3600},
+                "keyword_quote_backpressure": {
+                    "active": True, "retry_seconds": 58,
+                    "reason": "keyword_fair_share_wait",
+                },
+            },
+        )
+
+    async def scenario():
+        client = QuoteScoutClient("https://cam.example", "agent-1", "test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(
+            base_url="https://cam.example",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            with pytest.raises(keyword_scout.KeywordScoutCapacityPaused) as exc:
+                await client.ensure_analysis_capacity()
+            assert exc.value.retry_seconds == 58
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+
+
 def test_keyword_capacity_preflight_is_fail_open_for_transient_diagnostics_errors():
     calls = 0
 

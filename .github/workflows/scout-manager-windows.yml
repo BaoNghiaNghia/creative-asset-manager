@@ -1,0 +1,53 @@
+name: RRUGC Scout Manager Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/scout-manager-desktop/**"
+      - "apps/rrugc_scout/**"
+      - "scripts/build_scout_manager_tauri.ps1"
+      - ".github/workflows/scout-manager-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # CodeLocal and some CI environments use CI=1, which Tauri does not accept.
+      CI: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: apps/scout-manager-desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/scout-manager-desktop/src-tauri -> target
+      - name: Install locked frontend dependencies
+        working-directory: apps/scout-manager-desktop
+        run: npm ci --no-audit --no-fund
+      - name: React UI regression tests
+        working-directory: apps/scout-manager-desktop
+        run: npm test
+      - name: Rust native regression tests
+        run: cargo test --manifest-path apps/scout-manager-desktop/src-tauri/Cargo.toml
+      - name: Build Tauri NSIS installer and portable executable
+        working-directory: apps/scout-manager-desktop
+        run: npm run tauri:build
+      - name: Upload Windows installer and portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: RRUGC-Scout-Manager-Windows
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            apps/scout-manager-desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/scout-manager-desktop/src-tauri/target/release/cam-scout-manager.exe

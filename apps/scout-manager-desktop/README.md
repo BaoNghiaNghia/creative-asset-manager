@@ -20,6 +20,10 @@ The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor
 
 The Windows 0.1.3 release uses `CREATE_NO_WINDOW` for both Git commands and the PowerShell Scout launcher. Commit metadata is cached on startup and after successful fast-forward updates rather than spawning Git on every 2-second dashboard refresh. The React polling loop deduplicates concurrent requests. The tray Quit and **Quit and stop** footer action shut down Scout process trees on background threads, with bounded per-child waits and a 10-second fallback exit. Closing the window with X hides it to tray and does not interrupt automation. Test this via an isolated `CAM_SCOUT_REPO_ROOT` mock before switching from WinForms; do not terminate real Scout processes during validation.
 
+## Native 0.1.8 Keyword fair-share and Gemini key pool resilience
+
+When Stage 1 Review image-analysis backlog is high, Keyword Scout no longer stops entirely. A tenant-scoped database gate admits at most one Quote Scout extraction per 60 seconds, then Gemini still enforces its provider/model/project quota. The quote extractor prefers active backup Gemini credentials under pressure and fails over to the primary key if a backup is temporarily unavailable. The desktop exposes queue count, backup-key configuration count, and remaining fair-share wait time. Scout client version v46 reads the keyword-specific gate from diagnostics; older clients retain the conservative global backpressure behavior. Manual Run automation remains required; no credentials or browser history are modified.
+
 ## Native 0.1.7 AI backlog visibility
 
 The authenticated Stage 0 summary also reports the number of queued RRUGC image-analysis jobs, age of the oldest pending job, and whether the shared-Gemini circuit breaker is active. This helps distinguish idle Scouts and provider backpressure from a loss of saved keywords; the UI never implies that a Running process guarantees new database rows. No Gemini quotas or safety thresholds are bypassed. Automatic Scout startup remains disabled until **Run automation** is pressed.

@@ -664,20 +664,25 @@ class QuoteScoutClient:
             if isinstance(payload, dict)
             else None
         )
-        active = isinstance(pressure, dict) and pressure.get("active") is True
+        # Keyword has a protected fair-share lane even when Review is
+        # backlogged. Prefer the lane-specific status over the global Review
+        # pressure signal, which must not pause Keyword indefinitely.
+        quote_gate = payload.get("keyword_quote_backpressure") if isinstance(payload, dict) else None
+        effective_pressure = quote_gate if isinstance(quote_gate, dict) else pressure
+        active = isinstance(effective_pressure, dict) and effective_pressure.get("active") is True
         if active:
-            pending_jobs = int(pressure.get("pending_jobs") or 0)
-            oldest_wait_seconds = int(pressure.get("oldest_wait_seconds") or 0)
+            pending_jobs = int(pressure.get("pending_jobs") or 0) if isinstance(pressure, dict) else 0
+            oldest_wait_seconds = int(pressure.get("oldest_wait_seconds") or 0) if isinstance(pressure, dict) else 0
+            retry_seconds = int(effective_pressure.get("retry_seconds") or KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
             scout_debug_event(
                 "keyword_scout_capacity_preflight_paused",
                 pending_jobs=pending_jobs,
                 oldest_wait_seconds=oldest_wait_seconds,
-                retry_seconds=KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS,
+                retry_seconds=retry_seconds,
+                reason=effective_pressure.get("reason"),
                 duration_ms=round((time.monotonic() - started) * 1000),
             )
-            raise KeywordScoutCapacityPaused(
-                KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS
-            )
+            raise KeywordScoutCapacityPaused(retry_seconds)
 
     async def _post(
         self,
@@ -703,7 +708,7 @@ class QuoteScoutClient:
                         error_detail = None
                     if (
                         isinstance(error_detail, dict)
-                        and error_detail.get("code") == "rrugc_analysis_backpressure"
+                        and error_detail.get("code") in {"rrugc_analysis_backpressure", "rrugc_keyword_fair_share_wait"}
                     ):
                         try:
                             wait_seconds = int(response.headers.get("Retry-After", "180"))

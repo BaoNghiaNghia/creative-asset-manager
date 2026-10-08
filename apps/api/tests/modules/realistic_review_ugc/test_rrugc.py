@@ -763,6 +763,46 @@ def test_keyword_analysis_tail_filters_and_favorites_are_persisted_and_tenant_sc
     assert api.get(route, params={"query": "other tenant"}).json()["total"] == 0
 
 
+def test_keyword_quote_backlog_fair_share_is_tenant_scoped_and_atomic(database):
+    from app.modules.realistic_review_ugc.scout_automation import (
+        keyword_quote_backlog_gate,
+    )
+
+    now = datetime.now(timezone.utc)
+    pressure = {"active": True, "pending_jobs": 430, "oldest_wait_seconds": 2000}
+    from app.modules.ai_governance.model import AiModelRateLimitStateModel
+
+    with database() as session:
+        AiModelRateLimitStateModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True
+        )
+        initial = keyword_quote_backlog_gate(
+            session, "tenant-a", pressure=pressure, now=now,
+        )
+        assert initial["active"] is False
+        allowed = keyword_quote_backlog_gate(
+            session, "tenant-a", pressure=pressure, now=now, reserve=True,
+        )
+        session.commit()
+        assert allowed["active"] is False
+        blocked = keyword_quote_backlog_gate(
+            session, "tenant-a", pressure=pressure, now=now,
+        )
+        assert blocked["active"] is True
+        assert 1 <= blocked["retry_seconds"] <= 61
+        assert keyword_quote_backlog_gate(
+            session, "tenant-b", pressure=pressure, now=now,
+        )["active"] is False
+        # Clear Review backlog never consumes this protected Keyword lane.
+        assert keyword_quote_backlog_gate(
+            session, "tenant-a", pressure={"active": False}, now=now,
+        )["active"] is False
+        assert keyword_quote_backlog_gate(
+            session, "tenant-a", pressure=pressure,
+            now=now + timedelta(seconds=61),
+        )["active"] is False
+
+
 def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, database, monkeypatch):
     import app.modules.realistic_review_ugc.scout_automation as automation
     import app.modules.realistic_review_ugc.router as scout_router
@@ -772,6 +812,14 @@ def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, 
     }
     monkeypatch.setattr(automation, "scout_analysis_backpressure", active_pressure)
     monkeypatch.setattr(scout_router, "scout_analysis_backpressure", active_pressure)
+    # An active Review backlog only throttles the independent quote fair-share
+    # lane; it is no longer a blanket 180s block on every Keyword request.
+    monkeypatch.setattr(
+        scout_router, "keyword_quote_backlog_gate",
+        lambda *args, **kwargs: {
+            "active": True, "retry_seconds": 55, "reason": "keyword_fair_share_wait"
+        },
+    )
     with database() as session:
         agent, token = RrugcAutoScoutService(session).create_agent(
             tenant_id="tenant-a",
@@ -811,13 +859,80 @@ def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, 
         },
     )
     assert deferred.status_code == 503
-    assert deferred.headers["retry-after"] == "180"
-    assert deferred.json()["detail"]["code"] == "rrugc_analysis_backpressure"
+    assert deferred.headers["retry-after"] == "55"
+    assert deferred.json()["detail"]["code"] == "rrugc_keyword_fair_share_wait"
+
+
+def test_quote_scout_prefers_backup_credential_under_review_pressure(api, database, monkeypatch):
+    from types import SimpleNamespace
+    import app.modules.realistic_review_ugc.router as scout_router
+
+    class FakeRegistry:
+        def require(self, name):
+            assert name == "gemini"
+            return object()
+
+        async def aclose(self):
+            return None
+
+    seen = {}
+
+    async def analyze_mock(**kwargs):
+        seen["credentials"] = kwargs["credential_providers"]
+        return SimpleNamespace(
+            quotes=["HELLO COWBOY"], is_target_cap=True,
+            confidence=0.9, provider="gemini", model="gemini-test",
+        )
+
+    monkeypatch.setattr(
+        scout_router, "scout_analysis_backpressure",
+        lambda *args, **kwargs: {
+            "active": True, "pending_jobs": 480, "oldest_wait_seconds": 2300
+        },
+    )
+    monkeypatch.setattr(
+        scout_router, "keyword_quote_backlog_gate",
+        lambda *args, **kwargs: {
+            "active": False, "retry_seconds": 0,
+            "reason": "keyword_fair_share_allowed",
+        },
+    )
+    monkeypatch.setattr(
+        scout_router, "build_ai_provider_registry",
+        lambda *args, **kwargs: FakeRegistry(),
+    )
+    monkeypatch.setattr(scout_router, "analyze_hat_quote", analyze_mock)
+    monkeypatch.setattr(
+        scout_router.CreativeAiCredentialRepository,
+        "list_active_backup_providers",
+        lambda self, tenant: ("gemini_backup_1", "gemini_backup_2"),
+    )
+    with database() as session:
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a", user_id="user-a", name="Backup preference"
+        )
+        agent_id = agent.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/quote-analysis/extract",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_url": "https://i.pinimg.com/736x/aa/bb/cap.jpg"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["quotes"] == ["HELLO COWBOY"]
+    assert seen["credentials"] == (
+        "gemini_backup_1", "gemini_backup_2", "gemini",
+    )
 
 
 def test_quote_scout_keyword_summary_is_tenant_scoped_and_requires_agent_token(api, database):
+    from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
+
     now = datetime.now(timezone.utc)
     with database() as session:
+        CreativeAiCredentialModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True,
+        )
         agent, token = RrugcAutoScoutService(session).create_agent(
             tenant_id="tenant-a", user_id="user-a", name="Quote stats"
         )
@@ -845,6 +960,9 @@ def test_quote_scout_keyword_summary_is_tenant_scoped_and_requires_agent_token(a
     assert summary["analysis_pending"] >= 0
     assert summary["analysis_oldest_wait_seconds"] >= 0
     assert isinstance(summary["analysis_backpressure_active"], bool)
+    assert isinstance(summary["keyword_fair_share_limited"], bool)
+    assert summary["keyword_next_slot_seconds"] >= 0
+    assert summary["gemini_backup_keys_configured"] >= 0
     assert summary["last_created_at"] is not None
     assert summary["fetched_at"] is not None
     denied = api.get(url, headers={"Authorization": "Bearer incorrect-token"})

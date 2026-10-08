@@ -243,6 +243,7 @@ from app.modules.realistic_review_ugc.scout_automation import (
     keyword_health_rows,
     quality_pipeline_count,
     scout_analysis_backpressure,
+    keyword_quote_backlog_gate,
 )
 from app.modules.realistic_review_ugc.scout_log import (
     RrugcScoutLogService,
@@ -3938,6 +3939,12 @@ def quote_scout_keyword_summary(
         )
     )
     pressure = scout_analysis_backpressure(session, agent.tenant_id, now=now)
+    quote_gate = keyword_quote_backlog_gate(
+        session, agent.tenant_id, pressure=pressure, now=now,
+    )
+    backup_count = len(CreativeAiCredentialRepository(
+        session, None
+    ).list_active_backup_providers(agent.tenant_id))
     return ScoutKeywordSummaryResponse(
         total_keywords=int(total or 0),
         added_24h=int(day or 0),
@@ -3945,6 +3952,9 @@ def quote_scout_keyword_summary(
         analysis_pending=int(pressure["pending_jobs"]),
         analysis_oldest_wait_seconds=int(pressure["oldest_wait_seconds"]),
         analysis_backpressure_active=bool(pressure["active"]),
+        keyword_fair_share_limited=bool(quote_gate["active"]),
+        keyword_next_slot_seconds=int(quote_gate["retry_seconds"]),
+        gemini_backup_keys_configured=backup_count,
         last_created_at=latest_created,
         last_updated_at=latest_updated,
         fetched_at=now,
@@ -4012,18 +4022,25 @@ async def quote_scout_extract_hat_quote(
         analysis_pressure = scout_analysis_backpressure(
             session, agent.tenant_id,
         )
-        if analysis_pressure["active"]:
-            # Quote extraction uses the SAME Gemini project quota as Stage 1.
-            # A transient 503 preserves retryable Pin history in old Scouts;
-            # never report fabricated negative quotes to avoid data loss.
+        # Stage 1 backlog must not disable the entire Keyword lane: admit a
+        # small, atomically rate-limited quote stream while the shared Gemini
+        # provider still enforces credential/model/project quotas.
+        quote_gate = keyword_quote_backlog_gate(
+            session, agent.tenant_id, pressure=analysis_pressure,
+            reserve=True,
+        )
+        if quote_gate["active"]:
+            session.rollback()
             raise HTTPException(
                 status_code=503,
                 detail={
-                    "code": "rrugc_analysis_backpressure",
-                    "message": "Gemini reference analysis is backlogged; retry quote extraction later.",
+                    "code": "rrugc_keyword_fair_share_wait",
+                    "message": "Quote Scout is waiting for its fair-share Gemini slot.",
                 },
-                headers={"Retry-After": "180"},
+                headers={"Retry-After": str(quote_gate["retry_seconds"])},
             )
+        if analysis_pressure["active"]:
+            session.commit()  # durable gate before external Gemini I/O
         settings = get_settings()
         registry = build_ai_provider_registry(
             settings,
@@ -4057,7 +4074,7 @@ async def quote_scout_extract_hat_quote(
             image_url=request.image_url,
             pin_url=request.pin_url,
             alt_text=request.alt_text,
-            credential_providers=("gemini", *backup_providers),
+            credential_providers=((*backup_providers, "gemini") if analysis_pressure["active"] and backup_providers else ("gemini", *backup_providers)),
             supplied_image_bytes=supplied_image_bytes,
             supplied_image_mime_type=supplied_image_mime_type,
         )

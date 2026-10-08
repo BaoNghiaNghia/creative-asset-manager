@@ -527,6 +527,9 @@ class ScoutKeywordSummaryResponse(BaseModel):
     analysis_pending: int = 0
     analysis_oldest_wait_seconds: int = 0
     analysis_backpressure_active: bool = False
+    keyword_fair_share_limited: bool = False
+    keyword_next_slot_seconds: int = 0
+    gemini_backup_keys_configured: int = 0
     last_created_at: datetime | None = None
     last_updated_at: datetime | None = None
     fetched_at: datetime

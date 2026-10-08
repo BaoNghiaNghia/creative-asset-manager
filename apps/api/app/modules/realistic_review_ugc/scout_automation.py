@@ -12,6 +12,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcScoutAgentModel,
@@ -56,6 +57,10 @@ SCOUT_MAX_SCROLL_BATCHES = 50
 # circuit breaker, NOT a change to Gemini quotas or to existing queued jobs.
 SCOUT_ANALYSIS_BACKLOG_LIMIT = 200
 SCOUT_ANALYSIS_BACKLOG_MIN_AGE_SECONDS = 15 * 60
+# During Review backlog, let Keyword Scout make slow, fair progress through
+# the normal Gemini quota/key pool instead of disabling an entire Scout lane.
+# An atomic DB gate caps this *additional* quote traffic per tenant.
+KEYWORD_BACKLOG_QUOTE_MIN_INTERVAL_SECONDS = 60
 
 
 def scout_analysis_backpressure(
@@ -83,6 +88,51 @@ def scout_analysis_backpressure(
         ),
         "pending_jobs": backlog,
         "oldest_wait_seconds": oldest_seconds,
+    }
+
+
+def keyword_quote_backlog_gate(
+    session: Session,
+    tenant_id: str,
+    *,
+    pressure: dict[str, int | bool] | None = None,
+    now: datetime | None = None,
+    reserve: bool = False,
+) -> dict[str, int | bool | str]:
+    """Allow a strictly rate-limited quote lane when Review is backlogged.
+
+    This is NOT a Gemini quota bypass: the Gemini provider still chooses a
+    working key/model and atomically reserves shared project capacity.
+    Read-only checks use next_start; actual extracts reserve_start to avoid
+    multiple Scout agents racing past the per-tenant limit.
+    """
+    current = now or datetime.now(timezone.utc)
+    pressure = pressure if pressure is not None else scout_analysis_backpressure(
+        session, tenant_id, now=current,
+    )
+    if not pressure["active"]:
+        return {"active": False, "retry_seconds": 0,
+                "reason": "review_backlog_below_threshold"}
+    limiter = AiModelRateLimitRepository(session)
+    params = dict(
+        tenant_id=tenant_id,
+        provider="rrugc_keyword_backlog_lane",
+        model="gemini",
+        rpm=1,
+        minimum_interval_seconds=KEYWORD_BACKLOG_QUOTE_MIN_INTERVAL_SECONDS,
+        now=current,
+    )
+    decision = (
+        limiter.reserve_start(**params) if reserve else limiter.next_start(**params)
+    )
+    retry_seconds = max(
+        1, int((decision.next_eligible_at - current).total_seconds()) + 1
+    ) if not decision.allowed else 0
+    return {
+        "active": not decision.allowed,
+        "retry_seconds": retry_seconds,
+        "reason": "keyword_fair_share_wait" if not decision.allowed
+                  else "keyword_fair_share_allowed",
     }
 
 
@@ -1101,6 +1151,9 @@ class RrugcAutoScoutService:
         analysis_pressure = scout_analysis_backpressure(
             self.session, agent.tenant_id, now=now,
         )
+        keyword_gate = keyword_quote_backlog_gate(
+            self.session, agent.tenant_id, pressure=analysis_pressure, now=now,
+        )
         campaigns = self.repository.list_campaigns(agent.tenant_id, limit=50)
         campaign_ids = [campaign.id for campaign in campaigns]
         counts_by_campaign = self.repository.campaign_usable_counts_many(
@@ -1272,6 +1325,7 @@ class RrugcAutoScoutService:
             "campaigns": rows,
             "claimable": claimable_count,
             "analysis_backpressure": analysis_pressure,
+            "keyword_quote_backpressure": keyword_gate,
             "duration_ms": duration_ms,
         }
 
