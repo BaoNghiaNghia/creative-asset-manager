@@ -1,6 +1,7 @@
 param(
     [switch]$NoAutoStart,
-    [switch]$ResumeAfterUpdate
+    [switch]$ResumeAfterUpdate,
+    [switch]$Preview
 )
 
 $ErrorActionPreference = "Stop"
@@ -108,13 +109,15 @@ $script:ScoutJob = New-KillOnCloseJob
 $managerMutex = New-Object System.Threading.Mutex($false, "Local\CreativeAssetManager.RrugcScout.Manager")
 $managerMutexHeld = $false
 try {
-    try {
-        $managerMutexHeld = $managerMutex.WaitOne(0)
+    if (-not $Preview) {
+        try {
+            $managerMutexHeld = $managerMutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $managerMutexHeld = $true
+        }
     }
-    catch [System.Threading.AbandonedMutexException] {
-        $managerMutexHeld = $true
-    }
-    if (-not $managerMutexHeld) {
+    if (-not $Preview -and -not $managerMutexHeld) {
         [System.Windows.Forms.MessageBox]::Show(
             "Scout Manager is already running on this machine.",
             "RRUGC Scout Manager",
@@ -700,155 +703,315 @@ try {
         }
     }
 
+    # Native WinForms dashboard: existing recovery and process controls remain
+    # authoritative. Only the presentation and direct automation controls change.
+    $ink = [System.Drawing.Color]::FromArgb(17, 24, 39)
+    $muted = [System.Drawing.Color]::FromArgb(100, 116, 139)
+    $primary = [System.Drawing.Color]::FromArgb(37, 99, 235)
+    $green = [System.Drawing.Color]::FromArgb(22, 101, 52)
+    $red = [System.Drawing.Color]::FromArgb(185, 28, 28)
+    $surface = [System.Drawing.Color]::FromArgb(255, 255, 255)
+    $border = [System.Drawing.Color]::FromArgb(220, 228, 238)
+
+    function New-ScoutLabel([string]$Caption, [int]$Size, [System.Drawing.Color]$Color) {
+        $control = New-Object System.Windows.Forms.Label
+        $control.Text = $Caption
+        $control.AutoSize = $true
+        $control.Font = New-Object System.Drawing.Font("Segoe UI", $Size)
+        $control.ForeColor = $Color
+        return $control
+    }
+
+    function New-ScoutButton([string]$Caption, [int]$Width, [bool]$IsPrimary = $false) {
+        $control = New-Object System.Windows.Forms.Button
+        $control.Text = $Caption
+        $control.Size = New-Object System.Drawing.Size($Width, 36)
+        $control.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+        $control.FlatAppearance.BorderSize = 1
+        $control.FlatAppearance.BorderColor = $border
+        $control.BackColor = $surface
+        $control.ForeColor = $ink
+        $control.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $control.Margin = New-Object System.Windows.Forms.Padding(5, 0, 0, 0)
+        if ($IsPrimary) {
+            $control.BackColor = $primary
+            $control.ForeColor = $surface
+            $control.FlatAppearance.BorderColor = $primary
+        }
+        return $control
+    }
+
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "RRUGC Scout Manager"
     $form.StartPosition = "CenterScreen"
-    $form.Size = New-Object System.Drawing.Size(920, 650)
-    $form.MinimumSize = New-Object System.Drawing.Size(820, 560)
+    $form.Size = New-Object System.Drawing.Size(1100, 750)
+    $form.MinimumSize = New-Object System.Drawing.Size(940, 660)
+    $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
     $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $form.BackColor = [System.Drawing.Color]::FromArgb(247, 249, 252)
 
-    $title = New-Object System.Windows.Forms.Label
-    $title.Text = "RRUGC Scout Manager"
-    $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 18)
-    $title.AutoSize = $true
-    $title.Location = New-Object System.Drawing.Point(20, 16)
-    $form.Controls.Add($title)
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.ColumnCount = 1
+    $layout.RowCount = 4
+    $layout.Padding = New-Object System.Windows.Forms.Padding(18, 12, 18, 16)
+    [void]$layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    [void]$layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 116)))
+    [void]$layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 85)))
+    [void]$layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 234)))
+    [void]$layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    $form.Controls.Add($layout)
 
-    $subtitle = New-Object System.Windows.Forms.Label
-    $subtitle.Text = "One window for Review + Keyword Scout. Closing this Manager stops both processes."
-    $subtitle.AutoSize = $true
-    $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
-    $subtitle.Location = New-Object System.Drawing.Point(23, 52)
-    $form.Controls.Add($subtitle)
+    # Header: global actions replace three controls per Scout.
+    $header = New-Object System.Windows.Forms.Panel
+    $header.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $header.Margin = New-Object System.Windows.Forms.Padding(0)
+    $layout.Controls.Add($header, 0, 0)
 
-    $versionLabel = New-Object System.Windows.Forms.Label
-    $versionLabel.Text = "Scout " + (Get-ScoutVersion) + "  |  commit " + (Get-CommitShort)
-    $versionLabel.AutoSize = $true
-    $versionLabel.Location = New-Object System.Drawing.Point(23, 79)
-    $form.Controls.Add($versionLabel)
+    $title = New-ScoutLabel "RRUGC Scout Manager" 20 $ink
+    $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 20)
+    $title.Location = New-Object System.Drawing.Point(4, 5)
+    $header.Controls.Add($title)
 
-    $updateLabel = New-Object System.Windows.Forms.Label
-    $updateLabel.Text = "Auto-update: every " + $UpdateIntervalSeconds + "s"
-    $updateLabel.AutoSize = $true
-    $updateLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
-    $updateLabel.Location = New-Object System.Drawing.Point(23, 101)
-    $form.Controls.Add($updateLabel)
+    $subtitle = New-ScoutLabel "Review + Keyword run automatically with independent profiles and crash recovery." 9 $muted
+    $subtitle.Location = New-Object System.Drawing.Point(6, 45)
+    $header.Controls.Add($subtitle)
 
-    $checkButton = New-Object System.Windows.Forms.Button
-    $checkButton.Text = "Check update"
-    $checkButton.Size = New-Object System.Drawing.Size(105, 30)
-    $checkButton.Location = New-Object System.Drawing.Point(775, 20)
-    $checkButton.Anchor = "Top,Right"
-    $checkButton.Add_Click({ Check-ForUpdates -Manual })
-    $form.Controls.Add($checkButton)
+    $versionLabel = New-ScoutLabel ("Version " + (Get-ScoutVersion) + "   |   commit " + (Get-CommitShort)) 8 $muted
+    $versionLabel.Location = New-Object System.Drawing.Point(6, 69)
+    $header.Controls.Add($versionLabel)
 
-    $pairingButton = New-Object System.Windows.Forms.Button
-    $pairingButton.Text = "Pairing"
-    $pairingButton.Size = New-Object System.Drawing.Size(82, 30)
-    $pairingButton.Location = New-Object System.Drawing.Point(495, 20)
-    $pairingButton.Anchor = "Top,Right"
+    $updateLabel = New-ScoutLabel ("Auto-update checks every " + $UpdateIntervalSeconds + "s") 8 $muted
+    $updateLabel.Location = New-Object System.Drawing.Point(6, 91)
+    $header.Controls.Add($updateLabel)
+
+    $actions = New-Object System.Windows.Forms.FlowLayoutPanel
+    $actions.AutoSize = $false
+    $actions.WrapContents = $false
+    $actions.FlowDirection = [System.Windows.Forms.FlowDirection]::RightToLeft
+    $actions.Dock = [System.Windows.Forms.DockStyle]::Right
+    $actions.Width = 486
+    $actions.Height = 42
+    $actions.Padding = New-Object System.Windows.Forms.Padding(0, 7, 0, 0)
+    $header.Controls.Add($actions)
+
+    $pairingButton = New-ScoutButton "Pairing" 78
     $pairingButton.Add_Click({ Show-PairingDialog })
-    $form.Controls.Add($pairingButton)
+    $actions.Controls.Add($pairingButton)
 
-    $startAllButton = New-Object System.Windows.Forms.Button
-    $startAllButton.Text = "Start all"
-    $startAllButton.Size = New-Object System.Drawing.Size(90, 30)
-    $startAllButton.Location = New-Object System.Drawing.Point(583, 20)
-    $startAllButton.Anchor = "Top,Right"
-    $startAllButton.Add_Click({ Start-AllScouts })
-    $form.Controls.Add($startAllButton)
+    $checkButton = New-ScoutButton "Update" 78
+    $checkButton.Add_Click({ Check-ForUpdates -Manual })
+    $actions.Controls.Add($checkButton)
 
-    $stopAllButton = New-Object System.Windows.Forms.Button
-    $stopAllButton.Text = "Stop all"
-    $stopAllButton.Size = New-Object System.Drawing.Size(90, 30)
-    $stopAllButton.Location = New-Object System.Drawing.Point(679, 20)
-    $stopAllButton.Anchor = "Top,Right"
+    $stopAllButton = New-ScoutButton "Pause all" 92
     $stopAllButton.Add_Click({ Stop-AllScouts })
-    $form.Controls.Add($stopAllButton)
+    $actions.Controls.Add($stopAllButton)
+
+    $startAllButton = New-ScoutButton "Run automation" 133 $true
+    $startAllButton.Add_Click({ Start-AllScouts })
+    $actions.Controls.Add($startAllButton)
+
+    # Honest system summary: state comes from each child process, never merely
+    # from a colored badge or a successful process creation attempt.
+    $overview = New-Object System.Windows.Forms.Panel
+    $overview.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $overview.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 12)
+    $overview.BackColor = [System.Drawing.Color]::FromArgb(239, 249, 246)
+    $overview.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $layout.Controls.Add($overview, 0, 1)
+
+    $summaryGrid = New-Object System.Windows.Forms.TableLayoutPanel
+    $summaryGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $summaryGrid.ColumnCount = 4
+    $summaryGrid.RowCount = 1
+    $summaryGrid.Padding = New-Object System.Windows.Forms.Padding(11, 7, 11, 5)
+    for ($index = 0; $index -lt 4; $index++) {
+        [void]$summaryGrid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
+    }
+    $overview.Controls.Add($summaryGrid)
+
+    $summaryValues = @{}
+    foreach ($item in @(
+        @{ Key = "Review"; Caption = "REVIEW SCOUT"; Value = "Starting..." },
+        @{ Key = "Keyword"; Caption = "KEYWORD SCOUT"; Value = "Starting..." },
+        @{ Key = "Update"; Caption = "AUTO UPDATE"; Value = "Every 60 seconds" },
+        @{ Key = "Recovery"; Caption = "SYSTEM PROTECTION"; Value = "Restart & watchdog" }
+    )) {
+        $cell = New-Object System.Windows.Forms.Panel
+        $cell.Dock = [System.Windows.Forms.DockStyle]::Fill
+        $cell.Margin = New-Object System.Windows.Forms.Padding(3, 0, 3, 0)
+        $cellTitle = New-ScoutLabel $item.Caption 8 $muted
+        $cellTitle.Location = New-Object System.Drawing.Point(9, 3)
+        $cell.Controls.Add($cellTitle)
+        $cellValue = New-ScoutLabel $item.Value 10 $ink
+        $cellValue.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
+        $cellValue.Location = New-Object System.Drawing.Point(9, 25)
+        $cell.Controls.Add($cellValue)
+        $summaryValues[$item.Key] = $cellValue
+        $summaryGrid.Controls.Add($cell, $summaryValues.Count - 1, 0)
+    }
+
+    # Cards: one direct recovery button and a compact secondary toggle per
+    # Scout. The global controls remain the default automation workflow.
+    $cardGrid = New-Object System.Windows.Forms.TableLayoutPanel
+    $cardGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $cardGrid.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 12)
+    $cardGrid.ColumnCount = 2
+    $cardGrid.RowCount = 1
+    [void]$cardGrid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
+    [void]$cardGrid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
+    $layout.Controls.Add($cardGrid, 0, 2)
 
     $cards = @{}
-    $cardY = 132
     foreach ($modeName in @("Review", "Keyword")) {
-        $mode = $modes[$modeName]
-        $group = New-Object System.Windows.Forms.GroupBox
-        $group.Text = $mode.Name
-        $group.Size = New-Object System.Drawing.Size(420, 138)
-        $group.Location = New-Object System.Drawing.Point($(if ($modeName -eq "Review") { 20 } else { 460 }), $cardY)
-        $group.Anchor = "Top"
-        $form.Controls.Add($group)
+        $isReview = $modeName -eq "Review"
+        $card = New-Object System.Windows.Forms.Panel
+        $card.Dock = [System.Windows.Forms.DockStyle]::Fill
+        $card.Margin = if ($isReview) { New-Object System.Windows.Forms.Padding(0, 0, 7, 0) } else { New-Object System.Windows.Forms.Padding(7, 0, 0, 0) }
+        $card.BackColor = $surface
+        $card.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+        $cardGrid.Controls.Add($card, $(if ($isReview) { 0 } else { 1 }), 0)
 
-        $status = New-Object System.Windows.Forms.Label
-        $status.Text = "Stopped"
-        $status.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 11)
-        $status.AutoSize = $true
-        $status.Location = New-Object System.Drawing.Point(14, 28)
-        $group.Controls.Add($status)
+        $heading = New-ScoutLabel ($modeName + " Scout") 16 $ink
+        $heading.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 16)
+        $heading.Location = New-Object System.Drawing.Point(17, 16)
+        $card.Controls.Add($heading)
 
-        $pidLabel = New-Object System.Windows.Forms.Label
-        $pidLabel.Text = "PID -"
-        $pidLabel.AutoSize = $true
-        $pidLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
-        $pidLabel.Location = New-Object System.Drawing.Point(15, 55)
-        $group.Controls.Add($pidLabel)
+        $description = if ($isReview) {
+            "Scans photo references and review contexts"
+        } else {
+            "Discovers hat quotes and market keywords"
+        }
+        $sub = New-ScoutLabel $description 9 $muted
+        $sub.Location = New-Object System.Drawing.Point(19, 53)
+        $card.Controls.Add($sub)
 
-        $start = New-Object System.Windows.Forms.Button
-        $start.Text = "Start"
-        $start.Size = New-Object System.Drawing.Size(74, 29)
-        $start.Location = New-Object System.Drawing.Point(15, 92)
-        $start.Tag = $modeName
-        $start.Add_Click({ Start-ScoutMode ([string]$this.Tag) })
-        $group.Controls.Add($start)
+        $state = New-Object System.Windows.Forms.Label
+        $state.Text = "Starting..."
+        $state.Size = New-Object System.Drawing.Size(134, 30)
+        $state.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+        $state.BackColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
+        $state.ForeColor = $muted
+        $state.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9)
+        $state.Location = New-Object System.Drawing.Point(326, 18)
+        $state.Anchor = "Top,Right"
+        $card.Controls.Add($state)
+        $card.Tag = $state
+        $card.Add_Resize({
+            if ($null -ne $this.Tag) {
+                $this.Tag.Left = [Math]::Max(210, $this.ClientSize.Width - $this.Tag.Width - 16)
+            }
+        })
 
-        $stop = New-Object System.Windows.Forms.Button
-        $stop.Text = "Stop"
-        $stop.Size = New-Object System.Drawing.Size(74, 29)
-        $stop.Location = New-Object System.Drawing.Point(95, 92)
-        $stop.Tag = $modeName
-        $stop.Add_Click({ Stop-ScoutMode ([string]$this.Tag) })
-        $group.Controls.Add($stop)
+        $cardDivider = New-Object System.Windows.Forms.Panel
+        $cardDivider.Height = 1
+        $cardDivider.BackColor = $border
+        $cardDivider.Dock = [System.Windows.Forms.DockStyle]::Top
+        $cardDivider.Location = New-Object System.Drawing.Point(0, 82)
+        # Use a fixed anchored line so it does not overlay the title.
+        $cardDivider.Dock = [System.Windows.Forms.DockStyle]::None
+        $cardDivider.Size = New-Object System.Drawing.Size(445, 1)
+        $cardDivider.Location = New-Object System.Drawing.Point(18, 84)
+        $cardDivider.Anchor = "Top,Left,Right"
+        $card.Controls.Add($cardDivider)
 
-        $restart = New-Object System.Windows.Forms.Button
-        $restart.Text = "Restart"
-        $restart.Size = New-Object System.Drawing.Size(74, 29)
-        $restart.Location = New-Object System.Drawing.Point(175, 92)
+        $pidLabel = New-ScoutLabel "PID -" 9 $ink
+        $pidLabel.Location = New-Object System.Drawing.Point(19, 101)
+        $card.Controls.Add($pidLabel)
+
+        $attemptLabel = New-ScoutLabel "Automatic recovery enabled" 9 $muted
+        $attemptLabel.Location = New-Object System.Drawing.Point(155, 101)
+        $card.Controls.Add($attemptLabel)
+
+        $feature = New-ScoutLabel "Auto restart    ·    Browser watchdog    ·    Separate Chrome profile" 8 $green
+        $feature.Location = New-Object System.Drawing.Point(19, 130)
+        $card.Controls.Add($feature)
+
+        $restart = New-ScoutButton "Restart" 96
+        $restart.Location = New-Object System.Drawing.Point(17, 166)
         $restart.Tag = $modeName
         $restart.Add_Click({ Restart-ScoutMode ([string]$this.Tag) })
-        $group.Controls.Add($restart)
+        $card.Controls.Add($restart)
+
+        $toggle = New-ScoutButton "Pause" 94
+        $toggle.Location = New-Object System.Drawing.Point(120, 166)
+        $toggle.Tag = $modeName
+        $toggle.Add_Click({
+            $which = [string]$this.Tag
+            if ($modes[$which].Desired) {
+                Stop-ScoutMode $which
+            }
+            else {
+                $modes[$which].RestartCount = 0
+                Start-ScoutMode $which
+            }
+        })
+        $card.Controls.Add($toggle)
 
         $cards[$modeName] = @{
-            Status = $status
+            Status = $state
             Pid = $pidLabel
+            Recovery = $attemptLabel
+            Toggle = $toggle
+            Restart = $restart
         }
     }
+
+    # Monitoring console: a dedicated selector and generous scannable output.
+    $console = New-Object System.Windows.Forms.Panel
+    $console.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $console.Margin = New-Object System.Windows.Forms.Padding(0)
+    $console.BackColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
+    $console.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $layout.Controls.Add($console, 0, 3)
+
+    $consoleGrid = New-Object System.Windows.Forms.TableLayoutPanel
+    $consoleGrid.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $consoleGrid.ColumnCount = 1
+    $consoleGrid.RowCount = 2
+    [void]$consoleGrid.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 53)))
+    [void]$consoleGrid.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+    $console.Controls.Add($consoleGrid)
+
+    $consoleHeader = New-Object System.Windows.Forms.Panel
+    $consoleHeader.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $consoleGrid.Controls.Add($consoleHeader, 0, 0)
+    $consoleTitle = New-ScoutLabel "LIVE ACTIVITY" 10 $surface
+    $consoleTitle.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
+    $consoleTitle.Location = New-Object System.Drawing.Point(16, 9)
+    $consoleHeader.Controls.Add($consoleTitle)
+    $consoleHint = New-ScoutLabel "Latest output from the selected Scout" 8 ([System.Drawing.Color]::FromArgb(148, 163, 184))
+    $consoleHint.Location = New-Object System.Drawing.Point(17, 30)
+    $consoleHeader.Controls.Add($consoleHint)
 
     $logSelector = New-Object System.Windows.Forms.ComboBox
     $logSelector.DropDownStyle = "DropDownList"
     [void]$logSelector.Items.Add("Review Scout")
     [void]$logSelector.Items.Add("Keyword Scout")
     $logSelector.SelectedIndex = 0
-    $logSelector.Location = New-Object System.Drawing.Point(20, 292)
-    $logSelector.Size = New-Object System.Drawing.Size(180, 28)
-    $form.Controls.Add($logSelector)
-
-    $logsLabel = New-Object System.Windows.Forms.Label
-    $logsLabel.Text = "Latest output"
-    $logsLabel.AutoSize = $true
-    $logsLabel.Location = New-Object System.Drawing.Point(212, 296)
-    $form.Controls.Add($logsLabel)
+    $logSelector.Size = New-Object System.Drawing.Size(180, 27)
+    $logSelector.Location = New-Object System.Drawing.Point(810, 14)
+    $logSelector.Anchor = "Top,Right"
+    $consoleHeader.Controls.Add($logSelector)
+    $consoleHeader.Tag = $logSelector
+    $consoleHeader.Add_Resize({
+        if ($null -ne $this.Tag) {
+            $this.Tag.Left = [Math]::Max(270, $this.ClientSize.Width - $this.Tag.Width - 14)
+        }
+    })
 
     $logs = New-Object System.Windows.Forms.TextBox
     $logs.Multiline = $true
     $logs.ReadOnly = $true
     $logs.ScrollBars = "Vertical"
     $logs.WordWrap = $false
-    $logs.Font = New-Object System.Drawing.Font("Consolas", 8.5)
-    $logs.Location = New-Object System.Drawing.Point(20, 326)
-    $logs.Size = New-Object System.Drawing.Size(860, 270)
-    $logs.Anchor = "Top,Bottom,Left,Right"
+    $logs.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+    $logs.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $logs.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $logs.Margin = New-Object System.Windows.Forms.Padding(16, 0, 12, 12)
     $logs.BackColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
     $logs.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-    $form.Controls.Add($logs)
+    $consoleGrid.Controls.Add($logs, 0, 1)
 
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 1000
@@ -857,15 +1020,28 @@ try {
             Update-ProcessState $modeName
             $mode = $modes[$modeName]
             $cards[$modeName].Status.Text = $mode.Status
+            $cards[$modeName].Toggle.Text = if ($mode.Desired) { "Pause" } else { "Start" }
+            $cards[$modeName].Toggle.Enabled = -not $script:UpdateInProgress
+            $cards[$modeName].Restart.Enabled = -not $script:UpdateInProgress
+            $cards[$modeName].Recovery.Text = if ($mode.RestartCount -gt 0) {
+                "Recovery attempts: " + $mode.RestartCount
+            } else {
+                "Auto restart enabled"
+            }
             if ($mode.Status -eq "Running") {
-                $cards[$modeName].Status.ForeColor = [System.Drawing.Color]::FromArgb(22, 101, 52)
+                $cards[$modeName].Status.ForeColor = $green
+                $cards[$modeName].Status.BackColor = [System.Drawing.Color]::FromArgb(228, 248, 235)
             }
             elseif ($mode.Status -match "required|Fatal|failed|Paused") {
-                $cards[$modeName].Status.ForeColor = [System.Drawing.Color]::FromArgb(185, 28, 28)
+                $cards[$modeName].Status.ForeColor = $red
+                $cards[$modeName].Status.BackColor = [System.Drawing.Color]::FromArgb(254, 242, 242)
             }
             else {
-                $cards[$modeName].Status.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+                $cards[$modeName].Status.ForeColor = $muted
+                $cards[$modeName].Status.BackColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
             }
+            $summaryValues[$modeName].Text = $mode.Status
+            $summaryValues[$modeName].ForeColor = $cards[$modeName].Status.ForeColor
             if ($null -ne $mode.Process) {
                 try {
                     $cards[$modeName].Pid.Text = "PID " + $mode.Process.Id
@@ -879,6 +1055,37 @@ try {
             }
         }
 
+        $checkButton.Enabled = -not $script:UpdateInProgress
+        $startAllButton.Enabled = -not $script:UpdateInProgress
+        $stopAllButton.Enabled = -not $script:UpdateInProgress
+        $summaryValues["Update"].Text = if ($updateLabel.Text -match "error|paused|unavailable|not found") {
+            "Needs attention"
+        } elseif ($updateLabel.Text -match "current") {
+            "Up to date"
+        } elseif ($script:UpdateInProgress) {
+            "Applying update"
+        } else {
+            "Checking every 60s"
+        }
+        $summaryValues["Update"].ForeColor = if ($summaryValues["Update"].Text -eq "Needs attention") {
+            $red
+        } else {
+            $green
+        }
+        $summaryValues["Recovery"].Text = if (
+            $modes.Review.Status -match "Fatal|failed" -or
+            $modes.Keyword.Status -match "Fatal|failed"
+        ) {
+            "Attention required"
+        } else {
+            "Watchdog & recovery"
+        }
+        $summaryValues["Recovery"].ForeColor = if ($summaryValues["Recovery"].Text -eq "Attention required") {
+            $red
+        } else {
+            $green
+        }
+
         $selected = if ($logSelector.SelectedIndex -eq 1) { "Keyword" } else { "Review" }
         $tail = Get-LogTail $modes[$selected] 90
         if ($logs.Text -ne $tail) {
@@ -888,6 +1095,7 @@ try {
         }
 
         if (
+            -not $Preview -and
             -not $script:UpdateInProgress -and
             ((Get-Date) - $script:LastUpdateCheck).TotalSeconds -ge $UpdateIntervalSeconds
         ) {
@@ -897,6 +1105,10 @@ try {
 
     $form.Add_Shown({
         $timer.Start()
+        if ($Preview) {
+            $updateLabel.Text = "Preview mode - no Git or Scout processes started"
+            return
+        }
         $script:LastUpdateCheck = Get-Date
         Check-ForUpdates
         if (-not $script:RestartingForUpdate -and -not $NoAutoStart) {
@@ -908,6 +1120,11 @@ try {
     })
 
     $form.Add_FormClosing({
+        if ($Preview) {
+            $script:Closing = $true
+            $timer.Stop()
+            return
+        }
         if ($script:RestartingForUpdate) {
             $script:Closing = $true
             $timer.Stop()

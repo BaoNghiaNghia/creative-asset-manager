@@ -10,7 +10,7 @@ Scout Manager:
 
 1. starts Review + Keyword together, but still preserves their separate Chrome profiles, histories, logs and runner mutexes;
 2. places both child process trees in a Windows kill-on-close Job Object, so closing Manager also terminates the Scouts and their child runtimes instead of leaving invisible orphan processes;
-3. shows status, PID, latest output, and Start/Stop/Restart controls for each mode;
+3. uses an automation-first WinForms dashboard with Run automation / Pause all / Update / Pairing global actions, real Review + Keyword status cards, individual Start/Pause + Restart recovery controls, and one dark live-log console. It never presents a green running state based only on a button click; child process status drives the badges. The native `-Preview -NoAutoStart` mode displays the UI without claiming the Manager mutex, fetching updates, or starting Scouts;
 4. checks `origin/main` every 60 seconds and fast-forwards the local checkout automatically when it is clean;
 5. applies unrelated repository updates without interrupting running Scouts, but when Scout/launcher-managed files change it stops both, updates, relaunches the updated Manager, and automatically resumes both modes;
 6. refuses to overwrite tracked local edits and surfaces update/pairing failures instead of looping silently;
