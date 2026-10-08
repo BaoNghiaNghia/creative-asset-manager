@@ -28,6 +28,7 @@ struct ModeInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Dashboard {
+    manager_version: String,
     version: String,
     commit: String,
     update_state: String,
@@ -527,6 +528,9 @@ impl Controller {
             .map(|a| a.iter().map(Scout::info).collect())
             .unwrap_or_default();
         Dashboard {
+            // Compile-time Cargo version reflects the installed desktop binary,
+            // not the separately updated Scout scripts in the checkout.
+            manager_version: env!("CARGO_PKG_VERSION").to_string(),
             version,
             commit,
             update_state: self

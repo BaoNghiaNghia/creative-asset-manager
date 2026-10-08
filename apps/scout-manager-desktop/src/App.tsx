@@ -5,8 +5,8 @@ import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, Fi
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
-type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
-const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
+type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
+const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
 ] };
@@ -25,7 +25,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
       <div className="scout-identity"><div className={"mode-icon " + info.mode}><Icon size={24}/></div><div><h2>{info.mode === "review" ? "Review Scout" : "Keyword Scout"}</h2><p>{info.mode === "review" ? "Monitors image references and review contexts" : "Discovers quotes and keyword opportunities"}</p></div></div>
       <span className={"status-pill " + (active ? "success" : failed ? "danger" : "neutral")}><span className="status-dot"/>{info.state}</span>
     </div>
-    <div className="meta-row"><div><span>PID</span><b>{info.pid ?? "—"}</b></div><div><span>Version</span><b>{version}</b></div><div><span>Commit</span><b>{commit}</b></div></div>
+    <div className="meta-row"><div><span>PID</span><b>{info.pid ?? "—"}</b></div><div><span>Scout version</span><b>{version}</b></div><div><span>Commit</span><b>{commit}</b></div></div>
     {info.mode === "keyword" && <div className="keyword-health">
       <div className="keyword-metric"><span>Total saved</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") : "—"}</strong></div>
       <div className="keyword-metric"><span>Added 24h</span><strong>+{keywordSummary?.added_24h ?? "—"}</strong></div>
@@ -122,7 +122,7 @@ export default function App() {
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><h1>RRUGC Scout Manager</h1><p>Automated scouting for Review + Keyword, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
@@ -145,7 +145,7 @@ export default function App() {
     <section className="terminal-panel">
       <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
       <pre className="log-pre" ref={scrollRef}>{logs || (isNative ? "Waiting for Scout activity…" : "Browser preview — logs appear in the Windows desktop application.")}</pre>
-      <div className="terminal-footer"><span><span className="live-dot"/> Monitor refreshes every 2 seconds</span><span>Scout {state.version}</span></div>
+      <div className="terminal-footer"><span><span className="live-dot"/> Monitor refreshes every 2 seconds</span><span>Manager v{state.managerVersion} · Scout {state.version}</span></div>
     </section>
     <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop both Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>
   </div>

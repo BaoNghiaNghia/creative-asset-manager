@@ -65,6 +65,21 @@ def test_tauri_manual_start_and_no_idle_git_or_tray_refocus():
     assert "automationEnabled={state.automationEnabled}" in react
 
 
+def test_manager_and_scout_versions_are_distinct_on_dashboard():
+    src = (ROOT / "apps/scout-manager-desktop/src/App.tsx").read_text(encoding="utf-8")
+    native = (ROOT / "apps/scout-manager-desktop/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    assert 'manager_version: env!("CARGO_PKG_VERSION").to_string()' in native
+    assert 'Manager v{state.managerVersion}' in src
+    assert 'Scout version</span>' in src
+    assert 'Run automation' in src
+    package = (ROOT / "apps/scout-manager-desktop/package.json").read_text(encoding="utf-8")
+    cargo = (ROOT / "apps/scout-manager-desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
+    tauri = (ROOT / "apps/scout-manager-desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
+    assert '"version": "0.1.9"' in package
+    assert 'version = "0.1.9"' in cargo
+    assert '"version": "0.1.9"' in tauri
+
+
 def test_build_script_publishes_portable_and_installer_together():
     text = (ROOT / "scripts/build_scout_manager_tauri.ps1").read_text(encoding="utf-8")
     assert "RRUGC_Scout_Manager_Latest_x64.exe" in text

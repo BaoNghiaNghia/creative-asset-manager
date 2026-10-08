@@ -5,6 +5,8 @@ describe("Tauri Scout Manager dashboard", () => {
   it("renders both pipelines and monitoring UI without enabling native controls in browser preview", () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain("RRUGC Scout Manager");
+    expect(html).toContain("Manager v");
+    expect(html).toContain("Scout version");
     expect(html).toContain("Review Scout");
     expect(html).toContain("Keyword Scout");
     expect(html).toContain("Stage 0 keywords");
