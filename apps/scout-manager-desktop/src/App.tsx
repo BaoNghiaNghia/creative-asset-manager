@@ -4,8 +4,8 @@ import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, Fi
 
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
-type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; modes: ModeInfo[] };
-const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, modes: [
+type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; modes: ModeInfo[] };
+const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
 ] };
@@ -85,14 +85,15 @@ export default function App() {
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
   const running = state.modes.filter(m => m.state === "Running").length;
   const updateProblem = /error|paused|fail/i.test(state.updateState);
+  const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
       <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><h1>RRUGC Scout Manager</h1><p>Automated scouting for Review + Keyword, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Automatic update checks</span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
-        <button className="button primary" disabled={busy || !isNative} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
-        <button className="button secondary" disabled={busy || !isNative} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
-        <button className="button secondary" disabled={busy || !isNative} onClick={() => void act("check_update")}><RefreshCcw size={18}/> Update</button>
-        <button className="button secondary" onClick={() => setPairing(true)} disabled={!isNative}><Settings2 size={18}/> Pairing</button>
+        <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
+        <button className="button secondary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
+        <button className="button secondary" disabled={controlBlocked} onClick={() => void act("check_update")}><RefreshCcw size={18}/> Update</button>
+        <button className="button secondary" onClick={() => setPairing(true)} disabled={!isNative || !state.controllerAvailable}><Settings2 size={18}/> Pairing</button>
       </div>
     </header>
     <div className="summary">
@@ -101,10 +102,11 @@ export default function App() {
       <div className="summary-item"><span className={"sum-icon " + (updateProblem ? "off" : "ok")}><RefreshCcw size={19}/></span><div><span className="sum-title">Auto update</span><strong className={updateProblem ? "warn-text" : ""}>{state.updateState}</strong></div></div>
       <div className="summary-item"><span className="sum-icon ok"><ShieldCheck size={19}/></span><div><span className="sum-title">System protection</span><strong>{running === 2 ? "Both scouts running" : "Auto recovery enabled"}</strong></div></div>
     </div>
+    {!state.controllerAvailable && <div className="alert"><CircleAlert size={18}/><span>Another Scout Manager is running. Close the legacy Manager before using automation controls in Tauri.</span></div>}
     {toast && <div className="alert"><CircleAlert size={18}/><span>{toast}</span><button onClick={() => setToast(null)} aria-label="Dismiss alert"><X size={16}/></button></div>}
     <section className="mode-grid">
-      <Card info={review} version={state.version} commit={state.commit} busy={busy} onAction={onMode}/>
-      <Card info={keyword} version={state.version} commit={state.commit} busy={busy} onAction={onMode}/>
+      <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} onAction={onMode}/>
+      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} onAction={onMode}/>
     </section>
     <section className="terminal-panel">
       <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>

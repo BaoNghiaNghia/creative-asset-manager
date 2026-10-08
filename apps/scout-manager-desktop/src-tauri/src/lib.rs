@@ -33,6 +33,7 @@ struct Dashboard {
     update_state: String,
     paired: bool,
     updating: bool,
+    controller_available: bool,
     modes: Vec<ModeInfo>,
 }
 
@@ -79,6 +80,8 @@ struct Controller {
     repo: PathBuf,
     log_root: PathBuf,
     modes: Mutex<Vec<Scout>>,
+    #[cfg(windows)]
+    manager_lock: Option<winjob::ManagerLock>,
     update_state: Mutex<String>,
     updating: AtomicBool,
 }
@@ -178,19 +181,42 @@ fn open_log(path: &Path) -> Result<File, String> {
 impl Controller {
     fn new() -> Result<Self, String> {
         let repo = locate_repo()?;
-        let log_root = std::env::var_os("LOCALAPPDATA")
+        let log_root = std::env::var_os("CAM_SCOUT_LOG_ROOT")
             .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir)
-            .join("CreativeAssetManager/RrugcScoutManager/logs");
+            .unwrap_or_else(|| {
+                std::env::var_os("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("CreativeAssetManager/RrugcScoutManager/logs")
+            });
         fs::create_dir_all(&log_root)
             .map_err(|_| "Cannot initialize local Scout logs.".to_string())?;
         Ok(Self {
             repo,
             log_root,
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword")]),
+            #[cfg(windows)]
+            manager_lock: winjob::ManagerLock::acquire()?,
             update_state: Mutex::new("Checking every 60 seconds".into()),
             updating: AtomicBool::new(false),
         })
+    }
+    fn owns_manager_lock(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.manager_lock.is_some()
+        }
+        #[cfg(not(windows))]
+        {
+            true
+        }
+    }
+    fn require_manager_lock(&self) -> Result<(), String> {
+        if self.owns_manager_lock() {
+            Ok(())
+        } else {
+            Err("Another Scout Manager already controls this checkout. Close the legacy Manager before using Tauri.".into())
+        }
     }
     fn lock_modes(&self) -> Result<std::sync::MutexGuard<'_, Vec<Scout>>, String> {
         self.modes
@@ -262,6 +288,7 @@ impl Controller {
         scout.started_at = None;
     }
     fn control(&self, mode: &str, command: &str) -> Result<(), String> {
+        self.require_manager_lock()?;
         if self.updating.load(Ordering::SeqCst) {
             return Err("Source update is in progress.".into());
         }
@@ -315,7 +342,7 @@ impl Controller {
         }
     }
     fn tick(&self) {
-        if self.updating.load(Ordering::SeqCst) {
+        if !self.owns_manager_lock() || self.updating.load(Ordering::SeqCst) {
             return;
         }
         let Ok(mut all) = self.lock_modes() else {
@@ -413,10 +440,12 @@ impl Controller {
                 .unwrap_or_default(),
             paired: is_paired(&self.repo),
             updating: self.updating.load(Ordering::SeqCst),
+            controller_available: self.owns_manager_lock(),
             modes,
         }
     }
     fn check_update(&self) -> Result<(), String> {
+        self.require_manager_lock()?;
         if self.updating.swap(true, Ordering::SeqCst) {
             return Err("An update is already running.".into());
         }
@@ -431,6 +460,15 @@ impl Controller {
         result.map(|_| ())
     }
     fn apply_update(&self) -> Result<String, String> {
+        // Git -C walks parent directories. Do not let a test folder or a
+        // nested checkout accidentally update its parent Git repository.
+        let worktree_root =
+            PathBuf::from(execute_git(&self.repo, &["rev-parse", "--show-toplevel"])?);
+        if worktree_root.canonicalize().ok() != self.repo.canonicalize().ok() {
+            return Err(
+                "Auto-update paused: Scout source folder is not the Git worktree root.".into(),
+            );
+        }
         if execute_git(&self.repo, &["branch", "--show-current"])? != "main" {
             return Err("Auto-update paused: checkout must be on main.".into());
         }
@@ -459,6 +497,8 @@ impl Controller {
         if local == remote {
             return Ok("Up to date".into());
         }
+        execute_git(&self.repo, &["merge-base", "--is-ancestor", "HEAD", "origin/main"])
+            .map_err(|_| "Auto-update paused: local branch diverged from origin/main; running Scouts were not interrupted.".to_string())?;
         let diff = execute_git(&self.repo, &["diff", "--name-only", "HEAD..origin/main"])?;
         let restart = diff.lines().any(|p| {
             p.starts_with("apps/rrugc_scout/")
@@ -511,7 +551,43 @@ mod winjob {
     use std::mem::{size_of, zeroed};
     use std::os::windows::io::AsRawHandle;
     use std::process::Child;
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
+
+    // This matches the lock held by scripts/start_scout_manager.ps1.
+    // A second Manager becomes read-only rather than launching duplicate Scouts.
+    pub struct ManagerLock(HANDLE);
+    unsafe impl Send for ManagerLock {}
+    unsafe impl Sync for ManagerLock {}
+    impl ManagerLock {
+        pub fn acquire() -> Result<Option<Self>, String> {
+            let wide: Vec<u16> = "Local\\CreativeAssetManager.RrugcScout.Manager"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            unsafe {
+                let handle = CreateMutexW(std::ptr::null(), 0, wide.as_ptr());
+                if handle.is_null() {
+                    return Err("Could not initialize Scout Manager single-instance lock.".into());
+                }
+                match WaitForSingleObject(handle, 0) {
+                    WAIT_OBJECT_0 | WAIT_ABANDONED => Ok(Some(Self(handle))),
+                    _ => {
+                        CloseHandle(handle);
+                        Ok(None)
+                    }
+                }
+            }
+        }
+    }
+    impl Drop for ManagerLock {
+        fn drop(&mut self) {
+            unsafe {
+                ReleaseMutex(self.0);
+                CloseHandle(self.0);
+            }
+        }
+    }
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
         SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
@@ -592,6 +668,7 @@ fn save_pairing(
     agent_id: String,
     token: String,
 ) -> Result<(), String> {
+    state.require_manager_lock()?;
     if agent_id.is_empty()
         || agent_id.len() > 128
         || !agent_id
@@ -661,11 +738,13 @@ pub fn run() {
             thread::sleep(Duration::from_secs(2));
         }
     });
-    let updating = Arc::clone(&state);
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(60));
-        let _ = updating.check_update();
-    });
+    if std::env::var_os("CAM_SCOUT_DISABLE_UPDATES").is_none() {
+        let updating = Arc::clone(&state);
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(60));
+            let _ = updating.check_update();
+        });
+    }
     tauri::Builder::default()
         .manage(state)
         .setup(|app| {
@@ -705,7 +784,7 @@ pub fn run() {
             let _ = tray.build(app)?;
             let managed = app.state::<Arc<Controller>>();
             // Preserve legacy behavior: both Scouts auto-start after valid pairing.
-            if is_paired(&managed.repo) {
+            if managed.owns_manager_lock() && is_paired(&managed.repo) {
                 let _ = managed.control_all("start");
             }
             Ok(())
@@ -760,5 +839,42 @@ mod tests {
     fn no_external_path_in_log_name() {
         let root = Path::new("C:/logs");
         assert_eq!(log_file(root, "review"), root.join("review.stdout.log"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn simulated_scout_process_starts_and_stops_without_real_credentials() {
+        let scratch = std::env::temp_dir().join(format!("cam-scout-native-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&scratch);
+        let scripts = scratch.join("scripts");
+        let logs = scratch.join("logs");
+        fs::create_dir_all(&scripts).unwrap();
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(
+            scratch.join("scout.local.env"),
+            "RRUGC_AGENT_ID=simulated-id\nRRUGC_SCOUT_TOKEN=fixture-not-real\n",
+        )
+        .unwrap();
+        fs::write(scripts.join("start_scout_auto_update.ps1"),
+            "param([switch]$SkipUpdate, [switch]$KeywordMode)\nWrite-Host 'FAKE_SCOUT_STARTED'\nStart-Sleep -Seconds 30\n").unwrap();
+        let controller = Controller {
+            repo: scratch.clone(),
+            log_root: logs.clone(),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword")]),
+            manager_lock: None,
+            update_state: Mutex::new("fixture".into()),
+            updating: AtomicBool::new(false),
+        };
+        let mut mock = Scout::new("review");
+        controller
+            .launch(&mut mock)
+            .expect("fixture Scout must launch into a Windows Job");
+        assert!(mock.child.as_mut().unwrap().try_wait().unwrap().is_none());
+        std::thread::sleep(Duration::from_millis(700));
+        assert!(file_tail(&log_file(&logs, "review"), 10).contains("FAKE_SCOUT_STARTED"));
+        controller.terminate(&mut mock);
+        assert!(mock.child.is_none());
+        assert_eq!(mock.state, "Stopped");
+        fs::remove_dir_all(scratch).unwrap();
     }
 }
