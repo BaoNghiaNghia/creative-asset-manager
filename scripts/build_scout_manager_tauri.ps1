@@ -17,7 +17,10 @@ if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
 }
 
 Push-Location $Project
+$OriginalCi = $env:CI
 try {
+  # CodeLocal Windows sessions may set CI=1; Tauri expects true/false.
+  $env:CI = "false"
   Write-Host "==> Installing locked dependencies" -ForegroundColor Cyan
   & npm.cmd ci --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
@@ -36,5 +39,6 @@ try {
   Get-ChildItem (Join-Path $Project "src-tauri\target\release\bundle\nsis") -Filter "*.exe" -ErrorAction Stop |
     Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
 } finally {
+  $env:CI = $OriginalCi
   Pop-Location
 }

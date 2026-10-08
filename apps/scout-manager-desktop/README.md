@@ -12,7 +12,7 @@ From this folder:
     npm run tauri:dev
     npm run tauri:build
 
-Tauri NSIS installer: src-tauri/target/release/bundle/nsis. The installer does not embed scout.local.env or Chrome profiles.
+Tauri NSIS installer: src-tauri/target/release/bundle/nsis. First Windows build was verified on BaoNghia; 2/2 Rust tests passed. The packaged executable also opened successfully using an isolated unpaired smoke fixture. The first unsigned NSIS 0.1.0 installer was copied locally to `D:\\Bot_Tool_Auto_Game\\scan_pinterest\\scout-manager-releases\\RRUGC_Scout_Manager_0.1.0_x64_Setup.exe`; it is not committed to Git, and no binary auto-update is enabled yet. The installer does not embed scout.local.env or Chrome profiles.
 
 The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor checkout / D:\Bot_Tool_Auto_Game\scan_pinterest). It runs the existing scripts/start_scout_auto_update.ps1 -SkipUpdate with separate Review / Keyword Chrome profiles and log files. Close the old WinForms Manager before launching the new one to avoid two controllers fighting for the same Scout runner mutex.
 
