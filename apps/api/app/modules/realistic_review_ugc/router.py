@@ -238,6 +238,7 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2SkillDefaultVersionRequest,
     Stage2JobCreateRequest,
     KeywordImageCreateRequest,
+    ColorwayBatchRequest,
     KeywordImagePageResponse,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
@@ -292,6 +293,8 @@ from app.modules.realistic_review_ugc.stage2 import (
     STAGE2_CANCEL_GRACE_SECONDS,
 )
 from app.modules.realistic_review_ugc.keyword_images import KeywordImageService, KeywordImageError
+from app.modules.realistic_review_ugc.colorways import ColorwayService, ColorwayError
+from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
@@ -4873,6 +4876,100 @@ def sync_stage2_skill(
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     return _stage2_skill(item)
+
+
+@router.get("/colorways")
+def list_colorways(
+    source_plan_id: list[str] = Query(default=[]),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    try:
+        return ColorwayService(session).list(
+            tenant_id=principal.active_tenant_id, source_ids=source_plan_id)
+    except ColorwayError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/colorways/batch", status_code=202)
+def queue_colorways(
+    request: ColorwayBatchRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        return ColorwayService(session).queue(
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            source_plan_ids=request.source_plan_ids,
+            skill_source=request.skill_source, skill_id=request.skill_id,
+            skill_name=request.skill_name, skill_version=request.skill_version,
+        )
+    except ColorwayError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/colorways/{job_id}/retry", status_code=202)
+def retry_colorway(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = ColorwayService(session).retry(
+            tenant_id=principal.active_tenant_id, job_id=job_id)
+        return {"job_id": row.id, "status": row.status}
+    except ColorwayError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.get("/colorways/{job_id}/output")
+async def colorway_output(
+    job_id: str,
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=256, ge=128, le=1024),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    row = session.scalar(select(RrugcColorwayJobModel).where(
+        RrugcColorwayJobModel.id == job_id,
+        RrugcColorwayJobModel.tenant_id == principal.active_tenant_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Colorway output not found")
+    if row.status != "completed" or not row.output_remote_file_id:
+        raise HTTPException(status_code=409, detail="Colorway output not ready")
+    remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
+    session.close()
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    if thumbnail:
+        compact = await _managed_drive_thumbnail_response(
+            storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
+            size_pixels=size, cache_control="private, max-age=3600",
+            cache_version=job_id + ":" + remote_id,
+        )
+        if compact is not None:
+            return compact
+    try:
+        stream = await storage.open_asset(OpenStoredAssetInput(
+            tenant_id=principal.active_tenant_id,
+            asset_id="rrugc-colorway:" + job_id,
+            remote_file_id=remote_id, content_type=content_type, size_bytes=size_bytes,
+        ))
+    except StorageProviderError as exc:
+        raise HTTPException(status_code=503 if exc.retryable else 502,
+                            detail={"code": exc.code, "message": "Colorway output unavailable"}) from exc
+    return StreamingResponse(
+        stream.body, media_type=content_type or stream.content_type,
+        background=BackgroundTask(stream.close),
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("/keyword-images", response_model=KeywordImagePageResponse)

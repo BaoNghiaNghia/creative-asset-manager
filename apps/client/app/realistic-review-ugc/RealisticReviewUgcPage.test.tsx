@@ -386,7 +386,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("13-color batch");
     expect((markup.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
     expect(markup).toContain("Run selected · 0");
-    expect(markup).toContain("Runner wiring pending");
+    expect(markup).toContain("0 completed · 0 active · 0 failed");
   });
 
   it("splits unlimited Stage 2 selections into continuous groups of three refs", () => {

@@ -1069,6 +1069,13 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-colorway-slot svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .rrugc-colorway-slot b{font-size:6.4px;line-height:1;font-variant-numeric:tabular-nums}
 .rrugc-colorway-slot.is-pending{border-style:dashed}
+.rrugc-colorway-slot:is(a,button){font:inherit;text-decoration:none;cursor:pointer}
+.rrugc-colorway-slot.is-completed{border-color:#95ceb0;background:#edf9f1;color:#397653}
+.rrugc-colorway-slot.is-failed{border-color:#e4acac;background:#fff2f2;color:#a63b3b}
+.rrugc-colorway-slot.is-running{border-color:#91b3e5;background:#eef5ff;color:#365fb0}
+.rrugc-colorway-slot.is-queued{border-color:#e4cd89;background:#fff9e9;color:#876518}
+.rrugc-colorway-slot:is(a,button):focus-visible{outline:2px solid #315fe9;outline-offset:2px}
+.rrugc-colorway-slot:disabled{cursor:not-allowed;opacity:.55}
 .rrugc-colorway-progress{display:grid;gap:4px}
 .rrugc-colorway-progress>div{height:5px;overflow:hidden;border-radius:999px;background:#e9edf3}
 .rrugc-colorway-progress>div>span{display:block;height:100%;border-radius:inherit;background:#4b78d1}

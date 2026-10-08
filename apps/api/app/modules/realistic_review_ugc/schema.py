@@ -873,6 +873,14 @@ class Stage2SkillDefaultVersionRequest(BaseModel):
 
 
 
+class ColorwayBatchRequest(BaseModel):
+    source_plan_ids: list[str] = Field(min_length=1, max_length=50)
+    skill_source: Literal["local", "openai"] | None = None
+    skill_id: str | None = Field(default=None, max_length=255)
+    skill_name: str | None = Field(default=None, max_length=128)
+    skill_version: str | None = Field(default=None, max_length=64)
+
+
 class KeywordImageCreateRequest(BaseModel):
     skill_source: Literal["local", "openai"] | None = None
     skill_id: str | None = Field(default=None, max_length=255)

@@ -2774,6 +2774,16 @@ npm run typecheck -- --pretty false (passed).
 - The 13 slots are intentionally numbered rather than assigned invented color names. The repository currently has no authoritative 13-color base-hat mapping. The Run action remains disabled until that canonical base set and durable runner contract exist; the UI explicitly says `Runner wiring pending` rather than pretending work can be queued.
 - Stage 1 does not change the existing Pinterest/generation/review job schemas or overwrite any outputs. A follow-up runner should use idempotent per-design/per-color jobs, preserve skill/version provenance, support per-color retry, and bind outputs to configured base-hat asset IDs.
 
+## RRUGC Stage 2 — durable 13-color runner implementation (October 8, 2026)
+
+- Kept Stage 0–5 names/roles and the Stage 2 `embroidery_` inputs unchanged; no Stage 1 → Stage 2 data handoff.
+- Implemented `rrugc_colorway_generate` as a Codex image-worker job; 13 exact official 8869 stock colors are drawn from bundled stock, not invented from model knowledge.
+- Migration `0143_rrugc_colorway_jobs` adds tenant/source revision/color uniqueness, pinned skill and stock hashes, retry status and managed output metadata.
+- Backend checks tenant scope on queue/list/retry/download, reuses authorization RUN/READ and server-managed stock files, retries failed colors without replacing completed ones, and keeps old revision outputs on source changes.
+- Stage 2 retains the existing table and 13 slots but now shows job statuses, progress, output links and failed-color retry.
+- Verification update: 41/41 targeted backend pytest tests passed (including six-stage-adjacent Skill/source coverage and mocked worker execution), 542/542 full frontend Vitest tests passed, TypeScript typecheck passed, migration head is `0143_rrugc_colorway_jobs`, and Stage 2 feature-state Browser QA passed across desktop/tablet/mobile (0 issues). Earlier generic UI Auto-Fix still has three existing visual dimension baseline mismatches that were **not** accepted. Actual authenticated production provider execution remains unverified.
+- No migration applied, no production deployment/push, no dependency or secret changes. Pre-release and rollback checklist: `docs/operations/RRUGC_COLORWAY_RUNNER.md`. The remaining risk is unverified real worker/stock storage behavior and prompt fidelity, so do not claim production readiness yet.
+
 ## Asset Explorer — move files/folders for all authenticated users (October 7, 2026)
 
 - Move is now a baseline authenticated Google Drive Explorer action rather than an `assets.manage`-only action. It still requires the selected tenant source to have Google Drive write scope. No anonymous, cross-provider, or cross-source move is introduced.

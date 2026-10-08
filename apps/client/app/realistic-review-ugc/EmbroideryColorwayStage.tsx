@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { listStage2Skills } from "./api";
+import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway } from "./api";
+import type { ColorwayJob } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
-import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog } from "./types";
+import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 
-const COLOR_SLOT_COUNT = 13;
+const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-camo-green", "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon", "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose", "natural-red", "natural-royal"] as const;
+const COLOR_SLOT_COUNT = COLOR_KEYS.length;
 const STAGE1_PAGE_SIZE_OPTIONS = [20, 50, 100, 500] as const;
 const EMPTY_CATALOG: Stage2SkillCatalog = {
   openai_configured: false,
@@ -64,7 +66,7 @@ export function EmbroideryColorwayStage({
   syncing,
   query,
   message,
-  executionReady = false,
+  executionReady = true,
   active = true,
   skillCatalogRevision = 0,
   onSync,
@@ -90,6 +92,10 @@ export function EmbroideryColorwayStage({
   const [catalogMessage, setCatalogMessage] = useState("");
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [colorwayJobs, setColorwayJobs] = useState<ColorwayJob[]>([]);
+  const [queueing, setQueueing] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [jobMessage, setJobMessage] = useState("");
 
   useEffect(() => {
     if (!active) return;
@@ -121,7 +127,98 @@ export function EmbroideryColorwayStage({
   const pageIds = data.items.map(item => item.id);
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const ready = Boolean(selectedSkill?.ready);
-  const canQueue = executionReady && ready && selectedIds.size > 0;
+  const canQueue = executionReady && ready && selectedIds.size > 0 && !queueing;
+  const pagePlanIds = data.items.map(item => item.id);
+  const pagePlanKey = pagePlanIds.join(",");
+  const byPlan = new Map<string, Map<string, ColorwayJob>>();
+  for (const job of colorwayJobs) {
+    if (!byPlan.has(job.source_plan_id)) byPlan.set(job.source_plan_id, new Map());
+    byPlan.get(job.source_plan_id)!.set(job.color_key, job);
+  }
+  const skillInput: Stage2SkillSelection | null = ready && selectedSkill ? {
+    source: selectedSkill.source, skill_id: selectedSkill.skill_id,
+    skill_name: selectedSkill.skill_name,
+    skill_version: selectedSkill.synced_version || selectedSkill.default_version || selectedSkill.local_version || null,
+  } : null;
+
+  useEffect(() => {
+    if (!active || !pagePlanKey) return;
+    const controller = new AbortController();
+    let busy = false;
+    let timer: number | undefined;
+    let refreshDelay = 30000;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!controller.signal.aborted) {
+        timer = window.setTimeout(() => {
+          if (document.hidden) schedule();
+          else void refresh();
+        }, refreshDelay);
+      }
+    };
+    const refresh = async () => {
+      if (busy || controller.signal.aborted) return;
+      window.clearTimeout(timer);
+      busy = true;
+      try {
+        const result = await listColorwayJobs(pagePlanKey.split(","), controller.signal);
+        if (!controller.signal.aborted) {
+          setColorwayJobs(result);
+          // Poll quickly only while a job can change; idle pages should not hammer the API.
+          refreshDelay = result.some(job => job.status === "queued" || job.status === "running") ? 5000 : 30000;
+        }
+      } catch (reason) {
+        if (!controller.signal.aborted) setJobMessage(reason instanceof Error ? reason.message : "Could not load colorway jobs.");
+        refreshDelay = 30000;
+      } finally {
+        busy = false;
+        schedule();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (!document.hidden && !busy) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void refresh();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [active, pagePlanKey]);
+
+  const refreshJobs = async () => {
+    if (pagePlanKey) setColorwayJobs(await listColorwayJobs(pagePlanKey.split(",")));
+  };
+  const queueSelected = async () => {
+    if (!skillInput || queueing) return;
+    setQueueing(true);
+    setJobMessage("");
+    try {
+      const ids = Array.from(selectedIds);
+      let queued = 0;
+      for (let start = 0; start < ids.length; start += 50) {
+        const result = await queueColorwayBatch(ids.slice(start, start + 50), skillInput);
+        queued += result.queued;
+      }
+      await refreshJobs();
+      setJobMessage(queued ? queued + " colorway jobs queued. Completed colors will be preserved." : "All selected colors are already queued or completed.");
+    } catch (reason) {
+      setJobMessage(reason instanceof Error ? reason.message : "Unable to queue colorways.");
+    } finally { setQueueing(false); }
+  };
+  const retryFailed = async (job: ColorwayJob) => {
+    if (retryingId) return;
+    setRetryingId(job.id);
+    setJobMessage("");
+    try {
+      await retryColorway(job.id);
+      await refreshJobs();
+      setJobMessage("Retry queued for " + job.color_name + ".");
+    } catch (reason) {
+      setJobMessage(reason instanceof Error ? reason.message : "Unable to retry colorway.");
+    } finally { setRetryingId(null); }
+  };
   const searchSuggestions = useMemo(() => data.items.flatMap(plan => {
     const folder = plan.source_relative_path.includes("/")
       ? plan.source_relative_path.split("/").slice(0, -1).join("/")
@@ -155,7 +252,7 @@ export function EmbroideryColorwayStage({
       className="rrugc-colorway-header"
       kicker="STAGE 2 · EMBROIDERY_ SOURCE → SKILL → 13 HAT COLORS"
       title="Embroidery design → 13 colorways"
-      description={<>Scans only source images whose filename starts with <code>embroidery_</code>. Each design becomes one 13-color batch so the same embroidery can be applied consistently across every hat color before Pinterest reference discovery begins.</>}
+      description={<>Scans only source images whose filename starts with <code>embroidery_</code>. Each design becomes one 13-color batch so the same embroidery can be applied consistently across every hat color without changing the separate Pinterest reference workflow.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Prefix scan · embroidery_</span>
         <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>
@@ -164,7 +261,7 @@ export function EmbroideryColorwayStage({
       </div>}
     />
 
-    {(message || catalogMessage) && <p className="rrugc-editor-product-result" role="status">{message || catalogMessage}</p>}
+    {(message || catalogMessage || jobMessage) && <p className="rrugc-editor-product-result" role="status">{jobMessage || message || catalogMessage}</p>}
 
     <div className="rrugc-colorway-kpis">
       <article><span>Designs found</span><strong>{data.total}</strong><small>embroidery_ files</small></article>
@@ -206,9 +303,10 @@ export function EmbroideryColorwayStage({
         type="button"
         className="rrugc-colorway-run"
         disabled={!canQueue}
-        title={executionReady ? (ready ? "Queue selected designs" : "Selected skill is not ready") : "Execution wiring will use the selected skill and the configured 13-color hat base set."}
+        onClick={() => void queueSelected()}
+        title={ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
       >
-        Run selected · {selectedIds.size * COLOR_SLOT_COUNT}
+        {queueing ? "Queueing…" : "Run selected · " + (selectedIds.size * COLOR_SLOT_COUNT)}
       </button>
     </div>
 
@@ -230,6 +328,10 @@ export function EmbroideryColorwayStage({
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
+            const slots = byPlan.get(plan.id);
+            const completed = Array.from(slots?.values() || []).filter(job => job.status === "completed").length;
+            const failed = Array.from(slots?.values() || []).filter(job => job.status === "failed").length;
+            const inProgress = Array.from(slots?.values() || []).filter(job => job.status === "running" || job.status === "queued").length;
             return <tr key={plan.id} className={selected ? "is-selected" : ""}>
               <td className="rrugc-colorway-check-cell">
                 <input
@@ -242,26 +344,35 @@ export function EmbroideryColorwayStage({
               <td><DesignSource plan={plan} /></td>
               <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
-                  {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => (
-                    <span className="rrugc-colorway-slot is-pending" key={index} title={"Hat color " + colorSlotLabel(index)}>
-                      <HatSlotIcon />
-                      <b>{colorSlotLabel(index)}</b>
-                    </span>
-                  ))}
+                  {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {
+                    const job = slots?.get(COLOR_KEYS[index]);
+                    const label = job?.color_name || COLOR_KEYS[index].replaceAll("-", " ");
+                    const contents = <><HatSlotIcon /><b>{colorSlotLabel(index)}</b></>;
+                    const style = "rrugc-colorway-slot is-" + (job?.status || "pending");
+                    if (job?.status === "completed" && job.output_url) {
+                      return <a key={index} className={style} href={job.output_url} target="_blank" rel="noreferrer" title={label + " · View output"} aria-label={label + " · View output"}>{contents}</a>;
+                    }
+                    if (job?.status === "failed") {
+                      return <button type="button" key={index} className={style} disabled={Boolean(retryingId) || job.retry_count >= 3}
+                        onClick={() => void retryFailed(job)} title={label + " · " + (job.error_code || "Failed") + (job.retry_count >= 3 ? " · Retry limit" : " · Click to retry")}
+                        aria-label={"Retry " + label}>{contents}</button>;
+                    }
+                    return <span key={index} className={style} title={label + " · " + (job?.status || "Not run")}>{contents}</span>;
+                  })}
                 </div>
               </td>
               <td>
                 <div className="rrugc-colorway-progress">
-                  <div><span style={{ width: "0%" }} /></div>
-                  <strong>0 / 13</strong>
-                  <small>Ready to queue</small>
+                  <div><span style={{ width: Math.round(completed / COLOR_SLOT_COUNT * 100) + "%" }} /></div>
+                  <strong>{completed} / {COLOR_SLOT_COUNT}</strong>
+                  <small>{failed ? failed + " failed · click to retry" : inProgress ? inProgress + " queued/running" : completed === COLOR_SLOT_COUNT ? "Completed" : "Ready to queue"}</small>
                 </div>
               </td>
               <td>
                 <div className="rrugc-colorway-skill-state">
                   <span className={ready ? "is-ready" : "is-warning"}><i aria-hidden="true" />{ready ? "Ready" : "Needs skill"}</span>
                   <strong>{selectedSkill?.display_name || "Select skill"}</strong>
-                  <small>{executionReady ? "13 jobs per design" : "Runner wiring pending"}</small>
+                  <small>{completed} completed · {inProgress} active · {failed} failed</small>
                 </div>
               </td>
             </tr>;

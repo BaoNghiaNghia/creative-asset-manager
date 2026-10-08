@@ -1046,6 +1046,45 @@ class RrugcKeywordImageJobModel(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RrugcColorwayJobModel(Base):
+    """Durable individual colorway of an embroidery source, separate from Pinterest jobs."""
+    __tablename__ = "rrugc_colorway_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(["source_plan_id"], ["rrugc_source_plans.id"],
+                             name="fk_rrugc_colorway_source", ondelete="RESTRICT"),
+        UniqueConstraint("tenant_id", "source_plan_id", "source_revision", "color_key",
+                         name="uq_rrugc_colorway_source_revision_color"),
+        Index("ix_rrugc_colorway_status", "tenant_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    color_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    stock_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    skill_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    skill_id: Mapped[str | None] = mapped_column(String(255))
+    skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    skill_version: Mapped[str | None] = mapped_column(String(64))
+    skill_bundle_sha256: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_remote_file_id: Mapped[str | None] = mapped_column(String(255))
+    output_content_type: Mapped[str | None] = mapped_column(String(128))
+    output_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    output_width: Mapped[int | None] = mapped_column(Integer)
+    output_height: Mapped[int | None] = mapped_column(Integer)
+    last_error_code: Mapped[str | None] = mapped_column(String(100))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RrugcStage2JobModel(Base):
     __tablename__ = "rrugc_stage2_jobs"
     __table_args__ = (

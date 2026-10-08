@@ -38,7 +38,7 @@ AI_JOB_TYPES = (
     "asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit",
     "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate",
     "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
-    "rrugc_stage2_generate", "rrugc_keyword_image_generate",
+    "rrugc_stage2_generate", "rrugc_keyword_image_generate", "rrugc_colorway_generate",
     "rrugc_stage3_analyze",
     "rrugc_supervisor_qa",
 )
@@ -106,6 +106,7 @@ STAGE_POLICY = {
     "rrugc_candidate_import": "managed_storage_enabled",
     "rrugc_generate": "pipeline_enabled",
     "rrugc_stage2_generate": "pipeline_enabled",
+    "rrugc_colorway_generate": "pipeline_enabled",
     "rrugc_keyword_image_generate": "pipeline_enabled",
     "rrugc_stage3_analyze": "ai_analysis_enabled",
     "rrugc_supervisor_qa": "ai_analysis_enabled",

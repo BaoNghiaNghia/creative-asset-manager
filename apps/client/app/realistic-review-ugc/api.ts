@@ -453,6 +453,42 @@ export const analyzeStage3ReviewGroups = (
     },
   );
 
+export type ColorwayJob = {
+  id: string;
+  source_plan_id: string;
+  color_key: string;
+  color_name: string;
+  status: "queued" | "running" | "completed" | "failed";
+  retry_count: number;
+  attempt_count: number;
+  error_code: string | null;
+  output_url: string | null;
+};
+
+export const listColorwayJobs = async (sourceIds: string[], signal?: AbortSignal): Promise<ColorwayJob[]> => {
+  const ids = Array.from(new Set(sourceIds));
+  const chunks: Promise<ColorwayJob[]>[] = [];
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    const params = new URLSearchParams();
+    ids.slice(offset, offset + 50).forEach(id => params.append("source_plan_id", id));
+    chunks.push(request<ColorwayJob[]>("/api/v1/realistic-review-ugc/colorways?" + params, { signal }));
+  }
+  return (await Promise.all(chunks)).flat();
+};
+
+export const queueColorwayBatch = (
+  sourcePlanIds: string[], skill: Stage2SkillSelection,
+) => request<{ queued: number; existing: number }>("/api/v1/realistic-review-ugc/colorways/batch", {
+  method: "POST",
+  body: JSON.stringify({ source_plan_ids: sourcePlanIds, skill_source: skill.source, skill_id: skill.skill_id, skill_name: skill.skill_name, skill_version: skill.skill_version }),
+});
+
+export const retryColorway = (jobId: string) =>
+  request<{ job_id: string; status: string }>(
+    "/api/v1/realistic-review-ugc/colorways/" + encodeURIComponent(jobId) + "/retry",
+    { method: "POST" },
+  );
+
 export const listStage2Skills = (refresh = false, signal?: AbortSignal) =>
   request<Stage2SkillCatalog>(
     "/api/v1/realistic-review-ugc/stage2-skills?refresh=" + String(refresh),
