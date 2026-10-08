@@ -56,6 +56,46 @@ struct KeywordSummary {
     fetched_at: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct ReviewJobCounts {
+    scout_active: u64,
+    scout_completed_24h: u64,
+    scout_failed_24h: u64,
+    stage1_pending: u64,
+    stage1_running: u64,
+    stage1_completed_24h: u64,
+    stage1_failed_24h: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct KeywordJobCounts {
+    active_searches: u64,
+    tenant_active_searches: u64,
+    ready_queries: u64,
+    total_queries: u64,
+    completed_cycles_total: u64,
+    failed_cycles_total: u64,
+    suggestions_pending: u64,
+    new_keywords_24h: u64,
+    scanned_pins_24h_agent: u64,
+    saved_keywords_24h_agent: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct GeminiPoolHealth {
+    primary_configured: bool,
+    backup_keys: u64,
+    configured_keys: u64,
+    capacity_available: bool,
+    failover_enabled: bool,
+    strategy: String,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct OperationsSummary {
+    review: ReviewJobCounts,
+    keyword: KeywordJobCounts,
+    gemini: GeminiPoolHealth,
+    fetched_at: String,
+}
+
 struct Scout {
     name: &'static str,
     child: Option<Child>,
@@ -791,6 +831,43 @@ async fn keyword_summary(
 }
 
 #[tauri::command]
+async fn operations_summary(
+    state: tauri::State<'_, Arc<Controller>>,
+) -> Result<OperationsSummary, String> {
+    let values = config_values(&state.repo);
+    let get = |key: &str| values.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+    let agent_id = get("RRUGC_AGENT_ID").filter(|v| !v.is_empty())
+        .ok_or("Pairing required to read Scout job status.")?;
+    let token = get("RRUGC_SCOUT_TOKEN").filter(|v| !v.is_empty())
+        .ok_or("Pairing required to read Scout job status.")?;
+    if !agent_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Invalid paired Agent ID.".into());
+    }
+    let base = get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+    let parsed = reqwest::Url::parse(base).map_err(|_| "Invalid Scout API URL.")?;
+    if parsed.scheme() != "https" || parsed.host_str().is_none() || !parsed.username().is_empty()
+        || parsed.password().is_some() || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Scout API must be an HTTPS origin.".into());
+    }
+    let url = format!(
+        "{}/api/v1/realistic-review-ugc/scout-agents/{}/operations-summary",
+        base.trim_end_matches('/'), agent_id
+    );
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| "Scout job API unreachable. Check connection.".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Scout job API HTTP {}.", response.status().as_u16()));
+    }
+    response.json::<OperationsSummary>().await
+        .map_err(|_| "Scout job API returned an invalid response.".into())
+}
+
+#[tauri::command]
 fn dashboard(state: tauri::State<'_, Arc<Controller>>) -> Dashboard {
     state.dashboard()
 }
@@ -1006,6 +1083,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             dashboard,
             keyword_summary,
+            operations_summary,
             log_tail,
             control_scout,
             control_all,

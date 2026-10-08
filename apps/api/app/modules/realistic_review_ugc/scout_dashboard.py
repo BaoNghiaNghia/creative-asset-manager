@@ -1,0 +1,128 @@
+"""Read-only, tenant-isolated Scout Manager job counters.
+
+Review Scout runs are distinct from Stage 1 AI processing jobs; Keyword
+Scout works on leased Pinterest queries (not processing_jobs). All counters
+are explicitly labelled by their actual source and time window.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import case, func, or_, select
+from sqlalchemy.orm import Session
+
+from app.modules.processing.model import ProcessingJobModel
+from .model import (
+    RrugcKeywordVolumeModel, RrugcScoutFeedbackModel,
+    RrugcScoutMetricCycleModel, RrugcScoutQueryModel, RrugcScoutRunModel,
+)
+from .service import ANALYZE_JOB_TYPE, IMPORT_JOB_TYPE
+
+
+def _scalar_count(session: Session, *filters) -> int:
+    return int(session.scalar(select(func.count()).select_from(filters[0]).where(*filters[1:])) or 0)
+
+
+def scout_jobs_snapshot(
+    session: Session, tenant_id: str, agent_id: str, *,
+    now: datetime | None = None,
+) -> dict:
+    now = now or datetime.now(timezone.utc)
+    day = now - timedelta(hours=24)
+
+    # Review Pinterest scan runs are scoped to this exact paired agent.
+    review = RrugcScoutRunModel
+    rbase = (review.tenant_id == tenant_id, review.agent_id == agent_id)
+    rcounts = dict(session.execute(select(
+        review.status, func.count(review.id),
+    ).where(*rbase).group_by(review.status)).all())
+    active_review = sum(int(rcounts.get(status, 0)) for status in ("claimed", "running", "processing"))
+    completed_review = _scalar_count(
+        session, review, *rbase,
+        review.status == "completed", review.updated_at >= day,
+    )
+    failed_review = _scalar_count(
+        session, review, *rbase,
+        review.status.in_(("failed", "cancelled")), review.updated_at >= day,
+    )
+
+    # Stage 1 analyze/import are durable server jobs shared by the tenant.
+    job = ProcessingJobModel
+    jbase = (job.tenant_id == tenant_id, job.job_type.in_((ANALYZE_JOB_TYPE, IMPORT_JOB_TYPE)))
+    job_counts = dict(session.execute(select(job.status, func.count(job.id))
+        .where(*jbase).group_by(job.status)).all())
+    stage1_pending = int(job_counts.get("pending", 0)) + int(job_counts.get("retry", 0))
+    stage1_running = int(job_counts.get("processing", 0))
+    stage1_completed = _scalar_count(
+        session, job, *jbase,
+        job.status == "completed", job.updated_at >= day,
+    )
+    stage1_failed = _scalar_count(
+        session, job, *jbase,
+        job.status == "failed", job.updated_at >= day,
+    )
+
+    # Keyword Scout runs leased queries; a leased query is an active search
+    # job and is not the same as a queued Stage 1 Gemini job.
+    query = RrugcScoutQueryModel
+    qbase = (query.tenant_id == tenant_id,)
+    leased = (query.lease_expires_at.is_not(None), query.lease_expires_at > now)
+    agent_active = _scalar_count(
+        session, query, *qbase, *leased, query.claimed_by_agent_id == agent_id,
+    )
+    global_active = _scalar_count(session, query, *qbase, *leased)
+    available = _scalar_count(
+        session, query, *qbase,
+        or_(query.lease_expires_at.is_(None), query.lease_expires_at <= now),
+        or_(query.last_searched_at.is_(None), query.last_searched_at < now - timedelta(minutes=90)),
+    )
+    total_queries = _scalar_count(session, query, *qbase)
+    # Durable counters are cumulative, not a false 24h promise.
+    cycle_totals = session.execute(select(
+        func.coalesce(func.sum(query.completed_cycles), 0),
+        func.coalesce(func.sum(query.failed_cycles), 0),
+    ).where(*qbase)).one()
+    metric = RrugcScoutMetricCycleModel
+    last_day_metrics = session.execute(select(
+        func.coalesce(func.sum(metric.new_keywords), 0),
+        func.coalesce(func.sum(metric.scanned_pins), 0),
+    ).where(
+        metric.tenant_id == tenant_id, metric.agent_id == agent_id,
+        metric.mode == "keyword", metric.created_at >= day,
+    )).one()
+    feedback = RrugcScoutFeedbackModel
+    feedback_pending = _scalar_count(
+        session, feedback,
+        feedback.tenant_id == tenant_id,
+        feedback.status == "suggested",
+        feedback.processed_at.is_(None),
+    )
+    added_24h = _scalar_count(
+        session, RrugcKeywordVolumeModel,
+        RrugcKeywordVolumeModel.tenant_id == tenant_id,
+        RrugcKeywordVolumeModel.created_at >= day,
+    )
+    return {
+        "review": {
+            "scout_active": active_review,
+            "scout_completed_24h": completed_review,
+            "scout_failed_24h": failed_review,
+            "stage1_pending": stage1_pending,
+            "stage1_running": stage1_running,
+            "stage1_completed_24h": stage1_completed,
+            "stage1_failed_24h": stage1_failed,
+        },
+        "keyword": {
+            "active_searches": agent_active,
+            "tenant_active_searches": global_active,
+            "ready_queries": available,
+            "total_queries": total_queries,
+            "completed_cycles_total": int(cycle_totals[0]),
+            "failed_cycles_total": int(cycle_totals[1]),
+            "suggestions_pending": feedback_pending,
+            "new_keywords_24h": added_24h,
+            "scanned_pins_24h_agent": int(last_day_metrics[1]),
+            "saved_keywords_24h_agent": int(last_day_metrics[0]),
+        },
+        "fetched_at": now.isoformat(),
+    }

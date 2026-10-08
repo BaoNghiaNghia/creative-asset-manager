@@ -10431,3 +10431,55 @@ def test_refresh_campaign_discovery_learns_consistent_context_feedback():
     ]
     assert "dog owner park candid phone photo" in refreshed.search_queries_json
     assert "studio fashion portrait" not in refreshed.search_queries_json
+
+def test_scout_operations_summary_reports_live_job_counts_without_leaking_keys(api, database, monkeypatch):
+    from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
+    from app.modules.realistic_review_ugc.model import (
+        RrugcScoutQueryModel, RrugcScoutMetricCycleModel,
+    )
+    from app.modules.realistic_review_ugc.maintenance import RrugcMaintenanceService
+
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        CreativeAiCredentialModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True,
+        )
+        RrugcScoutQueryModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True,
+        )
+        RrugcScoutMetricCycleModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True,
+        )
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a", user_id="user-a", name="Scout Manager jobs"
+        )
+        session.add_all([
+            RrugcScoutQueryModel(
+                tenant_id="tenant-a", query="Funny hat quotes",
+                query_normalized="funny hat quotes", lane="product",
+                claimed_by_agent_id=agent.id, lease_token="owned",
+                lease_expires_at=now + timedelta(minutes=10),
+            ),
+            RrugcScoutQueryModel(
+                tenant_id="tenant-b", query="Private tenant only",
+                query_normalized="private tenant only", lane="product",
+                completed_cycles=999,
+            ),
+        ])
+        session.commit()
+        agent_id = agent.id
+    monkeypatch.setattr(RrugcMaintenanceService, "gemini_capacity_available",
+                        lambda self, tenant_id, now: True)
+    url = f"/api/v1/realistic-review-ugc/scout-agents/{agent_id}/operations-summary"
+    response = api.get(url, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["keyword"]["active_searches"] == 1
+    assert body["keyword"]["total_queries"] == 1
+    assert body["keyword"]["completed_cycles_total"] == 0
+    assert body["review"]["stage1_pending"] == 0
+    assert body["gemini"]["capacity_available"] is True
+    assert body["gemini"]["strategy"] == "capacity_aware_failover"
+    assert "token" not in response.text.lower()
+    assert api.get(url).status_code in (401, 403)
+    assert api.get(url, headers={"Authorization": "Bearer invalid"}).status_code in (401, 403)

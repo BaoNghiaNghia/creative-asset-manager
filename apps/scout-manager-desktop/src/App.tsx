@@ -5,6 +5,23 @@ import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, Fi
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
+type OperationsSummary = {
+  review: {
+    scout_active: number; scout_completed_24h: number; scout_failed_24h: number;
+    stage1_pending: number; stage1_running: number; stage1_completed_24h: number; stage1_failed_24h: number;
+  };
+  keyword: {
+    active_searches: number; tenant_active_searches: number; ready_queries: number;
+    total_queries: number; completed_cycles_total: number; failed_cycles_total: number;
+    suggestions_pending: number; new_keywords_24h: number;
+    scanned_pins_24h_agent: number; saved_keywords_24h_agent: number;
+  };
+  gemini: {
+    primary_configured: boolean; backup_keys: number; configured_keys: number;
+    capacity_available: boolean; failover_enabled: boolean; strategy: string;
+  };
+  fetched_at: string;
+};
 type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
 const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
@@ -12,9 +29,19 @@ const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit
 ] };
 const isNative = typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 
-function Card({ info, version, commit, busy, automationEnabled, keywordSummary, keywordError, onAction }: {
+function JobCounters({ rows, title }: { title: string; rows: Array<[string, number | undefined, "ok" | "warn" | "normal"]> }) {
+  return <div className="scout-jobs" aria-label={title}>
+    <div className="scout-jobs-heading"><strong>{title}</strong><small>Server · live counts</small></div>
+    <div className="scout-jobs-grid">{rows.map(([label, value, level]) =>
+      <div className={"scout-job " + level} key={label}><small>{label}</small><b>{value == null ? "—" : value.toLocaleString("en-US")}</b></div>
+    )}</div>
+  </div>;
+}
+
+function Card({ info, version, commit, busy, automationEnabled, keywordSummary, keywordError, operations, operationsError, onAction }: {
   info: ModeInfo; version: string; commit: string; busy: boolean; automationEnabled: boolean;
   keywordSummary?: KeywordSummary | null; keywordError?: string | null;
+  operations?: OperationsSummary | null; operationsError?: string | null;
   onAction: (cmd: "start" | "stop" | "restart", mode: ModeName) => void;
 }) {
   const active = info.state === "Running";
@@ -37,6 +64,34 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
       {!keywordError && keywordSummary && info.state === "Running" && keywordSummary.last_created_at && Date.now() - new Date(keywordSummary.last_created_at).getTime() > 60 * 60 * 1000 && <div className="keyword-health-note">Running, but no new keywords in the last {Math.floor((Date.now() - new Date(keywordSummary.last_created_at).getTime()) / 3600000)}h · check AI/Pin logs</div>}
       {!keywordError && keywordSummary && keywordSummary.added_24h === 0 && info.state !== "Running" && <div className="keyword-health-note">No new keyword in the last 24 hours</div>}
     </div>}
+    {info.mode === "review"
+      ? <>
+          <JobCounters title="Stage 1 AI jobs" rows={[
+            ["Queued / retry", operations?.review.stage1_pending, "normal"],
+            ["Processing", operations?.review.stage1_running, "normal"],
+            ["Done · 24h", operations?.review.stage1_completed_24h, "ok"],
+            ["Failed · 24h", operations?.review.stage1_failed_24h, "warn"],
+          ]}/>
+          <div className="scout-jobs-foot">Pinterest scan jobs: {operations ? operations.review.scout_active + " active · " + operations.review.scout_completed_24h + " done / 24h · " + operations.review.scout_failed_24h + " failed / 24h" : "Waiting for server…"}</div>
+        </>
+      : <>
+          <JobCounters title="Keyword search jobs" rows={[
+            ["Active · this agent", operations?.keyword.active_searches, "normal"],
+            ["Ready queries", operations?.keyword.ready_queries, "normal"],
+            ["Done · total", operations?.keyword.completed_cycles_total, "ok"],
+            ["Failed · total", operations?.keyword.failed_cycles_total, "warn"],
+          ]}/>
+          <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Query pool: {operations?.keyword.total_queries ?? "—"} · New keywords / 24h: {operations?.keyword.new_keywords_24h ?? "—"}</div>
+        </>
+    }
+    <div className="scout-gemini-status" role="status">
+      <span className={"gemini-status-indicator " + (operations?.gemini.capacity_available ? "ready" : operations ? "limited" : "")}/>
+      {operations
+        ? <>Gemini: <strong>{operations.gemini.configured_keys ? operations.gemini.capacity_available ? "Quota available" : "Quota limited / unavailable" : "No key"}</strong>
+          <span> · {operations.gemini.configured_keys} key(s), {operations.gemini.backup_keys} backup · {operations.gemini.failover_enabled ? "Auto failover" : "No backup configured"}</span></>
+        : "Checking Gemini key pool…"}
+    </div>
+    {operationsError && <div className="scout-jobs-error">{operationsError}</div>}
     <div className="chips"><div><RefreshCcw/><span>Auto restart</span></div><div><ShieldCheck/><span>Browser watchdog</span></div><div><LockKeyhole/><span>Isolated profile</span></div></div>
     {info.lastError && <div className="inline-error" title={info.lastError}><CircleAlert size={15}/><span>{info.lastError}</span></div>}
     <div className="card-actions">
@@ -68,6 +123,8 @@ export default function App() {
   const [logs, setLogs] = useState("");
   const [keywordSummary, setKeywordSummary] = useState<KeywordSummary | null>(null);
   const [keywordError, setKeywordError] = useState<string | null>(null);
+  const [operations, setOperations] = useState<OperationsSummary | null>(null);
+  const [operationsError, setOperationsError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -107,6 +164,29 @@ export default function App() {
     const interval = window.setInterval(update, 30000);
     return () => { active = false; window.clearInterval(interval); };
   }, []);
+  useEffect(() => {
+    if (!isNative) return;
+    let active = true;
+    let inFlight = false;
+    const update = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const result = await invoke<OperationsSummary>("operations_summary");
+        if (active) { setOperations(result); setOperationsError(null); }
+      } catch (e) {
+        if (active) {
+          setOperations(null); // do not show stale counts as live data
+          setOperationsError(typeof e === "string" ? e : "Scout job status temporarily unavailable");
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    void update();
+    const interval = window.setInterval(() => void update(), 15000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
 
   const act = async (name: string, args: Record<string, unknown> = {}): Promise<boolean> => {
     if (!isNative) return false;
@@ -139,8 +219,8 @@ export default function App() {
     {!state.controllerAvailable && <div className="alert"><CircleAlert size={18}/><span>Another Scout Manager is running. Close the legacy Manager before using automation controls in Tauri.</span></div>}
     {toast && <div className="alert"><CircleAlert size={18}/><span>{toast}</span><button onClick={() => setToast(null)} aria-label="Dismiss alert"><X size={16}/></button></div>}
     <section className="mode-grid">
-      <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
-      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} onAction={onMode}/>
+      <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} operations={operations} operationsError={operationsError} onAction={onMode}/>
+      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
     </section>
     <section className="terminal-panel">
       <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>

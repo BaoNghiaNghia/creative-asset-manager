@@ -245,6 +245,7 @@ from app.modules.realistic_review_ugc.schema import (
     Stage3ReviewGroupResponse,
     Stage3ReviewImageResponse,
 )
+from app.modules.realistic_review_ugc.scout_dashboard import scout_jobs_snapshot
 from app.modules.realistic_review_ugc.query_intelligence import (
     claim_query, renew_query, finish_query, intelligence_summary,
 )
@@ -4131,6 +4132,50 @@ def quote_scout_keyword_summary(
         last_updated_at=latest_updated,
         fetched_at=now,
     )
+
+
+@router.get("/scout-agents/{agent_id}/operations-summary")
+def scout_operations_summary(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    """Paired desktop: tenant and agent-scoped live job counters.
+
+    This does not expose the API key or its fingerprint; the same auth token
+    already used by the desktop keyword-summary endpoint is required.
+    """
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id, raw_token=_bearer_token(authorization),
+        )
+    except RrugcError as exc:
+        raise _error(exc) from exc
+    now = datetime.now(timezone.utc)
+    result = scout_jobs_snapshot(session, agent.tenant_id, agent_id, now=now)
+    repo = CreativeAiCredentialRepository(session, None)
+    settings = get_settings()
+    primary_metadata = repo.get_metadata(agent.tenant_id, provider="gemini")
+    primary_configured = (
+        primary_metadata.status == "active"
+        if primary_metadata is not None
+        else bool((settings.GEMINI_API_KEY or "").strip())
+    )
+    backups = repo.list_active_backup_providers(agent.tenant_id)
+    # Capacity gate is shared with Stage 1 and Image Analysis; do not
+    # incorrectly claim every configured key is available for a new request.
+    capacity = RrugcMaintenanceService(session, settings).gemini_capacity_available(
+        agent.tenant_id, now=now,
+    )
+    result["gemini"] = {
+        "primary_configured": bool(primary_configured),
+        "backup_keys": len(backups),
+        "configured_keys": int(primary_configured) + len(backups),
+        "capacity_available": capacity,
+        "failover_enabled": bool(backups),
+        "strategy": "capacity_aware_failover",
+    }
+    return result
 
 
 @router.get("/keyword-analysis/search-intelligence")
