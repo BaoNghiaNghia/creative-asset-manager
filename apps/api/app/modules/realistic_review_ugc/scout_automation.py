@@ -12,7 +12,6 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcScoutAgentModel,
@@ -61,11 +60,9 @@ SCOUT_ANALYSIS_BACKLOG_MIN_AGE_SECONDS = 15 * 60
 SCOUT_ANALYSIS_SOFT_LIMIT = 125
 SCOUT_ANALYSIS_SOFT_MIN_AGE_SECONDS = 10 * 60
 SCOUT_ANALYSIS_SOFT_CLAIM_GAP_SECONDS = 5 * 60
-# During Review backlog, let Keyword Scout make slow, fair progress through
-# the normal Gemini quota/key pool instead of disabling an entire Scout lane.
-# An atomic DB gate caps this *additional* quote traffic per tenant.
-KEYWORD_BACKLOG_QUOTE_MIN_INTERVAL_SECONDS = 60
-
+# Keyword discovery must drain existing Review image analysis first.
+# This is a tenant-wide admission gate; the existing analysis workers keep
+# running. An old Scout version must not bypass it via direct quote extraction.
 
 def scout_analysis_backpressure(
     session: Session, tenant_id: str, *, now: datetime | None = None,
@@ -122,41 +119,22 @@ def keyword_quote_backlog_gate(
     now: datetime | None = None,
     reserve: bool = False,
 ) -> dict[str, int | bool | str]:
-    """Allow a strictly rate-limited quote lane when Review is backlogged.
+    """Backlog-first admission: never start another quote image while Review
+    candidate analysis has unfinished pending/retry jobs.
 
-    This is NOT a Gemini quota bypass: the Gemini provider still chooses a
-    working key/model and atomically reserves shared project capacity.
-    Read-only checks use next_start; actual extracts reserve_start to avoid
-    multiple Scout agents racing past the per-tenant limit.
+    The Review queue is shared across Scout machines in this tenant. This
+    check also runs inside the quote extraction API so older clients cannot
+    circumvent the preflight. Once drained, normal Gemini quotas apply.
     """
     current = now or datetime.now(timezone.utc)
     pressure = pressure if pressure is not None else scout_analysis_backpressure(
         session, tenant_id, now=current,
     )
-    if not pressure["active"]:
-        return {"active": False, "retry_seconds": 0,
-                "reason": "review_backlog_below_threshold"}
-    limiter = AiModelRateLimitRepository(session)
-    params = dict(
-        tenant_id=tenant_id,
-        provider="rrugc_keyword_backlog_lane",
-        model="gemini",
-        rpm=1,
-        minimum_interval_seconds=KEYWORD_BACKLOG_QUOTE_MIN_INTERVAL_SECONDS,
-        now=current,
-    )
-    decision = (
-        limiter.reserve_start(**params) if reserve else limiter.next_start(**params)
-    )
-    retry_seconds = max(
-        1, int((decision.next_eligible_at - current).total_seconds()) + 1
-    ) if not decision.allowed else 0
-    return {
-        "active": not decision.allowed,
-        "retry_seconds": retry_seconds,
-        "reason": "keyword_fair_share_wait" if not decision.allowed
-                  else "keyword_fair_share_allowed",
-    }
+    if int(pressure["pending_jobs"]) > 0:
+        return {"active": True, "retry_seconds": 60,
+                "reason": "review_analysis_queue_draining"}
+    return {"active": False, "retry_seconds": 0,
+            "reason": "review_queue_drained"}
 
 
 def scout_client_version_number(value: str | None) -> int | None:

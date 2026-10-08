@@ -1,6 +1,6 @@
 [package]
 name = "cam-scout-manager"
-version = "0.1.14"
+version = "0.1.15"
 description = "RRUGC Scout Manager desktop controller"
 authors = ["Creative Asset Manager"]
 license = "Proprietary"

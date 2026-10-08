@@ -4425,9 +4425,9 @@ async def quote_scout_extract_hat_quote(
         analysis_pressure = scout_analysis_backpressure(
             session, agent.tenant_id,
         )
-        # Stage 1 backlog must not disable the entire Keyword lane: admit a
-        # small, atomically rate-limited quote stream while the shared Gemini
-        # provider still enforces credential/model/project quotas.
+        # Backlog-first: avoid consuming more Gemini image capacity while
+        # Review candidate analysis is waiting. This server-side gate protects
+        # the queue even when an older Keyword Scout client is connected.
         quote_gate = keyword_quote_backlog_gate(
             session, agent.tenant_id, pressure=analysis_pressure,
             reserve=True,
@@ -4437,13 +4437,11 @@ async def quote_scout_extract_hat_quote(
             raise HTTPException(
                 status_code=503,
                 detail={
-                    "code": "rrugc_keyword_fair_share_wait",
-                    "message": "Quote Scout is waiting for its fair-share Gemini slot.",
+                    "code": "rrugc_keyword_review_queue_wait",
+                    "message": "Keyword discovery paused until queued Review images finish analysis.",
                 },
                 headers={"Retry-After": str(quote_gate["retry_seconds"])},
             )
-        if analysis_pressure["active"]:
-            session.commit()  # durable gate before external Gemini I/O
         settings = get_settings()
         registry = build_ai_provider_registry(
             settings,

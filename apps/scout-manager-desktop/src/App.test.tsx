@@ -14,7 +14,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Added 24h");
     expect(html).toContain("Last saved");
     expect(html).toContain("Run automation");
-    expect(html).toContain("AI analysis queue");
+    expect(html).toContain("Review Scout AI queue (shared Gemini)");
     expect(html).toContain("Stage 1 AI jobs");
     expect(html).toContain("Keyword search jobs");
     expect(html).toContain("Queued / retry");

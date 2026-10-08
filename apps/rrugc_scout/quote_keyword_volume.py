@@ -656,9 +656,10 @@ class KeywordScoutHistory:
 class KeywordScoutCapacityPaused(Exception):
     """Server is protecting the shared Gemini pool; resume on the next cycle."""
 
-    def __init__(self, retry_seconds: int = 180):
+    def __init__(self, retry_seconds: int = 180, *, reason: str = "review_analysis_queue_draining"):
         self.retry_seconds = max(30, min(900, int(retry_seconds)))
-        super().__init__("Shared Gemini analysis backlog")
+        self.reason = reason
+        super().__init__(reason)
 
 
 class QuoteScoutClient:
@@ -693,9 +694,9 @@ class QuoteScoutClient:
                     "keyword_scout_capacity_preflight_warning",
                     status_code=response.status_code,
                     duration_ms=round((time.monotonic() - started) * 1000),
-                    action="fail_open_to_quote_endpoint",
+                    action="fail_closed_until_queue_verified",
                 )
-                return False
+                raise KeywordScoutCapacityPaused(KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
             payload = response.json()
         except httpx.HTTPStatusError:
             raise
@@ -704,25 +705,37 @@ class QuoteScoutClient:
                 "keyword_scout_capacity_preflight_warning",
                 error_type=exc.__class__.__name__,
                 duration_ms=round((time.monotonic() - started) * 1000),
-                action="fail_open_to_quote_endpoint",
+                action="fail_closed_until_queue_verified",
             )
-            return False
+            raise KeywordScoutCapacityPaused(KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
 
         pressure = (
             payload.get("analysis_backpressure")
             if isinstance(payload, dict)
             else None
         )
-        # Keyword has a protected fair-share lane even when Review is
-        # backlogged. Prefer the lane-specific status over the global Review
-        # pressure signal, which must not pause Keyword indefinitely.
+        if not isinstance(pressure, dict) or "pending_jobs" not in pressure:
+            scout_debug_event("keyword_scout_capacity_preflight_warning",
+                              action="fail_closed_missing_queue_status")
+            raise KeywordScoutCapacityPaused(
+                KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS,
+                reason="review_queue_status_unavailable",
+            )
+        # The Review queue is shared with Keyword's Gemini capacity.
+        # Even a small pending/retry Review queue must drain before searching
+        # more Pin images. Don't rely on the older high-watermark 'active'
+        # boolean: it only trips for a large, aged backlog.
+        pending_jobs = int(pressure.get("pending_jobs") or 0) if isinstance(pressure, dict) else 0
         quote_gate = payload.get("keyword_quote_backpressure") if isinstance(payload, dict) else None
         effective_pressure = quote_gate if isinstance(quote_gate, dict) else pressure
-        active = isinstance(effective_pressure, dict) and effective_pressure.get("active") is True
+        active = pending_jobs > 0 or (
+            isinstance(effective_pressure, dict)
+            and effective_pressure.get("active") is True
+        )
         if active:
             pending_jobs = int(pressure.get("pending_jobs") or 0) if isinstance(pressure, dict) else 0
             oldest_wait_seconds = int(pressure.get("oldest_wait_seconds") or 0) if isinstance(pressure, dict) else 0
-            retry_seconds = int(effective_pressure.get("retry_seconds") or KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
+            retry_seconds = int(effective_pressure.get("retry_seconds") or KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS) if isinstance(effective_pressure, dict) else KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS
             scout_debug_event(
                 "keyword_scout_capacity_preflight_paused",
                 pending_jobs=pending_jobs,
@@ -731,8 +744,12 @@ class QuoteScoutClient:
                 reason=effective_pressure.get("reason"),
                 duration_ms=round((time.monotonic() - started) * 1000),
             )
-            raise KeywordScoutCapacityPaused(retry_seconds)
-        return isinstance(pressure, dict) and pressure.get("active") is True
+            raise KeywordScoutCapacityPaused(
+                retry_seconds,
+                reason=("review_analysis_queue_draining" if pending_jobs > 0
+                        else str(effective_pressure.get("reason") or "gemini_capacity_paused")),
+            )
+        return False
 
     async def _post(
         self,
@@ -758,7 +775,7 @@ class QuoteScoutClient:
                         error_detail = None
                     if (
                         isinstance(error_detail, dict)
-                        and error_detail.get("code") in {"rrugc_analysis_backpressure", "rrugc_keyword_fair_share_wait"}
+                        and error_detail.get("code") in {"rrugc_analysis_backpressure", "rrugc_keyword_fair_share_wait", "rrugc_keyword_review_queue_wait"}
                     ):
                         try:
                             wait_seconds = int(response.headers.get("Retry-After", "180"))
@@ -1094,6 +1111,41 @@ async def _flush_pending_quote_volumes(
         )
         print("Recovered pending keyword volumes: " + str(len(resolved)))
     return saved
+
+
+async def ensure_pending_quote_volumes_drained(
+    client: QuoteScoutClient,
+    history: KeywordScoutHistory,
+    blocked_keywords: set[str],
+) -> None:
+    """Never discover more images while extracted keywords await volume lookup.
+
+    Keep unresolved quotes durable for the next retry; blocked keywords do not
+    hold up the queue, and nothing is marked as successfully saved prematurely.
+    """
+    actionable = [
+        quote for quote in history.pending_quotes
+        if quote.casefold() not in blocked_keywords
+    ]
+    if not actionable:
+        return
+    await _flush_pending_quote_volumes(client, history, blocked_keywords)
+    outstanding = [
+        quote for quote in history.pending_quotes
+        if quote.casefold() not in blocked_keywords
+    ]
+    if outstanding:
+        scout_debug_event(
+            "keyword_scout_pending_volume_queue_paused",
+            pending_quotes=len(outstanding),
+            retry_seconds=120,
+        )
+        print(
+            "Keyword Scout waiting for existing keyword volume jobs: "
+            + str(len(outstanding))
+            + " unresolved; no new Pinterest images will be scanned."
+        )
+        raise KeywordScoutCapacityPaused(120, reason="pending_keyword_volumes")
 
 
 async def process_keyword_candidate_with_fair_share(
@@ -1779,6 +1831,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
             processed = duplicate_pins = extracted = saved_quotes = related_processed = 0
             try:
                 ai_backlog_active = await client.ensure_analysis_capacity()
+                last_capacity_check = time.monotonic()
                 directives = await client.fetch_feedback()
                 blocked_keywords = directives["blocked_keywords"]
                 blocked_pins = directives["blocked_pins"]
@@ -1787,7 +1840,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 dynamic_lease_renewed_at = feedback_synced_at
 
                 async def refresh_feedback_if_due() -> None:
-                    nonlocal blocked_keywords, blocked_pins, feedback_synced_at, lease_renewed_at, dynamic_lease_renewed_at
+                    nonlocal blocked_keywords, blocked_pins, feedback_synced_at, lease_renewed_at, dynamic_lease_renewed_at, last_capacity_check
                     now = time.monotonic()
                     if dynamic_query and now - dynamic_lease_renewed_at >= 300:
                         await client.renew_dynamic_query(dynamic_query)
@@ -1797,6 +1850,16 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             str(priority_task["id"]), str(priority_task["lease_token"]),
                         )
                         lease_renewed_at = time.monotonic()
+                    # In-flight quote volume retries take precedence over
+                    # collecting more images, even in the same long scan.
+                    await ensure_pending_quote_volumes_drained(
+                        client, history, blocked_keywords,
+                    )
+                    # Server queue may grow during a multi-minute deep dive.
+                    # Re-check before continuing instead of only once/cycle.
+                    if now - last_capacity_check >= 30:
+                        await client.ensure_analysis_capacity()
+                        last_capacity_check = time.monotonic()
                     if now - feedback_synced_at < 60:
                         return
                     current = await client.fetch_feedback()
@@ -1804,7 +1867,9 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     blocked_pins = current["blocked_pins"]
                     feedback_synced_at = time.monotonic()
 
-                await _flush_pending_quote_volumes(client, history, blocked_keywords)
+                await ensure_pending_quote_volumes_drained(
+                    client, history, blocked_keywords,
+                )
                 if ai_backlog_active:
                     scout_debug_event(
                         "keyword_scout_capacity_aware_scan_budget",
@@ -1891,6 +1956,7 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 empty_batch_streak = 0
                 cycle_seen: set[str] = set()
                 for batch in range(args.max_scroll_batches):
+                    await refresh_feedback_if_due()
                     await paced_wait(page, pace.inspect_dwell_ms)
                     visible = await extract_visible_pin_candidates(page)
                     if priority_pin is not None and batch == 0 and pin_history_key(priority_pin.pin_url) not in blocked_pins:
@@ -2648,12 +2714,14 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 scout_debug_event(
                     "keyword_scout_gemini_backpressure_paused",
                     retry_seconds=exc.retry_seconds,
+                    reason=exc.reason,
                 )
                 print(
-                    "Gemini shared analysis backlog is high. Keyword Scout "
-                    + "will retry in "
+                    "Keyword Scout paused new Pinterest discovery: "
+                    + exc.reason
+                    + ". Retrying queued work in "
                     + str(exc.retry_seconds)
-                    + " seconds without marking the Pin as processed."
+                    + " seconds without marking unfinished Pins as processed."
                 )
                 if args.once:
                     raise
