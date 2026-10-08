@@ -7,6 +7,10 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("RRUGC Scout Manager");
     expect(html).toContain("Review Scout");
     expect(html).toContain("Keyword Scout");
+    expect(html).toContain("Stage 0 keywords");
+    expect(html).toContain("Total saved");
+    expect(html).toContain("Added 24h");
+    expect(html).toContain("Last saved");
     expect(html).toContain("Run automation");
     expect(html).toContain("Live activity");
     expect(html).toContain("Pairing");

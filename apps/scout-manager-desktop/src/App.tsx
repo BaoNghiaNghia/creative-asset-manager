@@ -32,7 +32,8 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
       <div className="keyword-metric"><span>Added 7d</span><strong>+{keywordSummary?.added_7d ?? "—"}</strong></div>
       <div className="keyword-metric last"><span>Last saved</span><strong>{keywordSummary?.last_created_at ? new Date(keywordSummary.last_created_at).toLocaleString() : "No data"}</strong></div>
       {keywordError && <div className="keyword-health-note">{keywordError}</div>}
-      {!keywordError && keywordSummary && keywordSummary.added_24h === 0 && <div className="keyword-health-note">No new keyword in the last 24 hours</div>}
+      {!keywordError && keywordSummary && info.state === "Running" && keywordSummary.last_created_at && Date.now() - new Date(keywordSummary.last_created_at).getTime() > 60 * 60 * 1000 && <div className="keyword-health-note">Running, but no new keywords in the last {Math.floor((Date.now() - new Date(keywordSummary.last_created_at).getTime()) / 3600000)}h · check AI/Pin logs</div>}
+      {!keywordError && keywordSummary && keywordSummary.added_24h === 0 && info.state !== "Running" && <div className="keyword-health-note">No new keyword in the last 24 hours</div>}
     </div>}
     <div className="chips"><div><RefreshCcw/><span>Auto restart</span></div><div><ShieldCheck/><span>Browser watchdog</span></div><div><LockKeyhole/><span>Isolated profile</span></div></div>
     {info.lastError && <div className="inline-error" title={info.lastError}><CircleAlert size={15}/><span>{info.lastError}</span></div>}
