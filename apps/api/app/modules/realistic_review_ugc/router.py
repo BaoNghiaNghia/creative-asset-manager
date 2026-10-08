@@ -4878,6 +4878,15 @@ def sync_stage2_skill(
     return _stage2_skill(item)
 
 
+@router.get("/colorways/readiness")
+def colorway_readiness(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    # Authenticated and intentionally free of provider credentials and storage paths.
+    return ColorwayService(session).readiness()
+
+
 @router.get("/colorways")
 def list_colorways(
     source_plan_id: list[str] = Query(default=[]),

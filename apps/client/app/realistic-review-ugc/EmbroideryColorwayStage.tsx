@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway } from "./api";
-import type { ColorwayJob } from "./api";
+import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, getColorwayReadiness } from "./api";
+import type { ColorwayJob, ColorwayReadiness } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
@@ -97,6 +97,25 @@ export function EmbroideryColorwayStage({
   const [queueing, setQueueing] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState("");
+  const [serverReadiness, setServerReadiness] = useState<ColorwayReadiness | null>(null);
+  const [readinessMessage, setReadinessMessage] = useState("");
+
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    setServerReadiness(null);
+    setReadinessMessage("");
+    void getColorwayReadiness(controller.signal)
+      .then(value => {
+        if (!controller.signal.aborted) setServerReadiness(value);
+      })
+      .catch(reason => {
+        if (!controller.signal.aborted) setReadinessMessage(
+          reason instanceof Error ? reason.message : "Could not check colorway readiness.",
+        );
+      });
+    return () => controller.abort();
+  }, [active, skillCatalogRevision]);
 
   useEffect(() => {
     if (!active) return;
@@ -129,7 +148,12 @@ export function EmbroideryColorwayStage({
   const pageIds = data.items.map(item => item.id);
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const ready = Boolean(selectedSkill?.ready);
-  const canQueue = executionReady && ready && selectedIds.size > 0 && !queueing;
+  const canQueue = executionReady && Boolean(serverReadiness?.ready) && ready && selectedIds.size > 0 && !queueing;
+  const readinessWarning = serverReadiness && !serverReadiness.ready
+    ? serverReadiness.error_code === "colorway_stock_missing"
+      ? "Missing or invalid stock photos: " + serverReadiness.stock_ready_count + "/" + serverReadiness.stock_total_count + " verified."
+      : "The image generation service is not enabled for Stage 2."
+    : readinessMessage;
   const pagePlanIds = data.items.map(item => item.id);
   const pagePlanKey = pagePlanIds.join(",");
   const byPlan = new Map<string, Map<string, ColorwayJob>>();
@@ -193,7 +217,7 @@ export function EmbroideryColorwayStage({
     if (pagePlanKey) setColorwayJobs(await listColorwayJobs(pagePlanKey.split(",")));
   };
   const queueSelected = async () => {
-    if (!skillInput || queueing) return;
+    if (!skillInput || !canQueue) return;
     setQueueing(true);
     setJobMessage("");
     try {
@@ -263,7 +287,7 @@ export function EmbroideryColorwayStage({
       </div>}
     />
 
-    {(message || catalogMessage || jobMessage) && <p className="rrugc-editor-product-result" role="status">{jobMessage || message || catalogMessage}</p>}
+    {(message || catalogMessage || jobMessage || readinessWarning) && <p className="rrugc-editor-product-result" role="status">{readinessWarning || jobMessage || message || catalogMessage}</p>}
 
     <div className="rrugc-colorway-kpis">
       <article><span>Designs found</span><strong>{data.total}</strong><small>embroidery_ files</small></article>
@@ -306,7 +330,7 @@ export function EmbroideryColorwayStage({
         className="rrugc-colorway-run"
         disabled={!canQueue}
         onClick={() => void queueSelected()}
-        title={ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
+        title={!serverReadiness?.ready ? "Stage 2 server readiness is not confirmed" : ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
       >
         {queueing ? "Queueing…" : "Run selected · " + (selectedIds.size * COLOR_SLOT_COUNT)}
       </button>

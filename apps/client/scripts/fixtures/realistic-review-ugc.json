@@ -22,6 +22,7 @@
   "folders": {},
   "apiRoutes": [
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"openai_configured":false,"openai_status":"not_configured","error_code":null,"items":[{"source":"local","skill_id":null,"skill_name":"gatorhats-8869-image-studio","display_name":"GatorHats 8869 Image Studio","description":"Generate cap artwork","default_version":"1.0","latest_version":"1.0","local_version":"1.0","synced_version":"1.0","ready":true,"sync_state":"ready","version_options":["1.0"]}]}},
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/colorways/readiness","body":{"ready":true,"error_code":null,"stock_ready_count":13,"stock_total_count":13}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/colorways","body":[
       {"id":"qa-colorway-1","source_plan_id":"qa-source-plan-1","color_key":"khaki-maroon","color_name":"Khaki/Maroon","status":"completed","retry_count":0,"attempt_count":1,"error_code":null,"output_url":"/api/v1/realistic-review-ugc/colorways/qa-colorway-1/output"},
       {"id":"qa-colorway-2","source_plan_id":"qa-source-plan-1","color_key":"natural-black","color_name":"Natural/Black","status":"running","retry_count":0,"attempt_count":1,"error_code":null,"output_url":null},

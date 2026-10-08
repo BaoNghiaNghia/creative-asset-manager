@@ -32,6 +32,12 @@ of the six user-facing stages or link Stage 1 keyword outputs to Stage 2.
   tenant-scoped. Mutations require the existing RRUGC RUN permission, listing
   and output reads require READ.
 
+## Live readiness preflight
+
+- An authenticated READ user can query `GET /api/v1/realistic-review-ugc/colorways/readiness` to see safe booleans and the count of valid stock images (no raw filesystem paths or credentials).
+- Stage 2 checks readiness on entry and when Skills are refreshed. The `Run selected` action stays disabled if provider/storage flags or any stock photo is missing/invalid. The UI shows a failure reason; this check **never** queues jobs.
+- The queue endpoint repeats mandatory validations to avoid trusting a stale browser result. Successful readiness is **not** proof of a real image generation, a valid login, or the final embroidery fidelity. A single authenticated, production-generated 13-color set still needs verification.
+
 ## Pre-release checks
 1. Verify all 13 installed stock images match the manifest in the deployed
    Codex home (no public HTTP downloads used).

@@ -103,6 +103,32 @@ class ColorwayService:
         self.session = session
         self.settings = settings or get_settings()
 
+    def readiness(self) -> dict:
+        """Read-only preflight: avoid misleading users into queueing jobs that cannot run."""
+        configured = all((
+            self.settings.PROCESSING_JOBS_ENABLED,
+            self.settings.IMAGE_GENERATION_ENABLED,
+            self.settings.MANAGED_ASSET_STORAGE_ENABLED,
+            self.settings.CODEX_IMAGE_GENERATION_ENABLED,
+        ))
+        available_colors = 0
+        for color_key, _ in COLORS:
+            try:
+                _stock_bytes(self.settings, color_key)
+                available_colors += 1
+            except (ColorwayError, OSError):
+                continue
+        error_code = (
+            "colorway_disabled" if not configured else
+            "colorway_stock_missing" if available_colors != len(COLORS) else None
+        )
+        return {
+            "ready": error_code is None,
+            "error_code": error_code,
+            "stock_ready_count": available_colors,
+            "stock_total_count": len(COLORS),
+        }
+
     def _row(self, tenant_id: str, job_id: str) -> RrugcColorwayJobModel | None:
         return self.session.scalar(select(RrugcColorwayJobModel).where(
             RrugcColorwayJobModel.tenant_id == tenant_id, RrugcColorwayJobModel.id == job_id,

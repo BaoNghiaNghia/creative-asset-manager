@@ -88,6 +88,31 @@ def test_queue_13_colors_durable_idempotent_and_tenant_scoped(db):
     assert db.query(ProcessingJobModel).count() == 13
 
 
+def test_stage2_readiness_reflects_stock_and_provider_without_queueing(db, monkeypatch):
+    service = ColorwayService(db)
+    assert service.readiness() == {
+        "ready": True, "error_code": None, "stock_ready_count": 13,
+        "stock_total_count": 13,
+    }
+    actual_stock = colorways._stock_bytes
+
+    def missing_stock(settings, color):
+        if color == "natural-navy":
+            raise ColorwayError("colorway_stock_missing", "Missing", 503)
+        return actual_stock(settings, color)
+
+    monkeypatch.setattr(colorways, "_stock_bytes", missing_stock)
+    assert service.readiness() == {
+        "ready": False, "error_code": "colorway_stock_missing",
+        "stock_ready_count": 12, "stock_total_count": 13,
+    }
+    disabled = service.settings.model_copy(update={"CODEX_IMAGE_GENERATION_ENABLED": False})
+    status = ColorwayService(db, settings=disabled).readiness()
+    assert status["ready"] is False
+    assert status["error_code"] == "colorway_disabled"
+    assert db.query(ProcessingJobModel).count() == 0
+
+
 def test_disabled_colorway_provider_does_not_leave_permanently_queued_jobs(db):
     source = plan(db)
     settings = get_settings().model_copy(update={
