@@ -20,6 +20,12 @@ The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor
 
 The Windows 0.1.3 release uses `CREATE_NO_WINDOW` for both Git commands and the PowerShell Scout launcher. Commit metadata is cached on startup and after successful fast-forward updates rather than spawning Git on every 2-second dashboard refresh. The React polling loop deduplicates concurrent requests. The tray Quit and **Quit and stop** footer action shut down Scout process trees on background threads, with bounded per-child waits and a 10-second fallback exit. Closing the window with X hides it to tray and does not interrupt automation. Test this via an isolated `CAM_SCOUT_REPO_ROOT` mock before switching from WinForms; do not terminate real Scout processes during validation.
 
+## Native 0.1.5 manual-start and responsive-window release
+
+Launching the Manager now starts in **Idle**, even if `scout.local.env` is already paired. Saving pairing also leaves both Scouts stopped. **Run automation** is the sole global enable action: it launches Review and Keyword, enables bounded recovery and schedules automatic Git checks every 60 seconds. **Pause** stops both and disables automatic source updates. Update remains available as an explicit user action while Idle. Individual Scout Start/Restart buttons are disabled until automation has been enabled globally.
+
+The window no longer invokes Git on startup for its commit label (the hash is read from `.git`), no background Git runs while Idle, tray mouse hover/move never refocuses the window, and resize events no longer trigger a synchronous minimize check. The native title bar can therefore be dragged normally. X hides the app into tray; Quit and stop exits on a background worker.
+
 ## Native 0.1.4 responsiveness and single-instance release
 
 Starting with 0.1.4, the native Start / Pause / Restart and Git update commands run on blocking worker threads rather than the Windows WebView message thread. Launching a second Manager focuses the existing `RRUGC Scout Manager` window when the shared Windows mutex is held, avoiding duplicate WebViews, tray icons, and misleading start prompts. The runner mutexes and isolated Chrome profiles are unchanged. The existing 0.1.3 mitigations for hidden Git/PowerShell consoles, bounded shutdown, and background Quit remain in effect. Windows validation uses isolated fake Scouts only; do not interrupt live production Scouts during cutover.

@@ -45,6 +45,26 @@ def test_tauri_long_running_native_operations_run_off_webview_thread():
     assert "ShowWindow(window, SW_RESTORE)" in source
 
 
+def test_tauri_manual_start_and_no_idle_git_or_tray_refocus():
+    native = (ROOT / "apps/scout-manager-desktop/src-tauri/src/lib.rs").read_text(
+        encoding="utf-8"
+    )
+    react = (ROOT / "apps/scout-manager-desktop/src/App.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert 'automation_enabled: AtomicBool::new(false)' in native
+    assert 'let commit = read_local_commit(&repo);' in native
+    assert 'fn read_local_commit(repo: &Path)' in native
+    assert "if updating.automation_enabled.load(Ordering::SeqCst)" in native
+    assert 'controller.control_all("start")' not in native.split(".setup(|app|", 1)[1]
+    assert 'matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. })' in native
+    assert 'WindowEvent::Resized(_)' not in native
+    assert "automationEnabled: boolean" in react
+    assert "Pairing saved. Press Run automation to start." in react
+    assert 'await act("control_all", { command: "start" })' not in react
+    assert "automationEnabled={state.automationEnabled}" in react
+
+
 def test_build_script_publishes_portable_and_installer_together():
     text = (ROOT / "scripts/build_scout_manager_tauri.ps1").read_text(encoding="utf-8")
     assert "RRUGC_Scout_Manager_Latest_x64.exe" in text

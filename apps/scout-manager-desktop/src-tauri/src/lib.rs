@@ -34,6 +34,7 @@ struct Dashboard {
     paired: bool,
     updating: bool,
     controller_available: bool,
+    automation_enabled: bool,
     modes: Vec<ModeInfo>,
 }
 
@@ -84,6 +85,7 @@ struct Controller {
     manager_lock: Option<winjob::ManagerLock>,
     update_state: Mutex<String>,
     updating: AtomicBool,
+    automation_enabled: AtomicBool,
     cached_commit: Mutex<String>,
     shutdown_requested: AtomicBool,
 }
@@ -154,6 +156,34 @@ fn execute_git(repo: &Path, args: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+fn read_local_commit(repo: &Path) -> String {
+    // UI startup must not launch Git even when its executable is a console shim.
+    let git_path = repo.join(".git");
+    let git_dir = if git_path.is_dir() {
+        git_path
+    } else {
+        let pointer = fs::read_to_string(&git_path).unwrap_or_default();
+        let Some(value) = pointer.trim().strip_prefix("gitdir: ") else {
+            return "unknown".into();
+        };
+        let path = PathBuf::from(value);
+        if path.is_absolute() { path } else { repo.join(path) }
+    };
+    let head = fs::read_to_string(git_dir.join("HEAD")).unwrap_or_default();
+    let head = head.trim();
+    let hash = if let Some(reference) = head.strip_prefix("ref: ") {
+        fs::read_to_string(git_dir.join(reference)).unwrap_or_default()
+    } else {
+        head.to_string()
+    };
+    let hash = hash.trim();
+    if hash.len() >= 8 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        hash[..8].to_string()
+    } else {
+        "unknown".into()
+    }
+}
+
 fn commit_short(repo: &Path) -> String {
     execute_git(repo, &["rev-parse", "--short=8", "HEAD"])
         .unwrap_or_else(|_| "unknown".into())
@@ -221,15 +251,16 @@ impl Controller {
             });
         fs::create_dir_all(&log_root)
             .map_err(|_| "Cannot initialize local Scout logs.".to_string())?;
-        let commit = commit_short(&repo);
+        let commit = read_local_commit(&repo);
         Ok(Self {
             repo,
             log_root,
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword")]),
             #[cfg(windows)]
             manager_lock: winjob::ManagerLock::acquire()?,
-            update_state: Mutex::new("Checking every 60 seconds".into()),
+            update_state: Mutex::new("Idle - press Run automation".into()),
             updating: AtomicBool::new(false),
+            automation_enabled: AtomicBool::new(false),
             cached_commit: Mutex::new(commit),
             shutdown_requested: AtomicBool::new(false),
         })
@@ -331,6 +362,9 @@ impl Controller {
         if self.updating.load(Ordering::SeqCst) {
             return Err("Source update is in progress.".into());
         }
+        if (command == "start" || command == "restart") && !self.automation_enabled.load(Ordering::SeqCst) {
+            return Err("Click Run automation before starting an individual Scout.".into());
+        }
         let mut all = self.lock_modes()?;
         let scout = all
             .iter_mut()
@@ -359,6 +393,9 @@ impl Controller {
     fn control_all(&self, command: &str) -> Result<(), String> {
         match command {
             "start" => {
+                self.require_manager_lock()?;
+                self.automation_enabled.store(true, Ordering::SeqCst);
+                if let Ok(mut status) = self.update_state.lock() { *status = "Auto update active".into(); }
                 let mut errors = Vec::new();
                 for m in ["review", "keyword"] {
                     if let Err(error) = self.control(m, "start") {
@@ -372,9 +409,12 @@ impl Controller {
                 }
             }
             "stop" => {
+                self.require_manager_lock()?;
+                self.automation_enabled.store(false, Ordering::SeqCst);
                 for m in ["review", "keyword"] {
                     self.control(m, "stop")?;
                 }
+                if let Ok(mut status) = self.update_state.lock() { *status = "Paused - press Run automation".into(); }
                 Ok(())
             }
             _ => Err("Unsupported automation command.".into()),
@@ -480,6 +520,7 @@ impl Controller {
             paired: is_paired(&self.repo),
             updating: self.updating.load(Ordering::SeqCst),
             controller_available: self.owns_manager_lock(),
+            automation_enabled: self.automation_enabled.load(Ordering::SeqCst),
             modes,
         }
     }
@@ -586,6 +627,7 @@ impl Controller {
     }
     fn shutdown(&self) {
         self.shutdown_requested.store(true, Ordering::SeqCst);
+        self.automation_enabled.store(false, Ordering::SeqCst);
         if let Ok(mut modes) = self.lock_modes() {
             for scout in modes.iter_mut() {
                 scout.desired = false;
@@ -841,7 +883,11 @@ pub fn run() {
         let updating = Arc::clone(&state);
         thread::spawn(move || loop {
             thread::sleep(Duration::from_secs(60));
-            let _ = updating.check_update();
+            // Zero background Git processes while waiting for Run automation.
+            if updating.automation_enabled.load(Ordering::SeqCst)
+                && !updating.shutdown_requested.load(Ordering::SeqCst) {
+                let _ = updating.check_update();
+            }
         });
     }
     tauri::Builder::default()
@@ -869,10 +915,14 @@ pub fn run() {
                     "quit" => request_shutdown(app.clone()),
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, _| {
-                    if let Some(w) = tray.app_handle().get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
+                .on_tray_icon_event(|tray, event| {
+                    // Do not refocus the window on every mouse movement or
+                    // icon event: that causes drag loss and apparent freezes.
+                    if matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. }) {
+                        if let Some(w) = tray.app_handle().get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
                     }
                 });
             if let Some(icon) = icon {
@@ -880,11 +930,9 @@ pub fn run() {
             }
             let _ = tray.build(app)?;
             let managed = app.state::<Arc<Controller>>();
-            // Preserve legacy behavior: both Scouts auto-start after valid pairing.
-            if managed.owns_manager_lock() && is_paired(&managed.repo) {
-                let controller = managed.inner().clone();
-                thread::spawn(move || { let _ = controller.control_all("start"); });
-            }
+            // Manual-start policy: never start either Scout on app startup.
+            // Only the Run automation button enables processing and updates.
+            let _ = managed;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -892,11 +940,6 @@ pub fn run() {
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let _ = window.hide(); // child processes continue in tray
-                }
-                WindowEvent::Resized(_) => {
-                    if window.is_minimized().unwrap_or(false) {
-                        let _ = window.hide();
-                    }
                 }
                 _ => {}
             }
@@ -935,6 +978,24 @@ mod tests {
         let _ = fs::remove_dir_all(scratch);
     }
     #[test]
+    fn commit_read_from_git_metadata_without_spawning_git() {
+        let root = std::env::temp_dir().join(format!("cam-git-meta-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(".git/refs/heads")).unwrap();
+        fs::write(root.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(root.join(".git/refs/heads/main"), "1234567890abcdef1234567890abcdef12345678\n").unwrap();
+        assert_eq!(read_local_commit(&root), "12345678");
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn scout_is_idle_until_explicitly_requested() {
+        let review = Scout::new("review");
+        let keyword = Scout::new("keyword");
+        assert!(!review.desired);
+        assert!(!keyword.desired);
+        assert!(review.child.is_none() && keyword.child.is_none());
+    }
+    #[test]
     fn no_external_path_in_log_name() {
         let root = Path::new("C:/logs");
         assert_eq!(log_file(root, "review"), root.join("review.stdout.log"));
@@ -965,6 +1026,7 @@ mod tests {
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
             updating: AtomicBool::new(false),
+            automation_enabled: AtomicBool::new(false),
             cached_commit: Mutex::new("fixture".into()),
             shutdown_requested: AtomicBool::new(false),
         };

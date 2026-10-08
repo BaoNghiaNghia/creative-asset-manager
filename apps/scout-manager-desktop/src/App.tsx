@@ -4,15 +4,15 @@ import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, Fi
 
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
-type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; modes: ModeInfo[] };
-const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, modes: [
+type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
+const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
 ] };
 const isNative = typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 
-function Card({ info, version, commit, busy, onAction }: {
-  info: ModeInfo; version: string; commit: string; busy: boolean;
+function Card({ info, version, commit, busy, automationEnabled, onAction }: {
+  info: ModeInfo; version: string; commit: string; busy: boolean; automationEnabled: boolean;
   onAction: (cmd: "start" | "stop" | "restart", mode: ModeName) => void;
 }) {
   const active = info.state === "Running";
@@ -27,8 +27,8 @@ function Card({ info, version, commit, busy, onAction }: {
     <div className="chips"><div><RefreshCcw/><span>Auto restart</span></div><div><ShieldCheck/><span>Browser watchdog</span></div><div><LockKeyhole/><span>Isolated profile</span></div></div>
     {info.lastError && <div className="inline-error" title={info.lastError}><CircleAlert size={15}/><span>{info.lastError}</span></div>}
     <div className="card-actions">
-      <button className="button secondary slim" disabled={busy} onClick={() => onAction(info.desired ? "stop" : "start", info.mode)}>{info.desired ? <Pause size={16}/> : <Play size={16}/>} {info.desired ? "Pause" : "Start"}</button>
-      <button className="button secondary slim" disabled={busy} onClick={() => onAction("restart", info.mode)}><RotateCcw size={16}/> Restart</button>
+      <button className="button secondary slim" disabled={busy || !automationEnabled} title={!automationEnabled ? "Press Run automation first" : undefined} onClick={() => onAction(info.desired ? "stop" : "start", info.mode)}>{info.desired ? <Pause size={16}/> : <Play size={16}/>} {info.desired ? "Pause" : "Start"}</button>
+      <button className="button secondary slim" disabled={busy || !automationEnabled} onClick={() => onAction("restart", info.mode)}><RotateCcw size={16}/> Restart</button>
       <span className="recovery"><Activity size={15}/>{info.restarts ? String(info.restarts) + " recovery attempts" : "Self-healing enabled"}</span>
     </div>
   </article>;
@@ -97,10 +97,10 @@ export default function App() {
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><h1>RRUGC Scout Manager</h1><p>Automated scouting for Review + Keyword, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Automatic update checks</span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><h1>RRUGC Scout Manager</h1><p>Automated scouting for Review + Keyword, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
-        <button className="button secondary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
+        <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
         <button className="button secondary" disabled={controlBlocked} onClick={() => void act("check_update")}><RefreshCcw size={18}/> Update</button>
         <button className="button secondary" onClick={() => setPairing(true)} disabled={!isNative || !state.controllerAvailable}><Settings2 size={18}/> Pairing</button>
       </div>
@@ -114,8 +114,8 @@ export default function App() {
     {!state.controllerAvailable && <div className="alert"><CircleAlert size={18}/><span>Another Scout Manager is running. Close the legacy Manager before using automation controls in Tauri.</span></div>}
     {toast && <div className="alert"><CircleAlert size={18}/><span>{toast}</span><button onClick={() => setToast(null)} aria-label="Dismiss alert"><X size={16}/></button></div>}
     <section className="mode-grid">
-      <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} onAction={onMode}/>
-      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} onAction={onMode}/>
+      <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
+      <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
     </section>
     <section className="terminal-panel">
       <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
@@ -124,6 +124,6 @@ export default function App() {
     </section>
     <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop both Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>
   </div>
-  {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { if (await act("save_pairing", { agentId, token })) { setPairing(false); await act("control_all", { command: "start" }); } })(); }}/>}
+  {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { if (await act("save_pairing", { agentId, token })) { setPairing(false); setToast("Pairing saved. Press Run automation to start."); } })(); }}/>}
   </main>;
 }
