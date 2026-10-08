@@ -40,6 +40,20 @@ if /I not "%SCOUT_BRANCH%"=="main" (
   exit /b 4
 )
 
+rem Sparse checkouts used by older Windows installs may exclude scripts/
+rem entirely. Add the missing directory to the sparse spec without resetting
+rem existing paths or deleting browser profiles/user files.
+git config --bool --get core.sparseCheckout | findstr /I /R /C:"^true$" >nul
+if not errorlevel 1 (
+  echo [INFO] Including Scout scripts in the sparse checkout...
+  git sparse-checkout add scripts
+  if errorlevel 1 (
+    echo [ERROR] Could not update sparse-checkout to include Scout launchers.
+    pause
+    exit /b 11
+  )
+)
+
 rem Restore ONLY missing managed launchers from local HEAD first. Never touch
 rem scout.local.env, Pinterest profiles, browser history or user source edits.
 if not exist "%SCOUT_MANAGER%" call :RESTORE_MISSING "scripts/start_scout_manager.ps1"

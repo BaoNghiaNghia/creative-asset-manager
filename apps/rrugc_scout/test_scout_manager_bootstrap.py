@@ -15,6 +15,7 @@ def test_scout_manager_repairs_missing_scripts_without_resetting_checkout():
     assert 'call :RESTORE_MISSING "scripts/start_scout_manager.ps1"' in launcher
     assert 'call :RESTORE_MISSING "scripts/start_scout_auto_update.ps1"' in launcher
     assert 'git restore --source=HEAD -- "%~1"' in launcher
+    assert "git sparse-checkout add scripts" in launcher
     assert "git diff --quiet" in launcher
     assert "git diff --cached --quiet" in launcher
     assert "git fetch origin +refs/heads/main:refs/remotes/origin/main" in launcher
