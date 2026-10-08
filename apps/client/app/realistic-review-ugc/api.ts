@@ -224,6 +224,7 @@ export const listKeywordAnalysis = (
     usage?: KeywordUsageFilter;
     tail?: KeywordTailFilter;
     favoritesOnly?: boolean;
+    suggestedOnly?: boolean;
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -235,6 +236,7 @@ export const listKeywordAnalysis = (
     usage: filters.usage ?? "all",
     tail: filters.tail ?? "all",
     favorites_only: String(filters.favoritesOnly ?? false),
+    suggested_only: String(filters.suggestedOnly ?? false),
   });
   if (filters.query?.trim()) params.set("query", filters.query.trim());
   return request<KeywordVolumePage>(

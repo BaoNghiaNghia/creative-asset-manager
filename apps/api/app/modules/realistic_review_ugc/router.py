@@ -3599,6 +3599,7 @@ def list_keyword_analysis(
     usage: str = Query(default="all", pattern="^(all|unused|used)$"),
     tail: str = Query(default="all", pattern="^(all|short|mid|long)$"),
     favorites_only: bool = Query(default=False),
+    suggested_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
         pattern="^(keyword|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|trademark|created_at|fetched_at)$",
@@ -3636,7 +3637,27 @@ def list_keyword_analysis(
             RrugcKeywordVolumeModel.keyword.ilike(f"%{clean_query}%")
         )
 
+    # Suggested feedback can target either the phrase or its source Pin.
+    # EXISTS prevents double-counting a row suggested by both scopes.
+    suggested_by_feedback = select(RrugcScoutFeedbackModel.id).where(
+        RrugcScoutFeedbackModel.tenant_id == RrugcKeywordVolumeModel.tenant_id,
+        RrugcScoutFeedbackModel.status == "suggested",
+        or_(
+            and_(
+                RrugcScoutFeedbackModel.target_type == "keyword",
+                RrugcScoutFeedbackModel.target_key == RrugcKeywordVolumeModel.keyword_normalized,
+            ),
+            and_(
+                RrugcScoutFeedbackModel.target_type == "pin",
+                RrugcKeywordVolumeModel.source_pin_url.is_not(None),
+                RrugcScoutFeedbackModel.target_key == RrugcKeywordVolumeModel.source_pin_url,
+            ),
+        ),
+    ).correlate(RrugcKeywordVolumeModel).exists()
+
     conditions = list(base_conditions)
+    if suggested_only is True:
+        conditions.append(suggested_by_feedback)
     if favorites_only:
         conditions.append(RrugcKeywordVolumeModel.favorite.is_(True))
 
@@ -3762,6 +3783,13 @@ def list_keyword_analysis(
             )
         ) or 0
     )
+    suggested_keywords = int(
+        session.scalar(
+            select(func.count(RrugcKeywordVolumeModel.id)).where(
+                *base_conditions, suggested_by_feedback,
+            )
+        ) or 0
+    )
     competition_rank = case(
         (RrugcKeywordVolumeModel.competition == "LOW", 1),
         (RrugcKeywordVolumeModel.competition == "MEDIUM", 2),
@@ -3879,6 +3907,7 @@ def list_keyword_analysis(
             long_tail_keywords=long_tail_keywords,
             picked_keywords=picked_keywords,
             favorite_keywords=favorite_keywords,
+            suggested_keywords=suggested_keywords,
         ),
     )
 

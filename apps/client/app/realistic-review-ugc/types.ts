@@ -224,6 +224,7 @@ export type KeywordVolumeOverview = {
   long_tail_keywords: number;
   picked_keywords: number;
   favorite_keywords: number;
+  suggested_keywords: number;
 };
 
 export type KeywordVolumePage = {

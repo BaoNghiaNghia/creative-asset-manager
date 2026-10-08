@@ -1562,3 +1562,31 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-search-intelligence-error{font-size:10px;color:#a86430}
 @media(max-width:740px){.rrugc-search-intelligence-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.rrugc-search-intelligence-lanes{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-search-intelligence-top{align-items:flex-start}.rrugc-search-intelligence-top>div{min-width:0}}
 @media(max-width:480px){.rrugc-search-intelligence{padding:12px}.rrugc-search-intelligence-top{flex-wrap:wrap;align-items:center}.rrugc-search-intelligence-top>div{flex:1 1 100%}.rrugc-search-intelligence-top button{max-width:100%;white-space:normal;text-align:center}.rrugc-search-intelligence-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.rrugc-search-intelligence-metrics>div:last-child{grid-column:1/-1}.rrugc-search-intelligence-metrics strong{font-size:18px}}
+
+/* Stage 0 seven-card overview: Suggestions is a real server-side filter.
+   Favorites now has its own pink visual identity. */
+.rrugc-stage0-v2 .rrugc-stage0-kpis-restored{
+  grid-template-columns:repeat(7,minmax(0,1fr));
+  gap:7px;
+}
+.rrugc-stage0-kpis-restored .rrugc-stage0-suggested-kpi{
+  --rrugc-kpi-accent:#c38a34;
+  border-color:#efdbb7!important;
+  background:#fffaf1!important;
+  color:#9a6a21;
+}
+.rrugc-stage0-kpis-restored .rrugc-stage0-suggested-kpi strong{color:#a16d22!important}
+.rrugc-stage0-kpis-restored .rrugc-stage0-favorite-kpi{
+  --rrugc-kpi-accent:#d05e9d;
+  border-color:#f1c8dd!important;
+  background:#fff4fa!important;
+  color:#aa487e;
+}
+.rrugc-stage0-kpis-restored .rrugc-stage0-favorite-kpi strong{color:#ae4081!important}
+.rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card{min-width:0;overflow:hidden}
+@media(max-width:1280px){
+  .rrugc-stage0-v2 .rrugc-stage0-kpis-restored{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:720px){
+  .rrugc-stage0-v2 .rrugc-stage0-kpis-restored{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

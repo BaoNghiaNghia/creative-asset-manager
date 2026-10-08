@@ -55,6 +55,7 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
     long_tail_keywords: 0,
     picked_keywords: 0,
     favorite_keywords: 0,
+    suggested_keywords: 0,
   },
 };
 
@@ -147,6 +148,7 @@ export function RealisticReviewUgcPage() {
   const [keywordUsageFilter, setKeywordUsageFilter] = useState<KeywordUsageFilter>("all");
   const [keywordTailFilter, setKeywordTailFilter] = useState<KeywordTailFilter>("all");
   const [keywordFavoritesOnly, setKeywordFavoritesOnly] = useState(false);
+  const [keywordSuggestedOnly, setKeywordSuggestedOnly] = useState(false);
   const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
   const [keywordFavoritingIds, setKeywordFavoritingIds] = useState<Set<string>>(new Set());
   const [keywordFeedbackIds, setKeywordFeedbackIds] = useState<Set<string>>(new Set());
@@ -218,6 +220,7 @@ export function RealisticReviewUgcPage() {
         usage: keywordUsageFilter,
         tail: keywordTailFilter,
         favoritesOnly: keywordFavoritesOnly,
+        suggestedOnly: keywordSuggestedOnly,
       },
       signal,
     );
@@ -635,7 +638,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordFavoritesOnly]);
+  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordFavoritesOnly, keywordSuggestedOnly]);
 
   useEffect(() => {
     if (activeStage !== "stage0") return;
@@ -892,6 +895,7 @@ export function RealisticReviewUgcPage() {
             usageFilter={keywordUsageFilter}
             tailFilter={keywordTailFilter}
             favoritesOnly={keywordFavoritesOnly}
+            suggestedOnly={keywordSuggestedOnly}
             pickingIds={keywordPickingIds}
             favoritingIds={keywordFavoritingIds}
             feedbackUpdatingIds={keywordFeedbackIds}
@@ -914,6 +918,11 @@ export function RealisticReviewUgcPage() {
               setKeywordPageNumber(1);
               setKeywordFavoritesOnly(value);
             }}
+            onSuggestedOnlyChange={value => {
+              setKeywordLoading(true);
+              setKeywordPageNumber(1);
+              setKeywordSuggestedOnly(value);
+            }}
             onResetAll={() => {
               setKeywordLoading(true);
               setKeywordPageNumber(1);
@@ -922,6 +931,7 @@ export function RealisticReviewUgcPage() {
               setKeywordUsageFilter("all");
               setKeywordTailFilter("all");
               setKeywordFavoritesOnly(false);
+              setKeywordSuggestedOnly(false);
             }}
             onPageChange={value => {
               setKeywordLoading(true);

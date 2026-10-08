@@ -693,6 +693,7 @@ describe("Realistic Review UGC source-first workspace", () => {
             long_tail_keywords: 1,
             picked_keywords: 1,
             favorite_keywords: 1,
+            suggested_keywords: 1,
           },
         }}
         query=""
@@ -701,6 +702,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         usageFilter="all"
         tailFilter="all"
         favoritesOnly={false}
+        suggestedOnly={false}
         pickingIds={new Set()}
         favoritingIds={new Set()}
         feedbackUpdatingIds={new Set()}
@@ -709,6 +711,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         onUsageFilterChange={() => undefined}
         onTailFilterChange={() => undefined}
         onFavoritesOnlyChange={() => undefined}
+        onSuggestedOnlyChange={() => undefined}
         onResetAll={() => undefined}
         onPickChange={() => undefined}
         onFavoriteChange={() => undefined}
@@ -746,6 +749,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     for (const count of [20, 50, 100, 500]) expect(markup).toContain(`<option value="${count}"`);
     expect(markup).not.toContain('<option value="10"');
     expect(markup).toContain("Total keywords");
+    expect(markup).toContain("Keywords / Pins suggested");
+    expect(markup).toContain("rrugc-stage0-suggested-kpi");
+    expect(markup).toContain("rrugc-stage0-favorite-kpi");
     expect(markup).toContain('aria-label="Keyword overview filters"');
     expect(markup).toContain("rrugc-stage0-total-kpi active");
     expect(markup).toContain('aria-pressed="true"');

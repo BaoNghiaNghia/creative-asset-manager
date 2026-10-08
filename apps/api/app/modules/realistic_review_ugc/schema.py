@@ -569,6 +569,7 @@ class KeywordVolumeOverviewResponse(BaseModel):
     long_tail_keywords: int = 0
     picked_keywords: int = 0
     favorite_keywords: int = 0
+    suggested_keywords: int = 0
 
 
 class ScoutKeywordSummaryResponse(BaseModel):

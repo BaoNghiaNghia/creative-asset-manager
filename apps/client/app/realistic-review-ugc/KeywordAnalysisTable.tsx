@@ -445,6 +445,7 @@ export function KeywordAnalysisTable({
   usageFilter,
   tailFilter,
   favoritesOnly,
+  suggestedOnly,
   pickingIds,
   favoritingIds,
   feedbackUpdatingIds,
@@ -453,6 +454,7 @@ export function KeywordAnalysisTable({
   onUsageFilterChange,
   onTailFilterChange,
   onFavoritesOnlyChange,
+  onSuggestedOnlyChange,
   onResetAll,
   onPickChange,
   onFavoriteChange,
@@ -468,6 +470,7 @@ export function KeywordAnalysisTable({
   usageFilter: KeywordUsageFilter;
   tailFilter: KeywordTailFilter;
   favoritesOnly: boolean;
+  suggestedOnly: boolean;
   pickingIds: Set<string>;
   favoritingIds: Set<string>;
   feedbackUpdatingIds: Set<string>;
@@ -476,6 +479,7 @@ export function KeywordAnalysisTable({
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
   onFavoritesOnlyChange: (value: boolean) => void;
+  onSuggestedOnlyChange: (value: boolean) => void;
   onResetAll: () => void;
   onPickChange: (keywordId: string, picked: boolean) => void;
   onFavoriteChange: (keywordId: string, favorite: boolean) => void;
@@ -487,22 +491,25 @@ export function KeywordAnalysisTable({
   const start = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
   const activeOverviewFilter =
-    favoritesOnly ? "favorites"
+    suggestedOnly ? "suggested"
+    : favoritesOnly ? "favorites"
       : usageFilter === "used" ? "used"
         : tailFilter !== "all" ? tailFilter
           : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
   const [feedbackScopes, setFeedbackScopes] = useState<Record<string, ScoutFeedbackScope>>({});
 
-  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites") => {
+  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites" | "suggested") => {
     const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
     const nextTail: KeywordTailFilter =
       filter === "short" || filter === "mid" || filter === "long" ? filter : "all";
     const nextFavoritesOnly = filter === "favorites";
+    const nextSuggestedOnly = filter === "suggested";
 
     if (usageFilter !== nextUsage) onUsageFilterChange(nextUsage);
     if (tailFilter !== nextTail) onTailFilterChange(nextTail);
     if (favoritesOnly !== nextFavoritesOnly) onFavoritesOnlyChange(nextFavoritesOnly);
+    if (suggestedOnly !== nextSuggestedOnly) onSuggestedOnlyChange(nextSuggestedOnly);
   };
 
   const handleQueryChange = (nextQuery: string) => {
@@ -573,6 +580,16 @@ export function KeywordAnalysisTable({
       </button>
       <button
         type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-suggested-kpi" + (activeOverviewFilter === "suggested" ? " active" : "")}
+        aria-pressed={activeOverviewFilter === "suggested"}
+        onClick={() => selectOverviewFilter("suggested")}
+      >
+        <span>Đề xuất</span>
+        <strong>{data.overview.suggested_keywords.toLocaleString()}</strong>
+        <small>Keywords / Pins suggested</small>
+      </button>
+      <button
+        type="button"
         className={"rrugc-stage0-kpi-card rrugc-stage0-favorite-kpi" + (activeOverviewFilter === "favorites" ? " active" : "")}
         aria-pressed={activeOverviewFilter === "favorites"}
         onClick={() => selectOverviewFilter("favorites")}
@@ -587,6 +604,7 @@ export function KeywordAnalysisTable({
       <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
       <div className="rrugc-stage0-main-filters" role="group" aria-label="Keyword filters">
         <button type="button" className={activeOverviewFilter === "all" ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
+        <button type="button" className={activeOverviewFilter === "suggested" ? "active" : ""} onClick={() => selectOverviewFilter("suggested")}>Đề xuất</button>
         <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="star" filled={activeOverviewFilter === "favorites"} />Favorites</button>
         <button type="button" className={activeOverviewFilter === "short" ? "active" : ""} onClick={() => selectOverviewFilter("short")}>Short-tail</button>
         <button type="button" className={activeOverviewFilter === "mid" ? "active" : ""} onClick={() => selectOverviewFilter("mid")}>Mid-tail</button>

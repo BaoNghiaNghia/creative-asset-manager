@@ -581,6 +581,7 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         "long_tail_keywords": 0,
         "picked_keywords": 1,
         "favorite_keywords": 0,
+        "suggested_keywords": 0,
     }
     assert [row["keyword"] for row in payload["items"]] == [
         "matching couple hoodies",
@@ -10483,3 +10484,70 @@ def test_scout_operations_summary_reports_live_job_counts_without_leaking_keys(a
     assert "token" not in response.text.lower()
     assert api.get(url).status_code in (401, 403)
     assert api.get(url, headers={"Authorization": "Bearer invalid"}).status_code in (401, 403)
+
+def test_stage0_suggested_card_counts_unique_keyword_and_pin_feedback_and_filters(api, database):
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        for tenant, keyword, pin in [
+            ("tenant-a", "funny cowboy", "https://www.pinterest.com/pin/111/"),
+            ("tenant-a", "funny western", "https://www.pinterest.com/pin/111/"),
+            ("tenant-a", "classic saying", "https://www.pinterest.com/pin/222/"),
+            ("tenant-a", "hidden blocked", "https://www.pinterest.com/pin/333/"),
+            ("tenant-b", "secret other tenant", "https://www.pinterest.com/pin/444/"),
+        ]:
+            session.add(RrugcKeywordVolumeModel(
+                tenant_id=tenant, keyword=keyword, keyword_normalized=keyword,
+                source_pin_url=pin, provider="aebrowse_google_ads", search_volume=123,
+                fetched_at=now, last_requested_at=now,
+            ))
+        session.add_all([
+            # Two scopes for one keyword must still count one row.
+            RrugcScoutFeedbackModel(
+                tenant_id="tenant-a", target_type="keyword", target_key="funny cowboy",
+                keyword="funny cowboy", display_value="funny cowboy", status="suggested",
+                updated_by_user_id="owner",
+            ),
+            RrugcScoutFeedbackModel(
+                tenant_id="tenant-a", target_type="pin",
+                target_key="https://www.pinterest.com/pin/111/",
+                keyword="funny cowboy", display_value="pin 111", status="suggested",
+                updated_by_user_id="owner",
+            ),
+            RrugcScoutFeedbackModel(
+                tenant_id="tenant-a", target_type="keyword", target_key="hidden blocked",
+                keyword="hidden blocked", display_value="hidden blocked", status="blocked",
+                updated_at=now - timedelta(minutes=2), updated_by_user_id="owner",
+            ),
+            RrugcScoutFeedbackModel(
+                tenant_id="tenant-b", target_type="keyword", target_key="secret other tenant",
+                keyword="secret other tenant", display_value="other tenant", status="suggested",
+                updated_by_user_id="other",
+            ),
+        ])
+        session.commit()
+    route = "/api/v1/realistic-review-ugc/keyword-analysis"
+    all_rows = api.get(route).json()
+    assert all_rows["overview"]["total_keywords"] == 3
+    assert all_rows["overview"]["suggested_keywords"] == 2
+    first = api.get(route, params={"suggested_only": True, "page_size": 1}).json()
+    second = api.get(route, params={"suggested_only": True, "page_size": 1, "page": 2}).json()
+    assert first["total"] == second["total"] == 2
+    assert first["overview"]["suggested_keywords"] == 2
+    assert {first["items"][0]["keyword"], second["items"][0]["keyword"]} == {
+        "funny cowboy", "funny western",
+    }
+    filtered = api.get(route, params={"suggested_only": True, "query": "western"}).json()
+    assert filtered["total"] == 1
+    assert filtered["overview"]["suggested_keywords"] == 1
+    assert filtered["items"][0]["keyword"] == "funny western"
+    # Clearing a suggested keyword immediately updates its card and filter.
+    with database() as session:
+        feedback = session.scalar(select(RrugcScoutFeedbackModel).where(
+            RrugcScoutFeedbackModel.tenant_id == "tenant-a",
+            RrugcScoutFeedbackModel.target_type == "pin",
+        ))
+        feedback.status = "neutral"
+        session.commit()
+    only_keyword = api.get(route, params={"suggested_only": True}).json()
+    assert only_keyword["total"] == only_keyword["overview"]["suggested_keywords"] == 1
+    assert only_keyword["items"][0]["keyword"] == "funny cowboy"
