@@ -765,7 +765,10 @@ class TenantAwareJobClaimer:
             _rrugc_concurrency_limit,
             rrugc_drain_mode,
         ) = self._rrugc_lane_profile(job, now)
-        lane = limiter.reserve_start(
+        # Check without reserving first. Previously the shared lane was
+        # consumed even when every model/key gate was blocked, creating idle
+        # gaps with ready jobs in the queue. Never bypass either gate.
+        lane = limiter.next_start(
             tenant_id=job.tenant_id,
             provider=RRUGC_GEMINI_LANE_PROVIDER,
             model=RRUGC_GEMINI_LANE_MODEL,
@@ -801,6 +804,28 @@ class TenantAwareJobClaimer:
             rrugc_model_gate_provider = (
                 RRUGC_GEMINI_MODEL_GATE_PREFIX + credential_provider
             )
+            model_slot = limiter.next_start(
+                tenant_id=job.tenant_id,
+                provider=rrugc_model_gate_provider,
+                model=model,
+                rpm=rpm,
+                minimum_interval_seconds=rrugc_min_interval_seconds,
+                now=now,
+            )
+            if not model_slot.allowed:
+                continue
+            # Reserve the shared lane only after a candidate model is ready.
+            # The DB limiter still provides atomic cross-worker protection.
+            lane_reservation = limiter.reserve_start(
+                tenant_id=job.tenant_id,
+                provider=RRUGC_GEMINI_LANE_PROVIDER,
+                model=RRUGC_GEMINI_LANE_MODEL,
+                rpm=60,
+                minimum_interval_seconds=rrugc_min_interval_seconds,
+                now=now,
+            )
+            if not lane_reservation.allowed:
+                return _RRUGC_GEMINI_LANE_UNAVAILABLE
             decision = limiter.reserve_start(
                 tenant_id=job.tenant_id,
                 provider=rrugc_model_gate_provider,

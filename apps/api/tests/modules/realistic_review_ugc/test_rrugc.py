@@ -1312,6 +1312,11 @@ def test_rrugc_maintenance_wakes_deferred_gemini_jobs_when_capacity_returns(data
             "gemini_capacity_available",
             lambda _tenant_id, *, now: True,
         )
+        monkeypatch.setattr(
+            service,
+            "gemini_rrugc_slot_available",
+            lambda _tenant_id, *, now: True,
+        )
 
         repaired = service.repair_tenant("tenant-a", now=now)
         assert repaired["gemini_jobs_woken"] == 1
@@ -1322,6 +1327,48 @@ def test_rrugc_maintenance_wakes_deferred_gemini_jobs_when_capacity_returns(data
             next_attempt = next_attempt.replace(tzinfo=timezone.utc)
         assert next_attempt <= now + timedelta(seconds=1)
         assert service.health("tenant-a", now=now).gemini_deferred == 0
+
+
+def test_rrugc_maintenance_does_not_wake_deferred_during_model_lane_cooldown(database, monkeypatch):
+    from app.modules.ai_governance.model import AiModelRateLimitStateModel
+    from app.modules.processing_policy.claim import (
+        RRUGC_GEMINI_LANE_PROVIDER, RRUGC_GEMINI_LANE_MODEL,
+    )
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        AiModelRateLimitStateModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True,
+        )
+        job = ProcessingJobModel(
+            tenant_id="tenant-a",
+            job_type="rrugc_candidate_analyze",
+            entity_type="rrugc_candidate",
+            entity_id="candidate-cooldown",
+            idempotency_key="gemini-429-cooldown",
+            payload_json={"candidate_id": "candidate-cooldown"},
+            provider_key="gemini", provider_scope="ai", status="retry",
+            attempt_count=1, max_attempts=3,
+            next_attempt_at=now + timedelta(hours=1),
+            last_error_code="gemini_model_pool_temporarily_unavailable",
+        )
+        session.add_all([job, AiModelRateLimitStateModel(
+            tenant_id="tenant-a", provider=RRUGC_GEMINI_LANE_PROVIDER,
+            model=RRUGC_GEMINI_LANE_MODEL, last_started_at=now,
+            next_eligible_at=now + timedelta(minutes=5),
+            blocked_until=now + timedelta(minutes=5), updated_at=now,
+        )])
+        session.commit()
+        service = RrugcMaintenanceService(
+            session, Settings(RRUGC_GEMINI_RETRY_WAKE_BATCH_SIZE=10),
+        )
+        monkeypatch.setattr(service, "gemini_capacity_available",
+                            lambda tenant_id, *, now: True)
+        assert service.repair_tenant("tenant-a", now=now)["gemini_jobs_woken"] == 0
+        session.refresh(job)
+        retry_at = job.next_attempt_at
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        assert retry_at > now + timedelta(minutes=50)
 
 
 def test_auto_scout_claim_submit_complete_and_pin_dedupe(database):

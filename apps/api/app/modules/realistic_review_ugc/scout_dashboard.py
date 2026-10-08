@@ -54,6 +54,20 @@ def scout_jobs_snapshot(
         .where(*jbase).group_by(job.status)).all())
     stage1_pending = int(job_counts.get("pending", 0)) + int(job_counts.get("retry", 0))
     stage1_running = int(job_counts.get("processing", 0))
+    # Due timestamp is distinct from actual quota/concurrency eligibility.
+    # Showing both avoids misdiagnosing a momentary Processing=0 as a stall.
+    stage1_due_now = _scalar_count(
+        session, job, *jbase,
+        job.status.in_(("pending", "retry")),
+        job.next_attempt_at <= now,
+        job.cancellation_requested.is_(False),
+        job.attempt_count < job.max_attempts,
+    )
+    stage1_retry_later = _scalar_count(
+        session, job, *jbase,
+        job.status.in_(("pending", "retry")),
+        job.next_attempt_at > now,
+    )
     stage1_completed = _scalar_count(
         session, job, *jbase,
         job.status == "completed", job.updated_at >= day,
@@ -138,6 +152,8 @@ def scout_jobs_snapshot(
             "scout_failed_24h": failed_review,
             "stage1_pending": stage1_pending,
             "stage1_running": stage1_running,
+            "stage1_due_now": stage1_due_now,
+            "stage1_retry_later": stage1_retry_later,
             "stage1_completed_24h": stage1_completed,
             "stage1_failed_24h": stage1_failed,
             "stage1_completed_1h": stage1_completed_hour,

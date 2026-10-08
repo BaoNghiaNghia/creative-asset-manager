@@ -63,6 +63,8 @@ struct ReviewJobCounts {
     scout_failed_24h: u64,
     stage1_pending: u64,
     stage1_running: u64,
+    stage1_due_now: u64,
+    stage1_retry_later: u64,
     stage1_completed_24h: u64,
     stage1_failed_24h: u64,
     discovery_throttled: bool,

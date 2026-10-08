@@ -51,6 +51,10 @@ def test_scout_jobs_snapshot_tenant_and_agent_isolation():
                     entity_type="rrugc_candidate", entity_id=str(i),
                     idempotency_key="test-" + str(i), status=status,
                     updated_at=now,
+                    next_attempt_at=(
+                        now + timedelta(minutes=10) if status == "retry"
+                        else now - timedelta(minutes=1)
+                    ),
                 ))
             session.add_all([
                 RrugcScoutQueryModel(
@@ -109,6 +113,8 @@ def test_scout_jobs_snapshot_tenant_and_agent_isolation():
             assert review["scout_completed_24h"] == 1
             assert review["scout_failed_24h"] == 0
             assert review["stage1_pending"] == 2
+            assert review["stage1_due_now"] == 1
+            assert review["stage1_retry_later"] == 1
             assert review["stage1_running"] == 1
             assert review["stage1_completed_24h"] == 1
             assert review["stage1_failed_24h"] == 1

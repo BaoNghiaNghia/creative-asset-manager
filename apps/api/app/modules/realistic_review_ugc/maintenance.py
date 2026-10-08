@@ -139,6 +139,45 @@ class RrugcMaintenanceService:
     def gemini_capacity_available(self, tenant_id: str, *, now: datetime) -> bool:
         return self.gemini_available_credential_count(tenant_id, now=now) > 0
 
+    def gemini_rrugc_slot_available(self, tenant_id: str, *, now: datetime) -> bool:
+        """Read-only readiness probe for deferred-job waking.
+
+        Daily quota can be available while every RRUGC model start gate is
+        still cooling down. Avoid waking all retry jobs into that cooldown.
+        The normal claim path still atomically reserves quota and slots.
+        """
+        from app.modules.ai_governance.rate_limit import (
+            AiModelRateLimitRepository, configured_model_rates,
+        )
+        from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
+        from app.modules.processing_policy.claim import (
+            RRUGC_GEMINI_LANE_MODEL, RRUGC_GEMINI_LANE_PROVIDER,
+            RRUGC_GEMINI_MODEL_GATE_PREFIX,
+        )
+        limiter = AiModelRateLimitRepository(self.session)
+        interval = self.settings.RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS
+        lane = limiter.next_start(
+            tenant_id=tenant_id, provider=RRUGC_GEMINI_LANE_PROVIDER,
+            model=RRUGC_GEMINI_LANE_MODEL, rpm=60,
+            minimum_interval_seconds=interval, now=now,
+        )
+        if not lane.allowed:
+            return False
+        for model, rpm in configured_model_rates(self.settings, "gemini", None):
+            credential = rate_limit_provider_key(
+                self.session, self.settings, tenant_id, "gemini",
+                model=model, rpm=rpm, minimum_interval_seconds=interval,
+                now=now, state_provider_prefix=RRUGC_GEMINI_MODEL_GATE_PREFIX,
+            )
+            if limiter.next_start(
+                tenant_id=tenant_id,
+                provider=RRUGC_GEMINI_MODEL_GATE_PREFIX + credential,
+                model=model, rpm=rpm,
+                minimum_interval_seconds=interval, now=now,
+            ).allowed:
+                return True
+        return False
+
     def health(self, tenant_id: str, *, now: datetime | None = None) -> RrugcHealthSnapshot:
         current = now or datetime.now(timezone.utc)
         orphan_count = int(
@@ -251,7 +290,8 @@ class RrugcMaintenanceService:
             candidate.last_error_code = "rrugc_import_watchdog_requeued"
             repaired_imports += 1
 
-        if self.gemini_capacity_available(tenant_id, now=current):
+        if (self.gemini_capacity_available(tenant_id, now=current)
+                and self.gemini_rrugc_slot_available(tenant_id, now=current)):
             deferred_rows = list(
                 self.session.scalars(
                     select(ProcessingJobModel)

@@ -692,6 +692,37 @@ class RateLimitedClaimTest(unittest.TestCase):
         self.assertEqual(claimed.id, source_plan_id)
         self.assertEqual(claimed.job_type, "rrugc_source_plan_analyze")
 
+    def test_rrugc_all_model_gates_blocked_does_not_burn_shared_lane(self):
+        """A blocked Gemini pool must not consume the next Review start slot."""
+        self._rrugc_job("model-unavailable")
+        with self.sessions.begin() as session:
+            for model, _rpm in configured_model_rates(self.settings, "gemini", None):
+                session.add(AiModelRateLimitStateModel(
+                    tenant_id="tenant",
+                    provider=RRUGC_GEMINI_MODEL_GATE_PREFIX + "gemini",
+                    model=model,
+                    last_started_at=NOW,
+                    next_eligible_at=NOW + timedelta(minutes=5),
+                    blocked_until=NOW + timedelta(minutes=5),
+                    updated_at=NOW,
+                ))
+        self.assertIsNone(self._claim(
+            "rrugc-blocked-models",
+            allowed_job_types=("rrugc_candidate_analyze",),
+        ))
+        with self.sessions() as session:
+            lane = session.get(AiModelRateLimitStateModel, {
+                "tenant_id": "tenant",
+                "provider": RRUGC_GEMINI_LANE_PROVIDER,
+                "model": RRUGC_GEMINI_LANE_MODEL,
+            })
+            self.assertIsNone(lane)
+            job = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.idempotency_key == "rrugc:model-unavailable"
+            ))
+            if job is not None:
+                self.assertEqual(job.attempt_count, 0)
+
     def test_rrugc_claim_reserves_shared_lane_and_gemini_model_slot(self):
         first_id = self._rrugc_job("first")
         self._rrugc_job("second")
