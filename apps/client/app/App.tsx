@@ -8,6 +8,7 @@ import { VideoSearchPlayer } from "./components/VideoSearchPlayer";
 import type { VideoSearchItem } from "./hooks/useVideoSearch";
 import { useVideoSearch } from "./hooks/useVideoSearch";
 import { useVisualSearch } from "./hooks/useVisualSearch";
+import { useRecentVisualSearches } from "./hooks/useRecentVisualSearches";
 import { AssetContextMenu, ExplorerPaneContextMenu, type AssetContextMenuPosition } from "./components/AssetContextMenu";
 import { PublicReviewManagementDialog } from "./public-review-management/PublicReviewManagementDialog";
 import { activeShareFolderIds, ManagementApiError, managementApi, resolveShareLinkForCopy } from "./public-review-management/api";
@@ -327,6 +328,12 @@ export default function App() {
     : explorer.applicationPermissions.includes("search.read");
   const visualSearch = useVisualSearch(explorer.provider, explorer.activeExternalSourceId, explorer.currentFolderId, canSearchAllResources);
   const [visualSearchOpen, setVisualSearchOpen] = useState(false);
+  const recentVisualSearches = useRecentVisualSearches(explorer.applicationAuthenticated ? explorer.applicationUser?.id : null);
+  useEffect(() => {
+    if (!visualSearch.scope || !explorer.applicationUser?.id) return;
+    if (visualSearch.reference?.kind === "asset") recentVisualSearches.rememberAsset(visualSearch.reference.asset);
+    if (visualSearch.reference?.kind === "upload" && visualSearch.reference.prepared) recentVisualSearches.rememberUpload(visualSearch.reference.file);
+  }, [visualSearch.scope, visualSearch.reference, explorer.applicationUser?.id, recentVisualSearches.rememberAsset, recentVisualSearches.rememberUpload]);
   const videoSearch = useVideoSearch({
     authenticated: explorer.applicationAuthenticated === true,
     enabled: true,
@@ -1372,7 +1379,7 @@ export default function App() {
           </div>
 
           <div
-            className={[visualSearchOpen ? "visual-search-workbench" : "", "explorer-folder-pane"].filter(Boolean).join(" ")}
+            className={[visualSearchOpen && visualSearch.reference ? "visual-search-workbench" : "", "explorer-folder-pane"].filter(Boolean).join(" ")}
             onContextMenu={event => {
               if (!canCreateFolder || hasSearchQuery || visualSearchOpen || event.defaultPrevented) return;
               const target = event.target as HTMLElement;
@@ -1395,8 +1402,10 @@ export default function App() {
             onUpload={visualSearch.chooseUpload}
             onApplyCrop={crop => visualSearch.retry(crop)}
             onRetry={visualSearch.retry}
-            recentAssets={explorer.items.filter(item => item.kind === "image").slice(0, 12)}
+            showRecentImages
+            recentImages={recentVisualSearches.images}
             onChooseAsset={visualSearch.chooseAsset}
+            onChooseUpload={visualSearch.chooseUpload}
             onClose={() => { visualSearch.clear(); setVisualSearchOpen(false); }}
           />}
           <div className={hasSearchQuery && showImageSearchSection ? "search-results-layout has-category-filter" : "search-results-layout"}>

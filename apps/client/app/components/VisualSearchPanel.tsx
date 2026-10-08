@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { VisualCrop, VisualSearchScope } from "../hooks/useVisualSearch";
 import type { Asset } from "../types";
+import type { VisualHistoryEntry } from "../hooks/useRecentVisualSearches";
 import { assetPreviewUrl, explorerAssetUrl } from "../utils/mediaUrls";
 
 type Reference = { kind: "asset"; asset: Asset } | { kind: "upload"; file: File; previewUrl: string } | null;
-type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; onPreviewError?: (file: File, previewUrl: string) => void; recentAssets?: Asset[]; onChooseAsset?: (asset: Asset) => void; };
+type Props = { scope: VisualSearchScope | null; canSearchAllResources: boolean; onScopeChange: (scope: VisualSearchScope) => void; hasCurrentSource: boolean; hasCurrentFolder: boolean; reference: Reference; loading: boolean; preparingUpload?: boolean; error: string; refinement: string; onRefinementChange: (value: string) => void; onUpload: (file: File, crop?: VisualCrop) => void; onApplyCrop: (crop: VisualCrop) => void; onRetry: (crop?: VisualCrop, text?: string) => void; onClose: () => void; onPreviewError?: (file: File, previewUrl: string) => void; showRecentImages?: boolean; recentImages?: VisualHistoryEntry[]; onChooseAsset?: (asset: Asset) => void; onChooseUpload?: (file: File) => void; };
 type DragMode = "create" | "nw" | "ne" | "sw" | "se";
 type DragState = { mode: DragMode; start: { x: number; y: number }; crop: VisualCrop; changed: boolean };
 const fullCrop: VisualCrop = { x: 0, y: 0, width: 1, height: 1 };
@@ -34,7 +35,7 @@ function point(event: ReactPointerEvent<HTMLElement>, element: HTMLElement) {
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function sameCrop(left: VisualCrop, right: VisualCrop) { return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height; }
 
-export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose, onPreviewError, recentAssets = [], onChooseAsset }: Props) {
+export function VisualSearchPanel({ scope, reference, loading, preparingUpload = false, error, onUpload, onApplyCrop, onRetry, onClose, onPreviewError, showRecentImages = false, recentImages = [], onChooseAsset, onChooseUpload }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
   const stageRef = useRef<HTMLDivElement>(null);
@@ -47,6 +48,12 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
   useEffect(() => {
     if (reference) return;
     const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    if (scrollbarWidth > 0) {
+      const currentPadding = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+      document.body.style.paddingRight = (currentPadding + scrollbarWidth) + "px";
+    }
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -54,6 +61,7 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
     window.addEventListener("keydown", closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [reference, onClose]);
@@ -173,19 +181,18 @@ export function VisualSearchPanel({ scope, reference, loading, preparingUpload =
         {!scope && <small>Search is unavailable until your account permissions finish loading.</small>}
       </label>
       {displayedError && <div className="visual-search-error visual-search-modal-error" role="alert"><span>{displayedError}</span></div>}
-      {recentAssets.length > 0 && onChooseAsset && <section className="visual-search-recent">
+      {showRecentImages && <section className="visual-search-recent" aria-label="Visual search history">
         <div className="visual-search-recent-heading">
-          <button type="button" className="visual-search-recent-toggle" onClick={() => setRecentExpanded(value => !value)} aria-expanded={recentExpanded}>
+          <strong className="visual-search-recent-title">
             <span>Your recent images</span>
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d={recentExpanded ? "m5 12 5-5 5 5" : "m5 8 5 5 5-5"} /></svg>
-          </button>
-          <button type="button" className="visual-search-view-all" onClick={() => setRecentExpanded(true)}>View all</button>
+          </strong>
+          {recentImages.length > 8 && <button type="button" className="visual-search-view-all" onClick={() => setRecentExpanded(value => !value)} aria-expanded={recentExpanded}>{recentExpanded ? "Show less" : "View all"}</button>}
         </div>
-        {recentExpanded && <div className="visual-search-recent-strip">
-          {recentAssets.map(asset => <button type="button" key={(asset.external_source_id || "") + ":" + asset.id} className="visual-search-recent-item" onClick={() => onChooseAsset(asset)} aria-label={"Search using " + asset.name} title={asset.name}>
-            <img src={asset.thumbnail_url || explorerAssetUrl(asset, "thumbnail")} alt="" loading="lazy" />
+        {recentImages.length > 0 ? <div className="visual-search-recent-strip">
+          {(recentExpanded ? recentImages : recentImages.slice(0, 8)).map(item => <button type="button" key={item.key} className="visual-search-recent-item" onClick={() => item.kind === "asset" ? onChooseAsset?.(item.asset) : onChooseUpload?.(item.file)} aria-label={"Search using " + (item.kind === "asset" ? item.asset.name : item.file.name)} title={item.kind === "asset" ? item.asset.name : item.file.name}>
+            <img src={item.previewUrl} alt="" loading="lazy" />
           </button>)}
-        </div>}
+        </div> : <p className="visual-search-recent-empty">Your previous visual searches will appear here.</p>}
       </section>}
       {picker}
     </section>

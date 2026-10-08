@@ -74,7 +74,7 @@ describe("visual search client helpers", () => {
       reference: null, loading: false, error: "", refinement: "",
       onScopeChange: () => undefined, onRefinementChange: () => undefined, onUpload: () => undefined,
       onApplyCrop: () => undefined, onRetry: () => undefined, onClose: () => undefined,
-      recentAssets: [referenceAsset()], onChooseAsset: () => undefined,
+      showRecentImages: true, recentImages: Array.from({ length: 9 }, (_, index) => ({ key: "history:" + index, kind: "asset" as const, asset: referenceAsset(), previewUrl: "/api/explorer/thumbnail/asset-a" })), onChooseAsset: () => undefined,
     }));
     expect(markup).toContain("visual-search-modal");
     expect(markup).toContain("Upload an image to search");

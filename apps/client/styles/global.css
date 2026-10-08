@@ -1751,20 +1751,15 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
 .visual-search-modal-error{margin:12px 8px 0}
 .visual-search-recent{padding:16px 16px 0}
 .visual-search-recent-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.visual-search-recent-toggle{
+.visual-search-recent-title{
   display:inline-flex;
   align-items:center;
-  gap:7px;
   padding:8px 0;
-  border:0;
-  background:transparent;
   color:#111;
   font:inherit;
   font-size:16px;
   font-weight:760;
-  cursor:pointer;
 }
-.visual-search-recent-toggle svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .visual-search-view-all{
   flex:none;
   min-height:38px;
@@ -1778,6 +1773,7 @@ nav div button:hover{background:#eef2f7;color:#1f5eea}
   cursor:pointer;
 }
 .visual-search-view-all:hover{background:#deded9}
+.visual-search-recent-empty{margin:2px 0 12px;color:#757575;font-size:13px}
 .visual-search-recent-strip{
   display:grid;
   grid-auto-flow:column;
