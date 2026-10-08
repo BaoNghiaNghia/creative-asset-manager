@@ -7,6 +7,7 @@ import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage
 
 const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-camo-green", "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon", "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose", "natural-red", "natural-royal"] as const;
 const COLOR_SLOT_COUNT = COLOR_KEYS.length;
+const PREFERRED_COLORWAY_SKILL = "gatorhats-8869-scale-image";
 const STAGE1_PAGE_SIZE_OPTIONS = [20, 50, 100, 500] as const;
 const EMPTY_CATALOG: Stage2SkillCatalog = {
   openai_configured: false,
@@ -104,7 +105,8 @@ export function EmbroideryColorwayStage({
     void listStage2Skills(false, controller.signal)
       .then(result => {
         setCatalog(result);
-        const firstReady = result.items.find(item => item.ready) || result.items[0];
+        const firstReady = result.items.find(item => item.skill_name === PREFERRED_COLORWAY_SKILL && item.ready)
+          || result.items.find(item => item.ready) || result.items[0];
         if (firstReady) setSelectedSkillKey(current => current || skillKey(firstReady));
       })
       .catch(reason => {

@@ -66,6 +66,16 @@ from app.modules.realistic_review_ugc.visual_dedupe import (
 )
 
 
+MAX_REFERENCE_SOURCE_DOWNLOAD_ATTEMPTS = 3
+
+
+def reference_source_download_terminal(attempt_count: int, error: Exception) -> bool:
+    """Stop known-dead Pinterest images after bounded retries, but retain transient retries."""
+    if isinstance(error, httpx.HTTPStatusError) and error.response.status_code in {401, 403, 404, 410}:
+        return True
+    return attempt_count >= MAX_REFERENCE_SOURCE_DOWNLOAD_ATTEMPTS
+
+
 def _image_mime(image_format: str) -> str:
     return {
         "JPEG": "image/jpeg",
@@ -124,8 +134,20 @@ class RrugcCandidateAnalyzeJobHandler:
                 "Reference image is not safe or valid for analysis.",
             )
         except (SecureDownloadError, httpx.HTTPError) as exc:
-            self._mark_error(context, exc.__class__.__name__, terminal=False)
-            return JobHandlerResult.retryable(
+            terminal = reference_source_download_terminal(context.job.attempt_count, exc)
+            self._mark_error(context, "rrugc_analysis_source_unavailable", terminal=terminal)
+            if terminal:
+                context.logger.info(
+                    "rrugc_candidate_source_download_exhausted",
+                    extra={
+                        "candidate_id": context.job.entity_id,
+                        "tenant_id": context.job.tenant_id,
+                        "attempt_count": context.job.attempt_count,
+                        "error_type": exc.__class__.__name__,
+                    },
+                )
+            outcome = JobHandlerResult.non_retryable if terminal else JobHandlerResult.retryable
+            return outcome(
                 "rrugc_analysis_source_unavailable",
                 "Reference image could not be downloaded for analysis.",
             )

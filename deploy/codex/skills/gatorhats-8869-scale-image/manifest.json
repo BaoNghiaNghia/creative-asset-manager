@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-scale-image",
+  "display_name": "GatorHats 8869 · Scale Embroidery",
+  "description": "Apply an exact embroidery design onto one official 8869 stock cap colorway (one output per run).",
+  "workflows": [
+    "image_studio"
+  ],
+  "product_types": [
+    "valucap_8869",
+    "8869_cap"
+  ],
+  "required_reference_roles": [
+    "design_reference"
+  ],
+  "optional_reference_roles": [
+    "product_front"
+  ],
+  "max_references": 1
+}

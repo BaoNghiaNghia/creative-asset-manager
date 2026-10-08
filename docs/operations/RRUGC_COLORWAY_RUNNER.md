@@ -6,6 +6,11 @@ Stage 2 feature QA passed. An authenticated real-provider end-to-end run is stil
 required before treating this as production-ready. This does **not** replace any
 of the six user-facing stages or link Stage 1 keyword outputs to Stage 2.
 
+## Skill selection
+- Stock photo authority remains `gatorhats-8869-image-studio/assets/stock` (13 physically present Valucap 8869 colors).
+- Generation now prefers a **separate** bundled `gatorhats-8869-scale-image` Skill, because Image Studio's own SKILL.md routes color-scaling-only requests to a separate workflow. Each job edits the official stock front image with exactly one `design_reference` image. Existing user-selected Skills remain selectable.
+- Both project-managed skills are synced by the normal backend release script. The Scale Image Skill is not a new dependency or provider credential.
+
 ## Contract
 - Stage 2 accepts only the current tenant's available `embroidery_*` source plans.
 - Stock base images are the 13 physical `front.jpg` files named in

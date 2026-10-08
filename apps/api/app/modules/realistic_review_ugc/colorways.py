@@ -37,6 +37,7 @@ from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerCo
 
 JOB_TYPE = "rrugc_colorway_generate"
 STOCK_SKILL = "gatorhats-8869-image-studio"
+DEFAULT_COLORWAY_SKILL = "gatorhats-8869-scale-image"
 # Same order/labels as STOCK_MANIFEST.md. These are the 13 real stock colors, not arbitrary numbers.
 COLORS = (
     ("khaki-maroon", "Khaki/Maroon"),
@@ -137,7 +138,7 @@ class ColorwayService:
             skill = resolve_stage2_skill(
                 settings=self.settings, skill_source=skill_source, skill_id=skill_id,
                 skill_name=skill_name, skill_version=skill_version,
-                fallback_skill_name=STOCK_SKILL,
+                fallback_skill_name=DEFAULT_COLORWAY_SKILL,
             )
             ensure_skill_registry(self.session, tenant_id=tenant_id)
             assert_skill_enabled(self.session, tenant_id=tenant_id, source=skill.source,

@@ -2776,6 +2776,9 @@ npm run typecheck -- --pretty false (passed).
 
 ## RRUGC Stage 2 — durable 13-color runner implementation (October 8, 2026)
 
+Follow-up hardening: added specialized `gatorhats-8869-scale-image` Skill for the one-design/one-color Stage 2 operation; kept the full-set Image Studio Skill separately available. Stage 2 defaults to Scale Image when installed, users may still pick another Skill. Added 18/18 focused backend tests (colorway job, new bundled Skill, and bounded Pinterest source download retry); full prior RRUGC suite 187/187 and frontend Stage 2 targeted typecheck/41 Vitest checks passed. Reference download now marks candidates `analysis_failed` after 3 unavailable attempts (immediately for HTTP 401/403/404/410), retains manual `good` approvals, and lets Scout backfill instead of repeatedly blocking on one dead URL. Retain the pre-release real provider QA and rollback gates.
+
+
 - Kept Stage 0–5 names/roles and the Stage 2 `embroidery_` inputs unchanged; no Stage 1 → Stage 2 data handoff.
 - Implemented `rrugc_colorway_generate` as a Codex image-worker job; 13 exact official 8869 stock colors are drawn from bundled stock, not invented from model knowledge.
 - Migration `0143_rrugc_colorway_jobs` adds tenant/source revision/color uniqueness, pinned skill and stock hashes, retry status and managed output metadata.
