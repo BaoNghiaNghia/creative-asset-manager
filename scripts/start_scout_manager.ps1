@@ -191,7 +191,7 @@ try {
         if (-not (Test-Path -LiteralPath $path)) {
             return "unknown"
         }
-        $match = Select-String -LiteralPath $path -Pattern '^SCOUT_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
+        $match = Select-String -LiteralPath $path -Pattern '^CLIENT_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
         if ($null -ne $match -and $match.Matches.Count -gt 0) {
             return $match.Matches[0].Groups[1].Value
         }
