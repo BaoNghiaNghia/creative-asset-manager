@@ -330,6 +330,46 @@ class GeminiAiMetadataProvider:
                     headers={"x-goog-api-key": self._api_key},
                     json=body,
                 )
+                if (
+                    input.metadata_profile == "rrugc_quote_scout"
+                    and input.json_schema is not None
+                    and response.status_code == 400
+                ):
+                    error_details = self._error_details(
+                        response, model=model, input=input
+                    )
+                    error_message = str(
+                        error_details.get("google_error_message") or ""
+                    ).lower()
+                    # Some models reject responseJsonSchema even though they
+                    # support JSON MIME output.  Quote Scout validates the
+                    # returned document through HatQuoteDocument, so only this
+                    # known, locally validated pipeline may retry once without
+                    # the incompatible generation-time schema.
+                    if any(
+                        marker in error_message
+                        for marker in (
+                            "responsejsonschema",
+                            "response_json_schema",
+                            "response json schema",
+                        )
+                    ):
+                        _LOGGER.warning(
+                            "gemini_quote_schema_fallback model=%s "
+                            "google_status=%s",
+                            model,
+                            error_details.get("google_error_status"),
+                        )
+                        response = await client.post(
+                            url,
+                            headers={"x-goog-api-key": self._api_key},
+                            json={
+                                **body,
+                                "generationConfig": {
+                                    "responseMimeType": "application/json"
+                                },
+                            },
+                        )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             raise AiProviderError(
                 "Gemini request could not be completed.",
@@ -949,7 +989,12 @@ class GeminiAiMetadataProvider:
                 retryable = False
                 message = "Gemini request target was not found."
         _LOGGER.warning(
-            "gemini_http_error",
+            "gemini_http_error model=%s http_status=%s google_status=%s "
+            "google_message=%s",
+            model,
+            status,
+            details.get("google_error_status"),
+            str(details.get("google_error_message") or "")[:240],
             extra={
                 "actual_model": model,
                 "endpoint_path": details.get("endpoint_path"),

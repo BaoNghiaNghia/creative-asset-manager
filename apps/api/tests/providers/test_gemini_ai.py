@@ -212,6 +212,105 @@ class GeminiAiMetadataProviderTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(schema, original)
 
+    async def test_quote_scout_retries_once_when_response_json_schema_is_rejected(self):
+        requests = []
+
+        async def handler(request):
+            body = json.loads(request.content)
+            requests.append(body)
+            if len(requests) == 1:
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "status": "INVALID_ARGUMENT",
+                            "message": (
+                                "Invalid JSON payload received. Unknown name "
+                                "'response_json_schema' at generation_config."
+                            ),
+                        }
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {"content": {"parts": [{"text": '{"is_hat":true,"confidence":0.9}'}]}}
+                    ]
+                },
+            )
+
+        provider = configured_gemini_provider(
+            "secret", model="gemini-test", transport=httpx.MockTransport(handler)
+        )
+        inp = replace(
+            analysis_input(),
+            metadata_profile="rrugc_quote_scout",
+            json_schema={"type": "object", "properties": {"is_hat": {"type": "boolean"}}},
+        )
+        result = await provider.analyze_single(inp)
+        self.assertEqual(result.metadata["is_hat"], True)
+        self.assertEqual(len(requests), 2)
+        self.assertIn("responseJsonSchema", requests[0]["generationConfig"])
+        self.assertEqual(
+            requests[1]["generationConfig"],
+            {"responseMimeType": "application/json"},
+        )
+
+    async def test_quote_scout_does_not_retry_unrelated_bad_request(self):
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "status": "INVALID_ARGUMENT",
+                        "message": "Invalid model generation parameters.",
+                    }
+                },
+            )
+
+        provider = configured_gemini_provider(
+            "secret", model="gemini-test", transport=httpx.MockTransport(handler)
+        )
+        inp = replace(
+            analysis_input(),
+            metadata_profile="rrugc_quote_scout",
+            json_schema={"type": "object"},
+        )
+        with self.assertRaises(AiProviderError) as caught:
+            await provider.analyze_single(inp)
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(calls, 1)
+
+    async def test_other_metadata_profiles_do_not_relax_json_schema(self):
+        calls = 0
+
+        async def handler(_request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "status": "INVALID_ARGUMENT",
+                        "message": "Unknown name 'responseJsonSchema' at generationConfig.",
+                    }
+                },
+            )
+
+        provider = configured_gemini_provider(
+            "secret", model="gemini-test", transport=httpx.MockTransport(handler)
+        )
+        inp = replace(analysis_input(), json_schema={"type": "object"})
+        with self.assertRaises(AiProviderError) as caught:
+            await provider.analyze_single(inp)
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(calls, 1)
+
     async def test_accepts_json_wrapped_by_a_whole_document_markdown_fence(self):
         async def handler(_request):
             return httpx.Response(
