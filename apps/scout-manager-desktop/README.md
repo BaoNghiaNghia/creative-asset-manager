@@ -16,6 +16,12 @@ Tauri NSIS installer: src-tauri/target/release/bundle/nsis. Windows build was ve
 
 The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor checkout / D:\Bot_Tool_Auto_Game\scan_pinterest). It runs the existing scripts/start_scout_auto_update.ps1 -SkipUpdate with separate Review / Keyword Chrome profiles and log files. Tauri 0.1.2 shares the `Local\\CreativeAssetManager.RrugcScout.Manager` named Windows mutex with WinForms. Only the holder can start, stop, pair, or update Scouts; a second Manager shows a warning and disables its controls. Close the old WinForms Manager when ready to switch. It is preserved for rollback.
 
+## Opt-in launch and rollback
+
+A new `START_SCOUT_TAURI.cmd` in the Windows Scout checkout launches `scout-manager-releases/RRUGC_Scout_Manager_Latest_x64.exe` (portable binary from the verified build). It explicitly sets `CAM_SCOUT_REPO_ROOT` to the checkout when absent. The packaged installer is optional and no administrator-level change is required for the portable app. The launcher does **not** automatically fall back to WinForms on errors, so the user can see what failed; run `START_SCOUT_MANAGER.cmd` directly to roll back.
+
+Build from a full checkout, then copy the versioned + latest portable binaries and NSIS installer to the ignored `scout-manager-releases` directory for the target Windows machine. Do not run both WinForms and Tauri controllers simultaneously; they share the exclusive Windows Manager mutex.
+
 ## Behavior and boundaries
 
 - Same Scout Python runtime, API, pairing keys and histories; no API/database migration.

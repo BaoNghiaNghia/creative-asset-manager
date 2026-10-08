@@ -45,9 +45,20 @@ try {
   New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
   $destination = Join-Path $releaseDir ("RRUGC_Scout_Manager_" + $version + "_x64_Setup.exe")
   Copy-Item -LiteralPath $expected -Destination $destination -Force
-  Write-Host "==> Installer ready:" -ForegroundColor Green
-  Get-Item -LiteralPath $destination | Select-Object FullName, Length, LastWriteTime | Format-List
-  Get-FileHash -LiteralPath $destination -Algorithm SHA256 | Select-Object Hash | Format-List
+  # Portable distribution provides an explicit opt-in migration path that
+  # does not need an installer or overwrite the WinForms fallback.
+  $builtExe = Join-Path $Project "src-tauri\target\release\cam-scout-manager.exe"
+  if (-not (Test-Path -LiteralPath $builtExe -PathType Leaf)) {
+    throw ("Built Tauri executable is missing: " + $builtExe)
+  }
+  $portableVersioned = Join-Path $releaseDir ("RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe")
+  $portableLatest = Join-Path $releaseDir "RRUGC_Scout_Manager_Latest_x64.exe"
+  Copy-Item -LiteralPath $builtExe -Destination $portableVersioned -Force
+  Copy-Item -LiteralPath $portableVersioned -Destination $portableLatest -Force
+  Write-Host "==> Installer and portable executable ready:" -ForegroundColor Green
+  Get-Item -LiteralPath $destination, $portableVersioned, $portableLatest | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
+  Get-FileHash -LiteralPath $destination, $portableLatest -Algorithm SHA256 | Select-Object Path, Hash | Format-List
+  Write-Host "Launch the native UI with START_SCOUT_TAURI.cmd; fallback: START_SCOUT_MANAGER.cmd."
 } finally {
   $env:CI = $OriginalCi
   Pop-Location
