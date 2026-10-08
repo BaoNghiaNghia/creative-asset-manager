@@ -20,6 +20,10 @@ The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor
 
 The Windows 0.1.3 release uses `CREATE_NO_WINDOW` for both Git commands and the PowerShell Scout launcher. Commit metadata is cached on startup and after successful fast-forward updates rather than spawning Git on every 2-second dashboard refresh. The React polling loop deduplicates concurrent requests. The tray Quit and **Quit and stop** footer action shut down Scout process trees on background threads, with bounded per-child waits and a 10-second fallback exit. Closing the window with X hides it to tray and does not interrupt automation. Test this via an isolated `CAM_SCOUT_REPO_ROOT` mock before switching from WinForms; do not terminate real Scout processes during validation.
 
+## Native 0.1.7 AI backlog visibility
+
+The authenticated Stage 0 summary also reports the number of queued RRUGC image-analysis jobs, age of the oldest pending job, and whether the shared-Gemini circuit breaker is active. This helps distinguish idle Scouts and provider backpressure from a loss of saved keywords; the UI never implies that a Running process guarantees new database rows. No Gemini quotas or safety thresholds are bypassed. Automatic Scout startup remains disabled until **Run automation** is pressed.
+
 ## Native 0.1.6 compact UI and live Stage 0 keyword health
 
 Window dimensions and WebView typography/layout are scaled to 90% of 0.1.5. The Keyword Scout card shows authenticated tenant-scoped server totals, new keywords in the last 24 hours and 7 days, and the most recently created keyword's timestamp; refresh occurs every 30 seconds. A data-staleness warning appears when no keywords have been saved in 24 hours. The Rust backend sends the local Scout token directly to an HTTPS-only stats endpoint and never exposes it to React. This release also improves Gemini quote extraction fallback for generic schema-related HTTP 400 responses and keeps a single faulty Pin from forcing an entire Scout cycle into a 180-second pause. The keyword counts are database-confirmed, not inferred from processed Pin counts.

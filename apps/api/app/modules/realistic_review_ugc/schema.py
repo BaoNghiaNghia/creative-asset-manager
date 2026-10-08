@@ -524,6 +524,9 @@ class ScoutKeywordSummaryResponse(BaseModel):
     total_keywords: int = 0
     added_24h: int = 0
     added_7d: int = 0
+    analysis_pending: int = 0
+    analysis_oldest_wait_seconds: int = 0
+    analysis_backpressure_active: bool = False
     last_created_at: datetime | None = None
     last_updated_at: datetime | None = None
     fetched_at: datetime

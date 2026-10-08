@@ -4,7 +4,7 @@ import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, Fi
 
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
-type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
+type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type Dashboard = { version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
 const EMPTY: Dashboard = { version: "rrugc-scout-v45", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
@@ -31,6 +31,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
       <div className="keyword-metric"><span>Added 24h</span><strong>+{keywordSummary?.added_24h ?? "—"}</strong></div>
       <div className="keyword-metric"><span>Added 7d</span><strong>+{keywordSummary?.added_7d ?? "—"}</strong></div>
       <div className="keyword-metric last"><span>Last saved</span><strong>{keywordSummary?.last_created_at ? new Date(keywordSummary.last_created_at).toLocaleString() : "No data"}</strong></div>
+      <div className={"keyword-health-note " + (keywordSummary?.analysis_backpressure_active ? "backpressure" : "")}>AI analysis queue: {keywordSummary ? keywordSummary.analysis_pending.toLocaleString("en-US") + " pending · oldest " + Math.floor(keywordSummary.analysis_oldest_wait_seconds / 60) + " min" : "checking server…"}{keywordSummary?.analysis_backpressure_active ? " · Gemini capacity protection active" : ""}</div>
       {keywordError && <div className="keyword-health-note">{keywordError}</div>}
       {!keywordError && keywordSummary && info.state === "Running" && keywordSummary.last_created_at && Date.now() - new Date(keywordSummary.last_created_at).getTime() > 60 * 60 * 1000 && <div className="keyword-health-note">Running, but no new keywords in the last {Math.floor((Date.now() - new Date(keywordSummary.last_created_at).getTime()) / 3600000)}h · check AI/Pin logs</div>}
       {!keywordError && keywordSummary && keywordSummary.added_24h === 0 && info.state !== "Running" && <div className="keyword-health-note">No new keyword in the last 24 hours</div>}

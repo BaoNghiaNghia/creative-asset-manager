@@ -3937,10 +3937,14 @@ def quote_scout_keyword_summary(
             base, RrugcKeywordVolumeModel.created_at >= now - timedelta(days=7)
         )
     )
+    pressure = scout_analysis_backpressure(session, agent.tenant_id, now=now)
     return ScoutKeywordSummaryResponse(
         total_keywords=int(total or 0),
         added_24h=int(day or 0),
         added_7d=int(week or 0),
+        analysis_pending=int(pressure["pending_jobs"]),
+        analysis_oldest_wait_seconds=int(pressure["oldest_wait_seconds"]),
+        analysis_backpressure_active=bool(pressure["active"]),
         last_created_at=latest_created,
         last_updated_at=latest_updated,
         fetched_at=now,

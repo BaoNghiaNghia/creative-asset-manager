@@ -842,6 +842,9 @@ def test_quote_scout_keyword_summary_is_tenant_scoped_and_requires_agent_token(a
     assert summary["total_keywords"] == 2
     assert summary["added_24h"] == 1
     assert summary["added_7d"] == 2
+    assert summary["analysis_pending"] >= 0
+    assert summary["analysis_oldest_wait_seconds"] >= 0
+    assert isinstance(summary["analysis_backpressure_active"], bool)
     assert summary["last_created_at"] is not None
     assert summary["fetched_at"] is not None
     denied = api.get(url, headers={"Authorization": "Bearer incorrect-token"})
