@@ -842,7 +842,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("+83.1%");
     expect(markup).toContain("Google Ads index 92");
     expect(markup).toContain("Trademark (TM)");
-    expect(markup).toContain("Not yet checked against the official trademark register");
+    expect(markup).toContain("Trademark screening has not been returned by AEBrowse");
     expect(markup).toContain("https://tmsearch.uspto.gov/");
     expect(markup).toContain("$0.74");
     expect(markup).toContain("$2.18");

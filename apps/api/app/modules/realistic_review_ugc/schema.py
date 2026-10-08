@@ -441,10 +441,17 @@ class KeywordVolumeResponse(BaseModel):
     competition: str | None = None
     cpc_low: float | None = None
     cpc_high: float | None = None
-    trademark_status: Literal["unverified", "possible_match", "no_exact_match"] = "unverified"
+    trademark_status: Literal["unverified", "safe", "warning", "danger", "possible_match", "no_exact_match"] = "unverified"
     trademark_checked_at: datetime | None = None
     trademark_source: str | None = None
     trademark_match_count: int | None = None
+    trademark_class_025: bool | None = None
+    trademark_category: str | None = None
+    trademark_advice: str | None = None
+    trademark_details: str | None = None
+    trademark_primary_conflict: dict | None = None
+    trademark_matches: list[dict] = Field(default_factory=list)
+    trademark_screened_keyword: str | None = None
     competition_index: int | None = None
     three_month_change_pct: float | None = None
     yoy_change_pct: float | None = None

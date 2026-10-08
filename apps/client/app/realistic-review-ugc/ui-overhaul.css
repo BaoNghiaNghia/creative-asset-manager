@@ -1518,3 +1518,11 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-tm-detail>div:last-child{display:grid;gap:5px;justify-items:start}
 .rrugc-stage0-tm-detail small{font-size:9px;color:#8b98a9}
 .rrugc-stage0-tm-detail a{color:#3767a6;font-size:10px;font-weight:800}
+.rrugc-stage0-tm-badge.is-safe{border-color:#b8ddc7;background:#e6f6eb;color:#247344}
+.rrugc-stage0-tm-badge.is-safe>span{background:#46a36b}
+.rrugc-stage0-tm-badge.is-warning{border-color:#efd9a9;background:#fff7e5;color:#9d6b1b}
+.rrugc-stage0-tm-badge.is-warning>span{background:#c89237}
+.rrugc-stage0-tm-badge.is-danger{border-color:#eec2c5;background:#fff0f1;color:#b0444c}
+.rrugc-stage0-tm-badge.is-danger>span{background:#c04c59}
+.rrugc-stage0-tm-detail .rrugc-stage0-tm-badge{margin-top:3px}
+.rrugc-stage0-tm-detail p{white-space:normal;overflow-wrap:anywhere}

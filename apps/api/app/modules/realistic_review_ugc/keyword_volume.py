@@ -25,6 +25,51 @@ KEYWORD_VOLUME_MAX_BATCH = 50
 KEYWORD_VOLUME_MAX_LENGTH = 500
 KEYWORD_VOLUME_MIN_WORDS = 2
 KEYWORD_VOLUME_RETRIES = 2
+KEYWORD_TRADEMARK_SOURCE = "aebrowse_google_ads"
+KEYWORD_TRADEMARK_STATUS_MAP = {
+    "SAFE": "safe",
+    "WARNING": "warning",
+    "DANGER": "danger",
+}
+
+
+def apply_provider_trademark(
+    row: RrugcKeywordVolumeModel,
+    item: dict,
+    *,
+    checked_at: datetime,
+) -> bool:
+    """Persist per-keyword AEBrowse screening, never its aggregate summary.
+
+    An absent/malformed TM object preserves previously verified evidence.
+    Provider SAFE is only a screening result, not a legal clearance.
+    """
+    tm = item.get("trademark")
+    if not isinstance(tm, dict):
+        return False
+    status = KEYWORD_TRADEMARK_STATUS_MAP.get(
+        str(tm.get("status") or "").strip().upper()
+    )
+    if not status:
+        return False
+    row.trademark_status = status
+    row.trademark_checked_at = checked_at
+    row.trademark_source = KEYWORD_TRADEMARK_SOURCE
+    count = _as_int(tm.get("conflict_count"), default=-1)
+    row.trademark_match_count = count if count >= 0 else None
+    return True
+
+
+def restore_cached_provider_trademark(row: RrugcKeywordVolumeModel) -> bool:
+    """Upgrade stored responses without an unnecessary provider API call."""
+    if row.trademark_status in {"safe", "warning", "danger"}:
+        return False
+    raw = row.provider_raw_json
+    if not isinstance(raw, dict):
+        return False
+    return apply_provider_trademark(
+        row, raw, checked_at=_aware(row.fetched_at) or datetime.now(timezone.utc)
+    )
 
 
 class KeywordVolumeError(RuntimeError):
@@ -270,6 +315,7 @@ class RrugcKeywordVolumeService:
         cached_rows: list[RrugcKeywordVolumeModel] = []
         for clean, normalized in requested:
             row = existing_by_key[normalized]
+            restore_cached_provider_trademark(row)
             fetched_at = _aware(row.fetched_at)
             provider_raw_keyword = str(
                 (row.provider_raw_json or {}).get("keyword") or ""
@@ -344,11 +390,17 @@ class RrugcKeywordVolumeService:
                 except (TypeError, ValueError, OverflowError):
                     valid_volume = False
                 if not valid_volume:
+                    # A provider can return a TM verdict even when Google Ads
+                    # omits volume; do not discard independent screening.
+                    if item:
+                        apply_provider_trademark(row, item, checked_at=current_time)
+                        row.provider_raw_json = dict(row.provider_raw_json or {}, **item)
                     _LOGGER.warning(
                         "rrugc_keyword_volume_partial_result",
                         extra={"keyword_missing_or_invalid": True},
                     )
                     continue
+                apply_provider_trademark(row, item, checked_at=current_time)
                 row.keyword = clean
                 row.search_volume = _as_int(raw_volume)
                 competition = str(item.get("competition") or "").strip().upper()
@@ -427,6 +479,41 @@ class RrugcKeywordVolumeService:
                             "Keyword volume provider returned an invalid response.",
                             status_code=502,
                         )
+                    # AEBrowse documents per-keyword TM on its GET endpoint.
+                    # Some POST responses may omit TM. Supplement only the
+                    # missing fields without overwriting the volume payload.
+                    items = payload.get("data")
+                    missing_tm = (
+                        isinstance(items, list)
+                        and any(
+                            isinstance(item, dict)
+                            and not isinstance(item.get("trademark"), dict)
+                            for item in items
+                        )
+                    )
+                    if missing_tm and response.request.method.upper() == "POST":
+                        try:
+                            tm_response = await client.get(
+                                self.endpoint,
+                                params={"keywords": ",".join(keywords)},
+                            )
+                            tm_response.raise_for_status()
+                            tm_payload = tm_response.json()
+                            tm_items = tm_payload.get("data") if isinstance(tm_payload, dict) and tm_payload.get("success") is True else None
+                            if isinstance(tm_items, list):
+                                tm_by_key = {
+                                    str(record.get("keyword") or "").strip().casefold(): record["trademark"]
+                                    for record in tm_items
+                                    if isinstance(record, dict)
+                                    and isinstance(record.get("trademark"), dict)
+                                }
+                                for item in items:
+                                    if isinstance(item, dict) and not isinstance(item.get("trademark"), dict):
+                                        tm = tm_by_key.get(str(item.get("keyword") or "").strip().casefold())
+                                        if tm:
+                                            item["trademark"] = tm
+                        except (httpx.HTTPError, ValueError):
+                            _LOGGER.warning("rrugc_keyword_trademark_get_supplement_unavailable")
                     return payload
                 except KeywordVolumeError:
                     raise

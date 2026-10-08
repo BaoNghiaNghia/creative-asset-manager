@@ -2965,6 +2965,12 @@ def _keyword_volume_response(
 ) -> KeywordVolumeResponse:
     feedback = feedback or {}
     keys = list(feedback_targets(row, "both"))
+    raw = row.provider_raw_json if isinstance(row.provider_raw_json, dict) else {}
+    tm = raw.get("trademark") if isinstance(raw.get("trademark"), dict) else {}
+    # Additional details must belong to this exact provider keyword screening.
+    tm_is_current = row.trademark_source == "aebrowse_google_ads" and row.trademark_status in {"safe", "warning", "danger"}
+    if not tm_is_current:
+        tm = {}
     return KeywordVolumeResponse(
         id=row.id,
         keyword=row.keyword,
@@ -2976,6 +2982,13 @@ def _keyword_volume_response(
         trademark_checked_at=row.trademark_checked_at,
         trademark_source=row.trademark_source,
         trademark_match_count=row.trademark_match_count,
+        trademark_class_025=tm.get("class_025") if isinstance(tm.get("class_025"), bool) else None,
+        trademark_category=tm.get("category") if isinstance(tm.get("category"), str) else None,
+        trademark_advice=tm.get("advice") if isinstance(tm.get("advice"), str) else None,
+        trademark_details=tm.get("details") if isinstance(tm.get("details"), str) else None,
+        trademark_primary_conflict=tm.get("primary_conflict") if isinstance(tm.get("primary_conflict"), dict) else None,
+        trademark_matches=[entry for entry in tm.get("matches", [])[:20] if isinstance(entry, dict)] if isinstance(tm.get("matches"), list) else [],
+        trademark_screened_keyword=raw.get("keyword") if tm_is_current and isinstance(raw.get("keyword"), str) else None,
         competition_index=_keyword_metric_int(
             (row.provider_raw_json or {}).get("competition_index")
         ),
@@ -3801,10 +3814,13 @@ def list_keyword_analysis(
     elif sort_by == "trademark":
         # Highest risk first in descending order; unknown never means safe.
         tm_rank = case(
-            (RrugcKeywordVolumeModel.trademark_status == "possible_match", 3),
-            (RrugcKeywordVolumeModel.trademark_status == "unverified", 2),
-            (RrugcKeywordVolumeModel.trademark_status == "no_exact_match", 1),
-            else_=2,
+            (RrugcKeywordVolumeModel.trademark_status == "danger", 5),
+            (RrugcKeywordVolumeModel.trademark_status == "warning", 4),
+            (RrugcKeywordVolumeModel.trademark_status == "possible_match", 4),
+            (RrugcKeywordVolumeModel.trademark_status == "unverified", 3),
+            (RrugcKeywordVolumeModel.trademark_status == "safe", 1),
+            (RrugcKeywordVolumeModel.trademark_status == "no_exact_match", 2),
+            else_=3,
         )
         primary_order = [tm_rank.asc() if sort_dir == "asc" else tm_rank.desc()]
     elif sort_by == "created_at":

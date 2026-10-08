@@ -38,11 +38,20 @@ function formatChange(value: number | null | undefined): string {
   return (value > 0 ? "+" : "") + value.toFixed(1) + "%";
 }
 
-function TrademarkStatusBadge({ status }: { status: "unverified" | "possible_match" | "no_exact_match" | undefined }) {
+export function TrademarkStatusBadge({ status }: { status: KeywordVolume["trademark_status"] }) {
   const kind = status || "unverified";
-  const caption = kind === "possible_match" ? "Cần kiểm tra" : kind === "no_exact_match" ? "Không trùng chính xác" : "Chưa xác minh";
-  return <span className={"rrugc-stage0-tm-badge is-" + kind} title="Kết quả sơ bộ, không phải xác nhận an toàn pháp lý">
-    <span aria-hidden="true">{kind === "possible_match" ? "!" : kind === "no_exact_match" ? "✓" : "?"}</span>{caption}
+  const captions: Record<NonNullable<KeywordVolume["trademark_status"]>, string> = {
+    safe: "An Toàn",
+    warning: "Cảnh Báo",
+    danger: "Nguy Hiểm",
+    possible_match: "Cần kiểm tra",
+    no_exact_match: "Không trùng chính xác",
+    unverified: "Chưa xác minh",
+  };
+  const symbol = kind === "safe" || kind === "no_exact_match" ? "✓"
+    : kind === "danger" || kind === "warning" || kind === "possible_match" ? "!" : "?";
+  return <span className={"rrugc-stage0-tm-badge is-" + kind} title="AEBrowse TM screening · không thay thế việc thẩm định pháp lý">
+    <span aria-hidden="true">{symbol}</span>{captions[kind]}
   </span>;
 }
 
@@ -299,14 +308,23 @@ export function KeywordDetailModal({
         </section>
 
         <section className="rrugc-stage0-tm-detail" aria-label="Trademark screening">
-          <div><strong>Trademark (TM) · US federal register</strong><p>{item.trademark_status === "possible_match"
-            ? "A potentially matching mark was reported. Review the mark's status, owner, and goods/services for headwear."
-            : item.trademark_status === "no_exact_match"
-              ? "No exact match was reported by the recorded screening. Similar marks and unregistered rights may still apply."
-              : "Not yet checked against the official trademark register. Google Ads metrics do not determine trademark safety."}</p></div>
           <div>
-            <small>Source: {item.trademark_source || "Not connected"} · Matches: {item.trademark_match_count ?? "—"}</small>
-            <a href="https://tmsearch.uspto.gov/" target="_blank" rel="noopener noreferrer">Check in USPTO Trademark Search ↗</a>
+            <strong>Trademark (TM) · AEBrowse screening</strong>
+            <p><TrademarkStatusBadge status={item.trademark_status} /></p>
+            <p>{item.trademark_advice || item.trademark_details || (item.trademark_status === "unverified" || !item.trademark_status
+              ? "Trademark screening has not been returned by AEBrowse for this keyword."
+              : "Provider screening result only. Review similar marks and applicable product categories.")}</p>
+            {item.trademark_details && item.trademark_details !== item.trademark_advice ? <p>{item.trademark_details}</p> : null}
+            {item.trademark_category && <p>Category: {item.trademark_category}</p>}
+            {item.trademark_screened_keyword && <p>Screened query: {item.trademark_screened_keyword}</p>}
+          </div>
+          <div>
+            <small>Source: {item.trademark_source || "Not checked"} · Conflicts: {item.trademark_match_count ?? "—"}</small>
+            <small>Class 025: {item.trademark_class_025 == null ? "—" : item.trademark_class_025 ? "Matched" : "No match reported"}</small>
+            <small>Checked: {formatDetailDate(item.trademark_checked_at)}</small>
+            {item.trademark_primary_conflict && <small>Primary conflict: {JSON.stringify(item.trademark_primary_conflict)}</small>}
+            {item.trademark_matches?.length ? <small>{item.trademark_matches.length} detailed matching records</small> : null}
+            <a href="https://tmsearch.uspto.gov/" target="_blank" rel="noopener noreferrer">Verify with USPTO ↗</a>
           </div>
         </section>
 
