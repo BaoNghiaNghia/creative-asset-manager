@@ -754,6 +754,15 @@ def test_challenge_gate_can_be_resolved_in_open_browser(monkeypatch):
     assert page.waits == 1
 
 
+def test_keyword_search_uses_commit_navigation_with_pin_readiness_check():
+    import inspect
+
+    source = inspect.getsource(keyword_scout.run_pinterest_quote_scout)
+    assert 'wait_until="commit"' in source
+    assert "await wait_for_pin_growth(" in source
+    assert "await _wait_for_pinterest_access(page)" in source
+
+
 def test_quote_extract_http_status_retry_policy_preserves_transient_pins():
     assert _quote_extract_status_is_terminal(400)
     assert _quote_extract_status_is_terminal(413)

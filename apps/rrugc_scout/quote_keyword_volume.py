@@ -1540,9 +1540,12 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 await client.ensure_analysis_capacity()
                 if page is None:
                     await open_browser_runtime()
+                # Pinterest often holds DOMContentLoaded behind third-party
+                # requests for 60s even though navigation has committed.
+                # Pin-growth and access checks below still validate readiness.
                 response = await page.goto(
                     search_url,
-                    wait_until="domcontentloaded",
+                    wait_until="commit",
                     timeout=60_000,
                 )
                 guard_pinterest_response(response)
