@@ -44,6 +44,7 @@ from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_
 from app.modules.realistic_review_ugc.keyword_volume import (
     KeywordVolumeError,
     RrugcKeywordVolumeService,
+    trademark_evidence_is_current,
 )
 from app.modules.realistic_review_ugc.quote_scout_analysis import (
     QuoteScoutError,
@@ -2968,7 +2969,7 @@ def _keyword_volume_response(
     raw = row.provider_raw_json if isinstance(row.provider_raw_json, dict) else {}
     tm = raw.get("trademark") if isinstance(raw.get("trademark"), dict) else {}
     # Additional details must belong to this exact provider keyword screening.
-    tm_is_current = row.trademark_source == "aebrowse_google_ads" and row.trademark_status in {"safe", "warning", "danger"}
+    tm_is_current = trademark_evidence_is_current(row) and row.trademark_source == "aebrowse_google_ads"
     if not tm_is_current:
         tm = {}
     return KeywordVolumeResponse(
@@ -2978,17 +2979,17 @@ def _keyword_volume_response(
         competition=row.competition,
         cpc_low=row.cpc_low,
         cpc_high=row.cpc_high,
-        trademark_status=row.trademark_status or "unverified",
-        trademark_checked_at=row.trademark_checked_at,
-        trademark_source=row.trademark_source,
-        trademark_match_count=row.trademark_match_count,
+        trademark_status=row.trademark_status if tm_is_current else "unverified",
+        trademark_checked_at=row.trademark_checked_at if tm_is_current else None,
+        trademark_source=row.trademark_source if tm_is_current else None,
+        trademark_match_count=row.trademark_match_count if tm_is_current else None,
         trademark_class_025=tm.get("class_025") if isinstance(tm.get("class_025"), bool) else None,
         trademark_category=tm.get("category") if isinstance(tm.get("category"), str) else None,
         trademark_advice=tm.get("advice") if isinstance(tm.get("advice"), str) else None,
         trademark_details=tm.get("details") if isinstance(tm.get("details"), str) else None,
         trademark_primary_conflict=tm.get("primary_conflict") if isinstance(tm.get("primary_conflict"), dict) else None,
         trademark_matches=[entry for entry in tm.get("matches", [])[:20] if isinstance(entry, dict)] if isinstance(tm.get("matches"), list) else [],
-        trademark_screened_keyword=raw.get("keyword") if tm_is_current and isinstance(raw.get("keyword"), str) else None,
+        trademark_screened_keyword=raw.get("_trademark_screened_keyword") if tm_is_current else None,
         competition_index=_keyword_metric_int(
             (row.provider_raw_json or {}).get("competition_index")
         ),

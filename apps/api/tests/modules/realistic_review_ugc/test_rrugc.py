@@ -91,6 +91,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
+    RrugcScoutFeedbackModel,
     RrugcStage2JobModel,
     RrugcStage3AnalysisModel,
     RrugcStage2SkillRegistryModel,
@@ -196,6 +197,7 @@ def database():
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
     RrugcKeywordVolumeModel.__table__.create(engine)
+    RrugcScoutFeedbackModel.__table__.create(engine)
     RrugcScoutAgentModel.__table__.create(engine)
     RrugcScoutRunModel.__table__.create(engine)
     RrugcProductModel.__table__.create(engine)
@@ -298,6 +300,7 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 "keyword": keyword,
                 "search_volume": 4400 if "hotdog" in keyword.casefold() else 260,
                 "competition": "HIGH",
+                "trademark": {"status": "SAFE", "conflict_count": 0},
                 "competition_index": 100,
                 "cpc_low": 0.56,
                 "cpc_high": 1.96,
@@ -355,10 +358,10 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 assert first.rows[0].provider_raw_json[
                     "_observed_volume_history"
                 ] == [{"period": "2026-10-05", "volume": 4400}]
-                assert calls == [[
-                    "Bad Day To Be A Hotdog hat",
-                    "funny hotdog cap hat",
-                ]]
+                assert calls == [
+                    ["Bad Day To Be A Hotdog hat", "funny hotdog cap hat"],
+                    ["Bad Day To Be A Hotdog hat", "funny hotdog cap"],
+                ]
 
                 cached = await service.resolve(
                     tenant_id="tenant-a",
@@ -370,7 +373,7 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 )
                 assert cached.provider_requested == 0
                 assert cached.cached == 2
-                assert len(calls) == 1
+                assert len(calls) == 2
 
                 forced = await service.resolve(
                     tenant_id="tenant-a",
@@ -380,7 +383,7 @@ def test_keyword_volume_service_persists_and_reuses_24h_cache(database):
                 )
                 assert forced.provider_requested == 1
                 assert forced.cached == 0
-                assert len(calls) == 2
+                assert len(calls) == 4
 
                 persisted = list(
                     session.scalars(

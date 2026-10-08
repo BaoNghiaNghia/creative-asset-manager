@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.keyword_volume import (
@@ -122,6 +122,18 @@ def test_aebrowse_per_keyword_trademark_status_and_details_are_persisted() -> No
                     {"keyword": "Sunset Vibes hat", "search_volume": 0},
                 ],
             })
+            volume_payload = service._fetch_provider.return_value
+            async def by_query(terms, *, tm_only=False):
+                if not tm_only:
+                    assert all(term.endswith(" hat") for term in terms)
+                    return volume_payload
+                assert all(not term.endswith(" hat") for term in terms)
+                original_tm = [
+                    {**item, "keyword": item["keyword"][:-4]}
+                    for item in volume_payload["data"]
+                ]
+                return {"success": True, "data": original_tm}
+            service._fetch_provider = AsyncMock(side_effect=by_query)
             result = asyncio.run(service.resolve(
                 tenant_id="tenant-1",
                 keywords=["matching couple hoodies", "Houston Astros", "Morgan Wallen", "Sunset Vibes"],
@@ -139,7 +151,7 @@ def test_aebrowse_per_keyword_trademark_status_and_details_are_persisted() -> No
             assert detailed.trademark_class_025 is True
             assert detailed.trademark_primary_conflict == {"wordmark": "Houston Astros"}
             assert detailed.trademark_matches == [{"wordmark": "Houston Astros"}]
-            assert detailed.trademark_screened_keyword == "Houston Astros hat"
+            assert detailed.trademark_screened_keyword == "Houston Astros"
             safe_detail = _keyword_volume_response(rows["matching couple hoodies"])
             assert safe_detail.trademark_category == "Chưa phát hiện vi phạm"
             assert safe_detail.trademark_advice == "Từ khóa an toàn"
@@ -168,6 +180,7 @@ def test_restore_raw_provider_trademark_without_extra_external_request() -> None
         keyword_normalized="houston astros",
         provider_raw_json={
             "keyword": "Houston Astros hat",
+            "_trademark_screened_keyword": "Houston Astros",
             "trademark": {"status": "WARNING", "conflict_count": 2},
         },
         trademark_status="unverified",
@@ -187,24 +200,27 @@ def test_restore_raw_provider_trademark_without_extra_external_request() -> None
     assert invalid.trademark_status == "unverified"
 
 
-def test_trademark_get_supplement_fills_post_volume_without_changing_metrics():
+def test_tm_requests_original_keyword_and_metrics_request_hat_keyword():
     import httpx
 
+    import json
     calls = []
     def respond(request: httpx.Request):
-        calls.append(request.method)
-        if request.method == "POST":
+        keywords = json.loads(request.content.decode())["keywords"]
+        calls.append((request.method, keywords))
+        if keywords == ["Houston Astros hat", "Sunset Vibes hat"]:
             return httpx.Response(200, json={
                 "success": True, "data": [
                     {"keyword": "Houston Astros hat", "search_volume": 900, "cpc_low": 1.2},
                     {"keyword": "Sunset Vibes hat", "search_volume": 10},
                 ],
             })
+        assert keywords == ["Houston Astros", "Sunset Vibes"]
         return httpx.Response(200, json={
             "success": True, "data": [
-                {"keyword": "Houston Astros hat", "search_volume": 100,
+                {"keyword": "Houston Astros", "search_volume": 100,
                  "trademark": {"status": "WARNING", "conflict_count": 2}},
-                {"keyword": "Sunset Vibes hat", "search_volume": 1,
+                {"keyword": "Sunset Vibes", "search_volume": 1,
                  "trademark": {"status": "SAFE", "conflict_count": 0}},
             ],
         })
@@ -212,11 +228,145 @@ def test_trademark_get_supplement_fills_post_volume_without_changing_metrics():
     async def check():
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
             service = RrugcKeywordVolumeService(None, http_client=client)
-            return await service._fetch_provider(["Houston Astros hat", "Sunset Vibes hat"])
+            volume = await service._fetch_provider(["Houston Astros hat", "Sunset Vibes hat"])
+            tm = await service._fetch_provider(["Houston Astros", "Sunset Vibes"], tm_only=True)
+            return volume, tm
 
-    result = asyncio.run(check())
-    assert calls == ["POST", "GET"]
-    assert result["data"][0]["search_volume"] == 900
-    assert result["data"][0]["cpc_low"] == 1.2
-    assert result["data"][0]["trademark"]["status"] == "WARNING"
-    assert result["data"][1]["trademark"]["status"] == "SAFE"
+    volume, tm = asyncio.run(check())
+    assert calls == [
+        ("POST", ["Houston Astros hat", "Sunset Vibes hat"]),
+        ("POST", ["Houston Astros", "Sunset Vibes"]),
+    ]
+    assert volume["data"][0]["search_volume"] == 900
+    assert volume["data"][0]["cpc_low"] == 1.2
+    assert tm["data"][0]["keyword"] == "Houston Astros"
+    assert tm["data"][0]["trademark"]["status"] == "WARNING"
+    assert tm["data"][1]["trademark"]["status"] == "SAFE"
+
+def test_legacy_hat_tm_is_refreshed_using_original_keyword_without_refetching_volume():
+    import httpx
+    from app.modules.realistic_review_ugc.router import _keyword_volume_response
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    RrugcKeywordVolumeModel.__table__.create(engine)
+    now = datetime(2026, 10, 8, tzinfo=timezone.utc)
+    requests = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        import json
+        searched = json.loads(request.content.decode())["keywords"]
+        requests.append((request.method, searched))
+        assert request.method == "POST", "volume cache must remain untouched"
+        assert searched == ["Houston Astros"]
+        return httpx.Response(200, json={
+            "success": True,
+            "data": [{
+                "keyword": "Houston Astros",
+                "search_volume": 1,
+                "cpc_low": 99.99,
+                "trademark": {"status": "DANGER", "conflict_count": 3,
+                              "class_025": True, "advice": "Conflict"},
+            }],
+        })
+
+    try:
+        with Session(engine) as session:
+            legacy = RrugcKeywordVolumeModel(
+                tenant_id="tenant-1", keyword="Houston Astros",
+                keyword_normalized="houston astros",
+                search_volume=2200, cpc_low=0.42, cpc_high=1.25,
+                provider=KEYWORD_VOLUME_PROVIDER,
+                fetched_at=now - timedelta(minutes=1),
+                trademark_status="safe", trademark_source=KEYWORD_VOLUME_PROVIDER,
+                provider_raw_json={
+                    "keyword": "Houston Astros hat",
+                    "search_volume": 2200, "cpc_low": 0.42,
+                    "trademark": {"status": "SAFE", "conflict_count": 0},
+                },
+            )
+            session.add(legacy)
+            session.commit()
+            assert _keyword_volume_response(legacy).trademark_status == "unverified"
+            async def exercise():
+                async with httpx.AsyncClient(transport=httpx.MockTransport(responder)) as client:
+                    service = RrugcKeywordVolumeService(session, http_client=client)
+                    result = await service.resolve(
+                        tenant_id="tenant-1", keywords=["Houston Astros"], now=now,
+                    )
+                    row = result.rows[0]
+                    assert result.cached == 1 and result.provider_requested == 0
+                    assert row.search_volume == 2200
+                    assert row.cpc_low == 0.42 and row.cpc_high == 1.25
+                    assert row.provider_raw_json["keyword"] == "Houston Astros hat"
+                    assert row.trademark_status == "danger"
+                    assert row.trademark_match_count == 3
+                    assert _keyword_volume_response(row).trademark_screened_keyword == "Houston Astros"
+                    await service.resolve(
+                        tenant_id="tenant-1", keywords=["Houston Astros"], now=now,
+                    )
+            asyncio.run(exercise())
+            assert requests == [("POST", ["Houston Astros"])]
+    finally:
+        engine.dispose()
+
+
+def test_trademark_backfill_rechecks_legacy_markers_without_changing_volume():
+    from app.modules.realistic_review_ugc import trademark_backfill
+    from app.modules.realistic_review_ugc.keyword_volume import trademark_evidence_is_current
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    RrugcKeywordVolumeModel.__table__.create(engine)
+    now = datetime(2026, 10, 8, tzinfo=timezone.utc)
+    try:
+        with Session(engine) as session:
+            rows = [
+                RrugcKeywordVolumeModel(
+                    tenant_id="tenant-1", keyword=name,
+                    keyword_normalized=name.casefold(),
+                    search_volume=3500 if i == 0 else 250,
+                    provider=KEYWORD_VOLUME_PROVIDER,
+                    fetched_at=now,
+                    trademark_status="safe",
+                    trademark_source=KEYWORD_VOLUME_PROVIDER,
+                    provider_raw_json={
+                        "keyword": name + " hat",
+                        "search_volume": 3500 if i == 0 else 250,
+                        "trademark": {"status": "SAFE"},
+                    },
+                )
+                for i, name in enumerate(["Houston Astros", "Sunset Vibes"])
+            ]
+            session.add_all(rows)
+            session.commit()
+            assert trademark_backfill.count_statuses(session) == {"unverified": 2}
+            assert not any(trademark_evidence_is_current(row) for row in rows)
+
+            async def mock_original_tm(terms, *, tm_only=False):
+                assert tm_only is True
+                assert terms == ["Houston Astros", "Sunset Vibes"]
+                return {"data": [
+                    {"keyword": "Houston Astros", "trademark": {
+                        "status": "DANGER", "conflict_count": 3}},
+                    {"keyword": "Sunset Vibes", "trademark": {
+                        "status": "SAFE", "conflict_count": 0}},
+                ]}
+
+            from unittest.mock import patch
+            with patch.object(RrugcKeywordVolumeService, "_fetch_provider", side_effect=mock_original_tm):
+                success, failed, pending = asyncio.run(trademark_backfill.fetch_missing(
+                    session, batch_size=50, pause_seconds=0,
+                ))
+            assert (success, failed, pending) == (2, 0, 0)
+            session.expire_all()
+            stored = {
+                row.keyword: row for row in session.scalars(
+                    select(RrugcKeywordVolumeModel)
+                ).all()
+            }
+            assert stored["Houston Astros"].trademark_status == "danger"
+            assert stored["Houston Astros"].search_volume == 3500
+            assert stored["Sunset Vibes"].search_volume == 250
+            assert stored["Sunset Vibes"].trademark_status == "safe"
+            assert trademark_backfill.count_statuses(session) == {"danger": 1, "safe": 1}
+    finally:
+        engine.dispose()
