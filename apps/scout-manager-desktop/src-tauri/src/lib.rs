@@ -1092,9 +1092,23 @@ mod tests {
             .launch(&mut mock)
             .expect("fixture Scout must launch into a Windows Job");
         assert!(mock.child.as_mut().unwrap().try_wait().unwrap().is_none());
-        std::thread::sleep(Duration::from_millis(700));
-        assert!(file_tail(&log_file(&logs, "review"), 10).contains("FAKE_SCOUT_STARTED"));
+        // Cold GitHub Windows runners may take several seconds to bootstrap
+        // PowerShell. Poll the real output instead of assuming a 700ms start.
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let mut started = false;
+        while Instant::now() < deadline {
+            if file_tail(&log_file(&logs, "review"), 10).contains("FAKE_SCOUT_STARTED") {
+                started = true;
+                break;
+            }
+            if mock.child.as_mut().unwrap().try_wait().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let stderr = file_tail(&logs.join("review.stderr.log"), 30);
         controller.terminate(&mut mock);
+        assert!(started, "Windows smoke Scout did not boot: {stderr}");
         assert!(mock.child.is_none());
         assert_eq!(mock.state, "Stopped");
         fs::remove_dir_all(scratch).unwrap();

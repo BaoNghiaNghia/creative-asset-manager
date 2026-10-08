@@ -38,7 +38,29 @@ jobs:
         working-directory: apps/scout-manager-desktop
         run: npm test
       - name: Rust native regression tests
-        run: cargo test --manifest-path apps/scout-manager-desktop/src-tauri/Cargo.toml
+        shell: pwsh
+        run: |
+          cargo test --manifest-path apps/scout-manager-desktop/src-tauri/Cargo.toml -- --nocapture 2>&1 | Tee-Object -FilePath rust-tests.log
+          if ($LASTEXITCODE -ne 0) {
+            # Emit bounded error annotations so remote diagnostics remain
+            # actionable even when GitHub job logs are inaccessible.
+            Get-Content -LiteralPath rust-tests.log -Tail 100 |
+              Where-Object { $_ -match '(?i)error|FAILED|panicked|assertion failed|could not compile|test result' } |
+              Select-Object -First 15 |
+              ForEach-Object {
+                $safe = (($_ -replace '%', '%25') -replace '\r', '%0D') -replace '\n', '%0A'
+                Write-Output "::error::$safe"
+              }
+            exit 1
+          }
+      - name: Upload Rust failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Scout-Manager-Rust-failure
+          path: rust-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build Tauri NSIS installer and portable executable
         working-directory: apps/scout-manager-desktop
         run: npm run tauri:build
