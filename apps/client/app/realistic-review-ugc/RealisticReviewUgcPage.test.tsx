@@ -635,6 +635,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               competition: "HIGH",
               cpc_low: 0.56,
               cpc_high: 1.96,
+              trademark_status: "unverified",
+              trademark_checked_at: null,
               competition_index: 100,
               three_month_change_pct: -33.1,
               yoy_change_pct: -45.3,
@@ -737,6 +739,12 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by YoY change ascending"');
     expect(markup).toContain("Low CPC ($)");
     expect(markup).toContain("High CPC ($)");
+    expect(markup).toContain("Trademark (TM)");
+    expect(markup).toContain("Chưa xác minh");
+    expect(markup).toContain('aria-label="Sort by Trademark (TM) ascending"');
+    expect(markup).toContain('aria-label="Stage 0 rows per page"');
+    for (const count of [20, 50, 100, 500]) expect(markup).toContain(`<option value="${count}"`);
+    expect(markup).not.toContain('<option value="10"');
     expect(markup).toContain("Total keywords");
     expect(markup).toContain('aria-label="Keyword overview filters"');
     expect(markup).toContain("rrugc-stage0-total-kpi active");
@@ -796,6 +804,8 @@ describe("Realistic Review UGC source-first workspace", () => {
           competition: "HIGH",
           cpc_low: 0.74,
           cpc_high: 2.18,
+          trademark_status: "unverified",
+          trademark_checked_at: null,
           competition_index: 92,
           three_month_change_pct: -18.1,
           yoy_change_pct: 83.1,
@@ -831,6 +841,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("-18.1%");
     expect(markup).toContain("+83.1%");
     expect(markup).toContain("Google Ads index 92");
+    expect(markup).toContain("Trademark (TM)");
+    expect(markup).toContain("Not yet checked against the official trademark register");
+    expect(markup).toContain("https://tmsearch.uspto.gov/");
     expect(markup).toContain("$0.74");
     expect(markup).toContain("$2.18");
     expect(markup).toContain("Monthly search volume");

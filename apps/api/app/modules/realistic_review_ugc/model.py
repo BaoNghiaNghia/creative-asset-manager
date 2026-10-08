@@ -200,6 +200,11 @@ class RrugcKeywordVolumeModel(Base):
     favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     favorite_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     favorite_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    # Trademark is independent of Google Ads volume; never infer 'safe' from CPC.
+    trademark_status: Mapped[str] = mapped_column(String(24), nullable=False, default="unverified")
+    trademark_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    trademark_source: Mapped[str | None] = mapped_column(String(64))
+    trademark_match_count: Mapped[int | None] = mapped_column(Integer)
     provider: Mapped[str] = mapped_column(
         String(64), nullable=False, default="aebrowse_google_ads"
     )

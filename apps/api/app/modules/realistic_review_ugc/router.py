@@ -2972,6 +2972,10 @@ def _keyword_volume_response(
         competition=row.competition,
         cpc_low=row.cpc_low,
         cpc_high=row.cpc_high,
+        trademark_status=row.trademark_status or "unverified",
+        trademark_checked_at=row.trademark_checked_at,
+        trademark_source=row.trademark_source,
+        trademark_match_count=row.trademark_match_count,
         competition_index=_keyword_metric_int(
             (row.provider_raw_json or {}).get("competition_index")
         ),
@@ -3571,14 +3575,14 @@ def suggest_keyword_analysis(
 )
 def list_keyword_analysis(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=500),
     query: str = Query(default="", max_length=200),
     usage: str = Query(default="all", pattern="^(all|unused|used)$"),
     tail: str = Query(default="all", pattern="^(all|short|mid|long)$"),
     favorites_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
-        pattern="^(keyword|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|created_at|fetched_at)$",
+        pattern="^(keyword|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|trademark|created_at|fetched_at)$",
     ),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
@@ -3794,6 +3798,15 @@ def list_keyword_analysis(
             if sort_dir == "asc"
             else RrugcKeywordVolumeModel.cpc_high.desc().nulls_last()
         ]
+    elif sort_by == "trademark":
+        # Highest risk first in descending order; unknown never means safe.
+        tm_rank = case(
+            (RrugcKeywordVolumeModel.trademark_status == "possible_match", 3),
+            (RrugcKeywordVolumeModel.trademark_status == "unverified", 2),
+            (RrugcKeywordVolumeModel.trademark_status == "no_exact_match", 1),
+            else_=2,
+        )
+        primary_order = [tm_rank.asc() if sort_dir == "asc" else tm_rank.desc()]
     elif sort_by == "created_at":
         primary_order = [
             RrugcKeywordVolumeModel.created_at.asc()

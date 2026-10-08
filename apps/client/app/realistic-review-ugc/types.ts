@@ -179,6 +179,10 @@ export type KeywordVolume = {
   competition: string | null;
   cpc_low: number | null;
   cpc_high: number | null;
+  trademark_status?: "unverified" | "possible_match" | "no_exact_match";
+  trademark_checked_at?: string | null;
+  trademark_source?: string | null;
+  trademark_match_count?: number | null;
   competition_index?: number | null;
   three_month_change_pct?: number | null;
   yoy_change_pct?: number | null;

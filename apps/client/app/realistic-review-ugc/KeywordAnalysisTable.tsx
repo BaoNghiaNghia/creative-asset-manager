@@ -11,7 +11,7 @@ import type {
 } from "./api";
 import type { KeywordVolume, KeywordVolumePage, KeywordVolumeTrendPoint } from "./types";
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 500] as const;
 // Scout feedback controls are scoped to a keyword and its source Pin.
 
 type KeywordTailKind = Exclude<KeywordTailFilter, "all">;
@@ -36,6 +36,14 @@ function formatCpc(value: number | null): string {
 function formatChange(value: number | null | undefined): string {
   if (typeof value !== "number") return "—";
   return (value > 0 ? "+" : "") + value.toFixed(1) + "%";
+}
+
+function TrademarkStatusBadge({ status }: { status: "unverified" | "possible_match" | "no_exact_match" | undefined }) {
+  const kind = status || "unverified";
+  const caption = kind === "possible_match" ? "Cần kiểm tra" : kind === "no_exact_match" ? "Không trùng chính xác" : "Chưa xác minh";
+  return <span className={"rrugc-stage0-tm-badge is-" + kind} title="Kết quả sơ bộ, không phải xác nhận an toàn pháp lý">
+    <span aria-hidden="true">{kind === "possible_match" ? "!" : kind === "no_exact_match" ? "✓" : "?"}</span>{caption}
+  </span>;
 }
 
 function competitionTone(value: string | null): string {
@@ -285,8 +293,21 @@ export function KeywordDetailModal({
           <article><small>3-month change</small><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong><span>vs 3 months ago</span></article>
           <article><small>YoY change</small><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong><span>vs same month last year</span></article>
           <article><small>Competition</small><strong><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></strong><span>{typeof item.competition_index === "number" ? "Google Ads index " + item.competition_index : "Index unavailable"}</span></article>
+          <article><small>Trademark (TM)</small><strong><TrademarkStatusBadge status={item.trademark_status} /></strong><span>{item.trademark_checked_at ? "Checked " + formatDetailDate(item.trademark_checked_at) : "USPTO verification pending"}</span></article>
           <article><small>Low CPC</small><strong>{formatCpc(item.cpc_low)}</strong><span>Top-of-page low bid</span></article>
           <article><small>High CPC</small><strong>{formatCpc(item.cpc_high)}</strong><span>Top-of-page high bid</span></article>
+        </section>
+
+        <section className="rrugc-stage0-tm-detail" aria-label="Trademark screening">
+          <div><strong>Trademark (TM) · US federal register</strong><p>{item.trademark_status === "possible_match"
+            ? "A potentially matching mark was reported. Review the mark's status, owner, and goods/services for headwear."
+            : item.trademark_status === "no_exact_match"
+              ? "No exact match was reported by the recorded screening. Similar marks and unregistered rights may still apply."
+              : "Not yet checked against the official trademark register. Google Ads metrics do not determine trademark safety."}</p></div>
+          <div>
+            <small>Source: {item.trademark_source || "Not connected"} · Matches: {item.trademark_match_count ?? "—"}</small>
+            <a href="https://tmsearch.uspto.gov/" target="_blank" rel="noopener noreferrer">Check in USPTO Trademark Search ↗</a>
+          </div>
         </section>
 
         <section className="rrugc-stage0-detail-trend-panel">
@@ -565,13 +586,14 @@ export function KeywordAnalysisTable({
           <SortHeader column="three_month_change" label="3-mo change" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="yoy_change" label="YoY change" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="competition" label="Competition" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader column="trademark" label="Trademark (TM)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="cpc" label="Low CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="high_cpc" label="High CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="created_at" label="Created date" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={11}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => (
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={12}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => (
             <tr key={item.id} className={item.picked ? "is-picked" : ""}>
               <td className="rrugc-stage0-source-image">
                 {item.source_image_url ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open source for " + item.keyword}><img src={item.source_image_url} alt="" loading="lazy" decoding="async" /></a> : <span className="rrugc-stage0-source-empty">No image</span>}
@@ -609,6 +631,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-change"><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong></td>
               <td className="rrugc-stage0-change"><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong></td>
               <td><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span>{typeof item.competition_index === "number" && <small className="rrugc-stage0-competition-index">{item.competition_index}</small>}</td>
+              <td className="rrugc-stage0-tm-cell"><TrademarkStatusBadge status={item.trademark_status} /></td>
               <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_low)}</strong><small>low bid</small></td>
               <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_high)}</strong><small>high bid</small></td>
               <td className="rrugc-stage0-created-date"><strong>{formatTableDate(item.created_at)}</strong></td>
@@ -620,7 +643,7 @@ export function KeywordAnalysisTable({
               </td>
             </tr>
           ))}
-          {!loading && data.items.length === 0 && <tr><td colSpan={11} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={12} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
         </tbody>
       </table>
     </div>

@@ -441,6 +441,10 @@ class KeywordVolumeResponse(BaseModel):
     competition: str | None = None
     cpc_low: float | None = None
     cpc_high: float | None = None
+    trademark_status: Literal["unverified", "possible_match", "no_exact_match"] = "unverified"
+    trademark_checked_at: datetime | None = None
+    trademark_source: str | None = None
+    trademark_match_count: int | None = None
     competition_index: int | None = None
     three_month_change_pct: float | None = None
     yoy_change_pct: float | None = None
