@@ -31,6 +31,7 @@ from app.modules.image_generation.providers import ReferenceImageInput
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill, verify_stage2_skill_runtime,
     installed_stage2_skill_sha256,
@@ -197,10 +198,13 @@ class ColorwayService:
             RrugcSourcePlanModel.tenant_id == tenant_id, RrugcSourcePlanModel.id.in_(ids),
         ).order_by(RrugcSourcePlanModel.id).with_for_update()))
         if len(plans) != len(ids) or any(
-            p.status == "missing" or not p.source_name.casefold().startswith("embroidery_") for p in plans
+            p.status == "missing" or p.root_folder_id != RRUGC_SOURCE_ROOT_FOLDER_ID
+            or p.source_mime_type.casefold() not in {"image/jpeg", "image/png"}
+            or not p.source_name.casefold().endswith((".jpg", ".jpeg", ".png"))
+            or p.source_name.casefold().startswith("output_") for p in plans
         ):
             raise ColorwayError("colorway_source_invalid",
-                                "Only available embroidery_ source files in this tenant can be generated.", 422)
+                                "Only available JPG/PNG design files from the configured Drive source can be generated.", 422)
         existing = {(j.source_plan_id, j.source_revision, j.color_key) for j in self.session.scalars(
             select(RrugcColorwayJobModel).where(
                 RrugcColorwayJobModel.tenant_id == tenant_id,

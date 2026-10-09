@@ -130,11 +130,7 @@ async def discover_source_images(
     *,
     root_folder_id: str = RRUGC_SOURCE_ROOT_FOLDER_ID,
 ) -> tuple[list[SourceImage], int]:
-    """Recursively discover images below child folders of the configured root.
-
-    Direct image children of the root are intentionally ignored. The source
-    contract is root -> child folders -> descendant product/embroidery images.
-    """
+    """Discover image files in the root and every descendant Drive folder."""
     root = await drive.get(root_folder_id)
     if root.kind != "folder":
         raise RrugcSourcePlanError(
@@ -144,13 +140,28 @@ async def discover_source_images(
         )
 
     root_children = await drive.children(root_folder_id)
+    rows: list[SourceImage] = []
     queue: deque[tuple[str, str]] = deque()
     seen_folders: set[str] = {root_folder_id}
     for child in root_children:
         if child.kind == "folder" and child.id not in seen_folders:
             queue.append((child.id, child.name))
+        elif _is_source_image(child):
+            rows.append(SourceImage(
+                file_id=child.id, parent_folder_id=root_folder_id,
+                relative_path=child.name, name=child.name,
+                mime_type=child.mime_type or "application/octet-stream",
+                size_bytes=child.size, width=child.image_width, height=child.image_height,
+                modified_at=child.modified_at, web_url=child.web_url,
+                revision=_source_revision(child),
+            ))
 
-    rows: list[SourceImage] = []
+    if len(rows) > RRUGC_SOURCE_MAX_IMAGES:
+        raise RrugcSourcePlanError(
+            "rrugc_source_image_limit",
+            "The Realistic Review UGC source tree exceeds the safe image scan limit.",
+            status_code=409,
+        )
     folders_scanned = 0
     while queue:
         folder_id, relative_folder = queue.popleft()
@@ -705,6 +716,7 @@ async def sync_source_plans(
     root_folder_id: str = RRUGC_SOURCE_ROOT_FOLDER_ID,
     storage: GoogleDriveAssetStorage | None = None,
     drive_client_factory: Callable[[str], GoogleDriveClient] = GoogleDriveClient,
+    queue_analysis: bool = True,
 ) -> SourcePlanSyncResult:
     settings = settings or get_settings()
     storage_provider = storage or build_managed_storage_provider(settings)
@@ -776,7 +788,7 @@ async def sync_source_plans(
                 source_revision=image.revision,
                 analysis_revision=1,
                 target_count=RRUGC_SOURCE_TARGET_COUNT,
-                status="queued",
+                status="queued" if queue_analysis else "ready",
                 created_by_user_id=user_id,
             )
             session.add(plan)
@@ -819,6 +831,13 @@ async def sync_source_plans(
             or not plan.campaign_id
             or plan.status in {"failed", "missing", "retry", "queued"}
         )
+        if not queue_analysis:
+            if plan.status == "missing":
+                plan.status = "ready"
+                plan.last_error_code = None
+            if not is_new and previous_revision == image.revision:
+                unchanged += 1
+            continue
         if not should_queue:
             unchanged += 1
             continue
@@ -896,11 +915,12 @@ async def sync_source_plans(
             campaign_id=campaign_id,
         )
 
-    _reconcile_embroidery_groups(
-        session,
-        tenant_id=tenant_id,
-        root_folder_id=root_folder_id,
-    )
+    if queue_analysis:
+        _reconcile_embroidery_groups(
+            session,
+            tenant_id=tenant_id,
+            root_folder_id=root_folder_id,
+        )
 
     session.commit()
     return SourcePlanSyncResult(

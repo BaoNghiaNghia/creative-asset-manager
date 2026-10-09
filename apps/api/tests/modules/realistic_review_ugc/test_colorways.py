@@ -18,6 +18,7 @@ from app.modules.realistic_review_ugc.colorways import (
     COLORS, ColorwayError, ColorwayService, effective_status,
 )
 from app.modules.realistic_review_ugc import colorways
+from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
 
 
 @pytest.fixture()
@@ -52,7 +53,7 @@ def skill_stubs(monkeypatch):
 
 def plan(db, tenant="tenant-a", *, name="embroidery_design.png", source_id="plan-a"):
     row = RrugcSourcePlanModel(
-        id=source_id, tenant_id=tenant, root_folder_id="root", source_file_id="drive-" + source_id,
+        id=source_id, tenant_id=tenant, root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID, source_file_id="drive-" + source_id,
         source_parent_folder_id="folder", source_relative_path="Folder/" + name,
         source_name=name, source_mime_type="image/png", source_revision="rev-1",
         created_by_user_id="actor", created_at=datetime.now(timezone.utc),
@@ -76,7 +77,7 @@ def test_canonical_color_names_match_shipped_stock_manifest():
 def test_queue_13_colors_durable_idempotent_and_tenant_scoped(db):
     source = plan(db)
     svc = ColorwayService(db)
-    with pytest.raises(ColorwayError, match="Only available embroidery"):
+    with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
         svc.queue(tenant_id="tenant-b", user_id="actor", source_plan_ids=[source.id])
     result = svc.queue(tenant_id="tenant-a", user_id="actor", source_plan_ids=[source.id])
     assert result == {"queued": 13, "existing": 0}
@@ -142,7 +143,7 @@ def test_readiness_rejects_missing_runtime_even_with_all_stocks(db, monkeypatch)
 
 def test_reject_non_embroidery_input_and_missing_sources(db):
     source = plan(db, name="output_previous.png")
-    with pytest.raises(ColorwayError, match="Only available embroidery"):
+    with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
         ColorwayService(db).queue(tenant_id=source.tenant_id, user_id="actor", source_plan_ids=[source.id])
     assert db.query(ProcessingJobModel).count() == 0
 
@@ -277,3 +278,29 @@ def test_source_revision_change_blocks_retry(db):
     db.commit()
     with pytest.raises(ColorwayError, match="Source design changed"):
         svc.retry(tenant_id=source.tenant_id, job_id=job.id)
+
+def test_stage2_accepts_non_prefixed_root_jpg_and_nested_png(db):
+    root_file = plan(db, name="ART DEPARTMENT.JPG", source_id="root-design")
+    root_file.source_parent_folder_id = RRUGC_SOURCE_ROOT_FOLDER_ID
+    root_file.source_relative_path = "ART DEPARTMENT.JPG"
+    nested_file = plan(db, name="design_02.png", source_id="nested-design")
+    nested_file.source_mime_type = "image/png"
+    db.commit()
+    result = ColorwayService(db).queue(
+        tenant_id="tenant-a", user_id="actor",
+        source_plan_ids=[root_file.id, nested_file.id],
+    )
+    assert result["queued"] == 26
+    assert db.query(RrugcColorwayJobModel).count() == 26
+
+
+def test_stage2_rejects_non_image_and_wrong_root(db):
+    other_root = plan(db, name="design.jpg", source_id="wrong-root")
+    other_root.root_folder_id = "other-folder"
+    bad_type = plan(db, name="design.webp", source_id="unsupported-file")
+    bad_type.source_mime_type = "image/webp"
+    db.commit()
+    for row in (other_root, bad_type):
+        with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
+            ColorwayService(db).queue(tenant_id="tenant-a", user_id="actor",
+                                     source_plan_ids=[row.id])

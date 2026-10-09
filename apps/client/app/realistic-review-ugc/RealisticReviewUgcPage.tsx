@@ -341,7 +341,7 @@ export function RealisticReviewUgcPage() {
         query: debouncedEmbroideryQuery,
         sortBy: "source",
         sortDirection: "asc",
-        sourcePrefix: "embroidery_",
+        colorwaySources: true,
       },
       signal,
     );
@@ -581,18 +581,22 @@ export function RealisticReviewUgcPage() {
     }
   }
 
-  async function syncDriveSourcePlans() {
+  async function syncDriveSourcePlans(colorwayOnly = false) {
     if (syncingSourcePlans) return;
     setSyncingSourcePlans(true);
     setSourcePlanMessage("");
     setError("");
     try {
-      const result = await syncSourcePlans();
+      const result = await syncSourcePlans(colorwayOnly);
       setSourcePlanMessage(
-        "Scanned " + result.folders_scanned + " folders / " + result.images_found + " images. "
-        + result.jobs_queued + " source plans queued for AI context analysis"
-        + (result.plans_missing ? "; " + result.plans_missing + " temporarily missing sources retained safely" : "")
-        + "; current target " + result.target_count + " refs per source.",
+        colorwayOnly
+          ? "Scanned Drive root and " + result.folders_scanned + " subfolders · "
+            + result.images_found + " source images · " + result.plans_created
+            + " added, " + result.plans_updated + " updated. JPG/PNG files appear in Stage 2."
+          : "Scanned " + result.folders_scanned + " folders / " + result.images_found + " images. "
+            + result.jobs_queued + " source plans queued for AI context analysis"
+            + (result.plans_missing ? "; " + result.plans_missing + " temporarily missing sources retained safely" : "")
+            + "; current target " + result.target_count + " refs per source.",
       );
       await Promise.all([
         refreshSourcePlans(),
@@ -1077,7 +1081,7 @@ export function RealisticReviewUgcPage() {
             syncing={syncingSourcePlans}
             query={embroideryQuery}
             message={sourcePlanMessage}
-            onSync={() => void syncDriveSourcePlans()}
+            onSync={() => void syncDriveSourcePlans(true)}
             onQueryChange={setEmbroideryQuery}
             onPageChange={value => {
               setEmbroideryLoading(true);

@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1142,14 +1142,15 @@ def test_source_plan_list_supports_server_side_sorting_before_pagination():
         ] == ["Gamma", "Beta", "Alpha"]
 
 
-def test_discover_source_images_recurses_child_folders_and_ignores_root_images():
+def test_discover_source_images_recurses_child_folders_and_includes_root_images():
     rows, folders = asyncio.run(discover_source_images(FakeDrive()))
 
     assert folders == 3
-    assert [row.file_id for row in rows] == ["image-a", "image-b", "image-c"]
+    assert [row.file_id for row in rows] == ["image-a", "image-b", "direct-image", "image-c"]
     assert [row.relative_path for row in rows] == [
         "Dogs/dog-cap.jpg",
         "Dogs/Weekend/camping-cap.jpg",
+        "ignore.jpg",
         "Teachers/teacher-cap.png",
     ]
     assert all(len(row.revision) == 64 for row in rows)
@@ -1177,14 +1178,14 @@ def test_sync_source_plans_creates_one_fifty_ref_plan_per_source_image_idempoten
                 drive_client_factory=FakeDrive,
             )
         )
-        assert result.images_found == 3
-        assert result.plans_created == 3
-        assert result.jobs_queued == 3
+        assert result.images_found == 4
+        assert result.plans_created == 4
+        assert result.jobs_queued == 4
 
         plans = list(session.scalars(select(RrugcSourcePlanModel)))
         jobs = list(session.scalars(select(ProcessingJobModel)))
-        assert len(plans) == 3
-        assert len(jobs) == 3
+        assert len(plans) == 4
+        assert len(jobs) == 4
         assert {plan.target_count for plan in plans} == {RRUGC_SOURCE_TARGET_COUNT}
         assert {job.job_type for job in jobs} == {"rrugc_source_plan_analyze"}
 
@@ -1200,9 +1201,9 @@ def test_sync_source_plans_creates_one_fifty_ref_plan_per_source_image_idempoten
         assert second.plans_created == 0
         assert second.plans_updated == 0
         assert second.jobs_queued == 0
-        assert second.unchanged == 3
-        assert len(list(session.scalars(select(RrugcSourcePlanModel)))) == 3
-        assert len(list(session.scalars(select(ProcessingJobModel)))) == 3
+        assert second.unchanged == 4
+        assert len(list(session.scalars(select(RrugcSourcePlanModel)))) == 4
+        assert len(list(session.scalars(select(ProcessingJobModel)))) == 4
 
 
 def test_sync_source_plans_tombstones_missing_source_without_deleting_history_identity():
@@ -1259,7 +1260,7 @@ def test_sync_source_plans_tombstones_missing_source_without_deleting_history_id
         )
         session.refresh(campaign)
 
-        assert result.images_found == 2
+        assert result.images_found == 3
         assert result.plans_missing == 1
         retained = session.get(RrugcSourcePlanModel, plan_id)
         assert retained is not None
@@ -1539,3 +1540,62 @@ def test_stage1_embroidery_page_size_supports_500_rows_without_losing_groups():
         assert len({item.id for item in page_500.items}) == 130
         assert len(list_page(1, 100).items) == 100
         assert len(list_page(2, 100).items) == 30
+
+def test_stage2_scan_indexes_root_and_nested_jpg_png_without_gemini_jobs():
+    """Stage 2 scan should show files even without embroidery_ prefix or Scout analysis."""
+    factory = make_database()
+    with factory() as session:
+        first = asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            storage=FakeStorage.__new__(FakeStorage), drive_client_factory=FakeDrive,
+            queue_analysis=False,
+        ))
+        assert first.images_found == 4
+        assert first.plans_created == 4
+        assert first.jobs_queued == 0
+        assert session.scalar(select(func.count(ProcessingJobModel.id))) == 0
+        page = get_source_plans(
+            page=1, page_size=20, q=None, sort_by="source", sort_dir="asc",
+            colorway_sources=True, session=session,
+            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+        assert page.total == 4
+        assert {item.source_name for item in page.items} == {
+            "ignore.jpg", "dog-cap.jpg", "camping-cap.jpg", "teacher-cap.png",
+        }
+        second = asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            storage=FakeStorage.__new__(FakeStorage), drive_client_factory=FakeDrive,
+            queue_analysis=False,
+        ))
+        assert second.plans_created == 0
+        assert second.jobs_queued == 0
+        assert session.scalar(select(func.count(RrugcSourcePlanModel.id))) == 4
+
+
+def test_stage2_only_uses_eligible_image_files_not_prefix_or_scout_campaign():
+    factory = make_database()
+    with factory() as session:
+        names = [
+            ("root-jpg", "PRINT DESIGN.JPG", "image/jpeg", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("nested-png", "ART.png", "image/png", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("generated", "output_old.png", "image/png", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("doc", "notes.txt", "text/plain", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("other-root", "another.jpg", "image/jpeg", "unrelated-root"),
+        ]
+        for file_id, name, mime, root in names:
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=root, source_file_id=file_id,
+                source_parent_folder_id=root, source_relative_path=name, source_name=name,
+                source_mime_type=mime, source_revision="a" * 64,
+                analysis_revision=1, target_count=50, status="ready",
+                created_by_user_id="user-a",
+            ))
+        session.commit()
+        page = get_source_plans(
+            page=1, page_size=20, q=None, sort_by="source", sort_dir="asc",
+            colorway_sources=True, session=session,
+            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+        assert page.total == 2
+        assert {item.source_name for item in page.items} == {"PRINT DESIGN.JPG", "ART.png"}

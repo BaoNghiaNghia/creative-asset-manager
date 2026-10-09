@@ -329,6 +329,7 @@ from app.modules.realistic_review_ugc.stage_skill_settings import (
 )
 from app.modules.realistic_review_ugc.output_versions import output_versions
 from app.modules.realistic_review_ugc.source_plans import (
+    RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
     RrugcSourcePlanError,
     embroidery_signature,
@@ -3252,6 +3253,7 @@ def get_source_plans(
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     stage2_only: bool = False,
     source_prefix: str | None = Query(default=None, max_length=80),
+    colorway_sources: bool = False,
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3266,15 +3268,27 @@ def get_source_plans(
         )
     )
 
+    if colorway_sources:
+        # Stage 2 uses one independent design per JPG/PNG file, without
+        # waiting for Stage 3's Gemini/Pinterest context or campaign.
+        all_plans = [
+            row for row in all_plans if (
+                row.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID
+                and row.status != "missing"
+                and row.source_mime_type.casefold() in {"image/jpeg", "image/png"}
+                and row.source_name.casefold().endswith((".jpg", ".jpeg", ".png"))
+                and not row.source_name.casefold().startswith("output_")
+            )
+        ]
     prefix = source_prefix.strip().casefold() if isinstance(source_prefix, str) else ""
-    if prefix:
+    if prefix and not colorway_sources:
         all_plans = [
             row for row in all_plans
             if row.source_name.casefold().startswith(prefix)
         ]
 
     needle = str(q or "").strip().lower()
-    groups = _group_source_plan_rows(all_plans)
+    groups = [[row] for row in all_plans] if colorway_sources else _group_source_plan_rows(all_plans)
     if needle:
         groups = [
             members
@@ -5968,6 +5982,7 @@ async def get_stage2_job_output(
 
 @router.post("/source-plans/sync", response_model=SourcePlanSyncResponse)
 async def sync_source_folder_plans(
+    colorway_sources: bool = Query(default=False),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
@@ -5976,6 +5991,7 @@ async def sync_source_folder_plans(
             session,
             tenant_id=principal.active_tenant_id,
             user_id=principal.user_id,
+            queue_analysis=not colorway_sources,
         )
     except RrugcSourcePlanError as exc:
         raise HTTPException(

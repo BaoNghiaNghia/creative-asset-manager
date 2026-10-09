@@ -379,9 +379,9 @@ describe("Realistic Review UGC source-first workspace", () => {
       expect(markup).toContain(`<option value="${size}"`);
     }
     expect(markup).not.toContain('<option value="10"');
-    expect(markup).toContain("EMBROIDERY_ SOURCE");
+    expect(markup).toContain("DRIVE IMAGES");
     expect(markup).toContain("Embroidery design → 13 colorways");
-    expect(markup).toContain("embroidery_");
+    expect(markup).toContain("JPG / PNG");
     expect(markup).toContain("bad day hotdog");
     expect(markup).toContain("13-color batch");
     expect((markup.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);

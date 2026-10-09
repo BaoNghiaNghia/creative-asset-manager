@@ -176,6 +176,7 @@ export const listSourcePlans = (
     sortDirection?: SourcePlanSortDirection;
     stage2Only?: boolean;
     sourcePrefix?: string;
+    colorwaySources?: boolean;
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -188,14 +189,15 @@ export const listSourcePlans = (
   if (filters.query?.trim()) params.set("q", filters.query.trim());
   if (filters.stage2Only) params.set("stage2_only", "true");
   if (filters.sourcePrefix?.trim()) params.set("source_prefix", filters.sourcePrefix.trim());
+  if (filters.colorwaySources) params.set("colorway_sources", "true");
   return request<SourcePlanPage>(
     "/api/v1/realistic-review-ugc/source-plans?" + params.toString(),
     { signal },
   );
 };
 
-export const syncSourcePlans = () =>
-  request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync", {
+export const syncSourcePlans = (colorwayOnly = false) =>
+  request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync" + (colorwayOnly ? "?colorway_sources=true" : ""), {
     method: "POST",
   });
 

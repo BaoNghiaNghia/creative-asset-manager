@@ -48,7 +48,7 @@ function DesignSource({ plan }: { plan: SourcePlan }) {
   return <div className="rrugc-colorway-source">
     <button type="button" className="rrugc-colorway-thumb" title={plan.source_name}>
       <img src={plan.source_preview_url} alt={cleanDesignName(plan.source_name)} loading="lazy" />
-      <span className="rrugc-colorway-prefix">embroidery_</span>
+      <span className="rrugc-colorway-prefix">JPG / PNG</span>
     </button>
     <div>
       <strong>{cleanDesignName(plan.source_name)}</strong>
@@ -295,11 +295,11 @@ export function EmbroideryColorwayStage({
   return <section className="rrugc-card rrugc-colorway-stage">
     <RrugcStageHeader
       className="rrugc-colorway-header"
-      kicker="STAGE 2 · EMBROIDERY_ SOURCE → SKILL → 13 HAT COLORS"
+      kicker="STAGE 2 · DRIVE IMAGES → SKILL → 13 HAT COLORS"
       title="Embroidery design → 13 colorways"
-      description={<>Scans only source images whose filename starts with <code>embroidery_</code>. Each design becomes one 13-color batch so the same embroidery can be applied consistently across every hat color without changing the separate Pinterest reference workflow.</>}
+      description={<>Scans JPG/PNG images in the configured Drive root and all subfolders, regardless of the filename prefix. Generated <code>output_</code> files are excluded. Each design can create 13 colorways independently of Pinterest.</>}
       actions={<div className="rrugc-colorway-header-actions">
-        <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Prefix scan · embroidery_</span>
+        <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Drive · JPG/PNG · recursive</span>
         <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>
           {syncing ? "Scanning…" : "Scan source"}
         </button>
@@ -309,7 +309,7 @@ export function EmbroideryColorwayStage({
     {(message || catalogMessage || jobMessage || readinessWarning) && <p className="rrugc-editor-product-result" role="status">{readinessWarning || jobMessage || message || catalogMessage}</p>}
 
     <div className="rrugc-colorway-kpis">
-      <article><span>Designs found</span><strong>{data.total}</strong><small>embroidery_ files</small></article>
+      <article><span>Designs found</span><strong>{data.total}</strong><small>JPG / PNG source images</small></article>
       <article><span>Hat colors</span><strong>{COLOR_SLOT_COUNT}</strong><small>per design</small></article>
       <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>design × color</small></article>
       <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * COLOR_SLOT_COUNT} outputs</small></article>
@@ -425,7 +425,7 @@ export function EmbroideryColorwayStage({
           })}
           {!loading && data.items.length === 0 && <tr>
             <td colSpan={5} className="rrugc-source-plan-empty">
-              No <code>embroidery_</code> source images found. Add embroidery detail files to the source tree, then scan again.
+              No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}
         </tbody>
