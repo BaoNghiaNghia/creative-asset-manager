@@ -65,8 +65,8 @@ SCOUT_ANALYSIS_SOFT_CLAIM_GAP_SECONDS = 5 * 60
 # Adapt start frequency to the *Review* backlog, never to the number of
 # connected Scout machines. Real Gemini provider limits remain authoritative.
 KEYWORD_BACKLOG_QUOTE_INTERVAL_HEALTHY_SECONDS = 8
-KEYWORD_BACKLOG_QUOTE_INTERVAL_PRESSURED_SECONDS = 12
-KEYWORD_BACKLOG_QUOTE_INTERVAL_CRITICAL_SECONDS = 20
+KEYWORD_BACKLOG_QUOTE_INTERVAL_PRESSURED_SECONDS = 10
+KEYWORD_BACKLOG_QUOTE_INTERVAL_CRITICAL_SECONDS = 12
 
 
 def keyword_quote_interval_seconds(pressure: dict[str, int | bool]) -> int:
@@ -136,9 +136,10 @@ def keyword_quote_backlog_gate(
 ) -> dict[str, int | bool | str]:
     """Permit bounded Keyword quote extraction while Review has queued jobs.
 
-    A shared tenant-scoped database reservation spaces quote starts by 8,
-    12 or 20 seconds depending on Review backlog severity. Gemini provider
-    quotas remain authoritative; the database gate does not bypass them.
+    The tenant-scoped database lane spaces Keyword starts by 8, 10 or 12
+    seconds as Review backlog increases. At critical backlog, Review drain
+    also uses a 12-second start lane, targeting 50/50 start opportunity
+    without partitioning keys or bypassing Gemini provider/project quotas.
     reserve=False is read-only; reserve=True must be committed before awaiting
     the external provider to release the shared database row lock.
     """

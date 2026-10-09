@@ -318,8 +318,10 @@ class Settings(BaseSettings):
     RRUGC_GEMINI_DRAIN_MODE_ENABLED: bool = True
     RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD: int = 120
     RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS: int = 4
-    RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS: float = 6.0
-    RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY: int = 3
+    # Review and Keyword share an approximately equal start budget during backlog.
+    # Independent Gemini model/key/project quota checks remain authoritative.
+    RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS: float = 12.0
+    RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY: int = 2
     AI_JOB_RATE_LIMIT_SAFETY_SECONDS: float = 0.5
     AI_RATE_LIMIT_429_MAX_RETRIES: int = 8
     AI_RATE_LIMIT_BACKOFF_MAX_SECONDS: float = 300.0

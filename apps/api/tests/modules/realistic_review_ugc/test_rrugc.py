@@ -818,8 +818,14 @@ def test_keyword_fair_share_adapts_to_review_queue_pressure(database):
     pressured = {"active": False, "pending_jobs": 188, "oldest_wait_seconds": 4200}
     critical = {"active": True, "pending_jobs": 230, "oldest_wait_seconds": 4200}
     assert keyword_quote_interval_seconds(healthy) == 8
-    assert keyword_quote_interval_seconds(pressured) == 12
-    assert keyword_quote_interval_seconds(critical) == 20
+    assert keyword_quote_interval_seconds(pressured) == 10
+    assert keyword_quote_interval_seconds(critical) == 12
+    # Both busy lanes target five starts/minute during heavy Review backlog.
+    assert Settings.model_fields["RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS"].default == 12.0
+    assert Settings.model_fields["RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY"].default == 2
+    assert keyword_quote_interval_seconds(critical) == (
+        Settings.model_fields["RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS"].default
+    )
 
     with database() as session:
         # Existing v52 shared rate-limit state is reused, no migration.
@@ -828,8 +834,8 @@ def test_keyword_fair_share_adapts_to_review_queue_pressure(database):
         )
         for tenant, pressure, seconds in (
             ("tenant-healthy", healthy, 8),
-            ("tenant-pressured", pressured, 12),
-            ("tenant-critical", critical, 20),
+            ("tenant-pressured", pressured, 10),
+            ("tenant-critical", critical, 12),
         ):
             admitted = keyword_quote_backlog_gate(
                 session, tenant, pressure=pressure, now=now, reserve=True,
