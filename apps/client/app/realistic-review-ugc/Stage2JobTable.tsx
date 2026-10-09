@@ -437,11 +437,11 @@ export function Stage2OutputReviewModal({
   }, [onClose]);
 
   return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-    <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-stage2-output-review-title-" + plan.id}>
+    <section className="rrugc-source-review-modal rrugc-stage4-output-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-stage2-output-review-title-" + plan.id}>
       <header className="rrugc-source-review-header">
         <div>
           <small>GENERATED OUTPUT PREVIEW</small>
-          <h2 id={"rrugc-stage2-output-review-title-" + plan.id}>{plan.source_name}</h2>
+          <h2 id={"rrugc-stage2-output-review-title-" + plan.id} title={plan.source_name}>{plan.source_name}</h2>
           <p>{jobs.length} generated {jobs.length === 1 ? "output" : "outputs"}</p>
         </div>
         <button type="button" className="rrugc-source-review-close" aria-label="Close generated output preview" onClick={onClose}>×</button>
@@ -457,12 +457,16 @@ export function Stage2OutputReviewModal({
               />
               <span className="rrugc-source-review-index">v{1 + jobs.filter(other => (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
             </div>
-            <footer>
-              <span>{new Date(run.completed_at || run.created_at).toLocaleString()}</span>
-              {run.output_web_url && <a href={run.output_web_url} target="_blank" rel="noreferrer">Drive ↗</a>}
-              <button type="button" onClick={() => setLogJobId(run.id)}>Logs</button>
-              {onRegenerateJob && <button type="button" onClick={() => { onRegenerateJob(run); onClose(); }}>New version</button>}
-              <button type="button" onClick={() => setVersionsJobId(run.id)}>Versions</button>
+            <footer className="rrugc-stage4-output-card-footer">
+              <div className="rrugc-stage4-output-card-meta">
+                <span title={new Date(run.completed_at || run.created_at).toLocaleString()}>{new Date(run.completed_at || run.created_at).toLocaleString()}</span>
+                {run.output_web_url && <a href={run.output_web_url} target="_blank" rel="noreferrer">Drive ↗</a>}
+              </div>
+              <div className="rrugc-stage4-output-card-actions">
+                <button type="button" aria-label={"Logs for output " + (index + 1)} onClick={() => setLogJobId(run.id)}>Logs</button>
+                <button type="button" aria-label={"Versions for output " + (index + 1)} onClick={() => setVersionsJobId(run.id)}>Versions</button>
+                {onRegenerateJob && <button type="button" className="is-new-version" aria-label={"Generate new version of output " + (index + 1)} onClick={() => { onRegenerateJob(run); onClose(); }}>+ New version</button>}
+              </div>
             </footer>
           </article>
         ))}
@@ -523,7 +527,6 @@ function Stage2SkeletonRows({ count }: { count: number }) {
       <td><span className="rrugc-table-skeleton rrugc-table-skeleton-source" /></td>
       <td><span className="rrugc-table-skeleton rrugc-table-skeleton-refs" /></td>
       <td><span className="rrugc-table-skeleton rrugc-table-skeleton-copy" /><span className="rrugc-table-skeleton rrugc-table-skeleton-copy is-short" /></td>
-      <td><span className="rrugc-table-skeleton rrugc-table-skeleton-status" /></td>
       <td><span className="rrugc-table-skeleton rrugc-table-skeleton-results" /></td>
     </tr>)}
   </>;
@@ -772,8 +775,7 @@ export function Stage2JobTable({
             <th>Embroidery group</th>
             <th>References · unlimited selection</th>
             <th>Skill & generate</th>
-            <th>Run status · latest 10</th>
-            <th>Output</th>
+            <th>Output · runs & results</th>
           </tr>
         </thead>
         <tbody>
@@ -918,17 +920,18 @@ export function Stage2JobTable({
                 </button>}
                 </div>
               </td>
-              <td className="rrugc-stage2-status">
+              <td className="rrugc-stage2-results">
                 <div className="rrugc-stage2-cell-stack">
-                <div className="rrugc-stage2-output-head">
-                  <strong>{planJobs.length}/{MAX_OUTPUT_SLOTS} runs</strong>
-                  <small>
-                    {runs.completed} done
-                    {runs.failed ? " · " + runs.failed + " failed" : ""}
-                    {runs.cancelled ? " · " + runs.cancelled + " cancelled" : ""}
-                    {runs.active ? " · " + runs.active + " active" : ""}
-                    {runs.remaining ? " · " + runs.remaining + " not run" : ""}
-                  </small>
+                <div className="rrugc-stage2-results-head">
+                  <strong>{completedJobs.length} {completedJobs.length === 1 ? "output" : "outputs"}</strong>
+                  <small>{planJobs.length}/{MAX_OUTPUT_SLOTS} latest runs</small>
+                </div>
+                <div className="rrugc-stage4-output-status-summary" aria-label={"Generation summary for " + plan.source_name}>
+                  <span className="is-done">{runs.completed} done</span>
+                  {runs.active > 0 && <span className="is-active">{runs.active} active</span>}
+                  {runs.failed > 0 && <span className="is-failed">{runs.failed} failed</span>}
+                  {runs.cancelled > 0 && <span className="is-cancelled">{runs.cancelled} cancelled</span>}
+                  {runs.remaining > 0 && <span className="is-empty">{runs.remaining} not run</span>}
                 </div>
                 {!canGenerate && <div className="rrugc-stage2-output-blocked" role="status">
                   <span aria-hidden="true">!</span>
@@ -937,72 +940,6 @@ export function Stage2JobTable({
                     <small>{skillIssue || "Skill unavailable"}</small>
                   </div>
                 </div>}
-                <div className="rrugc-stage2-output-grid" aria-label={"Latest generation runs for " + plan.source_name}>
-                  {Array.from({ length: MAX_OUTPUT_SLOTS }, (_, index) => {
-                    const run = planJobs[index];
-                    if (!run) {
-                      return <div className="rrugc-stage2-run is-empty" key={"empty-" + index}>
-                        <b>{index + 1}</b>
-                        <small>Not run</small>
-                      </div>;
-                    }
-                    if (run.status === "completed") {
-                      return <div
-                        className="rrugc-stage2-run is-completed"
-                        key={run.id}
-                        title={"Completed · " + new Date(run.created_at).toLocaleString()}
-                      >
-                        <span aria-hidden="true">✓</span>
-                        <small>Done</small>
-                      </div>;
-                    }
-                    if (run.status === "cancelled") {
-                      return <div
-                        className="rrugc-stage2-run is-cancelled"
-                        key={run.id}
-                        title="Cancelled during the 10-second grace period"
-                      >
-                        <span aria-hidden="true">×</span>
-                        <small>Cancelled</small>
-                      </div>;
-                    }
-                    if (run.status === "failed") {
-                      return <div
-                        className="rrugc-stage2-run is-failed"
-                        key={run.id}
-                        title={run.last_error_message || run.last_error_code || "Generation failed"}
-                      >
-                        <span aria-hidden="true">!</span>
-                        <small>{run.last_error_code || "Failed"}</small>
-                        <button type="button" className="rrugc-stage2-sync" onClick={() => onRetryJob(run)}>Retry</button>
-                        <button type="button" className="rrugc-stage2-sync" onClick={() => setTableLogJobId(run.id)}>Logs</button>
-                      </div>;
-                    }
-                    return <div
-                      className={"rrugc-stage2-run is-" + run.status}
-                      key={run.id}
-                      title={jobLabel(run) + " · " + new Date(run.created_at).toLocaleString()}
-                    >
-                      <span className="rrugc-stage2-run-spinner" aria-hidden="true" />
-                      <small>{jobLabel(run)}</small>
-                    </div>;
-                  })}
-                </div>
-                <div className="rrugc-stage2-run-legend" aria-label="Generation run status">
-                  <span className="is-empty"><i />Not run</span>
-                  <span className="is-active"><i />Running</span>
-                  <span className="is-done"><i />Done</span>
-                  <span className="is-cancelled"><i />Cancelled</span>
-                  <span className="is-failed"><i />Failed</span>
-                </div>
-                </div>
-              </td>
-              <td className="rrugc-stage2-results">
-                <div className="rrugc-stage2-cell-stack">
-                <div className="rrugc-stage2-results-head">
-                  <strong>{completedJobs.length} {completedJobs.length === 1 ? "output" : "outputs"}</strong>
-                  <small>{completedJobs.length ? "Historical outputs are kept even while new runs are generating." : "Waiting for a completed generation."}</small>
-                </div>
                 {completedJobs.length ? <div className="rrugc-stage2-result-grid" aria-label={"Generated results for " + plan.source_name}>
                   {completedJobs.map((run, index) => <button
                     key={run.id}
@@ -1026,11 +963,27 @@ export function Stage2JobTable({
                   <strong>No results yet</strong>
                   <small>Completed generations will appear here.</small>
                 </div>}
+                <details className="rrugc-stage4-run-history">
+                  <summary>Run history · latest {planJobs.length} <span>{runs.failed ? "View failures & retry" : "View statuses"}</span></summary>
+                  <div className="rrugc-stage4-run-history-list">
+                    {planJobs.length === 0 && <p>No generation jobs yet.</p>}
+                    {[...planJobs].reverse().map((run, index) => <div key={run.id} className={"rrugc-stage4-run-history-item is-" + run.status}>
+                      <span className="rrugc-stage4-run-history-index">#{planJobs.length - index}</span>
+                      <span className="rrugc-stage4-run-history-state">{jobLabel(run)}</span>
+                      {run.status === "failed" && <span className="rrugc-stage4-run-history-error" title={run.last_error_message || run.last_error_code || "Generation failed"}>{run.last_error_code ? run.last_error_code + (run.last_error_message && run.last_error_message !== run.last_error_code ? " · " + run.last_error_message : "") : run.last_error_message || "Generation failed"}</span>}
+                      {run.status === "failed" && <div className="rrugc-stage4-run-history-actions">
+                        <button type="button" onClick={() => onRetryJob(run)}>Retry</button>
+                        <button type="button" onClick={() => setTableLogJobId(run.id)}>Logs</button>
+                      </div>}
+                      {run.status !== "failed" && <small>{new Date(run.created_at).toLocaleString()}</small>}
+                    </div>)}
+                  </div>
+                </details>
                 </div>
               </td>
             </tr>;
           })}
-          {!loading && stage2Plans.length === 0 && <tr><td colSpan={5} className="rrugc-source-plan-empty">Stage 4 jobs will appear here after Stage 3 finishes embroidery context analysis.</td></tr>}
+          {!loading && stage2Plans.length === 0 && <tr><td colSpan={4} className="rrugc-source-plan-empty">Stage 4 jobs will appear here after Stage 3 finishes embroidery context analysis.</td></tr>}
         </tbody>
       </table>
     </div>

@@ -411,11 +411,14 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Pinterest references → image generation");
     expect(markup).toContain("3 refs + 1 random hat / run");
     expect(markup).toContain("References · unlimited selection");
-    expect(markup).toContain("Run status · latest 10");
-    expect(markup).toContain(">Output<");
+    expect(markup).not.toContain("Run status · latest 10");
+    expect(markup).toContain("Output · runs &amp; results");
+    expect(markup).toContain("rrugc-stage4-output-status-summary");
+    expect(markup).toContain("Run history · latest 0");
+    expect(markup).not.toContain('class="rrugc-stage2-status"');
     expect(markup).toContain("Skill &amp; generate");
     expect(markup).not.toContain("Skill ready");
-    expect(markup).toContain("0/10 runs");
+    expect(markup).toContain("0/10 latest runs");
     expect(markup).toContain("10 not run");
     expect(markup).toContain("$gatorhats-8869-image-studio");
     expect(markup).toContain("11 refs available");
@@ -473,7 +476,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain(">Generate selected<");
   });
 
-  it("shows completed, active, failed, and not-run generation slots separately", () => {
+  it("combines completed, active, failed, and not-run status with output and retry actions", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable
         plans={[makePlan(4)]}
@@ -487,12 +490,17 @@ describe("Realistic Review UGC source-first workspace", () => {
         onCreateJob={() => undefined}
       />,
     );
-    expect(markup).toContain("3/10 runs");
+    expect(markup).toContain("3/10 latest runs");
     expect(markup).toContain("1 done");
     expect(markup).toContain("1 failed");
     expect(markup).toContain("1 active");
     expect(markup).toContain("7 not run");
+    expect(markup).toContain("Run history · latest 3");
+    expect(markup).toContain("View failures &amp; retry");
+    expect(markup).toContain('class="rrugc-stage4-run-history');
     expect(markup).toContain("IMAGE_GENERATION_FAILED");
+    expect(markup).toContain(">Retry</button>");
+    expect(markup).toContain(">Logs</button>");
     expect(markup).toContain("Generating");
     expect(markup).toContain("Generated output 1");
     expect(markup).toContain("1 output");
@@ -500,7 +508,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("rrugc-stage2-result-open");
     expect(markup).toContain("Preview generated output");
     expect(markup).not.toContain('class="rrugc-stage2-result" href=');
-    expect(markup).toContain(">Not run<");
+    expect(markup).toContain("Run history · latest 3");
   });
 
   it("renders Stage 2 references in a review-style modal with pick controls", () => {
@@ -541,6 +549,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         plan={plan}
         jobs={jobs}
         onClose={() => undefined}
+        onRegenerateJob={() => undefined}
       />,
     );
     expect(markup).toContain('role="dialog"');
@@ -548,6 +557,11 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("2 generated outputs");
     expect(markup).toContain("rrugc-source-review-masonry");
     expect(markup).toContain("rrugc-stage2-output-review-card");
+    expect(markup).toContain("rrugc-stage4-output-card-actions");
+    expect(markup).toContain("Logs for output 1");
+    expect(markup).toContain("Versions for output 1");
+    expect(markup).toContain("Generate new version of output 1");
+    expect(markup).toContain("rrugc-stage4-output-modal");
     expect(markup).toContain("Drive ↗");
     expect(markup).not.toContain("rrugc-source-review-votes");
     expect(markup).not.toContain("rrugc-source-review-vote is-good");
