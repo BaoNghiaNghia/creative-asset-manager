@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
 import pixelmatch from "pixelmatch";
@@ -13,6 +13,7 @@ import {
   renderVisualAnalysisMarkdown,
 } from "./ui-qa-visual-analysis.mjs";
 import { cleanupRuns } from "./ui-qa-cleanup.mjs";
+import { assertUiStep } from "./ui-qa-assertions.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 import {
   parseCsvList,
@@ -391,6 +392,7 @@ async function performStep(page, step) {
   if (Number.isFinite(settleMs) && settleMs > 0) {
     await page.waitForTimeout(settleMs);
   }
+  await assertUiStep(page, step.assertions);
 }
 
 const rawUrl = argValue("--url") || process.env.CAM_UI_QA_URL;
@@ -469,12 +471,18 @@ const launchArgs = typeof process.getuid === "function" && process.getuid() === 
   ? ["--no-sandbox", "--disable-setuid-sandbox"]
   : [];
 
-const browser = await chromium.launch({
-  channel: "chrome",
-  headless: true,
-  chromiumSandbox: false,
-  args: launchArgs,
-});
+const browserEngine = process.env.CAM_UI_QA_BROWSER === "webkit" ? webkit : chromium;
+const browser = await browserEngine.launch(
+  browserEngine === webkit
+    ? { headless: true }
+    : {
+        // CI uses the locked Chromium build; VPS keeps system Chrome.
+        channel: process.env.CAM_UI_QA_BROWSER === "chromium" ? undefined : "chrome",
+        headless: true,
+        chromiumSandbox: false,
+        args: launchArgs,
+      },
+);
 
 const report = {
   url,
@@ -507,6 +515,7 @@ try {
       requestFailures: [],
       ignoredRequestFailures: [],
       badResponses: [],
+      stepFailures: [],
     };
 
     page.on("console", (message) => {
@@ -534,31 +543,21 @@ try {
       }
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.waitForTimeout(Number(process.env.CAM_UI_QA_SETTLE_MS || 800));
-
     const screenshots = [];
     const visualComparisons = [];
-    for (const step of executionSteps) {
-      await performStep(page, step);
+    const iconAudit = [];
+    const qualityAudit = [];
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await page.waitForTimeout(Number(process.env.CAM_UI_QA_SETTLE_MS || 800));
+
+      for (const step of executionSteps) {
+        try {
+          await performStep(page, step);
       // Optional design-system contract: critical action buttons must retain
       // a visible SVG glyph as well as their accessible text label.
       if (Array.isArray(step.requireIcons)) {
-        for (const selector of step.requireIcons) {
-          const actions = page.locator(selector);
-          const count = await actions.count();
-          if (count === 0) throw new Error(`UI icon QA: missing action ${selector} in state ${step.name}`);
-          const missing = await actions.evaluateAll(nodes => nodes.filter(node => {
-            const style = getComputedStyle(node);
-            if (style.display === "none" || style.visibility === "hidden") return false;
-            const box = node.getBoundingClientRect();
-            if (box.width === 0 || box.height === 0) return false;
-            return !node.querySelector("svg[data-ui-icon]");
-          }).map(node => (node.textContent || "").trim().slice(0, 90)));
-          if (missing.length) {
-            throw new Error(`UI icon QA: ${selector} missing glyph in ${step.name}: ${missing.join(", ")}`);
-          }
-        }
+        await assertUiStep(page, step.requireIcons.map(selector => ({ type: "icon-visible", selector })));
       }
       const name = sanitize(step.name || "state");
       if (!captureStateNames.has(name)) continue;
@@ -571,6 +570,64 @@ try {
         caret: "hide",
       });
       screenshots.push(filename);
+      // Broad, non-blocking inventory: distinguish missing icon candidates
+      // from buttons already using SVG, images, or CSS-based icon elements.
+      const audit = await page.locator("button").evaluateAll(nodes => {
+        const visible = nodes.filter(node => {
+          const style = getComputedStyle(node);
+          const box = node.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" &&
+            box.width > 0 && box.height > 0;
+        });
+        const plain = [];
+        const unlabeled = [];
+        let withIcon = 0;
+        for (const node of visible) {
+          const name = (node.getAttribute("aria-label") ||
+            node.getAttribute("title") || node.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 90);
+          const hasIcon = Boolean(node.querySelector("svg, img, i, [class*=icon], [class*=Icon]"));
+          if (hasIcon) withIcon += 1;
+          else if (plain.length < 40) plain.push({
+            label: name, className: String(node.className || "").slice(0, 110),
+          });
+          if (!name && unlabeled.length < 20) {
+            unlabeled.push(String(node.className || "").slice(0, 110));
+          }
+        }
+        return { total: visible.length, withIcon, withoutIcon: visible.length - withIcon,
+          plain, unlabeled };
+      });
+      iconAudit.push({ state: name, ...audit });
+      // Read-only accessibility, mobile overflow, and performance signals.
+      // These are inventory metrics until project-specific budgets are approved.
+      const quality = await page.evaluate(() => {
+        const navigation = performance.getEntriesByType("navigation")[0];
+        const resources = performance.getEntriesByType("resource");
+        const visible = element => {
+          const style = getComputedStyle(element);
+          const box = element.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" &&
+            box.width > 0 && box.height > 0;
+        };
+        const unnamedControls = [...document.querySelectorAll("button, [role=button]")]
+          .filter(visible).filter(element => !(element.getAttribute("aria-label") ||
+            element.getAttribute("title") || element.textContent || "").trim()).length;
+        const missingAlt = [...document.images].filter(visible)
+          .filter(image => !image.hasAttribute("alt")).length;
+        const smallTargets = [...document.querySelectorAll("button, [role=button]")]
+          .filter(visible).filter(el => {
+            const box = el.getBoundingClientRect();
+            return box.width < 24 || box.height < 24;
+          }).length;
+        return {
+          viewportOverflowPx: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+          unnamedControls, missingAlt, smallTargets,
+          domContentLoadedMs: Math.round(navigation?.domContentLoadedEventEnd || 0),
+          resourceCount: resources.length,
+          resourceTransferKb: Math.round(resources.reduce((sum, r) => sum + (r.transferSize || 0), 0) / 1024),
+        };
+      });
+      qualityAudit.push({ state: name, ...quality });
 
       if (baselineDir) {
         const baselinePath = path.join(baselineDir, filename);
@@ -650,17 +707,46 @@ try {
           });
         }
       }
+        } catch (error) {
+          const state = sanitize(step.name || "state");
+          const failure = {
+            state,
+            message: error instanceof Error ? error.message : String(error),
+          };
+          issues.stepFailures.push(failure);
+          const filename = `${viewportName}--${state}--failure.png`;
+          try {
+            await page.screenshot({ path: path.join(runDir, filename),
+              animations: "disabled", caret: "hide", timeout: 5_000 });
+            screenshots.push(filename);
+          } catch (screenshotError) {
+            failure.screenshotError = String(screenshotError);
+          }
+          break; // Later states may depend on the failed interaction.
+        }
+      }
+    } catch (error) {
+      const failure = { state: "navigation", message: error instanceof Error ? error.message : String(error) };
+      issues.stepFailures.push(failure);
+      const filename = `${viewportName}--navigation--failure.png`;
+      try {
+        await page.screenshot({ path: path.join(runDir, filename), timeout: 5_000 });
+        screenshots.push(filename);
+      } catch (screenshotError) {
+        failure.screenshotError = String(screenshotError);
+      }
+    } finally {
+      report.results.push({
+        viewport: viewportName,
+        size: viewport,
+        screenshots,
+        visualComparisons,
+        iconAudit,
+        qualityAudit,
+        issues,
+      });
+      await context.close();
     }
-
-    report.results.push({
-      viewport: viewportName,
-      size: viewport,
-      screenshots,
-      visualComparisons,
-      issues,
-    });
-
-    await context.close();
   }
 } finally {
   await browser.close();
@@ -706,7 +792,8 @@ const issueCount = report.results.reduce(
     result.issues.consoleErrors.length +
     result.issues.pageErrors.length +
     result.issues.requestFailures.length +
-    result.issues.badResponses.length,
+    result.issues.badResponses.length +
+    result.issues.stepFailures.length,
   0,
 );
 

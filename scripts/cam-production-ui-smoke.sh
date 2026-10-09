@@ -56,6 +56,7 @@ if url.hostname in {"127.0.0.1", "localhost", "::1"}:
 PY
 
 [[ -f "$PLAN" ]] || die "Production UI smoke plan is missing: $PLAN"
+node "$CLIENT/scripts/production-ui-plan-validation.mjs" "$PLAN"
 case "$KEEP_RUNS" in
   ''|*[!0-9]*) die "CAM_PRODUCTION_UI_KEEP_RUNS must be a positive integer." ;;
 esac

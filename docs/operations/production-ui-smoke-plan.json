@@ -78,6 +78,30 @@
       "states": [
         { "name": "default" },
         {
+          "name": "stage1-keyword-generation",
+          "click": "#rrugc-tab-stage1",
+          "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen",
+          "assertions": [
+            { "type": "visible", "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen" }
+          ]
+        },
+        {
+          "name": "stage2-colorways",
+          "click": "#rrugc-tab-stage2",
+          "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage",
+          "assertions": [
+            { "type": "visible", "selector": "#rrugc-panel-stage2 .rrugc-colorway-stage" }
+          ]
+        },
+        {
+          "name": "stage4-skill-generation",
+          "click": "#rrugc-tab-stage4",
+          "waitFor": "#rrugc-panel-stage4 .rrugc-stage2",
+          "assertions": [
+            { "type": "visible", "selector": "#rrugc-panel-stage4 .rrugc-stage2" }
+          ]
+        },
+        {
           "name": "campaign-hover",
           "hover": ".rrugc-campaign-card:first-child",
           "optional": true
@@ -94,7 +118,7 @@
             {
               "type": "width-ratio",
               "selector": ".rrugc-stage3",
-              "relativeTo": "#rrugc-panel-stage3",
+              "relativeTo": "#rrugc-panel-stage5",
               "min": 0.98
             },
             {

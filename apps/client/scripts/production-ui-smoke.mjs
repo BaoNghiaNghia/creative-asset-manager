@@ -285,6 +285,10 @@ async function main() {
       level: publicOnly ? "public-only" : "authenticated",
       selectedRoutes: routes.map((route) => route.name),
       skippedRoutes,
+      degraded: publicOnly && skippedRoutes.length > 0,
+      limitation: publicOnly && skippedRoutes.length > 0
+        ? "Unauthenticated smoke does not validate private workspaces, including UGC stages."
+        : null,
     },
     baseUrl: baseUrl.origin,
     createdAt: new Date().toISOString(),
@@ -480,6 +484,7 @@ async function main() {
     `Mode: ${report.mode}`,
     `Coverage: ${report.coverage.level} (requested: ${report.coverage.requestedMode})`,
     `Skipped routes: ${report.coverage.skippedRoutes.length ? report.coverage.skippedRoutes.join(", ") : "none"}`,
+    `Limited coverage: ${report.coverage.degraded ? report.coverage.limitation : "none"}`,
     `Base URL: ${report.baseUrl}`,
     `Build commit: ${report.buildInfo?.build_commit || "unknown"}`,
     `Route checks: ${report.summary.routeChecks}`,
