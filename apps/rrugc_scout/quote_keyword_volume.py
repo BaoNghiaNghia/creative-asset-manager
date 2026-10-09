@@ -1014,6 +1014,31 @@ async def _wait_for_pinterest_access(page: Any, *, max_seconds: int = 900) -> No
     raise PinterestAccessGateError(gate or "challenge")
 
 
+async def scroll_search_with_watchdog(
+    page: Any,
+    pace: Any,
+    *,
+    timeout_seconds: float = 25.0,
+    healthy_progress: bool = False,
+) -> None:
+    """Bound a Pinterest scroll even if the browser RPC stops responding."""
+    try:
+        await asyncio.wait_for(
+            _scroll_search_page(page, pace), timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        scout_debug_event(
+            "keyword_scout_scroll_watchdog_timeout",
+            timeout_seconds=timeout_seconds,
+            action="restart_browser_context",
+        )
+        raise ScoutRestartRequested(
+            "keyword_scout_scroll_watchdog_timeout",
+            healthy_progress=healthy_progress,
+            last_error_type="TimeoutError",
+        ) from exc
+
+
 async def _scroll_search_page(page: Any, pace) -> None:
     previous_count = await loaded_pin_count(page)
     steps = random.randint(*KEYWORD_SCROLL_STEPS_PER_BATCH)
@@ -2602,7 +2627,10 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         if ai_backlog_active else args.max_pins_per_cycle
                     ):
                         break
-                    await _scroll_search_page(page, pace)
+                    await scroll_search_with_watchdog(
+                        page, pace,
+                        healthy_progress=successful_cycles_since_restart > 0,
+                    )
 
                 runtime_error_streak = 0
                 successful_cycles_since_restart += 1

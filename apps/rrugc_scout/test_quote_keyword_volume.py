@@ -957,6 +957,32 @@ def test_quote_extract_preserves_final_http_status_after_retries(monkeypatch):
     asyncio.run(scenario())
     assert attempts == 3
 
+def test_keyword_scroll_watchdog_restarts_unresponsive_browser(monkeypatch):
+    async def never_returns(_page, _pace):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(keyword_scout, "_scroll_search_page", never_returns)
+    with pytest.raises(keyword_scout.ScoutRestartRequested) as exc:
+        asyncio.run(keyword_scout.scroll_search_with_watchdog(
+            object(), object(), timeout_seconds=0.01,
+        ))
+    assert exc.value.error_code == "keyword_scout_scroll_watchdog_timeout"
+    assert exc.value.last_error_type == "TimeoutError"
+
+
+def test_keyword_scroll_watchdog_preserves_successful_scroll(monkeypatch):
+    calls = []
+
+    async def completed(_page, _pace):
+        calls.append("done")
+
+    monkeypatch.setattr(keyword_scout, "_scroll_search_page", completed)
+    asyncio.run(keyword_scout.scroll_search_with_watchdog(
+        object(), object(), timeout_seconds=0.1,
+    ))
+    assert calls == ["done"]
+
+
 def test_fair_share_retry_after_below_30_seconds_is_honored():
     assert keyword_scout.KeywordScoutCapacityPaused(20).retry_seconds == 20
     assert keyword_scout.KeywordScoutCapacityPaused(6).retry_seconds == 6
