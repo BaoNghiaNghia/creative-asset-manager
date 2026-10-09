@@ -1635,3 +1635,108 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 @media(max-width:720px){
   .rrugc-stage0-v2 .rrugc-stage0-kpis-restored{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+/* Shared Skill Manager V2: compact registry + progressive disclosure */
+.rrugc-skill-modal{width:min(970px,calc(100vw - 36px));max-height:min(840px,calc(100dvh - 32px))}
+.rrugc-skill-modal-header{align-items:center;padding:16px 22px 13px}
+.rrugc-skill-heading{display:flex;align-items:center;gap:11px;min-width:0}
+.rrugc-skill-heading-icon{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #dce6f6;border-radius:11px;background:#edf3ff;color:#5474c5}
+.rrugc-skill-modal-header small{letter-spacing:.08em}
+.rrugc-skill-modal-header h2{margin:2px 0;font-size:18px;line-height:1.25}
+.rrugc-skill-modal-header p{font-size:10px;line-height:1.4}
+.rrugc-skill-modal-toolbar{padding:8px 22px;background:#fff}
+.rrugc-skill-modal-summary span{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;font-size:10px;font-weight:750}
+.rrugc-skill-modal-summary .rrugc-skill-summary-total{background:#f1f5fc;color:#455a7a}
+.rrugc-skill-modal-summary .rrugc-skill-summary-active{background:#eaf7ef;color:#287347}
+.rrugc-skill-refresh{display:inline-flex;align-items:center;gap:6px}
+.rrugc-stage-defaults{gap:10px;padding:14px 22px;background:#f7f9fc}
+.rrugc-stage-default-heading>div{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.rrugc-stage-default-heading strong{font-size:12px}
+.rrugc-stage-default-heading small{font-size:9px;color:#8491a5}
+.rrugc-stage-default-grid{gap:9px}
+.rrugc-stage-default-grid label{gap:7px;padding:10px;border:1px solid #e1e7f1;border-radius:10px;background:#fff}
+.rrugc-stage-default-label{display:flex;align-items:center;gap:8px;min-height:28px}
+.rrugc-stage-default-label>span:last-child{display:grid;gap:0}
+.rrugc-stage-default-label strong{font-size:10px;color:#304563}
+.rrugc-stage-default-label small{font-size:9px;color:#8795a9}
+.rrugc-stage-default-icon{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:#eeeafb;color:#745cc6}
+.rrugc-stage-default-icon.is-stage2{background:#eaf3fd;color:#457ac4}
+.rrugc-stage-default-icon.is-stage4{background:#e9f7f1;color:#298464}
+.rrugc-stage-default-grid select{min-height:33px;font-size:10px;color:#394b64;padding:6px 8px}
+.rrugc-stage-default-guidance{display:flex;align-items:center;gap:7px;margin:0;color:#a65e31;font-size:9.5px;line-height:1.4}
+.rrugc-skill-catalog-toolbar{display:flex;align-items:center;gap:10px;padding:11px 22px;border-bottom:1px solid #e6ebf3;background:#fff}
+.rrugc-skill-catalog-title{display:flex;align-items:baseline;gap:7px;min-width:125px}
+.rrugc-skill-catalog-title strong{color:#2f435e;font-size:12px}
+.rrugc-skill-catalog-title small{color:#8b98ab;font-size:9px}
+.rrugc-skill-search{display:flex;align-items:center;gap:7px;flex:1;max-width:350px;min-width:120px;min-height:33px;padding:0 10px;border:1px solid #d9e1ed;border-radius:8px;background:#fbfcff;color:#8393a8}
+.rrugc-skill-search:focus-within{border-color:#809bd6;box-shadow:0 0 0 2px #dfe8ff}
+.rrugc-skill-search input{min-width:0;width:100%;height:30px;padding:0;border:0;outline:none;background:transparent;color:#344761;font-size:10px}
+.rrugc-skill-add-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:33px;margin-left:auto;padding:6px 12px;border:1px solid #7891da;border-radius:8px;background:#5476d3;color:white;font:inherit;font-size:10px;font-weight:800;white-space:nowrap;cursor:pointer}
+.rrugc-skill-add-toggle:hover{background:#4665c3}
+.rrugc-skill-add-toggle.is-open{background:#eff3ff;color:#4c66b1}
+.rrugc-skill-upload{grid-template-columns:minmax(0,1fr) minmax(180px,260px) auto;padding:11px 22px;background:#f8faff}
+.rrugc-skill-upload strong{display:flex;align-items:center;gap:6px}
+.rrugc-skill-file{gap:7px}
+.rrugc-skill-list{gap:8px;padding:12px 22px 22px;align-content:start}
+.rrugc-skill-card{display:block;padding:0;border-radius:10px;overflow:hidden;border-color:#e0e6f0;transition:border-color .15s ease,box-shadow .15s ease}
+.rrugc-skill-card:hover{border-color:#c5d3e8;box-shadow:0 3px 12px rgba(39,65,103,.06)}
+.rrugc-skill-card.is-disabled{opacity:1;background:#fbfcfd}
+.rrugc-skill-card.is-expanded{border-color:#acbfdd;background:#fff}
+.rrugc-skill-compact-row{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 12px}
+.rrugc-skill-type-icon{display:grid;place-items:center;flex:0 0 35px;width:35px;height:35px;border:1px solid #dce6fa;border-radius:10px;background:#edf4ff;color:#4b79c8}
+.rrugc-skill-type-icon.is-muted{border-color:#e0e5ec;background:#f1f4f8;color:#94a1b3}
+.rrugc-skill-compact-info{display:grid;flex:1;gap:3px;min-width:0}
+.rrugc-skill-compact-title{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.rrugc-skill-compact-title strong{min-width:0;overflow:hidden;max-width:100%;text-overflow:ellipsis;white-space:nowrap;color:#30435f;font-size:11px;line-height:1.3}
+.rrugc-skill-status{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;font-size:8px;line-height:1}
+.rrugc-skill-status-dot{height:6px;width:6px;border-radius:50%;background:currentColor}
+.rrugc-skill-compact-subtitle{display:flex;align-items:center;gap:5px;min-width:0;color:#8290a3;font-size:9px}
+.rrugc-skill-compact-subtitle>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-skill-compact-divider{opacity:.65}
+.rrugc-skill-stage-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:3px}
+.rrugc-skill-stage-chips span{display:inline-flex;align-items:center;gap:3px;border-radius:4px;padding:2px 5px;background:#edf3ff;color:#4f6eb6;font-size:8px;font-weight:800}
+.rrugc-skill-inline-error{display:flex;align-items:center;gap:4px;color:#a34b44;font-size:9px}
+.rrugc-skill-compact-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.rrugc-skill-compact-actions button{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;padding:4px 10px;border:1px solid #d5dfeb;border-radius:7px;background:#fff;color:#4c607e;font:inherit;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap}
+.rrugc-skill-compact-actions button:hover:not(:disabled){border-color:#a9bddb;background:#f7faff;color:#344f8b}
+.rrugc-skill-compact-actions button:disabled{opacity:.52;cursor:wait}
+.rrugc-skill-compact-actions .rrugc-skill-toggle.is-enable{border-color:#abd6bb;color:#2a8652;background:#f1fbf5}
+.rrugc-skill-details-toggle>span{display:inline-flex;transition:transform .18s}
+.rrugc-skill-details-toggle>span.is-rotated{transform:rotate(180deg)}
+.rrugc-skill-compact-description{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin:0;padding:0 12px 11px 57px;color:#7b8798;font-size:9px;line-height:1.35}
+.rrugc-skill-details{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px;border-top:1px solid #e6ecf4;background:#fbfcff}
+.rrugc-skill-details-left,.rrugc-skill-details-right{display:grid;min-width:0;align-content:start;gap:9px}
+.rrugc-skill-details-section-title{display:flex;align-items:center;gap:7px;color:#49648f}
+.rrugc-skill-details-section-title strong{font-size:10px}
+.rrugc-skill-full-description{max-height:78px;overflow:auto;margin:0;color:#64758c;font-size:9.5px;line-height:1.55}
+.rrugc-skill-details .rrugc-skill-note{margin:0}
+.rrugc-skill-details .rrugc-skill-note textarea{min-height:76px;font-size:10px;line-height:1.5;background:#fff}
+.rrugc-skill-save-note{display:inline-flex;align-items:center;gap:5px;justify-self:start;min-height:28px;padding:5px 10px;border:1px solid #b9c9e6;border-radius:7px;background:#f0f5ff;color:#41609d;font-size:9px;font-weight:800;cursor:pointer}
+.rrugc-skill-save-note:disabled{opacity:.5;cursor:not-allowed}
+.rrugc-skill-details .rrugc-skill-meta span{font-size:8px}
+.rrugc-skill-details .rrugc-skill-version-panel{padding:9px;background:#fff}
+.rrugc-skill-details .rrugc-skill-version-actions button,.rrugc-skill-details .rrugc-skill-version-upload button{display:inline-flex;align-items:center;gap:5px;min-height:27px;padding:4px 8px;border:1px solid #d0dbea;border-radius:7px;background:white;color:#50617b;font-size:9px;font-weight:750;cursor:pointer}
+.rrugc-skill-details .rrugc-skill-version-actions button.is-danger,.rrugc-skill-danger-zone .is-danger{border-color:#e9beb9;color:#ac554e;background:#fffafa}
+.rrugc-skill-details .rrugc-skill-version-actions button:disabled{opacity:.48;cursor:not-allowed}
+.rrugc-skill-details .rrugc-skill-version-upload{gap:7px}
+.rrugc-skill-danger-zone{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid #e8edf4}
+.rrugc-skill-danger-zone span{color:#8692a3;font-size:9px;line-height:1.45}
+.rrugc-skill-danger-zone button{display:inline-flex;align-items:center;gap:5px;min-height:27px;padding:4px 9px;border:1px solid #e8c4bf;border-radius:7px;background:#fff8f7;color:#ad5650;font-size:9px;font-weight:800;cursor:pointer}
+.rrugc-skill-modal button:focus-visible,.rrugc-skill-modal select:focus-visible,.rrugc-skill-file:focus-within{outline:2px solid #7796da;outline-offset:2px}
+@media(max-width:760px){
+  .rrugc-skill-modal{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}
+  .rrugc-skill-modal-header,.rrugc-skill-modal-toolbar,.rrugc-stage-defaults,.rrugc-skill-catalog-toolbar,.rrugc-skill-list{padding-left:14px;padding-right:14px}
+  .rrugc-stage-default-grid{grid-template-columns:1fr}
+  .rrugc-stage-default-heading>div{display:grid;gap:3px}
+  .rrugc-skill-catalog-toolbar{flex-wrap:wrap}
+  .rrugc-skill-catalog-title{min-width:100px}
+  .rrugc-skill-search{order:3;flex:1 0 100%;max-width:none}
+  .rrugc-skill-upload{grid-template-columns:1fr;padding:12px 14px}
+  .rrugc-skill-compact-row{align-items:flex-start;flex-wrap:wrap}
+  .rrugc-skill-compact-info{flex:1;min-width:calc(100% - 48px)}
+  .rrugc-skill-compact-actions{width:100%;justify-content:flex-end}
+  .rrugc-skill-compact-description{padding-left:12px}
+  .rrugc-skill-details{grid-template-columns:1fr}
+  .rrugc-skill-danger-zone{flex-wrap:wrap}
+}
+@media(prefers-reduced-motion:reduce){.rrugc-skill-card,.rrugc-skill-details-toggle>span{transition:none}}
