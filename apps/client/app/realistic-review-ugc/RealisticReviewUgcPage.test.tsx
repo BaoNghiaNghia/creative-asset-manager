@@ -651,6 +651,8 @@ describe("Realistic Review UGC source-first workspace", () => {
               ],
               source_image_url: "https://i.pinimg.com/736x/aa/bb/hotdog.jpg",
               source_pin_url: "https://www.pinterest.com/pin/123456789/",
+              scout_keyword_feedback: "suggested",
+              scout_pin_feedback: "suggested",
               picked: true,
               picked_at: "2026-10-05T11:00:00Z",
               favorite: true,
@@ -673,6 +675,7 @@ describe("Realistic Review UGC source-first workspace", () => {
               ],
               source_image_url: null,
               source_pin_url: null,
+              scout_keyword_feedback: "blocked",
               picked: false,
               picked_at: null,
               favorite: false,
@@ -730,6 +733,14 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
     expect(markup).toContain("Đề xuất");
     expect(markup).toContain("Bỏ đề xuất");
+    expect(markup).toContain("Đã đề xuất");
+    expect(markup).toContain("Đã bỏ");
+    expect(markup.match(/>Đã đề xuất</g)).toHaveLength(1);
+    expect(markup).not.toContain("rrugc-scout-feedback-state");
+    for (const icon of ["thumbs-up", "thumbs-down", "undo", "heart", "badge-check"]) {
+      expect(markup).toContain(`data-icon="${icon}"`);
+    }
+    expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('value="both"');
     expect(markup).toContain(">Preview<");
     expect(markup).toContain(">Trend<");

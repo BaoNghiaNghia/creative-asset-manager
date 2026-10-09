@@ -105,11 +105,16 @@ function Icon({
   name,
   filled = false,
 }: {
-  name: "search" | "star" | "chart" | "money" | "competition" | "check" | "plus";
+  name: "search" | "star" | "heart" | "badge-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus";
   filled?: boolean;
 }) {
   if (name === "search") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" /><path d="m15.2 15.2 4.3 4.3" /></svg>;
   if (name === "star") return <svg viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="m12 2.8 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9z" /></svg>;
+  if (name === "heart") return <svg data-icon="heart" viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="M20.8 8.5c0 5.1-8.8 11.2-8.8 11.2S3.2 13.6 3.2 8.5a4.7 4.7 0 0 1 8.8-2.2 4.7 4.7 0 0 1 8.8 2.2Z" /></svg>;
+  if (name === "badge-check") return <svg data-icon="badge-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 2.6 1.4 3-.1 1.5 2.6 2.6 1.5-.1 3L23 12l-1.4 2.6.1 3-2.6 1.5-1.5 2.6-3-.1L12 23l-2.6-1.4-3 .1-1.5-2.6-2.6-1.5.1-3L1 12l1.4-2.6-.1-3 2.6-1.5 1.5-2.6 3 .1L12 2Z" transform="translate(1.7 1.7) scale(.86)" /><path d="m8.2 12 2.5 2.5 5.1-5.2" /></svg>;
+  if (name === "thumbs-up") return <svg data-icon="thumbs-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v10H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h3Zm0 0 4.8-7a1.8 1.8 0 0 1 3.2 1.4L14 9h5a3 3 0 0 1 3 3.6l-1.2 6a3 3 0 0 1-3 2.4H7" /></svg>;
+  if (name === "thumbs-down") return <svg data-icon="thumbs-down" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V4H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3Zm0 0 4.8 7a1.8 1.8 0 0 0 3.2-1.4L14 15h5a3 3 0 0 0 3-3.6l-1.2-6A3 3 0 0 0 17.8 3H7" /></svg>;
+  if (name === "undo") return <svg data-icon="undo" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2" /></svg>;
   if (name === "chart") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V8m5 10v-5m5 5V5m5 13v-8" /></svg>;
   if (name === "money") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M14.8 8.8c-.5-.8-1.5-1.2-2.7-1.2-1.5 0-2.6.7-2.6 1.8 0 2.8 5.4 1.1 5.4 4 0 1.2-1.1 2-2.8 2-1.4 0-2.5-.5-3-1.4M12 6.2v11.6" /></svg>;
   if (name === "competition") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h3V9H4zm6 0h4V5h-4zm7 0h3v-6h-3z" /></svg>;
@@ -436,6 +441,18 @@ function SortHeader({
   </th>;
 }
 
+function scoutFeedbackForScope(item: KeywordVolume, scope: ScoutFeedbackScope): ScoutFeedbackAction | "mixed" {
+  const keyword = item.scout_keyword_feedback || "neutral";
+  const pin = item.scout_pin_feedback || "neutral";
+  if (scope === "keyword" || !item.source_pin_url) return keyword;
+  if (scope === "pin") return pin;
+  // A partially rated Keyword/Pin is still visibly rated; conflicting ratings
+  // remain unselected until the operator chooses a target or overwrites both.
+  if (keyword === pin || pin === "neutral") return keyword;
+  if (keyword === "neutral") return pin;
+  return "mixed";
+}
+
 export function KeywordAnalysisTable({
   data,
   query,
@@ -605,7 +622,7 @@ export function KeywordAnalysisTable({
       <div className="rrugc-stage0-main-filters" role="group" aria-label="Keyword filters">
         <button type="button" className={activeOverviewFilter === "all" ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
         <button type="button" className={activeOverviewFilter === "suggested" ? "active" : ""} onClick={() => selectOverviewFilter("suggested")}>Đề xuất</button>
-        <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="star" filled={activeOverviewFilter === "favorites"} />Favorites</button>
+        <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="heart" filled={activeOverviewFilter === "favorites"} />Favorites</button>
         <button type="button" className={activeOverviewFilter === "short" ? "active" : ""} onClick={() => selectOverviewFilter("short")}>Short-tail</button>
         <button type="button" className={activeOverviewFilter === "mid" ? "active" : ""} onClick={() => selectOverviewFilter("mid")}>Mid-tail</button>
         <button type="button" className={activeOverviewFilter === "long" ? "active" : ""} onClick={() => selectOverviewFilter("long")}>Long-tail</button>
@@ -629,8 +646,11 @@ export function KeywordAnalysisTable({
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={12}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => (
-            <tr key={item.id} className={item.picked ? "is-picked" : ""}>
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={12}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
+            const feedbackScope = feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword");
+            const feedbackStatus = scoutFeedbackForScope(item, feedbackScope);
+            const hasFeedback = feedbackStatus !== "neutral";
+            return <tr key={item.id} className={item.picked ? "is-picked" : ""}>
               <td className="rrugc-stage0-source-image">
                 {item.source_image_url ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open source for " + item.keyword}><img src={item.source_image_url} alt="" loading="lazy" decoding="async" /></a> : <span className="rrugc-stage0-source-empty">No image</span>}
               </td>
@@ -639,27 +659,30 @@ export function KeywordAnalysisTable({
                   <strong>{item.keyword}</strong>
                   <small>{providerLabel(item.provider)} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
                 </button>
-                {(item.scout_keyword_feedback === "blocked" || item.scout_pin_feedback === "blocked") ?
-                  <span className="rrugc-scout-feedback-state is-blocked">Bỏ đề xuất · Ẩn sau 10 giây</span> :
-                 (item.scout_keyword_feedback === "suggested" || item.scout_pin_feedback === "suggested") ?
-                  <span className="rrugc-scout-feedback-state is-suggested">Đã đề xuất</span> : null}
                 <div className="rrugc-scout-feedback-actions" role="group" aria-label={"Scout feedback: " + item.keyword}>
                   <select aria-label={"Feedback target: " + item.keyword}
-                    value={feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword")}
+                    value={feedbackScope}
                     disabled={feedbackUpdatingIds.has(item.id)}
                     onChange={event => setFeedbackScopes(current => ({ ...current, [item.id]: event.target.value as ScoutFeedbackScope }))}>
                     <option value="keyword">Keyword</option>
                     {item.source_pin_url && <option value="pin">Pin</option>}
                     {item.source_pin_url && <option value="both">Cả hai</option>}
                   </select>
-                  <button type="button" className="is-suggested" disabled={feedbackUpdatingIds.has(item.id)}
-                    onClick={() => onFeedbackChange(item.id, "suggested", feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword"))}>Đề xuất</button>
-                  <button type="button" className="is-blocked" disabled={feedbackUpdatingIds.has(item.id)}
-                    onClick={() => onFeedbackChange(item.id, "blocked", feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword"))}>Bỏ đề xuất</button>
-                  {(item.scout_keyword_feedback !== "neutral" && item.scout_keyword_feedback ||
-                    item.scout_pin_feedback !== "neutral" && item.scout_pin_feedback) &&
-                    <button type="button" disabled={feedbackUpdatingIds.has(item.id)}
-                      onClick={() => onFeedbackChange(item.id, "neutral", feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword"))}>↶</button>}
+                  <button type="button" className={"is-suggested" + (feedbackStatus === "suggested" ? " active" : "")}
+                    aria-pressed={feedbackStatus === "suggested"} title={feedbackStatus === "suggested" ? "Đã đề xuất cho Scout" : "Ưu tiên khám phá keyword hoặc Pin"}
+                    disabled={feedbackUpdatingIds.has(item.id)}
+                    onClick={() => onFeedbackChange(item.id, "suggested", feedbackScope)}>
+                    <Icon name="thumbs-up" />{feedbackStatus === "suggested" ? "Đã đề xuất" : "Đề xuất"}
+                  </button>
+                  <button type="button" className={"is-blocked" + (feedbackStatus === "blocked" ? " active" : "")}
+                    aria-pressed={feedbackStatus === "blocked"} title={feedbackStatus === "blocked" ? "Đã bỏ đề xuất · Ẩn sau 10 giây" : "Không tiếp tục khám phá keyword hoặc Pin"}
+                    disabled={feedbackUpdatingIds.has(item.id)}
+                    onClick={() => onFeedbackChange(item.id, "blocked", feedbackScope)}>
+                    <Icon name="thumbs-down" />{feedbackStatus === "blocked" ? "Đã bỏ" : "Bỏ đề xuất"}
+                  </button>
+                  {hasFeedback && <button type="button" className="is-undo" aria-label={"Hoàn tác đề xuất: " + item.keyword}
+                    title="Hoàn tác phản hồi" disabled={feedbackUpdatingIds.has(item.id)}
+                    onClick={() => onFeedbackChange(item.id, "neutral", feedbackScope)}><Icon name="undo" /></button>}
                 </div>
               </td>
               <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} onOpen={() => setDetailItem(item)} /></td>
@@ -673,12 +696,12 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-created-date"><strong>{formatTableDate(item.created_at)}</strong></td>
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
-                  <button type="button" className={"rrugc-stage0-icon-action favorite" + (item.favorite ? " active" : "")} aria-pressed={item.favorite} aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword} title={item.favorite ? "Remove favorite" : "Favorite"} disabled={favoritingIds.has(item.id)} onClick={() => onFavoriteChange(item.id, !item.favorite)}><Icon name="star" filled={item.favorite} /></button>
-                  <button type="button" className={"rrugc-stage0-icon-action pick" + (item.picked ? " active" : "")} aria-pressed={item.picked} aria-label={(item.picked ? "Mark unused: " : "Pick keyword: ") + item.keyword} title={item.picked ? "Used" : "Pick"} disabled={pickingIds.has(item.id)} onClick={() => onPickChange(item.id, !item.picked)}><Icon name={item.picked ? "check" : "plus"} /></button>
+                  <button type="button" className={"rrugc-stage0-icon-action favorite" + (item.favorite ? " active" : "")} aria-pressed={item.favorite} aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword} title={item.favorite ? "Remove favorite" : "Add favorite"} disabled={favoritingIds.has(item.id)} onClick={() => onFavoriteChange(item.id, !item.favorite)}><Icon name="heart" filled={item.favorite} /></button>
+                  <button type="button" className={"rrugc-stage0-icon-action pick" + (item.picked ? " active" : "")} aria-pressed={item.picked} aria-label={(item.picked ? "Mark unused: " : "Pick keyword: ") + item.keyword} title={item.picked ? "Mark unused" : "Pick for use"} disabled={pickingIds.has(item.id)} onClick={() => onPickChange(item.id, !item.picked)}><Icon name="badge-check" /></button>
                 </div>
               </td>
-            </tr>
-          ))}
+            </tr>;
+          })}
           {!loading && data.items.length === 0 && <tr><td colSpan={12} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
         </tbody>
       </table>
