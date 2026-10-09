@@ -1,18 +1,30 @@
 {
   "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "mobileAssertions": [
+    { "type": "no-viewport-overflow", "selector": "html", "maxPx": 0 }
+  ],
   "steps": [
     {
       "name": "default",
       "click": "#rrugc-tab-stage3",
       "waitFor": "#rrugc-source-plans",
       "waitMs": 300,
+      "mobileAssertions": [
+        { "type": "min-control-size", "selector": ".rrugc-source-ref-arrow", "minPx": 24 }
+      ],
       "requireIcons": [
         "#rrugc-panel-stage3 .rrugc-source-plan-heading-actions button",
         "#rrugc-panel-stage3 .rrugc-source-plan-sort-direction"
       ]
     },
     { "name": "campaign-hover", "hover": ".rrugc-source-plan-table tbody tr" },
-    { "name": "candidate-hover", "hover": ".rrugc-source-ref-card" },
+    {
+      "name": "candidate-hover",
+      "hover": ".rrugc-source-ref-card",
+      "mobileAssertions": [
+        { "type": "min-control-size", "selector": ".rrugc-source-ref-card:hover .rrugc-source-ref-vote", "minPx": 24 }
+      ]
+    },
     { "name": "candidate-filter-focus", "focus": "#rrugc-stage3-search-input" },
     {
       "name": "stage1-actions",
@@ -36,6 +48,9 @@
       "name": "stage4-actions",
       "click": "#rrugc-tab-stage4",
       "waitFor": "#rrugc-panel-stage4 .rrugc-stage2",
+      "mobileAssertions": [
+        { "type": "min-control-size", "selector": ".rrugc-stage2-ref-toggle", "minPx": 24 }
+      ],
       "requireIcons": ["#rrugc-panel-stage4 .rrugc-stage2-registry-actions button"]
     },
     {

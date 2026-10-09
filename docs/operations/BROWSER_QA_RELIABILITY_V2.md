@@ -43,6 +43,14 @@ a full authenticated production QA pass. All non-read requests are blocked.
   axe/WCAG conformance. Not every button needs an SVG.
 - `requireIcons` contract in selected plans checks that glyphs are rendered
   and at least 8x8px, including style visibility.
+- Realistic Review UGC mobile now enforces `mobileAssertions` across all
+  eight states: document viewport overflow must be 0px; the Stage 3 reference
+  arrows/voting buttons and Stage 4 selection controls must have a minimum
+  24px visual hitbox. The QA report includes bounded `smallTargetExamples`
+  and `overflowingElements` only when necessary for diagnosis.
+  The responsive stage tabs intentionally scroll *within their own bar*,
+  rather than expanding the full page; compact source thumbnails are slightly
+  larger so the vote icons remain accessible without covering adjacent cards.
 - `node apps/client/scripts/ui-qa-coverage.mjs` compares each interaction
   plan with the last accepted visual baseline manifest.
   `--strict` fails if states/viewports are uncovered, but normal inventory

@@ -3,7 +3,8 @@ export async function assertUiState(page, assertion) {
   const type = String(assertion?.type || "");
   const selector = String(assertion?.selector || "");
   if (!selector || !["visible", "hidden", "text-includes", "count", "attribute",
-                      "checked", "no-horizontal-overflow", "icon-visible"].includes(type)) {
+                      "checked", "no-horizontal-overflow", "no-viewport-overflow",
+                      "min-control-size", "icon-visible"].includes(type)) {
     throw new Error(`Invalid UI QA assertion type/selector: ${type} ${selector}`);
   }
   const locator = page.locator(selector);
@@ -34,6 +35,30 @@ export async function assertUiState(page, assertion) {
     const overflow = await locator.first().evaluate(element => element.scrollWidth - element.clientWidth);
     const max = Number(assertion.maxPx ?? 2);
     if (overflow > max) throw new Error(`UI QA horizontal overflow at ${selector}: ${overflow}px > ${max}px`);
+  } else if (type === "no-viewport-overflow") {
+    const overflow = await locator.first().evaluate(
+      () => Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+    );
+    const max = Number(assertion.maxPx ?? 0);
+    if (overflow > max) {
+      throw new Error(`UI QA viewport overflow: ${overflow}px > ${max}px`);
+    }
+  } else if (type === "min-control-size") {
+    const minimum = Number(assertion.minPx ?? 24);
+    if (!Number.isFinite(minimum) || minimum < 1 || minimum > 100) {
+      throw new Error("UI QA control minimum must be between 1 and 100px");
+    }
+    const missing = await locator.evaluateAll((nodes, minPx) => nodes.filter(node => {
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      return box.width > 0 && box.height > 0 && (box.width < minPx || box.height < minPx);
+    }).map(node => ({ name: (node.getAttribute("aria-label") || node.textContent || "").trim().slice(0, 60),
+      width: Math.round(node.getBoundingClientRect().width),
+      height: Math.round(node.getBoundingClientRect().height) })), minimum);
+    if (!await locator.count() || missing.length) {
+      throw new Error(`UI QA undersized controls at ${selector}: ${JSON.stringify(missing)}`);
+    }
   } else if (type === "icon-visible") {
     const missing = await locator.evaluateAll(nodes => nodes.filter(node => {
       const style = getComputedStyle(node);

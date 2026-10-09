@@ -82,11 +82,13 @@
   .rrugc-header .workspace-page-header-description{font-size:10.5px;line-height:1.38}
   .rrugc-page-live-pill{gap:4px;padding:3px 6px;font-size:8px}
 
-  .rrugc-stage-tabs{padding-inline:8px;overflow:visible}
-  .rrugc-stage-tabs button{flex:1 1 0;min-width:0;gap:6px;padding:8px 7px;justify-content:center}
+  /* Stage tabs are a horizontal scroller, not a squeezed overflow-visible row. */
+  .rrugc-stage-tabs{padding-inline:8px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain}
+  .rrugc-stage-tabs button{flex:0 0 132px;min-width:132px;gap:6px;padding:8px 9px;justify-content:flex-start}
   .rrugc-stage-tab-number{width:20px;height:20px;flex-basis:20px;font-size:8px}
-  .rrugc-stage-tab-copy strong{font-size:9px}
-  .rrugc-stage-tab-copy small{font-size:6.8px}
+  .rrugc-stage-tab-copy strong{font-size:10.2px}
+  .rrugc-stage-tab-copy small{font-size:8.4px}
+  .rrugc-stage-tab-copy strong,.rrugc-stage-tab-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rrugc-page-body{gap:9px}
   .rrugc-stage-panel{gap:9px}
   .rrugc-card{padding:10px;border-radius:10px}
@@ -120,12 +122,18 @@
   .rrugc-source-file strong{font-size:9px}
   .rrugc-source-file small{font-size:7.8px}
   .rrugc-source-file em{font-size:7.2px}
-  .rrugc-source-ref-card{flex-basis:56px;width:56px;height:56px}
-  .rrugc-source-ref-arrow{height:56px}
+  /* Keep voting controls tap-sized without covering neighbouring reference cards. */
+  .rrugc-source-ref-card{flex-basis:82px;width:82px;height:82px}
+  .rrugc-source-ref-vote{width:24px;height:24px;min-width:24px}
+  .rrugc-source-ref-vote.is-ai{width:26px;min-width:26px}
+  .rrugc-source-ref-feedback{gap:1px;right:2px;top:2px}
+  .rrugc-source-ref-slider{grid-template-columns:28px minmax(0,1fr) 28px}
+  .rrugc-source-ref-arrow{width:28px;height:82px}
 
   .rrugc-stage2-table{min-width:1180px}
   .rrugc-stage2 .rrugc-source-file-grouped{grid-template-columns:minmax(0,1fr)}
   .rrugc-stage2-ref{flex-basis:48px;width:48px;height:48px}
+  .rrugc-stage2-ref-toggle{min-width:26px;height:26px;top:2px;right:2px}
   .rrugc-stage2-ref-grid{min-height:54px;gap:4px}
   .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:8.8px}
   .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small,.rrugc-stage2-results small{font-size:7.6px}

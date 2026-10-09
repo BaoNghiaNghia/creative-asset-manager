@@ -554,6 +554,10 @@ try {
       for (const step of executionSteps) {
         try {
           await performStep(page, step);
+      if (viewportName === "mobile") {
+        await assertUiStep(page, plan.mobileAssertions || []);
+        await assertUiStep(page, step.mobileAssertions || []);
+      }
       // Optional design-system contract: critical action buttons must retain
       // a visible SVG glyph as well as their accessible text label.
       if (Array.isArray(step.requireIcons)) {
@@ -614,14 +618,42 @@ try {
             element.getAttribute("title") || element.textContent || "").trim()).length;
         const missingAlt = [...document.images].filter(visible)
           .filter(image => !image.hasAttribute("alt")).length;
-        const smallTargets = [...document.querySelectorAll("button, [role=button]")]
+        const tooSmall = [...document.querySelectorAll("button, [role=button]")]
           .filter(visible).filter(el => {
             const box = el.getBoundingClientRect();
             return box.width < 24 || box.height < 24;
-          }).length;
+          });
+        const smallTargets = tooSmall.length;
+        const smallTargetExamples = tooSmall.slice(0, 15).map(el => {
+          const box = el.getBoundingClientRect();
+          return { label: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 55),
+            className: String(el.className || "").slice(0, 95),
+            width: Math.round(box.width), height: Math.round(box.height) };
+        });
+        const viewportOverflowPx = Math.max(0, document.documentElement.scrollWidth - window.innerWidth);
+        const overflowingElements = (viewportOverflowPx > 0 ? [...document.querySelectorAll("body *")] : [])
+          .filter(visible).map(el => ({ el, box: el.getBoundingClientRect() }))
+          .filter(({box}) => box.right > window.innerWidth + 1 && box.left < window.innerWidth)
+          .slice(0, 18).map(({el, box}) => ({
+            tag: el.tagName.toLowerCase(), id: el.id || null,
+            className: typeof el.className === "string" ? el.className.slice(0, 100) : "",
+            text: (el.textContent || "").trim().slice(0, 45),
+            parent: typeof el.parentElement?.className === "string" ? el.parentElement.className.slice(0, 100) : "",
+            ancestor: typeof el.parentElement?.parentElement?.className === "string" ? el.parentElement.parentElement.className.slice(0, 100) : "",
+            right: Math.round(box.right), left: Math.round(box.left),
+          }));
+        const layoutRoots = ["html", "body", ".rrugc-shell", ".rrugc-main",
+          ".rrugc-stage-tabs-shell", ".rrugc-stage-tabs"].map(selector => {
+          const el = document.querySelector(selector);
+          if (!el) return { selector, missing: true };
+          const box = el.getBoundingClientRect();
+          const css = getComputedStyle(el);
+          return { selector, width: Math.round(box.width), right: Math.round(box.right),
+            scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, overflowX: css.overflowX };
+        });
         return {
-          viewportOverflowPx: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
-          unnamedControls, missingAlt, smallTargets,
+          viewportOverflowPx,
+          layoutRoots, overflowingElements, unnamedControls, missingAlt, smallTargets, smallTargetExamples,
           domContentLoadedMs: Math.round(navigation?.domContentLoadedEventEnd || 0),
           resourceCount: resources.length,
           resourceTransferKb: Math.round(resources.reduce((sum, r) => sum + (r.transferSize || 0), 0) / 1024),

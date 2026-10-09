@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assertUiStep, assertUiState } from "./ui-qa-assertions.mjs";
 
-function fakePage({ text = "Ready for review", count = 2, overflow = 0, visible = true } = {}) {
+function fakePage({ text = "Ready for review", count = 2, overflow = 0, visible = true, undersizedControls = [] } = {}) {
   return { locator(selector) {
     return {
       count: async () => count,
@@ -12,7 +12,7 @@ function fakePage({ text = "Ready for review", count = 2, overflow = 0, visible 
       getAttribute: async name => name === "aria-label" ? "Review" : null,
       isChecked: async () => true,
       evaluate: async () => overflow,
-      evaluateAll: async () => [],
+      evaluateAll: async () => undersizedControls,
     };
   } };
 }
@@ -26,6 +26,8 @@ test("interaction assertions validate text, visibility, attributes and count", a
     { type: "count", selector: ".card", value: 2 },
     { type: "checked", selector: "#check", value: true },
     { type: "no-horizontal-overflow", selector: ".table", maxPx: 2 },
+    { type: "no-viewport-overflow", selector: "html", maxPx: 0 },
+    { type: "min-control-size", selector: ".vote-buttons", minPx: 24 },
     { type: "icon-visible", selector: ".actions" },
   ]);
 });
@@ -38,6 +40,15 @@ test("meaningful state regressions fail the gate", async () => {
   await assert.rejects(
     assertUiState(fakePage({ overflow: 12 }), { type: "no-horizontal-overflow", selector: "#stage", maxPx: 2 }),
     /horizontal overflow/,
+  );
+  await assert.rejects(
+    assertUiState(fakePage({ overflow: 5 }), { type: "no-viewport-overflow", selector: "html", maxPx: 0 }),
+    /viewport overflow/,
+  );
+  await assert.rejects(
+    assertUiState(fakePage({ undersizedControls: [{ name: "Mark suitable", width: 18, height: 44 }] }),
+      { type: "min-control-size", selector: ".vote", minPx: 24 }),
+    /undersized controls/,
   );
   await assert.rejects(
     assertUiState(fakePage({ count: 0 }), { type: "icon-visible", selector: ".missing" }),
