@@ -664,9 +664,6 @@ export const createStage2Job = (
 export const regenerateStage4Job = (jobId: string) =>
   request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate", { method: "POST" });
 
-export const regenerateStage4Job = (jobId: string) =>
-  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate", { method: "POST" });
-
 export const retryStage4Job = (jobId: string) =>
   request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST" });
 
