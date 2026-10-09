@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
-from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel
+from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel
 from app.modules.realistic_review_ugc.colorways import (
     COLORS, ColorwayError, ColorwayService, effective_status,
 )
@@ -26,6 +26,7 @@ def db():
     for table in (
         RrugcSourcePlanModel.__table__, RrugcColorwayJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
+        RrugcImageOutputVersionModel.__table__,
     ):
         table.create(engine)
     with Session(engine) as session:

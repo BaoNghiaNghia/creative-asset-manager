@@ -526,6 +526,44 @@ export const listStage2SkillRegistry = (refresh = false, signal?: AbortSignal) =
     { signal },
   );
 
+export const updateStage2SkillNote = (registryId: string, note: string) =>
+  request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/" + encodeURIComponent(registryId) + "/note",
+    { method: "PATCH", body: JSON.stringify({ note }) },
+  );
+
+export const updateStageSkillDefault = (stage: "stage1" | "stage2" | "stage4", registryId: string | null) =>
+  request<{ stage_defaults: Record<string, string> }>(
+    "/api/v1/realistic-review-ugc/stage2-skills/defaults/" + stage,
+    { method: "PATCH", body: JSON.stringify({ registry_id: registryId }) },
+  );
+
+export type GenerationOutputVersion = { version: number; created_at: string; width: number | null;
+  height: number | null; url: string };
+export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
+  request<{ job_id: string; stage: string; versions: GenerationOutputVersion[] }>(
+    "/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs",
+    { signal },
+  );
+export const regenerateKeywordImage = (keywordId: string) =>
+  request<{ job_id: string; status: string }>(
+    "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/regenerate",
+    { method: "POST" },
+  );
+export const regenerateColorwayJob = (jobId: string) =>
+  request<{ job_id: string; status: string }>(
+    "/api/v1/realistic-review-ugc/colorways/" + encodeURIComponent(jobId) + "/regenerate",
+    { method: "POST" },
+  );
+
+export type SkillJobLog = { stage: string; job_id: string; status: string;
+  skill: { name: string; source: string; version: string | null };
+  attempts: Array<{ id: string; status: string; attempt_count: number; max_attempts: number; duration_ms: number;
+    error_code: string | null; error_message: string; created_at: string; updated_at: string; completed_at: string | null }>;
+};
+export const getSkillJobLog = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
+  request<SkillJobLog>("/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/logs", { signal });
+
 export const createStage2Skill = (file: File) => {
   const body = new FormData();
   body.set("file", file);
@@ -622,6 +660,15 @@ export const createStage2Job = (
       }),
     },
   );
+
+export const regenerateStage4Job = (jobId: string) =>
+  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate", { method: "POST" });
+
+export const regenerateStage4Job = (jobId: string) =>
+  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate", { method: "POST" });
+
+export const retryStage4Job = (jobId: string) =>
+  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST" });
 
 export const cancelStage2Jobs = (sourcePlanId: string, jobIds?: string[]) =>
   request<{ cancelled: number; job_ids: string[] }>(

@@ -6,6 +6,8 @@ import {
   analyzeStage3ReviewGroups,
   cancelStage2Jobs,
   createStage2Job,
+  retryStage4Job,
+  regenerateStage4Job,
   listKeywordAnalysis,
   getQueryIntelligence,
   type QueryIntelligenceSummary,
@@ -441,6 +443,29 @@ export function RealisticReviewUgcPage() {
         ? current
         : result
     ));
+  }
+
+  async function generateStage4NewVersion(job: Stage2Job) {
+    setError("");
+    try {
+      const version = await regenerateStage4Job(job.id);
+      setStage2Message("New Stage 4 output version queued with original references and Skill. Earlier versions remain available.");
+      setStage2Jobs(current => current.some(item => item.id === version.id) ? current : [version, ...current]);
+      await refreshStage2Jobs();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not regenerate output.");
+    }
+  }
+
+  async function retryFailedStage4Job(job: Stage2Job) {
+    setError("");
+    try {
+      await retryStage4Job(job.id);
+      setStage2Message("Retry queued using the original pinned Skill and references. Previous completed outputs are unchanged.");
+      await refreshStage2Jobs();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Failed to retry Stage 4 job.");
+    }
   }
 
   async function queueStage2Job(
@@ -1142,6 +1167,8 @@ export function RealisticReviewUgcPage() {
             }}
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
             onCancelJobs={(plan, jobIds) => void cancelStage2Batch(plan, jobIds)}
+            onRetryJob={job => void retryFailedStage4Job(job)}
+            onRegenerateJob={job => void generateStage4NewVersion(job)}
           />
         </section>
 

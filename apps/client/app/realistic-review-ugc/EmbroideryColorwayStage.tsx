@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, getColorwayReadiness } from "./api";
+import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness } from "./api";
 import type { ColorwayJob, ColorwayReadiness } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { SkillJobLogDialog } from "./SkillJobLogDialog";
+import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 
@@ -97,6 +99,8 @@ export function EmbroideryColorwayStage({
   const [queueing, setQueueing] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState("");
+  const [logJobId, setLogJobId] = useState<string | null>(null);
+  const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string } | null>(null);
   const [serverReadiness, setServerReadiness] = useState<ColorwayReadiness | null>(null);
   const [readinessMessage, setReadinessMessage] = useState("");
 
@@ -124,9 +128,10 @@ export function EmbroideryColorwayStage({
     void listStage2Skills(false, controller.signal)
       .then(result => {
         setCatalog(result);
-        const firstReady = result.items.find(item => item.skill_name === PREFERRED_COLORWAY_SKILL && item.ready)
+        const firstReady = result.items.find(item => item.ready && skillKey(item) === result.stage_defaults?.stage2)
+          || result.items.find(item => item.skill_name === PREFERRED_COLORWAY_SKILL && item.ready)
           || result.items.find(item => item.ready) || result.items[0];
-        if (firstReady) setSelectedSkillKey(current => current || skillKey(firstReady));
+        if (firstReady) setSelectedSkillKey(current => result.stage_defaults?.stage2 ? skillKey(firstReady) : current || skillKey(firstReady));
       })
       .catch(reason => {
         if (!controller.signal.aborted) {
@@ -245,6 +250,18 @@ export function EmbroideryColorwayStage({
       setJobMessage("Retry queued for " + job.color_name + ".");
     } catch (reason) {
       setJobMessage(reason instanceof Error ? reason.message : "Unable to retry colorway.");
+    } finally { setRetryingId(null); }
+  };
+  const regenerateCompleted = async (jobId: string) => {
+    if (retryingId) return;
+    setRetryingId(jobId);
+    try {
+      await regenerateColorwayJob(jobId);
+      await refreshJobs();
+      setJobMessage("New colorway version queued. Existing images stay available.");
+      setVersionsJob(null);
+    } catch (reason) {
+      setJobMessage(reason instanceof Error ? reason.message : "Unable to regenerate colorway.");
     } finally { setRetryingId(null); }
   };
   const searchSuggestions = useMemo(() => data.items.flatMap(plan => {
@@ -378,7 +395,7 @@ export function EmbroideryColorwayStage({
                     const contents = <><HatSlotIcon /><b>{colorSlotLabel(index)}</b></>;
                     const style = "rrugc-colorway-slot is-" + (job?.status || "pending");
                     if (job?.status === "completed" && job.output_url) {
-                      return <a key={index} className={style} href={job.output_url} target="_blank" rel="noreferrer" title={label + " · View output"} aria-label={label + " · View output"}>{contents}</a>;
+                      return <button type="button" key={index} className={style} onClick={() => setVersionsJob({ jobId: job.id, title: label + " · " + cleanDesignName(plan.source_name) })} title={label + " · View all output versions"} aria-label={label + " · View output versions"}>{contents}</button>;
                     }
                     if (job?.status === "failed") {
                       return <button type="button" key={index} className={style} disabled={Boolean(retryingId) || job.retry_count >= 3}
@@ -394,6 +411,7 @@ export function EmbroideryColorwayStage({
                   <div><span style={{ width: Math.round(completed / COLOR_SLOT_COUNT * 100) + "%" }} /></div>
                   <strong>{completed} / {COLOR_SLOT_COUNT}</strong>
                   <small>{failed ? failed + " failed · click to retry" : inProgress ? inProgress + " queued/running" : completed === COLOR_SLOT_COUNT ? "Completed" : "Ready to queue"}</small>
+                  {!!slots?.size && <select aria-label={"Job logs for " + plan.source_name} value="" onChange={event => setLogJobId(event.target.value || null)}><option value="">View skill logs…</option>{Array.from(slots.values()).map(job => <option key={job.id} value={job.id}>{job.color_name} · {job.status}</option>)}</select>}
                 </div>
               </td>
               <td>
@@ -426,5 +444,7 @@ export function EmbroideryColorwayStage({
         </select></label>
       </div>
     </footer>
+    {logJobId && <SkillJobLogDialog stage="stage2" jobId={logJobId} onClose={() => setLogJobId(null)} />}
+    {versionsJob && <GenerationOutputVersionsDialog stage="stage2" jobId={versionsJob.jobId} title={versionsJob.title} onClose={() => setVersionsJob(null)} onRegenerate={() => void regenerateCompleted(versionsJob.jobId)} />}
   </section>;
 }

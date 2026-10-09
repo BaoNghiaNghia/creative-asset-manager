@@ -235,6 +235,8 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2SkillRegistryItemResponse,
     Stage2SkillRegistryResponse,
     Stage2SkillEnabledRequest,
+    Stage2SkillNoteRequest,
+    StageSkillDefaultRequest,
     Stage2SkillDefaultVersionRequest,
     Stage2JobCreateRequest,
     KeywordImageCreateRequest,
@@ -313,8 +315,13 @@ from app.modules.realistic_review_ugc.skill_registry import (
     registry_payload,
     set_skill_default,
     set_skill_enabled,
+    set_skill_note,
     sync_skill,
 )
+from app.modules.realistic_review_ugc.stage_skill_settings import (
+    stage_skill_defaults, set_stage_skill_default,
+)
+from app.modules.realistic_review_ugc.output_versions import output_versions
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_TARGET_COUNT,
     RrugcSourcePlanError,
@@ -1017,6 +1024,7 @@ def _stage2_job(
         source_plan_id=row.source_plan_id,
         campaign_id=row.campaign_id,
         source_revision=row.source_revision,
+        regenerated_from_job_id=row.regenerated_from_job_id,
         skill_name=row.skill_name,
         skill_source=row.skill_source or "local",
         skill_id=row.skill_id,
@@ -4617,6 +4625,7 @@ def list_stage2_skills(
         catalog_items=catalog.items,
     )
     return Stage2SkillCatalogResponse(
+        stage_defaults=stage_skill_defaults(session, tenant_id=principal.active_tenant_id),
         openai_configured=catalog.openai_configured,
         openai_status=catalog.openai_status,
         error_code=catalog.error_code,
@@ -4640,12 +4649,166 @@ def list_stage2_skill_registry(
         refresh=refresh,
     )
     return Stage2SkillRegistryResponse(
+        stage_defaults=stage_skill_defaults(session, tenant_id=principal.active_tenant_id),
         can_manage=_can_manage_stage2_skills(principal),
         items=[
             Stage2SkillRegistryItemResponse(**registry_payload(session, row))
             for row in rows
         ],
     )
+
+
+@router.get("/generation-jobs/{stage}/{job_id}/outputs")
+def list_generation_output_versions(
+    stage: str, job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    models = {
+        "stage1": RrugcKeywordImageJobModel, "stage2": RrugcColorwayJobModel,
+        "stage4": RrugcStage2JobModel,
+    }
+    model = models.get(stage)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Unknown generation stage")
+    job = session.scalar(select(model).where(
+        model.tenant_id == principal.active_tenant_id, model.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Generation job not found")
+    rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
+    return {"job_id": job_id, "stage": stage, "versions": [
+        {"version": row["version"], "created_at": row["created_at"],
+         "width": row["width"], "height": row["height"],
+         "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}
+        for row in rows]}
+
+
+@router.get("/generation-jobs/{stage}/{job_id}/outputs/{version}")
+async def get_generation_output_version(
+    stage: str, job_id: str, version: int,
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=256, ge=128, le=1024),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    models = {"stage1": RrugcKeywordImageJobModel, "stage2": RrugcColorwayJobModel,
+              "stage4": RrugcStage2JobModel}
+    model = models.get(stage)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Unknown generation stage")
+    job = session.scalar(select(model).where(
+        model.tenant_id == principal.active_tenant_id, model.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Generation job not found")
+    match = next((r for r in output_versions(
+        session, tenant_id=principal.active_tenant_id, stage=stage, job=job
+    ) if r["version"] == version), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Output version not found")
+    remote_id, content_type, size_bytes = (
+        match["remote_file_id"], match["content_type"], match["size_bytes"])
+    session.close()
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    if thumbnail:
+        compact = await _managed_drive_thumbnail_response(
+            storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
+            size_pixels=size, cache_control="private, max-age=3600",
+            cache_version=job_id + ":" + str(version) + ":" + remote_id)
+        if compact is not None:
+            return compact
+    try:
+        stream = await storage.open_asset(OpenStoredAssetInput(
+            tenant_id=principal.active_tenant_id,
+            asset_id=f"rrugc-output:{stage}:{job_id}:{version}",
+            remote_file_id=remote_id, content_type=content_type, size_bytes=size_bytes))
+    except StorageProviderError as exc:
+        raise HTTPException(status_code=503 if exc.retryable else 502,
+                            detail={"code": exc.code, "message": "Output version unavailable"}) from exc
+    return StreamingResponse(stream.body, media_type=content_type or stream.content_type,
+                             background=BackgroundTask(stream.close),
+                             headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.patch(
+    "/stage2-skills/registry/{registry_id}/note",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+def update_stage2_skill_note(
+    registry_id: str,
+    request: Stage2SkillNoteRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        row = set_skill_note(session, tenant_id=principal.active_tenant_id,
+                             actor_id=principal.user_id, registry_id=registry_id,
+                             note=request.note)
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.patch("/stage2-skills/defaults/{stage}")
+def update_stage_skill_default(
+    stage: str,
+    request: StageSkillDefaultRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        defaults = set_stage_skill_default(session, tenant_id=principal.active_tenant_id,
+                                           actor_id=principal.user_id, stage=stage,
+                                           registry_id=request.registry_id)
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {"stage_defaults": defaults}
+
+
+@router.get("/generation-jobs/{stage}/{job_id}/logs")
+def get_generation_job_logs(
+    stage: str,
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.processing.model import ProcessingJobModel
+    from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel
+    models = {
+        "stage1": (RrugcKeywordImageJobModel, "rrugc_keyword_image_job"),
+        "stage2": (RrugcColorwayJobModel, "rrugc_colorway_job"),
+        "stage4": (RrugcStage2JobModel, "rrugc_stage2_job"),
+    }
+    if stage not in models:
+        raise HTTPException(status_code=404, detail="Unknown generation stage")
+    model, entity_type = models[stage]
+    job = session.scalar(select(model).where(model.id == job_id,
+                                              model.tenant_id == principal.active_tenant_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Generation job not found")
+    attempts = session.scalars(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == principal.active_tenant_id,
+        ProcessingJobModel.entity_type == entity_type,
+        ProcessingJobModel.entity_id == job_id,
+    ).order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc()).limit(50)).all()
+    return {
+        "stage": stage, "job_id": job.id, "status": job.status,
+        "skill": {"name": job.skill_name, "source": job.skill_source, "version": job.skill_version},
+        "attempts": [{
+            "id": attempt.id, "status": attempt.status,
+            "attempt_count": attempt.attempt_count, "max_attempts": attempt.max_attempts,
+            "duration_ms": attempt.processing_duration_ms,
+            "error_code": attempt.last_error_code,
+            "error_message": (attempt.last_error_message or "")[:500],
+            "created_at": attempt.created_at, "updated_at": attempt.updated_at,
+            "completed_at": attempt.completed_at,
+        } for attempt in attempts],
+    }
 
 
 @router.post(
@@ -4919,6 +5082,22 @@ def queue_colorways(
                             detail={"code": exc.code, "message": exc.message}) from exc
 
 
+@router.post("/colorways/{job_id}/regenerate", status_code=202)
+def regenerate_colorway(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = ColorwayService(session).regenerate(
+            tenant_id=principal.active_tenant_id, job_id=job_id)
+        return {"job_id": row.id, "status": row.status}
+    except ColorwayError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
 @router.post("/colorways/{job_id}/retry", status_code=202)
 def retry_colorway(
     job_id: str,
@@ -4949,7 +5128,7 @@ async def colorway_output(
     ))
     if row is None:
         raise HTTPException(status_code=404, detail="Colorway output not found")
-    if row.status != "completed" or not row.output_remote_file_id:
+    if not row.output_remote_file_id:
         raise HTTPException(status_code=409, detail="Colorway output not ready")
     remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
     session.close()
@@ -5067,6 +5246,21 @@ def create_keyword_image(
     return {"created": created, "job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
 
 
+@router.post("/keyword-images/{keyword_id}/regenerate", status_code=202)
+def regenerate_keyword_image(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = KeywordImageService(session).regenerate(
+            tenant_id=principal.active_tenant_id, keyword_id=keyword_id)
+    except KeywordImageError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {"job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
+
+
 @router.post("/keyword-images/{keyword_id}/retry", status_code=202)
 def retry_keyword_image(
     keyword_id: str,
@@ -5097,7 +5291,7 @@ async def keyword_image_output(
     ))
     if row is None:
         raise HTTPException(status_code=404, detail="Keyword generation not found")
-    if row.status != "completed" or not row.output_remote_file_id:
+    if not row.output_remote_file_id:
         raise HTTPException(status_code=409, detail="Keyword generation is not ready")
     remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
     session.close()
@@ -5446,6 +5640,57 @@ def analyze_stage3_review_groups(
         remaining=max(0, eligible_count - len(rows)),
         has_more=eligible_count > len(rows),
     )
+
+
+@router.post("/stage4/jobs/{job_id}/regenerate", response_model=Stage2JobResponse, status_code=202)
+def regenerate_stage4_generation(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcStage2Service(session).regenerate_job(
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            job_id=job_id,
+        )
+    except RrugcStage2Error as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return _stage2_job(row, current_user_id=principal.user_id)
+
+
+@router.post("/stage4/jobs/{job_id}/regenerate", response_model=Stage2JobResponse, status_code=202)
+def regenerate_stage4_output(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcStage2Service(session).regenerate_completed_job(
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            job_id=job_id,
+        )
+    except RrugcStage2Error as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return _stage2_job(row, current_user_id=principal.user_id)
+
+
+@router.post("/stage4/jobs/{job_id}/retry", response_model=Stage2JobResponse, status_code=202)
+def retry_stage4_generation(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        row = RrugcStage2Service(session).retry_failed_job(
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            job_id=job_id,
+        )
+    except RrugcStage2Error as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return _stage2_job(row, current_user_id=principal.user_id)
 
 
 @router.post(

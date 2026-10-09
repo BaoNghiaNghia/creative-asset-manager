@@ -353,6 +353,7 @@ export type Stage2Skill = {
 };
 
 export type Stage2SkillCatalog = {
+  stage_defaults?: Record<string, string>;
   openai_configured: boolean;
   openai_status: "not_configured" | "connected" | "error";
   error_code: string | null;
@@ -383,6 +384,7 @@ export type Stage2SkillRegistryItem = {
   skill_name: string;
   display_name: string;
   description: string;
+  note: string;
   workflow: string;
   enabled: boolean;
   default_version: string | null;
@@ -398,6 +400,7 @@ export type Stage2SkillRegistryItem = {
 };
 
 export type Stage2SkillRegistry = {
+  stage_defaults?: Record<string, string>;
   can_manage: boolean;
   items: Stage2SkillRegistryItem[];
 };
@@ -407,6 +410,7 @@ export type Stage2Job = {
   source_plan_id: string;
   campaign_id: string;
   source_revision: string;
+  regenerated_from_job_id?: string | null;
   skill_name: string;
   skill_source: "local" | "openai";
   skill_id: string | null;

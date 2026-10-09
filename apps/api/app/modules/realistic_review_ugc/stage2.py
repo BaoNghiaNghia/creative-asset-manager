@@ -5,8 +5,10 @@ import hashlib
 import random
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from uuid import uuid4
 
 from PIL import Image
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError, StoreAssetInput
 from app.modules.image_generation.providers import ReferenceImageInput
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.generation_handler import (
     MAX_REFERENCE_BYTES,
@@ -27,6 +30,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel,
     RrugcStage2JobModel,
 )
+from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.skill_registry import (
     assert_skill_enabled,
@@ -398,6 +402,131 @@ class RrugcStage2Service:
             raise
         self.session.refresh(row)
         return row, True
+
+    def regenerate_job(
+        self, *, tenant_id: str, user_id: str, job_id: str,
+    ) -> RrugcStage2JobModel:
+        """Generate another immutable output from the same pinned Skill and references."""
+        row = self.session.scalar(select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcStage2JobModel.id == job_id,
+        ).with_for_update())
+        if row is None:
+            raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
+        if row.created_by_user_id != user_id:
+            raise RrugcStage2Error("stage4_regenerate_forbidden", "Only the job owner can regenerate.", status_code=403)
+        if row.status != "completed" or not row.output_remote_file_id:
+            raise RrugcStage2Error("stage4_regenerate_not_completed", "Only completed jobs can generate a new version.")
+        attempts = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.entity_type == "rrugc_stage2_job",
+            ProcessingJobModel.entity_id == job_id,
+        )) or 0)
+        now = datetime.now(timezone.utc)
+        processing = ProcessingRepository(self.session, self.settings).create_job(
+            tenant_id=tenant_id, job_type=STAGE2_JOB_TYPE,
+            entity_type="rrugc_stage2_job", entity_id=row.id,
+            idempotency_key=f"rrugc-stage2:{row.id}:version:{attempts}",
+            payload={"stage2_job_id": row.id}, priority=25, max_attempts=3,
+            next_attempt_at=now, provider_key="codex", provider_scope="ai",
+        )
+        row.processing_job_id = processing.id
+        row.status = "queued"
+        row.started_at = None
+        row.queued_at = now
+        row.last_error_code = row.last_error_message = None
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def regenerate_completed_job(
+        self, *, tenant_id: str, user_id: str, job_id: str,
+    ) -> RrugcStage2JobModel:
+        """Generate an immutable new version with the same pinned references and Skill."""
+        original = self.session.scalar(select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcStage2JobModel.id == job_id,
+        ).with_for_update())
+        if original is None:
+            raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
+        if original.status != "completed" or not original.output_remote_file_id:
+            raise RrugcStage2Error("stage4_version_unavailable", "Only completed outputs can be regenerated.")
+        ensure_skill_registry(self.session, tenant_id=tenant_id)
+        try:
+            assert_skill_enabled(self.session, tenant_id=tenant_id,
+                                 source=original.skill_source, skill_id=original.skill_id,
+                                 skill_name=original.skill_name)
+        except Stage2SkillRegistryError as exc:
+            raise RrugcStage2Error(exc.code, exc.message, status_code=exc.status_code) from exc
+        now = datetime.now(timezone.utc)
+        row = RrugcStage2JobModel(
+            tenant_id=tenant_id, source_plan_id=original.source_plan_id,
+            campaign_id=original.campaign_id, source_revision=original.source_revision,
+            regenerated_from_job_id=original.regenerated_from_job_id or original.id,
+            skill_name=original.skill_name, skill_source=original.skill_source,
+            skill_id=original.skill_id, skill_version=original.skill_version,
+            skill_bundle_sha256=original.skill_bundle_sha256,
+            selected_candidate_ids_json=list(original.selected_candidate_ids_json or []),
+            selected_reference_snapshot_json=list(original.selected_reference_snapshot_json or []),
+            selected_source_snapshot_json=dict(original.selected_source_snapshot_json or {}),
+            prompt_text=original.prompt_text, status="queued",
+            idempotency_key=hashlib.sha256(("rrugc-stage4-version:" + str(uuid4())).encode()).hexdigest(),
+            queued_at=now, created_by_user_id=user_id,
+        )
+        self.session.add(row)
+        self.session.flush()
+        processing_job = ProcessingRepository(self.session, self.settings).create_job(
+            tenant_id=tenant_id, job_type=STAGE2_JOB_TYPE,
+            entity_type="rrugc_stage2_job", entity_id=row.id,
+            idempotency_key=f"rrugc-stage2:{row.id}",
+            payload={"stage2_job_id": row.id}, priority=25, max_attempts=3,
+            next_attempt_at=now + timedelta(seconds=STAGE2_CANCEL_GRACE_SECONDS),
+            provider_key="codex", provider_scope="ai",
+        )
+        row.processing_job_id = processing_job.id
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def retry_failed_job(
+        self, *, tenant_id: str, user_id: str, job_id: str,
+    ) -> RrugcStage2JobModel:
+        """Retain the pinned source/skill and completed outputs; queue a new attempt."""
+        row = self.session.scalar(select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcStage2JobModel.id == job_id,
+        ).with_for_update())
+        if row is None:
+            raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
+        if row.created_by_user_id != user_id:
+            raise RrugcStage2Error("stage4_retry_forbidden", "Only the job owner can retry.", status_code=403)
+        processing = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+        if row.status != "failed" and (processing is None or processing.status != "failed"):
+            raise RrugcStage2Error("stage4_retry_not_failed", "Only failed jobs can be retried.")
+        previous = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.entity_type == "rrugc_stage2_job",
+            ProcessingJobModel.entity_id == job_id,
+        )) or 0)
+        if previous >= 4:
+            raise RrugcStage2Error("stage4_retry_limit", "Maximum of three manual retries reached.")
+        queued_at = datetime.now(timezone.utc)
+        next_processing = ProcessingRepository(self.session, self.settings).create_job(
+            tenant_id=tenant_id, job_type=STAGE2_JOB_TYPE,
+            entity_type="rrugc_stage2_job", entity_id=row.id,
+            idempotency_key=f"rrugc-stage2:{row.id}:retry:{previous}",
+            payload={"stage2_job_id": row.id}, priority=25, max_attempts=3,
+            next_attempt_at=queued_at, provider_key="codex", provider_scope="ai",
+        )
+        row.processing_job_id = next_processing.id
+        row.status = "queued"
+        row.last_error_code = None
+        row.last_error_message = None
+        row.started_at = None
+        row.queued_at = queued_at
+        self.session.commit()
+        self.session.refresh(row)
+        return row
 
     def cancel_recent_batch(
         self,
@@ -835,10 +964,10 @@ class RrugcStage2GenerateJobHandler:
                 tenant_id=context.job.tenant_id,
                 content_hash=content_hash,
                 body=_bytes_body(result.image_bytes),
-                asset_id=f"rrugc-stage2:{job_id}",
+                asset_id=f"rrugc-stage2:{job_id}:{context.job.id}",
                 content_type=result.mime_type,
                 size_bytes=len(result.image_bytes),
-                filename=f"output_{job_id}{_output_extension(result.mime_type)}",
+                filename=f"output_{job_id}_{context.job.id}{_output_extension(result.mime_type)}",
                 destination_folder_id=source_parent_folder_id or None,
             )
         )
@@ -859,6 +988,12 @@ class RrugcStage2GenerateJobHandler:
                     "stage2_job_not_found",
                     "Stage 2 job disappeared after generation.",
                 )
+            save_output_version(
+                session, tenant_id=context.job.tenant_id, stage="stage4", job=row,
+                remote_file_id=stored.remote_file_id, content_type=result.mime_type,
+                size_bytes=len(result.image_bytes), width=width, height=height,
+                processing_job_id=context.job.id,
+            )
             row.provider_request_id = result.provider_request_id
             row.output_content_hash = content_hash
             row.output_content_type = result.mime_type

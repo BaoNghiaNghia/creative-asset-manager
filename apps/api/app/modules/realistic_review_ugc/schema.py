@@ -818,6 +818,7 @@ class Stage2SkillResponse(BaseModel):
 
 
 class Stage2SkillCatalogResponse(BaseModel):
+    stage_defaults: dict[str, str] = Field(default_factory=dict)
     openai_configured: bool
     openai_status: Literal["not_configured", "connected", "error"]
     error_code: str | None = None
@@ -845,6 +846,7 @@ class Stage2SkillRegistryItemResponse(BaseModel):
     skill_name: str
     display_name: str
     description: str
+    note: str = ""
     workflow: str
     enabled: bool
     default_version: str | None = None
@@ -860,8 +862,17 @@ class Stage2SkillRegistryItemResponse(BaseModel):
 
 
 class Stage2SkillRegistryResponse(BaseModel):
+    stage_defaults: dict[str, str] = Field(default_factory=dict)
     can_manage: bool
     items: list[Stage2SkillRegistryItemResponse] = Field(default_factory=list)
+
+
+class Stage2SkillNoteRequest(BaseModel):
+    note: str = Field(max_length=1500)
+
+
+class StageSkillDefaultRequest(BaseModel):
+    registry_id: str | None = Field(default=None, max_length=36)
 
 
 class Stage2SkillEnabledRequest(BaseModel):
@@ -950,6 +961,7 @@ class Stage2JobResponse(BaseModel):
     source_plan_id: str
     campaign_id: str
     source_revision: str
+    regenerated_from_job_id: str | None = None
     skill_name: str
     skill_source: Literal["local", "openai"] = "local"
     skill_id: str | None = None

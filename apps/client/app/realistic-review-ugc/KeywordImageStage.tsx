@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createKeywordImage, listKeywordImages, listStage2Skills, queueAllKeywordImages, retryKeywordImage } from "./api";
+import { createKeywordImage, listKeywordImages, listStage2Skills, queueAllKeywordImages, retryKeywordImage, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { SkillJobLogDialog } from "./SkillJobLogDialog";
+import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
 
@@ -37,6 +39,8 @@ export function KeywordImageStage({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [workingIds, setWorkingIds] = useState<Set<string>>(new Set());
+  const [logJobId, setLogJobId] = useState<string | null>(null);
+  const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string } | null>(null);
   const [allQueued, setAllQueued] = useState(0);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
@@ -55,7 +59,11 @@ export function KeywordImageStage({
     setCatalogLoading(true);
     void listStage2Skills(false, controller.signal)
       .then(value => {
-        if (!controller.signal.aborted) setCatalog(value);
+        if (!controller.signal.aborted) {
+          setCatalog(value);
+          const preferred = value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && item.ready);
+          if (preferred) setSelectedSkillKey(skillKey(preferred));
+        }
       })
       .catch(reason => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load Skills.");
@@ -121,7 +129,10 @@ export function KeywordImageStage({
     setError("");
     setMessage("");
     try {
-      if (row.status === "failed") {
+      if (row.status === "completed") {
+        await regenerateKeywordImage(row.keyword_id);
+        setMessage("New output version queued for " + row.keyword + ". Previous output stays available.");
+      } else if (row.status === "failed") {
         await retryKeywordImage(row.keyword_id);
         setMessage("Retry queued for " + row.keyword + ".");
       } else if (row.status === "not_run" && selectedSkillInput) {
@@ -231,13 +242,14 @@ export function KeywordImageStage({
                 <td><span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{STATUS_LABEL[row.status]}</span>{row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}{row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">Attempt {row.attempt_count}/{row.max_attempts}</small> : null}</td>
                 <td>{row.output_url
                   ? <a href={row.output_url} target="_blank" rel="noreferrer" className="rrugc-keyword-gen-output" aria-label={"View generated output for " + row.keyword}><img src={row.output_url + "?thumbnail=true"} alt={"Generated " + row.keyword} loading="lazy" /><span>View output ↗</span></a>
-                  : <span className="rrugc-keyword-gen-no-output">No output yet</span>}</td>
+                  : <span className="rrugc-keyword-gen-no-output">No output yet</span>}{row.job_id && row.output_url && <button type="button" className="rrugc-keyword-gen-row-action" onClick={() => setVersionsJob({ jobId: row.job_id!, title: row.keyword })}>Versions</button>}</td>
                 <td>
                   {row.status === "not_run" && <button type="button" className="rrugc-keyword-gen-row-action" disabled={busy || !selectedSkill} onClick={() => void runOne(row)}>{busy ? "Queueing…" : "Generate"}</button>}
                   {row.status === "failed" && <button type="button" className="rrugc-keyword-gen-row-action retry" disabled={busy || row.retry_count >= 3} onClick={() => void runOne(row)}>{busy ? "Retrying…" : row.retry_count >= 3 ? "Retry limit" : "Retry"}</button>}
                   {row.status === "queued" && <span className="rrugc-keyword-gen-muted">Waiting</span>}
                   {row.status === "running" && <span className="rrugc-keyword-gen-muted">In progress</span>}
-                  {row.status === "completed" && <span className="rrugc-keyword-gen-done">Completed</span>}
+                  {row.status === "completed" && <button type="button" className="rrugc-keyword-gen-row-action" disabled={busy} onClick={() => void runOne(row)}>{busy ? "Queueing…" : "Regenerate"}</button>}
+                  {row.job_id && <button type="button" className="rrugc-keyword-gen-row-action" onClick={() => setLogJobId(row.job_id)}>Logs</button>}
                 </td>
               </tr>;
             })}
@@ -254,5 +266,7 @@ export function KeywordImageStage({
         <label>Rows <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Stage 1 rows per page">{PAGE_SIZES.map(size => <option key={size}>{size}</option>)}</select></label>
       </div>
     </footer>
+    {logJobId && <SkillJobLogDialog stage="stage1" jobId={logJobId} onClose={() => setLogJobId(null)} />}
+    {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title} onClose={() => setVersionsJob(null)} />}
   </div>;
 }

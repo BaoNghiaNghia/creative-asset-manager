@@ -19,6 +19,7 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.generation_handler import _bytes_body
 from app.modules.realistic_review_ugc.model import RrugcKeywordImageJobModel, RrugcKeywordVolumeModel
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
+from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -79,9 +80,14 @@ class KeywordImageService:
         )
 
     def _enqueue(self, job: RrugcKeywordImageJobModel) -> None:
+        sequence = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == job.tenant_id,
+            ProcessingJobModel.entity_type == "rrugc_keyword_image_job",
+            ProcessingJobModel.entity_id == job.id,
+        )) or 0)
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=job.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_keyword_image_job",
-            entity_id=job.id, idempotency_key=f"rrugc-keyword-image:{job.id}:{job.retry_count}",
+            entity_id=job.id, idempotency_key=f"rrugc-keyword-image:{job.id}:{sequence}",
             payload={"keyword_image_job_id": job.id},
             priority=20, max_attempts=3, provider_key="codex", provider_scope="ai",
         )
@@ -144,6 +150,22 @@ class KeywordImageService:
         self.session.commit()
         self.session.refresh(job)
         return job, True
+
+    def regenerate(self, *, tenant_id: str, keyword_id: str) -> RrugcKeywordImageJobModel:
+        job = self._job(tenant_id, keyword_id)
+        if job is None:
+            raise KeywordImageError("keyword_image_job_not_found", "No generation job exists.", 404)
+        if job.status != "completed" or not job.output_remote_file_id:
+            raise KeywordImageError("keyword_image_regenerate_unavailable", "Regenerate only completed images.")
+        job.status = "queued"
+        job.retry_count = 0
+        job.started_at = None
+        job.last_error_code = None
+        job.last_error_message = None
+        self._enqueue(job)
+        self.session.commit()
+        self.session.refresh(job)
+        return job
 
     def retry(self, *, tenant_id: str, keyword_id: str) -> RrugcKeywordImageJobModel:
         job = self._job(tenant_id, keyword_id)
@@ -221,7 +243,7 @@ class KeywordImageService:
                 "max_attempts": processing.max_attempts if processing else 3,
                 "error_code": (job.last_error_code or (processing.last_error_code if processing else None)) if job else None,
                 "error_message": (job.last_error_message or (processing.last_error_message if processing else None)) if job else None,
-                "output_url": f"/api/v1/realistic-review-ugc/keyword-images/jobs/{job.id}/output" if job and state == "completed" else None,
+                "output_url": f"/api/v1/realistic-review-ugc/keyword-images/jobs/{job.id}/output" if job and job.output_remote_file_id else None,
                 "updated_at": job.updated_at.isoformat() if job else None,
             })
         return {"items": items, "total": total, "page": page,
@@ -325,9 +347,9 @@ class KeywordImageGenerateHandler:
             width, height = image.size
         stored = await storage.store_asset(StoreAssetInput(
             tenant_id=context.job.tenant_id, content_hash=__import__("hashlib").sha256(generated.image_bytes).hexdigest(),
-            body=_bytes_body(generated.image_bytes), asset_id="rrugc-keyword-image:" + context.job.entity_id,
+            body=_bytes_body(generated.image_bytes), asset_id="rrugc-keyword-image:" + context.job.entity_id + ":" + getattr(context.job, "id", context.job.entity_id),
             content_type=generated.mime_type, size_bytes=len(generated.image_bytes),
-            filename="keyword_" + context.job.entity_id + ".png",
+            filename="keyword_" + context.job.entity_id + "_" + getattr(context.job, "id", context.job.entity_id) + ".png",
         ))
         if not stored.remote_file_id:
             raise StorageProviderError("Managed storage did not return a file ID.", retryable=True, code="keyword_image_storage_invalid")
@@ -338,6 +360,12 @@ class KeywordImageGenerateHandler:
             ))
             if job is None:
                 return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
+            save_output_version(
+                session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
+                remote_file_id=stored.remote_file_id, content_type=generated.mime_type,
+                size_bytes=len(generated.image_bytes), width=width, height=height,
+                processing_job_id=getattr(context.job, "id", None),
+            )
             job.output_remote_file_id = stored.remote_file_id
             job.output_content_type = generated.mime_type
             job.output_size_bytes = len(generated.image_bytes)

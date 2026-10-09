@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.modules.realistic_review_ugc.model import (
     RrugcStage2JobModel,
+    RrugcKeywordImageJobModel,
+    RrugcColorwayJobModel,
     RrugcStage2SkillRegistryModel,
     RrugcStage2SkillVersionModel,
 )
@@ -144,6 +146,9 @@ def _upsert_catalog_item(
         )
         session.add(row)
         session.flush()
+    # A removed project-managed skill stays tombstoned after future source scans.
+    if row.deleted_at is not None:
+        return row
     row.skill_id = item.skill_id
     row.display_name = item.display_name or item.skill_name
     row.description = item.description or ""
@@ -203,7 +208,8 @@ def reconcile_skill_registry(
     rows = list(
         session.scalars(
             select(RrugcStage2SkillRegistryModel)
-            .where(RrugcStage2SkillRegistryModel.tenant_id == tenant_id)
+            .where(RrugcStage2SkillRegistryModel.tenant_id == tenant_id,
+                   RrugcStage2SkillRegistryModel.deleted_at.is_(None))
             .order_by(
                 RrugcStage2SkillRegistryModel.enabled.desc(),
                 RrugcStage2SkillRegistryModel.display_name,
@@ -211,6 +217,8 @@ def reconcile_skill_registry(
         )
     )
     for row in rows:
+        if row.deleted_at is not None:
+            continue
         if _registry_key(row.source, row.skill_name) in seen:
             continue
         row.validation_status = "missing"
@@ -231,7 +239,8 @@ def ensure_skill_registry(
     rows = list(
         session.scalars(
             select(RrugcStage2SkillRegistryModel)
-            .where(RrugcStage2SkillRegistryModel.tenant_id == tenant_id)
+            .where(RrugcStage2SkillRegistryModel.tenant_id == tenant_id,
+                   RrugcStage2SkillRegistryModel.deleted_at.is_(None))
             .order_by(
                 RrugcStage2SkillRegistryModel.enabled.desc(),
                 RrugcStage2SkillRegistryModel.display_name,
@@ -282,6 +291,7 @@ def registry_payload(
         "skill_name": row.skill_name,
         "display_name": row.display_name,
         "description": row.description,
+        "note": row.note,
         "workflow": row.workflow,
         "enabled": bool(row.enabled),
         "default_version": row.default_version,
@@ -515,12 +525,28 @@ def get_registry_row(
             RrugcStage2SkillRegistryModel.id == registry_id,
         )
     )
-    if row is None:
+    if row is None or row.deleted_at is not None:
         raise Stage2SkillRegistryError(
             "stage2_skill_registry_not_found",
             "Stage 2 skill was not found.",
             status_code=404,
         )
+    return row
+
+
+def set_skill_note(
+    session: Session, *, tenant_id: str, actor_id: str,
+    registry_id: str, note: str,
+) -> RrugcStage2SkillRegistryModel:
+    row = get_registry_row(session, tenant_id=tenant_id, registry_id=registry_id)
+    if len(note) > 1500:
+        raise Stage2SkillRegistryError("stage2_skill_note_too_long", "Skill note exceeds 1500 characters.", status_code=422)
+    row.note = note.strip()
+    row.updated_by_user_id = actor_id
+    row.updated_at = utcnow()
+    _audit(session, tenant_id=tenant_id, actor_id=actor_id,
+           action="stage2_skill.note_updated", detail={"registry_id": row.id})
+    session.commit()
     return row
 
 
@@ -749,18 +775,32 @@ def delete_skill(
         )
         or 0
     )
+    for model in (RrugcKeywordImageJobModel, RrugcColorwayJobModel):
+        active_jobs += int(session.scalar(
+            select(func.count()).select_from(model).where(
+                model.tenant_id == tenant_id,
+                model.skill_source == row.source,
+                model.skill_name == row.skill_name,
+                model.status.in_(("queued", "running")),
+            )
+        ) or 0)
     if active_jobs:
         raise Stage2SkillRegistryError(
             "stage2_skill_delete_blocked_by_active_jobs",
             "Wait for active jobs using this skill to finish before deleting it.",
             status_code=409,
         )
-    if row.source != "openai" or not row.skill_id:
-        raise Stage2SkillRegistryError(
-            "stage2_skill_delete_unsupported",
-            "Project-managed local skills cannot be deleted through the hosted registry.",
-            status_code=409,
-        )
+    if row.source == "local":
+        # Keep project-bundled runtime files intact. Tombstone prevents rediscovery
+        # and blocks future jobs, while historical jobs and their outputs remain.
+        row.enabled = False
+        row.deleted_at = utcnow()
+        row.updated_by_user_id = actor_id
+        _audit(session, tenant_id=tenant_id, actor_id=actor_id,
+               action="stage2_skill.deleted", detail={"registry_id": row.id,
+               "skill_name": row.skill_name, "mode": "registry_archive"})
+        session.commit()
+        return
     skill_id = row.skill_id
     skill_name = row.skill_name
     delete_openai_stage2_skill(skill_id)

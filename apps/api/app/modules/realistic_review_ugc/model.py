@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    ForeignKey,
     ForeignKeyConstraint,
     JSON,
     Index,
@@ -947,6 +948,8 @@ class RrugcStage2SkillRegistryModel(Base):
     skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     workflow: Mapped[str] = mapped_column(String(64), nullable=False, default="image_studio")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     default_version: Mapped[str | None] = mapped_column(String(64))
@@ -1002,6 +1005,41 @@ class RrugcStage2SkillVersionModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )
+
+
+class RrugcImageOutputVersionModel(Base):
+    """Immutable generated asset records for one logical job across regenerations."""
+    __tablename__ = "rrugc_image_output_versions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "stage", "job_id", "version",
+                         name="uq_rrugc_image_output_version"),
+        Index("ix_rrugc_image_output_job", "tenant_id", "stage", "job_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(128))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class RrugcStageSkillDefaultModel(Base):
+    """One tenant-wide, explicit default skill for each image generation stage."""
+    __tablename__ = "rrugc_stage_skill_defaults"
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    stage: Mapped[str] = mapped_column(String(16), primary_key=True)
+    registry_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("rrugc_stage2_skill_registry.id", ondelete="SET NULL")
+    )
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class RrugcKeywordImageJobModel(Base):
@@ -1126,6 +1164,7 @@ class RrugcStage2JobModel(Base):
     source_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
     campaign_id: Mapped[str] = mapped_column(String(36), nullable=False)
     source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    regenerated_from_job_id: Mapped[str | None] = mapped_column(String(36))
     skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
     skill_source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
     skill_id: Mapped[str | None] = mapped_column(String(255))

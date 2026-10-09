@@ -14,7 +14,7 @@ from io import BytesIO
 from uuid import uuid4
 
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,7 @@ from app.modules.realistic_review_ugc.generation_handler import (
 from app.modules.image_generation.providers import ReferenceImageInput
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
+from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill, verify_stage2_skill_runtime,
     installed_stage2_skill_sha256,
@@ -148,9 +149,14 @@ class ColorwayService:
         ).with_for_update())
 
     def _enqueue(self, row: RrugcColorwayJobModel) -> None:
+        sequence = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == row.tenant_id,
+            ProcessingJobModel.entity_type == "rrugc_colorway_job",
+            ProcessingJobModel.entity_id == row.id,
+        )) or 0)
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_colorway_job",
-            entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{row.retry_count}",
+            entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{sequence}",
             payload={"colorway_job_id": row.id}, priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
         )
@@ -222,6 +228,21 @@ class ColorwayService:
         self.session.commit()
         return {"queued": count, "existing": len(ids) * len(COLORS) - count}
 
+    def regenerate(self, *, tenant_id: str, job_id: str) -> RrugcColorwayJobModel:
+        row = self._row(tenant_id, job_id)
+        if row is None:
+            raise ColorwayError("colorway_not_found", "Colorway job not found.", 404)
+        if row.status != "completed" or not row.output_remote_file_id:
+            raise ColorwayError("colorway_regenerate_unavailable", "Regenerate only completed colorway jobs.")
+        row.retry_count = 0
+        row.status = "queued"
+        row.last_error_code = row.last_error_message = None
+        row.started_at = None
+        self._enqueue(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
     def retry(self, *, tenant_id: str, job_id: str) -> RrugcColorwayJobModel:
         row = self._row(tenant_id, job_id)
         if row is None:
@@ -269,7 +290,7 @@ class ColorwayService:
              "attempt_count": processing.attempt_count if processing else 0,
              "error_code": row.last_error_code or (processing.last_error_code if processing else None),
              "output_url": f"/api/v1/realistic-review-ugc/colorways/{row.id}/output"
-             if row.status == "completed" and row.output_remote_file_id else None}
+             if row.output_remote_file_id else None}
             for row, processing in rows
         ]
 
@@ -417,10 +438,10 @@ class ColorwayGenerateHandler:
             tenant_id=context.job.tenant_id,
             content_hash=hashlib.sha256(generated.image_bytes).hexdigest(),
             body=_bytes_body(generated.image_bytes),
-            asset_id="rrugc-colorway:" + context.job.entity_id,
+            asset_id="rrugc-colorway:" + context.job.entity_id + ":" + getattr(context.job, "id", context.job.entity_id),
             content_type=generated.mime_type,
             size_bytes=len(generated.image_bytes),
-            filename=f"output_{color_key}_{context.job.entity_id}{_output_extension(generated.mime_type)}",
+            filename=f"output_{color_key}_{context.job.entity_id}_{getattr(context.job, 'id', context.job.entity_id)}{_output_extension(generated.mime_type)}",
             destination_folder_id=folder_id or None,
         ))
         if not stored.remote_file_id:
@@ -432,6 +453,12 @@ class ColorwayGenerateHandler:
                 RrugcColorwayJobModel.id == context.job.entity_id).with_for_update())
             if row is None:
                 return JobHandlerResult.non_retryable("colorway_not_found", "Colorway job missing.")
+            save_output_version(
+                session, tenant_id=context.job.tenant_id, stage="stage2", job=row,
+                remote_file_id=stored.remote_file_id, content_type=generated.mime_type,
+                size_bytes=len(generated.image_bytes), width=width, height=height,
+                processing_job_id=getattr(context.job, "id", None),
+            )
             row.status = "completed"
             row.output_remote_file_id = stored.remote_file_id
             row.output_content_type = generated.mime_type

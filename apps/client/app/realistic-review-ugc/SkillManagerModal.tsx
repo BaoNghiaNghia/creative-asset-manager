@@ -7,6 +7,8 @@ import {
   listStage2SkillRegistry,
   setStage2SkillDefaultVersion,
   setStage2SkillEnabled,
+  updateStage2SkillNote,
+  updateStageSkillDefault,
   syncStage2SkillRegistry,
 } from "./api";
 import type { Stage2SkillRegistry, Stage2SkillRegistryItem } from "./types";
@@ -45,6 +47,7 @@ export function SkillManagerModal({
   const [versionFiles, setVersionFiles] = useState<Record<string, File | null>>({});
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const [makeDefault, setMakeDefault] = useState<Record<string, boolean>>({});
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
 
   async function reload(refresh = false) {
     setLoading(true);
@@ -52,6 +55,11 @@ export function SkillManagerModal({
     try {
       const next = await listStage2SkillRegistry(refresh);
       setRegistry(next);
+      setNoteDrafts(current => {
+        const updated = { ...current };
+        for (const item of next.items) if (!(item.id in updated)) updated[item.id] = item.note || "";
+        return updated;
+      });
       setSelectedVersions(current => {
         const updated = { ...current };
         for (const item of next.items) {
@@ -132,7 +140,7 @@ export function SkillManagerModal({
   }
 
   async function hardDelete(item: Stage2SkillRegistryItem) {
-    if (!window.confirm('Delete "' + item.display_name + '" from OpenAI Skills? Historical generation jobs will be kept.')) {
+    if (!window.confirm('Remove "' + item.display_name + '" from the shared registry? Existing outputs are preserved. Local bundled runtime files are retained. Active jobs block removal.')) {
       return;
     }
     await mutate(
@@ -172,6 +180,24 @@ export function SkillManagerModal({
           {loading ? "Refreshing…" : "Refresh skills"}
         </button>
       </div>
+
+      {registry.can_manage && <div className="rrugc-stage-defaults" aria-label="Default skill per Stage">
+        <strong>Default generation skill by stage</strong>
+        <small>Stage 1, 2 and 4 use independent defaults. Changes affect new jobs only, not running jobs or saved outputs.</small>
+        <div className="rrugc-stage-default-grid">
+          {([ ["stage1", "Stage 1 · Keywords"], ["stage2", "Stage 2 · 13 Colors"], ["stage4", "Stage 4 · UGC Images"] ] as const).map(([stage, label]) => <label key={stage}>
+            <span>{label}</span>
+            <select
+              value={registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === registry.stage_defaults?.[stage])?.id || ""}
+              disabled={Boolean(busyKey) || loading}
+              onChange={event => void mutate("stage:" + stage, () => updateStageSkillDefault(stage, event.target.value || null), "Default skill saved for " + label + ".")}
+            >
+              <option value="">Automatic (no override)</option>
+              {registry.items.filter(item => item.enabled && item.validation_status === "valid").map(item => <option key={item.id} value={item.id}>{item.display_name}</option>)}
+            </select>
+          </label>)}
+        </div>
+      </div>}
 
       {registry.can_manage && <div className="rrugc-skill-upload">
         <div>
@@ -218,6 +244,20 @@ export function SkillManagerModal({
                 <span className={"rrugc-skill-status is-" + state.toLowerCase().replaceAll(" ", "-")}>{state}</span>
               </div>
               <p>{item.description || "No description."}</p>
+              <label className="rrugc-skill-note">
+                <span>Note · What this skill is used for</span>
+                <textarea
+                  rows={2}
+                  maxLength={1500}
+                  value={noteDrafts[item.id] ?? item.note ?? ""}
+                  readOnly={!registry.can_manage}
+                  disabled={Boolean(busyKey)}
+                  onChange={event => setNoteDrafts(current => ({ ...current, [item.id]: event.target.value }))}
+                  placeholder="Describe intended use, preferred stage and expected outputs…"
+                />
+                {registry.can_manage && <button type="button" disabled={Boolean(busyKey) || (noteDrafts[item.id] ?? item.note ?? "") === (item.note || "")}
+                  onClick={() => void mutate("note:" + item.id, () => updateStage2SkillNote(item.id, noteDrafts[item.id] || ""), "Skill note saved.")}>Save note</button>}
+              </label>
               <div className="rrugc-skill-meta">
                 <span>{hosted ? "OpenAI" : "Local"}</span>
                 <span>Default {item.default_version ? "v" + item.default_version : "—"}</span>
@@ -312,9 +352,9 @@ export function SkillManagerModal({
                     item.enabled ? "Skill disabled for new jobs." : "Skill enabled.",
                   )}
                 >{item.enabled ? "Disable" : "Enable"}</button>
-                {hosted && <button type="button" className="is-danger" disabled={Boolean(busyKey)} onClick={() => void hardDelete(item)}>
+                <button type="button" className="is-danger" disabled={Boolean(busyKey)} onClick={() => void hardDelete(item)}>
                   Delete skill
-                </button>}
+                </button>
               </div>
             </div>}
           </article>;

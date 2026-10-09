@@ -3,9 +3,12 @@ import {
   listStage2Skills,
   stage2JobOutputThumbnailUrl,
   stage2JobOutputUrl,
+  regenerateStage4Job,
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { SkillJobLogDialog } from "./SkillJobLogDialog";
+import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
@@ -392,11 +395,31 @@ export function Stage2OutputReviewModal({
   plan,
   jobs,
   onClose,
+  onRegenerateJob,
 }: {
   plan: SourcePlan;
   jobs: Stage2Job[];
   onClose: () => void;
+  onRegenerateJob?: (job: Stage2Job) => void;
 }) {
+  const [logJobId, setLogJobId] = useState<string | null>(null);
+  const [versionsJobId, setVersionsJobId] = useState<string | null>(null);
+  const [versionError, setVersionError] = useState("");
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  async function regenerate(jobId: string) {
+    if (regeneratingId) return;
+    setRegeneratingId(jobId);
+    setVersionError("");
+    try {
+      await regenerateStage4Job(jobId);
+      setVersionsJobId(null);
+      onClose();
+    } catch (reason) {
+      setVersionError(reason instanceof Error ? reason.message : "Unable to generate a new version.");
+    } finally {
+      setRegeneratingId(null);
+    }
+  }
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -434,10 +457,18 @@ export function Stage2OutputReviewModal({
             <footer>
               <span>{new Date(run.completed_at || run.created_at).toLocaleString()}</span>
               {run.output_web_url && <a href={run.output_web_url} target="_blank" rel="noreferrer">Drive ↗</a>}
+              <button type="button" onClick={() => setLogJobId(run.id)}>Logs</button>
+              {onRegenerateJob && <button type="button" onClick={() => { onRegenerateJob(run); onClose(); }}>New version</button>}
+              <button type="button" onClick={() => setVersionsJobId(run.id)}>Versions</button>
             </footer>
           </article>
         ))}
       </div>
+      {versionError && <p role="alert">{versionError}</p>}
+      {versionsJobId && <GenerationOutputVersionsDialog stage="stage4" jobId={versionsJobId}
+        title={plan.source_name} onClose={() => setVersionsJobId(null)}
+        onRegenerate={regeneratingId ? undefined : () => void regenerate(versionsJobId)} />}
+      {logJobId && <SkillJobLogDialog stage="stage4" jobId={logJobId} onClose={() => setLogJobId(null)} />}
     </section>
   </div>;
 }
@@ -456,7 +487,8 @@ function skillStatus(skill: Stage2Skill) {
 
 function defaultSkill(catalog: Stage2SkillCatalog) {
   return (
-    catalog.items.find(skill => skill.ready && skill.skill_name === FALLBACK_SKILL_NAME)
+    catalog.items.find(skill => skill.ready && skillKey(skill) === catalog.stage_defaults?.stage4)
+    ||     catalog.items.find(skill => skill.ready && skill.skill_name === FALLBACK_SKILL_NAME)
     || catalog.items.find(skill => skill.ready)
     || catalog.items[0]
     || FALLBACK_SKILL
@@ -511,6 +543,8 @@ export function Stage2JobTable({
   onCreateJob,
   onManageSkills = () => undefined,
   onCancelJobs = () => undefined,
+  onRetryJob = () => undefined,
+  onRegenerateJob = () => undefined,
   onPageChange = () => undefined,
   onPageSizeChange = () => undefined,
 }: {
@@ -534,6 +568,8 @@ export function Stage2JobTable({
   ) => void;
   onManageSkills?: () => void;
   onCancelJobs?: (plan: SourcePlan, jobIds: string[]) => void;
+  onRetryJob?: (job: Stage2Job) => void;
+  onRegenerateJob?: (job: Stage2Job) => void;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
 }) {
@@ -541,6 +577,7 @@ export function Stage2JobTable({
   const [catalog, setCatalog] = useState<Stage2SkillCatalog>(INITIAL_CATALOG);
   const [skillKeyByPlan, setSkillKeyByPlan] = useState<Record<string, string>>({});
   const [skillVersionByPlan, setSkillVersionByPlan] = useState<Record<string, string>>({});
+  const [tableLogJobId, setTableLogJobId] = useState<string | null>(null);
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -934,6 +971,8 @@ export function Stage2JobTable({
                       >
                         <span aria-hidden="true">!</span>
                         <small>{run.last_error_code || "Failed"}</small>
+                        <button type="button" className="rrugc-stage2-sync" onClick={() => onRetryJob(run)}>Retry</button>
+                        <button type="button" className="rrugc-stage2-sync" onClick={() => setTableLogJobId(run.id)}>Logs</button>
                       </div>;
                     }
                     return <div
@@ -1014,6 +1053,7 @@ export function Stage2JobTable({
         </select>
       </label>
     </div>
+    {tableLogJobId && <SkillJobLogDialog stage="stage4" jobId={tableLogJobId} onClose={() => setTableLogJobId(null)} />}
     {outputReview && <Stage2OutputReviewModal
       plan={outputReview.plan}
       jobs={outputReview.jobs}
