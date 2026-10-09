@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
@@ -783,11 +784,11 @@ export function Stage2JobTable({
         </span>
         <button
           type="button"
-          className="rrugc-stage2-refresh"
+          className="rrugc-stage2-refresh rrugc-icon-action"
           disabled={refreshingSkills}
           onClick={() => void refreshSkills()}
         >
-          {refreshingSkills ? "Refreshing…" : "Refresh skills"}
+          <RrugcActionIcon name="refresh" />{refreshingSkills ? "Refreshing…" : "Refresh skills"}
         </button>
       </div>}
     />
@@ -937,28 +938,28 @@ export function Stage2JobTable({
                 <small className="rrugc-stage2-skill-id">{"$" + skill.skill_name} · {skillStatus(skill)}</small>
                 {!canGenerate && skill.sync_state !== "local_conflict" && <button
                   type="button"
-                  className="rrugc-stage2-sync"
+                  className="rrugc-stage2-sync rrugc-icon-action"
                   disabled={busy}
                   onClick={onManageSkills}
                 >
-                  Manage / sync skill
+                  <RrugcActionIcon name="skills" />Manage / sync skill
                 </button>}
                 {skill.sync_state === "local_conflict" && <small className="rrugc-source-error">Rename the conflicting local skill before syncing.</small>}
                 {cancelDeadlineMs !== null ? <>
                   <button
                     type="button"
-                    className="rrugc-stage2-cancel"
+                    className="rrugc-stage2-cancel rrugc-icon-action"
                     disabled={cancelling}
                     onClick={() => onCancelJobs(plan, cancellableJobs.map(job => job.id))}
                   >
-                    {cancelling ? "Cancelling…" : "Cancel · " + cancelSeconds + "s"}
+                    <RrugcActionIcon name="stop" />{cancelling ? "Cancelling…" : "Cancel · " + cancelSeconds + "s"}
                   </button>
                   <small className="rrugc-stage2-cancel-note">
                     Generation starts automatically when the 10-second cancel window ends.
                   </small>
                 </> : <button
                   type="button"
-                  className="rrugc-primary rrugc-stage2-generate"
+                  className="rrugc-primary rrugc-stage2-generate rrugc-icon-action"
                   disabled={busy || selected.length === 0 || !canGenerate}
                   onClick={() => onCreateJob(plan, selected, {
                     source: skill.source,
@@ -967,7 +968,7 @@ export function Stage2JobTable({
                     skill_version: version,
                   })}
                 >
-                  {creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate selected"}
+                  <RrugcActionIcon name={busy ? "refresh" : "sparkles"} />{creatingPlanIds.has(plan.id) ? "Queuing…" : busy ? "Generating…" : "Generate selected"}
                 </button>}
                 </div>
               </td>
@@ -1023,8 +1024,8 @@ export function Stage2JobTable({
                       <span className="rrugc-stage4-run-history-state">{jobLabel(run)}</span>
                       {run.status === "failed" && <span className="rrugc-stage4-run-history-error" title={run.last_error_message || run.last_error_code || "Generation failed"}>{run.last_error_code ? run.last_error_code + (run.last_error_message && run.last_error_message !== run.last_error_code ? " · " + run.last_error_message : "") : run.last_error_message || "Generation failed"}</span>}
                       {run.status === "failed" && <div className="rrugc-stage4-run-history-actions">
-                        <button type="button" onClick={() => onRetryJob(run)}>Retry</button>
-                        <button type="button" onClick={() => setTableLogJobId(run.id)}>Logs</button>
+                        <button type="button" className="rrugc-icon-action" onClick={() => onRetryJob(run)}><RrugcActionIcon name="refresh" />Retry</button>
+                        <button type="button" className="rrugc-icon-action" onClick={() => setTableLogJobId(run.id)}><RrugcActionIcon name="logs" />Logs</button>
                       </div>}
                       {run.status !== "failed" && <small>{new Date(run.created_at).toLocaleString()}</small>}
                     </div>)}
@@ -1042,11 +1043,11 @@ export function Stage2JobTable({
     <div className="rrugc-source-pagination rrugc-stage2-pagination">
       <span>{pageStart}–{pageEnd} of {stage2Total}</span>
       <div className="rrugc-source-page-controls">
-        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 4 page">«</button>
-        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 4 page">‹</button>
+        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(1)} aria-label="First Stage 4 page"><RrugcActionIcon name="chevrons-left" /></button>
+        <button type="button" disabled={loading || currentPage <= 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))} aria-label="Previous Stage 4 page"><RrugcActionIcon name="chevron-left" /></button>
         <strong>Page {currentPage} / {pageCount}</strong>
-        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 4 page">›</button>
-        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 4 page">»</button>
+        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))} aria-label="Next Stage 4 page"><RrugcActionIcon name="chevron-right" /></button>
+        <button type="button" disabled={loading || currentPage >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last Stage 4 page"><RrugcActionIcon name="chevrons-right" /></button>
       </div>
       <label>
         Rows

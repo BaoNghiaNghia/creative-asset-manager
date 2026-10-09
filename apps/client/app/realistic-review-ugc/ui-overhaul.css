@@ -2151,3 +2151,16 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-skill-compact-actions .rrugc-skill-delete-icon:hover:not(:disabled){border-color:#e5a9ac;background:#ffe9e9;color:#a33d46}
 .rrugc-skill-compact-actions .rrugc-skill-delete-icon:disabled{opacity:.45;cursor:default}
 .rrugc-skill-compact-actions .rrugc-skill-delete-icon:focus-visible{outline:2px solid #d78089;outline-offset:2px}
+
+/* Workflow action icon contract: shared across all five RRUGC stages.
+   Keep the label visible and icon decorative for accessible naming. */
+.rrugc-icon-action { display:inline-flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap; }
+.rrugc-icon-action .rrugc-action-icon { display:block; width:14px; height:14px; flex:0 0 14px; overflow:visible; stroke:currentColor; }
+.rrugc-icon-action:disabled .rrugc-action-icon { opacity:.72; }
+.rrugc-source-page-controls button .rrugc-action-icon { display:block; width:14px; height:14px; stroke:currentColor; }
+.rrugc-source-page-controls button:has(.rrugc-action-icon) { display:inline-grid; place-items:center; }
+.rrugc-icon-action:focus-visible { outline:2px solid #5d87ce; outline-offset:2px; }
+@media (max-width:680px) {
+  .rrugc-icon-action { gap:5px; }
+  .rrugc-icon-action .rrugc-action-icon { width:13px; height:13px; flex-basis:13px; }
+}

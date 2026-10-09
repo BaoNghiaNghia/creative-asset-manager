@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createKeywordImage, createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, retryKeywordImage, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
@@ -300,10 +301,10 @@ export function KeywordImageStage({
       title="Generate images from used keywords"
       description="Generate artwork from Stage 0 keywords, follow each job, and compare output versions."
       actions={<div className="rrugc-keyword-gen-actions">
-        <button type="button" className="rrugc-global-management-button" onClick={onManageSkills}>Manage skills</button>
+        <button type="button" className="rrugc-global-management-button rrugc-icon-action" onClick={onManageSkills}><RrugcActionIcon name="skills" />Manage skills</button>
         {bulkRunning
-          ? <button type="button" className="rrugc-keyword-gen-stop" onClick={() => bulkAbortRef.current?.abort()}>Stop queueing ({allQueued})</button>
-          : <button type="button" className="rrugc-keyword-gen-primary" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}>Generate all unused</button>}
+          ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
+          : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
       </div>}
     />
     <form className="rrugc-keyword-manual" onSubmit={event => void submitManual(event)}>
@@ -316,8 +317,8 @@ export function KeywordImageStage({
         <input id="rrugc-stage1-manual-keyword" value={manualKeyword} maxLength={150}
           onChange={event => setManualKeyword(event.target.value)}
           placeholder="Enter keyword or quote, e.g. BEACH PLEASE" />
-        <button type="submit" disabled={!manualKeyword.trim() || !selectedSkillInput || manualSubmitting}>
-          {manualSubmitting ? "Queueing…" : "Generate"}
+        <button type="submit" className="rrugc-icon-action" disabled={!manualKeyword.trim() || !selectedSkillInput || manualSubmitting}>
+          <RrugcActionIcon name={manualSubmitting ? "refresh" : "sparkles"} />{manualSubmitting ? "Queueing…" : "Generate"}
         </button>
       </div>
       {manualFocus && <div className="rrugc-keyword-manual-result" aria-live="polite">

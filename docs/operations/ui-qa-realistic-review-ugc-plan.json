@@ -1,9 +1,51 @@
 {
   "viewports": ["desktop", "tabletPortrait", "mobile"],
   "steps": [
-    {"name":"default","click":"#rrugc-tab-stage3","waitFor":"#rrugc-source-plans","waitMs":400},
-    {"name":"campaign-hover","hover":".rrugc-source-plan-table tbody tr"},
-    {"name":"candidate-hover","hover":".rrugc-source-ref-card"},
-    {"name":"candidate-filter-focus","focus":"input[placeholder='Search source file or folder…']"}
+    {
+      "name": "default",
+      "click": "#rrugc-tab-stage3",
+      "waitFor": "#rrugc-source-plans",
+      "waitMs": 300,
+      "requireIcons": [
+        "#rrugc-panel-stage3 .rrugc-source-plan-heading-actions button",
+        "#rrugc-panel-stage3 .rrugc-source-plan-sort-direction"
+      ]
+    },
+    { "name": "campaign-hover", "hover": ".rrugc-source-plan-table tbody tr" },
+    { "name": "candidate-hover", "hover": ".rrugc-source-ref-card" },
+    { "name": "candidate-filter-focus", "focus": "#rrugc-stage3-search-input" },
+    {
+      "name": "stage1-actions",
+      "click": "#rrugc-tab-stage1",
+      "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen",
+      "requireIcons": [
+        "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button",
+        "#rrugc-panel-stage1 .rrugc-keyword-manual-controls button"
+      ]
+    },
+    {
+      "name": "stage2-actions",
+      "click": "#rrugc-tab-stage2",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage",
+      "requireIcons": [
+        "#rrugc-panel-stage2 .rrugc-colorway-header-actions button",
+        "#rrugc-panel-stage2 .rrugc-colorway-toolbar > button"
+      ]
+    },
+    {
+      "name": "stage4-actions",
+      "click": "#rrugc-tab-stage4",
+      "waitFor": "#rrugc-panel-stage4 .rrugc-stage2",
+      "requireIcons": ["#rrugc-panel-stage4 .rrugc-stage2-registry-actions button"]
+    },
+    {
+      "name": "stage5-actions",
+      "click": "#rrugc-tab-stage5",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage3",
+      "requireIcons": [
+        "#rrugc-panel-stage5 .rrugc-stage3-header-actions > button",
+        "#rrugc-panel-stage5 .rrugc-stage4-search-toolbar > button"
+      ]
+    }
   ]
 }

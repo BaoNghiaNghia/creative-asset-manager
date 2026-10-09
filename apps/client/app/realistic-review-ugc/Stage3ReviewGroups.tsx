@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcActionIcon } from "./RrugcActionIcon";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import type {
   Stage3AnalysisStatus,
@@ -344,11 +345,11 @@ export function Stage3ReviewGroups({
         </div>
         <button
           type="button"
-          className="rrugc-stage3-analyze-all"
+          className="rrugc-stage3-analyze-all rrugc-icon-action"
           onClick={() => onAnalyze()}
           disabled={analyzing || data.total_images === 0}
         >
-          {analyzing ? "Queueing…" : "Analyze all"}
+          <RrugcActionIcon name={analyzing ? "refresh" : "sparkles"} />{analyzing ? "Queueing…" : "Analyze all"}
         </button>
       </div>}
     />
@@ -365,8 +366,8 @@ export function Stage3ReviewGroups({
         label="Search Stage 5 UGC reviews"
       />
       <span>{normalizedQuery ? visibleGroups.length + " matching loaded folders" : data.total_groups + " loaded folders"}</span>
-      <button type="button" className="rrugc-stage3-refresh" onClick={onRefresh} disabled={loading || loadingMore}>
-        Refresh
+      <button type="button" className="rrugc-stage3-refresh rrugc-icon-action" onClick={onRefresh} disabled={loading || loadingMore}>
+        <RrugcActionIcon name="refresh" />Refresh
       </button>
     </div>
 
@@ -409,11 +410,11 @@ export function Stage3ReviewGroups({
                 </div>
                 <button
                   type="button"
-                  className="rrugc-stage3-analyze-folder"
+                  className="rrugc-stage3-analyze-folder rrugc-icon-action"
                   onClick={() => onAnalyze(group.folder_id)}
                   disabled={analyzing}
                 >
-                  Analyze folder
+                  <RrugcActionIcon name="folder" />Analyze folder
                 </button>
               </div>
             </div>
@@ -501,11 +502,11 @@ export function Stage3ReviewGroups({
       <div className="rrugc-stage3-load-more">
         <button
           type="button"
-          className="rrugc-stage3-analyze-all"
+          className="rrugc-stage3-analyze-all rrugc-icon-action"
           onClick={onLoadMore}
           disabled={loading || loadingMore}
         >
-          {loadingMore ? "Loading older images…" : "Load older images"}
+          <RrugcActionIcon name={loadingMore ? "refresh" : "folder"} />{loadingMore ? "Loading older images…" : "Load older images"}
         </button>
         <small>Showing {data.total_images} loaded images; older outputs remain available.</small>
       </div>

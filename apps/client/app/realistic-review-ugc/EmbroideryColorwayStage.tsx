@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness } from "./api";
 import type { ColorwayJob, ColorwayReadiness } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
@@ -300,7 +301,8 @@ export function EmbroideryColorwayStage({
       description={<>Scans JPG/PNG images in the configured Drive root and all subfolders, regardless of the filename prefix. Generated <code>output_</code> files are excluded. Each design can create 13 colorways independently of Pinterest.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Drive · JPG/PNG · recursive</span>
-        <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>
+        <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}>
+          <RrugcActionIcon name={syncing ? "refresh" : "scan"} />
           {syncing ? "Scanning…" : "Scan source"}
         </button>
       </div>}
@@ -341,16 +343,18 @@ export function EmbroideryColorwayStage({
           ))}
         </select>
       </label>
-      <button type="button" className="rrugc-colorway-select" onClick={togglePage} disabled={loading || data.items.length === 0}>
+      <button type="button" className="rrugc-colorway-select rrugc-icon-action" onClick={togglePage} disabled={loading || data.items.length === 0}>
+        <RrugcActionIcon name={pageSelected ? "deselect" : "select-all"} />
         {pageSelected ? "Clear page" : "Select page"}
       </button>
       <button
         type="button"
-        className="rrugc-colorway-run"
+        className="rrugc-colorway-run rrugc-icon-action"
         disabled={!canQueue}
         onClick={() => void queueSelected()}
         title={!serverReadiness?.ready ? "Stage 2 server readiness is not confirmed" : ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
       >
+        <RrugcActionIcon name={queueing ? "refresh" : "play"} />
         {queueing ? "Queueing…" : "Run selected · " + (selectedIds.size * COLOR_SLOT_COUNT)}
       </button>
     </div>
@@ -437,8 +441,8 @@ export function EmbroideryColorwayStage({
         Page {data.page} / {pageCount} · {data.total} designs · {plannedOutputs} planned outputs
       </span>
       <div>
-        <button type="button" disabled={loading || data.page <= 1} onClick={() => onPageChange(Math.max(1, data.page - 1))}>Previous</button>
-        <button type="button" disabled={loading || data.page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, data.page + 1))}>Next</button>
+        <button type="button" disabled={loading || data.page <= 1} onClick={() => onPageChange(Math.max(1, data.page - 1))} className="rrugc-icon-action"><RrugcActionIcon name="chevron-left" />Previous</button>
+        <button type="button" disabled={loading || data.page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, data.page + 1))} className="rrugc-icon-action">Next<RrugcActionIcon name="chevron-right" /></button>
         <label>Rows <select aria-label="Stage 2 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>
           {STAGE1_PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
         </select></label>

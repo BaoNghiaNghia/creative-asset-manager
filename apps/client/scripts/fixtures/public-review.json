@@ -23,6 +23,18 @@
   "apiRoutes": [
     {
       "method": "GET",
+      "path": "/api/public/review/qa-review/assets/qa-public-asset-1/preview",
+      "contentType": "image/gif",
+      "imageBase64": "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/review/qa-review/assets/qa-public-asset-2/preview",
+      "contentType": "image/gif",
+      "imageBase64": "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+    },
+    {
+      "method": "GET",
       "path": "/api/public/review/qa-review/bootstrap",
       "body": {
         "public_id": "qa-review",

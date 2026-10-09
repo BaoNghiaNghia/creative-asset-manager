@@ -541,6 +541,25 @@ try {
     const visualComparisons = [];
     for (const step of executionSteps) {
       await performStep(page, step);
+      // Optional design-system contract: critical action buttons must retain
+      // a visible SVG glyph as well as their accessible text label.
+      if (Array.isArray(step.requireIcons)) {
+        for (const selector of step.requireIcons) {
+          const actions = page.locator(selector);
+          const count = await actions.count();
+          if (count === 0) throw new Error(`UI icon QA: missing action ${selector} in state ${step.name}`);
+          const missing = await actions.evaluateAll(nodes => nodes.filter(node => {
+            const style = getComputedStyle(node);
+            if (style.display === "none" || style.visibility === "hidden") return false;
+            const box = node.getBoundingClientRect();
+            if (box.width === 0 || box.height === 0) return false;
+            return !node.querySelector("svg[data-ui-icon]");
+          }).map(node => (node.textContent || "").trim().slice(0, 90)));
+          if (missing.length) {
+            throw new Error(`UI icon QA: ${selector} missing glyph in ${step.name}: ${missing.join(", ")}`);
+          }
+        }
+      }
       const name = sanitize(step.name || "state");
       if (!captureStateNames.has(name)) continue;
       const filename = `${viewportName}--${name}.png`;

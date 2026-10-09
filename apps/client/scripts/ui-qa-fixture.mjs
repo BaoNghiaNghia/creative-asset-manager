@@ -19,6 +19,13 @@ function fixtureApiResponse(fixture, method, pathname) {
     const prefix = typeof route.prefix === "string" && pathname.startsWith(route.prefix);
     if (!exact && !prefix) continue;
     const status = Number.isInteger(route.status) ? route.status : 200;
+    if (typeof route.imageBase64 === "string") {
+      return {
+        status,
+        contentType: route.contentType,
+        body: Buffer.from(route.imageBase64, "base64"),
+      };
+    }
     return json(route.body ?? {}, status);
   }
   return null;
@@ -116,6 +123,14 @@ export async function loadUiQaFixture(fixturePath) {
         throw new Error(
           `UI QA fixture apiRoutes[${index}] must define an exact path or prefix.`,
         );
+      }
+      if (route.imageBase64 !== undefined && (
+        typeof route.imageBase64 !== "string"
+        || route.imageBase64.length > 4_000_000
+        || !/^(image\/png|image\/jpeg|image\/gif|image\/webp)$/.test(route.contentType || "")
+        || !/^[a-zA-Z0-9+/]+={0,2}$/.test(route.imageBase64)
+      )) {
+        throw new Error(`UI QA fixture apiRoutes[${index}] must use a bounded base64 raster with image content type.`);
       }
       for (const value of [route.path, route.prefix]) {
         if (value !== undefined && (!value.startsWith("/") || value.startsWith("//"))) {

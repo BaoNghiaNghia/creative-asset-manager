@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { RrugcActionIcon } from "./RrugcActionIcon";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type { ReferenceManualLabel, SourcePlan, SourcePlanGroupImage, SourcePlanOverview, SourcePlanReferencePreview } from "./types";
@@ -577,7 +578,7 @@ export function SourcePlanTable({
       actions={<div className="rrugc-source-plan-heading-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Auto scan on</span>
         <span className="rrugc-source-root" title={SOURCE_ROOT_FOLDER_ID}>Drive · {SOURCE_ROOT_FOLDER_ID}</span>
-        <button type="button" className="rrugc-primary" disabled={syncing} onClick={onSync}>{syncing ? "Scanning…" : "Scan now"}</button>
+        <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}><RrugcActionIcon name={syncing ? "refresh" : "scan"} />{syncing ? "Scanning…" : "Scan now"}</button>
       </div>}
     />
 
@@ -619,11 +620,11 @@ export function SourcePlanTable({
         </label>
         <button
           type="button"
-          className="rrugc-source-plan-sort-direction"
+          className="rrugc-source-plan-sort-direction rrugc-icon-action"
           aria-label={"Sort direction: " + sourcePlanSortDirectionLabel(sortBy, sortDirection)}
           onClick={() => onSortDirectionChange(sortDirection === "asc" ? "desc" : "asc")}
         >
-          {sourcePlanSortDirectionLabel(sortBy, sortDirection)}
+          <RrugcActionIcon name="sort" />{sourcePlanSortDirectionLabel(sortBy, sortDirection)}
         </button>
         <span className="rrugc-source-plan-sort-count">{total} embroidery groups</span>
       </div>
@@ -689,11 +690,11 @@ export function SourcePlanTable({
     <div className="rrugc-source-pagination">
       <span>{start}–{end} of {total}</span>
       <div className="rrugc-source-page-controls">
-        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(1)} aria-label="First page">«</button>
-        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))} aria-label="Previous page">‹</button>
+        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(1)} aria-label="First page"><RrugcActionIcon name="chevrons-left" /></button>
+        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))} aria-label="Previous page"><RrugcActionIcon name="chevron-left" /></button>
         <strong>Page {page} / {pageCount}</strong>
-        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))} aria-label="Next page">›</button>
-        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page">»</button>
+        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))} aria-label="Next page"><RrugcActionIcon name="chevron-right" /></button>
+        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page"><RrugcActionIcon name="chevrons-right" /></button>
       </div>
       <label>Rows<select value={pageSize} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>
