@@ -16,6 +16,12 @@ Tauri NSIS installer: src-tauri/target/release/bundle/nsis. Windows build was ve
 
 The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor checkout / D:\Bot_Tool_Auto_Game\scan_pinterest). It runs the existing scripts/start_scout_auto_update.ps1 -SkipUpdate with separate Review / Keyword Chrome profiles and log files. Tauri 0.1.2 shares the `Local\\CreativeAssetManager.RrugcScout.Manager` named Windows mutex with WinForms. Only the holder can start, stop, pair, or update Scouts; a second Manager shows a warning and disables its controls. Close the old WinForms Manager when ready to switch. It is preserved for rollback.
 
+## Native 0.1.17 / Scout v54 — shared Gemini fairness and Pinterest watchdog
+
+This Windows x64 build packages the current Scout Manager with Scout v54 source compatibility. The API now targets 50/50 Gemini start opportunities between Review and Keyword during heavy Review backlog (12-second lanes, independent credential/project quota controls). The allocation is server-side: rebuilding the Manager is for consistent versioning, distribution, diagnostics and updating Scout processes, not to apply the quota policy.
+
+Scout v54 also limits a stuck Pinterest scroll to 25 seconds and asks the existing supervisor to recycle the browser context. Reuse the existing `scout.local.env`, separate Chrome profiles, history and agent pairing. Restart the individual Scout through its Manager control to load updated Python code; replacing the Manager executable alone does not restart running Scouts.
+
 ## Native 0.1.16 / Scout v52 — non-starving Keyword fair-share hotfix
 
 The v51 queue-first regression paused Keyword discovery whenever even one Review AI job remained pending, leaving valid keyword queries unleased indefinitely. Scout v52 treats the Review backlog as a signal to **reduce** root/related Pin work, not as a reason to suspend Pinterest discovery. The API enforces a tenant-wide, database-atomic start slot of one Keyword quote extraction per 60 seconds while Review jobs remain pending, across all paired Scout machines. The reservation is committed before provider I/O; the existing Gemini model/project credential limiter remains authoritative and responds to real quota exhaustion. Client diagnostics failures degrade to this protected extraction endpoint; authorization failures still fail closed.
