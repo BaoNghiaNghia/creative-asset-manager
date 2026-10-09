@@ -3,7 +3,6 @@ import {
   listStage2Skills,
   stage2JobOutputThumbnailUrl,
   stage2JobOutputUrl,
-  regenerateStage4Job,
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -411,9 +410,12 @@ export function Stage2OutputReviewModal({
     setRegeneratingId(jobId);
     setVersionError("");
     try {
-      await regenerateStage4Job(jobId);
-      setVersionsJobId(null);
-      onClose();
+      const target = jobs.find(job => job.id === jobId);
+      if (target && onRegenerateJob) {
+        onRegenerateJob(target);
+        setVersionsJobId(null);
+        onClose();
+      }
     } catch (reason) {
       setVersionError(reason instanceof Error ? reason.message : "Unable to generate a new version.");
     } finally {
@@ -452,7 +454,7 @@ export function Stage2OutputReviewModal({
                 alt={"Generated output " + (index + 1)}
                 rootMargin="320px 0px"
               />
-              <span className="rrugc-source-review-index">{index + 1}</span>
+              <span className="rrugc-source-review-index">v{1 + jobs.filter(other => (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
             </div>
             <footer>
               <span>{new Date(run.completed_at || run.created_at).toLocaleString()}</span>
@@ -1017,7 +1019,7 @@ export function Stage2JobTable({
                       alt={"Generated output " + (index + 1)}
                       rootMargin="180px"
                     />
-                    <span>{index + 1}</span>
+                    <span>v{1 + completedJobs.filter(other => (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
                   </button>)}
                 </div> : <div className="rrugc-stage2-results-empty">
                   <strong>No results yet</strong>
@@ -1057,6 +1059,7 @@ export function Stage2JobTable({
     {outputReview && <Stage2OutputReviewModal
       plan={outputReview.plan}
       jobs={outputReview.jobs}
+      onRegenerateJob={onRegenerateJob}
       onClose={() => setOutputReview(null)}
     />}
   </section>;

@@ -403,42 +403,6 @@ class RrugcStage2Service:
         self.session.refresh(row)
         return row, True
 
-    def regenerate_job(
-        self, *, tenant_id: str, user_id: str, job_id: str,
-    ) -> RrugcStage2JobModel:
-        """Generate another immutable output from the same pinned Skill and references."""
-        row = self.session.scalar(select(RrugcStage2JobModel).where(
-            RrugcStage2JobModel.tenant_id == tenant_id,
-            RrugcStage2JobModel.id == job_id,
-        ).with_for_update())
-        if row is None:
-            raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
-        if row.created_by_user_id != user_id:
-            raise RrugcStage2Error("stage4_regenerate_forbidden", "Only the job owner can regenerate.", status_code=403)
-        if row.status != "completed" or not row.output_remote_file_id:
-            raise RrugcStage2Error("stage4_regenerate_not_completed", "Only completed jobs can generate a new version.")
-        attempts = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
-            ProcessingJobModel.tenant_id == tenant_id,
-            ProcessingJobModel.entity_type == "rrugc_stage2_job",
-            ProcessingJobModel.entity_id == job_id,
-        )) or 0)
-        now = datetime.now(timezone.utc)
-        processing = ProcessingRepository(self.session, self.settings).create_job(
-            tenant_id=tenant_id, job_type=STAGE2_JOB_TYPE,
-            entity_type="rrugc_stage2_job", entity_id=row.id,
-            idempotency_key=f"rrugc-stage2:{row.id}:version:{attempts}",
-            payload={"stage2_job_id": row.id}, priority=25, max_attempts=3,
-            next_attempt_at=now, provider_key="codex", provider_scope="ai",
-        )
-        row.processing_job_id = processing.id
-        row.status = "queued"
-        row.started_at = None
-        row.queued_at = now
-        row.last_error_code = row.last_error_message = None
-        self.session.commit()
-        self.session.refresh(row)
-        return row
-
     def regenerate_completed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
     ) -> RrugcStage2JobModel:
@@ -449,6 +413,8 @@ class RrugcStage2Service:
         ).with_for_update())
         if original is None:
             raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
+        if original.created_by_user_id != user_id:
+            raise RrugcStage2Error("stage4_regenerate_forbidden", "Only the job owner can regenerate.", status_code=403)
         if original.status != "completed" or not original.output_remote_file_id:
             raise RrugcStage2Error("stage4_version_unavailable", "Only completed outputs can be regenerated.")
         ensure_skill_registry(self.session, tenant_id=tenant_id)

@@ -5643,23 +5643,6 @@ def analyze_stage3_review_groups(
 
 
 @router.post("/stage4/jobs/{job_id}/regenerate", response_model=Stage2JobResponse, status_code=202)
-def regenerate_stage4_generation(
-    job_id: str,
-    session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(RUN),
-):
-    try:
-        row = RrugcStage2Service(session).regenerate_job(
-            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            job_id=job_id,
-        )
-    except RrugcStage2Error as exc:
-        raise HTTPException(status_code=exc.status_code,
-                            detail={"code": exc.code, "message": exc.message}) from exc
-    return _stage2_job(row, current_user_id=principal.user_id)
-
-
-@router.post("/stage4/jobs/{job_id}/regenerate", response_model=Stage2JobResponse, status_code=202)
 def regenerate_stage4_output(
     job_id: str,
     session: Session = Depends(get_db),

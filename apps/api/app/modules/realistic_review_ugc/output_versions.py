@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.model import RrugcImageOutputVersionModel
+from app.modules.realistic_review_ugc.model import RrugcImageOutputVersionModel, RrugcStage2JobModel
 
 
 def save_output_version(
@@ -48,6 +48,23 @@ def save_output_version(
 
 
 def output_versions(session: Session, *, tenant_id: str, stage: str, job: object) -> list[dict]:
+    if stage == "stage4":
+        root = job.regenerated_from_job_id or job.id
+        lineage = list(session.scalars(select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            or_(RrugcStage2JobModel.id == root,
+                RrugcStage2JobModel.regenerated_from_job_id == root),
+            RrugcStage2JobModel.status == "completed",
+            RrugcStage2JobModel.output_remote_file_id.is_not(None),
+        ).order_by(RrugcStage2JobModel.created_at.asc(), RrugcStage2JobModel.id.asc())))
+        return list(reversed([{
+            "version": index, "remote_file_id": version_job.output_remote_file_id,
+            "content_type": version_job.output_content_type,
+            "size_bytes": version_job.output_size_bytes,
+            "width": version_job.output_width,
+            "height": version_job.output_height,
+            "created_at": version_job.completed_at or version_job.created_at,
+        } for index, version_job in enumerate(lineage, start=1)]))
     rows = list(session.scalars(select(RrugcImageOutputVersionModel).where(
         RrugcImageOutputVersionModel.tenant_id == tenant_id,
         RrugcImageOutputVersionModel.stage == stage,
