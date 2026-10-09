@@ -29,7 +29,7 @@ from app.modules.realistic_review_ugc.scout_automation import (
 )
 
 
-def test_quote_gate_preserves_review_and_admits_one_keyword_per_minute():
+def test_quote_gate_preserves_review_and_admits_one_keyword_per_12_seconds():
     from app.modules.ai_governance.model import AiModelRateLimitStateModel
 
     engine = create_engine("sqlite+pysqlite:///:memory:")
@@ -67,7 +67,7 @@ def test_quote_gate_preserves_review_and_admits_one_keyword_per_minute():
             )
             assert blocked["active"] is True
             assert blocked["reason"] == "keyword_fair_share_wait"
-            assert 1 <= blocked["retry_seconds"] <= 61
+            assert 1 <= blocked["retry_seconds"] <= 13
             assert keyword_quote_backlog_gate(
                 session, "tenant-a", pressure=pressure, now=now, reserve=True,
             )["active"] is True
@@ -76,7 +76,7 @@ def test_quote_gate_preserves_review_and_admits_one_keyword_per_minute():
             )["active"]
             assert not keyword_quote_backlog_gate(
                 session, "tenant-a", pressure=pressure,
-                now=now + timedelta(seconds=61),
+                now=now + timedelta(seconds=13),
             )["active"]
             session.query(ProcessingJobModel).update({"status": "completed"})
             session.commit()

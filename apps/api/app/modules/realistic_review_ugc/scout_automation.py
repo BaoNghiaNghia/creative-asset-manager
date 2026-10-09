@@ -62,9 +62,22 @@ SCOUT_ANALYSIS_SOFT_LIMIT = 125
 SCOUT_ANALYSIS_SOFT_MIN_AGE_SECONDS = 10 * 60
 SCOUT_ANALYSIS_SOFT_CLAIM_GAP_SECONDS = 5 * 60
 # Protect Review's shared Gemini capacity without starving Keyword Scout.
-# The tenant-wide quote lane admits at most one start per 60 seconds under
-# Review backlog; the provider's independent quota controls still apply.
-KEYWORD_BACKLOG_QUOTE_MIN_INTERVAL_SECONDS = 60
+# Adapt start frequency to the *Review* backlog, never to the number of
+# connected Scout machines. Real Gemini provider limits remain authoritative.
+KEYWORD_BACKLOG_QUOTE_INTERVAL_HEALTHY_SECONDS = 12
+KEYWORD_BACKLOG_QUOTE_INTERVAL_PRESSURED_SECONDS = 20
+KEYWORD_BACKLOG_QUOTE_INTERVAL_CRITICAL_SECONDS = 60
+
+
+def keyword_quote_interval_seconds(pressure: dict[str, int | bool]) -> int:
+    """A tenant-wide fair-share lane; slow down only at the hard Review limit."""
+    pending = max(0, int(pressure.get("pending_jobs") or 0))
+    oldest = max(0, int(pressure.get("oldest_wait_seconds") or 0))
+    if pending >= SCOUT_ANALYSIS_BACKLOG_LIMIT and oldest >= SCOUT_ANALYSIS_BACKLOG_MIN_AGE_SECONDS:
+        return KEYWORD_BACKLOG_QUOTE_INTERVAL_CRITICAL_SECONDS
+    if pending >= SCOUT_ANALYSIS_SOFT_LIMIT and oldest >= SCOUT_ANALYSIS_SOFT_MIN_AGE_SECONDS:
+        return KEYWORD_BACKLOG_QUOTE_INTERVAL_PRESSURED_SECONDS
+    return KEYWORD_BACKLOG_QUOTE_INTERVAL_HEALTHY_SECONDS
 
 def scout_analysis_backpressure(
     session: Session, tenant_id: str, *, now: datetime | None = None,
@@ -123,9 +136,9 @@ def keyword_quote_backlog_gate(
 ) -> dict[str, int | bool | str]:
     """Permit bounded Keyword quote extraction while Review has queued jobs.
 
-    A shared tenant-scoped database reservation enforces one quote start per
-    minute whenever Review analysis is pending. The Gemini provider still
-    enforces real project/model/key quota, so this is not a quota bypass.
+    A shared tenant-scoped database reservation spaces quote starts by 12,
+    20 or 60 seconds depending on Review backlog severity. Gemini provider
+    quotas remain authoritative; the database gate does not bypass them.
     reserve=False is read-only; reserve=True must be committed before awaiting
     the external provider to release the shared database row lock.
     """
@@ -136,13 +149,14 @@ def keyword_quote_backlog_gate(
     if int(pressure.get("pending_jobs") or 0) <= 0:
         return {"active": False, "retry_seconds": 0,
                 "reason": "review_queue_drained"}
+    interval_seconds = keyword_quote_interval_seconds(pressure)
     limiter = AiModelRateLimitRepository(session)
     params = dict(
         tenant_id=tenant_id,
         provider="rrugc_keyword_backlog_lane",
         model="gemini",
-        rpm=1,
-        minimum_interval_seconds=KEYWORD_BACKLOG_QUOTE_MIN_INTERVAL_SECONDS,
+        rpm=60 // interval_seconds,
+        minimum_interval_seconds=interval_seconds,
         now=current,
     )
     decision = (

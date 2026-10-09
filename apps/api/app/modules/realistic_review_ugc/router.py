@@ -4433,7 +4433,7 @@ async def quote_scout_extract_hat_quote(
         analysis_pressure = scout_analysis_backpressure(
             session, agent.tenant_id,
         )
-        # One atomic tenant-wide quote start per minute under Review backlog.
+        # An adaptive atomic tenant-wide quote lane protects the Review queue.
         # This reservation must commit BEFORE Gemini I/O so other Scout machines
         # can observe the same slot and the DB row lock is promptly released.
         quote_gate = keyword_quote_backlog_gate(

@@ -807,6 +807,51 @@ def test_keyword_quote_backlog_fair_share_is_tenant_scoped_and_atomic(database):
         )["active"] is False
 
 
+def test_keyword_fair_share_adapts_to_review_queue_pressure(database):
+    from app.modules.ai_governance.model import AiModelRateLimitStateModel
+    from app.modules.realistic_review_ugc.scout_automation import (
+        keyword_quote_backlog_gate, keyword_quote_interval_seconds,
+    )
+
+    now = datetime.now(timezone.utc)
+    healthy = {"active": False, "pending_jobs": 12, "oldest_wait_seconds": 100}
+    pressured = {"active": False, "pending_jobs": 188, "oldest_wait_seconds": 4200}
+    critical = {"active": True, "pending_jobs": 230, "oldest_wait_seconds": 4200}
+    assert keyword_quote_interval_seconds(healthy) == 12
+    assert keyword_quote_interval_seconds(pressured) == 20
+    assert keyword_quote_interval_seconds(critical) == 60
+
+    with database() as session:
+        # Existing v52 shared rate-limit state is reused, no migration.
+        AiModelRateLimitStateModel.__table__.create(
+            bind=session.get_bind(), checkfirst=True,
+        )
+        for tenant, pressure, seconds in (
+            ("tenant-healthy", healthy, 12),
+            ("tenant-pressured", pressured, 20),
+            ("tenant-critical", critical, 60),
+        ):
+            admitted = keyword_quote_backlog_gate(
+                session, tenant, pressure=pressure, now=now, reserve=True,
+            )
+            session.commit()
+            assert not admitted["active"]
+            wait = keyword_quote_backlog_gate(
+                session, tenant, pressure=pressure, now=now,
+            )
+            assert wait["active"]
+            assert 1 <= wait["retry_seconds"] <= seconds + 1
+            assert keyword_quote_backlog_gate(
+                session, tenant, pressure=pressure,
+                now=now + timedelta(seconds=seconds - 1), reserve=True,
+            )["active"]
+            assert not keyword_quote_backlog_gate(
+                session, tenant, pressure=pressure,
+                now=now + timedelta(seconds=seconds + 1), reserve=True,
+            )["active"]
+            session.commit()
+
+
 def test_scout_api_backpressure_pauses_claim_and_preserves_retryable_quote(api, database, monkeypatch):
     import app.modules.realistic_review_ugc.scout_automation as automation
     import app.modules.realistic_review_ugc.router as scout_router
