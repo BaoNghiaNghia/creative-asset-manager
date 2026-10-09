@@ -153,6 +153,27 @@ const STAGE2_REF_CARD_PITCH = 70;
 const STAGE2_REF_WINDOW_OVERSCAN = 3;
 const STAGE2_REF_WINDOW_MIN = 14;
 
+function ReferenceBulkActions({
+  eligibleCount, selectedCount, busy, onSelectAll, onDeselect,
+}: {
+  eligibleCount: number;
+  selectedCount: number;
+  busy: boolean;
+  onSelectAll: () => void;
+  onDeselect: () => void;
+}) {
+  return <div className="rrugc-reference-bulk-actions" role="group" aria-label="Bulk reference selection">
+    <button type="button" title="Select all available references" aria-label="Select all available references"
+      disabled={busy || eligibleCount === 0 || selectedCount >= eligibleCount} onClick={onSelectAll}>
+      <svg data-ref-action="select-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="m7 12 3 3 6-6m-2 8 3 0" /></svg>
+    </button>
+    <button type="button" title="Deselect all references" aria-label="Deselect all references"
+      disabled={busy || selectedCount === 0} onClick={onDeselect}>
+      <svg data-ref-action="deselect" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 9l6 6m0-6-6 6" /></svg>
+    </button>
+  </div>;
+}
+
 export function Stage2ReferenceReviewModal({
   planId,
   planName,
@@ -161,6 +182,7 @@ export function Stage2ReferenceReviewModal({
   generated,
   busy,
   onToggle,
+  onBulkSelection,
   onClose,
 }: {
   planId: string;
@@ -170,6 +192,7 @@ export function Stage2ReferenceReviewModal({
   generated: ReadonlySet<string>;
   busy: boolean;
   onToggle: (planId: string, referenceId: string) => void;
+  onBulkSelection: (planId: string, references: SourcePlanReferencePreview[], generated: ReadonlySet<string>, mode: "all" | "none") => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -202,12 +225,14 @@ export function Stage2ReferenceReviewModal({
           <h2 id={"rrugc-stage2-reference-review-title-" + planId}>{planName}</h2>
           <p>{references.length} images · {selected.length} selected</p>
         </div>
-        <button
-          type="button"
-          className="rrugc-source-review-close"
-          aria-label="Close Pinterest reference preview"
-          onClick={onClose}
-        >×</button>
+        <div className="rrugc-reference-modal-tools">
+          <ReferenceBulkActions eligibleCount={references.filter(ref => !generated.has(ref.id)).length}
+            selectedCount={selected.length} busy={busy}
+            onSelectAll={() => onBulkSelection(planId, references, generated, "all")}
+            onDeselect={() => onBulkSelection(planId, references, generated, "none")} />
+          <button type="button" className="rrugc-source-review-close"
+            aria-label="Close Pinterest reference preview" onClick={onClose}>×</button>
+        </div>
       </header>
       <div className="rrugc-source-review-masonry rrugc-stage2-reference-review-masonry">
         {references.map((reference, index) => {
@@ -270,6 +295,7 @@ function Stage2ReferencePicker({
   generated,
   busy,
   onToggle,
+  onBulkSelection,
 }: {
   planId: string;
   planName: string;
@@ -278,6 +304,7 @@ function Stage2ReferencePicker({
   generated: ReadonlySet<string>;
   busy: boolean;
   onToggle: (planId: string, referenceId: string) => void;
+  onBulkSelection: (planId: string, references: SourcePlanReferencePreview[], generated: ReadonlySet<string>, mode: "all" | "none") => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const { dragging, dragHandlers } = useHorizontalDragScroll();
@@ -386,6 +413,7 @@ function Stage2ReferencePicker({
       generated={generated}
       busy={busy}
       onToggle={onToggle}
+      onBulkSelection={onBulkSelection}
       onClose={() => setReviewOpen(false)}
     />}
   </>;
@@ -711,6 +739,18 @@ export function Stage2JobTable({
     });
   }
 
+  function setReferenceSelection(
+    planId: string, references: SourcePlanReferencePreview[],
+    generated: ReadonlySet<string>, mode: "all" | "none",
+  ) {
+    setSelectedByPlan(current => ({
+      ...current,
+      [planId]: mode === "all"
+        ? [...new Set(references.filter(reference => eligibleReference(reference) && !generated.has(reference.id)).map(reference => reference.id))]
+        : [],
+    }));
+  }
+
   async function refreshSkills() {
     if (refreshingSkills) return;
     setRefreshingSkills(true);
@@ -842,6 +882,9 @@ export function Stage2JobTable({
                   <span className="is-selected"><strong>{selected.length}</strong> selected</span>
                   <span className="is-available"><strong>{pickableAvailable}</strong> available</span>
                   {generated.size > 0 && <span className="is-generated"><strong>{generated.size}</strong> generated</span>}
+                  <ReferenceBulkActions eligibleCount={pickableAvailable} selectedCount={selected.length} busy={busy}
+                    onSelectAll={() => setReferenceSelection(plan.id, available, generated, "all")}
+                    onDeselect={() => setReferenceSelection(plan.id, available, generated, "none")} />
                 </div>
                 <Stage2ReferencePicker
                   planId={plan.id}
@@ -851,6 +894,7 @@ export function Stage2JobTable({
                   generated={generated}
                   busy={busy}
                   onToggle={toggleReference}
+                  onBulkSelection={setReferenceSelection}
                 />
               </td>
               <td className="rrugc-stage2-skill">

@@ -526,6 +526,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         generated={new Set([plan.reference_previews[1].id])}
         busy={false}
         onToggle={() => undefined}
+        onBulkSelection={() => undefined}
         onClose={() => undefined}
       />,
     );
