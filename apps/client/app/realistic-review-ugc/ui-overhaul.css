@@ -1178,6 +1178,85 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-job-log-list article>div{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .rrugc-job-log-list article b{font-size:12px;color:#354968}.rrugc-job-log-list article span,.rrugc-job-log-list article small{font-size:10px;color:#65758b}
 .rrugc-job-log-list article code{font-size:10px;color:#af514b}.rrugc-job-log-list article p{margin:0;font-size:11px;overflow-wrap:anywhere}
+/* Skill execution history: compact, scannable attempt timeline with contextual icons. */
+.rrugc-skill-log-dialog.rrugc-job-log-dialog{display:flex;flex-direction:column;box-sizing:border-box;width:min(740px,calc(100vw - 26px));max-height:min(85dvh,740px);overflow:hidden;padding:0;border:1px solid #e1e8f2;color:#30435e}
+.rrugc-skill-log-dialog .rrugc-log-header{display:flex;flex:none;align-items:center;justify-content:space-between;gap:16px;padding:17px 20px 15px;border-bottom:1px solid #e8edf4}
+.rrugc-log-heading{display:flex;align-items:flex-start;gap:11px;min-width:0;flex:1}
+.rrugc-log-heading-icon{display:grid;place-items:center;width:34px;height:34px;flex:none;border:1px solid #d9e6f8;border-radius:10px;background:#f1f6ff;color:#5078be}
+.rrugc-log-heading-icon svg{width:18px;height:18px}
+.rrugc-log-heading-text{min-width:0;flex:1}
+.rrugc-skill-log-dialog .rrugc-log-heading-text small{display:block;color:#6b85ad;font-size:9px;letter-spacing:.08em;font-weight:850}
+.rrugc-skill-log-dialog .rrugc-log-heading-text h2{margin:3px 0 5px;color:#2e405b;font-size:17px;line-height:1.3}
+.rrugc-skill-log-dialog .rrugc-log-heading-text p{display:flex;align-items:center;gap:5px;max-width:100%;min-width:0;margin:0;color:#8995a6;font-size:10px;line-height:1.4;white-space:nowrap}
+.rrugc-log-heading-text p strong{min-width:0;overflow:hidden;font-weight:750;color:#557090;text-overflow:ellipsis}
+.rrugc-log-job-id{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rrugc-log-header-actions{display:flex;align-items:center;gap:6px;flex:none}
+.rrugc-skill-log-dialog .rrugc-log-header-actions .rrugc-log-icon-button{display:grid;place-items:center;width:30px;height:30px;padding:0;border:1px solid #d7e0ec;border-radius:8px;background:#fff;color:#61758e;cursor:pointer}
+.rrugc-skill-log-dialog .rrugc-log-icon-button svg{width:15px;height:15px}
+.rrugc-skill-log-dialog .rrugc-log-icon-button:hover:not(:disabled){border-color:#a9bede;background:#f2f6fc;color:#3d639e}
+.rrugc-skill-log-dialog .rrugc-log-icon-button:disabled{opacity:.45;cursor:wait}
+.rrugc-skill-log-dialog button:focus-visible,.rrugc-skill-log-dialog summary:focus-visible{outline:2px solid #507cda;outline-offset:2px}
+.rrugc-log-body{display:flex;flex-direction:column;min-height:0;overflow:auto}
+.rrugc-log-summary{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:11px 20px;border-bottom:1px solid #edf1f6;background:#fafbfe}
+.rrugc-log-status{display:inline-flex;align-items:center;justify-content:center;gap:5px;width:max-content;padding:4px 8px;border:1px solid #dce4ee;border-radius:6px;background:#f4f7fa;color:#65778f;font-size:9px;font-weight:850;line-height:1.2;white-space:nowrap}
+.rrugc-log-status svg{width:12px;height:12px;flex:none}
+.rrugc-log-status.is-success{border-color:#c6e5d4;background:#eff9f2;color:#388058}
+.rrugc-log-status.is-warning{border-color:#f0dfb6;background:#fff9ec;color:#986d28}
+.rrugc-log-status.is-danger{border-color:#efcdca;background:#fff3f1;color:#b2574f}
+.rrugc-log-status.is-info{border-color:#c9dcf7;background:#edf5ff;color:#426eb1}
+.rrugc-log-summary-stat{display:inline-flex;align-items:center;gap:5px;color:#63748c;font-size:10px;font-weight:700;white-space:nowrap}
+.rrugc-log-summary-stat svg{width:13px;height:13px;color:#8295b0}
+.rrugc-log-summary-stat.is-error svg{color:#bc7971}
+.rrugc-log-auto-update{display:inline-flex;align-items:center;gap:6px;margin-left:auto;color:#8896aa;font-size:9px;white-space:nowrap}
+.rrugc-log-auto-update>span{height:6px;width:6px;border-radius:50%;background:#73b69b}
+.rrugc-skill-log-dialog .rrugc-job-log-list{display:grid;gap:0;min-height:0;overflow:visible;padding:12px 20px 18px}
+.rrugc-skill-log-dialog .rrugc-job-log-list article.rrugc-log-attempt{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;margin:0;padding:11px 0 13px;border:0;border-radius:0;background:transparent}
+.rrugc-skill-log-dialog .rrugc-job-log-list article.rrugc-log-attempt:not(:last-child):before{position:absolute;content:"";left:13px;top:40px;bottom:-7px;width:1px;background:#dfe6f0}
+.rrugc-skill-log-dialog .rrugc-job-log-list article>.rrugc-log-attempt-marker{z-index:1;display:grid;place-items:center;align-self:start;width:27px;height:27px;border:1px solid #d9e1ec;border-radius:9px;background:#f3f6fa;color:#76879f}
+.rrugc-job-log-list .rrugc-log-attempt.is-success>.rrugc-log-attempt-marker{border-color:#d3e9dc;background:#edf8f0;color:#3e9368}
+.rrugc-job-log-list .rrugc-log-attempt.is-warning>.rrugc-log-attempt-marker{border-color:#f0e0bd;background:#fff8e8;color:#ba8831}
+.rrugc-job-log-list .rrugc-log-attempt.is-danger>.rrugc-log-attempt-marker{border-color:#edd2d0;background:#fff2f0;color:#b45b51}
+.rrugc-job-log-list .rrugc-log-attempt.is-info>.rrugc-log-attempt-marker{border-color:#d5e3f6;background:#f1f6ff;color:#527ebc}
+.rrugc-log-attempt-marker svg{width:15px;height:15px}
+.rrugc-skill-log-dialog .rrugc-job-log-list article>.rrugc-log-attempt-content{display:grid;gap:8px;min-width:0;padding:11px 12px;border:1px solid #e1e7f0;border-radius:10px;background:#fff;box-shadow:0 2px 8px #2d4b7405}
+.rrugc-skill-log-dialog .rrugc-job-log-list article.is-warning>.rrugc-log-attempt-content{border-color:#eee1c5}
+.rrugc-skill-log-dialog .rrugc-job-log-list article.is-danger>.rrugc-log-attempt-content{border-color:#eed5d2}
+.rrugc-log-attempt-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.rrugc-log-attempt-title{display:flex;align-items:center;gap:7px;min-width:0}
+.rrugc-log-attempt-title>strong{font-size:12px;color:#304763}
+.rrugc-log-attempt-heading>time{display:inline-flex;align-items:center;gap:5px;color:#8996a8;font-size:9px;font-variant-numeric:tabular-nums}
+.rrugc-log-attempt-heading>time svg{width:12px;height:12px}
+.rrugc-log-attempt-meta{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.rrugc-log-attempt-meta>span{display:inline-flex;align-items:center;gap:4px;color:#7888a0;font-size:9px}
+.rrugc-log-attempt-meta svg{width:12px;height:12px;color:#8ea0b8}
+.rrugc-log-error-detail{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid #f2dfdc;border-radius:8px;background:#fff8f6;color:#ad6256}
+.rrugc-log-error-detail>svg{width:15px;height:15px;flex:none;margin-top:1px}
+.rrugc-log-error-detail>div{display:grid;gap:4px;min-width:0}
+.rrugc-log-error-detail strong{font-size:10px;font-weight:750;color:#94534e;line-height:1.5;overflow-wrap:anywhere}
+.rrugc-log-error-detail code{width:max-content;max-width:100%;overflow-wrap:anywhere;padding:2px 5px;border-radius:4px;background:#ffedeb;color:#aa5d54;font-size:9px}
+.rrugc-log-error-detail small{font-size:9px;color:#9c746c}
+.rrugc-skill-log-dialog .rrugc-log-attempt-message{margin:0;color:#657b92;font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.rrugc-skill-log-dialog .rrugc-job-live-progress{display:grid;gap:8px;margin:0;padding:9px 10px;border:1px solid #e0e8f4;border-radius:8px;background:#f8faff}
+.rrugc-log-execution-header{display:flex;align-items:center;gap:8px;min-width:0}
+.rrugc-log-execution-icon{display:grid;place-items:center;flex:none;width:25px;height:25px;border-radius:7px;background:#edf3fc;color:#5b7cb1}
+.rrugc-log-execution-icon svg{width:14px;height:14px}
+.rrugc-log-execution-header>div{display:grid;gap:3px;min-width:0}
+.rrugc-skill-log-dialog .rrugc-log-execution-header strong{color:#456080;font-size:10px}
+.rrugc-skill-log-dialog .rrugc-log-execution-header small{color:#8294ab;font-size:9px;line-height:1.4;overflow-wrap:anywhere}
+.rrugc-skill-log-dialog .rrugc-job-live-progress details{border-top:1px solid #e4ebf6;padding-top:6px}
+.rrugc-skill-log-dialog .rrugc-job-live-progress summary{display:flex;align-items:center;gap:6px;color:#5d76a0;font-size:9.5px;font-weight:750;cursor:pointer;list-style:none}
+.rrugc-skill-log-dialog .rrugc-job-live-progress summary::-webkit-details-marker{display:none}
+.rrugc-skill-log-dialog .rrugc-job-live-progress summary svg{height:13px;width:13px}
+.rrugc-skill-log-dialog .rrugc-job-live-progress summary span{margin-left:auto;padding:2px 5px;border-radius:5px;background:#e7eefb;color:#597bad;font-size:9px}
+.rrugc-skill-log-dialog .rrugc-job-live-progress ol{display:grid;gap:5px;max-height:170px;overflow:auto;margin:8px 0 0;padding:0;list-style:none}
+.rrugc-skill-log-dialog .rrugc-job-live-progress li{display:flex;gap:10px;align-items:start;color:#6b7f9c;font-size:9px}
+.rrugc-skill-log-dialog .rrugc-job-live-progress li time{min-width:60px;color:#98a6b8;white-space:nowrap}
+.rrugc-skill-log-dialog .rrugc-job-live-progress li span{min-width:0;overflow-wrap:anywhere}
+.rrugc-log-state,.rrugc-log-empty,.rrugc-log-fetch-error{display:flex;align-items:center;gap:8px;padding:18px 20px;color:#74859b;font-size:11px}
+.rrugc-log-state svg,.rrugc-log-empty svg,.rrugc-log-fetch-error svg{width:16px;height:16px;flex:none}
+.rrugc-log-fetch-error{padding:9px 18px;margin:0;border-bottom:1px solid #f0dbd6;background:#fff5f3;color:#9d554e}
+.rrugc-log-empty{justify-content:center;padding:22px}
+@media(max-width:600px){.rrugc-skill-modal-backdrop{padding:9px}.rrugc-skill-log-dialog.rrugc-job-log-dialog{width:calc(100vw - 18px);max-height:calc(100dvh - 18px);border-radius:12px}.rrugc-skill-log-dialog .rrugc-log-header{padding:13px 12px}.rrugc-log-heading-icon{width:30px;height:30px}.rrugc-skill-log-dialog .rrugc-log-heading-text h2{font-size:15px}.rrugc-skill-log-dialog .rrugc-log-summary{padding:9px 12px}.rrugc-skill-log-dialog .rrugc-job-log-list{padding:9px 11px 13px}.rrugc-log-auto-update{margin-left:0}.rrugc-skill-log-dialog .rrugc-job-log-list article.rrugc-log-attempt{grid-template-columns:23px minmax(0,1fr);gap:7px}.rrugc-skill-log-dialog .rrugc-job-log-list article>.rrugc-log-attempt-marker{width:22px;height:22px}.rrugc-skill-log-dialog .rrugc-job-log-list article.rrugc-log-attempt:not(:last-child):before{left:11px;top:36px}.rrugc-skill-log-dialog .rrugc-job-log-list article>.rrugc-log-attempt-content{padding:9px}}
 .rrugc-stage-defaults{display:grid;gap:9px;padding:14px 22px;border-bottom:1px solid #e7eaf0;background:#f9fafc}
 .rrugc-stage-defaults>strong{font-size:12px;color:#31435e}
 .rrugc-stage-defaults>small{color:#69788d;font-size:10px}
