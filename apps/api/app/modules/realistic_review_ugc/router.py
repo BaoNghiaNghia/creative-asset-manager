@@ -4693,9 +4693,23 @@ def list_generation_output_versions(
     if job is None:
         raise HTTPException(status_code=404, detail="Generation job not found")
     rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
+    output_roles: dict[int, str] = {}
+    if stage == "stage1" and job.skill_name == "hanh-redesign-8869-ver-4":
+        # Pair by the actual processing attempt so legacy single-image outputs
+        # remain distinct from validated v4 board pairs.
+        by_attempt: dict[str, list[int]] = {}
+        for item in rows:
+            if item.get("processing_job_id"):
+                by_attempt.setdefault(item["processing_job_id"], []).append(item["version"])
+        for versions in by_attempt.values():
+            if len(versions) == 2:
+                first, second = sorted(versions)
+                output_roles[first] = "design_concepts"
+                output_roles[second] = "colorways"
     return {"job_id": job_id, "stage": stage, "versions": [
         {"version": row["version"], "created_at": row["created_at"],
          "width": row["width"], "height": row["height"],
+         "output_role": output_roles.get(row["version"]),
          "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}
         for row in rows]}
 
@@ -5342,12 +5356,18 @@ def create_keyword_image(
 @router.post("/keyword-images/{keyword_id}/regenerate", status_code=202)
 def regenerate_keyword_image(
     keyword_id: str,
+    request: KeywordImageCreateRequest | None = None,
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     try:
         row = KeywordImageService(session).regenerate(
-            tenant_id=principal.active_tenant_id, keyword_id=keyword_id)
+            tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
+            skill_source=request.skill_source if request else None,
+            skill_id=request.skill_id if request else None,
+            skill_name=request.skill_name if request else None,
+            skill_version=request.skill_version if request else None,
+        )
     except KeywordImageError as exc:
         raise HTTPException(status_code=exc.status_code,
                             detail={"code": exc.code, "message": exc.message}) from exc

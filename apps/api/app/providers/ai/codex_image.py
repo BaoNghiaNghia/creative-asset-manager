@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -49,6 +50,8 @@ class CodexImageRunnerConfig:
     skill_name: str = "worker-hat-v1"
     timeout_seconds: int = 900
     model: str | None = None
+    output_contract: str = "single_png"
+    expected_quote: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,30 +400,19 @@ class CodexImageGenRunner:
         if process.returncode != 0:
             raise _classify_failure(stderr, stdout)
 
-        output_path = output_dir / "final.png"
-        if not output_path.is_file():
-            raise CodexImageProviderError(
-                "codex_image_output_missing",
-                "Codex completed without creating output/final.png.",
-                retryable=True,
-            )
-        image_bytes = output_path.read_bytes()
-        try:
-            with Image.open(output_path) as image:
-                image.load()
-                mime = _ALLOWED_OUTPUT_MIME.get(image.format or "")
-        except Exception as exc:
-            raise CodexImageProviderError(
-                "codex_image_output_invalid",
-                "Codex output is not a valid raster image.",
-                retryable=True,
-            ) from exc
-        if mime != "image/png":
-            raise CodexImageProviderError(
-                "codex_image_output_invalid",
-                "Codex output/final.png is not a PNG image.",
-                retryable=True,
-            )
+        if self.config.output_contract == "independent_concepts_v4":
+            image_bytes, second_image = self._read_independent_boards(workspace)
+            extra_images = (second_image,)
+        else:
+            output_path = output_dir / "final.png"
+            if not output_path.is_file():
+                raise CodexImageProviderError(
+                    "codex_image_output_missing",
+                    "Codex completed without creating output/final.png.",
+                    retryable=True,
+                )
+            image_bytes = self._valid_png(output_path)
+            extra_images = ()
 
         return GeneratedImageResult(
             provider="codex",
@@ -429,7 +421,104 @@ class CodexImageGenRunner:
             mime_type="image/png",
             provider_request_id=_request_id_from_jsonl(stdout),
             provider_metadata={"skill": self.config.skill_name},
+            additional_images=extra_images,
         )
+
+    @staticmethod
+    def _valid_png(path: Path, *, min_size: int = 1) -> bytes:
+        try:
+            with Image.open(path) as image:
+                image.load()
+                if image.format != "PNG" or min(image.size) < min_size:
+                    raise ValueError("Expected a complete PNG board, not a thumbnail.")
+            return path.read_bytes()
+        except (OSError, ValueError) as exc:
+            raise CodexImageProviderError(
+                "codex_image_output_invalid", "The generated image is not a valid full-size PNG.",
+                retryable=True,
+            ) from exc
+
+    def _read_independent_boards(self, workspace: Path) -> tuple[bytes, bytes]:
+        """Validate both final boards against the versioned v4 assembly audit.
+
+        A single cap render or an incomplete 10-concept job is never success.
+        This verifies structure and hashes, not human visual/embroidery approval.
+        """
+        output_dir = workspace / "output"
+        try:
+            latest = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+            folder = latest["folder"]
+            names = latest["outputs"]
+            if not isinstance(folder, str) or not re.fullmatch(r"v[0-9]{3,}", folder):
+                raise ValueError("Invalid output version")
+            if (not isinstance(names, list) or len(names) != 2
+                    or not isinstance(names[0], str) or not isinstance(names[1], str)
+                    or not names[0].endswith("_01_design_concepts.png")
+                    or not names[1].endswith("_02_13_colorways.png")
+                    or any(Path(name).name != name for name in names)):
+                raise ValueError("Expected the two named v4 boards")
+            batch = output_dir / folder
+            audit = json.loads((batch / "audit.json").read_text(encoding="utf-8"))
+            state = json.loads((workspace / "v4-job" / "job_state.json").read_text(encoding="utf-8"))
+            concepts = state["concepts"]
+            if (not isinstance(concepts, dict)
+                    or set(concepts) != {str(number) for number in range(1, 11)}
+                    or any(not concepts[str(number)] for number in range(1, 11))):
+                raise ValueError("Ten independent concepts are required")
+            concept_hashes: set[str] = set()
+            skeletons: dict[str, int] = {}
+            for number in range(1, 11):
+                item = concepts[str(number)][-1]
+                relative = item["image"]
+                if (not isinstance(relative, str) or Path(relative).is_absolute()
+                        or ".." in Path(relative).parts):
+                    raise ValueError("Invalid concept file path")
+                artwork = workspace / "v4-job" / relative
+                actual_hash = hashlib.sha256(self._valid_png(artwork, min_size=400)).hexdigest()
+                if (item.get("sha256") != actual_hash or actual_hash in concept_hashes
+                        or not item.get("approved") or not item.get("text_reviewed")
+                        or not item.get("stitch_reviewed")):
+                    raise ValueError("Unverified or duplicated artwork")
+                concept_hashes.add(actual_hash)
+                skeleton = item.get("skeleton")
+                if not isinstance(skeleton, str) or not skeleton:
+                    raise ValueError("Missing concept architecture")
+                skeletons[skeleton] = skeletons.get(skeleton, 0) + 1
+            if len(skeletons) < 6 or max(skeletons.values()) > 2:
+                raise ValueError("Insufficient architecture diversity")
+            hero = state.get("hero")
+            if (not isinstance(hero, dict) or hero.get("number") not in range(1, 11)
+                    or hero.get("sha256") != concepts[str(hero["number"])][-1]["sha256"]):
+                raise ValueError("Hero does not match an approved concept")
+            if (self.config.expected_quote is not None and state.get("quote") != self.config.expected_quote):
+                raise ValueError("Quote mismatch")
+            if (state.get("schema_version") != 4
+                    or state.get("skill") != self.config.skill_name
+                    or set(concepts) != {str(number) for number in range(1, 11)}
+                    or any(not concepts[str(number)] or not concepts[str(number)][-1].get("approved")
+                           for number in range(1, 11))
+                    or len(state.get("color_threads", {})) != 13
+                    or not state.get("hero")):
+                raise ValueError("Incomplete independently approved concepts or colors")
+            if (audit.get("status") != "STRUCTURAL_PASS_VISUAL_QA_REQUIRED"
+                    or audit.get("concept_count") != 10 or audit.get("stock_count") != 13):
+                raise ValueError("Invalid assembly quality gate")
+            files = [batch / name for name in names]
+            audited = audit["outputs"]
+            if (len(audited) != 2 or any(
+                str(Path(row["path"]).resolve()) != str(file.resolve())
+                or hashlib.sha256(file.read_bytes()).hexdigest() != row["sha256"]
+                for file, row in zip(files, audited)
+            )):
+                raise ValueError("Board hashes do not match assembly audit")
+            return self._valid_png(files[0], min_size=500), self._valid_png(files[1], min_size=500)
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+            raise CodexImageProviderError(
+                "codex_v4_boards_incomplete",
+                "The Skill did not finish its 10-concept, 13-color, two-board workflow. "
+                "The job must not be marked Completed.",
+                retryable=False,
+            ) from exc
 
     def cleanup_attempt(self, attempt_id: str) -> None:
         workspace = Path(self.config.staging_root).resolve() / "codex" / attempt_id
@@ -460,6 +549,28 @@ class CodexImageGenRunner:
         )
         extra = user_prompt.strip()
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
+        if self.config.output_contract == "independent_concepts_v4":
+            return (
+                "Use $" + self.config.skill_name + " and $imagegen.\n"
+                "Follow this Skill's independent-concept pipeline, NOT a single-cap generator.\n"
+                "Work only in the current job directory. Keep all source stock and palette files unchanged.\n"
+                "Run the Skill's inspect_assets.py preflight. Initialize an EMPTY ./v4-job/ "
+                "with independent_pipeline.py init --job-dir ./v4-job and the exact quote.\n"
+                "Generate TEN separate, transparent embroidery artwork images, one per tool call.\n"
+                "Visually inspect each image and never falsely claim human sign-off.\n"
+                "Use the Skill's versioned pipeline and deterministic assembler; do NOT generate "
+                "a 10-up or 13-colorways sheet with an image model.\n"
+                "Run independent_pipeline.py build --job-dir ./v4-job --out-dir ./output. "
+                "Create both distinct final PNG boards in ./output/v001/ (or next version), "
+                "and ./output/latest.json with audit.json in the version folder and ./v4-job/job_state.json.\n"
+                "The final deliverables MUST contain 10 distinct concepts with a Hero, "
+                "and the identical Hero on all 13 ORIGINAL Valucap stock colorways.\n"
+                "Do not create output/final.png as a replacement for the two boards.\n"
+                "If the full workflow cannot be completed, report the blocker instead of "
+                "returning a fake success image.\n"
+                "Do not use an API-key-backed image generation fallback.\n"
+                + extra_block
+            )
         return (
             "Use $" + self.config.skill_name + " and $imagegen.\n\n"
             + (f"Edit target:\n{person_name}\n\n" if person_name else "Create a new original image from the keyword instruction.\n\n")

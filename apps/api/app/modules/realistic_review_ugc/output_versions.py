@@ -14,6 +14,7 @@ def save_output_version(
     session: Session, *, tenant_id: str, stage: str, job: object,
     remote_file_id: str, content_type: str | None, size_bytes: int | None,
     width: int | None, height: int | None, processing_job_id: str | None,
+    allow_multiple_per_attempt: bool = False,
 ) -> int:
     """Called while the logical job row is locked, before changing its latest output."""
     rows = list(session.scalars(select(RrugcImageOutputVersionModel).where(
@@ -34,7 +35,8 @@ def save_output_version(
         )
         session.add(legacy)
         rows.append(legacy)
-    if rows and processing_job_id is not None and rows[-1].processing_job_id == processing_job_id:
+    if (rows and processing_job_id is not None and not allow_multiple_per_attempt
+            and rows[-1].processing_job_id == processing_job_id):
         return rows[-1].version
     version = rows[-1].version + 1 if rows else 1
     session.add(RrugcImageOutputVersionModel(
@@ -74,6 +76,7 @@ def output_versions(session: Session, *, tenant_id: str, stage: str, job: object
         "version": r.version, "remote_file_id": r.remote_file_id,
         "content_type": r.content_type, "size_bytes": r.size_bytes,
         "width": r.width, "height": r.height, "created_at": r.created_at,
+        "processing_job_id": r.processing_job_id,
     } for r in rows] or ([
         {"version": 1, "remote_file_id": job.output_remote_file_id,
          "content_type": job.output_content_type, "size_bytes": job.output_size_bytes,

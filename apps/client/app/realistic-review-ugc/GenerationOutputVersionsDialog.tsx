@@ -94,7 +94,7 @@ export function GenerationOutputVersionsDialog({
             return next;
           })}>
           <span aria-hidden="true">{selectedVersions.has(version.version) ? "✓" : "+"}</span>
-          v{version.version}{index === 0 ? " · Latest" : ""}
+          v{version.version}{version.output_role === "design_concepts" ? " · Concepts" : version.output_role === "colorways" ? " · 13 colors" : ""}{index === 0 ? " · Latest" : ""}
         </button>)}
       </div>}
 
@@ -103,7 +103,7 @@ export function GenerationOutputVersionsDialog({
       {!loading && !error && <div className="rrugc-version-grid" aria-label="Side-by-side version comparison">
         {compared.map(version => <article key={version.version} className="rrugc-version-compare-card">
           <div className="rrugc-version-card-heading">
-            <strong>Version {version.version}</strong>
+            <strong>{version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
             {version.version === versions[0]?.version && <span>Latest</span>}
           </div>
           <a className="rrugc-version-image-link" href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>

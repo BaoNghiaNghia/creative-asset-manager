@@ -211,7 +211,7 @@ export function KeywordImageStage({
     setMessage("");
     try {
       if (row.status === "completed") {
-        await regenerateKeywordImage(row.keyword_id);
+        await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage("New output version queued for " + row.keyword + ". Previous output stays available.");
       } else if (row.status === "failed") {
         await retryKeywordImage(row.keyword_id);

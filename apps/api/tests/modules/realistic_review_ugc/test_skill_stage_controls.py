@@ -135,3 +135,32 @@ def test_output_versions_preserve_prior_files_and_tenant_boundary():
                 job=SimpleNamespace(id="job-a", output_remote_file_id=None)) == []
     finally:
         engine.dispose()
+
+def test_stage1_pair_keeps_both_boards_under_one_generation_attempt():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            job = SimpleNamespace(id="pair-job", output_remote_file_id=None)
+            one = output_versions.save_output_version(
+                session, tenant_id="tenant-a", stage="stage1", job=job,
+                remote_file_id="concepts-board", content_type="image/png",
+                size_bytes=1024, width=1024, height=1300, processing_job_id="attempt-a",
+            )
+            two = output_versions.save_output_version(
+                session, tenant_id="tenant-a", stage="stage1", job=job,
+                remote_file_id="colorways-board", content_type="image/png",
+                size_bytes=2048, width=1400, height=1200, processing_job_id="attempt-a",
+                allow_multiple_per_attempt=True,
+            )
+            session.commit()
+            assert (one, two) == (1, 2)
+            results = output_versions.output_versions(session, tenant_id="tenant-a",
+                                                      stage="stage1", job=job)
+            assert [item["remote_file_id"] for item in results] == [
+                "colorways-board", "concepts-board",
+            ]
+            assert [item["processing_job_id"] for item in results] == [
+                "attempt-a", "attempt-a",
+            ]
+    finally:
+        engine.dispose()

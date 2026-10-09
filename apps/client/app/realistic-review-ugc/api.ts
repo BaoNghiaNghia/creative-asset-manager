@@ -566,16 +566,16 @@ export const updateStageSkillDefault = (stage: "stage1" | "stage2" | "stage4", r
   );
 
 export type GenerationOutputVersion = { version: number; created_at: string; width: number | null;
-  height: number | null; url: string };
+  height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null };
 export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<{ job_id: string; stage: string; versions: GenerationOutputVersion[] }>(
     "/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs",
     { signal },
   );
-export const regenerateKeywordImage = (keywordId: string) =>
+export const regenerateKeywordImage = (keywordId: string, skill?: Stage2SkillSelection | null) =>
   request<{ job_id: string; status: string }>(
     "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/regenerate",
-    { method: "POST" },
+    { method: "POST", ...(skill ? { body: JSON.stringify(skill) } : {}) },
   );
 export const regenerateColorwayJob = (jobId: string) =>
   request<{ job_id: string; status: string }>(

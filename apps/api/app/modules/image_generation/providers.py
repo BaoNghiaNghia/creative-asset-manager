@@ -34,6 +34,7 @@ class GeneratedImageResult:
     mime_type: Literal["image/jpeg", "image/png", "image/webp"]
     provider_request_id: str | None = None
     provider_metadata: dict[str, str] | None = None
+    additional_images: tuple[bytes, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
