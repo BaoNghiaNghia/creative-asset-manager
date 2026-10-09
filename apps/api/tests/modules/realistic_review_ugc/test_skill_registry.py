@@ -4,6 +4,7 @@ import io
 import json
 import zipfile
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -14,6 +15,7 @@ from app.modules.realistic_review_ugc import skill_registry, stage2_skills
 from app.modules.realistic_review_ugc.model import (
     RrugcStage2SkillRegistryModel,
     RrugcStage2SkillVersionModel,
+    RrugcStageSkillDefaultModel,
 )
 
 
@@ -26,6 +28,7 @@ def _engine():
     AuthAuditEventModel.__table__.create(engine)
     RrugcStage2SkillRegistryModel.__table__.create(engine)
     RrugcStage2SkillVersionModel.__table__.create(engine)
+    RrugcStageSkillDefaultModel.__table__.create(engine)
     return engine
 
 
@@ -201,5 +204,117 @@ def test_create_skill_installs_local_runtime_without_openai_key(tmp_path, monkey
             )
             assert version is not None
             assert version.is_synced is True
+    finally:
+        engine.dispose()
+
+
+def _skill_zip(version: str) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("SKILL.md", (
+            f"---\nname: existing-studio\nversion: {version}\n"
+            f"description: Bundle {version}\n---\n# Studio\n"
+        ))
+        archive.writestr("manifest.json", json.dumps({
+            "schema_version": 1, "skill_name": "existing-studio",
+            "display_name": f"Studio {version}", "description": f"Bundle {version}",
+            "workflows": ["image_studio"],
+        }))
+    return buffer.getvalue()
+
+
+def test_duplicate_zip_replace_preserves_defaults_notes_and_versions(tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, CODEX_IMAGE_HOME=str(tmp_path / "codex"), OPENAI_API_KEY="")
+    monkeypatch.setattr(stage2_skills, "get_settings", lambda: settings)
+    monkeypatch.setattr(skill_registry, "_count_active_local_skill_jobs", lambda *_a, **_kw: 0)
+    first, second = _skill_zip("1.0"), _skill_zip("2.0")
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            row = skill_registry.create_skill(
+                session, tenant_id="tenant-a", actor_id="admin", bundle_bytes=first,
+            )
+            registry_id, old_sha = row.id, row.bundle_sha256
+            row.note, row.enabled = "Use in Stage 2", False
+            session.add(RrugcStageSkillDefaultModel(
+                tenant_id="tenant-a", stage="stage2", registry_id=row.id,
+            ))
+            session.commit()
+            installed = tmp_path / "codex" / "skills" / "existing-studio" / "SKILL.md"
+            with pytest.raises(stage2_skills.Stage2SkillRegistryError) as error:
+                skill_registry.create_skill(
+                    session, tenant_id="tenant-a", actor_id="admin", bundle_bytes=second,
+                )
+            assert error.value.code == "stage2_skill_already_exists"
+            assert "version: 1.0" in installed.read_text()
+
+            updated = skill_registry.create_skill(
+                session, tenant_id="tenant-a", actor_id="admin",
+                bundle_bytes=second, replace_existing=True,
+            )
+            assert updated.id == registry_id
+            assert updated.note == "Use in Stage 2" and updated.enabled is False
+            assert updated.synced_version == "2.0" and updated.display_name == "Studio 2.0"
+            assert updated.bundle_sha256 != old_sha
+            assert "version: 2.0" in installed.read_text()
+            assert session.get(RrugcStageSkillDefaultModel, ("tenant-a", "stage2")).registry_id == registry_id
+            assert len(list(session.scalars(select(RrugcStage2SkillRegistryModel)))) == 1
+            audits = lambda: list(session.scalars(
+                select(AuthAuditEventModel).where(
+                    AuthAuditEventModel.action == "stage2_skill.local_bundle_updated",
+                )
+            ))
+            assert len(audits()) == 1
+            skill_registry.create_skill(
+                session, tenant_id="tenant-a", actor_id="admin",
+                bundle_bytes=second, replace_existing=True,
+            )
+            assert len(audits()) == 1
+    finally:
+        engine.dispose()
+
+
+def test_replace_rejects_active_hosted_and_archived_skills(tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, CODEX_IMAGE_HOME=str(tmp_path / "codex"), OPENAI_API_KEY="")
+    monkeypatch.setattr(stage2_skills, "get_settings", lambda: settings)
+    monkeypatch.setattr(skill_registry, "_count_active_local_skill_jobs", lambda *_a, **_kw: 0)
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            row = skill_registry.create_skill(
+                session, tenant_id="tenant-a", actor_id="admin",
+                bundle_bytes=_skill_zip("1.0"),
+            )
+            installed = tmp_path / "codex" / "skills" / "existing-studio" / "SKILL.md"
+            monkeypatch.setattr(skill_registry, "_count_active_local_skill_jobs", lambda *_a, **_kw: 1)
+            with pytest.raises(stage2_skills.Stage2SkillRegistryError) as error:
+                skill_registry.create_skill(
+                    session, tenant_id="tenant-a", actor_id="admin",
+                    bundle_bytes=_skill_zip("2.0"), replace_existing=True,
+                )
+            assert error.value.code == "stage_skill_update_active_jobs"
+            monkeypatch.setattr(skill_registry, "_count_active_local_skill_jobs", lambda *_a, **_kw: 0)
+
+            row.source = "openai"
+            session.commit()
+            with pytest.raises(stage2_skills.Stage2SkillRegistryError) as error:
+                skill_registry.create_skill(
+                    session, tenant_id="tenant-a", actor_id="admin",
+                    bundle_bytes=_skill_zip("2.0"), replace_existing=True,
+                )
+            assert error.value.code == "stage2_skill_hosted_name_conflict"
+            row.source = "local"
+            row.deleted_at = skill_registry.utcnow()
+            row.enabled = False
+            session.commit()
+            # A previously deleted local skill is restored only after explicit
+            # replacement confirmation; old registry ID and outputs survive.
+            restored = skill_registry.create_skill(
+                session, tenant_id="tenant-a", actor_id="admin",
+                bundle_bytes=_skill_zip("2.0"), replace_existing=True,
+            )
+            assert restored.id == row.id
+            assert restored.deleted_at is None and restored.enabled is True
+            assert "version: 2.0" in installed.read_text()
     finally:
         engine.dispose()

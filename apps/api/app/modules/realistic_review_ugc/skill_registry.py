@@ -375,6 +375,7 @@ def create_skill(
     tenant_id: str,
     actor_id: str,
     bundle_bytes: bytes,
+    replace_existing: bool = False,
 ) -> RrugcStage2SkillRegistryModel:
     bundle = inspect_uploaded_stage2_skill_bundle(bundle_bytes)
     existing = session.scalar(
@@ -384,9 +385,68 @@ def create_skill(
         )
     )
     if existing is not None:
+        if existing.source != "local":
+            raise Stage2SkillRegistryError(
+                "stage2_skill_hosted_name_conflict",
+                "An OpenAI-hosted Skill uses this name. Update its hosted version instead.",
+                status_code=409,
+            )
+        if not replace_existing:
+            raise Stage2SkillRegistryError(
+                "stage2_skill_already_exists",
+                "A Skill with this name already exists. Confirm Replace existing Skill to update it.",
+                status_code=409,
+            )
+        # Uploaded local bundles are shared by the runtime. Do not swap files
+        # while any tenant's queued/running job could read the old version.
+        if _count_active_local_skill_jobs(session, skill_name=bundle.skill_name):
+            raise Stage2SkillRegistryError(
+                "stage_skill_update_active_jobs",
+                "Wait for active jobs using this Skill to finish before replacing its bundle.",
+                status_code=409,
+            )
+        archived = existing.deleted_at is not None
+        if (
+            not archived
+            and existing.bundle_sha256 == bundle.bundle_sha256
+            and installed_stage2_skill_sha256(bundle.skill_name) is not None
+        ):
+            return existing
+
+        old_sha = existing.bundle_sha256
+        old_version = existing.synced_version
+        item = install_local_stage2_skill_bundle(bundle, replace=True)
+        existing.display_name = item.display_name or existing.display_name
+        existing.description = item.description or existing.description
+        existing.default_version = item.default_version
+        existing.latest_version = item.latest_version
+        existing.synced_version = item.synced_version
+        existing.sync_state = item.sync_state
+        existing.validation_status = "valid"
+        existing.last_error = None
+        existing.deleted_at = None
+        if archived:
+            existing.enabled = True
+        existing.bundle_sha256 = bundle.bundle_sha256
+        existing.updated_by_user_id = actor_id
+        existing.updated_at = utcnow()
+        _sync_versions(session, row=existing, versions=item.version_options)
+        _audit(
+            session, tenant_id=tenant_id, actor_id=actor_id,
+            action="stage2_skill.local_bundle_updated",
+            detail={
+                "registry_id": existing.id, "skill_name": existing.skill_name,
+                "previous_version": old_version, "version": existing.synced_version,
+                "previous_sha256": old_sha, "bundle_sha256": bundle.bundle_sha256,
+            },
+        )
+        session.commit()
+        return existing
+
+    if replace_existing:
         raise Stage2SkillRegistryError(
-            "stage2_skill_already_exists",
-            "A Stage 2 skill with this name already exists.",
+            "stage2_skill_replace_target_missing",
+            "No registered Skill matches this ZIP. Upload it as a new Skill instead.",
             status_code=409,
         )
 
@@ -422,16 +482,19 @@ def create_skill(
 
 
 
-def _count_active_local_skill_jobs(session: Session, *, tenant_id: str, skill_name: str) -> int:
+def _count_active_local_skill_jobs(
+    session: Session, *, skill_name: str, tenant_id: str | None = None,
+) -> int:
     active = 0
     for model in (RrugcStage2JobModel, RrugcKeywordImageJobModel, RrugcColorwayJobModel):
-        active += int(session.scalar(
-            select(func.count()).select_from(model).where(
-                model.tenant_id == tenant_id,
-                model.skill_name == skill_name,
-                model.status.in_(("queued", "running")),
-            )
-        ) or 0)
+        query = select(func.count()).select_from(model).where(
+            model.skill_source == "local",
+            model.skill_name == skill_name,
+            model.status.in_(("queued", "running")),
+        )
+        if tenant_id is not None:
+            query = query.where(model.tenant_id == tenant_id)
+        active += int(session.scalar(query) or 0)
     return active
 
 

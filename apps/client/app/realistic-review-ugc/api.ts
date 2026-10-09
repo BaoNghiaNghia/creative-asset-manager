@@ -57,7 +57,7 @@ import type {
 } from "./types";
 
 export class RrugcApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
 }
@@ -74,13 +74,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     let message = "Request failed.";
+    let code: string | undefined;
     try {
       const payload = await response.json();
       message = payload?.detail?.message || payload?.detail || message;
+      code = typeof payload?.detail?.code === "string" ? payload.detail.code : undefined;
     } catch {
       // Keep bounded fallback; no response body is required.
     }
-    throw new RrugcApiError(response.status, String(message));
+    throw new RrugcApiError(response.status, String(message), code);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -589,11 +591,11 @@ export type SkillJobLog = { stage: string; job_id: string; status: string;
 export const getSkillJobLog = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<SkillJobLog>("/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/logs", { signal });
 
-export const createStage2Skill = (file: File) => {
+export const createStage2Skill = (file: File, replaceExisting = false) => {
   const body = new FormData();
   body.set("file", file);
   return request<Stage2SkillRegistryItem>(
-    "/api/v1/realistic-review-ugc/stage2-skills/registry",
+    "/api/v1/realistic-review-ugc/stage2-skills/registry?replace_existing=" + String(replaceExisting),
     { method: "POST", body },
   );
 };

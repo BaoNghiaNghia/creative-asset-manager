@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  RrugcApiError,
   createStage2Skill,
   createStage2SkillVersion,
   listStage2Skills,
@@ -179,12 +180,35 @@ export function SkillManagerModal({
       setError("Choose a skill ZIP first.");
       return;
     }
-    await mutate(
-      "create",
-      () => createStage2Skill(createFile),
-      "Skill uploaded, installed and added to the image-generation registry.",
-    );
-    setCreateFile(null);
+    if (busyKey) return;
+    setBusyKey("create");
+    setError("");
+    setMessage("");
+    try {
+      let replaced = false;
+      try {
+        await createStage2Skill(createFile);
+      } catch (reason) {
+        if (!(reason instanceof RrugcApiError) || reason.code !== "stage2_skill_already_exists") {
+          throw reason;
+        }
+        if (!window.confirm("A local Skill with this name is already installed. Replace its runtime ZIP? The Skill ID, notes, stage defaults and saved outputs will be retained. Active jobs must finish first.")) {
+          return;
+        }
+        await createStage2Skill(createFile, true);
+        replaced = true;
+      }
+      await reload(true);
+      await onChanged();
+      setMessage(replaced
+        ? "Existing Skill replaced. Stage defaults, notes and saved outputs were preserved."
+        : "Skill uploaded, installed and added to the image-generation registry.");
+      setCreateFile(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Skill upload failed.");
+    } finally {
+      setBusyKey("");
+    }
   }
 
   async function addVersion(item: Stage2SkillRegistryItem) {

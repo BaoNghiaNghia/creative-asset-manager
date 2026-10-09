@@ -4834,6 +4834,7 @@ def get_generation_job_logs(
 )
 async def create_stage2_skill(
     file: UploadFile = File(...),
+    replace_existing: bool = Query(default=False),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -4845,6 +4846,7 @@ async def create_stage2_skill(
             tenant_id=principal.active_tenant_id,
             actor_id=principal.user_id,
             bundle_bytes=bundle,
+            replace_existing=replace_existing,
         )
     except Stage2SkillRegistryError as exc:
         raise HTTPException(

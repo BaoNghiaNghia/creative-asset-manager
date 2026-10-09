@@ -3,11 +3,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillManagerModal } from "./SkillManagerModal";
-import { listStage2SkillRegistry, restoreArchivedStage1Skill, uploadLocalKeywordSkillForStage1 } from "./api";
+import { RrugcApiError, createStage2Skill, listStage2SkillRegistry, restoreArchivedStage1Skill, uploadLocalKeywordSkillForStage1 } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("./api", () => ({
+vi.mock("./api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./api")>(),
   listStage2SkillRegistry: vi.fn(async () => ({
     can_manage: true,
     stage_defaults: { stage2: "local:scale-image-8869-13-mau" },
@@ -33,7 +34,7 @@ vi.mock("./api", () => ({
   listStage2Skills: vi.fn(async () => ({
     items: [{ source: "local", skill_id: null, skill_name: "scale-image-8869-13-mau", ready: true, keyword_artwork_ready: false }],
   })),
-  createStage2Skill: vi.fn(), createStage2SkillVersion: vi.fn(), deleteStage2Skill: vi.fn(),
+  createStage2Skill: vi.fn(async () => ({})), createStage2SkillVersion: vi.fn(), deleteStage2Skill: vi.fn(),
   deleteStage2SkillVersion: vi.fn(), setStage2SkillDefaultVersion: vi.fn(),
   setStage2SkillEnabled: vi.fn(), restoreArchivedStage1Skill: vi.fn(async () => ({})),
   uploadLocalKeywordSkillForStage1: vi.fn(async () => ({})), updateStage2SkillNote: vi.fn(), updateStageSkillDefault: vi.fn(),
@@ -142,6 +143,57 @@ describe("Existing local redesign skill Stage 1 setup", () => {
     expect(upload.disabled).toBe(false);
     await act(async () => { upload.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(uploadLocalKeywordSkillForStage1).toHaveBeenCalledWith("redesign", file);
+    await act(async () => root.unmount());
+  });
+});
+
+describe("Duplicate local Skill ZIP upload", () => {
+  it("asks before replacing an existing Skill and retries only after confirmation", async () => {
+    vi.mocked(createStage2Skill).mockReset();
+    vi.mocked(createStage2Skill)
+      .mockRejectedValueOnce(new RrugcApiError(409, "Already exists", "stage2_skill_already_exists"))
+      .mockResolvedValueOnce({} as never);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-skill-add-toggle")!.click());
+    const input = host.querySelector<HTMLInputElement>(".rrugc-skill-upload input[type=file]")!;
+    const file = new File(["updated bundle"], "existing-studio.zip", { type: "application/zip" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    await act(async () => { host.querySelector<HTMLButtonElement>(".rrugc-skill-upload .rrugc-primary")!.click(); });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(createStage2Skill).toHaveBeenNthCalledWith(1, file);
+    expect(createStage2Skill).toHaveBeenNthCalledWith(2, file, true);
+    expect(host.textContent).toContain("Existing Skill replaced");
+    confirm.mockRestore();
+    await act(async () => root.unmount());
+  });
+
+  it("does not replace a duplicate when the confirmation is cancelled", async () => {
+    vi.mocked(createStage2Skill).mockReset().mockRejectedValueOnce(
+      new RrugcApiError(409, "Already exists", "stage2_skill_already_exists"),
+    );
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-skill-add-toggle")!.click());
+    const input = host.querySelector<HTMLInputElement>(".rrugc-skill-upload input[type=file]")!;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["bundle"], "existing-studio.zip", { type: "application/zip" })],
+    });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    await act(async () => { host.querySelector<HTMLButtonElement>(".rrugc-skill-upload .rrugc-primary")!.click(); });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(createStage2Skill).toHaveBeenCalledTimes(1);
+    confirm.mockRestore();
     await act(async () => root.unmount());
   });
 });
