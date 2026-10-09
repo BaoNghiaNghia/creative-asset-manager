@@ -6,7 +6,10 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
+
+from app.domain.providers.contracts import StorageProviderError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -72,4 +75,55 @@ def test_stage1_persists_all_37_image_files_and_their_names(tmp_path):
         assert job.status == "completed"
         assert job.output_remote_file_id == "remote-1"
         assert job.output_web_url == "https://cdn.example.test/1"
+    engine.dispose()
+
+def test_stage1_retains_checkpointed_images_if_upload_fails_midway(tmp_path):
+    """Three generated images, third Drive upload fails: the first two survive."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    for table in (RrugcKeywordImageJobModel.__table__, RrugcImageOutputVersionModel.__table__):
+        table.create(engine)
+    with Session(engine, autoflush=False) as session:
+        session.add(RrugcKeywordImageJobModel(
+            id="partial-job", tenant_id="tenant-a", keyword_id="kw-partial",
+            keyword_text="PARTIAL", skill_source="local", skill_name="sample",
+            prompt_text="PARTIAL", status="running", created_by_user_id="actor",
+        ))
+        session.commit()
+    files = []
+    for index in range(3):
+        path = tmp_path / f"part-{index}.png"
+        Image.new("RGB", (20, 30), (20 + index, 50, 80)).save(path)
+        files.append(GeneratedImageFile(path=str(path), filename=f"artwork/part-{index}.png", mime_type="image/png"))
+    generated = GeneratedImageResult(
+        provider="codex", model=None, image_bytes=Path(files[0].path).read_bytes(),
+        mime_type="image/png", output_files=tuple(files),
+    )
+
+    class FailingStorage:
+        requests = 0
+
+        async def store_asset(self, payload):
+            self.requests += 1
+            if self.requests == 3:
+                raise StorageProviderError("temporary Drive failure", retryable=True, code="managed_storage_network_error")
+            return SimpleNamespace(remote_file_id=f"uploaded-{self.requests}", web_url=f"https://example.test/{self.requests}")
+
+    context = SimpleNamespace(
+        job=SimpleNamespace(tenant_id="tenant-a", entity_id="partial-job", id="attempt-1"),
+        dependencies=SimpleNamespace(session_factory=lambda: Session(engine, autoflush=False)),
+        logger=logging.getLogger(__name__),
+    )
+    handler = KeywordImageGenerateHandler()
+    with pytest.raises(StorageProviderError, match="temporary Drive failure"):
+        asyncio.run(handler._save_skill_outputs(context, FailingStorage(), generated))
+    handler._fail(context, "managed_storage_network_error", "temporary Drive failure")
+    with Session(engine, autoflush=False) as session:
+        rows = session.scalars(select(RrugcImageOutputVersionModel).order_by(RrugcImageOutputVersionModel.version)).all()
+        assert [row.remote_file_id for row in rows] == ["uploaded-1", "uploaded-2"]
+        assert [row.version for row in rows] == [1, 2]
+        assert all(row.processing_job_id == "attempt-1" for row in rows)
+        job = session.get(RrugcKeywordImageJobModel, "partial-job")
+        assert job.status == "failed"
+        assert job.output_remote_file_id == "uploaded-1"
+        assert job.last_error_code == "managed_storage_network_error"
     engine.dispose()

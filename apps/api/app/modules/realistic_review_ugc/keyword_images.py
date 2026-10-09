@@ -17,7 +17,9 @@ from app.domain.providers.contracts import StoreAssetInput, StorageProviderError
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.generation_handler import _bytes_body
-from app.modules.realistic_review_ugc.model import RrugcKeywordImageJobModel, RrugcKeywordVolumeModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
+)
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.stage2_skills import (
@@ -315,6 +317,17 @@ class KeywordImageService:
         rows = list(self.session.execute(
             stmt.limit(page_size).offset((page - 1) * page_size)
         ))
+        # Count only jobs on this page; never join version history into the
+        # global Stage 0 keyword count query (which is polled every 5s).
+        visible_job_ids = [job.id for _, job, _ in rows if job is not None]
+        saved_counts = dict(self.session.execute(
+            select(RrugcImageOutputVersionModel.job_id, func.count())
+            .where(
+                RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                RrugcImageOutputVersionModel.stage == "stage1",
+                RrugcImageOutputVersionModel.job_id.in_(visible_job_ids),
+            ).group_by(RrugcImageOutputVersionModel.job_id)
+        ).all()) if visible_job_ids else {}
         items = []
         for keyword, job, processing in rows:
             state = effective_status(job, processing) if job else "not_run"
@@ -325,6 +338,7 @@ class KeywordImageService:
                 "skill_name": job.skill_name if job else None,
                 "skill_version": job.skill_version if job else None,
                 "retry_count": job.retry_count if job else 0,
+                "saved_output_count": int(saved_counts.get(job.id, 0)) if job else 0,
                 "attempt_count": processing.attempt_count if processing else 0,
                 "max_attempts": processing.max_attempts if processing else STAGE1_MAX_ATTEMPTS,
                 "error_code": (job.last_error_code or (processing.last_error_code if processing else None)) if job else None,
@@ -457,7 +471,11 @@ class KeywordImageGenerateHandler:
                 retryable=True,
             )
 
-        uploaded = []
+        # Stage 1 may produce 100+ images. Persist each upload as a durable
+        # checkpoint instead of waiting for every Drive upload to succeed.
+        # If storage fails at image 70/140, the first 69 remain browsable.
+        first_uploaded = None
+        uploaded_count = 0
         for index, (name, mime_type, path, body) in enumerate(payloads):
             if path is not None:
                 with Image.open(path) as image:
@@ -496,16 +514,19 @@ class KeywordImageGenerateHandler:
                     "Managed storage did not return a file ID.", retryable=True,
                     code="keyword_image_storage_invalid",
                 )
-            uploaded.append((stored, size_bytes, width, height, mime_type, name))
-
-        with context.dependencies.session_factory() as session:
-            job = session.scalar(select(RrugcKeywordImageJobModel).where(
-                RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
-                RrugcKeywordImageJobModel.id == context.job.entity_id,
-            ).with_for_update())
-            if job is None:
-                return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
-            for index, (stored, size_bytes, width, height, mime_type, name) in enumerate(uploaded):
+            with context.dependencies.session_factory() as session:
+                job = session.scalar(select(RrugcKeywordImageJobModel).where(
+                    RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
+                    RrugcKeywordImageJobModel.id == context.job.entity_id,
+                ).with_for_update())
+                if job is None:
+                    return JobHandlerResult.non_retryable(
+                        "keyword_image_job_missing", "Generation job missing."
+                    )
+                if job.status not in ("running", "queued"):
+                    return JobHandlerResult.non_retryable(
+                        "keyword_image_job_not_active", "Generation is no longer active."
+                    )
                 save_output_version(
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
                     remote_file_id=stored.remote_file_id, content_type=mime_type,
@@ -514,7 +535,40 @@ class KeywordImageGenerateHandler:
                     allow_multiple_per_attempt=index > 0,
                     output_name=name,
                 )
-            stored, size_bytes, width, height, mime_type, _ = uploaded[0]
+                if first_uploaded is None:
+                    first_uploaded = (stored, size_bytes, width, height, mime_type)
+                    # Retain the preview if this is a brand-new run. A
+                    # regeneration keeps its previous preview until finished.
+                    if not job.output_remote_file_id:
+                        job.output_remote_file_id = stored.remote_file_id
+                        job.output_content_type = mime_type
+                        job.output_size_bytes = size_bytes
+                        job.output_width = width
+                        job.output_height = height
+                        job.output_web_url = stored.web_url
+                session.commit()
+            uploaded_count += 1
+            if uploaded_count % 10 == 0 or uploaded_count == len(payloads):
+                context.logger.info(
+                    "rrugc_keyword_image_upload_progress",
+                    extra={"job_id": context.job.entity_id,
+                           "tenant_id": context.job.tenant_id,
+                           "saved": uploaded_count, "total": len(payloads)},
+                )
+
+        if first_uploaded is None:
+            raise CodexImageProviderError(
+                "keyword_image_output_missing", "Skill returned no generated images.",
+                retryable=False,
+            )
+        stored, size_bytes, width, height, mime_type = first_uploaded
+        with context.dependencies.session_factory() as session:
+            job = session.scalar(select(RrugcKeywordImageJobModel).where(
+                RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
+                RrugcKeywordImageJobModel.id == context.job.entity_id,
+            ).with_for_update())
+            if job is None:
+                return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
             job.output_remote_file_id = stored.remote_file_id
             job.output_content_type = mime_type
             job.output_size_bytes = size_bytes
@@ -530,5 +584,5 @@ class KeywordImageGenerateHandler:
         context.logger.info("rrugc_keyword_image_completed",
                             extra={"job_id": context.job.entity_id,
                                    "tenant_id": context.job.tenant_id,
-                                   "output_count": len(uploaded)})
+                                   "output_count": uploaded_count})
         return JobHandlerResult.completed()

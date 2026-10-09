@@ -63,7 +63,9 @@ export function KeywordImageRowControls({
       : <span className="rrugc-keyword-result-preview is-empty" role="img" aria-label="No generated output yet" title="No output yet">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3.5 3.5 2.5-2.5 4 4"/></svg>
         </span>}
-    <span className="rrugc-keyword-result-caption">{row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
+    <span className="rrugc-keyword-result-caption">{row.saved_output_count > 0
+      ? `${row.saved_output_count.toLocaleString()} image${row.saved_output_count === 1 ? "" : "s"} saved${row.status === "failed" ? " · partial" : ""}`
+      : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
     </div>
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
       {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "regenerate" : "generate")}
@@ -71,7 +73,7 @@ export function KeywordImageRowControls({
         <KeywordActionGlyph kind={regenerate ? "regenerate" : "generate"} />
         <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
-      {row.job_id && row.output_url && <button type="button" className="rrugc-keyword-result-action"
+      {row.job_id && (row.saved_output_count > 0 || row.output_url) && <button type="button" className="rrugc-keyword-result-action"
         onClick={onVersions} title="View all generated images and versions" aria-label={"View all generated images for " + row.keyword}>
         <KeywordActionGlyph kind="versions" />
         <span className="rrugc-keyword-action-label">Versions</span>

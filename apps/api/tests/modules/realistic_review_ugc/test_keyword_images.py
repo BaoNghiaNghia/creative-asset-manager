@@ -11,7 +11,7 @@ from app.modules.realistic_review_ugc.keyword_images import (
     DEFAULT_SKILL, KeywordImageError, KeywordImageService, effective_status, keyword_prompt,
 )
 from app.modules.realistic_review_ugc.model import (
-    RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
+    RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
 )
 from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig
 
@@ -20,6 +20,7 @@ from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerCo
 def db():
     engine = create_engine("sqlite://")
     for table in (RrugcKeywordVolumeModel.__table__, RrugcKeywordImageJobModel.__table__,
+                  RrugcImageOutputVersionModel.__table__,
                   ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__):
         table.create(engine)
     with Session(engine) as session:
@@ -48,6 +49,42 @@ def test_stage1_only_lists_used_keyword_and_is_tenant_scoped(db):
     assert item["items"][0]["keyword_id"] == first.id
     assert item["items"][0]["status"] == "not_run"
     assert KeywordImageService(db).list_used(tenant_id="tenant-b", page=1, page_size=20)["total"] == 1
+
+
+def test_stage1_saved_output_count_is_scoped_and_available_on_failed_jobs(db):
+    first = keyword(db, "used-a", "tenant-a", picked=True)
+    kw_other = keyword(db, "used-b", "tenant-b", picked=True)
+    db.add_all([
+        RrugcKeywordImageJobModel(
+            id="job-one", tenant_id=first.tenant_id, keyword_id=first.id,
+            keyword_text=first.keyword, skill_source="local", skill_name="skill",
+            prompt_text="prompt", status="failed", created_by_user_id="actor",
+            output_remote_file_id="file-one",
+        ),
+        RrugcKeywordImageJobModel(
+            id="job-other", tenant_id=kw_other.tenant_id, keyword_id=kw_other.id,
+            keyword_text=kw_other.keyword, skill_source="local", skill_name="skill",
+            prompt_text="prompt", status="completed", created_by_user_id="actor",
+        ),
+        RrugcImageOutputVersionModel(
+            id="version-a", tenant_id="tenant-a", stage="stage1", job_id="job-one",
+            version=1, remote_file_id="file-one",
+        ),
+        RrugcImageOutputVersionModel(
+            id="version-b", tenant_id="tenant-a", stage="stage1", job_id="job-one",
+            version=2, remote_file_id="file-two",
+        ),
+        RrugcImageOutputVersionModel(
+            id="version-other", tenant_id="tenant-b", stage="stage1", job_id="job-other",
+            version=1, remote_file_id="other-tenant",
+        ),
+    ])
+    db.commit()
+    page = KeywordImageService(db).list_used(tenant_id="tenant-a", page=1, page_size=20)
+    assert page["items"][0]["status"] == "failed"
+    assert page["items"][0]["saved_output_count"] == 2
+    assert page["items"][0]["output_url"].endswith("/jobs/job-one/output")
+    assert KeywordImageService(db).list_used(tenant_id="tenant-b", page=1, page_size=20)["items"][0]["saved_output_count"] == 1
 
 
 def test_stage1_does_not_generate_unpicked_or_other_tenant(db):

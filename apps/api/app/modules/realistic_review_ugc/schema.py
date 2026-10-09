@@ -920,8 +920,9 @@ class KeywordImageRowResponse(BaseModel):
     skill_name: str | None = None
     skill_version: str | None = None
     retry_count: int = 0
+    saved_output_count: int = 0
     attempt_count: int = 0
-    max_attempts: int = 3
+    max_attempts: int = 1
     error_code: str | None = None
     error_message: str | None = None
     output_url: str | None = None

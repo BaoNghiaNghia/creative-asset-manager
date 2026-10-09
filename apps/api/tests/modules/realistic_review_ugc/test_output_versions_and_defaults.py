@@ -35,7 +35,9 @@ def test_output_generations_preserve_v1_and_record_v2():
 
 
 
-def test_default_skill_isolated_by_tenant_and_stage():
+def test_default_skill_isolated_by_tenant_and_stage(monkeypatch):
+    # This test covers tenant/stage scoping, not deployment of actual Skill ZIPs.
+    monkeypatch.setattr("app.modules.realistic_review_ugc.stage_skill_settings.keyword_skill_compatible", lambda name: True)
     engine = create_engine("sqlite://")
     RrugcStage2SkillRegistryModel.__table__.create(engine)
     RrugcStageSkillDefaultModel.__table__.create(engine)
