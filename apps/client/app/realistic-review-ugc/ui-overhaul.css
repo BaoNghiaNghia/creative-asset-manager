@@ -1934,3 +1934,11 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 @media(max-width:760px){.rrugc-stage2-table{min-width:970px}.rrugc-stage4-output-modal{width:100%!important;max-height:96dvh}.rrugc-stage4-output-modal .rrugc-stage2-output-review-masonry{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:10px;padding:10px}}
 @media(max-width:480px){.rrugc-stage4-output-modal .rrugc-stage2-output-review-masonry{grid-template-columns:minmax(0,1fr)}.rrugc-stage4-output-modal .rrugc-source-review-image img{max-height:none}}
 @media(prefers-reduced-motion:reduce){.rrugc-stage4-run-history>summary::before{transition:none}}
+
+/* Stage 4 reference strip: keep counts on one compact baseline to raise thumbnails. */
+.rrugc-stage2-table .rrugc-stage2-ref-head{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:5px 10px;min-height:19px;margin:0 0 3px}
+.rrugc-stage2-ref-head>span{display:inline-flex;align-items:baseline;gap:3px;color:#7c8ba1;font-size:10px;line-height:1.35;white-space:nowrap}
+.rrugc-stage2-ref-head>span strong{color:#344b6b;font-size:11px;line-height:1.25;font-weight:850;font-variant-numeric:tabular-nums}
+.rrugc-stage2-ref-head>.is-selected strong{color:#335e9d}
+.rrugc-stage2-ref-head>.is-generated strong{color:#3f8864}
+.rrugc-stage2-table .rrugc-stage2-ref-grid{margin-top:0;padding-top:1px}

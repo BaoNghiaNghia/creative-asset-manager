@@ -832,9 +832,10 @@ export function Stage2JobTable({
                 </div>
               </td>
               <td>
-                <div className="rrugc-stage2-ref-head">
-                  <strong>{selected.length} selected</strong>
-                  <small>{pickableAvailable} refs available{generated.size ? " · " + generated.size + " generated" : ""}</small>
+                <div className="rrugc-stage2-ref-head" aria-label={"References: " + selected.length + " selected, " + pickableAvailable + " available, " + generated.size + " generated"}>
+                  <span className="is-selected"><strong>{selected.length}</strong> selected</span>
+                  <span className="is-available"><strong>{pickableAvailable}</strong> available</span>
+                  {generated.size > 0 && <span className="is-generated"><strong>{generated.size}</strong> generated</span>}
                 </div>
                 <Stage2ReferencePicker
                   planId={plan.id}

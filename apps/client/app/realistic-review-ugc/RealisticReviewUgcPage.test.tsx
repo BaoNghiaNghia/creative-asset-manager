@@ -421,7 +421,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("0/10 latest runs");
     expect(markup).toContain("10 not run");
     expect(markup).toContain("$gatorhats-8869-image-studio");
-    expect(markup).toContain("11 refs available");
+    expect(markup).toContain('aria-label="References: 0 selected, 11 available, 0 generated"');
+    expect(markup).toContain('class="rrugc-stage2-ref-head"');
+    expect(markup).toContain('class="is-selected"><strong>0</strong> selected');
+    expect(markup).toContain('class="is-available"><strong>11</strong> available');
     expect(markup).toContain('aria-label="3 source images with the same embroidery"');
     expect(markup).toContain("front-black.png");
     expect(markup).toContain("front-red.png");
@@ -451,7 +454,8 @@ describe("Realistic Review UGC source-first workspace", () => {
         onCreateJob={() => undefined}
       />,
     );
-    expect(markup).toContain("10 refs available · 1 generated");
+    expect(markup).toContain('aria-label="References: 0 selected, 10 available, 1 generated"');
+    expect(markup).toContain('class="is-generated"><strong>1</strong> generated');
     expect(markup).toContain("is-generated");
     expect(markup).toContain('title="Already generated"');
     expect(markup).not.toContain("1/10 selected");
