@@ -1,4 +1,4 @@
-"""Keyword Scout must finish existing work before collecting more Pins."""
+"""Bounded Keyword fair-share with Review priority and durable retries."""
 from __future__ import annotations
 
 import asyncio
@@ -29,9 +29,12 @@ from app.modules.realistic_review_ugc.scout_automation import (
 )
 
 
-def test_quote_gate_blocks_even_one_review_job_and_releases_after_drain():
+def test_quote_gate_preserves_review_and_admits_one_keyword_per_minute():
+    from app.modules.ai_governance.model import AiModelRateLimitStateModel
+
     engine = create_engine("sqlite+pysqlite:///:memory:")
     ProcessingJobModel.__table__.create(engine)
+    AiModelRateLimitStateModel.__table__.create(engine)
     now = datetime(2026, 10, 8, 16, tzinfo=timezone.utc)
     try:
         with Session(engine) as session:
@@ -50,35 +53,51 @@ def test_quote_gate_blocks_even_one_review_job_and_releases_after_drain():
             ))
             session.commit()
             pressure = scout_analysis_backpressure(session, "tenant-a", now=now)
-            assert pressure["active"] is False  # below old 200-item threshold
+            assert pressure["active"] is False  # below hard Review threshold
             assert pressure["pending_jobs"] == 1
+            assert not keyword_quote_backlog_gate(
+                session, "tenant-a", pressure=pressure, now=now,
+            )["active"]
+            assert not keyword_quote_backlog_gate(
+                session, "tenant-a", pressure=pressure, now=now, reserve=True,
+            )["active"]
+            session.commit()
+            blocked = keyword_quote_backlog_gate(
+                session, "tenant-a", pressure=pressure, now=now,
+            )
+            assert blocked["active"] is True
+            assert blocked["reason"] == "keyword_fair_share_wait"
+            assert 1 <= blocked["retry_seconds"] <= 61
             assert keyword_quote_backlog_gate(
                 session, "tenant-a", pressure=pressure, now=now, reserve=True,
-            ) == {
-                "active": True,
-                "retry_seconds": 60,
-                "reason": "review_analysis_queue_draining",
-            }
-            assert keyword_quote_backlog_gate(
-                session, "tenant-b", now=now,
-            )["active"] is False
+            )["active"] is True
+            assert not keyword_quote_backlog_gate(
+                session, "tenant-b", pressure=pressure, now=now,
+            )["active"]
+            assert not keyword_quote_backlog_gate(
+                session, "tenant-a", pressure=pressure,
+                now=now + timedelta(seconds=61),
+            )["active"]
             session.query(ProcessingJobModel).update({"status": "completed"})
             session.commit()
-            assert keyword_quote_backlog_gate(
+            assert not keyword_quote_backlog_gate(
                 session, "tenant-a", now=now, reserve=True,
-            )["active"] is False
+            )["active"]
     finally:
         engine.dispose()
 
 
-def test_preflight_pauses_when_review_jobs_pending_even_if_legacy_active_false():
+def test_preflight_does_not_block_search_when_fair_share_is_waiting():
     async def scenario():
         def reply(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={
                 "analysis_backpressure": {
                     "active": False, "pending_jobs": 3, "oldest_wait_seconds": 40,
                 },
-                "keyword_quote_backpressure": {"active": False, "retry_seconds": 0},
+                "keyword_quote_backpressure": {
+                    "active": True, "retry_seconds": 42,
+                    "reason": "keyword_fair_share_wait",
+                },
             })
 
         scout = QuoteScoutClient("https://example.test", "agent-test", "token-test")
@@ -87,16 +106,14 @@ def test_preflight_pauses_when_review_jobs_pending_even_if_legacy_active_false()
             base_url="https://example.test", transport=httpx.MockTransport(reply)
         )
         try:
-            with pytest.raises(KeywordScoutCapacityPaused) as pause:
-                await scout.ensure_analysis_capacity()
-            assert pause.value.reason == "review_analysis_queue_draining"
+            assert await scout.ensure_analysis_capacity() is True
         finally:
             await scout.close()
 
     asyncio.run(scenario())
 
 
-def test_preflight_fails_closed_when_queue_status_is_unavailable():
+def test_preflight_degrades_to_protected_quote_endpoint_on_diagnostic_outage():
     async def scenario():
         scout = QuoteScoutClient("https://example.test", "agent-test", "token-test")
         await scout.client.aclose()
@@ -105,8 +122,7 @@ def test_preflight_fails_closed_when_queue_status_is_unavailable():
             transport=httpx.MockTransport(lambda _: httpx.Response(503)),
         )
         try:
-            with pytest.raises(KeywordScoutCapacityPaused):
-                await scout.ensure_analysis_capacity()
+            assert await scout.ensure_analysis_capacity() is False
         finally:
             await scout.close()
 

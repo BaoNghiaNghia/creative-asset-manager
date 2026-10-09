@@ -593,7 +593,7 @@ def test_keyword_gemini_backpressure_stops_cycle_without_losing_pin(tmp_path):
     assert len(requests) == 1
 
 
-def test_keyword_capacity_preflight_pauses_before_pinterest_work():
+def test_keyword_capacity_preflight_scans_with_reduced_budget_when_backlogged():
     requests: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -617,11 +617,7 @@ def test_keyword_capacity_preflight_pauses_before_pinterest_work():
             transport=httpx.MockTransport(handler),
         )
         try:
-            with pytest.raises(keyword_scout.KeywordScoutCapacityPaused) as exc:
-                await client.ensure_analysis_capacity()
-            assert exc.value.retry_seconds == (
-                keyword_scout.KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS
-            )
+            assert await client.ensure_analysis_capacity() is True
         finally:
             await client.close()
 
@@ -661,7 +657,7 @@ def test_keyword_capacity_preflight_uses_keyword_fair_share_not_review_backlog()
     asyncio.run(scenario())
 
 
-def test_keyword_capacity_preflight_respects_fair_share_wait():
+def test_keyword_capacity_preflight_continues_scanning_during_fair_share_wait():
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200, json={
@@ -682,9 +678,7 @@ def test_keyword_capacity_preflight_respects_fair_share_wait():
             transport=httpx.MockTransport(handler),
         )
         try:
-            with pytest.raises(keyword_scout.KeywordScoutCapacityPaused) as exc:
-                await client.ensure_analysis_capacity()
-            assert exc.value.retry_seconds == 58
+            assert await client.ensure_analysis_capacity() is True
         finally:
             await client.close()
 

@@ -690,13 +690,15 @@ class QuoteScoutClient:
             if response.status_code in {401, 403}:
                 response.raise_for_status()
             if response.status_code >= 400:
+                # Diagnostics is advisory: quote extraction enforces the
+                # authoritative Gemini quota and atomic server-side lane.
                 scout_debug_event(
                     "keyword_scout_capacity_preflight_warning",
                     status_code=response.status_code,
                     duration_ms=round((time.monotonic() - started) * 1000),
-                    action="fail_closed_until_queue_verified",
+                    action="fail_open_to_rate_limited_quote_endpoint",
                 )
-                raise KeywordScoutCapacityPaused(KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
+                return False
             payload = response.json()
         except httpx.HTTPStatusError:
             raise
@@ -705,51 +707,50 @@ class QuoteScoutClient:
                 "keyword_scout_capacity_preflight_warning",
                 error_type=exc.__class__.__name__,
                 duration_ms=round((time.monotonic() - started) * 1000),
-                action="fail_closed_until_queue_verified",
+                action="fail_open_to_rate_limited_quote_endpoint",
             )
-            raise KeywordScoutCapacityPaused(KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
+            return False
 
         pressure = (
             payload.get("analysis_backpressure")
             if isinstance(payload, dict)
             else None
         )
-        if not isinstance(pressure, dict) or "pending_jobs" not in pressure:
-            scout_debug_event("keyword_scout_capacity_preflight_warning",
-                              action="fail_closed_missing_queue_status")
-            raise KeywordScoutCapacityPaused(
-                KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS,
-                reason="review_queue_status_unavailable",
-            )
-        # The Review queue is shared with Keyword's Gemini capacity.
-        # Even a small pending/retry Review queue must drain before searching
-        # more Pin images. Don't rely on the older high-watermark 'active'
-        # boolean: it only trips for a large, aged backlog.
-        pending_jobs = int(pressure.get("pending_jobs") or 0) if isinstance(pressure, dict) else 0
-        quote_gate = payload.get("keyword_quote_backpressure") if isinstance(payload, dict) else None
-        effective_pressure = quote_gate if isinstance(quote_gate, dict) else pressure
-        active = pending_jobs > 0 or (
-            isinstance(effective_pressure, dict)
-            and effective_pressure.get("active") is True
+        quote_gate = (
+            payload.get("keyword_quote_backpressure")
+            if isinstance(payload, dict)
+            else None
         )
-        if active:
-            pending_jobs = int(pressure.get("pending_jobs") or 0) if isinstance(pressure, dict) else 0
-            oldest_wait_seconds = int(pressure.get("oldest_wait_seconds") or 0) if isinstance(pressure, dict) else 0
-            retry_seconds = int(effective_pressure.get("retry_seconds") or KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS) if isinstance(effective_pressure, dict) else KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS
+        pending_jobs = (
+            int(pressure.get("pending_jobs") or 0)
+            if isinstance(pressure, dict) else 0
+        )
+        # A Review backlog means *reduce* discovery, never stop it forever.
+        # The server atomically reserves each quote extraction; diagnostics
+        # must not prevent claiming eligible Keyword queries or collecting Pins.
+        if isinstance(quote_gate, dict) and quote_gate.get("active") is True:
+            reason = str(quote_gate.get("reason") or "gemini_capacity_paused")
+            if reason != "keyword_fair_share_wait":
+                retry_seconds = max(
+                    1, int(quote_gate.get("retry_seconds")
+                           or KEYWORD_CAPACITY_PREFLIGHT_RETRY_SECONDS)
+                )
+                scout_debug_event(
+                    "keyword_scout_capacity_preflight_paused",
+                    pending_jobs=pending_jobs,
+                    retry_seconds=retry_seconds,
+                    reason=reason,
+                )
+                raise KeywordScoutCapacityPaused(retry_seconds, reason=reason)
             scout_debug_event(
-                "keyword_scout_capacity_preflight_paused",
+                "keyword_scout_fair_share_scan_active",
                 pending_jobs=pending_jobs,
-                oldest_wait_seconds=oldest_wait_seconds,
-                retry_seconds=retry_seconds,
-                reason=effective_pressure.get("reason"),
-                duration_ms=round((time.monotonic() - started) * 1000),
+                retry_seconds=int(quote_gate.get("retry_seconds") or 0),
+                max_root_details=PRESSURED_ROOT_DETAILS_PER_CYCLE,
             )
-            raise KeywordScoutCapacityPaused(
-                retry_seconds,
-                reason=("review_analysis_queue_draining" if pending_jobs > 0
-                        else str(effective_pressure.get("reason") or "gemini_capacity_paused")),
-            )
-        return False
+        return bool(pending_jobs or (
+            isinstance(pressure, dict) and pressure.get("active") is True
+        ))
 
     async def _post(
         self,

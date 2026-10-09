@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "cam-scout-manager"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "reqwest",
  "serde",
