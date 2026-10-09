@@ -16,4 +16,10 @@ test("current production smoke stage bindings are valid", async () => {
   const plan = JSON.parse(await fs.readFile(
     new URL("../../../docs/operations/production-ui-smoke-plan.json", import.meta.url), "utf8"));
   assert.deepEqual(validateProductionUiPlan(plan), []);
+  const ugc = plan.routes.find((route) => route.name === "realistic-review-ugc");
+  assert.ok(ugc, "authenticated UGC route must be present");
+  for (let stage = 0; stage <= 5; stage += 1) {
+    assert.ok(ugc.states.some((state) => state.click === `#rrugc-tab-stage${stage}`),
+      `authenticated QA must exercise Stage ${stage}`);
+  }
 });

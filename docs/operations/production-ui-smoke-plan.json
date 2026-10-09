@@ -78,6 +78,15 @@
       "states": [
         { "name": "default" },
         {
+          "name": "stage0-keyword-scout",
+          "click": "#rrugc-tab-stage0",
+          "waitFor": "#rrugc-panel-stage0",
+          "assertions": [
+            { "type": "visible", "selector": "#rrugc-panel-stage0" },
+            { "type": "no-horizontal-overflow", "selector": "#rrugc-panel-stage0" }
+          ]
+        },
+        {
           "name": "stage1-keyword-generation",
           "click": "#rrugc-tab-stage1",
           "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen",
@@ -91,6 +100,14 @@
           "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage",
           "assertions": [
             { "type": "visible", "selector": "#rrugc-panel-stage2 .rrugc-colorway-stage" }
+          ]
+        },
+        {
+          "name": "stage3-reference-discovery",
+          "click": "#rrugc-tab-stage3",
+          "waitFor": "#rrugc-panel-stage3 #rrugc-source-plans",
+          "assertions": [
+            { "type": "visible", "selector": "#rrugc-panel-stage3 #rrugc-source-plans" }
           ]
         },
         {
