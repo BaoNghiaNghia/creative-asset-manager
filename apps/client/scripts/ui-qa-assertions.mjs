@@ -4,7 +4,7 @@ export async function assertUiState(page, assertion) {
   const selector = String(assertion?.selector || "");
   if (!selector || !["visible", "hidden", "text-includes", "count", "attribute",
                       "checked", "no-horizontal-overflow", "no-viewport-overflow",
-                      "min-control-size", "icon-visible"].includes(type)) {
+                      "min-control-size", "scrollable-x", "icon-visible"].includes(type)) {
     throw new Error(`Invalid UI QA assertion type/selector: ${type} ${selector}`);
   }
   const locator = page.locator(selector);
@@ -59,6 +59,16 @@ export async function assertUiState(page, assertion) {
     if (!await locator.count() || missing.length) {
       throw new Error(`UI QA undersized controls at ${selector}: ${JSON.stringify(missing)}`);
     }
+  } else if (type === "scrollable-x") {
+    const scrollable = await locator.first().evaluate(element => {
+      const before = element.scrollLeft;
+      if (element.scrollWidth <= element.clientWidth) return false;
+      element.scrollLeft = element.scrollWidth;
+      const moved = element.scrollLeft !== before;
+      element.scrollLeft = before;
+      return moved;
+    });
+    if (!scrollable) throw new Error(`UI QA expected independent horizontal scrolling at ${selector}`);
   } else if (type === "icon-visible") {
     const missing = await locator.evaluateAll(nodes => nodes.filter(node => {
       const style = getComputedStyle(node);

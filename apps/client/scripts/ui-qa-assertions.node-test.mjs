@@ -32,6 +32,16 @@ test("interaction assertions validate text, visibility, attributes and count", a
   ]);
 });
 
+test("scrollable table assertion requires a functioning independent scroll area", async () => {
+  await assert.doesNotReject(
+    assertUiState(fakePage({ overflow: 1 }), { type: "scrollable-x", selector: ".access-table-wrap" }),
+  );
+  await assert.rejects(
+    assertUiState(fakePage({ overflow: 0 }), { type: "scrollable-x", selector: ".access-table-wrap" }),
+    /independent horizontal scrolling/,
+  );
+});
+
 test("meaningful state regressions fail the gate", async () => {
   await assert.rejects(
     assertUiState(fakePage({ text: "No image" }), { type: "text-includes", selector: "#status", value: "Completed" }),

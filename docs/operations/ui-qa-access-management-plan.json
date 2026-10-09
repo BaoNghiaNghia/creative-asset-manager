@@ -6,7 +6,8 @@
     "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0}
   },
   "steps": [
-    {"name":"default","waitFor":".access-content","waitMs":300},
+    {"name":"default","waitFor":".access-content","waitMs":300,
+     "mobileAssertions":[{"type":"scrollable-x","selector":".access-table-wrap"}]},
     {"name":"member-row-hover","hover":".access-table tbody tr"},
     {"name":"member-search-focus","focus":"form[aria-label='Member filters'] input"},
     {"name":"roles-tab","click":"#access-tab-roles","waitFor":".role-grid"}

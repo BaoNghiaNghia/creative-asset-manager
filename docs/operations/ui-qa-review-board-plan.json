@@ -3,7 +3,7 @@
   "qualityBudgets": {
     "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
     "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0}
+    "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0, "maxViewportOverflowPx": 0}
   },
   "steps": [
     {"name":"default","waitFor":".review-board-workspace","waitMs":300},

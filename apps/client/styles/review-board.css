@@ -757,6 +757,7 @@
 
 .review-board-preview{
   display:grid;
+  grid-template-columns:minmax(0,1fr);
   grid-template-rows:auto minmax(0,1fr);
   min-width:0;
   border-right:1px solid #e3e9f1;
@@ -774,6 +775,8 @@
   background:#fff;
 }
 
+.review-board-preview>header>div{flex:1 1 auto;min-width:0;max-width:100%}
+.review-board-preview>header>span{flex:0 1 auto;min-width:0}
 .review-board-preview>header h2{
   max-width:100%;
   margin:2px 0 0;

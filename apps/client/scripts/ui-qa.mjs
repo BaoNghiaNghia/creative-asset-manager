@@ -649,7 +649,10 @@ try {
             right: Math.round(box.right), left: Math.round(box.left),
           }));
         const layoutRoots = ["html", "body", ".rrugc-shell", ".rrugc-main",
-          ".rrugc-stage-tabs-shell", ".rrugc-stage-tabs"].map(selector => {
+          ".rrugc-stage-tabs-shell", ".rrugc-stage-tabs",
+          ".review-board-shell", ".review-board-main", ".review-board-workspace",
+          ".review-board-preview", ".review-board-preview>header",
+          ".access-shell", ".access-main", ".access-content", ".access-table-wrap"].map(selector => {
           const el = document.querySelector(selector);
           if (!el) return { selector, missing: true };
           const box = el.getBoundingClientRect();
