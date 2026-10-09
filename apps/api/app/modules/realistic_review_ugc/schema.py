@@ -866,6 +866,7 @@ class Stage2SkillRegistryResponse(BaseModel):
     stage_defaults: dict[str, str] = Field(default_factory=dict)
     can_manage: bool
     items: list[Stage2SkillRegistryItemResponse] = Field(default_factory=list)
+    archived_items: list[Stage2SkillRegistryItemResponse] = Field(default_factory=list)
 
 
 class Stage2SkillNoteRequest(BaseModel):

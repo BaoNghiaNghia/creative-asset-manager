@@ -14,6 +14,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcColorwayJobModel,
     RrugcStage2SkillRegistryModel,
     RrugcStage2SkillVersionModel,
+    RrugcStageSkillDefaultModel,
 )
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
@@ -822,3 +823,65 @@ def delete_skill(
         },
     )
     session.commit()
+
+def restore_keyword_skill(
+    session: Session, *, tenant_id: str, actor_id: str, registry_id: str,
+) -> RrugcStage2SkillRegistryModel:
+    """Admin-only recovery for archived local keyword-only skills.
+
+    Recovery is explicit, audited and never occurs during automatic catalog scans.
+    Stage 2/4 defaults and all saved generation outputs are unaffected.
+    """
+    from app.modules.realistic_review_ugc.stage_skill_settings import keyword_skill_compatible
+
+    row = session.scalar(
+        select(RrugcStage2SkillRegistryModel)
+        .where(
+            RrugcStage2SkillRegistryModel.id == registry_id,
+            RrugcStage2SkillRegistryModel.tenant_id == tenant_id,
+        ).with_for_update()
+    )
+    if row is None or row.source != "local":
+        raise Stage2SkillRegistryError(
+            "stage_skill_restore_not_found", "Archived local skill not found.", status_code=404,
+        )
+    if row.deleted_at is None:
+        raise Stage2SkillRegistryError(
+            "stage_skill_not_archived", "This skill is not archived.", status_code=409,
+        )
+    catalog = list_stage2_skill_catalog(refresh=False)
+    if not any(item.source == row.source and item.skill_name == row.skill_name and item.ready
+               for item in catalog.items):
+        raise Stage2SkillRegistryError(
+            "stage_skill_restore_runtime_missing", "Install or sync the local skill before restoring it.",
+            status_code=409,
+        )
+    if not keyword_skill_compatible(row.skill_name):
+        raise Stage2SkillRegistryError(
+            "stage_skill_restore_incompatible",
+            "This skill cannot generate Stage 1 keyword artwork without source images.",
+            status_code=422,
+        )
+    row.deleted_at = None
+    row.enabled = True
+    row.validation_status = "valid"
+    row.sync_state = "ready"
+    row.updated_by_user_id = actor_id
+    row.updated_at = utcnow()
+    default = session.get(RrugcStageSkillDefaultModel, (tenant_id, "stage1"))
+    if default is None:
+        default = RrugcStageSkillDefaultModel(tenant_id=tenant_id, stage="stage1")
+        session.add(default)
+    default.registry_id = row.id
+    default.updated_by_user_id = actor_id
+    default.updated_at = utcnow()
+    _audit(session, tenant_id=tenant_id, actor_id=actor_id,
+           action="stage2_skill.restored",
+           detail={"registry_id": row.id, "skill_name": row.skill_name,
+                   "stage": "stage1", "restored_from_archive": True})
+    _audit(session, tenant_id=tenant_id, actor_id=actor_id,
+           action="rrugc.stage_skill.default_updated",
+           detail={"stage": "stage1", "registry_id": row.id,
+                   "skill_name": row.skill_name})
+    session.commit()
+    return row

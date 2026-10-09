@@ -3,6 +3,7 @@ import {
   createStage2Skill,
   createStage2SkillVersion,
   listStage2Skills,
+  restoreArchivedStage1Skill,
   deleteStage2Skill,
   deleteStage2SkillVersion,
   listStage2SkillRegistry,
@@ -79,9 +80,13 @@ export function SkillManagerModal({
   const [skillSearch, setSkillSearch] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [stage1CompatibleKeys, setStage1CompatibleKeys] = useState<Set<string>>(new Set());
+  const [stage1CatalogError, setStage1CatalogError] = useState(false);
+  const [stage1CatalogChecked, setStage1CatalogChecked] = useState(false);
 
   async function reload(refresh = false) {
     setLoading(true);
+    setStage1CatalogChecked(false);
+    setStage1CatalogError(false);
     setError("");
     try {
       const next = await listStage2SkillRegistry(refresh);
@@ -92,8 +97,12 @@ export function SkillManagerModal({
         const catalog = await listStage2Skills(false);
         setStage1CompatibleKeys(new Set(catalog.items.filter(item => item.keyword_artwork_ready && item.ready)
           .map(item => [item.source, item.skill_id || item.skill_name].join(":"))));
+        setStage1CatalogError(false);
       } catch {
         setStage1CompatibleKeys(new Set());
+        setStage1CatalogError(true);
+      } finally {
+        setStage1CatalogChecked(true);
       }
       setNoteDrafts(current => {
         const updated = { ...current };
@@ -134,6 +143,8 @@ export function SkillManagerModal({
     () => registry.items.filter(item => item.enabled).length,
     [registry.items],
   );
+  const archivedKeywordSkill = (registry.archived_items || []).find(item => item.skill_name === "gatorhats-keyword-embroidery");
+  const disabledKeywordSkill = registry.items.find(item => item.skill_name === "gatorhats-keyword-embroidery" && !item.enabled);
   const filteredSkills = useMemo(() => registry.items.filter(item =>
     [item.display_name, item.skill_name, item.description, item.note].some(value =>
       (value || "").toLowerCase().includes(skillSearch.trim().toLowerCase()),
@@ -250,7 +261,31 @@ export function SkillManagerModal({
             </select>
           </label>)}
         </div>
-        {stage1CompatibleKeys.size === 0 && <p className="rrugc-stage-default-guidance"><SkillIcon name="alert" size={14} /> Stage 1 needs an enabled keyword-artwork Skill. Find and enable GatorHats · Keyword Embroidery below.</p>}
+
+        {stage1CatalogChecked && stage1CatalogError && <p className="rrugc-stage-default-guidance" role="status"><SkillIcon name="alert" size={14} /> Could not check Stage 1 Skill compatibility. Refresh skills to retry.</p>}
+        {stage1CatalogChecked && !stage1CatalogError && stage1CompatibleKeys.size === 0 && <div className="rrugc-stage1-skill-recovery" role="status">
+          <span className="rrugc-stage1-skill-recovery-icon"><SkillIcon name="alert" size={15} /></span>
+          <div>
+            <strong>{archivedKeywordSkill ? "Stage 1 Skill is archived" : "Stage 1 requires a keyword-only Skill"}</strong>
+            <small>{archivedKeywordSkill
+              ? archivedKeywordSkill.display_name + " was archived. Restore it to generate images from Stage 0 keywords."
+              : disabledKeywordSkill ? "The compatible Skill is disabled. Enable it to make Stage 1 ready."
+              : "Install an enabled Skill that supports keyword_artwork without reference images."}</small>
+          </div>
+          {archivedKeywordSkill && <button type="button" className="rrugc-stage1-skill-restore" disabled={Boolean(busyKey) || loading}
+            onClick={() => void mutate("restore:stage1",
+              () => restoreArchivedStage1Skill(archivedKeywordSkill.id),
+              "Skill restored and set as the default for Stage 1.")}>
+            <SkillIcon name="refresh" size={14} />
+            {busyKey === "restore:stage1" ? "Restoring…" : "Restore & set Stage 1"}
+          </button>}
+          {!archivedKeywordSkill && disabledKeywordSkill && <button type="button" className="rrugc-stage1-skill-restore" disabled={Boolean(busyKey) || loading}
+            onClick={() => void mutate("enabled:" + disabledKeywordSkill.id,
+              () => setStage2SkillEnabled(disabledKeywordSkill.id, true),
+              "Skill enabled. You can now choose it as Stage 1 default.")}>
+            <SkillIcon name="power" size={14} />Enable Skill
+          </button>}
+        </div>}
       </div>}
 
       <div className="rrugc-skill-catalog-toolbar">

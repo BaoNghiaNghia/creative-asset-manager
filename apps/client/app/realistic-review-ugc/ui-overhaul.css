@@ -2037,3 +2037,14 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-output-version-dialog .rrugc-version-grid{grid-auto-columns:minmax(190px,78vw);gap:9px;padding:10px 12px}
   .rrugc-output-version-dialog .rrugc-version-grid article>a.rrugc-version-image-link{height:260px}
 }
+
+/* Recover intentionally archived keyword-only skills through audited admin flow. */
+.rrugc-stage1-skill-recovery{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 11px;border:1px solid #f0d9b2;border-radius:9px;background:#fffaf1}
+.rrugc-stage1-skill-recovery-icon{display:grid;place-items:center;flex:none;width:26px;height:26px;border-radius:8px;background:#fff0d8;color:#a97531}
+.rrugc-stage1-skill-recovery>div{display:grid;gap:3px;flex:1;min-width:180px}
+.rrugc-stage1-skill-recovery strong{font-size:10px;color:#80582d}
+.rrugc-stage1-skill-recovery small{font-size:9px;line-height:1.4;color:#93734c}
+.rrugc-stage1-skill-restore{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;padding:5px 10px;border:1px solid #d6b47a;border-radius:8px;background:#fff;color:#936327;font-size:10px;font-weight:800;cursor:pointer}
+.rrugc-stage1-skill-restore:hover:not(:disabled){background:#fff0d5}
+.rrugc-stage1-skill-restore:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:600px){.rrugc-stage1-skill-restore{width:100%}}

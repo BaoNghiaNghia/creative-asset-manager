@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillManagerModal } from "./SkillManagerModal";
+import { listStage2SkillRegistry, restoreArchivedStage1Skill } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -34,7 +35,7 @@ vi.mock("./api", () => ({
   })),
   createStage2Skill: vi.fn(), createStage2SkillVersion: vi.fn(), deleteStage2Skill: vi.fn(),
   deleteStage2SkillVersion: vi.fn(), setStage2SkillDefaultVersion: vi.fn(),
-  setStage2SkillEnabled: vi.fn(), updateStage2SkillNote: vi.fn(), updateStageSkillDefault: vi.fn(),
+  setStage2SkillEnabled: vi.fn(), restoreArchivedStage1Skill: vi.fn(async () => ({})), updateStage2SkillNote: vi.fn(), updateStageSkillDefault: vi.fn(),
   syncStage2SkillRegistry: vi.fn(),
 }));
 
@@ -51,7 +52,7 @@ describe("SkillManagerModal compact redesign", () => {
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
     expect(host.querySelector(".rrugc-skill-details")).toBeNull();
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");
-    expect(host.textContent).toContain("Stage 1 needs an enabled keyword-artwork Skill");
+    expect(host.textContent).toContain("Stage 1 requires a keyword-only Skill");
     expect(host.querySelector('select[aria-label="Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(1);
     expect(host.querySelector('select[aria-label="Stage 2 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector(".rrugc-skill-upload")).toBeNull();
@@ -75,6 +76,35 @@ describe("SkillManagerModal compact redesign", () => {
     expect(search.value).toBe("scale");
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(1);
     expect(host.querySelector(".rrugc-skill-card")?.textContent).toContain("Scale Image 8869");
+    await act(async () => root.unmount());
+  });
+});
+describe("Archived Stage 1 skill recovery", () => {
+  it("offers an explicit authenticated restore action rather than instructing users to enable a hidden skill", async () => {
+    vi.mocked(listStage2SkillRegistry).mockResolvedValueOnce({
+      can_manage: true,
+      stage_defaults: {},
+      items: [],
+      archived_items: [{
+        id: "archived-keyword", source: "local", skill_id: null,
+        skill_name: "gatorhats-keyword-embroidery",
+        display_name: "GatorHats · Keyword Embroidery", description: "Keyword-only Skill",
+        note: "", workflow: "image_studio", enabled: false,
+        default_version: null, latest_version: null, synced_version: null,
+        sync_state: "ready", validation_status: "valid", bundle_sha256: null,
+        last_error: null, versions: [], created_at: "", updated_at: "",
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.textContent).toContain("Stage 1 Skill is archived");
+    const restore = [...host.querySelectorAll("button")].find(button => button.textContent?.includes("Restore & set Stage 1"));
+    expect(restore?.disabled).toBe(false);
+    await act(async () => { restore?.click(); await Promise.resolve(); await Promise.resolve(); });
+    expect(restoreArchivedStage1Skill).toHaveBeenCalledWith("archived-keyword");
     await act(async () => root.unmount());
   });
 });

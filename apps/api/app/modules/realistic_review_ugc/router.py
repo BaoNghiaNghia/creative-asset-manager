@@ -63,6 +63,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcScoutMetricCycleModel,
     RrugcStage2JobModel,
     RrugcKeywordImageJobModel,
+    RrugcStage2SkillRegistryModel,
     RrugcStage3AnalysisModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
@@ -313,6 +314,7 @@ from app.modules.realistic_review_ugc.skill_registry import (
     ensure_skill_registry,
     get_registry_row_by_skill_id,
     registry_payload,
+    restore_keyword_skill,
     set_skill_default,
     set_skill_enabled,
     set_skill_note,
@@ -4657,6 +4659,16 @@ def list_stage2_skill_registry(
             Stage2SkillRegistryItemResponse(**registry_payload(session, row))
             for row in rows
         ],
+        archived_items=[
+            Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+            for row in session.scalars(
+                select(RrugcStage2SkillRegistryModel).where(
+                    RrugcStage2SkillRegistryModel.tenant_id == principal.active_tenant_id,
+                    RrugcStage2SkillRegistryModel.source == "local",
+                    RrugcStage2SkillRegistryModel.deleted_at.is_not(None),
+                )
+            ).all()
+        ] if _can_manage_stage2_skills(principal) else [],
     )
 
 
@@ -4830,6 +4842,29 @@ async def create_stage2_skill(
             tenant_id=principal.active_tenant_id,
             actor_id=principal.user_id,
             bundle_bytes=bundle,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.post(
+    "/stage2-skills/registry/{registry_id}/restore-stage1",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+def restore_stage1_keyword_skill(
+    registry_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    try:
+        row = restore_keyword_skill(
+            session, tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id, registry_id=registry_id,
         )
     except Stage2SkillRegistryError as exc:
         raise HTTPException(

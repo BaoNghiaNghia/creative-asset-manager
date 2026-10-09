@@ -526,6 +526,12 @@ export const listStage2SkillRegistry = (refresh = false, signal?: AbortSignal) =
     { signal },
   );
 
+export const restoreArchivedStage1Skill = (registryId: string) =>
+  request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/" + encodeURIComponent(registryId) + "/restore-stage1",
+    { method: "POST" },
+  );
+
 export const updateStage2SkillNote = (registryId: string, note: string) =>
   request<Stage2SkillRegistryItem>(
     "/api/v1/realistic-review-ugc/stage2-skills/registry/" + encodeURIComponent(registryId) + "/note",

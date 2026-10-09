@@ -404,6 +404,7 @@ export type Stage2SkillRegistry = {
   stage_defaults?: Record<string, string>;
   can_manage: boolean;
   items: Stage2SkillRegistryItem[];
+  archived_items?: Stage2SkillRegistryItem[];
 };
 
 export type Stage2Job = {
