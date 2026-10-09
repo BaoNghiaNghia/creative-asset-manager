@@ -813,6 +813,7 @@ class Stage2SkillResponse(BaseModel):
     local_version: str | None = None
     synced_version: str | None = None
     ready: bool
+    keyword_artwork_ready: bool = False
     sync_state: Literal["ready", "not_synced", "update_available", "local_conflict"]
     version_options: list[str] = Field(default_factory=list)
 

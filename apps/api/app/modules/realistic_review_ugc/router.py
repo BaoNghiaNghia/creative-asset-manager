@@ -319,7 +319,7 @@ from app.modules.realistic_review_ugc.skill_registry import (
     sync_skill,
 )
 from app.modules.realistic_review_ugc.stage_skill_settings import (
-    stage_skill_defaults, set_stage_skill_default,
+    stage_skill_defaults, set_stage_skill_default, keyword_skill_compatible,
 )
 from app.modules.realistic_review_ugc.output_versions import output_versions
 from app.modules.realistic_review_ugc.source_plans import (
@@ -989,6 +989,7 @@ def _stage2_skill(item: Stage2SkillItem) -> Stage2SkillResponse:
         local_version=item.local_version,
         synced_version=item.synced_version,
         ready=item.ready,
+        keyword_artwork_ready=item.ready and keyword_skill_compatible(item.skill_name),
         sync_state=item.sync_state,
         version_options=list(item.version_options),
     )

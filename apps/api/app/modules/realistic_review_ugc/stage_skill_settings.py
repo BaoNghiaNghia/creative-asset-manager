@@ -6,15 +6,29 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.modules.realistic_review_ugc.model import RrugcStageSkillDefaultModel, RrugcStage2SkillRegistryModel
 from app.modules.realistic_review_ugc.skill_registry import (
     Stage2SkillRegistryError, _audit, get_registry_row,
 )
 from app.modules.realistic_review_ugc.stage2_skills import list_stage2_skill_catalog
-from app.providers.ai.codex_image import load_codex_skill_manifest
+from app.providers.ai.codex_image import CodexImageProviderError, load_codex_skill_manifest
 
 STAGES = ("stage1", "stage2", "stage4")
+
+
+def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = None) -> bool:
+    """Check actual installed manifest, not just Stage 2 'ready' status."""
+    settings = settings or get_settings()
+    try:
+        manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, skill_name)
+    except CodexImageProviderError:
+        return False
+    return bool(
+        manifest is not None
+        and "keyword_artwork" in manifest.workflows
+        and not manifest.required_reference_roles
+    )
 
 
 def stage_skill_defaults(session: Session, *, tenant_id: str) -> dict[str, str]:
@@ -30,7 +44,11 @@ def stage_skill_defaults(session: Session, *, tenant_id: str) -> dict[str, str]:
                RrugcStage2SkillRegistryModel.deleted_at.is_(None),
                RrugcStage2SkillRegistryModel.validation_status == "valid")
     )
-    return {stage: f"{skill.source}:{skill.skill_id or skill.skill_name}" for stage, skill in rows}
+    return {
+        stage: f"{skill.source}:{skill.skill_id or skill.skill_name}"
+        for stage, skill in rows
+        if stage != "stage1" or keyword_skill_compatible(skill.skill_name)
+    }
 
 
 def set_stage_skill_default(
@@ -48,18 +66,19 @@ def set_stage_skill_default(
         if not any(item.source == selected.source and item.skill_name == selected.skill_name and item.ready
                    for item in catalog.items):
             raise Stage2SkillRegistryError("stage_skill_not_ready", "The selected Skill is not ready in the runtime.", status_code=409)
-        manifest = load_codex_skill_manifest(get_settings().CODEX_IMAGE_HOME, selected.skill_name)
         if stage == "stage1":
-            if manifest is None or "keyword_artwork" not in manifest.workflows or manifest.required_reference_roles:
+            if not keyword_skill_compatible(selected.skill_name):
                 raise Stage2SkillRegistryError(
                     "stage_skill_requires_references",
                     "Stage 1 requires a keyword-artwork Skill with no reference images.", status_code=422,
                 )
-        elif manifest is None or "image_studio" not in manifest.workflows:
-            raise Stage2SkillRegistryError(
-                "stage_skill_workflow_incompatible",
-                "Stages 2 and 4 require an installed image_studio Skill.", status_code=422,
-            )
+        else:
+            manifest = load_codex_skill_manifest(get_settings().CODEX_IMAGE_HOME, selected.skill_name)
+            if manifest is None or "image_studio" not in manifest.workflows:
+                raise Stage2SkillRegistryError(
+                    "stage_skill_workflow_incompatible",
+                    "Stages 2 and 4 require an installed image_studio Skill.", status_code=422,
+                )
     row = session.get(RrugcStageSkillDefaultModel, (tenant_id, stage))
     if row is None:
         row = RrugcStageSkillDefaultModel(tenant_id=tenant_id, stage=stage)

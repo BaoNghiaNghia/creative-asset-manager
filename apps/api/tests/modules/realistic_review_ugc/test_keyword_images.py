@@ -105,6 +105,29 @@ def test_completed_job_remains_untouched_by_manual_retry(db):
     assert db.get(RrugcKeywordImageJobModel, row.id).output_remote_file_id == "output-safe"
 
 
+def test_stage1_skill_compatibility_requires_keyword_workflow_without_references(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.modules.realistic_review_ugc import stage_skill_settings
+
+    manifests = {
+        "keyword": SimpleNamespace(workflows=("image_studio", "keyword_artwork"), required_reference_roles=()),
+        "redesign": SimpleNamespace(workflows=("image_studio",), required_reference_roles=()),
+        "requires-source": SimpleNamespace(
+            workflows=("keyword_artwork",), required_reference_roles=("edit_target",),
+        ),
+    }
+    monkeypatch.setattr(
+        stage_skill_settings, "load_codex_skill_manifest",
+        lambda _home, name: manifests.get(name),
+    )
+    fake_settings = SimpleNamespace(CODEX_IMAGE_HOME="/unused")
+    assert stage_skill_settings.keyword_skill_compatible("keyword", settings=fake_settings)
+    assert not stage_skill_settings.keyword_skill_compatible("redesign", settings=fake_settings)
+    assert not stage_skill_settings.keyword_skill_compatible("requires-source", settings=fake_settings)
+    assert not stage_skill_settings.keyword_skill_compatible("missing", settings=fake_settings)
+
+
 def test_stage1_ships_dedicated_zero_reference_keyword_skill():
     from pathlib import Path
     import json

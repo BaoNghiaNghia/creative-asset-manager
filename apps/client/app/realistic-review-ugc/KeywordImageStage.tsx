@@ -16,6 +16,10 @@ const EMPTY: KeywordImagePage = {
   overview: { not_run: 0, queued: 0, running: 0, completed: 0, failed: 0 },
 };
 
+export function isKeywordArtworkSkill(skill: Stage2Skill): boolean {
+  return skill.ready && skill.keyword_artwork_ready;
+}
+
 function skillKey(skill: Pick<Stage2Skill, "source" | "skill_id" | "skill_name">): string {
   return [skill.source, skill.skill_id || skill.skill_name].join(":");
 }
@@ -61,7 +65,7 @@ export function KeywordImageStage({
       .then(value => {
         if (!controller.signal.aborted) {
           setCatalog(value);
-          const preferred = value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && item.ready);
+          const preferred = value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && isKeywordArtworkSkill(item));
           if (preferred) setSelectedSkillKey(skillKey(preferred));
         }
       })
@@ -75,7 +79,7 @@ export function KeywordImageStage({
   // Prefer the no-reference keyword concept workflow; full-set/scale
   // skills require input artwork that Stage 1 deliberately does not send.
   const readySkills = useMemo(() => (catalog?.items || [])
-    .filter(item => item.ready)
+    .filter(item => isKeywordArtworkSkill(item))
     .sort((a, b) => Number(b.skill_name === "gatorhats-keyword-embroidery")
       - Number(a.skill_name === "gatorhats-keyword-embroidery")), [catalog]);
   useEffect(() => {
@@ -149,7 +153,7 @@ export function KeywordImageStage({
 
   const queueAll = async () => {
     if (!selectedSkillInput || bulkRunning) {
-      if (!selectedSkillInput) setError("Select a ready Skill before generating.");
+      if (!selectedSkillInput) setError("Enable a keyword_artwork Skill with no required source images before generating.");
       return;
     }
     const controller = new AbortController();
@@ -221,7 +225,7 @@ export function KeywordImageStage({
     </div>
     {error && <p className="rrugc-keyword-gen-error" role="alert">{error}</p>}
     {message && <p className="rrugc-keyword-gen-message" role="status">{message}</p>}
-    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint">No synced Skill is ready. Upload or sync one through Manage skills to begin generation.</p>}
+    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled Skill supports keyword-only generation (keyword_artwork). Enable GatorHats · Keyword Embroidery in Manage skills, or install a compatible Skill.</p>}
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
         <thead><tr><th>Keyword / Source</th><th>Volume</th><th>Skill</th><th>Status</th><th>Output</th><th>Action</th></tr></thead>

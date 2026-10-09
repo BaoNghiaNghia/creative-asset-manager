@@ -348,6 +348,7 @@ export type Stage2Skill = {
   local_version: string | null;
   synced_version: string | null;
   ready: boolean;
+  keyword_artwork_ready: boolean;
   sync_state: "ready" | "not_synced" | "update_available" | "local_conflict";
   version_options: string[];
 };

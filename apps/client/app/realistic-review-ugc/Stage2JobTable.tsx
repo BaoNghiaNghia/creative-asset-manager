@@ -37,6 +37,7 @@ const FALLBACK_SKILL: Stage2Skill = {
   local_version: null,
   synced_version: null,
   ready: true,
+  keyword_artwork_ready: false,
   sync_state: "ready",
   version_options: [],
 };
