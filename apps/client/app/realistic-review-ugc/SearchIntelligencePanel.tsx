@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { QueryIntelligenceSummary } from "./api";
 
 const LABELS: Record<string, string> = {
@@ -55,4 +56,77 @@ export function SearchIntelligencePanel({
       </div>
     </div>}
   </aside>;
+}
+
+export function SearchIntelligenceModal({
+  open, onClose, summary, loading, error,
+}: {
+  open: boolean;
+  onClose: () => void;
+  summary: QueryIntelligenceSummary | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div className="rrugc-search-intelligence-backdrop" role="presentation"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}>
+      <section className="rrugc-search-intelligence-modal" role="dialog" aria-modal="true"
+        aria-label="Search Intelligence" ref={dialogRef}>
+        <header className="rrugc-search-intelligence-modal-header">
+          <span>STAGE 0 / QUERY INTELLIGENCE</span>
+          <button type="button" ref={closeRef} onClick={onClose} aria-label="Close Search Intelligence">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M5 5 19 19M19 5 5 19" /></svg>
+          </button>
+        </header>
+        <div className="rrugc-search-intelligence-modal-content">
+          <SearchIntelligencePanel summary={summary} loading={loading} error={error} />
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
 }

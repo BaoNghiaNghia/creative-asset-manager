@@ -31,7 +31,7 @@ import {
 import { RrugcWorkflowSettingsModal } from "./RrugcWorkflowSettingsModal";
 import { SkillManagerModal } from "./SkillManagerModal";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
-import { SearchIntelligencePanel } from "./SearchIntelligencePanel";
+import { SearchIntelligenceModal } from "./SearchIntelligencePanel";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
@@ -144,6 +144,7 @@ export function RealisticReviewUgcPage() {
   const [queryIntelligence, setQueryIntelligence] = useState<QueryIntelligenceSummary | null>(null);
   const [intelligenceLoading, setIntelligenceLoading] = useState(true);
   const [intelligenceError, setIntelligenceError] = useState<string | null>(null);
+  const [searchIntelligenceOpen, setSearchIntelligenceOpen] = useState(false);
   const [keywordPageNumber, setKeywordPageNumber] = useState(1);
   const [keywordPageSize, setKeywordPageSize] = useState(20);
   const [keywordQuery, setKeywordQuery] = useState("");
@@ -981,11 +982,6 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage0" ? 0 : -1}
           hidden={activeStage !== "stage0"}
         >
-          <SearchIntelligencePanel
-            summary={queryIntelligence}
-            loading={intelligenceLoading}
-            error={intelligenceError}
-          />
           <KeywordAnalysisTable
             data={keywordPage}
             query={keywordQuery}
@@ -1000,6 +996,7 @@ export function RealisticReviewUgcPage() {
             favoritingIds={keywordFavoritingIds}
             feedbackUpdatingIds={keywordFeedbackIds}
             onFeedbackChange={changeKeywordFeedback}
+            onOpenSearchIntelligence={() => setSearchIntelligenceOpen(true)}
             onSortChange={changeKeywordSort}
             onUsageFilterChange={value => {
               setKeywordLoading(true);
@@ -1045,6 +1042,13 @@ export function RealisticReviewUgcPage() {
             onQueryChange={setKeywordQuery}
           />
         </section>
+        <SearchIntelligenceModal
+          open={searchIntelligenceOpen && activeStage === "stage0"}
+          onClose={() => setSearchIntelligenceOpen(false)}
+          summary={queryIntelligence}
+          loading={intelligenceLoading}
+          error={intelligenceError}
+        />
 
         <section
           id="rrugc-panel-stage1"

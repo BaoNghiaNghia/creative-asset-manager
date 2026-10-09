@@ -1843,3 +1843,34 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-settings-modal-body .rrugc-scout-health-note{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){.rrugc-settings-modal-body *{scroll-behavior:auto}}
+
+/* Stage 0 Search Intelligence: open on demand beside the live-data badge. */
+.rrugc-stage0-header-tools{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
+.rrugc-stage0-intelligence-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:31px;padding:6px 10px;border:1px solid #cedbf0;border-radius:8px;background:#f5f8fe;color:#3c629f;font:inherit;font-size:10px;font-weight:800;white-space:nowrap;cursor:pointer;transition:background .15s,border-color .15s}
+.rrugc-stage0-intelligence-trigger svg{flex:none}
+.rrugc-stage0-intelligence-trigger:hover:not(:disabled){border-color:#a8bfdf;background:#eaf1ff;color:#274c89}
+.rrugc-stage0-intelligence-trigger:focus-visible{outline:2px solid #7999d5;outline-offset:2px}
+.rrugc-stage0-intelligence-trigger:disabled{opacity:.5;cursor:not-allowed}
+.rrugc-search-intelligence-backdrop{position:fixed;inset:0;z-index:1600;display:grid;place-items:center;padding:16px;background:rgba(18,32,54,.53);backdrop-filter:blur(3px)}
+.rrugc-search-intelligence-modal{display:flex;flex-direction:column;box-sizing:border-box;min-width:0;width:min(1040px,calc(100vw - 32px));max-height:min(85dvh,820px);overflow:hidden;border:1px solid #d9e2ef;border-radius:16px;background:#fff;box-shadow:0 24px 75px rgba(16,32,56,.23);color:#30435e}
+.rrugc-search-intelligence-modal *{box-sizing:border-box}
+.rrugc-search-intelligence-modal-header{display:flex;align-items:center;justify-content:space-between;flex:none;gap:12px;padding:12px 16px;border-bottom:1px solid #e7ecf5}
+.rrugc-search-intelligence-modal-header span{color:#6983b5;font-size:9px;font-weight:900;letter-spacing:.1em}
+.rrugc-search-intelligence-modal-header button{display:grid;place-items:center;flex:none;width:31px;height:31px;padding:0;border:1px solid #d6e0ed;border-radius:8px;background:#fff;color:#637790;cursor:pointer}
+.rrugc-search-intelligence-modal-header button:hover{border-color:#aebed4;background:#f4f7fc;color:#304d78}
+.rrugc-search-intelligence-modal-header button:focus-visible{outline:2px solid #7796d2;outline-offset:2px}
+.rrugc-search-intelligence-modal-content{min-width:0;min-height:0;overflow:auto;padding:16px;background:#f7f9fc;overscroll-behavior:contain}
+.rrugc-search-intelligence-modal .rrugc-search-intelligence{margin:0;padding:15px;border-radius:12px;border:1px solid #e0e8f3;box-shadow:none}
+.rrugc-search-intelligence-modal .rrugc-search-intelligence-top strong{font-size:17px;color:#304463}
+.rrugc-search-intelligence-modal .rrugc-search-intelligence-metrics{gap:9px;margin-top:13px}
+.rrugc-search-intelligence-modal .rrugc-search-intelligence-metrics>div{padding:12px;border-color:#e2eaf4}
+.rrugc-search-intelligence-modal .rrugc-search-intelligence-metrics strong{font-size:21px}
+@media(max-width:600px){
+  .rrugc-stage0-header-tools{justify-content:flex-start}
+  .rrugc-search-intelligence-backdrop{padding:8px}
+  .rrugc-search-intelligence-modal{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:12px}
+  .rrugc-search-intelligence-modal-content{padding:10px}
+  .rrugc-search-intelligence-modal .rrugc-search-intelligence{padding:12px}
+  .rrugc-search-intelligence-modal .rrugc-search-intelligence-metrics strong{font-size:18px}
+}
+@media(prefers-reduced-motion:reduce){.rrugc-stage0-intelligence-trigger{transition:none}}
