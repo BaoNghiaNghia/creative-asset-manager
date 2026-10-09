@@ -817,9 +817,9 @@ def test_keyword_fair_share_adapts_to_review_queue_pressure(database):
     healthy = {"active": False, "pending_jobs": 12, "oldest_wait_seconds": 100}
     pressured = {"active": False, "pending_jobs": 188, "oldest_wait_seconds": 4200}
     critical = {"active": True, "pending_jobs": 230, "oldest_wait_seconds": 4200}
-    assert keyword_quote_interval_seconds(healthy) == 12
-    assert keyword_quote_interval_seconds(pressured) == 20
-    assert keyword_quote_interval_seconds(critical) == 60
+    assert keyword_quote_interval_seconds(healthy) == 8
+    assert keyword_quote_interval_seconds(pressured) == 12
+    assert keyword_quote_interval_seconds(critical) == 20
 
     with database() as session:
         # Existing v52 shared rate-limit state is reused, no migration.
@@ -827,9 +827,9 @@ def test_keyword_fair_share_adapts_to_review_queue_pressure(database):
             bind=session.get_bind(), checkfirst=True,
         )
         for tenant, pressure, seconds in (
-            ("tenant-healthy", healthy, 12),
-            ("tenant-pressured", pressured, 20),
-            ("tenant-critical", critical, 60),
+            ("tenant-healthy", healthy, 8),
+            ("tenant-pressured", pressured, 12),
+            ("tenant-critical", critical, 20),
         ):
             admitted = keyword_quote_backlog_gate(
                 session, tenant, pressure=pressure, now=now, reserve=True,
