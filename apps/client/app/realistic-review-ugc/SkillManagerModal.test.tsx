@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillManagerModal } from "./SkillManagerModal";
-import { listStage2SkillRegistry, restoreArchivedStage1Skill } from "./api";
+import { listStage2SkillRegistry, restoreArchivedStage1Skill, uploadLocalKeywordSkillForStage1 } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,7 +35,8 @@ vi.mock("./api", () => ({
   })),
   createStage2Skill: vi.fn(), createStage2SkillVersion: vi.fn(), deleteStage2Skill: vi.fn(),
   deleteStage2SkillVersion: vi.fn(), setStage2SkillDefaultVersion: vi.fn(),
-  setStage2SkillEnabled: vi.fn(), restoreArchivedStage1Skill: vi.fn(async () => ({})), updateStage2SkillNote: vi.fn(), updateStageSkillDefault: vi.fn(),
+  setStage2SkillEnabled: vi.fn(), restoreArchivedStage1Skill: vi.fn(async () => ({})),
+  uploadLocalKeywordSkillForStage1: vi.fn(async () => ({})), updateStage2SkillNote: vi.fn(), updateStageSkillDefault: vi.fn(),
   syncStage2SkillRegistry: vi.fn(),
 }));
 
@@ -105,6 +106,40 @@ describe("Archived Stage 1 skill recovery", () => {
     expect(restore?.disabled).toBe(false);
     await act(async () => { restore?.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(restoreArchivedStage1Skill).toHaveBeenCalledWith("archived-keyword");
+    await act(async () => root.unmount());
+  });
+});
+
+describe("Existing local redesign skill Stage 1 setup", () => {
+  it("uploads the compatible ZIP for the existing local Skill rather than creating a duplicate", async () => {
+    vi.mocked(listStage2SkillRegistry).mockResolvedValueOnce({
+      can_manage: true, stage_defaults: { stage1: "local:gatorhats-keyword-embroidery" },
+      items: [{
+        id: "redesign", source: "local", skill_id: null, skill_name: "redesign-8869-v3",
+        display_name: "Redesign 8869 V3", description: "Ten concepts and one hero",
+        note: "", workflow: "image_studio", enabled: true,
+        default_version: null, latest_version: null, synced_version: null,
+        sync_state: "ready", validation_status: "valid", bundle_sha256: null,
+        last_error: null, versions: [], created_at: "", updated_at: "",
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const details = host.querySelector<HTMLButtonElement>(".rrugc-skill-details-toggle")!;
+    await act(async () => details.click());
+    const input = host.querySelector<HTMLInputElement>(".rrugc-stage1-skill-update input[type=file]")!;
+    expect(input).not.toBeNull();
+    const upload = host.querySelector<HTMLButtonElement>(".rrugc-stage1-skill-update button")!;
+    expect(upload.disabled).toBe(true);
+    const file = new File(["Stage 1-ready content"], "redesign-8869-v3-stage1-ready.zip", { type: "application/zip" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(upload.disabled).toBe(false);
+    await act(async () => { upload.click(); await Promise.resolve(); await Promise.resolve(); });
+    expect(uploadLocalKeywordSkillForStage1).toHaveBeenCalledWith("redesign", file);
     await act(async () => root.unmount());
   });
 });

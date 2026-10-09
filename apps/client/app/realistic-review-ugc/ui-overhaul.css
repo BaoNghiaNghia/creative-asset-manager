@@ -2048,3 +2048,14 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage1-skill-restore:hover:not(:disabled){background:#fff0d5}
 .rrugc-stage1-skill-restore:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:600px){.rrugc-stage1-skill-restore{width:100%}}
+
+/* Existing local keyword concept Skill: explicit ZIP replacement and Stage 1 assignment. */
+.rrugc-stage1-skill-update{display:flex;flex-wrap:wrap;gap:9px;align-items:center;padding:10px;border:1px solid #d5e1f2;border-radius:9px;background:#f5f8ff}
+.rrugc-stage1-skill-update-intro{display:grid;gap:3px;flex-basis:100%;min-width:0}
+.rrugc-stage1-skill-update-intro strong{font-size:11px;color:#415f99}
+.rrugc-stage1-skill-update-intro small{font-size:9px;color:#7083a3;line-height:1.4}
+.rrugc-stage1-skill-update .rrugc-skill-file{flex:1;min-width:155px}
+.rrugc-stage1-skill-update>button{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:32px;padding:7px 10px;border:1px solid #b8c9eb;border-radius:7px;background:#eaf0ff;color:#3c61b3;font-size:10px;font-weight:850;cursor:pointer}
+.rrugc-stage1-skill-update>button:hover:not(:disabled){border-color:#90afe6;background:#e0eaff}
+.rrugc-stage1-skill-update>button:disabled{opacity:.46;cursor:default}
+@media(max-width:540px){.rrugc-stage1-skill-update>button{width:100%}}

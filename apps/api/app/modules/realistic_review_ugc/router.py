@@ -315,6 +315,7 @@ from app.modules.realistic_review_ugc.skill_registry import (
     get_registry_row_by_skill_id,
     registry_payload,
     restore_keyword_skill,
+    update_local_keyword_artwork_skill,
     set_skill_default,
     set_skill_enabled,
     set_skill_note,
@@ -4841,6 +4842,32 @@ async def create_stage2_skill(
             session,
             tenant_id=principal.active_tenant_id,
             actor_id=principal.user_id,
+            bundle_bytes=bundle,
+        )
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Stage2SkillRegistryItemResponse(**registry_payload(session, row))
+
+
+@router.post(
+    "/stage2-skills/registry/{registry_id}/upload-stage1",
+    response_model=Stage2SkillRegistryItemResponse,
+)
+async def upload_local_skill_for_stage1(
+    registry_id: str,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    _require_stage2_skill_admin(principal)
+    bundle = await file.read(50 * 1024 * 1024 + 1)
+    try:
+        row = update_local_keyword_artwork_skill(
+            session, tenant_id=principal.active_tenant_id,
+            actor_id=principal.user_id, registry_id=registry_id,
             bundle_bytes=bundle,
         )
     except Stage2SkillRegistryError as exc:

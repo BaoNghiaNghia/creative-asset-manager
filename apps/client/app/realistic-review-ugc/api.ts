@@ -579,6 +579,16 @@ export const createStage2Skill = (file: File) => {
   );
 };
 
+export const uploadLocalKeywordSkillForStage1 = (registryId: string, file: File) => {
+  const body = new FormData();
+  body.set("file", file);
+  return request<Stage2SkillRegistryItem>(
+    "/api/v1/realistic-review-ugc/stage2-skills/registry/"
+    + encodeURIComponent(registryId) + "/upload-stage1",
+    { method: "POST", body },
+  );
+};
+
 export const createStage2SkillVersion = (
   registryId: string,
   file: File,

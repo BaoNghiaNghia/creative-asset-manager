@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -416,6 +417,112 @@ def create_skill(
             "bundle_sha256": bundle.bundle_sha256,
         },
     )
+    session.commit()
+    return row
+
+
+
+def _count_active_local_skill_jobs(session: Session, *, tenant_id: str, skill_name: str) -> int:
+    active = 0
+    for model in (RrugcStage2JobModel, RrugcKeywordImageJobModel, RrugcColorwayJobModel):
+        active += int(session.scalar(
+            select(func.count()).select_from(model).where(
+                model.tenant_id == tenant_id,
+                model.skill_name == skill_name,
+                model.status.in_(("queued", "running")),
+            )
+        ) or 0)
+    return active
+
+
+def update_local_keyword_artwork_skill(
+    session: Session, *, tenant_id: str, actor_id: str,
+    registry_id: str, bundle_bytes: bytes,
+) -> RrugcStage2SkillRegistryModel:
+    """Replace an existing local skill bundle and assign the Stage 1 default.
+
+    Requires an explicit uploaded bundle with a keyword_artwork manifest. The
+    unchanged stage 2/4 defaults and completed output history remain intact.
+    Existing active jobs block bundle replacement, preventing version drift.
+    """
+    row = get_registry_row(session, tenant_id=tenant_id, registry_id=registry_id)
+    if row.source != "local":
+        raise Stage2SkillRegistryError(
+            "stage_skill_local_bundle_only", "Only local skills can be replaced with a ZIP.",
+            status_code=409,
+        )
+    bundle = inspect_uploaded_stage2_skill_bundle(bundle_bytes)
+    if bundle.skill_name != row.skill_name:
+        raise Stage2SkillRegistryError(
+            "stage_skill_bundle_name_mismatch",
+            "The uploaded ZIP must belong to this existing Skill.",
+            status_code=422,
+        )
+    manifest_bytes = next(
+        (contents for name, contents, _ in bundle.files if name == "manifest.json"),
+        None,
+    )
+    if manifest_bytes is None:
+        raise Stage2SkillRegistryError(
+            "stage_skill_keyword_manifest_required",
+            "Stage 1 requires an explicit keyword_artwork manifest in the ZIP.",
+            status_code=422,
+        )
+    try:
+        manifest = json.loads(manifest_bytes)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise Stage2SkillRegistryError(
+            "stage_skill_manifest_invalid", "Invalid Skill manifest.", status_code=422,
+        ) from exc
+    if (
+        not isinstance(manifest, dict)
+        or "keyword_artwork" not in manifest.get("workflows", [])
+        or "image_studio" not in manifest.get("workflows", [])
+        or manifest.get("required_reference_roles")
+    ):
+        raise Stage2SkillRegistryError(
+            "stage_skill_keyword_incompatible",
+            "Stage 1 needs keyword_artwork and image_studio with zero required image references.",
+            status_code=422,
+        )
+    if _count_active_local_skill_jobs(session, tenant_id=tenant_id, skill_name=row.skill_name):
+        raise Stage2SkillRegistryError(
+            "stage_skill_update_active_jobs",
+            "Wait for active jobs using this Skill to finish before replacing its bundle.",
+            status_code=409,
+        )
+
+    # The installer stages the entire ZIP, verifies the manifest, and atomically
+    # replaces the previous runtime directory (with an on-disk rollback backup).
+    item = install_local_stage2_skill_bundle(bundle, replace=True)
+    row.display_name = item.display_name or row.display_name
+    row.description = item.description or row.description
+    row.default_version = item.default_version
+    row.latest_version = item.latest_version
+    row.synced_version = item.synced_version
+    row.sync_state = item.sync_state
+    row.validation_status = "valid"
+    row.bundle_sha256 = bundle.bundle_sha256
+    row.enabled = True
+    row.updated_by_user_id = actor_id
+    row.updated_at = utcnow()
+    _sync_versions(session, row=row, versions=item.version_options)
+
+    default = session.get(RrugcStageSkillDefaultModel, (tenant_id, "stage1"))
+    if default is None:
+        default = RrugcStageSkillDefaultModel(tenant_id=tenant_id, stage="stage1")
+        session.add(default)
+    default.registry_id = row.id
+    default.updated_by_user_id = actor_id
+    default.updated_at = utcnow()
+    _audit(session, tenant_id=tenant_id, actor_id=actor_id,
+           action="stage2_skill.local_bundle_updated",
+           detail={"registry_id": row.id, "skill_name": row.skill_name,
+                   "stage": "stage1", "bundle_sha256": bundle.bundle_sha256})
+    _audit(session, tenant_id=tenant_id, actor_id=actor_id,
+           action="rrugc.stage_skill.default_updated",
+           detail={"stage": "stage1", "registry_id": row.id,
+                   "skill_name": row.skill_name})
     session.commit()
     return row
 

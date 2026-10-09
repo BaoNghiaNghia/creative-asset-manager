@@ -153,3 +153,12 @@ def test_codex_keyword_prompt_does_not_require_an_input_image():
     assert "Create a new original image" in instruction
     assert "Edit target:" not in instruction
     assert "$keyword-image-skill" in instruction
+
+def test_redesign_keyword_prompt_creates_ten_concept_board():
+    prompt = keyword_prompt("BEACH PLEASE", skill_name="redesign-8869-v3")
+    assert "10 materially distinct" in prompt
+    assert "ONE on-cap" in prompt
+    assert "Valucap 8869" in prompt
+    assert "BEACH PLEASE" in prompt
+    assert "do not generate 13 colorway images" in prompt
+    assert "10 materially distinct" not in keyword_prompt("BEACH PLEASE")

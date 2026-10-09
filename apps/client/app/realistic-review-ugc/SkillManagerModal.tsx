@@ -4,6 +4,7 @@ import {
   createStage2SkillVersion,
   listStage2Skills,
   restoreArchivedStage1Skill,
+  uploadLocalKeywordSkillForStage1,
   deleteStage2Skill,
   deleteStage2SkillVersion,
   listStage2SkillRegistry,
@@ -196,6 +197,20 @@ export function SkillManagerModal({
       "version:" + item.id,
       () => createStage2SkillVersion(item.id, file, Boolean(makeDefault[item.id])),
       "New skill version created.",
+    );
+    setVersionFiles(current => ({ ...current, [item.id]: null }));
+  }
+
+  async function uploadKeywordSkill(item: Stage2SkillRegistryItem) {
+    const file = versionFiles[item.id];
+    if (!file) {
+      setError("Choose the Stage 1-ready Skill ZIP first.");
+      return;
+    }
+    await mutate(
+      "keyword-upload:" + item.id,
+      () => uploadLocalKeywordSkillForStage1(item.id, file),
+      "Redesign Skill updated and assigned to Stage 1. Existing outputs are preserved.",
     );
     setVersionFiles(current => ({ ...current, [item.id]: null }));
   }
@@ -406,6 +421,18 @@ export function SkillManagerModal({
                     </button>
                   </div>}
                 </div>
+                {item.source === "local" && item.skill_name === "redesign-8869-v3" && registry.can_manage && <div className="rrugc-skill-version-upload rrugc-stage1-skill-update">
+                  <div className="rrugc-stage1-skill-update-intro"><strong>Stage 1 · Keyword concepts</strong><small>Replace this local Skill with the Stage 1-ready ZIP. Creates a 10-concept board + 1 matching 8869 hero; keeps old outputs and Stage 2/4 defaults.</small></div>
+                  <label className="rrugc-skill-file is-compact"><SkillIcon name="upload" size={13} /><span>{versionFiles[item.id]?.name || "Choose Stage 1-ready ZIP"}</span>
+                    <input type="file" accept=".zip,application/zip" disabled={Boolean(busyKey)}
+                      onChange={event => setVersionFiles(current => ({ ...current, [item.id]: event.target.files?.[0] || null }))} />
+                  </label>
+                  <button type="button" disabled={!versionFiles[item.id] || Boolean(busyKey)}
+                    onClick={() => void uploadKeywordSkill(item)}>
+                    <SkillIcon name="sparkles" size={13} />
+                    {busyKey === "keyword-upload:" + item.id ? "Installing…" : "Upload & set Stage 1"}
+                  </button>
+                </div>}
                 {hosted && registry.can_manage && <div className="rrugc-skill-version-upload">
                   <label className="rrugc-skill-file is-compact"><SkillIcon name="upload" size={13} /><span>{versionFiles[item.id]?.name || "New version ZIP"}</span>
                     <input type="file" accept=".zip,application/zip" disabled={Boolean(busyKey)}
