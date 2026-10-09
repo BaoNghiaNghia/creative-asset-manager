@@ -502,7 +502,7 @@ class KeywordImageGenerateHandler:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
                 RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
                 RrugcKeywordImageJobModel.id == context.job.entity_id,
-            ))
+            ).with_for_update())
             if job is None:
                 return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
             for index, (stored, size_bytes, width, height, mime_type, name) in enumerate(uploaded):

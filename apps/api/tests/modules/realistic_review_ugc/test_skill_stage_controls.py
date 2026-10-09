@@ -117,7 +117,7 @@ def test_output_versions_preserve_prior_files_and_tenant_boundary():
     engine = _engine()
     try:
         now = datetime.now(timezone.utc)
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             job = SimpleNamespace(id="job-a", output_remote_file_id="old-file",
                                   output_content_type="image/png", output_size_bytes=1024,
                                   output_width=800, output_height=800, completed_at=now)
@@ -168,7 +168,9 @@ def test_stage1_pair_keeps_both_boards_under_one_generation_attempt():
 def test_stage1_keeps_every_generated_image_and_original_filename():
     engine = _engine()
     try:
-        with Session(engine) as session:
+        # Mirror production SessionLocal(autoflush=False). Previously, a batch
+        # of outputs all got version 1 and the final commit raised UniqueViolation.
+        with Session(engine, autoflush=False) as session:
             job = SimpleNamespace(id="many-output-job", output_remote_file_id=None)
             for index in range(37):
                 version = output_versions.save_output_version(

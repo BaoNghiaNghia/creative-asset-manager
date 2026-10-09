@@ -35,6 +35,9 @@ def save_output_version(
             created_at=getattr(job, "completed_at", None) or datetime.now(timezone.utc),
         )
         session.add(legacy)
+        # Production sessions can disable autoflush. Persist the legacy row
+        # before computing the next version so it is visible to the query.
+        session.flush()
         last = legacy
     if (last is not None and processing_job_id is not None and not allow_multiple_per_attempt
             and last.processing_job_id == processing_job_id):
@@ -48,6 +51,10 @@ def save_output_version(
         size_bytes=size_bytes, width=width, height=height,
         created_at=datetime.now(timezone.utc),
     ))
+    # Do not depend on Session.autoflush. Without this flush every image in
+    # one Stage 1 generation reads the same max(version) and tries to insert
+    # version=1, rolling back ALL of the remote images already uploaded.
+    session.flush()
     return version
 
 

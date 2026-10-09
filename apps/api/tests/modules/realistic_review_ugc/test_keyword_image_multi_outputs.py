@@ -53,7 +53,7 @@ def test_stage1_persists_all_37_image_files_and_their_names(tmp_path):
     storage = Storage()
     context = SimpleNamespace(
         job=SimpleNamespace(tenant_id="tenant-a", entity_id="image-job-1", id="attempt-1"),
-        dependencies=SimpleNamespace(session_factory=lambda: Session(engine)),
+        dependencies=SimpleNamespace(session_factory=lambda: Session(engine, autoflush=False)),
         logger=logging.getLogger(__name__),
     )
     result = asyncio.run(KeywordImageGenerateHandler()._save_skill_outputs(
