@@ -101,9 +101,9 @@ def test_stage_defaults_independent_and_tenant_scoped(monkeypatch):
             with pytest.raises(stage2_skills.Stage2SkillRegistryError):
                 stage_skill_settings.set_stage_skill_default(
                     session, tenant_id="tenant-a", actor_id="admin", stage="stage3", registry_id=a.id)
-            with pytest.raises(stage2_skills.Stage2SkillRegistryError, match="keyword-artwork"):
-                stage_skill_settings.set_stage_skill_default(
-                    session, tenant_id="tenant-a", actor_id="admin", stage="stage1", registry_id=a.id)
+            stage_skill_settings.set_stage_skill_default(
+                session, tenant_id="tenant-a", actor_id="admin", stage="stage1", registry_id=a.id)
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["stage1"] == "local:colors"
             skill_registry.set_skill_enabled(session, tenant_id="tenant-a", actor_id="admin",
                                              registry_id=a.id, enabled=False)
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a") == {

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeywordImageStage } from "./KeywordImageStage";
-import { createManualKeywordImage, getKeywordImageJobStatus } from "./api";
+import { createManualKeywordImage, getKeywordImageJobStatus, listStage2Skills } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -37,6 +37,31 @@ vi.mock("./api", async importOriginal => ({
 afterEach(() => document.body.replaceChildren());
 
 describe("Stage 1 manual keyword generation", () => {
+  it("honors an explicitly selected Stage 1 default over legacy hardcoded names", async () => {
+    vi.mocked(listStage2Skills).mockResolvedValueOnce({
+      stage_defaults: { stage1: "local:hanh-redesign-8869-ver-3" },
+      items: [
+        { source: "local", skill_id: null, skill_name: "redesign-8869-v3",
+          display_name: "Legacy redesign", ready: true, keyword_artwork_ready: true,
+          default_version: null, synced_version: null, local_version: null,
+          version_options: [], sync_state: "ready" },
+        { source: "local", skill_id: null, skill_name: "hanh-redesign-8869-ver-3",
+          display_name: "Hanh redesign", ready: true, keyword_artwork_ready: true,
+          default_version: null, synced_version: null, local_version: null,
+          version_options: [], sync_state: "ready" },
+      ],
+    } as never);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Keyword generation Skill"]')!;
+    expect(select.value).toBe("local:hanh-redesign-8869-ver-3");
+    await act(async () => root.unmount());
+  });
+
+
   it("queues typed keywords using Redesign V3 and shows the final saved image", async () => {
     const host = document.createElement("div");
     document.body.append(host);

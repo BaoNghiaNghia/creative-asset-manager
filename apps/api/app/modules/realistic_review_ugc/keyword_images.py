@@ -133,10 +133,12 @@ class KeywordImageService:
                 skill_id=skill.skill_id, skill_name=skill.skill_name,
             )
             manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, skill.skill_name)
-            if manifest is None or "keyword_artwork" not in manifest.workflows or manifest.required_reference_roles:
+            # The Stage 1 runner supplies a keyword prompt and zero image files;
+            # any installed image-generation Skill can decide how to use that input.
+            if manifest is None or not ({"image_studio", "keyword_artwork"} & set(manifest.workflows)):
                 raise KeywordImageError(
-                    "keyword_image_skill_requires_references",
-                    "Stage 1 requires a Skill that can generate from keyword text without source images.",
+                    "keyword_image_skill_unavailable",
+                    "Stage 1 needs an installed image-generation Skill.",
                     422,
                 )
         except Stage2SkillRegistryError as exc:

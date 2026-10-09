@@ -18,7 +18,11 @@ STAGES = ("stage1", "stage2", "stage4")
 
 
 def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = None) -> bool:
-    """Check actual installed manifest, not just Stage 2 'ready' status."""
+    """Accept any installed image-generation Skill; no special Stage 1 label is required.
+
+    Stage 1 sends keyword text without source images. A Skill may use bundled
+    assets or generate from text even when its manifest lists reference roles.
+    """
     settings = settings or get_settings()
     try:
         manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, skill_name)
@@ -26,8 +30,7 @@ def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = Non
         return False
     return bool(
         manifest is not None
-        and "keyword_artwork" in manifest.workflows
-        and not manifest.required_reference_roles
+        and ("image_studio" in manifest.workflows or "keyword_artwork" in manifest.workflows)
     )
 
 
@@ -70,7 +73,7 @@ def set_stage_skill_default(
             if not keyword_skill_compatible(selected.skill_name):
                 raise Stage2SkillRegistryError(
                     "stage_skill_requires_references",
-                    "Stage 1 requires a keyword-artwork Skill with no reference images.", status_code=422,
+                    "Stage 1 requires an installed image-generation Skill.", status_code=422,
                 )
         else:
             manifest = load_codex_skill_manifest(get_settings().CODEX_IMAGE_HOME, selected.skill_name)

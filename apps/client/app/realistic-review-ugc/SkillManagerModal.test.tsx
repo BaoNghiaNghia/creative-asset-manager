@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillManagerModal } from "./SkillManagerModal";
-import { RrugcApiError, createStage2Skill, listStage2SkillRegistry, restoreArchivedStage1Skill, uploadLocalKeywordSkillForStage1 } from "./api";
+import { RrugcApiError, createStage2Skill, listStage2SkillRegistry, restoreArchivedStage1Skill, uploadLocalKeywordSkillForStage1, updateStageSkillDefault } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -56,8 +56,8 @@ describe("SkillManagerModal compact redesign", () => {
     expect(host.querySelector('button[aria-label="Delete skill GatorHats · Keyword Embroidery"]')).not.toBeNull();
     expect(host.querySelector(".rrugc-skill-details")).toBeNull();
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");
-    expect(host.textContent).toContain("Stage 1 requires a keyword-only Skill");
-    expect(host.querySelector('select[aria-label="Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(1);
+    expect(host.textContent).not.toContain("Stage 1 Skill is archived");
+    expect(host.querySelector('select[aria-label="Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector('select[aria-label="Stage 2 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector(".rrugc-skill-upload")).toBeNull();
 
@@ -143,6 +143,41 @@ describe("Existing local redesign skill Stage 1 setup", () => {
     expect(upload.disabled).toBe(false);
     await act(async () => { upload.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(uploadLocalKeywordSkillForStage1).toHaveBeenCalledWith("redesign", file);
+    await act(async () => root.unmount());
+  });
+});
+
+describe("Stage 1 shared Skill defaults", () => {
+  it("offers hanh-redesign-8869-ver-3 and saves it as the Stage 1 default", async () => {
+    vi.mocked(listStage2SkillRegistry).mockResolvedValueOnce({
+      can_manage: true,
+      stage_defaults: {},
+      items: [{
+        id: "hanh", source: "local", skill_id: null,
+        skill_name: "hanh-redesign-8869-ver-3",
+        display_name: "hanh-redesign-8869-ver-3", description: "Generate hat concepts",
+        note: "", workflow: "image_studio", enabled: true,
+        default_version: null, latest_version: null, synced_version: null,
+        sync_state: "ready", validation_status: "valid", bundle_sha256: null,
+        last_error: null, versions: [], created_at: "", updated_at: "",
+      }],
+    });
+    vi.mocked(updateStageSkillDefault).mockResolvedValueOnce({ stage_defaults: {
+      stage1: "local:hanh-redesign-8869-ver-3",
+    } } as never);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Stage 1 default skill"]')!;
+    expect([...select.options].map(option => option.textContent)).toContain("hanh-redesign-8869-ver-3");
+    await act(async () => {
+      select.value = "hanh";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(updateStageSkillDefault).toHaveBeenCalledWith("stage1", "hanh");
     await act(async () => root.unmount());
   });
 });

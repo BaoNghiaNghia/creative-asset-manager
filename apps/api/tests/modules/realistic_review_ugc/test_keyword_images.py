@@ -105,7 +105,7 @@ def test_completed_job_remains_untouched_by_manual_retry(db):
     assert db.get(RrugcKeywordImageJobModel, row.id).output_remote_file_id == "output-safe"
 
 
-def test_stage1_skill_compatibility_requires_keyword_workflow_without_references(monkeypatch):
+def test_stage1_skill_compatibility_accepts_installed_image_studio_workflows(monkeypatch):
     from types import SimpleNamespace
 
     from app.modules.realistic_review_ugc import stage_skill_settings
@@ -123,8 +123,8 @@ def test_stage1_skill_compatibility_requires_keyword_workflow_without_references
     )
     fake_settings = SimpleNamespace(CODEX_IMAGE_HOME="/unused")
     assert stage_skill_settings.keyword_skill_compatible("keyword", settings=fake_settings)
-    assert not stage_skill_settings.keyword_skill_compatible("redesign", settings=fake_settings)
-    assert not stage_skill_settings.keyword_skill_compatible("requires-source", settings=fake_settings)
+    assert stage_skill_settings.keyword_skill_compatible("redesign", settings=fake_settings)
+    assert stage_skill_settings.keyword_skill_compatible("requires-source", settings=fake_settings)
     assert not stage_skill_settings.keyword_skill_compatible("missing", settings=fake_settings)
 
 

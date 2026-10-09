@@ -127,8 +127,8 @@ export function KeywordImageStage({
       .then(value => {
         if (!controller.signal.aborted) {
           setCatalog(value);
-          const preferred = value.items.find(item => item.skill_name === "redesign-8869-v3" && isKeywordArtworkSkill(item))
-            || value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && isKeywordArtworkSkill(item));
+          const preferred = value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && isKeywordArtworkSkill(item))
+            || value.items.find(item => isKeywordArtworkSkill(item));
           if (preferred) setSelectedSkillKey(skillKey(preferred));
         }
       })
@@ -139,12 +139,10 @@ export function KeywordImageStage({
     return () => controller.abort();
   }, [active, skillCatalogRevision]);
 
-  // Prefer the no-reference keyword concept workflow; full-set/scale
-  // skills require input artwork that Stage 1 deliberately does not send.
+  // Respect the stage default; any ready image-generation Skill can receive
+  // Stage 1's keyword-only prompt, including skills with bundled references.
   const readySkills = useMemo(() => (catalog?.items || [])
-    .filter(item => isKeywordArtworkSkill(item))
-    .sort((a, b) => Number(b.skill_name === "redesign-8869-v3")
-      - Number(a.skill_name === "redesign-8869-v3")), [catalog]);
+    .filter(item => isKeywordArtworkSkill(item)), [catalog]);
   useEffect(() => {
     if (readySkills.length === 0) return;
     if (!readySkills.some(item => skillKey(item) === selectedSkillKey)) {
@@ -232,7 +230,7 @@ export function KeywordImageStage({
 
   const queueAll = async () => {
     if (!selectedSkillInput || bulkRunning) {
-      if (!selectedSkillInput) setError("Enable a keyword_artwork Skill with no required source images before generating.");
+      if (!selectedSkillInput) setError("Choose an enabled image-generation Skill before generating.");
       return;
     }
     const controller = new AbortController();
@@ -355,7 +353,7 @@ export function KeywordImageStage({
     </div>
     {error && <p className="rrugc-keyword-gen-error" role="alert">{error}</p>}
     {message && <p className="rrugc-keyword-gen-message" role="status">{message}</p>}
-    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled Skill supports keyword-only generation. Install the Redesign 8869 V3 Stage 1 ZIP in Manage Skills.</p>}
+    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
         <thead><tr><th>Keyword / Source</th><th>Volume</th><th>Skill</th><th>Status</th><th>Output &amp; actions</th></tr></thead>

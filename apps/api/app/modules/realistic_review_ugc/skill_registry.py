@@ -1029,7 +1029,7 @@ def restore_keyword_skill(
     if not keyword_skill_compatible(row.skill_name):
         raise Stage2SkillRegistryError(
             "stage_skill_restore_incompatible",
-            "This skill cannot generate Stage 1 keyword artwork without source images.",
+            "This skill has no installed image-generation workflow.",
             status_code=422,
         )
     row.deleted_at = None
