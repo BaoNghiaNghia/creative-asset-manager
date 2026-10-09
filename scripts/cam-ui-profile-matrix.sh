@@ -19,7 +19,7 @@ if [[ "${CAM_UI_VISUAL_UPDATE:-0}" == "1" ]]; then
   die "Direct baseline update is disabled. Use the governed proposal/acceptance workflow per profile."
 fi
 
-if [[ "${CAM_UI_QA_BROWSER_PREINSTALLED:-0}" == "1" ]] && [[ "${CAM_UI_QA_BROWSER:-chrome}" == "chromium" || "${CAM_UI_QA_BROWSER:-chrome}" == "webkit" ]]; then
+if [[ "${CAM_UI_QA_BROWSER_PREINSTALLED:-0}" == "1" ]] && [[ "${CAM_UI_QA_BROWSER:-chrome}" == "chromium" || "${CAM_UI_QA_BROWSER:-chrome}" == "webkit" || "${CAM_UI_QA_BROWSER:-chrome}" == "firefox" ]]; then
   note "Using the locked preinstalled Playwright ${CAM_UI_QA_BROWSER} browser (CI)"
 else
   bash "$ROOT/scripts/cam-install-ui-browser.sh"

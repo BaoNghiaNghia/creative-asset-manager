@@ -1,4 +1,4 @@
-import { chromium, webkit } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
 import pixelmatch from "pixelmatch";
@@ -471,13 +471,17 @@ const launchArgs = typeof process.getuid === "function" && process.getuid() === 
   ? ["--no-sandbox", "--disable-setuid-sandbox"]
   : [];
 
-const browserEngine = process.env.CAM_UI_QA_BROWSER === "webkit" ? webkit : chromium;
+const browserChoice = process.env.CAM_UI_QA_BROWSER || "chrome";
+if (!["chrome", "chromium", "firefox", "webkit"].includes(browserChoice)) {
+  throw new Error(`Unknown Browser QA engine "${browserChoice}".`);
+}
+const browserEngine = browserChoice === "webkit" ? webkit : browserChoice === "firefox" ? firefox : chromium;
 const browser = await browserEngine.launch(
-  browserEngine === webkit
+  browserEngine !== chromium
     ? { headless: true }
     : {
         // CI uses the locked Chromium build; VPS keeps system Chrome.
-        channel: process.env.CAM_UI_QA_BROWSER === "chromium" ? undefined : "chrome",
+        channel: browserChoice === "chromium" ? undefined : "chrome",
         headless: true,
         chromiumSandbox: false,
         args: launchArgs,
@@ -487,6 +491,7 @@ const browser = await browserEngine.launch(
 const report = {
   url,
   runId,
+  browser: { engine: browserChoice, version: browser.version() },
   strict: hasFlag("--strict"),
   mode: qaMode,
   states: captureSteps.map((step) => sanitize(step.name || "state")),

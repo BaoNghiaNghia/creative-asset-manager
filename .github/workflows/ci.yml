@@ -91,6 +91,8 @@ jobs:
           CAM_UI_VISUAL_SKIP: "1"
           CAM_UI_QA_PROFILES: "explorer-viewer,review-board,realistic-review-ugc,ai-operations,inventory,access-management,video-generation,job-queue,public-review"
         run: bash scripts/cam-ui-profile-matrix.sh
+      - name: Prepare UGC visual baseline review packet
+        run: node apps/client/scripts/ui-qa-visual-review.mjs --profile realistic-review-ugc --latest
       - name: Upload Browser QA evidence
         if: always()
         uses: actions/upload-artifact@v4

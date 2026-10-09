@@ -67,10 +67,21 @@ Playwright Chromium browser, three viewport sizes and fail-closed API fixtures.
 It uploads evidence after success/failure. The separate visual coverage audit
 runs as an informational report until baseline proposals are accepted.
 
-The `ui-cross-browser.yml` workflow runs fixture-backed WebKit at
-the mobile viewport on a weekly schedule and via manual dispatch. This is
-a Safari-family rendering engine check on Linux, **not** proof of full iOS
-Safari or touch-device compatibility.
+The `ui-cross-browser.yml` workflow runs fixture-backed **Firefox and WebKit**
+at the mobile viewport on a weekly schedule and via manual dispatch. Firefox
+was verified locally against Explorer, UGC and Public Review. WebKit runs
+in GitHub Actions; a committed workflow is not proof that the remote run passed.
+WebKit on Linux is a Safari-family rendering-engine check, **not** proof of
+full iOS Safari or touch-device compatibility.
+
+Each Chromium/Firefox/WebKit CI run now emits an HTML + JSON visual review packet
+for the most recent UGC QA run, alongside its screenshots in the Browser QA
+artifact. The packet compares approved screenshots with fixture captures and
+marks the four currently unapproved Stage 1/2/4/5 states. It never edits
+tracked baselines or approves changes. Create one locally with:
+`node apps/client/scripts/ui-qa-visual-review.mjs --profile realistic-review-ugc --latest`.
+This report is distinct from a governed proposal; acceptance still requires
+explicit approval and the normal baseline governance checks.
 
 Both jobs are independent of Production and need no session credentials.
 Browser QA does not replace unit tests, authenticated Production smoke,

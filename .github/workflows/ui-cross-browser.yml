@@ -9,8 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  mobile-webkit:
-    name: Mobile WebKit fixture smoke
+  mobile-engines:
+    name: Mobile ${{ matrix.engine }} fixture smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [firefox, webkit]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -23,25 +27,27 @@ jobs:
       - name: Install locked frontend dependencies
         working-directory: apps/client
         run: npm ci
-      - name: Install Playwright WebKit runtime
+      - name: Install Playwright browser runtime
         working-directory: apps/client
-        run: npx playwright install --with-deps webkit
+        run: npx playwright install --with-deps ${{ matrix.engine }}
       - name: Build UI
         working-directory: apps/client
         run: npm run build
-      - name: Test mobile WebKit against deterministic fixtures
+      - name: Test mobile engine against deterministic fixtures
         env:
-          CAM_UI_QA_BROWSER: webkit
+          CAM_UI_QA_BROWSER: ${{ matrix.engine }}
           CAM_UI_QA_BROWSER_PREINSTALLED: "1"
           CAM_UI_VIEWPORTS: mobile
           CAM_UI_VISUAL_SKIP: "1"
           CAM_UI_QA_PROFILES: "explorer-viewer,realistic-review-ugc,public-review"
         run: bash scripts/cam-ui-profile-matrix.sh
-      - name: Upload WebKit QA evidence
+      - name: Prepare UGC visual baseline review packet
+        run: node apps/client/scripts/ui-qa-visual-review.mjs --profile realistic-review-ugc --latest
+      - name: Upload cross-browser QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-webkit-qa
+          name: mobile-${{ matrix.engine }}-qa
           path: apps/client/.ui-qa/
           if-no-files-found: ignore
           retention-days: 7
