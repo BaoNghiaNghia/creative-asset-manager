@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createKeywordImage, createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, retryKeywordImage, regenerateKeywordImage } from "./api";
+import { createKeywordImage, createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
@@ -45,13 +45,11 @@ export function KeywordImageRowControls({
   onLogs: () => void;
 }) {
   const regenerate = row.status === "completed";
-  const retry = row.status === "failed";
   const generate = row.status === "not_run";
-  const runnable = regenerate || retry || generate;
-  const capped = retry && row.retry_count >= 3;
-  const runLabel = regenerate ? "Regenerate" : retry ? "Retry" : "Generate";
-  const runDisabled = busy || capped || (generate && !canGenerate);
-  const runTitle = capped ? "Retry limit reached" : generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : runLabel + " image";
+  const runnable = regenerate || generate;
+  const runLabel = regenerate ? "Regenerate" : "Generate";
+  const runDisabled = busy || (generate && !canGenerate);
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : runLabel + " image";
 
   return <div className="rrugc-keyword-result-cell" aria-busy={busy}>
     <div className="rrugc-keyword-result-media">
@@ -67,9 +65,9 @@ export function KeywordImageRowControls({
     <span className="rrugc-keyword-result-caption">{row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
     </div>
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
-      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (retry ? "retry" : regenerate ? "regenerate" : "generate")}
+      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "regenerate" : "generate")}
         onClick={onRun} disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
-        <KeywordActionGlyph kind={retry ? "retry" : regenerate ? "regenerate" : "generate"} />
+        <KeywordActionGlyph kind={regenerate ? "regenerate" : "generate"} />
         <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
       {row.job_id && row.output_url && <button type="button" className="rrugc-keyword-result-action"
@@ -222,9 +220,6 @@ export function KeywordImageStage({
       if (row.status === "completed") {
         await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage("New output version queued for " + row.keyword + ". Previous output stays available.");
-      } else if (row.status === "failed") {
-        await retryKeywordImage(row.keyword_id);
-        setMessage("Retry queued for " + row.keyword + ".");
       } else if (row.status === "not_run" && selectedSkillInput) {
         const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");
@@ -368,7 +363,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>Selected Skill applies to Generate and Regenerate; Retry keeps the job's Skill.</span>
+        <span>Generate and Regenerate use the selected Skill. Failed jobs stop after one attempt.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>

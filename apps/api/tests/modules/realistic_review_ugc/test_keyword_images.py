@@ -61,7 +61,7 @@ def test_stage1_does_not_generate_unpicked_or_other_tenant(db):
     assert not db.query(RrugcKeywordImageJobModel).count()
 
 
-def test_failed_job_retry_is_tenant_scoped_and_idempotent(db):
+def test_failed_stage1_job_never_creates_a_second_run(db):
     kw = keyword(db, "used-a", "tenant-a", picked=True)
     row = RrugcKeywordImageJobModel(
         id="job-a", tenant_id=kw.tenant_id, keyword_id=kw.id,
@@ -78,16 +78,28 @@ def test_failed_job_retry_is_tenant_scoped_and_idempotent(db):
     row.processing_job_id = old_processing.id
     db.add_all([old_processing, row])
     db.commit()
-    assert effective_status(row, old_processing) == "failed"
     with pytest.raises(KeywordImageError, match="No generation job exists"):
         KeywordImageService(db).retry(tenant_id="tenant-b", keyword_id=kw.id)
-    result = KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
-    assert result.retry_count == 1
-    assert result.status == "queued"
-    assert result.processing_job_id != old_processing.id
-    assert db.get(ProcessingJobModel, result.processing_job_id).tenant_id == "tenant-a"
-    with pytest.raises(KeywordImageError, match="Only failed generations"):
+    with pytest.raises(KeywordImageError, match="one attempt per job"):
         KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
+    assert row.processing_job_id == old_processing.id
+    assert row.retry_count == 0
+    assert db.query(ProcessingJobModel).count() == 1
+
+
+def test_stage1_enqueue_has_one_worker_attempt(db):
+    kw = keyword(db, "used-new", "tenant-a", picked=True)
+    row = RrugcKeywordImageJobModel(
+        id="new-job", tenant_id=kw.tenant_id, keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name="skill",
+        prompt_text=keyword_prompt(kw.keyword), status="queued",
+        created_by_user_id="actor",
+    )
+    db.add(row)
+    db.flush()
+    KeywordImageService(db)._enqueue(row)
+    db.commit()
+    assert db.get(ProcessingJobModel, row.processing_job_id).max_attempts == 1
 
 
 def test_completed_job_remains_untouched_by_manual_retry(db):
@@ -100,7 +112,7 @@ def test_completed_job_remains_untouched_by_manual_retry(db):
     )
     db.add(row)
     db.commit()
-    with pytest.raises(KeywordImageError, match="Only failed generations"):
+    with pytest.raises(KeywordImageError, match="one attempt per job"):
         KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
     assert db.get(RrugcKeywordImageJobModel, row.id).output_remote_file_id == "output-safe"
 

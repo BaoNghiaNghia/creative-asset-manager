@@ -62,7 +62,7 @@ describe("Stage 1 compact output and action controls", () => {
     host.remove();
   });
 
-  it("preserves Generate, Retry and Logs across job states with disabled guards", async () => {
+  it("preserves Generate and Logs but forbids Retry on failed jobs", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -75,9 +75,9 @@ describe("Stage 1 compact output and action controls", () => {
     await act(async () => render({ ...outputRow, status: "not_run", job_id: null, output_url: null }, true));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Generate BEACH PLEASE"]')?.click());
     expect(run).toHaveBeenCalledOnce();
-    await act(async () => render({ ...outputRow, status: "failed", output_url: null, retry_count: 3 }, true));
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]')?.disabled).toBe(true);
-    expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(2);
+    await act(async () => render({ ...outputRow, status: "failed", output_url: null, retry_count: 0 }, true));
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]')).toBeNull();
+    expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(1);
     await act(async () => render({ ...outputRow, status: "queued", output_url: null }, true, true));
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(1);
     expect(host.querySelector(".rrugc-keyword-result-pending")?.textContent).toContain("In queue");

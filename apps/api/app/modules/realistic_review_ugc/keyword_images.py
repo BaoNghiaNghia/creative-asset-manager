@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
+from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import StoreAssetInput, StorageProviderError
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -30,7 +30,7 @@ from app.providers.ai.codex_image import (
 )
 
 JOB_TYPE = "rrugc_keyword_image_generate"
-MAX_MANUAL_RETRIES = 3
+STAGE1_MAX_ATTEMPTS = 1
 DEFAULT_SKILL = "gatorhats-keyword-embroidery"
 
 
@@ -118,7 +118,7 @@ class KeywordImageService:
             tenant_id=job.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_keyword_image_job",
             entity_id=job.id, idempotency_key=f"rrugc-keyword-image:{job.id}:{sequence}",
             payload={"keyword_image_job_id": job.id},
-            priority=20, max_attempts=3, provider_key="codex", provider_scope="ai",
+            priority=20, max_attempts=STAGE1_MAX_ATTEMPTS, provider_key="codex", provider_scope="ai",
         )
         job.processing_job_id = processing.id
 
@@ -270,25 +270,12 @@ class KeywordImageService:
         job = self._job(tenant_id, keyword_id)
         if job is None:
             raise KeywordImageError("keyword_image_job_not_found", "No generation job exists.", 404)
-        processing = self.session.get(ProcessingJobModel, job.processing_job_id) if job.processing_job_id else None
-        if effective_status(job, processing) != "failed":
-            raise KeywordImageError("keyword_image_retry_not_allowed", "Only failed generations can be retried.")
-        if job.retry_count >= MAX_MANUAL_RETRIES:
-            raise KeywordImageError("keyword_image_retry_limit", "Retry limit reached.")
-        keyword = self.session.scalar(select(RrugcKeywordVolumeModel).where(
-            RrugcKeywordVolumeModel.id == keyword_id, RrugcKeywordVolumeModel.tenant_id == tenant_id,
-        ))
-        if keyword is None or not keyword.picked:
-            raise KeywordImageError("keyword_not_used", "Keyword is no longer marked Used.", 422)
-        job.retry_count += 1
-        job.status = "queued"
-        job.started_at = None
-        job.last_error_code = None
-        job.last_error_message = None
-        self._enqueue(job)
-        self.session.commit()
-        self.session.refresh(job)
-        return job
+        # Existing clients can still call this endpoint, but Stage 1 jobs
+        # execute once only. Never create another Run after a failure.
+        raise KeywordImageError(
+            "keyword_image_retry_not_allowed",
+            "Stage 1 allows one attempt per job; failed jobs cannot be retried.",
+        )
 
     def list_used(self, *, tenant_id: str, page: int, page_size: int, q: str = "", status: str = "all") -> dict:
         filters = [RrugcKeywordVolumeModel.tenant_id == tenant_id, RrugcKeywordVolumeModel.picked.is_(True)]
@@ -339,7 +326,7 @@ class KeywordImageService:
                 "skill_version": job.skill_version if job else None,
                 "retry_count": job.retry_count if job else 0,
                 "attempt_count": processing.attempt_count if processing else 0,
-                "max_attempts": processing.max_attempts if processing else 3,
+                "max_attempts": processing.max_attempts if processing else STAGE1_MAX_ATTEMPTS,
                 "error_code": (job.last_error_code or (processing.last_error_code if processing else None)) if job else None,
                 "error_message": (job.last_error_message or (processing.last_error_message if processing else None)) if job else None,
                 "output_url": f"/api/v1/realistic-review-ugc/keyword-images/jobs/{job.id}/output" if job and job.output_remote_file_id else None,
@@ -353,26 +340,22 @@ class KeywordImageGenerateHandler:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings
 
-    def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
+    def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
         try:
             return asyncio.run(self._execute(context))
         except CodexImageProviderError as exc:
-            self._fail(context, exc.code, str(exc), terminal=not (exc.retryable or exc.defer_seconds))
-            if exc.defer_seconds:
-                from datetime import timedelta
-                return DeferredJobOutcome(exc.code, str(exc),
-                                          datetime.now(timezone.utc) + timedelta(seconds=max(60, exc.defer_seconds)))
-            return JobHandlerResult.retryable(exc.code, str(exc)) if exc.retryable else JobHandlerResult.non_retryable(exc.code, str(exc))
+            self._fail(context, exc.code, str(exc))
+            return JobHandlerResult.non_retryable(exc.code, str(exc))
         except StorageProviderError as exc:
-            self._fail(context, exc.code, str(exc), terminal=not exc.retryable)
-            return JobHandlerResult.retryable(exc.code, str(exc)) if exc.retryable else JobHandlerResult.non_retryable(exc.code, str(exc))
+            self._fail(context, exc.code, str(exc))
+            return JobHandlerResult.non_retryable(exc.code, str(exc))
         except Exception:
             context.logger.exception("rrugc_keyword_image_worker_failed",
                                      extra={"job_id": context.job.entity_id, "tenant_id": context.job.tenant_id})
             self._fail(context, "keyword_image_internal_error", "Keyword generation failed.")
-            return JobHandlerResult.retryable("keyword_image_internal_error", "Keyword generation failed.")
+            return JobHandlerResult.non_retryable("keyword_image_internal_error", "Keyword generation failed.")
 
-    def _fail(self, context: JobHandlerContext, code: str, message: str, *, terminal: bool = False) -> None:
+    def _fail(self, context: JobHandlerContext, code: str, message: str, *, terminal: bool = True) -> None:
         with context.dependencies.session_factory() as session:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
                 RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
@@ -396,7 +379,8 @@ class KeywordImageGenerateHandler:
             return JobHandlerResult.non_retryable("keyword_image_disabled", "Image generation is disabled.")
         storage = context.dependencies.storage_provider
         if storage is None:
-            return JobHandlerResult.retryable("managed_storage_unavailable", "Managed storage unavailable.")
+            self._fail(context, "managed_storage_unavailable", "Managed storage unavailable.")
+            return JobHandlerResult.non_retryable("managed_storage_unavailable", "Managed storage unavailable.")
 
         with context.dependencies.session_factory() as session:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
