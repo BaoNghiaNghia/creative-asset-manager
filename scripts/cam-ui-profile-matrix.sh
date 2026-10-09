@@ -117,6 +117,7 @@ printf '  %s\n' "${PROFILES[@]}"
 
 FAILURES=()
 PASSED=0
+MATRIX_STARTED_AT="$(date +%s)"
 KEEP_RUNS="${CAM_UI_QA_KEEP:-$(( ${#PROFILES[@]} + 5 ))}"
 
 for profile in "${PROFILES[@]}"; do
@@ -157,6 +158,15 @@ for profile in "${PROFILES[@]}"; do
     FAILURES+=("$profile:$status")
   fi
 done
+
+MATRIX_PROFILE_CSV="$(IFS=,; printf '%s' "${PROFILES[*]}")"
+if ! node "$CLIENT/scripts/ui-qa-matrix-summary.mjs" \
+  --profiles "$MATRIX_PROFILE_CSV" \
+  --viewports "$VIEWPORTS" \
+  --since "$MATRIX_STARTED_AT" \
+  --output "$LOG_DIR/matrix-summary.json"; then
+  FAILURES+=("matrix-summary:2")
+fi
 
 printf '\nUI profile matrix summary: %s/%s passed.\n' "$PASSED" "${#PROFILES[@]}"
 if (( ${#FAILURES[@]} > 0 )); then

@@ -1,5 +1,15 @@
 {
   "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "qualityBudgets": {
+    "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
+    "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
+    "mobile": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0,
+      "maxSmallTargets": 0
+    }
+  },
   "mobileAssertions": [
     { "type": "no-viewport-overflow", "selector": "html", "maxPx": 0 }
   ],

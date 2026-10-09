@@ -14,6 +14,7 @@ import {
 } from "./ui-qa-visual-analysis.mjs";
 import { cleanupRuns } from "./ui-qa-cleanup.mjs";
 import { assertUiStep } from "./ui-qa-assertions.mjs";
+import { assertQualityBudgets } from "./ui-qa-quality.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 import {
   parseCsvList,
@@ -665,6 +666,9 @@ try {
         };
       });
       qualityAudit.push({ state: name, ...quality });
+      const viewportBudgets = plan.qualityBudgets?.[viewportName] || {};
+      const stateBudgets = step.qualityBudgets?.[viewportName] || {};
+      assertQualityBudgets(quality, { ...viewportBudgets, ...stateBudgets }, name);
 
       if (baselineDir) {
         const baselinePath = path.join(baselineDir, filename);

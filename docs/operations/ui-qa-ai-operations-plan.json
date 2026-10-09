@@ -1,5 +1,10 @@
 {
   "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "qualityBudgets": {
+    "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
+    "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
+    "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0}
+  },
   "steps": [
     {"name":"default","waitFor":".ops-content","waitMs":400},
     {"name":"kpi-hover","hover":".ops-kpis article"},

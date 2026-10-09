@@ -83,9 +83,35 @@ tracked baselines or approves changes. Create one locally with:
 This report is distinct from a governed proposal; acceptance still requires
 explicit approval and the normal baseline governance checks.
 
+### Phase 4 — calibrated quality gate and complete matrix evidence
+
+- QA plans may declare explicit viewport-specific `qualityBudgets` as upper
+  bounds for `maxViewportOverflowPx`, `maxUnnamedControls`, `maxMissingAlt`,
+  `maxSmallTargets`, `maxResourceCount`, `maxResourceTransferKb`, and
+  `maxDomContentLoadedMs`. Per-state overrides are supported.
+- **All nine workspaces now enforce the measured zero-regression budgets**
+  for unnamed visible controls and visible images without `alt` across desktop,
+  tablet, and mobile. UGC mobile additionally enforces zero document overflow
+  and zero controls below 24px; its existing per-element assertions remain.
+  These budgets were derived from the fixture QA matrix rather than
+  arbitrarily enabled globally.
+- Other performance/quality counters remain advisory until representative
+  fixtures and approved limits are available. The matrix has surfaced viewport
+  overflow candidates in Review Board and Access Management which require
+  separate design verification and fixes; they are not silently treated
+  as passing a zero-overflow budget.
+- Failures produce the same bounded screenshot, state-specific diagnostic
+  and report evidence as an interaction failure. The gate cannot make a
+  failing state PASS by omitting a quality metric.
+- The profile matrix writes `apps/client/.ui-qa/matrix-summary.json`,
+  including pass/fail, viewport and capture completeness, max observed
+  quality counters per profile, and how many visual states await approval.
+  A missing, stale, incomplete, or failed profile cannot be reported as PASS.
+  CI uploads this JSON alongside screenshots and the HTML baseline review.
+
 Both jobs are independent of Production and need no session credentials.
 Browser QA does not replace unit tests, authenticated Production smoke,
-accessibility auditing or a real backend integration test.
+WCAG accessibility auditing or a real backend integration test.
 
 ### Useful commands
 
