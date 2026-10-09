@@ -50,15 +50,19 @@ def test_codex_runner_materializes_role_files_and_scrubs_api_credentials(
     class FakeProcess:
         returncode = 0
 
-        async def communicate(self):
+        def __init__(self):
+            self.stdout = asyncio.StreamReader()
+            self.stdout.feed_data(b'{"type":"thread.started","thread_id":"thread-test-1"}\n')
+            self.stdout.feed_eof()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_eof()
             workspace = Path(str(captured["workspace"]))
             output = workspace / "output" / "final.png"
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(_png(210))
-            return (
-                b'{"type":"thread.started","thread_id":"thread-test-1"}\n',
-                b"",
-            )
+
+        async def wait(self):
+            return self.returncode
 
         def kill(self):
             self.returncode = -9

@@ -583,10 +583,16 @@ export const regenerateColorwayJob = (jobId: string) =>
     { method: "POST" },
   );
 
+export type SkillExecutionProgress = {
+  state: string; started_at: string; last_activity_at: string; elapsed_seconds: number;
+  event_count: number; last_event: string; stdout_bytes: number; stderr_bytes: number;
+  events: Array<{ time: string; event: string; item: string }>;
+};
 export type SkillJobLog = { stage: string; job_id: string; status: string;
   skill: { name: string; source: string; version: string | null };
   attempts: Array<{ id: string; status: string; attempt_count: number; max_attempts: number; duration_ms: number;
-    error_code: string | null; error_message: string; created_at: string; updated_at: string; completed_at: string | null }>;
+    error_code: string | null; error_message: string; created_at: string; updated_at: string; completed_at: string | null;
+    execution?: SkillExecutionProgress | null }>;
 };
 export const getSkillJobLog = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<SkillJobLog>("/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/logs", { signal });

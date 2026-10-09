@@ -27,6 +27,7 @@ from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
+from app.providers.ai.codex_execution_log import read_codex_execution_log
 from app.providers.ai.codex_image import (
     CodexImageGenRunner,
     CodexImageProviderError,
@@ -4838,6 +4839,13 @@ def get_generation_job_logs(
             "error_message": (attempt.last_error_message or "")[:500],
             "created_at": attempt.created_at, "updated_at": attempt.updated_at,
             "completed_at": attempt.completed_at,
+            "execution": (
+                read_codex_execution_log(
+                    str(getattr(get_settings(), "IMAGE_GENERATION_STAGING_ROOT",
+                                "/var/lib/creative-asset-manager/image-generation")),
+                    attempt.id,
+                ) if stage == "stage1" else None
+            ),
         } for attempt in attempts],
     }
 

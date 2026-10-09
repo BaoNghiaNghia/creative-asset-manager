@@ -432,7 +432,7 @@ class KeywordImageGenerateHandler:
             staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
             skill_name=skill_name,
             timeout_seconds=max(
-                3600 if skill_name == "hanh-redesign-8869-ver-4" else 0,
+                7200 if skill_name == "hanh-redesign-8869-ver-4" else 0,
                 int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
             ),
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
@@ -441,6 +441,7 @@ class KeywordImageGenerateHandler:
                 if skill_name == "hanh-redesign-8869-ver-4" else "single_png"
             ),
             expected_quote=keyword_text if skill_name == "hanh-redesign-8869-ver-4" else None,
+            execution_log_id=context.job.id,
         ))
         try:
             generated = await runner.generate_from_references(

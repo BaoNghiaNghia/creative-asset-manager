@@ -5,11 +5,14 @@ import hashlib
 import json
 import os
 import re
+import signal
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
+
+from app.providers.ai.codex_execution_log import CodexExecutionLog, stream_codex_process, prune_codex_execution_logs
 
 from app.modules.image_generation.providers import (
     GeneratedImageResult,
@@ -52,6 +55,7 @@ class CodexImageRunnerConfig:
     model: str | None = None
     output_contract: str = "single_png"
     expected_quote: str | None = None
+    execution_log_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +371,11 @@ class CodexImageGenRunner:
             argv.extend(["--model", self.config.model])
         argv.append(instruction)
 
+        # Stream JSONL events; the CLI can produce gigabytes of logs during
+        # long-running multi-concept generations. Never communicate() into RAM.
+        if self.config.execution_log_id:
+            prune_codex_execution_logs(self.config.staging_root)
+        log = CodexExecutionLog(self.config.staging_root, self.config.execution_log_id)
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
@@ -374,29 +383,53 @@ class CodexImageGenRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_codex_env(codex_home),
+                start_new_session=True,
             )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=max(30, int(self.config.timeout_seconds)),
+            stdout, stderr = await stream_codex_process(
+                process, timeout_seconds=self.config.timeout_seconds, log=log,
             )
         except asyncio.TimeoutError as exc:
             if "process" in locals() and process.returncode is None:
-                process.kill()
-                await process.communicate()
+                try:
+                    if getattr(process, "pid", None):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except (OSError, ProcessLookupError):
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=8)
+                except asyncio.TimeoutError:
+                    pass
             raise CodexImageProviderError(
                 "codex_image_timeout",
-                "Codex image generation exceeded the configured timeout.",
+                "Codex exceeded the time limit. Its partial execution progress is retained in Skill logs.",
                 retryable=True,
             ) from exc
+        except asyncio.CancelledError:
+            if "process" in locals() and process.returncode is None:
+                try:
+                    if getattr(process, "pid", None):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=8)
+                except asyncio.TimeoutError:
+                    pass
+            raise
         except OSError as exc:
+            log.close("startup_failed")
             raise CodexImageProviderError(
                 "codex_image_cli_unavailable",
                 "Codex CLI could not be started on this worker.",
                 retryable=True,
             ) from exc
-
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
         if process.returncode != 0:
             raise _classify_failure(stderr, stdout)
 
@@ -569,6 +602,9 @@ class CodexImageGenRunner:
                 "If the full workflow cannot be completed, report the blocker instead of "
                 "returning a fake success image.\n"
                 "Do not use an API-key-backed image generation fallback.\n"
+                "Keep assistant text brief: only report milestones and final file paths. "
+                "Write all intermediate artwork, checklists, and diagnostics to workspace files. "
+                "Never print image data, whole checklists, or repeated concept descriptions to stdout.\n"
                 + extra_block
             )
         return (

@@ -17,6 +17,18 @@ export function SkillJobLogDialog({
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [stage, jobId]);
+  // Long-running Codex generations emit progress for tens of minutes.
+  // Refresh lightweight summaries while the job is active, not just on open.
+  useEffect(() => {
+    if (data?.status !== "running" && data?.status !== "queued") return;
+    const controller = new AbortController();
+    const interval = window.setInterval(() => {
+      void getSkillJobLog(stage, jobId, controller.signal)
+        .then(value => { if (!controller.signal.aborted) setData(value); })
+        .catch(() => undefined);
+    }, 5000);
+    return () => { controller.abort(); window.clearInterval(interval); };
+  }, [stage, jobId, data?.status]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) { if (event.key === "Escape") onClose(); }
     window.addEventListener("keydown", keydown);
@@ -36,6 +48,16 @@ export function SkillJobLogDialog({
           <small>Worker attempt {attempt.attempt_count}/{attempt.max_attempts} · {Math.round((attempt.duration_ms || 0) / 1000)}s</small>
           {attempt.error_code && <code>{attempt.error_code}</code>}
           {attempt.error_message && <p>{attempt.error_message}</p>}
+          {attempt.execution && <div className="rrugc-job-live-progress" aria-live="polite">
+            <strong>Codex · {attempt.execution.state.replaceAll("_", " ")} · {Math.floor((attempt.execution.elapsed_seconds || 0) / 60)}m {(attempt.execution.elapsed_seconds || 0) % 60}s</strong>
+            <small>{attempt.execution.event_count} events · {Math.round(attempt.execution.stdout_bytes / 1024)} KB streamed · Last: {attempt.execution.last_event}</small>
+            <details>
+              <summary>Recent execution events</summary>
+              <ol>{attempt.execution.events.map((entry, eventIndex) =>
+                <li key={eventIndex}><time>{new Date(entry.time).toLocaleTimeString()}</time> · {entry.event}{entry.item ? " / " + entry.item : ""}</li>
+              )}</ol>
+            </details>
+          </div>}
         </article>)}
         {!data.attempts.length && <p>No processing history recorded yet.</p>}
       </div>}
