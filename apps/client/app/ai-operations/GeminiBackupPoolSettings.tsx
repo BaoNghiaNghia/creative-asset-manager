@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   deleteGeminiBackupCredential,
   listGeminiBackupCredentials,
@@ -177,7 +178,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
     </div>
 
     {!rows.length && <p className="inventory-muted">No backup key has been configured yet.</p>}
-    {notice && <p className="inventory-test-result" role="status">{notice}</p>}
+    <ActionMessageToast message={notice} />
     {error && <p className="inventory-error" role="alert">{error}</p>}
   </section>;
 }

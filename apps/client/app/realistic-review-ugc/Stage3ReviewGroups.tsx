@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
@@ -354,7 +355,7 @@ export function Stage3ReviewGroups({
       </div>}
     />
 
-    {message && <div className="rrugc-stage3-message">{message}</div>}
+    <ActionMessageToast message={message} />
 
     <div className="rrugc-stage-search-toolbar rrugc-stage4-search-toolbar">
       <RrugcSmartSearchInput

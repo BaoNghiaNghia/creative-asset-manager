@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   AccessApiError, addMember, assignMemberRole, createCustomRole, fetchAccessIdentity, fetchViewerFolderOptions, fetchViewerFolderScopes, replaceViewerFolderScopes,
   fetchMembers, fetchPermissions, fetchRoles, removeMemberRole, switchActiveTenant,
@@ -103,7 +104,7 @@ export function AccessManagementContent(props: ContentProps) {
   />
     <nav className="access-tabs" role="tablist" aria-label="Access Management sections" onKeyDown={event => handleAccessTabKeyDown(event, props.tab, props.onTab)}>
       {tabs.map(item => <button key={item.id} id={`access-tab-${item.id}`} role="tab" type="button" aria-selected={props.tab === item.id} aria-controls={`access-panel-${item.id}`} tabIndex={props.tab === item.id ? 0 : -1} className={props.tab === item.id ? "active" : ""} onClick={() => props.onTab(item.id)}>{item.label}</button>)}
-    </nav>{props.message && <div className="access-notice" role="status" aria-live="polite">{props.message}</div>}
+    </nav><ActionMessageToast message={props.message} />
     <section id={`access-panel-${props.tab}`} role="tabpanel" aria-labelledby={`access-tab-${props.tab}`} tabIndex={0}>
       {props.tab === "members" ? <MembersTab {...props} /> : props.tab === "roles" ? <RolesTab {...props} /> : <MyAccessTab identity={props.identity!} onTenant={props.onTenant} />}
     </section></>;

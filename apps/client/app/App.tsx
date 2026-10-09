@@ -1,6 +1,7 @@
 import { isPreviewableAsset } from "./utils/fileType";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { ActionMessageToast } from "./components/ActionToast";
 import { ASSET_DRAG_OUT_MIME, AssetGrid, AssetGridSkeleton } from "./components/AssetGrid";
 import { FolderReviewLinkActions, reviewShareIdForFolder } from "./components/FolderReviewLinkActions";
 import { VideoSearchResults } from "./components/VideoSearchResults";
@@ -1273,10 +1274,8 @@ export default function App() {
           </div>
         : <>
           {explorer.error && <div className="error">{explorer.error}</div>}
-          {shortcutNotice && <div className={`shortcut-toast shortcut-toast--${shortcutNotice.tone}`} role="status" aria-live="polite">
-            <span className="shortcut-toast__icon" aria-hidden="true">{shortcutNotice.tone === "cut" ? "✂" : shortcutNotice.tone === "copy" ? "⧉" : shortcutNotice.tone === "success" ? "✓" : "!"}</span>
-            <span>{shortcutNotice.message}</span><button type="button" onClick={() => setShortcutNotice(null)} aria-label="Dismiss shortcut notification">×</button>
-          </div>}
+          <ActionMessageToast message={shortcutNotice?.message} nonce={shortcutNotice}
+            tone={shortcutNotice?.tone === "error" ? "error" : shortcutNotice?.tone === "success" ? "success" : "info"} />
           <div className="title">
             <span className="search-summary">
               {!explorer.query.trim() && <div className="title-breadcrumb explorer-breadcrumb" aria-label="Folder breadcrumb">

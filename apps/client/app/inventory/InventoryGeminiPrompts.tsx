@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import { inventoryDailySheetApi, type InventoryDailySheetStatus, type InventoryGeminiPrompt } from "./api";
 
 const labelFor = (promptType: string) => promptType === "carry_forward_0900"
@@ -48,7 +49,7 @@ export function InventoryGeminiPrompts() {
 
     <section className="inventory-prompts-safety" role="note"><span aria-hidden="true">✓</span><div><strong>Phạm vi an toàn vẫn được backend khóa</strong><p>Quyền file, material, warehouse, Closing → Opening, blank/zero, formula, evidence và phạm vi ghi không thể thay đổi từ prompt này.</p></div></section>
 
-    {message ? <p className={message.includes("Không thể") || message.includes("không thành công") ? "inventory-error" : "inventory-ready"} role="status">{message}</p> : null}
+    <ActionMessageToast message={message} tone={message.includes("Không thể") || message.includes("không thành công") ? "error" : "success"} />
 
     <div className="inventory-prompt-grid">
       {prompts.map(prompt => {

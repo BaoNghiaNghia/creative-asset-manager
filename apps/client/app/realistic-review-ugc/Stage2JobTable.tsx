@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   listStage2Skills,
   stage2JobOutputThumbnailUrl,
@@ -793,8 +794,8 @@ export function Stage2JobTable({
       </div>}
     />
 
-    {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
-    {skillMessage && <p className="rrugc-editor-product-result" role="status">{skillMessage}</p>}
+    <ActionMessageToast message={message} />
+    <ActionMessageToast message={skillMessage} tone="info" />
 
     <div className="rrugc-source-plan-kpis rrugc-stage2-kpis">
       <article><span>Embroidery groups</span><strong>{overview.embroidery_groups}</strong></article>

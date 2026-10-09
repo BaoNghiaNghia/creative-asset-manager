@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createKeywordImage, createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
@@ -357,8 +358,8 @@ export function KeywordImageStage({
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 1-2.4-5.7" /><path d="M20 4v7h-7" /></svg>
       </button>
     </div>
-    {error && <div className="rrugc-keyword-gen-error rrugc-keyword-notice" role="alert"><span>{error}</span><button type="button" title="Dismiss error" aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
-    {message && <div className="rrugc-keyword-gen-message rrugc-keyword-notice" role="status"><span>{message}</span><button type="button" title="Dismiss notification" aria-label="Dismiss notification" onClick={() => setMessage("")}>×</button></div>}
+    <ActionMessageToast message={error} tone="error" />
+    <ActionMessageToast message={message} />
     {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">

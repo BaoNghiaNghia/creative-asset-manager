@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   inventoryDailySheetApi,
   type InventoryDailySheetConfiguration,
@@ -237,7 +238,7 @@ export function InventoryDailySheetSettings() {
     <section className="inventory-settings-section inventory-settings-actions-card">
       <div className="inventory-settings-section-heading"><div><h3>Lưu và kiểm tra</h3><p>Luôn kiểm tra cấu hình trước khi bật tự động.</p></div></div>
       <div className="inventory-actions"><button disabled={busy} onClick={()=>void save()}>{busy ? "Đang xử lý…" : "Lưu cấu hình"}</button><button disabled={busy} className="secondary" onClick={()=>void validate()}>Kiểm tra an toàn</button><button disabled={busy} className="secondary" onClick={()=>void execute(()=>inventoryDailySheetApi.runReconciliation(true),"Đã tạo bản xem trước; không ghi Google Sheet.")}>Xem trước báo cáo</button>{actionVisibility.runReport ? <button disabled={busy} className="secondary" onClick={()=>void execute(()=>inventoryDailySheetApi.runReconciliation(false),"Đã tạo báo cáo; không ghi bảng đích.")}>Chạy báo cáo</button> : null}</div>
-      {message ? <p className={message.includes("failed")||message.includes("Unable")||message.includes("blocking") ? "inventory-error" : "inventory-ready"} role="status">{message}</p> : null}
+      <ActionMessageToast message={message} tone={message.includes("failed")||message.includes("Unable")||message.includes("blocking") ? "error" : "success"} />
     </section>
 
     {discovery ? <section className="inventory-scan-results"><h3>Kết quả quét workbook</h3>{discovery.tabs.map(tab=><article key={tab.sheet_id}><b>{tab.title}: {tab.item_count} nguyên liệu</b><small>{tab.new_material_candidates.length} mới / {tab.possible_renames.length} có thể đổi tên / {tab.anomalies.length} chưa rõ</small>{tab.new_material_candidates.map((item,index)=><p className="inventory-warning" key={"new-"+index}>MỚI / {text(item.name)} / mã sheet {text(item.item_key)}</p>)}{tab.possible_renames.map((item,index)=><p className="inventory-warning" key={"rename-"+index}>Có thể đổi tên / {text(item.name)} / mã sheet {text(item.item_key)}</p>)}</article>)}</section> : null}

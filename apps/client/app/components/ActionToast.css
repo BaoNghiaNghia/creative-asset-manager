@@ -1,0 +1,75 @@
+.cam-action-toasts {
+  position: fixed;
+  z-index: 2147483000;
+  left: max(14px, env(safe-area-inset-left, 0px));
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(350px, calc(100vw - 28px));
+  pointer-events: none;
+}
+.cam-action-toast {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 10px 10px 11px;
+  border: 1px solid #cbd8e8;
+  border-radius: 10px;
+  background: #fff;
+  color: #26374f;
+  box-shadow: 0 8px 26px rgb(15 23 42 / 17%);
+  font-family: "Be Vietnam Pro", sans-serif;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  animation: cam-action-toast-enter 180ms ease-out;
+}
+.cam-action-toast-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 19px;
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 750;
+  background: #e9f3ff;
+  color: #36669f;
+}
+.cam-action-toast--success .cam-action-toast-icon { background: #e7f6ed; color: #278052; }
+.cam-action-toast--success { border-color: #b9ddc8; }
+.cam-action-toast--error .cam-action-toast-icon { background: #fcebec; color: #b7353f; }
+.cam-action-toast--error { border-color: #efc5c8; }
+.cam-action-toast--warning .cam-action-toast-icon { background: #fff4df; color: #986519; }
+.cam-action-toast--warning { border-color: #ecd7aa; }
+.cam-action-toast-message { flex: 1; min-width: 0; padding-top: 1px; }
+.cam-action-toast button {
+  flex: 0 0 19px;
+  width: 19px;
+  height: 19px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #76849a;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cam-action-toast button:hover { color: #26374f; background: #eff3f7; }
+@keyframes cam-action-toast-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cam-action-toast { animation: none; }
+}
+@media (max-width: 480px) {
+  .cam-action-toasts { left: max(10px, env(safe-area-inset-left, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px)); width: min(320px, calc(100vw - 20px)); }
+}

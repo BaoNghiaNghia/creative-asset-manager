@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ActionMessageToast } from "./ActionToast";
 import type { Asset, AssetDetails, AssetMetadata } from "../types";
 import type { VideoSearchItem, VideoSearchMatch } from "../hooks/useVideoSearch";
 import { AnalyzeMetadataDialog } from "./AnalyzeMetadataDialog";
@@ -166,7 +167,7 @@ export function AssetDetailsPanel({ item, assetId, metadata, videoAnalysis, onCl
     </header>
     <nav aria-label="File information sections">{tabs.map(name => <button key={name} className={section === name ? "active" : ""} aria-current={section === name ? "page" : undefined} onClick={() => setSection(name)}>{name === "analysis" ? "AI analysis" : name === "prompts" ? "Prompts" : name}</button>)}</nav>
     {coreDetailsError && !data && !item && <div className="panel-error" role="alert">{coreDetailsError}</div>}
-    {notice && <div className="panel-notice" role="status">{notice}</div>}
+    <ActionMessageToast message={notice} />
     {loading && <div className="panel-loading" role="status" aria-label="Loading file information"><span className="panel-loading-spinner" aria-hidden="true" /></div>}
     {!loading && !item && !data && <InspectorEmpty />}
     {!loading && (item || data) && <div className="asset-details-body">

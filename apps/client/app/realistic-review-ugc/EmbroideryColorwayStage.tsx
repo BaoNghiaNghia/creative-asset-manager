@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness } from "./api";
 import type { ColorwayJob, ColorwayReadiness } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -308,7 +309,10 @@ export function EmbroideryColorwayStage({
       </div>}
     />
 
-    {(message || catalogMessage || jobMessage || readinessWarning) && <p className="rrugc-editor-product-result" role="status">{readinessWarning || jobMessage || message || catalogMessage}</p>}
+    <ActionMessageToast message={message} />
+    <ActionMessageToast message={jobMessage} />
+    <ActionMessageToast message={catalogMessage} tone="info" />
+    {readinessWarning && <p className="rrugc-editor-product-result" role="status">{readinessWarning}</p>}
 
     <div className="rrugc-colorway-kpis">
       <article><span>Designs found</span><strong>{data.total}</strong><small>JPG / PNG source images</small></article>

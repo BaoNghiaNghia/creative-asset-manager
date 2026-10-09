@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -582,7 +583,7 @@ export function SourcePlanTable({
       </div>}
     />
 
-    {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
+    <ActionMessageToast message={message} />
 
     <div className="rrugc-source-plan-kpis">
       <article><span>Embroidery groups</span><strong>{overview.embroidery_groups}</strong></article>

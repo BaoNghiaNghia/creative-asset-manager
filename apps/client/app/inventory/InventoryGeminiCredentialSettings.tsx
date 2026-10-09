@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   inventoryApi,
   InventoryApiError,
@@ -210,7 +211,7 @@ export function InventoryGeminiCredentialSettings({
         <label>Label (optional)
           <input aria-label="Gemini credential label" placeholder="Gemini Account B" value={draft.label} onChange={event => setDraft(value => ({ ...value, label: event.target.value }))} />
         </label>
-        {testStatus ? <p className="inventory-test-result" role="status">{credentialStatusLabel(testStatus, true)}</p> : null}
+        <ActionMessageToast message={testStatus ? credentialStatusLabel(testStatus, true) : ""} tone="info" />
         {message ? <ErrorMessage error={message} /> : null}
         <div className="inventory-actions">
           <button type="button" onClick={() => void testConnection()} disabled={!draft.apiKey || submitting}>{submitting ? "Testing…" : "Test Connection"}</button>

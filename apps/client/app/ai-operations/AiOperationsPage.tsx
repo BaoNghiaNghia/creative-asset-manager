@@ -1,4 +1,5 @@
 import { AI_OPERATIONS_TABS, isAiOpsTab, type AiOpsTab } from "./navigation";
+import { ActionMessageToast } from "../components/ActionToast";
 export type { AiOpsTab } from "./navigation";
 import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
 import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
@@ -1252,7 +1253,7 @@ function ProcessingFailureGroupRetry({
       <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} placeholder="Explain why these jobs should be retried" /></label>
       <div><button type="button" onClick={() => setConfirming(false)}>Cancel</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Retrying..." : "Confirm retry"}</button></div>
     </div>}
-    {message && <span className="ops-action-message" aria-live="polite">{message}</span>}
+    <ActionMessageToast message={message} />
   </section>;
 }
 
@@ -1505,7 +1506,7 @@ function VideoProcessingJobRetry({ job, permissions, onAccepted }: {
       <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label>
       <div><button type="button" onClick={() => setConfirming(false)}>Back</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Retrying..." : "Confirm retry"}</button></div>
     </div>}
-    {message && <span className="ops-action-message" aria-live="polite">{message}</span>}
+    <ActionMessageToast message={message} />
   </>;
 }
 
@@ -1571,7 +1572,7 @@ export function ProcessingJobAction({ job, permissions = [], onAccepted }: { job
       <label>Reason<input autoFocus value={reason} onChange={event => setReason(event.target.value)} /></label>
       <div><button type="button" onClick={() => setConfirming(false)}>Back</button><button type="button" className="danger" disabled={busy || !reason.trim()} onClick={submit}>Confirm {label.toLowerCase()}</button></div>
     </div>}
-    {message && <span className="ops-action-message" aria-live="polite">{message}</span>}
+    <ActionMessageToast message={message} />
   </>;
 }
 
@@ -1647,6 +1648,6 @@ function SearchCoverageCard({ coverage, canManage, onRefresh }: { coverage: AiOp
     {coverage.database_indexed_document_missing > 0 && <p role="alert">Database and Elasticsearch disagree for {coverage.database_indexed_document_missing} asset(s). Run repair after reviewing the audit.</p>}
     <p>Last audit: {coverage.last_audited_at ? new Date(coverage.last_audited_at).toLocaleString() : "Not run"}{coverage.elasticsearch_verification_included ? " (Elasticsearch verified)" : ""}. Repair queue: {coverage.repair_jobs.queued} queued, {coverage.repair_jobs.running} running.</p>
     {canManage && <div className="ops-coverage-actions"><button type="button" disabled={busy !== null} onClick={() => void run("audit")}>{busy === "audit" ? "Đang chạy audit..." : "Run coverage audit"}</button><button type="button" className="danger" disabled={busy !== null} onClick={() => void run("repair")}>{busy === "repair" ? "Queuing repair..." : "Repair missing search data"}</button></div>}
-    {message && <p aria-live="polite">{message}</p>}
+    <ActionMessageToast message={message} />
   </section>;
 }

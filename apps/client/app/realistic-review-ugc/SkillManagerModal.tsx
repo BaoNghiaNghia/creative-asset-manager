@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   RrugcApiError,
   createStage2Skill,
@@ -330,7 +331,7 @@ export function SkillManagerModal({
         </button>
       </div>}
 
-      {message && <p className="rrugc-editor-product-result" role="status">{message}</p>}
+      <ActionMessageToast message={message} />
       {error && <p className="rrugc-source-error" role="alert">{error}</p>}
 
       <div className="rrugc-skill-list" aria-busy={loading}>

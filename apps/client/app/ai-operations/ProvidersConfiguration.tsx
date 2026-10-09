@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   fetchAiOperationsConfiguration, setAiProviderPaused, setGlobalAiEmergencyStop,
   setTenantAiPaused, updateAiBudget, updateAiDefaults, updateAiMetadataPromptTemplate, updateAiVideoPromptTemplate, updateAiOperationsConfiguration,
@@ -233,7 +234,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
 
   return <section className="ops-content" aria-labelledby="providers-title">
     <div className="ops-section-heading"><div><h2 id="providers-title">Providers</h2><p>Tenant controls and today’s provider health. Google Gemini credentials are managed here with masked values only.</p></div></div>
-    {error && <div className="ops-inline-error" role="alert">{error}</div>}
+    <ActionMessageToast message={error} tone="error" />
     {audit && <AuditNotice audit={audit} />}
     <div className="ops-provider-grid">{configuration.providers.map(provider => {
       const metric = metricByProvider.get(provider.id)!;
@@ -356,7 +357,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
 
   return <section className="ops-content ops-configuration" aria-labelledby="configuration-title">
     <div className="ops-section-heading"><div><h2 id="configuration-title">Configuration</h2><p>Tenant settings are editable. Global upper bounds are deployment-managed and read-only.</p></div><span className="ops-scope">Tenant: {configuration.tenant_id}</span></div>
-    {error && <div className="ops-inline-error" role="alert">{error}</div>}{audit && <AuditNotice audit={audit} />}
+    <ActionMessageToast message={error} tone="error" />{audit && <AuditNotice audit={audit} />}
     <ConfigurationMasonryGrid>
       <form className="ops-config-card ops-config-defaults" onSubmit={event => { event.preventDefault(); saveConfiguration(); }}>
         <ConfigurationCardHeader
@@ -474,8 +475,8 @@ export function JobPriorityConfigurationCard({ icon, title, description, saveLab
 
   return <form className="ops-config-card ops-config-priority" onSubmit={event => { event.preventDefault(); savePriorities(); }}>
     <ConfigurationCardHeader icon={icon} title={title} description={description} kicker="Queue" />
-    {error && <div className="ops-inline-error" role="alert">{error}</div>}
-    {notice && <div className="ops-audit" role="status">{notice}</div>}
+    <ActionMessageToast message={error} tone="error" />
+    <ActionMessageToast message={notice} />
     <JobPriorityModeChart priorities={priorities} canEdit={canEdit} modes={modes} items={items} ariaLabel={ariaLabel} onSelect={changes => setPriorities({ ...priorities, ...changes })} />
     <div className="ops-form-footer">
       <label>Change reason<input disabled={!canEdit || saving} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: ưu tiên xử lý chiến dịch mới" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
@@ -584,7 +585,7 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload, media }: {
     <p className="ops-prompt-help">{isVideo ? "Các quy tắc evidence bắt buộc được worker nối tự động. " : <>Giữ <code>{"{{ asset }}"}</code> nếu prompt của bạn cần chèn mã tài sản. </>}Schema và search configuration hiện có được giữ nguyên.</p></section>
     <footer className="ops-prompt-footer"><label>Change reason<input disabled={!canEdit || saving} value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: bổ sung nhận diện màu sắc và đối tượng" /></label>
     <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}>{saving ? "Saving prompt…" : `Save ${media} prompt template`}</button></footer>
-    {message && <p className="ops-prompt-message" role="status">{message}</p>}{error && <p className="ops-inline-error" role="alert">{error}</p>}
+    <ActionMessageToast message={message} />{error && <p className="ops-inline-error" role="alert">{error}</p>}
     {expanded && <div className="ops-prompt-modal-backdrop" role="presentation" onMouseDown={() => setExpanded(false)}><section className="ops-prompt-modal" role="dialog" aria-modal="true" aria-labelledby="prompt-template-expanded-title" onMouseDown={event => event.stopPropagation()}><header><div><h3 id="prompt-template-expanded-title">Prompt template</h3><p>Chỉnh sửa toàn màn hình và xem cấu trúc JSON được tô màu theo cấp.</p></div><div className="ops-prompt-modal-actions"><button type="button" className="ops-prompt-action" onClick={() => void copyExpandedPrompt()} aria-label="Copy prompt template">Copy {copyStatus ? "· " + copyStatus : ""}</button><button type="button" className="ops-prompt-action primary-action" onClick={editExpandedPrompt} disabled={!canEdit || saving}>Edit</button><button type="button" className="ops-prompt-close" onClick={() => setExpanded(false)} aria-label="Đóng prompt template">×</button></div></header><div className="ops-prompt-modal-content" style={{ gridTemplateColumns: "minmax(0, " + previewSplit + "fr) 14px minmax(0, " + (100 - previewSplit) + "fr)" }}><label>Prompt template<textarea ref={expandedEditorRef} aria-label="Expanded metadata prompt template" autoFocus disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} spellCheck={false} /></label><button type="button" className={"ops-prompt-resizer" + (resizingPreview ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label="Resize prompt editor and preview" aria-valuemin={30} aria-valuemax={70} aria-valuenow={previewSplit} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setResizingPreview(true); }} onPointerMove={event => { if (!resizingPreview) return; const bounds = event.currentTarget.parentElement?.getBoundingClientRect(); if (!bounds) return; setPreviewSplit(Math.max(30, Math.min(70, ((event.clientX - bounds.left) / bounds.width) * 100))); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); setResizingPreview(false); }} onPointerCancel={() => setResizingPreview(false)}><span aria-hidden="true">⋮</span></button><section className="ops-prompt-preview" aria-label="Prompt structure preview"><PromptStructurePreview prompt={promptTemplate} /></section></div></section></div>}
   </form>;
 }

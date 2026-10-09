@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import {
   inventoryKnowledgeApi,
   type InventoryKnowledgeDraft,
@@ -178,7 +179,7 @@ export function InventoryKnowledgePage() {
         <article><span>Bản nháp</span><strong>{counts.draft}</strong><small>Chưa ảnh hưởng automation</small></article>
       </div>
 
-      {message ? <p className="inventory-knowledge-message" role="status">{message}</p> : null}
+      <ActionMessageToast message={message} />
 
       <div className="inventory-knowledge-layout">
         <section className="inventory-knowledge-registry">

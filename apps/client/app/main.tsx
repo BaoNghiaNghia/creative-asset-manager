@@ -8,6 +8,7 @@ import "@fontsource/be-vietnam-pro/700.css";
 import "@fontsource/be-vietnam-pro/800.css";
 import "@fontsource/be-vietnam-pro/900.css";
 import { AppRoute } from "./AppRoute";
+import { ActionToastViewport } from "./components/ActionToast";
 import "../styles/global.css";
 import "../styles/centered-loading.css";
 import "../styles/ai-operations.css";
@@ -27,7 +28,7 @@ function AppBoot() {
     };
   }, []);
 
-  return <AppRoute />;
+  return <><AppRoute /><ActionToastViewport /></>;
 }
 
 createRoot(document.getElementById("root")!).render(

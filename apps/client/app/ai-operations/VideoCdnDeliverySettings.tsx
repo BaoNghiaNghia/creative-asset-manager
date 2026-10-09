@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ActionMessageToast } from "../components/ActionToast";
 import { ConfigurationCardHeader } from "./ConfigurationCardHeader";
 import {
   fetchVideoCdnDeliveryObservability,
@@ -106,7 +107,7 @@ export function VideoCdnDeliverySettingsView({
       Activation is blocked until R2 cache, signed delivery, rollout scope, and the delivery health guard are all ready.
     </div>}
     {error && <div className="ops-inline-error" role="alert">{error}</div>}
-    {notice && <div className="ops-audit" role="status">{notice}</div>}
+    <ActionMessageToast message={notice} />
 
     <div className="ops-video-cdn-actions">
       <label className="ops-field-full">
