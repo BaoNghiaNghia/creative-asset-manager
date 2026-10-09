@@ -162,3 +162,34 @@ def test_redesign_keyword_prompt_creates_ten_concept_board():
     assert "BEACH PLEASE" in prompt
     assert "do not generate 13 colorway images" in prompt
     assert "10 materially distinct" not in keyword_prompt("BEACH PLEASE")
+
+def test_manual_keyword_creates_distinct_stage1_keyword_without_changing_stage0(db, monkeypatch):
+    service = KeywordImageService(db)
+    invoked = []
+
+    def fake_queue(**kwargs):
+        invoked.append(kwargs)
+        return type("Queued", (), {"keyword_id": kwargs["keyword_id"], "id": "job-123"})(), True
+
+    monkeypatch.setattr(service, "queue", fake_queue)
+    queued, created = service.queue_manual(
+        tenant_id="tenant-a", user_id="actor", text="  BEACH   PLEASE  ",
+        skill_source="local", skill_name="redesign-8869-v3",
+    )
+    assert created is True and queued.id == "job-123"
+    row = db.get(RrugcKeywordVolumeModel, queued.keyword_id)
+    assert row.keyword == "BEACH PLEASE"
+    assert row.picked is True and row.provider == "manual_stage1"
+    assert row.search_volume == 0
+    assert row.keyword_normalized.startswith("manual-stage1:")
+    assert invoked[0]["skill_name"] == "redesign-8869-v3"
+    assert invoked[0]["tenant_id"] == "tenant-a"
+
+
+def test_manual_keyword_rejects_empty_and_overlong_inputs(db):
+    service = KeywordImageService(db)
+    for invalid in (" ", " " * 4, "A" * 151, "A" + chr(10) + "B"):
+        with pytest.raises(KeywordImageError) as err:
+            service.queue_manual(tenant_id="tenant-a", user_id="actor", text=invalid)
+        assert err.value.status_code == 422
+    assert db.query(RrugcKeywordVolumeModel).count() == 0

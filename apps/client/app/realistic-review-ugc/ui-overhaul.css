@@ -2059,3 +2059,9 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage1-skill-update>button:hover:not(:disabled){border-color:#90afe6;background:#e0eaff}
 .rrugc-stage1-skill-update>button:disabled{opacity:.46;cursor:default}
 @media(max-width:540px){.rrugc-stage1-skill-update>button{width:100%}}
+
+/* Skill registry: clearly accessible destructive action for administrators. */
+.rrugc-skill-compact-actions .rrugc-skill-delete-icon{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;min-height:30px;padding:0;border:1px solid #f1d1d2;border-radius:8px;background:#fff7f7;color:#bb5d66;cursor:pointer}
+.rrugc-skill-compact-actions .rrugc-skill-delete-icon:hover:not(:disabled){border-color:#e5a9ac;background:#ffe9e9;color:#a33d46}
+.rrugc-skill-compact-actions .rrugc-skill-delete-icon:disabled{opacity:.45;cursor:default}
+.rrugc-skill-compact-actions .rrugc-skill-delete-icon:focus-visible{outline:2px solid #d78089;outline-offset:2px}

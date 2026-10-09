@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createKeywordImage, listKeywordImages, listStage2Skills, queueAllKeywordImages, retryKeywordImage, regenerateKeywordImage } from "./api";
+import { createKeywordImage, createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, retryKeywordImage, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
@@ -108,6 +108,10 @@ export function KeywordImageStage({
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
+  const [manualKeyword, setManualKeyword] = useState("");
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [manualResult, setManualResult] = useState<KeywordImageRow | null>(null);
+  const [manualFocus, setManualFocus] = useState<{ keywordId: string; jobId: string; keyword: string } | null>(null);
   const bulkAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -123,7 +127,8 @@ export function KeywordImageStage({
       .then(value => {
         if (!controller.signal.aborted) {
           setCatalog(value);
-          const preferred = value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && isKeywordArtworkSkill(item));
+          const preferred = value.items.find(item => item.skill_name === "redesign-8869-v3" && isKeywordArtworkSkill(item))
+            || value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && isKeywordArtworkSkill(item));
           if (preferred) setSelectedSkillKey(skillKey(preferred));
         }
       })
@@ -138,8 +143,8 @@ export function KeywordImageStage({
   // skills require input artwork that Stage 1 deliberately does not send.
   const readySkills = useMemo(() => (catalog?.items || [])
     .filter(item => isKeywordArtworkSkill(item))
-    .sort((a, b) => Number(b.skill_name === "gatorhats-keyword-embroidery")
-      - Number(a.skill_name === "gatorhats-keyword-embroidery")), [catalog]);
+    .sort((a, b) => Number(b.skill_name === "redesign-8869-v3")
+      - Number(a.skill_name === "redesign-8869-v3")), [catalog]);
   useEffect(() => {
     if (readySkills.length === 0) return;
     if (!readySkills.some(item => skillKey(item) === selectedSkillKey)) {
@@ -177,6 +182,22 @@ export function KeywordImageStage({
     }, 5000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [active, page, pageSize, debouncedQuery, status]);
+
+  useEffect(() => {
+    if (!active || !manualFocus) return;
+    const controller = new AbortController();
+    const poll = () => {
+      if (controller.signal.aborted) return;
+      void getKeywordImageJobStatus(manualFocus.jobId, controller.signal)
+        .then(job => { if (!controller.signal.aborted) setManualResult(job); })
+        .catch(() => undefined);
+    };
+    poll();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) poll();
+    }, 5000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [active, manualFocus]);
 
   // Stopping a batch stops only future queue requests; durable jobs already queued continue.
   useEffect(() => () => bulkAbortRef.current?.abort(), []);
@@ -242,6 +263,27 @@ export function KeywordImageStage({
     }
   };
 
+  const submitManual = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = manualKeyword.trim().split(/\s+/).join(" ");
+    if (!value || !selectedSkillInput || manualSubmitting) return;
+    setManualSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await createManualKeywordImage(value, selectedSkillInput);
+      setManualResult(null);
+      setManualFocus({ keywordId: result.keyword_id, jobId: result.job_id, keyword: value });
+      setStatus("all");
+      setQuery(value);
+      setPage(1);
+      setMessage("Artwork queued for " + value + ". The final image appears here when ready.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not generate from the entered keyword.");
+    } finally {
+      setManualSubmitting(false);
+    }
+  };
   const totalUsed = Object.values(data.overview).reduce((sum, count) => sum + count, 0);
   const first = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const last = Math.min(data.total, data.page * data.page_size);
@@ -250,7 +292,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker="STAGE 1 / KEYWORD-TO-IMAGE"
       title="Generate images from used keywords"
-      description="Only keywords marked Used in Stage 0 enter this queue. Select a Skill, generate in bulk, track every output, and retry failed jobs without losing completed images."
+      description="Enter a keyword to generate a finished embroidery concept board, or process Used keywords from Stage 0. Review outputs and retry without losing earlier versions."
       actions={<div className="rrugc-keyword-gen-actions">
         <button type="button" className="rrugc-global-management-button" onClick={onManageSkills}>Manage skills</button>
         {bulkRunning
@@ -258,6 +300,36 @@ export function KeywordImageStage({
           : <button type="button" className="rrugc-keyword-gen-primary" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}>Generate all unused</button>}
       </div>}
     />
+    <form className="rrugc-keyword-manual" onSubmit={event => void submitManual(event)}>
+      <div className="rrugc-keyword-manual-heading">
+        <strong>Create artwork from a keyword</strong>
+        <span>10 embroidery concepts + 1 hero hat · Final image saved automatically</span>
+      </div>
+      <div className="rrugc-keyword-manual-controls">
+        <label htmlFor="rrugc-stage1-manual-keyword" className="sr-only">Enter keyword or saying</label>
+        <input id="rrugc-stage1-manual-keyword" value={manualKeyword} maxLength={150}
+          onChange={event => setManualKeyword(event.target.value)}
+          placeholder="Enter keyword or quote, e.g. BEACH PLEASE" />
+        <button type="submit" disabled={!manualKeyword.trim() || !selectedSkillInput || manualSubmitting}>
+          {manualSubmitting ? "Queueing…" : "Generate image"}
+        </button>
+      </div>
+      {manualFocus && <div className="rrugc-keyword-manual-result" aria-live="polite">
+        <div className="rrugc-keyword-manual-result-title">
+          <strong title={manualFocus.keyword}>{manualFocus.keyword}</strong>
+          <small>{manualResult ? STATUS_LABEL[manualResult.status] : "Queued · waiting for job"}</small>
+        </div>
+        {manualResult
+          ? <KeywordImageRowControls row={manualResult} busy={workingIds.has(manualResult.keyword_id)}
+              canGenerate={Boolean(selectedSkill)}
+              onRun={() => void runOne(manualResult)}
+              onVersions={() => { if (manualResult.job_id) setVersionsJob({ jobId: manualResult.job_id, title: manualResult.keyword }); }}
+              onLogs={() => { if (manualResult.job_id) setLogJobId(manualResult.job_id); }} />
+          : <span className="rrugc-keyword-manual-pending">Waiting for job…</span>}
+        {manualResult?.status === "completed" && manualResult.output_url
+          && <a className="rrugc-keyword-manual-final" href={manualResult.output_url} target="_blank" rel="noreferrer">View final image ↗</a>}
+      </div>}
+    </form>
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
       <button type="button" aria-pressed={status === "all"} className={status === "all" ? "active" : ""} onClick={() => { setStatus("all"); setPage(1); }}>
         <strong>{totalUsed.toLocaleString()}</strong><span>All used</span>
@@ -283,7 +355,7 @@ export function KeywordImageStage({
     </div>
     {error && <p className="rrugc-keyword-gen-error" role="alert">{error}</p>}
     {message && <p className="rrugc-keyword-gen-message" role="status">{message}</p>}
-    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled Skill supports keyword-only generation (keyword_artwork). Enable GatorHats · Keyword Embroidery in Manage skills, or install a compatible Skill.</p>}
+    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled Skill supports keyword-only generation. Install the Redesign 8869 V3 Stage 1 ZIP in Manage Skills.</p>}
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
         <thead><tr><th>Keyword / Source</th><th>Volume</th><th>Skill</th><th>Status</th><th>Output &amp; actions</th></tr></thead>

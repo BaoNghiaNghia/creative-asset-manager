@@ -164,6 +164,43 @@ class KeywordImageService:
         self.session.refresh(job)
         return job, True
 
+    def queue_manual(
+        self, *, tenant_id: str, user_id: str, text: str,
+        skill_source: str | None = None, skill_id: str | None = None,
+        skill_name: str | None = None, skill_version: str | None = None,
+    ) -> tuple[RrugcKeywordImageJobModel, bool]:
+        """Accept a manually entered quote without requiring a Stage 0 Used row.
+
+        Store the input as a separately tagged manual keyword, preserving the
+        Stage 0 search-volume record and reusing the durable generation pipeline.
+        """
+        if any(ord(char) < 32 and char not in (" ", "\t") for char in text):
+            raise KeywordImageError("keyword_image_manual_invalid", "Keyword contains invalid characters.", 422)
+        value = " ".join(text.strip().split())
+        if not value or len(value) > 150:
+            raise KeywordImageError("keyword_image_manual_invalid", "Enter a keyword up to 150 characters.", 422)
+        if any(ord(char) < 32 for char in value):
+            raise KeywordImageError("keyword_image_manual_invalid", "Keyword contains invalid characters.", 422)
+        entry = RrugcKeywordVolumeModel(
+            id=str(uuid4()), tenant_id=tenant_id,
+            keyword=value, keyword_normalized="manual-stage1:" + str(uuid4()),
+            search_volume=0, provider="manual_stage1",
+            provider_raw_json={"source": "manual_stage1", "user_id": user_id},
+            picked=True, picked_at=datetime.now(timezone.utc),
+            picked_by_user_id=user_id,
+        )
+        self.session.add(entry)
+        self.session.flush()
+        try:
+            return self.queue(
+                tenant_id=tenant_id, user_id=user_id, keyword_id=entry.id,
+                skill_source=skill_source, skill_id=skill_id,
+                skill_name=skill_name, skill_version=skill_version,
+            )
+        except Exception:
+            self.session.rollback()
+            raise
+
     def regenerate(self, *, tenant_id: str, keyword_id: str) -> RrugcKeywordImageJobModel:
         job = self._job(tenant_id, keyword_id)
         if job is None:

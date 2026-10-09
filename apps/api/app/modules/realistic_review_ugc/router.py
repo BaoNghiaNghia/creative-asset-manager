@@ -241,8 +241,10 @@ from app.modules.realistic_review_ugc.schema import (
     Stage2SkillDefaultVersionRequest,
     Stage2JobCreateRequest,
     KeywordImageCreateRequest,
+    KeywordImageManualCreateRequest,
     ColorwayBatchRequest,
     KeywordImagePageResponse,
+    KeywordImageRowResponse,
     Stage2JobCreatedResponse,
     Stage2JobResponse,
     Stage2JobsCancelRequest,
@@ -296,7 +298,7 @@ from app.modules.realistic_review_ugc.stage2 import (
     RrugcStage2Service,
     STAGE2_CANCEL_GRACE_SECONDS,
 )
-from app.modules.realistic_review_ugc.keyword_images import KeywordImageService, KeywordImageError
+from app.modules.realistic_review_ugc.keyword_images import KeywordImageService, KeywordImageError, effective_status
 from app.modules.realistic_review_ugc.colorways import ColorwayService, ColorwayError
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service, STAGE3_ANALYSIS_VERSION
@@ -5223,6 +5225,31 @@ async def colorway_output(
     )
 
 
+@router.post("/keyword-images/manual", status_code=202)
+def create_manual_keyword_image(
+    request: KeywordImageManualCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    try:
+        job, created = KeywordImageService(session).queue_manual(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            text=request.keyword,
+            skill_source=request.skill_source,
+            skill_id=request.skill_id,
+            skill_name=request.skill_name,
+            skill_version=request.skill_version,
+        )
+    except KeywordImageError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {
+        "created": created, "job_id": job.id,
+        "keyword_id": job.keyword_id, "status": job.status,
+    }
+
+
 @router.get("/keyword-images", response_model=KeywordImagePageResponse)
 def list_keyword_images(
     page: int = Query(default=1, ge=1),
@@ -5339,6 +5366,34 @@ def retry_keyword_image(
         raise HTTPException(status_code=exc.status_code,
                             detail={"code": exc.code, "message": exc.message}) from exc
     return {"job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
+
+
+@router.get("/keyword-images/jobs/{job_id}/status", response_model=KeywordImageRowResponse)
+def get_keyword_image_job_status(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.processing.model import ProcessingJobModel
+    row = session.scalar(select(RrugcKeywordImageJobModel).where(
+        RrugcKeywordImageJobModel.id == job_id,
+        RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword generation not found")
+    processing = session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+    return {
+        "keyword_id": row.keyword_id, "keyword": row.keyword_text,
+        "search_volume": 0, "status": effective_status(row, processing),
+        "job_id": row.id, "skill_name": row.skill_name,
+        "skill_version": row.skill_version, "retry_count": row.retry_count,
+        "attempt_count": processing.attempt_count if processing else 0,
+        "max_attempts": processing.max_attempts if processing else 3,
+        "error_code": row.last_error_code or (processing.last_error_code if processing else None),
+        "error_message": row.last_error_message or (processing.last_error_message if processing else None),
+        "output_url": "/api/v1/realistic-review-ugc/keyword-images/jobs/" + row.id + "/output" if row.output_remote_file_id else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
 
 
 @router.get("/keyword-images/jobs/{job_id}/output")

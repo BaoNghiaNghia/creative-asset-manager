@@ -362,6 +362,11 @@ export function SkillManagerModal({
                 {item.last_error && <small className="rrugc-skill-inline-error"><SkillIcon name="alert" size={12} />{item.last_error}</small>}
               </div>
               <div className="rrugc-skill-compact-actions">
+                {registry.can_manage && <button type="button" className="rrugc-skill-delete-icon"
+                  title={"Delete skill " + item.display_name} aria-label={"Delete skill " + item.display_name}
+                  disabled={Boolean(busyKey)} onClick={() => void hardDelete(item)}>
+                  <SkillIcon name="trash" size={15} />
+                </button>}
                 {registry.can_manage && <button type="button" className={"rrugc-skill-toggle" + (item.enabled ? "" : " is-enable")} disabled={Boolean(busyKey)} onClick={() => void mutate(
                   "enabled:" + item.id,
                   () => setStage2SkillEnabled(item.id, !item.enabled),

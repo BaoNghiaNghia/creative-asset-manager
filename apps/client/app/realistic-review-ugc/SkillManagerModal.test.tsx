@@ -51,6 +51,8 @@ describe("SkillManagerModal compact redesign", () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
+    expect(host.querySelectorAll(".rrugc-skill-delete-icon")).toHaveLength(2);
+    expect(host.querySelector('button[aria-label="Delete skill GatorHats · Keyword Embroidery"]')).not.toBeNull();
     expect(host.querySelector(".rrugc-skill-details")).toBeNull();
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");
     expect(host.textContent).toContain("Stage 1 requires a keyword-only Skill");

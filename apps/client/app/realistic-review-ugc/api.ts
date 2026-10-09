@@ -21,6 +21,7 @@ import type {
   GenerationSkillCatalog,
   KeywordVolumePage,
   KeywordImagePage,
+  KeywordImageRow,
   ReferenceAsset,
   ReferenceSet,
   ReferenceSetRecommendation,
@@ -228,6 +229,24 @@ export const listKeywordImages = (
   });
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };
+
+export const getKeywordImageJobStatus = (jobId: string, signal?: AbortSignal) =>
+  request<KeywordImageRow>(
+    "/api/v1/realistic-review-ugc/keyword-images/jobs/" + encodeURIComponent(jobId) + "/status",
+    { signal },
+  );
+
+export const createManualKeywordImage = (keyword: string, skill: Stage2SkillSelection) =>
+  request<{ created: boolean; keyword_id: string; job_id: string; status: string }>(
+    "/api/v1/realistic-review-ugc/keyword-images/manual",
+    { method: "POST", body: JSON.stringify({
+      keyword,
+      skill_source: skill.source,
+      skill_id: skill.skill_id,
+      skill_name: skill.skill_name,
+      skill_version: skill.skill_version,
+    }) },
+  );
 
 export const createKeywordImage = (
   keywordId: string,
