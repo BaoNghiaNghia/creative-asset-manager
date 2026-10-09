@@ -48,7 +48,8 @@ SERVER_PID=""
 finalize(){
   status=$?
   if [[ -n "$SERVER_PID" ]]; then
-    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    # npm creates a child Vite server; stop its entire isolated process group.
+    kill -TERM -- "-$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
   if [[ "$APPLIED" == "1" && "$status" != "0" ]]; then
@@ -81,7 +82,7 @@ ROOT_URL="http://$HOST:$PORT/"
 URL="http://$HOST:$PORT$ROUTE_PATH"
 SERVER_LOG="$PROPOSAL_DIR/accept-verify-server.log"
 cd "$CLIENT"
-npm run dev -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
+setsid npm run dev -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 80); do
   if curl --silent --fail --max-time 1 "$ROOT_URL" >/dev/null; then break; fi

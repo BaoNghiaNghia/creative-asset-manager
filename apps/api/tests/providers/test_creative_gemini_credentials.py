@@ -179,6 +179,75 @@ class CreativeGeminiCredentialTest(unittest.TestCase):
             )))
         self.assertEqual(calls, ["backup-two-key-5678"])
 
+    def test_permission_denied_quarantines_only_bad_key_and_preserves_job(self):
+        from app.modules.ai_operations.gemini_failover import rate_limit_provider_key
+        from app.modules.processing_policy.claim import RRUGC_GEMINI_MODEL_GATE_PREFIX
+        from app.providers.ai.creative_gemini import GeminiCredentialPermissionDeferred
+
+        settings = Settings(
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=KEY,
+            GEMINI_API_KEY="project-denied-primary",
+            GEMINI_MODEL="gemini-2.5-flash",
+            GEMINI_MODEL_POOL="gemini-2.5-flash",
+            GEMINI_MODEL_LIMITS='{"gemini-2.5-flash":{"rpm":10,"tpm":10000,"rpd":500}}',
+        )
+        with self.sessions() as session:
+            repo = CreativeAiCredentialRepository(
+                session, creative_credential_cipher(settings),
+            )
+            repo.replace("tenant-a", secret="project-denied-primary", provider="gemini")
+            repo.replace("tenant-a", secret="healthy-independent-backup", provider="gemini_backup_1")
+            session.commit()
+
+        class FakeProvider:
+            def __init__(self, key, **kwargs):
+                self.key = key
+
+            async def analyze_single(self, input):
+                if self.key == "project-denied-primary":
+                    raise AiProviderError(
+                        "Google denied this project", code="gemini_http_error",
+                        retryable=False, status_code=403,
+                        details={"google_error_status": "PERMISSION_DENIED"},
+                    )
+                return AiMetadataAnalysisResult(metadata={}, provider="gemini")
+
+        provider = RuntimeCreativeGeminiProvider(
+            settings, self.sessions, provider_factory=FakeProvider,
+        )
+
+        def analyze(preferred):
+            return provider.analyze_single(AiMetadataAnalysisInput(
+                tenant_id="tenant-a", asset_id="asset", prompt="x",
+                image_bytes=b"jpeg", image_mime_type="image/jpeg",
+                metadata_profile="general", metadata_profile_version="1",
+                preferred_credential_provider=preferred,
+            ))
+
+        with self.assertRaises(GeminiCredentialPermissionDeferred) as caught:
+            asyncio.run(analyze("gemini"))
+        self.assertTrue(caught.exception.retryable)
+        self.assertGreater(caught.exception.earliest_retry_at, datetime.now(timezone.utc))
+        from app.modules.realistic_review_ugc.gemini_safety import deferred_rrugc_ai_retry
+        deferred = deferred_rrugc_ai_retry(caught.exception, message="Waiting for a healthy Gemini key.")
+        self.assertIsNotNone(deferred)
+        self.assertEqual(deferred.reason_code, "gemini_credential_permission_denied")
+
+        with self.sessions() as session:
+            repo = CreativeAiCredentialRepository(session, None)
+            self.assertEqual(repo.get_metadata("tenant-a", "gemini").last_test_status, "PERMISSION_DENIED")
+            self.assertEqual(repo.get_metadata("tenant-a", "gemini_backup_1").last_test_status, "VALID")
+            selected = rate_limit_provider_key(
+                session, settings, "tenant-a", "gemini",
+                model="gemini-2.5-flash", rpm=10,
+                minimum_interval_seconds=1,
+                state_provider_prefix=RRUGC_GEMINI_MODEL_GATE_PREFIX,
+            )
+            self.assertEqual(selected, "gemini_backup_1")
+
+        result = asyncio.run(analyze("gemini_backup_1"))
+        self.assertEqual(result.provider, "gemini")
+
     def test_missing_everything_is_explicitly_unavailable(self):
         with self.assertRaises(CreativeCredentialError) as context:
             CreativeGeminiCredentialResolver(self.sessions, Settings(CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=KEY)).resolve("tenant-a")

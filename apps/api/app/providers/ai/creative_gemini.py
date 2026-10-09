@@ -6,15 +6,18 @@ import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.domain.providers.contracts import AiBatchResult, AiBatchResultsInput, AiBatchStatus, AiBatchStatusInput, AiBatchSubmission, AiBatchSubmissionInput, AiMetadataAnalysisInput, AiMetadataAnalysisResult, AiProviderError
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
+from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.ai_operations.gemini_failover import backup_is_active
+from app.modules.ai_operations.credential_model import CreativeAiCredentialModel
 from app.modules.ai_operations.credentials import (
     CreativeAiCredentialRepository,
     CreativeCredentialError,
@@ -26,6 +29,20 @@ from app.providers.ai.gemini import GeminiAiMetadataProvider, GeminiModelUnavail
 
 _PACIFIC_TIME = ZoneInfo("America/Los_Angeles")
 _LOGGER = logging.getLogger("cam.providers.creative_gemini")
+_GEMINI_PERMISSION_COOLDOWN = timedelta(hours=1)
+
+
+class GeminiCredentialPermissionDeferred(AiProviderError):
+    """A credential/project-level 403: rotate keys without losing RRUGC jobs."""
+
+    def __init__(self, retry_at: datetime):
+        super().__init__(
+            "Gemini credential project access was denied. Waiting for an available credential.",
+            code="gemini_credential_permission_denied",
+            retryable=True,
+            status_code=403,
+        )
+        self.earliest_retry_at = retry_at
 
 
 class _CredentialQuotaCoordinator:
@@ -133,9 +150,78 @@ class RuntimeCreativeGeminiProvider:
             raise AiProviderError("The credential for this Gemini batch has changed.", code="creative_gemini_batch_credential_rotated", retryable=False, status_code=409)
         return current
 
+    def _quarantine_denied_credential(
+        self, *, tenant_id: str, fingerprint: str,
+    ) -> datetime:
+        """Persist an isolated cooldown across all workers and RRUGC model gates.
+
+        The Google project denial is credential-specific, not model-specific.
+        Preserve the key (no secret deletion) and only quarantine matching
+        fingerprints; other projects may continue processing immediately.
+        """
+        from app.modules.processing_policy.claim import RRUGC_GEMINI_MODEL_GATE_PREFIX
+
+        now = datetime.now(timezone.utc)
+        retry_at = now + _GEMINI_PERMISSION_COOLDOWN
+        with self.session_factory() as session:
+            rows = session.scalars(
+                select(CreativeAiCredentialModel).where(
+                    CreativeAiCredentialModel.tenant_id == tenant_id,
+                    CreativeAiCredentialModel.status == "active",
+                    CreativeAiCredentialModel.secret_fingerprint == fingerprint,
+                )
+            ).all()
+            providers: set[str] = set()
+            for row in rows:
+                if row.provider == "gemini" or row.provider.startswith("gemini_backup_"):
+                    providers.add(row.provider)
+                    row.last_test_status = "PERMISSION_DENIED"
+                    row.last_tested_at = now
+            env_key = (self.settings.GEMINI_API_KEY or "").strip()
+            if env_key and hashlib.sha256(env_key.encode()).hexdigest() == fingerprint:
+                providers.add("gemini")
+            if not providers:
+                # A key may have been rotated after this request was started;
+                # never block a different fingerprint's newly installed key.
+                _LOGGER.warning("gemini_permission_denied_rotated tenant_id=%s", tenant_id)
+                return retry_at
+
+            limiter = AiModelRateLimitRepository(session)
+            models = set(self.settings.gemini_model_pool)
+            models.add(self.settings.GEMINI_MODEL)
+            for provider in providers:
+                for model in models:
+                    for scope in (provider, RRUGC_GEMINI_MODEL_GATE_PREFIX + provider):
+                        limiter.block_until(
+                            tenant_id=tenant_id, provider=scope, model=model,
+                            retry_at=retry_at, now=now,
+                        )
+            session.commit()
+        _LOGGER.warning(
+            "gemini_credential_project_denied tenant_id=%s providers=%s cooldown_seconds=%s",
+            tenant_id, ",".join(sorted(providers)),
+            int(_GEMINI_PERMISSION_COOLDOWN.total_seconds()),
+        )
+        return retry_at
+
     async def analyze_single(self, input: AiMetadataAnalysisInput) -> AiMetadataAnalysisResult:
         credential = self._credential(input.tenant_id, preferred_provider=input.preferred_credential_provider)
-        return await self._delegate_for(input.tenant_id, credential).analyze_single(input)
+        try:
+            return await self._delegate_for(input.tenant_id, credential).analyze_single(input)
+        except AiProviderError as exc:
+            if (
+                exc.status_code == 403
+                and exc.details.get("google_error_status") == "PERMISSION_DENIED"
+            ):
+                self._quarantine_denied_credential(
+                    tenant_id=input.tenant_id, fingerprint=credential.fingerprint,
+                )
+                # RRUGC deferred outcomes retain the original processing job
+                # while other healthy keys are considered at the next claim.
+                raise GeminiCredentialPermissionDeferred(
+                    datetime.now(timezone.utc) + timedelta(seconds=30)
+                ) from exc
+            raise
 
     def _batch_affinity(self, tenant_id: str, credential: CreativeGeminiCredential) -> tuple[str | None, str | None]:
         if credential.encrypted_secret and credential.key_version:
