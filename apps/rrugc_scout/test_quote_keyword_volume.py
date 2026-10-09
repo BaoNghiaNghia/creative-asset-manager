@@ -957,6 +957,13 @@ def test_quote_extract_preserves_final_http_status_after_retries(monkeypatch):
     asyncio.run(scenario())
     assert attempts == 3
 
+def test_fair_share_retry_after_below_30_seconds_is_honored():
+    assert keyword_scout.KeywordScoutCapacityPaused(20).retry_seconds == 20
+    assert keyword_scout.KeywordScoutCapacityPaused(6).retry_seconds == 6
+    assert keyword_scout.KeywordScoutCapacityPaused(1).retry_seconds == 5
+    assert keyword_scout.KeywordScoutCapacityPaused(999).retry_seconds == 900
+
+
 def test_fair_share_retries_same_pin_and_refreshes_lease(monkeypatch):
     calls = {"process": 0, "refresh": 0, "waits": []}
     async def fake_sleep(seconds):
