@@ -657,7 +657,7 @@ class KeywordScoutCapacityPaused(Exception):
     """Server is protecting the shared Gemini pool; resume on the next cycle."""
 
     def __init__(self, retry_seconds: int = 180, *, reason: str = "review_analysis_queue_draining"):
-        self.retry_seconds = max(30, min(900, int(retry_seconds)))
+        self.retry_seconds = max(5, min(900, int(retry_seconds)))
         self.reason = reason
         super().__init__(reason)
 
