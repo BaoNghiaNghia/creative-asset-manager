@@ -1270,9 +1270,15 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 @media(max-width:760px){.rrugc-stage0-v2{padding:14px}.rrugc-stage0-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-stage0-metrics article:last-child{grid-column:1/-1}.rrugc-stage0-controlbar{padding:8px}.rrugc-stage0-main-filters,.rrugc-stage0-usage-switch{overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}.rrugc-stage0-trend-popover{position:fixed;left:50%;bottom:16px;width:min(330px,calc(100vw - 24px));transform:translateX(-50%)}.rrugc-stage0-trend-popover:after{display:none}}
 /* Stage 0: user-directed Scout exploration (hover/focus/touch). */
 .rrugc-stage0-v2 .rrugc-stage0-keyword-name{position:relative;padding-bottom:0!important}
-.rrugc-scout-feedback-actions{display:flex;align-items:center;gap:3px;max-width:100%;margin-top:5px;white-space:nowrap}
-.rrugc-scout-feedback-actions select,.rrugc-scout-feedback-actions button{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-height:23px;box-sizing:border-box;padding:2px 4px;border:1px solid #dce3eb;border-radius:6px;background:#fff;color:#52667e;font-size:8px;font-weight:700;cursor:pointer;white-space:nowrap}
-.rrugc-scout-feedback-actions select{flex:0 0 53px;width:53px;min-width:0;padding-right:1px}
+.rrugc-scout-feedback-control{position:relative;min-height:23px;margin-top:4px}
+.rrugc-scout-feedback-state{display:inline-flex;align-items:center;gap:4px;min-height:23px;box-sizing:border-box;padding:2px 6px;border:1px solid #c9e1d2;border-radius:6px;background:#eef8f1;color:#28734d;font-size:8px;font-weight:800;white-space:nowrap}
+.rrugc-scout-feedback-state.is-blocked{border-color:#eecfcf;background:#fff3f3;color:#a45050}
+.rrugc-scout-feedback-state.is-mixed{border-color:#dbe3ec;background:#f7f9fc;color:#65758a}
+.rrugc-scout-feedback-state svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.rrugc-scout-feedback-actions{position:absolute;z-index:2;top:0;left:0;display:flex;align-items:center;gap:4px;width:max-content;max-width:100%;white-space:nowrap;visibility:hidden;opacity:0;pointer-events:none}
+.rrugc-stage0-keyword-table tbody tr:hover .rrugc-scout-feedback-actions,.rrugc-stage0-keyword-table tbody tr:focus-within .rrugc-scout-feedback-actions{visibility:visible;opacity:1;pointer-events:auto}
+.rrugc-stage0-keyword-table tbody tr:hover .rrugc-scout-feedback-state,.rrugc-stage0-keyword-table tbody tr:focus-within .rrugc-scout-feedback-state{visibility:hidden}
+.rrugc-scout-feedback-actions button{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-height:23px;box-sizing:border-box;padding:2px 5px;border:1px solid #dce3eb;border-radius:6px;background:#fff;color:#52667e;font-size:8px;font-weight:700;cursor:pointer;white-space:nowrap}
 .rrugc-scout-feedback-actions button svg{flex:0 0 12px;width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .rrugc-scout-feedback-actions button.is-suggested{color:#28734d;border-color:#cae6d4;background:#f6fbf8}
 .rrugc-scout-feedback-actions button.is-suggested:hover:not(:disabled),.rrugc-scout-feedback-actions button.is-suggested.active{border-color:#a5d4b6;background:#e7f6ec;color:#236e47}
@@ -1281,8 +1287,9 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-scout-feedback-actions button.active{font-weight:850}
 .rrugc-scout-feedback-actions button.is-undo{flex:0 0 23px;width:23px;padding:0;color:#76869a}
 .rrugc-scout-feedback-actions button.is-undo:hover:not(:disabled){border-color:#bccadd;background:#f6f8fb;color:#455d79}
-.rrugc-scout-feedback-actions :is(button,select):focus-visible{outline:2px solid #6688c0;outline-offset:1px}
+.rrugc-scout-feedback-actions button:focus-visible{outline:2px solid #6688c0;outline-offset:1px}
 .rrugc-scout-feedback-actions :disabled{opacity:.5;cursor:wait}
+@media(hover:none){.rrugc-scout-feedback-actions{position:relative;visibility:visible;opacity:1;pointer-events:auto}.rrugc-scout-feedback-state{display:none}}
 @media(prefers-reduced-motion:reduce){.rrugc-stage0-icon-action,.rrugc-stage0-main-filters button{transition:none}}
 
 /* Stage 0 follow-up: restored tail KPI cards, corrected search box and provider-native trend states. */

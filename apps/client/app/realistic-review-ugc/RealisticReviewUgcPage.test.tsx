@@ -735,13 +735,19 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Bỏ đề xuất");
     expect(markup).toContain("Đã đề xuất");
     expect(markup).toContain("Đã bỏ");
-    expect(markup.match(/>Đã đề xuất</g)).toHaveLength(1);
-    expect(markup).not.toContain("rrugc-scout-feedback-state");
+    expect(markup.match(/>Đã đề xuất</g)).toHaveLength(2);
+    expect(markup).toContain('rrugc-scout-feedback-state is-suggested');
+    expect(markup).toContain('rrugc-scout-feedback-state is-blocked');
+    expect(markup).toContain('rrugc-scout-feedback-control');
+    expect(markup).not.toContain('aria-label="Feedback target:');
+    expect(markup).not.toContain('<option value="both"');
+    expect(markup).not.toContain('<option value="pin"');
     for (const icon of ["thumbs-up", "thumbs-down", "undo", "heart", "badge-check"]) {
       expect(markup).toContain(`data-icon="${icon}"`);
     }
     expect(markup).toContain('aria-pressed="true"');
-    expect(markup).toContain('value="both"');
+    expect(markup).toContain('aria-label="Scout feedback: Bad Day To Be A Hotdog hat"');
+    expect(markup).toContain('aria-label="Scout feedback: funny hotdog cap"');
     expect(markup).toContain(">Preview<");
     expect(markup).toContain(">Trend<");
     expect(markup).toContain("https://i.pinimg.com/736x/aa/bb/hotdog.jpg");

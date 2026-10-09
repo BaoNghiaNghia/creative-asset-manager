@@ -514,7 +514,6 @@ export function KeywordAnalysisTable({
         : tailFilter !== "all" ? tailFilter
           : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
-  const [feedbackScopes, setFeedbackScopes] = useState<Record<string, ScoutFeedbackScope>>({});
 
   const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites" | "suggested") => {
     const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
@@ -647,7 +646,7 @@ export function KeywordAnalysisTable({
         </tr></thead>
         <tbody>
           {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={12}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
-            const feedbackScope = feedbackScopes[item.id] || (item.source_pin_url ? "both" : "keyword");
+            const feedbackScope: ScoutFeedbackScope = item.source_pin_url ? "both" : "keyword";
             const feedbackStatus = scoutFeedbackForScope(item, feedbackScope);
             const hasFeedback = feedbackStatus !== "neutral";
             return <tr key={item.id} className={item.picked ? "is-picked" : ""}>
@@ -659,30 +658,28 @@ export function KeywordAnalysisTable({
                   <strong>{item.keyword}</strong>
                   <small>{providerLabel(item.provider)} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
                 </button>
-                <div className="rrugc-scout-feedback-actions" role="group" aria-label={"Scout feedback: " + item.keyword}>
-                  <select aria-label={"Feedback target: " + item.keyword}
-                    value={feedbackScope}
-                    disabled={feedbackUpdatingIds.has(item.id)}
-                    onChange={event => setFeedbackScopes(current => ({ ...current, [item.id]: event.target.value as ScoutFeedbackScope }))}>
-                    <option value="keyword">Keyword</option>
-                    {item.source_pin_url && <option value="pin">Pin</option>}
-                    {item.source_pin_url && <option value="both">Cả hai</option>}
-                  </select>
-                  <button type="button" className={"is-suggested" + (feedbackStatus === "suggested" ? " active" : "")}
-                    aria-pressed={feedbackStatus === "suggested"} title={feedbackStatus === "suggested" ? "Đã đề xuất cho Scout" : "Ưu tiên khám phá keyword hoặc Pin"}
-                    disabled={feedbackUpdatingIds.has(item.id)}
-                    onClick={() => onFeedbackChange(item.id, "suggested", feedbackScope)}>
-                    <Icon name="thumbs-up" />{feedbackStatus === "suggested" ? "Đã đề xuất" : "Đề xuất"}
-                  </button>
-                  <button type="button" className={"is-blocked" + (feedbackStatus === "blocked" ? " active" : "")}
-                    aria-pressed={feedbackStatus === "blocked"} title={feedbackStatus === "blocked" ? "Đã bỏ đề xuất · Ẩn sau 10 giây" : "Không tiếp tục khám phá keyword hoặc Pin"}
-                    disabled={feedbackUpdatingIds.has(item.id)}
-                    onClick={() => onFeedbackChange(item.id, "blocked", feedbackScope)}>
-                    <Icon name="thumbs-down" />{feedbackStatus === "blocked" ? "Đã bỏ" : "Bỏ đề xuất"}
-                  </button>
-                  {hasFeedback && <button type="button" className="is-undo" aria-label={"Hoàn tác đề xuất: " + item.keyword}
-                    title="Hoàn tác phản hồi" disabled={feedbackUpdatingIds.has(item.id)}
-                    onClick={() => onFeedbackChange(item.id, "neutral", feedbackScope)}><Icon name="undo" /></button>}
+                <div className="rrugc-scout-feedback-control">
+                  {hasFeedback && <span className={"rrugc-scout-feedback-state is-" + feedbackStatus} aria-label={"Trạng thái Scout: " + (feedbackStatus === "suggested" ? "Đã đề xuất" : feedbackStatus === "blocked" ? "Đã bỏ đề xuất" : "Đã phản hồi")}>
+                    <Icon name={feedbackStatus === "suggested" ? "thumbs-up" : feedbackStatus === "blocked" ? "thumbs-down" : "check"} />
+                    {feedbackStatus === "suggested" ? "Đã đề xuất" : feedbackStatus === "blocked" ? "Đã bỏ đề xuất" : "Đã phản hồi"}
+                  </span>}
+                  <div className="rrugc-scout-feedback-actions" role="group" aria-label={"Scout feedback: " + item.keyword}>
+                    <button type="button" className={"is-suggested" + (feedbackStatus === "suggested" ? " active" : "")}
+                      aria-pressed={feedbackStatus === "suggested"} title={feedbackStatus === "suggested" ? "Đã đề xuất cho Scout" : "Ưu tiên khám phá keyword hoặc Pin"}
+                      disabled={feedbackUpdatingIds.has(item.id)}
+                      onClick={() => onFeedbackChange(item.id, "suggested", feedbackScope)}>
+                      <Icon name="thumbs-up" />{feedbackStatus === "suggested" ? "Đã đề xuất" : "Đề xuất"}
+                    </button>
+                    <button type="button" className={"is-blocked" + (feedbackStatus === "blocked" ? " active" : "")}
+                      aria-pressed={feedbackStatus === "blocked"} title={feedbackStatus === "blocked" ? "Đã bỏ đề xuất · Ẩn sau 10 giây" : "Không tiếp tục khám phá keyword hoặc Pin"}
+                      disabled={feedbackUpdatingIds.has(item.id)}
+                      onClick={() => onFeedbackChange(item.id, "blocked", feedbackScope)}>
+                      <Icon name="thumbs-down" />{feedbackStatus === "blocked" ? "Đã bỏ" : "Bỏ đề xuất"}
+                    </button>
+                    {hasFeedback && <button type="button" className="is-undo" aria-label={"Hoàn tác đề xuất: " + item.keyword}
+                      title="Hoàn tác phản hồi" disabled={feedbackUpdatingIds.has(item.id)}
+                      onClick={() => onFeedbackChange(item.id, "neutral", feedbackScope)}><Icon name="undo" /></button>}
+                  </div>
                 </div>
               </td>
               <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} onOpen={() => setDetailItem(item)} /></td>
