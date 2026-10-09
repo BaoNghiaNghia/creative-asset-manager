@@ -56,6 +56,52 @@ jobs:
           retention-days: 7
 
 
+  ui-browser-fixtures:
+    name: Fixture-backed Browser QA (9 workspaces)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: apps/client/package-lock.json
+      - name: Install locked frontend packages
+        working-directory: apps/client
+        run: npm ci
+      - name: Install sandboxed Playwright Chromium
+        working-directory: apps/client
+        run: npx playwright install --with-deps chromium
+      - name: Check interaction QA runtime
+        run: node --test apps/client/scripts/ui-qa-*.node-test.mjs apps/client/scripts/production-ui-plan-validation.node-test.mjs
+      - name: Verify failure evidence is always captured
+        env:
+          CAM_UI_QA_BROWSER: chromium
+        run: node --test apps/client/scripts/ui-qa-failure.integration-test.mjs
+      - name: Build browser QA target
+        working-directory: apps/client
+        run: npm run build
+      - name: Audit visual baseline state coverage
+        run: node apps/client/scripts/ui-qa-coverage.mjs --output=artifacts/ui-qa/coverage.json
+      - name: Execute every workspace in responsive fixture mode
+        env:
+          CAM_UI_QA_BROWSER: chromium
+          CAM_UI_QA_BROWSER_PREINSTALLED: "1"
+          CAM_UI_VISUAL_SKIP: "1"
+          CAM_UI_QA_PROFILES: "explorer-viewer,review-board,realistic-review-ugc,ai-operations,inventory,access-management,video-generation,job-queue,public-review"
+        run: bash scripts/cam-ui-profile-matrix.sh
+      - name: Upload Browser QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-qa-evidence
+          path: |
+            apps/client/.ui-qa/
+            artifacts/ui-qa/
+          if-no-files-found: ignore
+          retention-days: 7
+
   r2-video-worker:
     name: R2 video Worker checks
     runs-on: ubuntu-latest
