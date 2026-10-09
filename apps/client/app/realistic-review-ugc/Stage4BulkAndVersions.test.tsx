@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Stage2ReferenceReviewModal } from "./Stage2JobTable";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
+import { listGenerationOutputVersions } from "./api";
 import type { SourcePlanReferencePreview } from "./types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,6 +54,27 @@ describe("Stage 4 bulk reference selection", () => {
 });
 
 describe("Version history comparison", () => {
+  it("displays all 37 Stage 1 Skill files with their original names", async () => {
+    vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
+      job_id: "stage1-job", stage: "stage1",
+      versions: Array.from({ length: 37 }, (_, i) => ({
+        version: 37 - i,
+        output_name: `v4-job/artworks/concept_${String(37 - i).padStart(2, "0")}/v001.png`,
+        url: `https://example.test/artwork-${37 - i}.png`,
+        created_at: "2026-10-09T05:00:00Z", width: 700, height: 500,
+      })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<GenerationOutputVersionsDialog stage="stage1"
+      jobId="stage1-job" title="Artworks" onClose={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
+    expect(host.textContent).toContain("37 saved images");
+    expect(host.textContent).toContain("concept_37");
+    await act(async () => root.unmount());
+  });
   it("compares versions horizontally with individual, all and none controls", async () => {
     const host = document.createElement("div");
     document.body.append(host);

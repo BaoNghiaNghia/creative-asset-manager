@@ -15,14 +15,15 @@ def save_output_version(
     remote_file_id: str, content_type: str | None, size_bytes: int | None,
     width: int | None, height: int | None, processing_job_id: str | None,
     allow_multiple_per_attempt: bool = False,
+    output_name: str | None = None,
 ) -> int:
     """Called while the logical job row is locked, before changing its latest output."""
-    rows = list(session.scalars(select(RrugcImageOutputVersionModel).where(
+    last = session.scalar(select(RrugcImageOutputVersionModel).where(
         RrugcImageOutputVersionModel.tenant_id == tenant_id,
         RrugcImageOutputVersionModel.stage == stage,
         RrugcImageOutputVersionModel.job_id == job.id,
-    ).order_by(RrugcImageOutputVersionModel.version)))
-    if not rows and getattr(job, "output_remote_file_id", None):
+    ).order_by(RrugcImageOutputVersionModel.version.desc()).limit(1))
+    if last is None and getattr(job, "output_remote_file_id", None):
         # Pre-migration job: preserve its existing output in the immutable history.
         legacy = RrugcImageOutputVersionModel(
             id=str(uuid4()), tenant_id=tenant_id, stage=stage, job_id=job.id,
@@ -34,14 +35,15 @@ def save_output_version(
             created_at=getattr(job, "completed_at", None) or datetime.now(timezone.utc),
         )
         session.add(legacy)
-        rows.append(legacy)
-    if (rows and processing_job_id is not None and not allow_multiple_per_attempt
-            and rows[-1].processing_job_id == processing_job_id):
-        return rows[-1].version
-    version = rows[-1].version + 1 if rows else 1
+        last = legacy
+    if (last is not None and processing_job_id is not None and not allow_multiple_per_attempt
+            and last.processing_job_id == processing_job_id):
+        return last.version
+    version = last.version + 1 if last is not None else 1
     session.add(RrugcImageOutputVersionModel(
         id=str(uuid4()), tenant_id=tenant_id, stage=stage, job_id=job.id,
         version=version, processing_job_id=processing_job_id,
+        output_name=(output_name or "")[:255] or None,
         remote_file_id=remote_file_id, content_type=content_type,
         size_bytes=size_bytes, width=width, height=height,
         created_at=datetime.now(timezone.utc),
@@ -77,6 +79,7 @@ def output_versions(session: Session, *, tenant_id: str, stage: str, job: object
         "content_type": r.content_type, "size_bytes": r.size_bytes,
         "width": r.width, "height": r.height, "created_at": r.created_at,
         "processing_job_id": r.processing_job_id,
+        "output_name": r.output_name,
     } for r in rows] or ([
         {"version": 1, "remote_file_id": job.output_remote_file_id,
          "content_type": job.output_content_type, "size_bytes": job.output_size_bytes,

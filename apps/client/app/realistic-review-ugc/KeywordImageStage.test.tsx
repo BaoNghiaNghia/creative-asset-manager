@@ -48,11 +48,11 @@ describe("Stage 1 compact output and action controls", () => {
     const button = (label: string) => host.querySelector<HTMLButtonElement>('button[aria-label="' + label + '"]')!;
     expect(host.querySelector<HTMLAnchorElement>('a[aria-label="View generated output for BEACH PLEASE"]')?.href).toBe("https://cdn.example.test/output.png");
     expect(button("Regenerate BEACH PLEASE").title).toBe("Regenerate image");
-    expect(button("View versions for BEACH PLEASE").title).toBe("Compare versions");
+    expect(button("View all generated images for BEACH PLEASE").title).toBe("View all generated images and versions");
     expect(button("View logs for BEACH PLEASE").title).toBe("View job logs");
     await act(async () => {
       button("Regenerate BEACH PLEASE").click();
-      button("View versions for BEACH PLEASE").click();
+      button("View all generated images for BEACH PLEASE").click();
       button("View logs for BEACH PLEASE").click();
     });
     expect(run).toHaveBeenCalledOnce();

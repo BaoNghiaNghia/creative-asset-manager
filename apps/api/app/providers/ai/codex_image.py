@@ -15,6 +15,7 @@ from PIL import Image
 from app.providers.ai.codex_execution_log import CodexExecutionLog, stream_codex_process, prune_codex_execution_logs
 
 from app.modules.image_generation.providers import (
+    GeneratedImageFile,
     GeneratedImageResult,
     PreparedImage,
     ReferenceImageInput,
@@ -433,7 +434,17 @@ class CodexImageGenRunner:
         if process.returncode != 0:
             raise _classify_failure(stderr, stdout)
 
-        if self.config.output_contract == "independent_concepts_v4":
+        if self.config.output_contract == "all_generated_images":
+            files = self._collect_generated_images(workspace)
+            if not files:
+                raise CodexImageProviderError(
+                    "codex_image_output_missing",
+                    "Skill returned no generated image files.",
+                    retryable=True,
+                )
+            image_bytes = Path(files[0].path).read_bytes()
+            extra_images = ()
+        elif self.config.output_contract == "independent_concepts_v4":
             image_bytes, second_image = self._read_independent_boards(workspace)
             extra_images = (second_image,)
         else:
@@ -455,7 +466,63 @@ class CodexImageGenRunner:
             provider_request_id=_request_id_from_jsonl(stdout),
             provider_metadata={"skill": self.config.skill_name},
             additional_images=extra_images,
+            output_files=files if self.config.output_contract == "all_generated_images" else (),
         )
+
+    @staticmethod
+    def _collect_generated_images(workspace: Path) -> tuple[GeneratedImageFile, ...]:
+        """Collect every generated raster file, not an arbitrary count of final boards.
+
+        Only scan output/artwork folders of this isolated execution. Bundled
+        stock hats, original references and the installed Skill are excluded.
+        Deterministic ordering puts final boards first, then all intermediates.
+        """
+        roots = (
+            workspace / "output", workspace / "v4-job" / "artworks",
+            workspace / "artworks", workspace / "results",
+            workspace / "generated", workspace / "rendered",
+            workspace / "v4-job" / "renders", workspace / "v4-job" / "rendered",
+            workspace / "v4-job" / "colorways", workspace / "v4-job" / "generated",
+            workspace / "v4-job" / "results", workspace / "v4-job" / "outputs",
+        )
+        root = workspace.resolve()
+        found: dict[Path, GeneratedImageFile] = {}
+        formats = {".png": "image/png", ".jpg": "image/jpeg",
+                   ".jpeg": "image/jpeg", ".webp": "image/webp"}
+        for directory in roots:
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            for base, dirs, names in os.walk(directory, followlinks=False):
+                dirs[:] = [name for name in dirs
+                           if not name.startswith(".") and not (Path(base) / name).is_symlink()]
+                for name in names:
+                    path = Path(base) / name
+                    mime = formats.get(path.suffix.lower())
+                    if not mime or path.is_symlink() or not path.is_file():
+                        continue
+                    resolved = path.resolve()
+                    if not resolved.is_relative_to(root):
+                        continue
+                    try:
+                        with Image.open(path) as image:
+                            image.verify()
+                            actual_mime = _ALLOWED_OUTPUT_MIME.get(image.format or "")
+                        if actual_mime != mime:
+                            continue
+                    except (OSError, ValueError, Image.DecompressionBombError):
+                        continue
+                    relative = path.relative_to(workspace).as_posix()
+                    found[resolved] = GeneratedImageFile(
+                        path=str(resolved), filename=relative, mime_type=mime,
+                    )
+        def priority(item: GeneratedImageFile) -> tuple[int, str]:
+            name = item.filename.lower()
+            if name.endswith("/final.png") or name == "output/final.png":
+                return (0, name)
+            if "_01_design_concepts." in name or "_02_13_colorways." in name:
+                return (1, name)
+            return (2, name)
+        return tuple(sorted(found.values(), key=priority))
 
     @staticmethod
     def _valid_png(path: Path, *, min_size: int = 1) -> bytes:
@@ -582,7 +649,7 @@ class CodexImageGenRunner:
         )
         extra = user_prompt.strip()
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
-        if self.config.output_contract == "independent_concepts_v4":
+        if self.config.skill_name == "hanh-redesign-8869-ver-4" and self.config.output_contract in ("independent_concepts_v4", "all_generated_images"):
             return (
                 "Use $" + self.config.skill_name + " and $imagegen.\n"
                 "Follow this Skill's independent-concept pipeline, NOT a single-cap generator.\n"
@@ -598,7 +665,9 @@ class CodexImageGenRunner:
                 "and ./output/latest.json with audit.json in the version folder and ./v4-job/job_state.json.\n"
                 "The final deliverables MUST contain 10 distinct concepts with a Hero, "
                 "and the identical Hero on all 13 ORIGINAL Valucap stock colorways.\n"
-                "Do not create output/final.png as a replacement for the two boards.\n"
+                "Keep every generated image file in ./v4-job/artworks or ./output, "
+                "including separate concepts, mockups, colorway renders and final boards. "
+                "Stage 1 will import ALL generated images, not just two final boards.\n"
                 "If the full workflow cannot be completed, report the blocker instead of "
                 "returning a fake success image.\n"
                 "Do not use an API-key-backed image generation fallback.\n"
@@ -607,13 +676,19 @@ class CodexImageGenRunner:
                 "Never print image data, whole checklists, or repeated concept descriptions to stdout.\n"
                 + extra_block
             )
+        output_instruction = (
+            "Save ALL generated images into ./output (subfolders are welcome). "
+            "Do not delete intermediate concepts, alternate designs or previews. "
+            "No fixed image count is imposed by Stage 1.\n"
+            if self.config.output_contract == "all_generated_images"
+            else "Generate exactly one final image. Save it to output/final.png. "
+        )
         return (
             "Use $" + self.config.skill_name + " and $imagegen.\n\n"
             + (f"Edit target:\n{person_name}\n\n" if person_name else "Create a new original image from the keyword instruction.\n\n")
             + f"Role-labeled references:\n{reference_lines}\n"
             + f"{extra_block}\n"
-            + "Generate exactly one final image. "
-            + "Save it to output/final.png. "
+            + output_instruction
             + "Do not use an API-key-backed image generation fallback. "
             + "Do not run extra Python/PIL validation commands; the caller validates the PNG after Codex exits."
         )

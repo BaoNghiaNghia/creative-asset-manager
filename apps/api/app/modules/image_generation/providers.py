@@ -27,6 +27,14 @@ class PreparedImage:
 
 
 @dataclass(frozen=True, slots=True)
+class GeneratedImageFile:
+    """A skill-produced image in the job's isolated workspace."""
+    path: str
+    filename: str
+    mime_type: Literal["image/jpeg", "image/png", "image/webp"]
+
+
+@dataclass(frozen=True, slots=True)
 class GeneratedImageResult:
     provider: ProviderKey
     model: str | None
@@ -35,6 +43,7 @@ class GeneratedImageResult:
     provider_request_id: str | None = None
     provider_metadata: dict[str, str] | None = None
     additional_images: tuple[bytes, ...] = ()
+    output_files: tuple[GeneratedImageFile, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

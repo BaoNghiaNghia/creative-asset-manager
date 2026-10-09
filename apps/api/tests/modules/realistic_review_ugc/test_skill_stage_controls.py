@@ -164,3 +164,28 @@ def test_stage1_pair_keeps_both_boards_under_one_generation_attempt():
             ]
     finally:
         engine.dispose()
+
+def test_stage1_keeps_every_generated_image_and_original_filename():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            job = SimpleNamespace(id="many-output-job", output_remote_file_id=None)
+            for index in range(37):
+                version = output_versions.save_output_version(
+                    session, tenant_id="tenant-a", stage="stage1", job=job,
+                    remote_file_id=f"image-{index}", content_type="image/png",
+                    size_bytes=1024, width=700, height=500,
+                    processing_job_id="attempt-many",
+                    allow_multiple_per_attempt=index > 0,
+                    output_name=f"v4-job/artworks/concept_{index:02d}/v001.png",
+                )
+                assert version == index + 1
+            session.commit()
+            rows = output_versions.output_versions(
+                session, tenant_id="tenant-a", stage="stage1", job=job)
+            assert len(rows) == 37
+            assert rows[0]["output_name"].endswith("concept_36/v001.png")
+            assert rows[-1]["remote_file_id"] == "image-0"
+            assert len({item["version"] for item in rows}) == 37
+    finally:
+        engine.dispose()

@@ -72,7 +72,7 @@ export function KeywordImageRowControls({
         <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
       {row.job_id && row.output_url && <button type="button" className="rrugc-keyword-result-action"
-        onClick={onVersions} title="Compare versions" aria-label={"View versions for " + row.keyword}>
+        onClick={onVersions} title="View all generated images and versions" aria-label={"View all generated images for " + row.keyword}>
         <KeywordActionGlyph kind="versions" />
         <span className="rrugc-keyword-action-label">Versions</span>
       </button>}

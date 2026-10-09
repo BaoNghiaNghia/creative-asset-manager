@@ -60,7 +60,7 @@ export function GenerationOutputVersionsDialog({
         <div>
           <small>{stage.toUpperCase()} · OUTPUT HISTORY</small>
           <h2 id="rrugc-output-version-title" title={title}>{title}</h2>
-          <p>{versions.length} saved versions · Earlier outputs are preserved</p>
+          <p>{versions.length} saved images · All Skill outputs and earlier versions are preserved</p>
         </div>
         <button type="button" aria-label="Close output versions" onClick={onClose}>×</button>
       </header>
@@ -103,7 +103,7 @@ export function GenerationOutputVersionsDialog({
       {!loading && !error && <div className="rrugc-version-grid" aria-label="Side-by-side version comparison">
         {compared.map(version => <article key={version.version} className="rrugc-version-compare-card">
           <div className="rrugc-version-card-heading">
-            <strong>{version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
+            <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
             {version.version === versions[0]?.version && <span>Latest</span>}
           </div>
           <a className="rrugc-version-image-link" href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
@@ -112,6 +112,7 @@ export function GenerationOutputVersionsDialog({
           <div className="rrugc-version-card-meta">
             <small>{new Date(version.created_at).toLocaleString()}</small>
             {version.width && version.height && <small>{version.width}×{version.height}</small>}
+            {version.output_name && <small title={version.output_name}>v{version.version} · {version.output_name}</small>}
           </div>
           <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>
         </article>)}

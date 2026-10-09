@@ -192,3 +192,38 @@ def test_codex_skill_manifest_drives_deterministic_product_and_role_matching(tmp
         product_type="Baseball Cap",
         fallback_skill=None,
     ) == manifest
+
+def test_codex_stage1_collects_every_generated_artwork_without_count_limit(tmp_path):
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(output_contract="all_generated_images"))
+    workspace = tmp_path / "isolated-job"
+    boards = workspace / "output" / "v001"
+    concepts = workspace / "v4-job" / "artworks"
+    stock = workspace / "v4-job" / "stock"
+    boards.mkdir(parents=True)
+    concepts.mkdir(parents=True)
+    stock.mkdir(parents=True)
+    Image.new("RGB", (800, 600), "white").save(boards / "quote_01_design_concepts.png")
+    Image.new("RGB", (800, 600), "blue").save(boards / "quote_02_13_colorways.png")
+    for number in range(37):
+        folder = concepts / f"concept_{number:02d}"
+        folder.mkdir()
+        Image.new("RGBA", (500, 600), (number, 40, 60, 255)).save(folder / "v001.png")
+    Image.new("RGB", (500, 500), "black").save(stock / "original_hat.png")
+    (boards / "invalid.png").write_text("invalid PNG", encoding="utf-8")
+    results = runner._collect_generated_images(workspace)
+    assert len(results) == 39
+    assert results[0].filename.endswith("_01_design_concepts.png")
+    assert results[1].filename.endswith("_02_13_colorways.png")
+    assert not any("stock" in result.filename for result in results)
+    assert len({result.filename for result in results}) == 39
+
+
+def test_stage1_collector_rejects_symlinked_external_files(tmp_path):
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(output_contract="all_generated_images"))
+    workspace = tmp_path / "job"
+    output = workspace / "output"
+    output.mkdir(parents=True)
+    outside = tmp_path / "outside.png"
+    Image.new("RGB", (512, 512), "red").save(outside)
+    (output / "danger.png").symlink_to(outside)
+    assert runner._collect_generated_images(workspace) == ()

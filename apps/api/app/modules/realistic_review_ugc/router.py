@@ -4710,7 +4710,12 @@ def list_generation_output_versions(
     return {"job_id": job_id, "stage": stage, "versions": [
         {"version": row["version"], "created_at": row["created_at"],
          "width": row["width"], "height": row["height"],
-         "output_role": output_roles.get(row["version"]),
+         "output_role": (
+             "design_concepts" if "_01_design_concepts." in (row.get("output_name") or "")
+             else "colorways" if "_02_13_colorways." in (row.get("output_name") or "")
+             else output_roles.get(row["version"]) if not row.get("output_name") else None
+         ),
+         "output_name": row.get("output_name"),
          "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}
         for row in rows]}
 

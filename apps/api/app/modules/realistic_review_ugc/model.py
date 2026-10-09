@@ -1022,6 +1022,7 @@ class RrugcImageOutputVersionModel(Base):
     job_id: Mapped[str] = mapped_column(String(36), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    output_name: Mapped[str | None] = mapped_column(String(255))
     remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(128))
     size_bytes: Mapped[int | None] = mapped_column(Integer)
