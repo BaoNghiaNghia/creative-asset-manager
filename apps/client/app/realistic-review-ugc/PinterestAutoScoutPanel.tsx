@@ -7,9 +7,18 @@ import {
   resetScoutAgentPairing,
 } from "./api";
 import type { ScoutAgent, ScoutAgentCreated, ScoutRun } from "./types";
+import { WorkflowStatusIcon } from "./WorkflowStatusIcon";
 
 const time = (value: string | null) =>
   value ? new Date(value).toLocaleString() : "Never";
+
+export function scoutMachineStatus(agent: ScoutAgent | undefined) {
+  if (!agent) return { tone: "unknown", label: "Unlinked", icon: "alert" as const };
+  if (agent.status === "offline") return { tone: "offline", label: "Offline", icon: "wifi-off" as const };
+  if (agent.status === "error") return { tone: "error", label: "Error", icon: "alert" as const };
+  if (agent.status === "needs_login") return { tone: "warning", label: "Login needed", icon: "alert" as const };
+  return { tone: "online", label: "Online", icon: "wifi" as const };
+}
 
 const DEFAULT_PROFILE_DIR =
   "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\pinterest-profile";
@@ -77,7 +86,7 @@ export function PinterestAutoScoutPanel({
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState<"agent-id" | "token" | "bootstrap" | "agent" | "">("");
 
-  const onlineAgents = agents.filter(agent => agent.status !== "offline");
+  const onlineAgents = agents.filter(agent => agent.status === "ready" || agent.status === "busy");
   const isOnline = onlineAgents.length > 0;
   const outdatedAgents = onlineAgents.filter(agent => !scoutClientIsCurrent(agent.client_version));
   const loginRequiredAgents = onlineAgents.filter(agent => agent.status === "needs_login");
@@ -183,6 +192,9 @@ export function PinterestAutoScoutPanel({
     : null;
   const isStalled = Boolean(activeRun && heartbeatAgeMs !== null && heartbeatAgeMs > 120_000);
   const recentFailures = recentRuns.filter(row => row.status === "failed" || row.status === "cancelled").length;
+  const keywordMachines = metrics?.items.filter(item => item.mode === "keyword") || [];
+  const reviewMachines = metrics?.review_items || [];
+  const keywordAgentsWithoutMetrics = agents.filter(agent => !keywordMachines.some(item => item.agent_id === agent.id));
   const health = agents.length === 0
     ? { tone: "is-offline", label: "No Scout paired", detail: "Pair each Scout machine once, then run its launcher." }
     : !isOnline
@@ -204,71 +216,103 @@ export function PinterestAutoScoutPanel({
   return <section className="rrugc-card rrugc-auto-scout-panel" aria-label="Pinterest Auto Scout">
     <div className="rrugc-section-heading rrugc-auto-scout-heading">
       <div>
-        <small>PINTEREST SOURCE</small>
-        <h2>Auto Scout</h2>
-        <p>Persistent Pinterest browser for campaign discovery and reference collection.</p>
+        <small>SCOUT OPERATIONS</small>
+        <h2><WorkflowStatusIcon name="monitor" size={19} />Auto Scout</h2>
+        <p>Machine connections, keyword discovery and reference performance · last 7 days</p>
       </div>
       <span className={"rrugc-auto-scout-health " + health.tone} title={health.detail}>
-        <i aria-hidden="true" />
+        <WorkflowStatusIcon name={health.tone === "is-online" ? "shield-check" : health.tone === "is-offline" ? "wifi-off" : "alert"} size={14} />
         {health.label}
       </span>
     </div>
 
-    <div className="rrugc-scout-overview" role="status">
-      <span><small>Machines</small><b>{agents.length || "—"} paired</b></span>
-      <span><small>Connection</small><b>{onlineAgents.length}/{agents.length || 0} online</b></span>
-      <span><small>Task</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
-      <span><small>New refs</small><b>{createdCount}</b></span>
+    <div className="rrugc-scout-overview" role="status" aria-label="Scout connections overview">
+      <span><small><WorkflowStatusIcon name="monitor" size={13} /> Paired machines</small><b>{agents.length.toLocaleString()}</b></span>
+      <span className={onlineAgents.length < agents.length ? "is-warning" : "is-good"}><small><WorkflowStatusIcon name="wifi" size={13} /> Online</small><b>{onlineAgents.length}<em> / {agents.length}</em></b></span>
+      <span><small><WorkflowStatusIcon name={activeRun ? "activity" : "circle-pause"} size={13} /> Discovery</small><b>{activeRun ? "Scanning" : "Idle"}</b></span>
+      <span><small><WorkflowStatusIcon name="image" size={13} /> New references</small><b>{createdCount.toLocaleString()}</b></span>
     </div>
 
+    <div className="rrugc-scout-summary-heading">
+      <strong><WorkflowStatusIcon name="key" size={15} /> Keyword discovery</strong>
+      <small>All machines · tenant-wide</small>
+    </div>
     <div className="rrugc-scout-keyword-summary" role="status" aria-label="Tenant-wide Keyword Scout counters">
-      <span><small>Total keywords</small><b>{metrics?.overview.total_keywords.toLocaleString() ?? "—"}</b></span>
-      <span><small>New / 24h</small><b>{metrics?.overview.added_24h.toLocaleString() ?? "—"}</b></span>
-      <span><small>New / 7d</small><b>{metrics?.overview.added_7d.toLocaleString() ?? "—"}</b></span>
-      <span><small>Priority pending</small><b>{metrics?.overview.priority_pending.toLocaleString() ?? "—"}</b></span>
-      <span><small>Đề xuất</small><b>{metrics ? (metrics.feedback.suggested || 0).toLocaleString() : "—"}</b></span>
-      <span><small>Bỏ đề xuất</small><b>{metrics ? (metrics.feedback.blocked || 0).toLocaleString() : "—"}</b></span>
+      <span><small><WorkflowStatusIcon name="key" size={12} /> Total keywords</small><b>{metrics?.overview.total_keywords.toLocaleString() ?? "—"}</b></span>
+      <span><small><WorkflowStatusIcon name="sparkles" size={12} /> New · 24h</small><b>{metrics?.overview.added_24h.toLocaleString() ?? "—"}</b></span>
+      <span><small><WorkflowStatusIcon name="trending-up" size={12} /> New · 7d</small><b>{metrics?.overview.added_7d.toLocaleString() ?? "—"}</b></span>
+      <span><small><WorkflowStatusIcon name="clock" size={12} /> Priority pending</small><b>{metrics?.overview.priority_pending.toLocaleString() ?? "—"}</b></span>
+      <span className="is-positive"><small><WorkflowStatusIcon name="thumbs-up" size={12} /> Suggested</small><b>{metrics ? (metrics.feedback.suggested || 0).toLocaleString() : "—"}</b></span>
+      <span className="is-negative"><small><WorkflowStatusIcon name="thumbs-down" size={12} /> Blocked</small><b>{metrics ? (metrics.feedback.blocked || 0).toLocaleString() : "—"}</b></span>
     </div>
 
-    {agents.length > 0 && <div className="rrugc-scout-machine-cards" aria-label="Scout metrics by machine">
-      {(metrics?.items.filter(item => item.mode === "keyword") || []).map(item => {
-        const agent = agents.find(row => row.id === item.agent_id);
-        return <article key={item.agent_id + ":" + item.machine_label} className="rrugc-scout-machine-card">
-          <header><strong>{item.machine_label}</strong><small>Keyword Scout · Last 7 days</small></header>
-          <div className="rrugc-scout-machine-counts">
-            <span><small>Pins scanned</small><b>{item.scanned_pins.toLocaleString()}</b></span>
-            <span><small>Keywords found</small><b>{item.found_quotes.toLocaleString()}</b></span>
-            <span><small>New keywords</small><b>{item.new_keywords.toLocaleString()}</b></span>
-            <span><small>Duplicates</small><b>{item.duplicate_pins.toLocaleString()}</b></span>
-            <span><small>Errors</small><b>{item.errors.toLocaleString()}</b></span>
-          </div>
-          <footer>Last report: {time(item.last_activity_at)} · {agent?.status || "Unpaired"}</footer>
-        </article>;
-      })}
-      {(metrics?.review_items || []).map(item => {
-        const agent = agents.find(row => row.id === item.agent_id);
-        return <article key={"review:" + item.agent_id} className="rrugc-scout-machine-card">
-          <header>
-            <strong>{agent?.machine_label || agent?.name || item.agent_id}</strong>
-            <small>Review Scout · Last 7 days</small>
-          </header>
-          <div className="rrugc-scout-machine-counts">
-            <span><small>Pins submitted</small><b>{item.submitted.toLocaleString()}</b></span>
-            <span><small>New refs</small><b>{item.new_references.toLocaleString()}</b></span>
-            <span><small>Duplicates</small><b>{item.duplicates.toLocaleString()}</b></span>
-            <span><small>Runs</small><b>{item.runs.toLocaleString()}</b></span>
-            <span><small>Failed runs</small><b>{item.failed_runs.toLocaleString()}</b></span>
-          </div>
-          <footer>Last run: {time(item.last_activity_at)} · Aggregated by Scout Agent</footer>
-        </article>;
-      })}
-      {metrics && agents.filter(agent => !metrics.items.some(item => item.agent_id === agent.id && item.mode === "keyword")).map(agent =>
-        <article key={agent.id} className="rrugc-scout-machine-card">
-          <header><strong>{agent.machine_label || agent.name}</strong><small>Keyword Scout · Last 7 days</small></header>
-          <p className="rrugc-scout-metrics-empty">No cycle metrics yet. Update and restart Keyword Scout v{MIN_SCOUT_CLIENT_VERSION} to enable reporting.</p>
-          <footer>Agent {agent.status} · Last seen: {time(agent.last_seen_at)}</footer>
-        </article>
-      )}
+    {agents.length > 0 && <div className="rrugc-scout-machine-sections" aria-label="Scout metrics by machine">
+      <section className="rrugc-scout-machine-section" aria-label="Keyword Scout machines">
+        <div className="rrugc-scout-machine-heading">
+          <strong><span className="rrugc-scout-category-icon is-keyword"><WorkflowStatusIcon name="key" size={16} /></span> Keyword Scout</strong>
+          <small>{keywordMachines.length} reporting · Last 7 days</small>
+        </div>
+        <div className="rrugc-scout-machine-cards">
+          {keywordMachines.map(item => {
+            const agent = agents.find(row => row.id === item.agent_id);
+            const status = scoutMachineStatus(agent);
+            return <article key={item.agent_id + ":" + item.machine_label} className="rrugc-scout-machine-card is-keyword">
+              <header>
+                <div className="rrugc-scout-machine-title"><span className="rrugc-scout-machine-avatar"><WorkflowStatusIcon name="monitor" size={16} /></span><strong title={item.machine_label}>{item.machine_label}</strong></div>
+                <span className={"rrugc-scout-machine-status is-" + status.tone}><WorkflowStatusIcon name={status.icon} size={12} />{status.label}</span>
+              </header>
+              <div className="rrugc-scout-machine-counts">
+                <span><small>Pins scanned</small><b>{item.scanned_pins.toLocaleString()}</b></span>
+                <span><small>Keywords found</small><b>{item.found_quotes.toLocaleString()}</b></span>
+                <span><small>New keywords</small><b>{item.new_keywords.toLocaleString()}</b></span>
+                <span><small>Duplicates</small><b>{item.duplicate_pins.toLocaleString()}</b></span>
+                <span className={item.errors > 0 ? "is-error" : ""}><small>Errors</small><b>{item.errors.toLocaleString()}</b></span>
+              </div>
+              <footer><WorkflowStatusIcon name="clock" size={12} /><span>Last report: {time(item.last_activity_at)}</span></footer>
+            </article>;
+          })}
+          {keywordAgentsWithoutMetrics.map(agent => {
+            const status = scoutMachineStatus(agent);
+            return <article key={agent.id} className="rrugc-scout-machine-card is-keyword is-empty">
+              <header>
+                <div className="rrugc-scout-machine-title"><span className="rrugc-scout-machine-avatar"><WorkflowStatusIcon name="monitor" size={16} /></span><strong title={agent.machine_label || agent.name}>{agent.machine_label || agent.name}</strong></div>
+                <span className={"rrugc-scout-machine-status is-" + status.tone}><WorkflowStatusIcon name={status.icon} size={12} />{status.label}</span>
+              </header>
+              <p className="rrugc-scout-metrics-empty">No keyword cycles reported yet. Check the Keyword Scout process on this machine.</p>
+              <footer><WorkflowStatusIcon name="clock" size={12} /><span>Last seen: {time(agent.last_seen_at)}</span></footer>
+            </article>;
+          })}
+        </div>
+      </section>
+
+      <section className="rrugc-scout-machine-section" aria-label="Review Scout machines">
+        <div className="rrugc-scout-machine-heading">
+          <strong><span className="rrugc-scout-category-icon is-review"><WorkflowStatusIcon name="image" size={16} /></span> Review Scout</strong>
+          <small>{reviewMachines.length} reporting · Last 7 days</small>
+        </div>
+        <div className="rrugc-scout-machine-cards">
+          {reviewMachines.map(item => {
+            const agent = agents.find(row => row.id === item.agent_id);
+            const status = scoutMachineStatus(agent);
+            const machineName = agent?.machine_label || agent?.name || item.agent_id;
+            return <article key={"review:" + item.agent_id} className="rrugc-scout-machine-card is-review">
+              <header>
+                <div className="rrugc-scout-machine-title"><span className="rrugc-scout-machine-avatar"><WorkflowStatusIcon name="monitor" size={16} /></span><strong title={machineName}>{machineName}</strong></div>
+                <span className={"rrugc-scout-machine-status is-" + status.tone}><WorkflowStatusIcon name={status.icon} size={12} />{status.label}</span>
+              </header>
+              <div className="rrugc-scout-machine-counts">
+                <span><small>Submitted</small><b>{item.submitted.toLocaleString()}</b></span>
+                <span><small>New references</small><b>{item.new_references.toLocaleString()}</b></span>
+                <span><small>Duplicates</small><b>{item.duplicates.toLocaleString()}</b></span>
+                <span><small>Runs</small><b>{item.runs.toLocaleString()}</b></span>
+                <span className={item.failed_runs > 0 ? "is-error" : ""}><small>Failed runs</small><b>{item.failed_runs.toLocaleString()}</b></span>
+              </div>
+              <footer><WorkflowStatusIcon name="clock" size={12} /><span>Last run: {time(item.last_activity_at)}</span></footer>
+            </article>;
+          })}
+          {reviewMachines.length === 0 && <div className="rrugc-scout-machine-empty"><WorkflowStatusIcon name="image" size={16} />No Review Scout reports in this period.</div>}
+        </div>
+      </section>
     </div>}
 
     {(health.tone !== "is-online" || activeRun) && <div className={"rrugc-scout-health-note " + health.tone}>

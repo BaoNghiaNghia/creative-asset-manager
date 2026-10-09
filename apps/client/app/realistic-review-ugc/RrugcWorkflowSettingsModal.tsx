@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { PinterestAutoScoutPanel } from "./PinterestAutoScoutPanel";
 import { RrugcHealthPanel } from "./RrugcHealthPanel";
+import { WorkflowStatusIcon } from "./WorkflowStatusIcon";
 
 export function RrugcWorkflowSettingsModal({
   open,
@@ -39,10 +40,13 @@ export function RrugcWorkflowSettingsModal({
       aria-labelledby="rrugc-settings-modal-title"
     >
       <header className="rrugc-settings-modal-header">
-        <div>
-          <small>WORKFLOW SETTINGS</small>
-          <h2 id="rrugc-settings-modal-title">Scout & automation settings</h2>
-          <p>Global controls live outside the stage sequence so Stage 0–5 stay focused on production work.</p>
+        <div className="rrugc-settings-modal-heading">
+          <span className="rrugc-settings-heading-icon"><WorkflowStatusIcon name="settings" size={20} /></span>
+          <div>
+            <small>WORKFLOW / MONITORING</small>
+            <h2 id="rrugc-settings-modal-title">Scout & automation</h2>
+            <p>Pipeline health, discovery performance and connected Scout machines</p>
+          </div>
         </div>
         <button
           type="button"
