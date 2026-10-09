@@ -24,6 +24,64 @@ function skillKey(skill: Pick<Stage2Skill, "source" | "skill_id" | "skill_name">
   return [skill.source, skill.skill_id || skill.skill_name].join(":");
 }
 
+type KeywordActionIcon = "generate" | "regenerate" | "retry" | "versions" | "logs";
+
+function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
+  if (kind === "logs") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3h10l3 3v15H4V3h3Z"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>;
+  if (kind === "versions") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="7" width="13" height="13" rx="2"/><path d="M4 16V5a2 2 0 0 1 2-2h11"/></svg>;
+  if (kind === "generate") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3ZM19 17v4m-2-2h4"/></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 0-2.5 6"/><path d="M20 4v7h-7"/></svg>;
+}
+
+export function KeywordImageRowControls({
+  row, busy, canGenerate, onRun, onVersions, onLogs,
+}: {
+  row: KeywordImageRow;
+  busy: boolean;
+  canGenerate: boolean;
+  onRun: () => void;
+  onVersions: () => void;
+  onLogs: () => void;
+}) {
+  const regenerate = row.status === "completed";
+  const retry = row.status === "failed";
+  const generate = row.status === "not_run";
+  const runnable = regenerate || retry || generate;
+  const capped = retry && row.retry_count >= 3;
+  const runLabel = regenerate ? "Regenerate" : retry ? "Retry" : "Generate";
+  const runDisabled = busy || capped || (generate && !canGenerate);
+  const runTitle = capped ? "Retry limit reached" : generate && !canGenerate ? "Enable a keyword artwork Skill first" : busy ? "Queueing…" : runLabel + " image";
+
+  return <div className="rrugc-keyword-result-cell" aria-busy={busy}>
+    {row.output_url
+      ? <a className="rrugc-keyword-result-preview is-available" href={row.output_url} target="_blank" rel="noreferrer"
+          title={"View output for " + row.keyword} aria-label={"View generated output for " + row.keyword}>
+          <img src={row.output_url + "?thumbnail=true"} alt={row.keyword + " generated output"} loading="lazy" />
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 5h5v5M19 5l-8 8"/></svg>
+        </a>
+      : <span className="rrugc-keyword-result-preview is-empty" role="img" aria-label="No generated output yet" title="No output yet">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3.5 3.5 2.5-2.5 4 4"/></svg>
+        </span>}
+    <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
+      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (retry ? "retry" : regenerate ? "regenerate" : "generate")}
+        onClick={onRun} disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
+        <KeywordActionGlyph kind={retry ? "retry" : regenerate ? "regenerate" : "generate"} />
+      </button>}
+      {row.job_id && row.output_url && <button type="button" className="rrugc-keyword-result-action"
+        onClick={onVersions} title="Compare versions" aria-label={"View versions for " + row.keyword}>
+        <KeywordActionGlyph kind="versions" />
+      </button>}
+      {row.job_id && <button type="button" className="rrugc-keyword-result-action"
+        onClick={onLogs} title="View job logs" aria-label={"View logs for " + row.keyword}>
+        <KeywordActionGlyph kind="logs" />
+      </button>}
+      {!runnable && !row.job_id && <span className="rrugc-keyword-result-pending" title={row.status === "queued" ? "Waiting in the queue" : "Generation in progress"}>
+        {row.status === "queued" ? "Waiting" : "In progress"}
+      </span>}
+    </div>
+  </div>;
+}
+
 export function KeywordImageStage({
   active,
   skillCatalogRevision,
@@ -228,10 +286,10 @@ export function KeywordImageStage({
     {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled Skill supports keyword-only generation (keyword_artwork). Enable GatorHats · Keyword Embroidery in Manage skills, or install a compatible Skill.</p>}
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
-        <thead><tr><th>Keyword / Source</th><th>Volume</th><th>Skill</th><th>Status</th><th>Output</th><th>Action</th></tr></thead>
+        <thead><tr><th>Keyword / Source</th><th>Volume</th><th>Skill</th><th>Status</th><th>Output &amp; actions</th></tr></thead>
         <tbody>
           {loading && !data.items.length
-            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={6}><span /></td></tr>)
+            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={5}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
               return <tr key={row.keyword_id}>
@@ -244,16 +302,11 @@ export function KeywordImageStage({
                 <td className="rrugc-keyword-gen-volume">{row.search_volume.toLocaleString("en-US")}</td>
                 <td><span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "—"}</span></td>
                 <td><span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{STATUS_LABEL[row.status]}</span>{row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}{row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">Attempt {row.attempt_count}/{row.max_attempts}</small> : null}</td>
-                <td>{row.output_url
-                  ? <a href={row.output_url} target="_blank" rel="noreferrer" className="rrugc-keyword-gen-output" aria-label={"View generated output for " + row.keyword}><img src={row.output_url + "?thumbnail=true"} alt={"Generated " + row.keyword} loading="lazy" /><span>View output ↗</span></a>
-                  : <span className="rrugc-keyword-gen-no-output">No output yet</span>}{row.job_id && row.output_url && <button type="button" className="rrugc-keyword-gen-row-action" onClick={() => setVersionsJob({ jobId: row.job_id!, title: row.keyword })}>Versions</button>}</td>
-                <td>
-                  {row.status === "not_run" && <button type="button" className="rrugc-keyword-gen-row-action" disabled={busy || !selectedSkill} onClick={() => void runOne(row)}>{busy ? "Queueing…" : "Generate"}</button>}
-                  {row.status === "failed" && <button type="button" className="rrugc-keyword-gen-row-action retry" disabled={busy || row.retry_count >= 3} onClick={() => void runOne(row)}>{busy ? "Retrying…" : row.retry_count >= 3 ? "Retry limit" : "Retry"}</button>}
-                  {row.status === "queued" && <span className="rrugc-keyword-gen-muted">Waiting</span>}
-                  {row.status === "running" && <span className="rrugc-keyword-gen-muted">In progress</span>}
-                  {row.status === "completed" && <button type="button" className="rrugc-keyword-gen-row-action" disabled={busy} onClick={() => void runOne(row)}>{busy ? "Queueing…" : "Regenerate"}</button>}
-                  {row.job_id && <button type="button" className="rrugc-keyword-gen-row-action" onClick={() => setLogJobId(row.job_id)}>Logs</button>}
+                <td className="rrugc-keyword-gen-result">
+                  <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)}
+                    onRun={() => void runOne(row)}
+                    onVersions={() => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword }); }}
+                    onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
                 </td>
               </tr>;
             })}
