@@ -105,13 +105,15 @@ function Icon({
   name,
   filled = false,
 }: {
-  name: "search" | "star" | "heart" | "badge-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus";
+  name: "search" | "star" | "heart" | "badge-check" | "circle-plus" | "circle-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus";
   filled?: boolean;
 }) {
   if (name === "search") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" /><path d="m15.2 15.2 4.3 4.3" /></svg>;
   if (name === "star") return <svg viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="m12 2.8 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9z" /></svg>;
   if (name === "heart") return <svg data-icon="heart" viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="M20.8 8.5c0 5.1-8.8 11.2-8.8 11.2S3.2 13.6 3.2 8.5a4.7 4.7 0 0 1 8.8-2.2 4.7 4.7 0 0 1 8.8 2.2Z" /></svg>;
   if (name === "badge-check") return <svg data-icon="badge-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 2.6 1.4 3-.1 1.5 2.6 2.6 1.5-.1 3L23 12l-1.4 2.6.1 3-2.6 1.5-1.5 2.6-3-.1L12 23l-2.6-1.4-3 .1-1.5-2.6-2.6-1.5.1-3L1 12l1.4-2.6-.1-3 2.6-1.5 1.5-2.6 3 .1L12 2Z" transform="translate(1.7 1.7) scale(.86)" /><path d="m8.2 12 2.5 2.5 5.1-5.2" /></svg>;
+  if (name === "circle-plus") return <svg data-icon="circle-plus" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg>;
+  if (name === "circle-check") return <svg data-icon="circle-check" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 2.6 2.6L16 9.5" /></svg>;
   if (name === "thumbs-up") return <svg data-icon="thumbs-up" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v10H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h3Zm0 0 4.8-7a1.8 1.8 0 0 1 3.2 1.4L14 9h5a3 3 0 0 1 3 3.6l-1.2 6a3 3 0 0 1-3 2.4H7" /></svg>;
   if (name === "thumbs-down") return <svg data-icon="thumbs-down" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V4H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3Zm0 0 4.8 7a1.8 1.8 0 0 0 3.2-1.4L14 15h5a3 3 0 0 0 3-3.6l-1.2-6A3 3 0 0 0 17.8 3H7" /></svg>;
   if (name === "undo") return <svg data-icon="undo" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2" /></svg>;
@@ -694,7 +696,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
                   <button type="button" className={"rrugc-stage0-icon-action favorite" + (item.favorite ? " active" : "")} aria-pressed={item.favorite} aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword} title={item.favorite ? "Remove favorite" : "Add favorite"} disabled={favoritingIds.has(item.id)} onClick={() => onFavoriteChange(item.id, !item.favorite)}><Icon name="heart" filled={item.favorite} /></button>
-                  <button type="button" className={"rrugc-stage0-icon-action pick" + (item.picked ? " active" : "")} aria-pressed={item.picked} aria-label={(item.picked ? "Mark unused: " : "Pick keyword: ") + item.keyword} title={item.picked ? "Mark unused" : "Pick for use"} disabled={pickingIds.has(item.id)} onClick={() => onPickChange(item.id, !item.picked)}><Icon name="badge-check" /></button>
+                  <button type="button" className={"rrugc-stage0-icon-action pick" + (item.picked ? " active" : "")} data-pick-state={item.picked ? "picked" : "unpicked"} aria-pressed={item.picked} aria-label={(item.picked ? "Mark unused: " : "Pick keyword: ") + item.keyword} title={item.picked ? "Đã Pick · Bấm để bỏ chọn" : "Chưa Pick · Bấm để chọn"} disabled={pickingIds.has(item.id)} onClick={() => onPickChange(item.id, !item.picked)}><Icon name={item.picked ? "circle-check" : "circle-plus"} /></button>
                 </div>
               </td>
             </tr>;

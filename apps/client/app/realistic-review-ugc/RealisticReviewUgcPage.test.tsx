@@ -742,7 +742,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain('aria-label="Feedback target:');
     expect(markup).not.toContain('<option value="both"');
     expect(markup).not.toContain('<option value="pin"');
-    for (const icon of ["thumbs-up", "thumbs-down", "undo", "heart", "badge-check"]) {
+    for (const icon of ["thumbs-up", "thumbs-down", "undo", "heart", "circle-plus", "circle-check"]) {
       expect(markup).toContain(`data-icon="${icon}"`);
     }
     expect(markup).toContain('aria-pressed="true"');
@@ -799,6 +799,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Add favorite: funny hotdog cap"');
     expect(markup).toContain('aria-label="Mark unused: Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('aria-label="Pick keyword: funny hotdog cap"');
+    expect(markup).toContain('data-pick-state="picked"');
+    expect(markup).toContain('data-pick-state="unpicked"');
+    expect(markup).toContain('title="Đã Pick · Bấm để bỏ chọn"');
+    expect(markup).toContain('title="Chưa Pick · Bấm để chọn"');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('aria-pressed="false"');
     expect(markup).toContain('aria-sort="descending"');
