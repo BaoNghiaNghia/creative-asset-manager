@@ -42,6 +42,8 @@ describe("Stage 1 compact output and action controls", () => {
       onRun={run} onVersions={versions} onLogs={logs} />));
     expect(host.querySelectorAll(".rrugc-keyword-result-cell")).toHaveLength(1);
     expect(host.querySelector(".rrugc-keyword-result-preview img")).not.toBeNull();
+    expect(host.querySelector(".rrugc-keyword-result-caption")?.textContent).toBe("Latest output");
+    expect(host.querySelector(".rrugc-keyword-result-actions")?.textContent).toContain("Versions");
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(3);
     const button = (label: string) => host.querySelector<HTMLButtonElement>('button[aria-label="' + label + '"]')!;
     expect(host.querySelector<HTMLAnchorElement>('a[aria-label="View generated output for BEACH PLEASE"]')?.href).toBe("https://cdn.example.test/output.png");
@@ -78,6 +80,7 @@ describe("Stage 1 compact output and action controls", () => {
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(2);
     await act(async () => render({ ...outputRow, status: "queued", output_url: null }, true, true));
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(1);
+    expect(host.querySelector(".rrugc-keyword-result-pending")?.textContent).toContain("In queue");
     await act(async () => root.unmount());
     host.remove();
   });

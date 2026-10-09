@@ -50,9 +50,10 @@ export function KeywordImageRowControls({
   const capped = retry && row.retry_count >= 3;
   const runLabel = regenerate ? "Regenerate" : retry ? "Retry" : "Generate";
   const runDisabled = busy || capped || (generate && !canGenerate);
-  const runTitle = capped ? "Retry limit reached" : generate && !canGenerate ? "Enable a keyword artwork Skill first" : busy ? "Queueing…" : runLabel + " image";
+  const runTitle = capped ? "Retry limit reached" : generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : runLabel + " image";
 
   return <div className="rrugc-keyword-result-cell" aria-busy={busy}>
+    <div className="rrugc-keyword-result-media">
     {row.output_url
       ? <a className="rrugc-keyword-result-preview is-available" href={row.output_url} target="_blank" rel="noreferrer"
           title={"View output for " + row.keyword} aria-label={"View generated output for " + row.keyword}>
@@ -62,21 +63,27 @@ export function KeywordImageRowControls({
       : <span className="rrugc-keyword-result-preview is-empty" role="img" aria-label="No generated output yet" title="No output yet">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3.5 3.5 2.5-2.5 4 4"/></svg>
         </span>}
+    <span className="rrugc-keyword-result-caption">{row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
+    </div>
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
       {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (retry ? "retry" : regenerate ? "regenerate" : "generate")}
         onClick={onRun} disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
         <KeywordActionGlyph kind={retry ? "retry" : regenerate ? "regenerate" : "generate"} />
+        <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
       {row.job_id && row.output_url && <button type="button" className="rrugc-keyword-result-action"
         onClick={onVersions} title="Compare versions" aria-label={"View versions for " + row.keyword}>
         <KeywordActionGlyph kind="versions" />
+        <span className="rrugc-keyword-action-label">Versions</span>
       </button>}
       {row.job_id && <button type="button" className="rrugc-keyword-result-action"
         onClick={onLogs} title="View job logs" aria-label={"View logs for " + row.keyword}>
         <KeywordActionGlyph kind="logs" />
+        <span className="rrugc-keyword-action-label">Logs</span>
       </button>}
-      {!runnable && !row.job_id && <span className="rrugc-keyword-result-pending" title={row.status === "queued" ? "Waiting in the queue" : "Generation in progress"}>
-        {row.status === "queued" ? "Waiting" : "In progress"}
+      {(row.status === "running" || row.status === "queued") && <span className={"rrugc-keyword-result-pending status-" + row.status} title={row.status === "queued" ? "Waiting in the queue" : "Generation in progress"}>
+        <span className="rrugc-keyword-pending-dot" />
+        {row.status === "queued" ? "In queue" : "Processing"}
       </span>}
     </div>
   </div>;
@@ -150,6 +157,7 @@ export function KeywordImageStage({
     }
   }, [readySkills, selectedSkillKey]);
   const selectedSkill = readySkills.find(item => skillKey(item) === selectedSkillKey) || null;
+  const isV4Skill = selectedSkill?.skill_name === "hanh-redesign-8869-ver-4";
   const selectedSkillInput: Stage2SkillSelection | null = selectedSkill ? {
     source: selectedSkill.source, skill_id: selectedSkill.skill_id,
     skill_name: selectedSkill.skill_name,
@@ -275,7 +283,7 @@ export function KeywordImageStage({
       setStatus("all");
       setQuery(value);
       setPage(1);
-      setMessage("Artwork queued for " + value + ". The final image appears here when ready.");
+      setMessage("Generation queued for " + value + ". Follow the job status and review saved outputs when ready.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not generate from the entered keyword.");
     } finally {
@@ -290,7 +298,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker="STAGE 1 / KEYWORD-TO-IMAGE"
       title="Generate images from used keywords"
-      description="Enter a keyword to generate a finished embroidery concept board, or process Used keywords from Stage 0. Review outputs and retry without losing earlier versions."
+      description="Generate artwork from Stage 0 keywords, follow each job, and compare output versions."
       actions={<div className="rrugc-keyword-gen-actions">
         <button type="button" className="rrugc-global-management-button" onClick={onManageSkills}>Manage skills</button>
         {bulkRunning
@@ -301,7 +309,7 @@ export function KeywordImageStage({
     <form className="rrugc-keyword-manual" onSubmit={event => void submitManual(event)}>
       <div className="rrugc-keyword-manual-heading">
         <strong>Create artwork from a keyword</strong>
-        <span>10 embroidery concepts + 1 hero hat · Final image saved automatically</span>
+        <span>{isV4Skill ? "10 independent concepts + 13 hat colorways · 2 output boards" : "Use the selected Skill · Outputs are saved as versions"}</span>
       </div>
       <div className="rrugc-keyword-manual-controls">
         <label htmlFor="rrugc-stage1-manual-keyword" className="sr-only">Enter keyword or saying</label>
@@ -309,7 +317,7 @@ export function KeywordImageStage({
           onChange={event => setManualKeyword(event.target.value)}
           placeholder="Enter keyword or quote, e.g. BEACH PLEASE" />
         <button type="submit" disabled={!manualKeyword.trim() || !selectedSkillInput || manualSubmitting}>
-          {manualSubmitting ? "Queueing…" : "Generate image"}
+          {manualSubmitting ? "Queueing…" : "Generate"}
         </button>
       </div>
       {manualFocus && <div className="rrugc-keyword-manual-result" aria-live="polite">
@@ -325,7 +333,7 @@ export function KeywordImageStage({
               onLogs={() => { if (manualResult.job_id) setLogJobId(manualResult.job_id); }} />
           : <span className="rrugc-keyword-manual-pending">Waiting for job…</span>}
         {manualResult?.status === "completed" && manualResult.output_url
-          && <a className="rrugc-keyword-manual-final" href={manualResult.output_url} target="_blank" rel="noreferrer">View final image ↗</a>}
+          && <a className="rrugc-keyword-manual-final" href={manualResult.output_url} target="_blank" rel="noreferrer">View latest output ↗</a>}
       </div>}
     </form>
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
@@ -349,29 +357,46 @@ export function KeywordImageStage({
           {readySkills.map(skill => <option key={skillKey(skill)} value={skillKey(skill)}>{skill.display_name || skill.skill_name}{skill.synced_version ? " · " + skill.synced_version : ""}</option>)}
         </select>
       </label>
-      <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => { setLoading(true); void refresh().catch(reason => { setLoading(false); setError(String(reason)); }); }} aria-label="Refresh keyword jobs" title="Refresh">↻</button>
+      <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => { setLoading(true); void refresh().catch(reason => { setLoading(false); setError(String(reason)); }); }} aria-label="Refresh keyword jobs" title="Refresh jobs" disabled={loading}>
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 1-2.4-5.7" /><path d="M20 4v7h-7" /></svg>
+      </button>
     </div>
-    {error && <p className="rrugc-keyword-gen-error" role="alert">{error}</p>}
-    {message && <p className="rrugc-keyword-gen-message" role="status">{message}</p>}
+    {error && <div className="rrugc-keyword-gen-error rrugc-keyword-notice" role="alert"><span>{error}</span><button type="button" title="Dismiss error" aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
+    {message && <div className="rrugc-keyword-gen-message rrugc-keyword-notice" role="status"><span>{message}</span><button type="button" title="Dismiss notification" aria-label="Dismiss notification" onClick={() => setMessage("")}>×</button></div>}
     {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}
+    <div className="rrugc-keyword-gen-list-heading">
+      <div className="rrugc-keyword-gen-list-title">
+        <strong>Keyword jobs</strong>
+        <span>Selected Skill applies to Generate and Regenerate; Retry keeps the job's Skill.</span>
+      </div>
+      <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
+    </div>
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
-        <thead><tr><th>Keyword / Source</th><th>Volume</th><th>Skill</th><th>Status</th><th>Output &amp; actions</th></tr></thead>
+        <thead><tr><th>Keyword / Source</th><th>Search volume</th><th>Generation skill</th><th>Job status</th><th>Output &amp; actions</th></tr></thead>
         <tbody>
           {loading && !data.items.length
             ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={5}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
-              return <tr key={row.keyword_id}>
+              return <tr key={row.keyword_id} className={"rrugc-keyword-row status-" + row.status}>
                 <td><div className="rrugc-keyword-gen-keyword">
                   <div className="rrugc-keyword-gen-source">
                     {row.source_image_url ? <img src={row.source_image_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span aria-hidden="true">Aa</span>}
                   </div>
-                  <div><strong title={row.keyword}>{row.keyword}</strong><small>Used · Stage 0</small></div>
+                  <div><strong title={row.keyword}>{row.keyword}</strong><small>Used in Stage 0</small></div>
                 </div></td>
                 <td className="rrugc-keyword-gen-volume">{row.search_volume.toLocaleString("en-US")}</td>
-                <td><span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "—"}</span></td>
-                <td><span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{STATUS_LABEL[row.status]}</span>{row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}{row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">Attempt {row.attempt_count}/{row.max_attempts}</small> : null}</td>
+                <td><div className="rrugc-keyword-gen-skill-cell">
+                  <span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "Choose Skill"}</span>
+                  {row.status === "not_run" ? <small>Next run</small> : row.skill_version ? <small>v{row.skill_version}</small> : null}
+                </div></td>
+                <td><div className="rrugc-keyword-gen-status-cell">
+                  <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{STATUS_LABEL[row.status]}</span>
+                  {row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}
+                  {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Attempt " + Math.max(1, row.attempt_count) + " of " + row.max_attempts}</small> : null}
+                  {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
+                </div></td>
                 <td className="rrugc-keyword-gen-result">
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)}
                     onRun={() => void runOne(row)}
@@ -380,7 +405,7 @@ export function KeywordImageStage({
                 </td>
               </tr>;
             })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={6}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={5}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
         </tbody>
       </table>
     </div>

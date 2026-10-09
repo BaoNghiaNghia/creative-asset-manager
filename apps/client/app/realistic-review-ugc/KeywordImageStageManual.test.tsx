@@ -37,6 +37,27 @@ vi.mock("./api", async importOriginal => ({
 afterEach(() => document.body.replaceChildren());
 
 describe("Stage 1 manual keyword generation", () => {
+  it("describes both independent v4 boards when the v4 Skill is selected", async () => {
+    vi.mocked(listStage2Skills).mockResolvedValueOnce({
+      stage_defaults: { stage1: "local:hanh-redesign-8869-ver-4" },
+      items: [{ source: "local", skill_id: null, skill_name: "hanh-redesign-8869-ver-4",
+        display_name: "GatorHats v4", ready: true, keyword_artwork_ready: true,
+        default_version: null, synced_version: null, local_version: "4.0.0",
+        version_options: [], sync_state: "ready" }],
+    } as never);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.querySelector(".rrugc-keyword-manual-heading")?.textContent)
+      .toContain("10 independent concepts + 13 hat colorways");
+    expect(host.querySelector(".rrugc-keyword-gen-list-title")?.textContent)
+      .toContain("Regenerate");
+    await act(async () => root.unmount());
+  });
+
+
   it("honors an explicitly selected Stage 1 default over legacy hardcoded names", async () => {
     vi.mocked(listStage2Skills).mockResolvedValueOnce({
       stage_defaults: { stage1: "local:hanh-redesign-8869-ver-3" },
@@ -85,7 +106,7 @@ describe("Stage 1 manual keyword generation", () => {
     expect(createManualKeywordImage).toHaveBeenCalledWith("BEACH PLEASE",
       expect.objectContaining({ skill_name: "redesign-8869-v3" }));
     expect(getKeywordImageJobStatus).toHaveBeenCalledWith("job-1", expect.anything());
-    expect(host.querySelector(".rrugc-keyword-manual-final")?.textContent).toContain("View final image");
+    expect(host.querySelector(".rrugc-keyword-manual-final")?.textContent).toContain("View latest output");
     expect(host.querySelector(".rrugc-keyword-manual-result img")).not.toBeNull();
     await act(async () => root.unmount());
   });
