@@ -391,6 +391,12 @@ function Stage2ReferencePicker({
   </>;
 }
 
+function Stage4OutputActionIcon({ name }: { name: "logs" | "versions" | "new-version" }) {
+  if (name === "logs") return <svg data-action-icon="logs" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3h10l3 3v15H4V3h3Z" /><path d="M8 10h8M8 14h8M8 18h5" /></svg>;
+  if (name === "versions") return <svg data-action-icon="versions" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="7" width="13" height="13" rx="2" /><path d="M4 16V5a2 2 0 0 1 2-2h11" /></svg>;
+  return <svg data-action-icon="new-version" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.25" /><path d="m4 17 5-5 3.5 3.5M16.5 9v6m-3-3h6" /></svg>;
+}
+
 export function Stage2OutputReviewModal({
   plan,
   jobs,
@@ -463,9 +469,9 @@ export function Stage2OutputReviewModal({
                 {run.output_web_url && <a href={run.output_web_url} target="_blank" rel="noreferrer">Drive ↗</a>}
               </div>
               <div className="rrugc-stage4-output-card-actions">
-                <button type="button" aria-label={"Logs for output " + (index + 1)} onClick={() => setLogJobId(run.id)}>Logs</button>
-                <button type="button" aria-label={"Versions for output " + (index + 1)} onClick={() => setVersionsJobId(run.id)}>Versions</button>
-                {onRegenerateJob && <button type="button" className="is-new-version" aria-label={"Generate new version of output " + (index + 1)} onClick={() => { onRegenerateJob(run); onClose(); }}>+ New version</button>}
+                <button type="button" title="View logs" aria-label={"Logs for output " + (index + 1)} onClick={() => setLogJobId(run.id)}><Stage4OutputActionIcon name="logs" /></button>
+                <button type="button" title="View versions" aria-label={"Versions for output " + (index + 1)} onClick={() => setVersionsJobId(run.id)}><Stage4OutputActionIcon name="versions" /></button>
+                {onRegenerateJob && <button type="button" className="is-new-version" title="Generate new version" aria-label={"Generate new version of output " + (index + 1)} onClick={() => { onRegenerateJob(run); onClose(); }}><Stage4OutputActionIcon name="new-version" /></button>}
               </div>
             </footer>
           </article>

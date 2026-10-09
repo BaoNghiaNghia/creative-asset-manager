@@ -1942,3 +1942,25 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage2-ref-head>.is-selected strong{color:#335e9d}
 .rrugc-stage2-ref-head>.is-generated strong{color:#3f8864}
 .rrugc-stage2-table .rrugc-stage2-ref-grid{margin-top:0;padding-top:1px}
+
+/* Stage 4 output preview: three unobtrusive icon-only actions. */
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions{
+  display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0
+}
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button,
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button.is-new-version{
+  display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;min-height:29px;
+  grid-column:auto;padding:0;border:1px solid #d7e0ec;border-radius:7px;
+  background:#f7f9fc;color:#516987;line-height:1;cursor:pointer
+}
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button svg{display:block;width:14px;height:14px}
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button.is-new-version{
+  border-color:#b9c9ed;background:#eef3ff;color:#4c69b3
+}
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button:hover{
+  border-color:#9db3d3;background:#e9f1ff;color:#3f6096
+}
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button.is-new-version:hover{
+  border-color:#94abe1;background:#e0eaff
+}
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-footer{gap:5px;padding:8px}
