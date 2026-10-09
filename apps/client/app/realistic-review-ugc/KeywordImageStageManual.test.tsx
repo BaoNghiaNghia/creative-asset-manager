@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeywordImageStage } from "./KeywordImageStage";
-import { createManualKeywordImage, getKeywordImageJobStatus, listStage2Skills } from "./api";
+import { createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,11 +23,14 @@ vi.mock("./api", async importOriginal => ({
   createManualKeywordImage: vi.fn(async () => ({
     created: true, keyword_id: "manual-1", job_id: "job-1", status: "queued",
   })),
+  listGenerationOutputVersions: vi.fn(async () => ({ stage: "stage1", job_id: "job-1", versions: Array.from({ length: 5 }, (_, index) => ({
+    version: 5 - index, url: "/api/v1/image/" + (5 - index), created_at: "2026-10-10T00:00:00Z", width: 512, height: 512,
+  })) })),
   getKeywordImageJobStatus: vi.fn(async () => ({
     keyword_id: "manual-1", keyword: "BEACH PLEASE", search_volume: 0,
     source_image_url: null, status: "completed", job_id: "job-1",
     skill_name: "redesign-8869-v3", skill_version: null,
-    retry_count: 0, attempt_count: 1, max_attempts: 3,
+    retry_count: 0, saved_output_count: 5, attempt_count: 1, max_attempts: 1,
     error_code: null, error_message: null,
     output_url: "/api/v1/realistic-review-ugc/keyword-images/jobs/job-1/output",
     updated_at: null,
@@ -110,4 +113,34 @@ describe("Stage 1 manual keyword generation", () => {
     expect(host.querySelector(".rrugc-keyword-manual-result img")).not.toBeNull();
     await act(async () => root.unmount());
   });
+
+  it("renders Output slider and Actions as independent table columns", async () => {
+    vi.mocked(listKeywordImages).mockResolvedValueOnce({
+      page: 1, page_size: 20, total: 1,
+      overview: { not_run: 0, queued: 0, running: 0, completed: 1, failed: 0 },
+      items: [{
+        keyword_id: "key-1", keyword: "BEACH PLEASE", search_volume: 100,
+        source_image_url: null, status: "completed", job_id: "job-1",
+        skill_name: "redesign-8869-v3", skill_version: null, retry_count: 0,
+        saved_output_count: 5, attempt_count: 1, max_attempts: 1,
+        error_code: null, error_message: null, output_url: "/api/v1/image/5", updated_at: null,
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
+    expect(headers).toEqual(["Keyword / Source", "Search volume", "Generation skill", "Job status", "Output", "Actions"]);
+    const cells = host.querySelectorAll(".rrugc-keyword-row td");
+    expect(cells).toHaveLength(6);
+    expect(cells[4].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(cells[5].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
+    expect(cells[5].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    await act(async () => root.unmount());
+  });
+
 });

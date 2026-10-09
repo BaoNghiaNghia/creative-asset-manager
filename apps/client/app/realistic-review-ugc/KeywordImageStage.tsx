@@ -5,6 +5,7 @@ import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
+import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
 
@@ -36,7 +37,7 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
 }
 
 export function KeywordImageRowControls({
-  row, busy, canGenerate, onRun, onVersions, onLogs,
+  row, busy, canGenerate, onRun, onVersions, onLogs, showPreview = true,
 }: {
   row: KeywordImageRow;
   busy: boolean;
@@ -44,6 +45,7 @@ export function KeywordImageRowControls({
   onRun: () => void;
   onVersions: () => void;
   onLogs: () => void;
+  showPreview?: boolean;
 }) {
   const regenerate = row.status === "completed";
   const generate = row.status === "not_run";
@@ -53,7 +55,7 @@ export function KeywordImageRowControls({
   const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : runLabel + " image";
 
   return <div className="rrugc-keyword-result-cell" aria-busy={busy}>
-    <div className="rrugc-keyword-result-media">
+    {showPreview && <div className="rrugc-keyword-result-media">
     {row.output_url
       ? <a className="rrugc-keyword-result-preview is-available" href={row.output_url} target="_blank" rel="noreferrer"
           title={"View output for " + row.keyword} aria-label={"View generated output for " + row.keyword}>
@@ -66,7 +68,7 @@ export function KeywordImageRowControls({
     <span className="rrugc-keyword-result-caption">{row.saved_output_count > 0
       ? `${row.saved_output_count.toLocaleString()} image${row.saved_output_count === 1 ? "" : "s"} saved${row.status === "failed" ? " · partial" : ""}`
       : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
-    </div>
+    </div>}
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
       {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "regenerate" : "generate")}
         onClick={onRun} disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
@@ -372,10 +374,10 @@ export function KeywordImageStage({
     </div>
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
-        <thead><tr><th>Keyword / Source</th><th>Search volume</th><th>Generation skill</th><th>Job status</th><th>Output &amp; actions</th></tr></thead>
+        <thead><tr><th>Keyword / Source</th><th>Search volume</th><th>Generation skill</th><th>Job status</th><th>Output</th><th>Actions</th></tr></thead>
         <tbody>
           {loading && !data.items.length
-            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={5}><span /></td></tr>)
+            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={6}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
               return <tr key={row.keyword_id} className={"rrugc-keyword-row status-" + row.status}>
@@ -396,15 +398,16 @@ export function KeywordImageStage({
                   {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Attempt " + Math.max(1, row.attempt_count) + " of " + row.max_attempts}</small> : null}
                   {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
                 </div></td>
+                <td className="rrugc-keyword-gen-output-column"><KeywordImageOutputSlider row={row} /></td>
                 <td className="rrugc-keyword-gen-result">
-                  <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)}
+                  <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)} showPreview={false}
                     onRun={() => void runOne(row)}
                     onVersions={() => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword }); }}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
                 </td>
               </tr>;
             })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={5}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={6}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
         </tbody>
       </table>
     </div>
