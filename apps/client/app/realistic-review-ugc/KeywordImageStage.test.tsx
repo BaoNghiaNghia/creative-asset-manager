@@ -160,6 +160,28 @@ describe("Stage 1 zero-output recovery", () => {
     host.remove();
   });
 
+  it("allows one confirmed manual run for new missing-tool or failed-turn error categories", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    for (const code of [
+      "stage1_imagegen_unavailable", "stage1_imagegen_limited",
+      "stage1_codex_turn_failed", "stage1_imagegen_not_invoked",
+      "stage1_imagegen_no_output", "stage1_no_generated_images",
+    ]) {
+      const row: KeywordImageRow = {
+        ...outputRow, status: "failed", saved_output_count: 0,
+        output_url: null, error_code: code,
+      };
+      await act(async () => root.render(<KeywordImageRowControls
+        row={row} busy={false} canGenerate onRun={() => undefined} onLogs={() => undefined}
+      />));
+      expect(host.querySelector('button[aria-label="Generate again BEACH PLEASE"]')).not.toBeNull();
+    }
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("does not allow a new paid generation after a partial-image or Google Drive failure", async () => {
     const host = document.createElement("div");
     document.body.append(host);

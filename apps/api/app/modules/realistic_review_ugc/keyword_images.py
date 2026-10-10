@@ -264,9 +264,16 @@ class KeywordImageService:
             and not job.output_remote_file_id
             and job.last_error_code in {
                 "stage1_no_generated_images", "stage1_six_outputs_invalid",
+                "stage1_imagegen_unavailable", "stage1_imagegen_limited",
+                "stage1_codex_turn_failed", "stage1_imagegen_not_invoked",
+                "stage1_imagegen_no_output",
             }
             and (
-                job.last_error_code == "stage1_no_generated_images"
+                job.last_error_code in {
+                    "stage1_no_generated_images", "stage1_imagegen_unavailable",
+                    "stage1_imagegen_limited", "stage1_codex_turn_failed",
+                    "stage1_imagegen_not_invoked", "stage1_imagegen_no_output",
+                }
                 or "0 PNG candidates" in (job.last_error_message or "")
             )
         )

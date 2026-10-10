@@ -270,6 +270,94 @@ def _classify_failure(stderr: str, stdout: str) -> CodexImageProviderError:
     )
 
 
+def _classify_stage1_no_images(stdout: str, stderr: str) -> CodexImageProviderError:
+    """Explain a zero-PNG Codex completion without claiming the tool succeeded.
+
+    The CLI can exit 0 after an assistant-only response or a failed turn.
+    Inspect bounded JSONL metadata and known error signals, never expose
+    model messages or stderr as part of the UI error.
+    """
+    import re
+
+    events = []
+    for line in stdout.splitlines():
+        try:
+            row = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(row, dict):
+            events.append(row)
+
+    failed_turn = any(str(event.get("type") or "") in {"turn.failed", "error"} for event in events)
+    tool_events = 0
+    image_calls = 0
+    messages = []
+    for event in events:
+        item = event.get("item")
+        if not isinstance(item, dict):
+            continue
+        event_type = str(event.get("type") or "")
+        item_type = str(item.get("type") or "").lower()
+        if event_type in {"item.started", "item.completed", "item.updated"}:
+            if item_type in {"tool_call", "mcp_tool_call", "dynamic_tool_call", "image_generation"}:
+                tool_events += 1
+                label = str(item.get("tool_name") or item.get("name") or item.get("server") or "")
+                if "imagegen" in label.lower() or "image_generation" in label.lower():
+                    image_calls += 1
+        if item_type == "agent_message" and event_type == "item.completed":
+            message = item.get("text")
+            if isinstance(message, str):
+                messages.append(message[:2500])
+    combined = (stderr[:6000] + "\n" + "\n".join(messages)).casefold()
+    missing_image_tool = (
+        bool(re.search(r"(?:imagegen|image.gen|image generation)", combined))
+        and any(term in combined for term in (
+            "unavailable", "not available", "not found", "unknown tool", "not installed",
+            "disabled", "not supported", "cannot invoke", "can't invoke",
+            "no access to", "cannot access",
+        ))
+    )
+    if missing_image_tool:
+        return CodexImageProviderError(
+            "stage1_imagegen_unavailable",
+            "Codex could not access the image-generation tool. No PNGs were created. "
+            "Check tool/Skill availability in the job logs before manually generating again.",
+        )
+    if any(term in combined for term in (
+        "usage limit", "rate limit", "quota exceeded", "too many requests", "limit reached",
+    )):
+        return CodexImageProviderError(
+            "stage1_imagegen_limited",
+            "Image-generation capacity was limited. No PNGs were created. "
+            "Wait for capacity to recover before manually generating again.",
+        )
+    if failed_turn:
+        return CodexImageProviderError(
+            "stage1_codex_turn_failed",
+            "Codex reported a failed turn despite the CLI exiting normally. "
+            "No PNGs were created. Review the job's Skill log before starting a new run.",
+        )
+    if not tool_events:
+        return CodexImageProviderError(
+            "stage1_imagegen_not_invoked",
+            "Codex finished without running a generation tool and produced no PNGs. "
+            "Check Skill execution and image-generation tool access. "
+            "A new run requires manual confirmation.",
+        )
+    if image_calls:
+        return CodexImageProviderError(
+            "stage1_imagegen_no_output",
+            "Codex invoked image generation but did not write any PNG finals. "
+            "Review the tool log and output-path settings before manually generating again.",
+        )
+    return CodexImageProviderError(
+        "stage1_no_generated_images",
+        "The Skill finished without creating any PNG artwork. "
+        "The available execution metadata cannot confirm that image generation ran. "
+        "Check Skill logs; a new generation requires manual confirmation.",
+    )
+
+
 def _request_id_from_jsonl(stdout: str) -> str | None:
     for line in stdout.splitlines():
         try:
@@ -446,8 +534,10 @@ class CodexImageGenRunner:
                     files = self._collect_six_final_designs(workspace)
                     break
                 except CodexImageProviderError as exc:
-                    if exc.code != "stage1_no_generated_images" or wait_seconds == 3:
+                    if exc.code != "stage1_no_generated_images":
                         raise
+                    if wait_seconds == 3:
+                        raise _classify_stage1_no_images(stdout, stderr) from exc
             image_bytes = Path(files[0].path).read_bytes()
             extra_images = ()
         elif self.config.output_contract == "all_generated_images":
@@ -792,7 +882,7 @@ class CodexImageGenRunner:
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
         if self.config.output_contract == "stage1_six_final_designs":
             return (
-                "Use $gatorhats-stage1-six-designs and $imagegen.\n"
+                "Use $" + self.config.skill_name + " and $imagegen.\n"
                 "This is Stage 1: SIX independent embroidery design concepts only.\n"
                 "Generate exactly six final artworks, one per image-generation call; no trial "
                 "image generations, 10-concept boards, Hero selection, 13 hats, mockups or colorways.\n"

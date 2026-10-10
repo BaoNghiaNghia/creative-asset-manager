@@ -58,6 +58,22 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 0-2.5 6"/><path d="M20 4v7h-7"/></svg>;
 }
 
+const ZERO_PNG_ERROR_CODES = new Set([
+  "stage1_no_generated_images",
+  "stage1_imagegen_unavailable",
+  "stage1_imagegen_limited",
+  "stage1_codex_turn_failed",
+  "stage1_imagegen_not_invoked",
+  "stage1_imagegen_no_output",
+]);
+
+function canRegenerateZeroPngFailure(row: KeywordImageRow): boolean {
+  return row.status === "failed" && row.saved_output_count === 0 &&
+    (ZERO_PNG_ERROR_CODES.has(row.error_code || "") ||
+      (row.error_code === "stage1_six_outputs_invalid" &&
+        (row.error_message || "").includes("0 PNG candidates")));
+}
+
 export function KeywordImageRowControls({
   row, busy, canGenerate, onRun, onLogs, showPreview = true,
 }: {
@@ -72,10 +88,7 @@ export function KeywordImageRowControls({
   const regenerateButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
-  const failedNoImages = row.status === "failed" && row.saved_output_count === 0
-    && (row.error_code === "stage1_no_generated_images"
-      || (row.error_code === "stage1_six_outputs_invalid"
-        && (row.error_message || "").includes("0 PNG candidates")));
+  const failedNoImages = canRegenerateZeroPngFailure(row);
   const regenerate = row.status === "completed" || failedNoImages;
   const generate = row.status === "not_run";
   const resumeUpload = row.status === "failed" && Boolean(row.upload_recovery_available);
@@ -317,9 +330,7 @@ export function KeywordImageStage({
       if (row.status === "failed" && row.upload_recovery_available) {
         await retryKeywordImage(row.keyword_id);
         setMessage("Resuming Drive upload for " + row.keyword + " using preserved final images; no generation rerun.");
-      } else if (row.status === "completed" || (row.status === "failed" && row.saved_output_count === 0
-        && (row.error_code === "stage1_no_generated_images"
-          || (row.error_code === "stage1_six_outputs_invalid" && (row.error_message || "").includes("0 PNG candidates"))))) {
+      } else if (row.status === "completed" || canRegenerateZeroPngFailure(row)) {
         await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage("New manually confirmed Skill run queued for " + row.keyword + ". Previous logs remain available.");
       } else if (row.status === "not_run" && selectedSkillInput) {

@@ -131,3 +131,31 @@ def test_partial_alt_folder_does_not_promote_drafts_or_count_as_success(tmp_path
         runner()._collect_six_final_designs(tmp_path)
     assert caught.value.code == "stage1_six_outputs_invalid"
     assert "missing design numbers 6" in str(caught.value)
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "expected"),
+    [
+        ('{"type":"turn.completed"}\\n{"type":"item.completed","item":{"type":"agent_message","text":"No assets."}}', "", "stage1_imagegen_not_invoked"),
+        ('{"type":"turn.failed","error":{"message":"tool execution failed"}}', "", "stage1_codex_turn_failed"),
+        ('{"type":"item.started","item":{"type":"mcp_tool_call","tool_name":"imagegen"}}\\n{"type":"turn.completed"}', "", "stage1_imagegen_no_output"),
+        ('{"type":"item.completed","item":{"type":"agent_message","text":"imagegen is not available on this runner."}}', "", "stage1_imagegen_unavailable"),
+        ('{"type":"turn.completed"}', "rate limit exceeded for imagegen", "stage1_imagegen_limited"),
+        ('{"type":"item.completed","item":{"type":"tool_call","name":"terminal"}}', "", "stage1_no_generated_images"),
+    ],
+)
+def test_empty_stage1_output_reports_actionable_cli_cause_without_exposing_text(stdout, stderr, expected):
+    from app.providers.ai.codex_image import _classify_stage1_no_images
+    error = _classify_stage1_no_images(stdout.replace(chr(92) + "n", chr(10)), stderr)
+    assert error.code == expected
+    assert "tool execution failed" not in str(error)
+    assert "No assets" not in str(error)
+
+
+def test_stage1_prompt_uses_selected_six_design_skill_instead_of_hardcoded_name():
+    custom = CodexImageGenRunner(CodexImageRunnerConfig(
+        skill_name="approved-stage1-six-designs",
+        output_contract="stage1_six_final_designs",
+    ))
+    prompt = custom._prompt(person_name=None, references=[], user_prompt="Saying")
+    assert "Use $approved-stage1-six-designs and $imagegen." in prompt
+    assert "Use $gatorhats-stage1-six-designs" not in prompt
