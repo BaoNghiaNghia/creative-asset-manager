@@ -85,6 +85,16 @@ describe("Version history comparison", () => {
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     expect(host.textContent).toContain("37 saved images");
     expect(host.textContent).toContain("concept_37");
+    const blueprint = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
+      .find(button => button.textContent?.includes("Blueprint"))!;
+    expect(blueprint).toBeDefined();
+    await act(async () => blueprint.click());
+    expect(blueprint.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelectorAll(".rrugc-blueprint-cell")).toHaveLength(48);
+    expect(host.querySelectorAll(".rrugc-blueprint-color")).toHaveLength(12);
+    expect(host.querySelector(".rrugc-version-compare-card")).toBeNull();
+    await act(async () => masonryButton.click());
+    expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     await act(async () => root.unmount());
   });
   it("compares versions horizontally with individual, all and none controls", async () => {

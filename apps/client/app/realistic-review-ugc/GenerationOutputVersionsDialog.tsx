@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listGenerationOutputVersions, type GenerationOutputVersion } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
+import { BlueprintPreview } from "./BlueprintPreview";
 
 function SelectionIcon({ mode }: { mode: "all" | "none" }) {
   return mode === "all"
@@ -24,7 +25,7 @@ export function GenerationOutputVersionsDialog({
   const [selectedVersions, setSelectedVersions] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare">("auto");
+  const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">("auto");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -64,7 +65,8 @@ export function GenerationOutputVersionsDialog({
   }, [initialVersion, loading, versions]);
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
-  const masonry = galleryMode === "masonry" || (galleryMode === "auto" && compared.length > 6);
+  const blueprint = stage === "stage1" && galleryMode === "blueprint";
+  const masonry = !blueprint && (galleryMode === "masonry" || (galleryMode === "auto" && compared.length > 6));
 
   function renderVersion(version: GenerationOutputVersion) {
     return <article key={version.version}
@@ -104,13 +106,15 @@ export function GenerationOutputVersionsDialog({
 
       <div className="rrugc-version-compare-toolbar">
         <span className="rrugc-version-compare-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5" /><rect x="14" y="4" width="7" height="16" rx="1.5" /></svg>
-          {masonry ? "Masonry gallery" : "Compare versions"} <strong>{compared.length}/{versions.length}</strong>
+          {blueprint ? "Blueprint · 12 colorways" : masonry ? "Masonry gallery" : "Compare versions"} <strong>{compared.length}/{versions.length}</strong>
         </span>
         <div className="rrugc-version-layout-toggle" role="group" aria-label="Image gallery layout">
           <button type="button" aria-pressed={masonry} onClick={() => setGalleryMode("masonry")}
             title="Display all selected images in masonry grid">Masonry</button>
-          <button type="button" aria-pressed={!masonry} onClick={() => setGalleryMode("compare")}
+          <button type="button" aria-pressed={!masonry && !blueprint} onClick={() => setGalleryMode("compare")}
             title="Compare selected images in horizontal rows">Compare</button>
+          {stage === "stage1" && <button type="button" aria-pressed={blueprint} onClick={() => setGalleryMode("blueprint")}
+            title="Preview each design on 12 hat colors">Blueprint</button>}
         </div>
         {stage !== "stage1" && <div className="rrugc-version-compare-actions" role="group" aria-label="Select output versions">
           <button type="button" title="Select all versions" aria-label="Select all versions"
@@ -143,7 +147,9 @@ export function GenerationOutputVersionsDialog({
 
       {loading && <p role="status" className="rrugc-version-message">Loading saved output versions…</p>}
       {error && <p role="alert" className="rrugc-source-error">{error}</p>}
-      {!loading && !error && (masonry
+      {!loading && !error && (blueprint
+        ? <BlueprintPreview versions={compared} initialVersion={initialVersion} />
+        : masonry
         ? <StableMasonryGrid className="rrugc-version-grid is-masonry"
             ariaLabel="Masonry gallery of saved images"
             items={compared} getKey={version => version.version}
