@@ -22,6 +22,7 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.stage1_temp_previews import upload_temp_previews
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -464,10 +465,27 @@ class KeywordImageGenerateHandler:
             generated = await runner.generate_from_references(
                 attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
             )
-            return await self._save_skill_outputs(context, storage, generated)
+            try:
+                return await self._save_skill_outputs(context, storage, generated)
+            finally:
+                # Drafts are kept outside the six final file contracts and
+                # uploaded at reduced resolution even if final Drive upload
+                # encounters an error. Draft failures never mask final errors.
+                try:
+                    from pathlib import Path
+                    workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                                 / "codex" / context.job.entity_id)
+                    await upload_temp_previews(
+                        storage, workspace=workspace,
+                        tenant_id=context.job.tenant_id,
+                        job_id=context.job.entity_id,
+                        processing_job_id=context.job.id,
+                    )
+                except Exception:
+                    context.logger.exception("stage1_temp_preview_save_failed")
         finally:
-            # File-backed output descriptors must stay valid until all assets
-            # are safely persisted in storage and in the version history.
+            # Cleanup is always last so file-backed drafts and final images
+            # remain readable while Drive uploads are in progress.
             runner.cleanup_attempt(context.job.entity_id)
 
     async def _save_skill_outputs(self, context: JobHandlerContext, storage, generated) -> JobHandlerResult:

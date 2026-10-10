@@ -368,7 +368,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>6 final images per job; intermediate previews are not uploaded. Failed jobs stop after one attempt.</span>
+        <span>6 final images per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Failed jobs stop after one attempt.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>

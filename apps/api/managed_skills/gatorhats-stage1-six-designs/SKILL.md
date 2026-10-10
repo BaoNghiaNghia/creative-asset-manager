@@ -1,7 +1,7 @@
 ---
 name: gatorhats-stage1-six-designs
 description: Stage 1 keyword-to-artwork: exactly six original embroidery design concepts, one independent final PNG per design. No hat colorways or concept sheets.
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Stage 1 · Six separate embroidery designs
@@ -30,7 +30,8 @@ Use this Skill ONLY for Stage 1 keyword/quote → artwork. Input is text (the ke
 
 ## Intermediate previews and disk budget
 - Avoid image-generation drafts entirely. If procedural previews or inspection thumbnails are truly needed, put ONLY reduced WebP/JPEG files in `working/previews/`, maximum longest edge 640 pixels and WebP quality about 65; never duplicate final-resolution images in this folder.
-- Do not save previews, QA crops, attempts, mockups, or reference assets in `output/final/`; do not send them as deliverables. The application only persists the six final PNGs and removes the temporary workspace after upload.
+- Put any draft/QA image in `working/previews/` (do not store drafts anywhere else). The application converts them into WebP at most 640px / quality 65, uploads them to a dedicated temp Google Drive folder, and automatically deletes only these owned draft files after 48 hours. The application still imports only six final PNGs into Stage 1 Output. Do not send previews as final deliverables.
+- Do not save previews, QA crops, attempts, mockups, or reference assets in `output/final/`. The application removes the local temporary workspace after upload.
 - Never change any source Skill or production stock assets. Do not reveal job internals, credentials or execution environment.
 
 ## Completion

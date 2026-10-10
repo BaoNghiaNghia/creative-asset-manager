@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly removal of expired Stage 1 temp draft previews
+
+[Timer]
+OnCalendar=hourly
+OnBootSec=5min
+Persistent=true
+AccuracySec=2min
+Unit=creative-asset-manager-stage1-temp-retention.service
+
+[Install]
+WantedBy=timers.target

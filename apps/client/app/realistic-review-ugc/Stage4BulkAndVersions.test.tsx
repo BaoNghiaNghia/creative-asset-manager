@@ -71,6 +71,18 @@ describe("Version history comparison", () => {
       jobId="stage1-job" title="Artworks" onClose={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
+    expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
+    expect(host.querySelector('[aria-label="Masonry gallery of saved images"]')).not.toBeNull();
+    expect(host.querySelector(".rrugc-version-filter")).toBeNull();
+    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toContain("Masonry");
+    const compareButton = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
+      .find(button => button.textContent?.includes("Compare"))!;
+    await act(async () => compareButton.click());
+    expect(host.querySelector(".rrugc-version-grid.is-masonry")).toBeNull();
+    const masonryButton = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
+      .find(button => button.textContent?.includes("Masonry"))!;
+    await act(async () => masonryButton.click());
+    expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     expect(host.textContent).toContain("37 saved images");
     expect(host.textContent).toContain("concept_37");
     await act(async () => root.unmount());

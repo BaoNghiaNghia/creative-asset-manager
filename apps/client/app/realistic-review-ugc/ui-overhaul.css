@@ -2125,6 +2125,34 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-output-version-dialog .rrugc-version-grid article>a.rrugc-version-image-link{height:260px}
 }
 
+/* Masonry gallery for >6 saved images; comparison mode remains available. */
+.rrugc-output-version-dialog .rrugc-version-layout-toggle{display:flex;flex:none;gap:3px;padding:3px;border:1px solid #dce6f4;border-radius:8px;background:#f0f4fb}
+.rrugc-output-version-dialog .rrugc-version-layout-toggle button{min-height:25px;border:0;border-radius:6px;padding:4px 9px;background:transparent;color:#6b7d97;font-size:10px;font-weight:750;cursor:pointer}
+.rrugc-output-version-dialog .rrugc-version-layout-toggle button[aria-pressed="true"]{background:#fff;color:#345e99;box-shadow:0 1px 3px rgba(40,67,106,.13)}
+.rrugc-output-version-dialog .rrugc-version-layout-toggle button:focus-visible{outline:2px solid #7191cb;outline-offset:2px}
+.rrugc-output-version-dialog .rrugc-version-grid.is-masonry{
+  display:block;column-count:4;column-width:180px;column-gap:12px;
+  overflow-x:hidden;overflow-y:auto;scroll-snap-type:none
+}
+.rrugc-output-version-dialog .rrugc-version-grid.is-masonry article.rrugc-version-compare-card{
+  display:inline-flex;break-inside:avoid;page-break-inside:avoid;width:100%;
+  margin:0 0 12px;vertical-align:top;scroll-snap-align:none
+}
+.rrugc-output-version-dialog .rrugc-version-grid.is-masonry article>a.rrugc-version-image-link{
+  height:auto;max-height:none;aspect-ratio:auto
+}
+.rrugc-output-version-dialog .rrugc-version-grid.is-masonry img{width:100%;height:auto;object-fit:contain}
+.rrugc-output-version-dialog .rrugc-version-grid.is-masonry .rrugc-version-card-meta{flex-wrap:wrap}
+@media(max-width:750px){
+  .rrugc-output-version-dialog .rrugc-version-grid.is-masonry{column-count:3;column-width:145px;column-gap:9px}
+  .rrugc-output-version-dialog .rrugc-version-compare-toolbar{flex-wrap:wrap}
+}
+@media(max-width:490px){
+  .rrugc-output-version-dialog .rrugc-version-grid.is-masonry{column-count:2;column-width:130px;column-gap:8px}
+  .rrugc-output-version-dialog .rrugc-version-grid.is-masonry article.rrugc-version-compare-card{padding:7px;margin-bottom:8px}
+  .rrugc-output-version-dialog .rrugc-version-layout-toggle button{padding:4px 6px}
+}
+
 /* Recover intentionally archived keyword-only skills through audited admin flow. */
 .rrugc-stage1-skill-recovery{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 11px;border:1px solid #f0d9b2;border-radius:9px;background:#fffaf1}
 .rrugc-stage1-skill-recovery-icon{display:grid;place-items:center;flex:none;width:26px;height:26px;border-radius:8px;background:#fff0d8;color:#a97531}

@@ -22,6 +22,7 @@ export function GenerationOutputVersionsDialog({
   const [selectedVersions, setSelectedVersions] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare">("auto");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,6 +62,7 @@ export function GenerationOutputVersionsDialog({
   }, [initialVersion, loading, versions]);
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
+  const masonry = galleryMode === "masonry" || (galleryMode === "auto" && compared.length > 6);
 
   return <div className="rrugc-skill-modal-backdrop" role="presentation"
     onMouseDown={event => event.target === event.currentTarget && onClose()}>
@@ -77,8 +79,14 @@ export function GenerationOutputVersionsDialog({
 
       <div className="rrugc-version-compare-toolbar">
         <span className="rrugc-version-compare-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5" /><rect x="14" y="4" width="7" height="16" rx="1.5" /></svg>
-          Compare versions <strong>{compared.length}/{versions.length}</strong>
+          {masonry ? "Masonry gallery" : "Compare versions"} <strong>{compared.length}/{versions.length}</strong>
         </span>
+        <div className="rrugc-version-layout-toggle" role="group" aria-label="Image gallery layout">
+          <button type="button" aria-pressed={masonry} onClick={() => setGalleryMode("masonry")}
+            title="Display all selected images in masonry grid">Masonry</button>
+          <button type="button" aria-pressed={!masonry} onClick={() => setGalleryMode("compare")}
+            title="Compare selected images in horizontal rows">Compare</button>
+        </div>
         <div className="rrugc-version-compare-actions" role="group" aria-label="Select output versions">
           <button type="button" title="Select all versions" aria-label="Select all versions"
             disabled={loading || compared.length === versions.length || versions.length === 0}
@@ -93,7 +101,7 @@ export function GenerationOutputVersionsDialog({
         </button>}
       </div>
 
-      {!loading && !error && versions.length > 1 && <div className="rrugc-version-filter" role="group" aria-label="Versions to compare">
+      {!loading && !error && versions.length > 1 && versions.length <= 24 && <div className="rrugc-version-filter" role="group" aria-label="Versions to compare">
         {versions.map((version, index) => <button type="button" key={version.version}
           aria-label={"Compare version " + version.version} aria-pressed={selectedVersions.has(version.version)}
           className={selectedVersions.has(version.version) ? "is-selected" : ""}
@@ -110,7 +118,8 @@ export function GenerationOutputVersionsDialog({
 
       {loading && <p role="status" className="rrugc-version-message">Loading saved output versions…</p>}
       {error && <p role="alert" className="rrugc-source-error">{error}</p>}
-      {!loading && !error && <div className="rrugc-version-grid" aria-label="Side-by-side version comparison">
+      {!loading && !error && <div className={"rrugc-version-grid" + (masonry ? " is-masonry" : "")}
+        aria-label={masonry ? "Masonry gallery of saved images" : "Side-by-side version comparison"}>
         {compared.map(version => <article key={version.version}
           ref={version.version === initialVersion ? openedVersionRef : undefined}
           className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "")}>
@@ -118,7 +127,7 @@ export function GenerationOutputVersionsDialog({
             <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
             {version.version === versions[0]?.version && <span>Latest</span>}
           </div>
-          <a className="rrugc-version-image-link" href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
+          <a className="rrugc-version-image-link" style={masonry && version.width && version.height ? { aspectRatio: String(version.width) + " / " + String(version.height) } : undefined} href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
             <img src={version.url + "?thumbnail=true&size=400"} loading="lazy" alt={"Output version " + version.version} />
           </a>
           <div className="rrugc-version-card-meta">
