@@ -34,13 +34,8 @@ it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPE
   }
 });
 
-it("bundles the 12 uploaded left-side cap photos in the compact optimized atlas", () => {
-  const svg = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/sides-atlas-fit.svg"), "utf8");
-  expect(svg).toContain('viewBox="0 0 2100 1720"');
-  expect(svg).toContain("data:image/webp;base64,");
-  const encoded = svg.match(/data:image\/webp;base64,([A-Za-z0-9+/=]+)/)?.[1];
-  expect(encoded).toBeTruthy();
-  const webp = Buffer.from(encoded, "base64");
+it("bundles the 12 uploaded full-cap side photos as safe binary WebP", () => {
+  const webp = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/sides-atlas-fit.webp"));
   expect(webp.toString("ascii", 0, 4)).toBe("RIFF");
   expect(webp.toString("ascii", 8, 12)).toBe("WEBP");
   expect(webp.length).toBeGreaterThan(100000);

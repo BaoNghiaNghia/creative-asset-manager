@@ -145,7 +145,7 @@
 .rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img.is-loaded{opacity:.97}
 .rrugc-blueprint-side-image{background-size:300% 400%;background-repeat:no-repeat;background-color:#f6f9fc}
 .rrugc-blueprint-side-image:not(.is-ready){background-image:linear-gradient(105deg,#eef3f8,#fff,#eef3f8);background-size:200% 100%;animation:rrugc-blueprint-skeleton 1.3s ease-in-out infinite}
-.rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas-fit.svg")}
+.rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas-fit.webp")}
 .rrugc-blueprint-side-probe{position:absolute!important;inset:auto!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
 .rrugc-blueprint-side-guide,.rrugc-blueprint-front-guide{pointer-events:none;z-index:2}
 .rrugc-blueprint-panel-footer{position:relative;z-index:2;display:flex;flex:none;flex-direction:column;justify-content:center;align-items:center;gap:3px;box-sizing:border-box;min-height:48px;padding:7px 10px;border-top:1px solid #edf2f7;background:#fff;text-align:center}
@@ -181,7 +181,7 @@
 .rrugc-blueprint-magnifier-scene .rrugc-blueprint-selected-design img{opacity:.97}
 .rrugc-blueprint-magnifier-side-surface{
   position:relative;width:100%;height:100%;
-  background-image:url("/rrugc/blueprint/sides-atlas-fit.svg");
+  background-image:url("/rrugc/blueprint/sides-atlas-fit.webp");
   background-size:300% 400%;background-repeat:no-repeat;background-color:#fff;
 }
 .rrugc-blueprint-magnifier-side-surface .rrugc-blueprint-side-guide{

@@ -44,7 +44,7 @@ export function blueprintHatPhoto(colorId: string) {
   return "/rrugc/blueprint/fronts/" + encodeURIComponent(colorId) + ".jpg";
 }
 
-export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas-fit.svg";
+export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas-fit.webp";
 
 // The trimmed 3 × 4 atlas contains entire side caps; display one full cell
 // without zooming or cropping any part of the brim or crown.

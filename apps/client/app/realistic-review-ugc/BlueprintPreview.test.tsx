@@ -197,7 +197,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     const root = createRoot(host);
     await act(async () => root.render(<BlueprintPreview versions={versions} />));
     const probe = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")!;
-    expect(probe.src).toContain("/rrugc/blueprint/sides-atlas-fit.svg");
+    expect(probe.src).toContain("/rrugc/blueprint/sides-atlas-fit.webp");
     await act(async () => probe.dispatchEvent(new Event("load")));
     expect(host.querySelector(".rrugc-blueprint-side-image.is-ready")).not.toBeNull();
     await act(async () => click(host, "Select hat color Natural / Brown"));
@@ -240,7 +240,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
 
   it("preserves the navigation helper bounds and handles empty galleries", () => {
     expect(blueprintWindow(versions, 99).offset).toBe(4);
-    expect(BLUEPRINT_SIDE_ATLAS).toBe("/rrugc/blueprint/sides-atlas-fit.svg");
+    expect(BLUEPRINT_SIDE_ATLAS).toBe("/rrugc/blueprint/sides-atlas-fit.webp");
     expect(blueprintSidePosition(0).backgroundPosition).toBe("0% 0%");
     expect(blueprintSidePosition(1).backgroundPosition).toBe("50% 0%");
     expect(blueprintSidePosition(3).backgroundPosition).toBe("0% 33.333333333333336%");
