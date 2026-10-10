@@ -133,3 +133,49 @@ describe("Stage 1 compact output and action controls", () => {
     host.remove();
   });
 });
+
+describe("Stage 1 zero-output recovery", () => {
+  it("offers an explicit new generation confirmation for BIG BROTHER, never an automatic retry", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const run = vi.fn();
+    const failed: KeywordImageRow = {
+      ...outputRow, keyword: "BIG BROTHER", status: "failed",
+      job_id: "failed-big-brother", output_url: null, saved_output_count: 0,
+      error_code: "stage1_six_outputs_invalid",
+      error_message: "Stage 1 returned 0 PNG candidates, 0/6 uniquely numbered finals",
+    };
+    await act(async () => root.render(
+      <KeywordImageRowControls row={failed} busy={false} canGenerate onRun={run} onLogs={() => undefined} />,
+    ));
+    const action = host.querySelector<HTMLButtonElement>('button[aria-label="Generate again BIG BROTHER"]');
+    expect(action).not.toBeNull();
+    await act(async () => action?.click());
+    expect(run).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("may consume image generation capacity");
+    await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
+    expect(run).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("does not allow a new paid generation after a partial-image or Google Drive failure", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    for (const failure of [
+      { code: "stage1_six_outputs_invalid", message: "5 PNG candidates", count: 0 },
+      { code: "managed_storage_temporarily_unavailable", message: "Drive HTTP 500", count: 0 },
+      { code: "stage1_six_outputs_invalid", message: "0 PNG candidates", count: 2 },
+    ]) {
+      await act(async () => root.render(<KeywordImageRowControls
+        row={{ ...outputRow, status: "failed", output_url: null, saved_output_count: failure.count,
+          error_code: failure.code, error_message: failure.message }}
+        busy={false} canGenerate onRun={() => undefined} onLogs={() => undefined} />));
+      expect(host.querySelector('button[aria-label="Generate again BEACH PLEASE"]')).toBeNull();
+    }
+    await act(async () => root.unmount());
+    host.remove();
+  });
+});

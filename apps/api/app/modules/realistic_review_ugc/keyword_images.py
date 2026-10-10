@@ -259,8 +259,23 @@ class KeywordImageService:
         job = self._job(tenant_id, keyword_id)
         if job is None:
             raise KeywordImageError("keyword_image_job_not_found", "No generation job exists.", 404)
-        if job.status != "completed" or not job.output_remote_file_id:
-            raise KeywordImageError("keyword_image_regenerate_unavailable", "Regenerate only completed images.")
+        failed_without_images = (
+            job.status == "failed"
+            and not job.output_remote_file_id
+            and job.last_error_code in {
+                "stage1_no_generated_images", "stage1_six_outputs_invalid",
+            }
+            and (
+                job.last_error_code == "stage1_no_generated_images"
+                or "0 PNG candidates" in (job.last_error_message or "")
+            )
+        )
+        if not ((job.status == "completed" and job.output_remote_file_id) or failed_without_images):
+            raise KeywordImageError(
+                "keyword_image_regenerate_unavailable",
+                "A new generation is allowed for completed jobs or failed jobs with zero generated PNGs. "
+                "Upload failures must use Resume upload without rerunning the Skill.",
+            )
         if skill_source or skill_id or skill_name:
             try:
                 skill = resolve_stage2_skill(

@@ -436,7 +436,18 @@ class CodexImageGenRunner:
 
         files: tuple[GeneratedImageFile, ...] = ()
         if self.config.output_contract == "stage1_six_final_designs":
-            files = self._collect_six_final_designs(workspace)
+            # Rarely Codex finishes while image files are still being flushed
+            # by a child tool. Wait only when *zero* files are present; never
+            # rerun the image Skill and never hide an incomplete 1–5 result.
+            for wait_seconds in (0, 2, 3):
+                if wait_seconds:
+                    await asyncio.sleep(wait_seconds)
+                try:
+                    files = self._collect_six_final_designs(workspace)
+                    break
+                except CodexImageProviderError as exc:
+                    if exc.code != "stage1_no_generated_images" or wait_seconds == 3:
+                        raise
             image_bytes = Path(files[0].path).read_bytes()
             extra_images = ()
         elif self.config.output_contract == "all_generated_images":
@@ -515,6 +526,21 @@ class CodexImageGenRunner:
                 and path.resolve().is_relative_to(output_root.resolve())
                 and not any(parent.is_symlink() for parent in path.parents if parent != workspace)
             ]
+            if not candidates:
+                # Some CLI runs save six *named final* artworks in generated/
+                # or results/ instead of output/. Recover only a complete,
+                # unequivocally numbered six-PNG set from these dedicated
+                # output directories; never pull from working/previews.
+                for directory in (workspace / "generated", workspace / "results"):
+                    if not directory.is_dir() or directory.is_symlink():
+                        continue
+                    candidates.extend(
+                        path for path in directory.rglob("*")
+                        if path.is_file() and path.suffix.lower() == ".png"
+                        and not path.is_symlink()
+                        and path.resolve().is_relative_to(workspace.resolve())
+                        and not any(parent.is_symlink() for parent in path.parents if parent != workspace)
+                    )
         number_pattern = re.compile(r"(?i)^(?:design|final|artwork|concept)[_. -]*0?([1-6])$")
         numbered: dict[int, Path] = {}
         unmatched = []
@@ -541,6 +567,14 @@ class CodexImageGenRunner:
                         )
                     copyfile(path, target)
         else:
+            if not candidates:
+                raise CodexImageProviderError(
+                    "stage1_no_generated_images",
+                    "The Skill finished without creating any PNG artwork. "
+                    "Image generation may not have started or a tool may have failed. "
+                    "No outputs were discarded. Check this job's Skill logs; "
+                    "a new generation requires manual confirmation.",
+                )
             missing = sorted(set(range(1, 7)) - set(numbered))
             raise CodexImageProviderError(
                 "stage1_six_outputs_invalid",
@@ -767,6 +801,13 @@ class CodexImageGenRunner:
                 "Keep intermediates out of output/final; if needed, save compressed WebP "
                 "previews to working/previews, max 640px longest edge, quality ~65.\n"
                 "Do not use an API-key-backed image generation fallback.\n"
+                "Invoke the actual $imagegen image-generation tool once for EACH "
+                "design, then ensure the corresponding numbered PNG exists and "
+                "is nonempty BEFORE proceeding to the next design.\n"
+                "Do not treat a text response, a preflight command, or a "
+                "successful CLI exit as proof that any image was generated.\n"
+                "If $imagegen is missing, unavailable, or cannot generate, "
+                "report that exact blocker instead of ending as if finished.\n"
                 "Use one generated image per final file. Do not print image data.\n"
                 + extra_block
             )

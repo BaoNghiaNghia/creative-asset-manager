@@ -100,3 +100,34 @@ def test_stage1_prompt_does_not_request_v4_ten_concepts_or_colorways():
     assert "BEACH LIFE" in value
     assert "TEN separate" not in value
     assert "13 ORIGINAL Valucap" not in value
+
+def test_six_final_designs_normalize_only_complete_numbered_generated_folder(tmp_path):
+    folder = tmp_path / "generated"
+    folder.mkdir()
+    for number in range(1, 7):
+        Image.new("RGB", (900, 900), (number * 29, 45, 65)).save(folder / f"design_{number}.png")
+    files = runner()._collect_six_final_designs(tmp_path)
+    assert len(files) == 6
+    assert [Path(item.path).name for item in files] == [f"design_{n:02}.png" for n in range(1, 7)]
+    assert all((tmp_path / "output" / "final" / f"design_{n:02}.png").is_file() for n in range(1, 7))
+
+
+def test_zero_png_is_named_no_generation_and_previews_never_count(tmp_path):
+    drafts = tmp_path / "working" / "previews"
+    drafts.mkdir(parents=True)
+    Image.new("RGBA", (900, 900)).save(drafts / "design_01.png")
+    with pytest.raises(CodexImageProviderError) as caught:
+        runner()._collect_six_final_designs(tmp_path)
+    assert caught.value.code == "stage1_no_generated_images"
+    assert "without creating any PNG artwork" in str(caught.value)
+
+
+def test_partial_alt_folder_does_not_promote_drafts_or_count_as_success(tmp_path):
+    folder = tmp_path / "results"
+    folder.mkdir()
+    for number in range(1, 6):
+        Image.new("RGB", (800, 800), (number * 15, 33, 90)).save(folder / f"design_{number:02}.png")
+    with pytest.raises(CodexImageProviderError) as caught:
+        runner()._collect_six_final_designs(tmp_path)
+    assert caught.value.code == "stage1_six_outputs_invalid"
+    assert "missing design numbers 6" in str(caught.value)

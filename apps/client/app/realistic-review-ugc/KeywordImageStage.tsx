@@ -72,13 +72,17 @@ export function KeywordImageRowControls({
   const regenerateButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
-  const regenerate = row.status === "completed";
+  const failedNoImages = row.status === "failed" && row.saved_output_count === 0
+    && (row.error_code === "stage1_no_generated_images"
+      || (row.error_code === "stage1_six_outputs_invalid"
+        && (row.error_message || "").includes("0 PNG candidates")));
+  const regenerate = row.status === "completed" || failedNoImages;
   const generate = row.status === "not_run";
   const resumeUpload = row.status === "failed" && Boolean(row.upload_recovery_available);
   const runnable = regenerate || generate || resumeUpload;
-  const runLabel = resumeUpload ? "Resume upload" : regenerate ? "Regenerate" : "Redesign Qoutes";
+  const runLabel = resumeUpload ? "Resume upload" : failedNoImages ? "Generate again" : regenerate ? "Regenerate" : "Redesign Qoutes";
   const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : resumeUpload ? "Retry Google Drive upload using saved finals — no image regeneration" : regenerate ? "Regenerate image" : "Redesign Qoutes";
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : resumeUpload ? "Retry Google Drive upload using saved finals — no image regeneration" : failedNoImages ? "Manually start a new generation after the previous Skill produced zero images" : regenerate ? "Regenerate image" : "Redesign Qoutes";
 
   useEffect(() => {
     if (!confirmRegenerate) return;
@@ -143,8 +147,12 @@ export function KeywordImageRowControls({
         <section className="rrugc-keyword-regenerate-dialog" role="dialog" aria-modal="true"
           aria-labelledby="rrugc-regenerate-title" aria-describedby="rrugc-regenerate-description">
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
-          <h2 id="rrugc-regenerate-title">Regenerate image?</h2>
-          <p id="rrugc-regenerate-description">Queue a new version for <strong>{row.keyword}</strong>? Your previous images will be kept.</p>
+          <h2 id="rrugc-regenerate-title">{failedNoImages ? "Generate again?" : "Regenerate image?"}</h2>
+          <p id="rrugc-regenerate-description">
+            {failedNoImages
+              ? <>The previous Skill attempt generated no PNG images for <strong>{row.keyword}</strong>. Start a NEW generation run? It may consume image generation capacity; the failed run and its logs are preserved. No automatic retry will occur.</>
+              : <>Queue a new version for <strong>{row.keyword}</strong>? Your previous images will be kept.</>}
+          </p>
           <div className="rrugc-keyword-regenerate-buttons">
             <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
             <button ref={acceptButtonRef} type="button" className="is-accept" onClick={() => {
@@ -309,9 +317,11 @@ export function KeywordImageStage({
       if (row.status === "failed" && row.upload_recovery_available) {
         await retryKeywordImage(row.keyword_id);
         setMessage("Resuming Drive upload for " + row.keyword + " using preserved final images; no generation rerun.");
-      } else if (row.status === "completed") {
+      } else if (row.status === "completed" || (row.status === "failed" && row.saved_output_count === 0
+        && (row.error_code === "stage1_no_generated_images"
+          || (row.error_code === "stage1_six_outputs_invalid" && (row.error_message || "").includes("0 PNG candidates"))))) {
         await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
-        setMessage("New output version queued for " + row.keyword + ". Previous output stays available.");
+        setMessage("New manually confirmed Skill run queued for " + row.keyword + ". Previous logs remain available.");
       } else if (row.status === "not_run" && selectedSkillInput) {
         const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");

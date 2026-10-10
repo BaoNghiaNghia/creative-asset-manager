@@ -357,3 +357,52 @@ def test_manual_keyword_rejects_empty_and_overlong_inputs(db):
             service.queue_manual(tenant_id="tenant-a", user_id="actor", text=invalid)
         assert err.value.status_code == 422
     assert db.query(RrugcKeywordVolumeModel).count() == 0
+
+def test_zero_png_failed_job_can_be_manually_regenerated_as_new_one_attempt_run(db):
+    row = keyword(db, "missing-png", "tenant-a", picked=True)
+    previous = ProcessingJobModel(
+        id="first-processing", tenant_id="tenant-a", job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="zero-png-job",
+        idempotency_key="first-processing", payload_json={"keyword_image_job_id": "zero-png-job"},
+        status="failed", max_attempts=1,
+    )
+    job = RrugcKeywordImageJobModel(
+        id="zero-png-job", tenant_id="tenant-a", keyword_id=row.id,
+        keyword_text=row.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        processing_job_id=previous.id, last_error_code="stage1_six_outputs_invalid",
+        last_error_message="Stage 1 returned 0 PNG candidates, 0/6 uniquely numbered finals",
+    )
+    db.add_all([previous, job])
+    db.commit()
+    service = KeywordImageService(db)
+    renewed = service.regenerate(tenant_id="tenant-a", keyword_id=row.id)
+    assert renewed.status == "queued"
+    assert renewed.processing_job_id != previous.id
+    assert renewed.retry_count == 0
+    assert db.get(ProcessingJobModel, previous.id).status == "failed"
+    second = db.get(ProcessingJobModel, renewed.processing_job_id)
+    assert second.max_attempts == 1
+    assert second.payload_json == {"keyword_image_job_id": job.id}
+    assert db.query(ProcessingJobModel).count() == 2
+
+
+def test_partial_outputs_and_drive_failure_never_offer_new_generation_by_default(db):
+    row = keyword(db, "part-failed", "tenant-a", picked=True)
+    job = RrugcKeywordImageJobModel(
+        id="part-failed-job", tenant_id="tenant-a", keyword_id=row.id,
+        keyword_text=row.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        last_error_code="stage1_six_outputs_invalid",
+        last_error_message="Stage 1 returned 5 PNG candidates, missing design numbers 6",
+    )
+    db.add(job)
+    db.commit()
+    service = KeywordImageService(db)
+    with pytest.raises(KeywordImageError, match="zero generated PNGs"):
+        service.regenerate(tenant_id="tenant-a", keyword_id=row.id)
+    job.last_error_code = "managed_storage_temporarily_unavailable"
+    job.last_error_message = "Google Drive HTTP 500"
+    db.commit()
+    with pytest.raises(KeywordImageError, match="Resume upload"):
+        service.regenerate(tenant_id="tenant-a", keyword_id=row.id)
