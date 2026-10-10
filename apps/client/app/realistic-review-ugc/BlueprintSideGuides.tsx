@@ -1,20 +1,26 @@
-/** Approximate Valucap 8869 embroidery guides in the source image coordinates.
- *  The whole scene (reference photo plus guide paths) is mirrored for a
- *  right-facing display, including inside the hover magnifier.
- *  Blue = hoop boundary, red = stitchable field, cyan = design placement.
+/** Calibrated right-facing placement shapes for the Valucap 8869 side preview.
+ * Paths follow the reference cap image's 700×430 viewBox. The side cap photo
+ * is mirrored independently; these paths must NOT be mirrored.
+ * Blue: cap-clamp hoop, red: sew field, cyan: reference design safe area.
  */
+export const RIGHT_SIDE_GUIDE = {
+  hoop: "M 2 345 Q 8 305 39 266 L 92 208 L 297 174 Q 325 169 347 184 L 439 237 Q 461 252 468 284 L 473 331 Q 473 351 446 363 L 149 419 Q 124 426 104 409 L 35 376 Q 7 368 2 345 Z",
+  sewField: "M 57 267 L 391 210 L 406 337 L 72 373 Z",
+  designField: "M 145 295 L 301 271 L 318 335 L 155 352 Z",
+} as const;
+
 export function BlueprintSideGuides({ decorative = false }: { decorative?: boolean }) {
   return <svg
     className="rrugc-blueprint-side-guides"
     viewBox="0 0 700 430"
     preserveAspectRatio="none"
-    aria-label={decorative ? undefined : "Side guidelines: hoop boundary, sew field and design placement"}
+    aria-label={decorative ? undefined : "Right-side guidelines: cap clamp hoop, sew field and Roberts design safe area"}
     aria-hidden={decorative ? "true" : undefined}
     role={decorative ? undefined : "img"}
     xmlns="http://www.w3.org/2000/svg"
   >
-    <path className="rrugc-blueprint-side-hoop" d="M 264 157 L 490 115 Q 509 112 526 122 L 597 170 Q 615 183 621 206 L 608 293 Q 605 318 581 330 L 312 355 Q 296 355 284 343 L 235 283 Q 224 270 230 250 L 249 177 Q 251 163 264 157 Z" />
-    <path className="rrugc-blueprint-side-sew-field" d="M 275 198 L 577 219 L 568 312 L 286 290 Z" />
-    <path className="rrugc-blueprint-side-design-field" d="M 371 228 L 501 237 L 494 287 L 374 278 Z" />
+    <path className="rrugc-blueprint-side-hoop" d={RIGHT_SIDE_GUIDE.hoop}/>
+    <path className="rrugc-blueprint-side-sew-field" d={RIGHT_SIDE_GUIDE.sewField}/>
+    <path className="rrugc-blueprint-side-design-field" d={RIGHT_SIDE_GUIDE.designField}/>
   </svg>;
 }

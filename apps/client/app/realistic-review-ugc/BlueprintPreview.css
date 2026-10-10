@@ -247,3 +247,26 @@
 .rrugc-blueprint-side-content>.rrugc-blueprint-side-guides{
   position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
 }
+
+/* Right-facing guides and Roberts embroidery are anchored in RIGHT-SIDE
+   image coordinates; only the photographic atlas is horizontally mirrored. */
+.rrugc-blueprint-side-image>.rrugc-blueprint-side-guides,
+.rrugc-blueprint-magnifier-side-surface>.rrugc-blueprint-side-guides{
+  position:absolute;inset:0;width:100%;height:100%;z-index:4;
+  transform:none;pointer-events:none;
+}
+.rrugc-blueprint-side-calibration-design{
+  display:block;position:absolute;left:20.7%;top:65%;width:24.8%;height:auto;
+  z-index:3;opacity:.93;pointer-events:none;transform-origin:center center;
+  transform:rotate(-8deg) scale(var(--side-design-scale, 1));
+  transition:transform 120ms ease-out;
+}
+@media(prefers-reduced-motion:reduce){
+  .rrugc-blueprint-side-calibration-design{transition:none}
+}
+/* Override legacy .rrugc-blueprint-side-image img {width:100%;height:100%}.
+   The Roberts sample is calibrated against the cyan safe-area, never stretched. */
+.rrugc-blueprint-side-image>img.rrugc-blueprint-side-calibration-design{
+  width:24.8%;height:auto;max-width:none;max-height:none;
+  object-fit:contain;left:20.7%;top:65%;
+}

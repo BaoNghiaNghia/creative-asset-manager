@@ -58,3 +58,13 @@ it("bundles the 12 uploaded full-cap side photos as safe binary WebP", () => {
   expect(webp.length).toBeGreaterThan(100000);
   expect(webp.length).toBeLessThan(400000);
 });
+it("uses the supplied Roberts artwork as the default SIDE sizing reference", () => {
+  const png = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/roberts-reference.png"));
+  expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+  expect(png.length).toBeGreaterThan(2000);
+  const css = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.css"), "utf8");
+  expect(css).toContain(".rrugc-blueprint-side-calibration-design{");
+  expect(css).toContain("rotate(-8deg) scale(var(--side-design-scale, 1))");
+  expect(css).toContain(".rrugc-blueprint-side-image>.rrugc-blueprint-side-guides,");
+  expect(css).toContain(".rrugc-blueprint-side-content{");
+});

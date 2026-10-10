@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { BlueprintPreview, BLUEPRINT_HAT_COLORS, BLUEPRINT_SIDE_ATLAS, blueprintNavigate, blueprintWindow, blueprintSidePosition } from "./BlueprintPreview";
+import { BlueprintPreview, BLUEPRINT_HAT_COLORS, BLUEPRINT_SIDE_ATLAS, BLUEPRINT_SIDE_CALIBRATION_DESIGN, blueprintNavigate, blueprintWindow, blueprintSidePosition } from "./BlueprintPreview";
 import type { GenerationOutputVersion } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -141,12 +141,21 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
     expect(host.querySelectorAll(".rrugc-blueprint-side-guides")).toHaveLength(2);
-    const sideGuides = host.querySelector<SVGSVGElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content > .rrugc-blueprint-side-guides")!;
+    const sideGuides = host.querySelector<SVGSVGElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-guides")!;
     expect(sideGuides.getAttribute("viewBox")).toBe("0 0 700 430");
     expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")).not.toBeNull();
     expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")).not.toBeNull();
     expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")).not.toBeNull();
     expect(sideGuides.querySelectorAll("path")).toHaveLength(3);
+    expect(sideGuides.parentElement?.classList.contains("rrugc-blueprint-side-image")).toBe(true);
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")?.getAttribute("d")).toContain("L 149 419");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")?.getAttribute("d")).toContain("M 57 267");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")?.getAttribute("d")).toContain("M 145 295");
+    const calibration = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-calibration-design")!;
+    expect(calibration.src).toContain("/rrugc/blueprint/roberts-reference.png");
+    expect(calibration.style.getPropertyValue("--side-design-scale")).toBe("1");
+    expect(host.querySelectorAll(".rrugc-blueprint-side-calibration-design")).toHaveLength(2);
+    expect(host.querySelector(".rrugc-blueprint-magnifier-side-surface > .rrugc-blueprint-side-guides")).not.toBeNull();
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("50% 0%");
     await act(async () => root.unmount());
@@ -248,6 +257,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
   it("preserves the navigation helper bounds and handles empty galleries", () => {
     expect(blueprintWindow(versions, 99).offset).toBe(4);
     expect(BLUEPRINT_SIDE_ATLAS).toBe("/rrugc/blueprint/sides-atlas-fit.webp");
+    expect(BLUEPRINT_SIDE_CALIBRATION_DESIGN).toBe("/rrugc/blueprint/roberts-reference.png");
     expect(blueprintSidePosition(0).backgroundPosition).toBe("0% 0%");
     expect(blueprintSidePosition(1).backgroundPosition).toBe("50% 0%");
     expect(blueprintSidePosition(3).backgroundPosition).toBe("0% 33.333333333333336%");

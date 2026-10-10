@@ -46,6 +46,7 @@ export function blueprintHatPhoto(colorId: string) {
 }
 
 export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas-fit.webp";
+export const BLUEPRINT_SIDE_CALIBRATION_DESIGN = "/rrugc/blueprint/roberts-reference.png";
 
 // The trimmed 3 × 4 atlas contains entire side caps; display one full cell
 // without zooming or cropping any part of the brim or crown.
@@ -324,14 +325,22 @@ export function BlueprintPreview({ versions, initialVersion }: {
                     aria-hidden="true" onLoad={() => setSideAtlasReady(true)}
                     onError={() => setSideAtlasFailed(true)} />
                   <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
-                    {guides && <BlueprintSideGuides />}
                   </div>
+                  <img className="rrugc-blueprint-side-calibration-design"
+                    src={BLUEPRINT_SIDE_CALIBRATION_DESIGN}
+                    style={{ "--side-design-scale": scale / 100 } as React.CSSProperties}
+                    draggable={false} alt="Roberts reference embroidery, default right-side sizing design"/>
+                  {guides && <BlueprintSideGuides />}
                   <div ref={sideLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                     <div className="rrugc-blueprint-magnifier-scene">
                       <div className="rrugc-blueprint-magnifier-side-surface">
                         <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
-                          {guides && <BlueprintSideGuides decorative />}
                         </div>
+                        <img className="rrugc-blueprint-side-calibration-design"
+                          src={BLUEPRINT_SIDE_CALIBRATION_DESIGN}
+                          style={{ "--side-design-scale": scale / 100 } as React.CSSProperties}
+                          draggable={false} alt=""/>
+                        {guides && <BlueprintSideGuides decorative />}
                       </div>
                     </div>
                   </div>
@@ -339,7 +348,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
           </div>
           <footer className="rrugc-blueprint-panel-footer">
             <span className="rrugc-blueprint-side-note">{activeColor.label}</span>
-            <small>Mirrored side reference · Placement is approximate</small>
+            <small>Roberts sizing reference · Right-side placement approximate</small>
           </footer>
         </article>
         <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>
