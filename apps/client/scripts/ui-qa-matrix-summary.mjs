@@ -26,12 +26,20 @@ export function summarizeFixtureReport(report, profileName, expectedViewports = 
   const quality = (report.results || []).flatMap(result =>
     (result.qualityAudit || []).map(q => ({ viewport: result.viewport, ...q })));
   const max = key => quality.length ? Math.max(...quality.map(q => Number(q[key] || 0))) : null;
-  const status = report.results?.length && !issues && !missingViewports.length &&
+  const functionalStatus = report.results?.length && !issues && !missingViewports.length &&
     !incomplete.length && !missingQualityViewports.length && (report.states || []).length
     ? "pass" : "fail";
+  const visualEnabled = Boolean(report.visual?.baselineDir);
+  const visualIssueCount = visualEnabled
+    ? Number(report.visual?.analysis?.issueCount ?? 0) : 0;
+  const visualStatus = !visualEnabled ? "skipped"
+    : report.visual?.analysis?.status === "passed" && visualIssueCount === 0
+      ? "pass" : "fail";
+  const status = functionalStatus === "pass" && visualStatus !== "fail" ? "pass" : "fail";
   return {
     profile: profileName,
-    status, runId: report.runId, browser: report.browser || null,
+    status, functionalStatus, visualStatus, visualIssueCount,
+    runId: report.runId, browser: report.browser || null,
     viewports: resultViewports,
     states: (report.states || []).length,
     issueCount: issues,
@@ -74,6 +82,8 @@ export async function collectQaMatrix({ profiles, since, root = ROOT, viewports 
     generatedAt: new Date().toISOString(), profiles: rows,
     summary: { total: rows.length, passed: rows.filter(r => r.status === "pass").length,
       failed: rows.filter(r => r.status !== "pass").length,
+      functionalPassed: rows.filter(r => r.functionalStatus === "pass").length,
+      visualFailed: rows.filter(r => r.visualStatus === "fail").length,
       baselineProfilesAligned: baseline.summary.aligned,
       baselineProfilesTotal: baseline.summary.total,
       baselineStatesAwaitingApproval: baseline.summary.uncoveredStates },
@@ -93,10 +103,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     await fs.mkdir(path.dirname(path.resolve(output)), { recursive: true });
     await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n", "utf8");
   }
-  console.log(`Fixture Browser QA: ${report.summary.passed}/${report.summary.total} passed; ` +
-    `${report.summary.baselineStatesAwaitingApproval} states await baseline approval`);
+  console.log(`Fixture Browser QA: ${report.summary.passed}/${report.summary.total} overall passed; ` +
+    `${report.summary.functionalPassed}/${report.summary.total} functional passed; ` +
+    `${report.summary.visualFailed} profile(s) failed visual comparisons; ` +
+    `${report.summary.baselineStatesAwaitingApproval} baseline states await approval`);
   for (const row of report.profiles) {
-    console.log(`${row.status.toUpperCase()} ${row.profile} (${row.viewports?.join(",") || row.reason || "unknown"})`);
+    console.log(`${row.status.toUpperCase()} ${row.profile} ` +
+      `(functional=${row.functionalStatus || "missing"}, visual=${row.visualStatus || "missing"}, ` +
+      `visualIssues=${row.visualIssueCount ?? "n/a"}; ${row.viewports?.join(",") || row.reason || "unknown"})`);
   }
   if (report.summary.failed) process.exitCode = 2;
 }

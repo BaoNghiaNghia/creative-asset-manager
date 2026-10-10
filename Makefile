@@ -1,4 +1,4 @@
-.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-profile-matrix ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke
+.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-profile-matrix ui-qa-headless ui-qa-visual ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke
 
 api:
 	bash scripts/dev-api.sh
@@ -20,6 +20,19 @@ ui-staging-qa:
 
 ui-profile-matrix:
 	bash scripts/cam-ui-profile-matrix.sh
+
+# One-command, no-login UI regression checks. Fixture-only, headless, strict.
+# Defaults to all workspaces; override CAM_UI_QA_PROFILES and CAM_UI_VIEWPORTS.
+ui-qa-headless:
+	@CAM_UI_QA_PROFILES="$${CAM_UI_QA_PROFILES:-explorer-viewer,review-board,realistic-review-ugc,ai-operations,inventory,access-management,video-generation,job-queue,public-review}" \
+	 CAM_UI_VIEWPORTS="$${CAM_UI_VIEWPORTS:-desktop,tabletPortrait,mobile}" \
+	 CAM_UI_VISUAL_SKIP=1 CAM_UI_QA_STRICT=1 bash scripts/cam-ui-profile-matrix.sh
+
+# Separate visual regression audit; baseline changes require manual review.
+ui-qa-visual:
+	@CAM_UI_QA_PROFILES="$${CAM_UI_QA_PROFILES:-explorer-viewer,review-board,realistic-review-ugc,ai-operations,inventory,access-management,video-generation,job-queue,public-review}" \
+	 CAM_UI_VIEWPORTS="$${CAM_UI_VIEWPORTS:-desktop,tabletPortrait,mobile}" \
+	 CAM_UI_QA_STRICT=1 bash scripts/cam-ui-profile-matrix.sh
 
 ui-repair-check:
 	bash scripts/cam-ui-repair-check.sh

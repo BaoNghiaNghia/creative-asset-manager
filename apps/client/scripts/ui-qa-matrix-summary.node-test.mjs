@@ -36,6 +36,26 @@ test("missing viewport, screenshots or step failure cannot be called PASS", () =
   assert.equal(result.issueCount, 1);
 });
 
+test("visual differences cannot be presented as an overall PASS", () => {
+  const mismatched = structuredClone(sample);
+  mismatched.visual = {
+    baselineDir: "visual-baselines/job-queue",
+    analysis: { status: "failed", issueCount: 4 },
+  };
+  const result = summarizeFixtureReport(mismatched, "job-queue", ["mobile"]);
+  assert.equal(result.functionalStatus, "pass");
+  assert.equal(result.visualStatus, "fail");
+  assert.equal(result.visualIssueCount, 4);
+  assert.equal(result.status, "fail");
+
+  const aligned = structuredClone(mismatched);
+  aligned.visual.analysis = { status: "passed", issueCount: 0 };
+  const good = summarizeFixtureReport(aligned, "job-queue", ["mobile"]);
+  assert.equal(good.status, "pass");
+  assert.equal(good.visualStatus, "pass");
+  assert.equal(summarizeFixtureReport(sample, "job-queue", ["mobile"]).visualStatus, "skipped");
+});
+
 test("absent results and missing metric audits never count as completed matrix", () => {
   assert.equal(summarizeFixtureReport({ states: ["default"], results: [] }, "x", ["mobile"]).status, "fail");
   const missingAudit = structuredClone(sample);

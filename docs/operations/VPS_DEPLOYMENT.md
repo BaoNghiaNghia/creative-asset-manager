@@ -37,6 +37,28 @@ Production smoke has three coverage modes. `CAM_PRODUCTION_UI_MODE=auto` is the 
 
 Authenticated coverage uses a Playwright storage-state file outside the repository, normally `/etc/creative-asset-manager/production-ui-storage-state.json`, with mode `600` or stricter. Treat that file as a credential: never commit, print, copy into `.ui-qa`, or place it under the source checkout. If `CAM_PRODUCTION_UI_STORAGE_STATE` is explicitly set but missing, auto mode fails instead of silently ignoring that operator mistake.
 
+### Recommended: no-login, headless Browser QA
+
+For routine UI changes, neither a Google login nor noVNC is required. On the VPS, in the trusted repository:
+
+```bash
+make ui-qa-headless  # all 9 fixture-backed pages, three viewport sizes, strict functional/quality checks
+```
+
+Limit the run when investigating a specific page:
+
+```bash
+CAM_UI_QA_PROFILES=ai-operations CAM_UI_VIEWPORTS=desktop,mobile make ui-qa-headless
+```
+
+Run an **independent** visual audit with the saved, reviewed baselines:
+
+```bash
+make ui-qa-visual
+```
+
+The visual audit may fail if the UI has changed since its baselines were approved. Do not automatically accept/update baselines to conceal differences. The matrix summary reports `functionalStatus` and `visualStatus` separately to avoid false overall PASS results. All fixture-backed checks use a localhost Vite preview and mock data, not authenticated production. Continue using `CAM_PRODUCTION_UI_MODE=public make production-ui-smoke` for public production endpoints; authenticated production remains a distinct optional test requiring a protected session.
+
 ### One-time QA login (trusted desktop)
 
 For a lightweight, isolated VPS-side desktop (Xvfb + Openbox + noVNC + a private QA Chrome profile) and a conservative disk cleanup procedure, follow [VPS QA noVNC setup](VPS_QA_NOVNC.md). Keep VNC available only through a loopback SSH tunnel; the provider's serial console is not a noVNC desktop.
