@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { BlueprintPreview, BLUEPRINT_HAT_COLORS, blueprintNavigate, blueprintWindow } from "./BlueprintPreview";
+import { BlueprintPreview, BLUEPRINT_HAT_COLORS, BLUEPRINT_SIDE_ATLAS, blueprintNavigate, blueprintWindow, blueprintSidePosition } from "./BlueprintPreview";
 import type { GenerationOutputVersion } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,7 +60,9 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).not.toContain("rrugc-blueprint-cell");
     expect(html).toContain("rrugc-blueprint-design-carousel");
     expect(html).toContain("rrugc-blueprint-color-carousel");
-    expect(html).toContain("Fixed centered selected hat mockup");
+    expect(html).toContain("Front and left side previews for selected hat");
+    expect((html.match(/rrugc-blueprint-panel-header/g) || []).length).toBe(2);
+    expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
     expect((html.match(/class="rrugc-blueprint-selected-hat"/g) || []).length).toBe(1);
     expect((html.match(/rrugc-blueprint-design-choice/g) || []).length).toBeLessThanOrEqual(7);
     expect((html.match(/rrugc-blueprint-color-choice/g) || []).length).toBeLessThanOrEqual(7);
@@ -133,10 +135,29 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-color-hat").length).toBeGreaterThanOrEqual(5);
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("100");
     await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
-    expect(host.querySelector(".rrugc-blueprint-selected-design.is-guided")).not.toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-side-guide")).not.toBeNull();
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image img")?.alt).toContain("Natural / Brown");
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
+    await act(async () => root.unmount());
+  });
+
+  it("loads the twelve Side views from one atlas and switches the tile without refetching", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<BlueprintPreview versions={versions} />));
+    const probe = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")!;
+    expect(probe.src).toContain("/rrugc/blueprint/sides-atlas.svg");
+    await act(async () => probe.dispatchEvent(new Event("load")));
+    expect(host.querySelector(".rrugc-blueprint-side-image.is-ready")).not.toBeNull();
+    await act(async () => click(host, "Select hat color Natural / Brown"));
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
+    expect(host.querySelectorAll(".rrugc-blueprint-side-probe")).toHaveLength(1);
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")?.src).toBe(probe.src);
+    expect(host.querySelectorAll(".rrugc-blueprint-panel-header")).toHaveLength(2);
+    expect(host.querySelectorAll(".rrugc-blueprint-panel-footer")).toHaveLength(2);
     await act(async () => root.unmount());
   });
 
@@ -146,9 +167,9 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     const root = createRoot(host);
     await act(async () => root.render(<BlueprintPreview versions={versions} />));
     await act(async () => host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image img")!.dispatchEvent(new Event("error")));
-    expect(host.querySelector(".rrugc-blueprint-side-unavailable")?.textContent).toContain("Natural / Black");
+    expect(host.querySelector(".rrugc-blueprint-side-unavailable")?.textContent).toContain("could not be loaded");
     await act(async () => click(host, "Select hat color Natural / Brown"));
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image img")?.src).toContain("/rrugc/blueprint/sides/brown.jpg");
+    expect(host.querySelector(".rrugc-blueprint-side-unavailable")).not.toBeNull();
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
     await act(async () => root.unmount());
   });
@@ -171,6 +192,11 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
 
   it("preserves the navigation helper bounds and handles empty galleries", () => {
     expect(blueprintWindow(versions, 99).offset).toBe(4);
+    expect(BLUEPRINT_SIDE_ATLAS).toBe("/rrugc/blueprint/sides-atlas.svg");
+    expect(blueprintSidePosition(0).backgroundPosition).toBe("0% 0%");
+    expect(blueprintSidePosition(1).backgroundPosition).toBe("50% 0%");
+    expect(blueprintSidePosition(3).backgroundPosition).toBe("0% 33.333333333333336%");
+    expect(blueprintSidePosition(11).backgroundPosition).toBe("100% 100%");
     expect(blueprintNavigate(0, 0, "left", 9)).toEqual({ design: 0, color: 0 });
     expect(blueprintNavigate(8, 11, "down", 9)).toEqual({ design: 8, color: 11 });
     expect(renderToStaticMarkup(<BlueprintPreview versions={[]} />)).toContain("No designs available");

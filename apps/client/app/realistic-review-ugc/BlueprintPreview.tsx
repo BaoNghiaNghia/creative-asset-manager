@@ -43,8 +43,10 @@ export function blueprintHatPhoto(colorId: string) {
   return "/rrugc/blueprint/fronts/" + encodeURIComponent(colorId) + ".jpg";
 }
 
-export function blueprintSidePhoto(colorId: string) {
-  return "/rrugc/blueprint/sides/" + encodeURIComponent(colorId) + ".jpg";
+export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas.svg";
+
+export function blueprintSidePosition(colorIndex: number) {
+  return { backgroundPosition: `${(colorIndex % 3) * 50}% ${(Math.floor(colorIndex / 3) * 100) / 3}%` };
 }
 
 function designName(version: GenerationOutputVersion) {
@@ -68,8 +70,8 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [colorIndex, setColorIndex] = useState(0);
   const [scale, setScale] = useState(100);
   const [guides, setGuides] = useState(false);
-  const [missingSideColors, setMissingSideColors] = useState<Set<string>>(() => new Set());
-  const [sidePhotosReady, setSidePhotosReady] = useState(false);
+  const [sideAtlasReady, setSideAtlasReady] = useState(false);
+  const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
   const dragOrigin = useRef<DragOrigin | null>(null);
   const suppressNextClick = useRef(false);
   const selectedDesign = clamp(designIndex, versions.length);
@@ -89,20 +91,21 @@ export function BlueprintPreview({ versions, initialVersion }: {
   useEffect(() => {
     if (!activeDesign) return;
     prefetchBlueprintImage(blueprintHatPhoto(activeColor.id));
+    prefetchBlueprintImage(BLUEPRINT_SIDE_ATLAS);
     prefetchBlueprintImage(thumbnailUrl(activeDesign.url, 512));
     const timer = window.setTimeout(() => {
       for (const offset of [-2, -1, 1, 2]) {
         const color = BLUEPRINT_HAT_COLORS[colorIndex + offset];
         if (color) {
           prefetchBlueprintImage(blueprintHatPhoto(color.id));
-          if (sidePhotosReady) prefetchBlueprintImage(blueprintSidePhoto(color.id));
+
         }
         const design = versions[selectedDesign + offset];
         if (design) prefetchBlueprintImage(thumbnailUrl(design.url, 512));
       }
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [activeColor.id, activeDesign?.url, colorIndex, selectedDesign, sidePhotosReady, versions]);
+  }, [activeColor.id, activeDesign?.url, colorIndex, selectedDesign, versions]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -120,20 +123,20 @@ export function BlueprintPreview({ versions, initialVersion }: {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [move]);
 
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>, axis: DragAxis) => {
+  const onPointerDown = (event: ReactPointerEvent<HTMLElement>, axis: DragAxis) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if ((event.target as HTMLElement).closest("a,input")) return;
     dragOrigin.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis };
     suppressNextClick.current = false;
   };
-  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
     const start = dragOrigin.current;
     if (!start || start.pointerId !== event.pointerId) return;
     if (Math.hypot(event.clientX - start.x, event.clientY - start.y) >= 8) {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     }
   };
-  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const onPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
     const origin = dragOrigin.current;
     dragOrigin.current = null;
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -231,47 +234,73 @@ export function BlueprintPreview({ versions, initialVersion }: {
           disabled={colorIndex === BLUEPRINT_HAT_COLORS.length - 1} onClick={() => move("down")}>↓</button>
       </div>
 
-      <div className="rrugc-blueprint-preview-area" role="region" aria-label="Fixed centered selected hat mockup">
-        <div className="rrugc-blueprint-selected-card" onPointerDown={event => onPointerDown(event,"both")}
+      <div className="rrugc-blueprint-preview-area" role="region" aria-label="Front and left side previews for selected hat">
+        <article className="rrugc-blueprint-selected-card" onPointerDown={event => onPointerDown(event,"both")}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onPointerCancel={() => { dragOrigin.current = null; }}>
-          <div className="rrugc-blueprint-selected-top">
-            <span className="rrugc-blueprint-selected-badge">● SELECTED</span>
-            <span>{selectedDesign + 1} / {versions.length} designs · {colorIndex + 1} / 12 colors</span>
-          </div>
-          <div className="rrugc-blueprint-panel-label"><strong>FRONT</strong><small>Hoop Red WACE · placement preview</small></div>
-          <div className="rrugc-blueprint-selected-hat">
-            {guides && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline"><span>Front embroidery area</span></div>}
-            <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
-              alt={"Valucap 8869 original cap front, " + activeColor.label}
-              loading="eager" decoding="async" draggable={false}/>
-            <div className={"rrugc-blueprint-selected-design" + (guides ? " is-guided" : "")}>
-              <BlueprintSmoothImage key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
-                style={{ transform: "scale(" + (scale / 100) + ")" }}
-                alt={designName(activeDesign) + " mockup on " + activeColor.label}
-                loading="lazy" decoding="async" draggable={false}/>
+          <header className="rrugc-blueprint-panel-header">
+            <div className="rrugc-blueprint-panel-heading">
+              <strong>FRONT</strong>
+              <small>Hoop Red WACE · Placement preview</small>
+            </div>
+            <div className="rrugc-blueprint-selected-top">
+              <span className="rrugc-blueprint-selected-badge">● SELECTED</span>
+              <span>{selectedDesign + 1}/{versions.length} designs · {colorIndex + 1}/12 colors</span>
+            </div>
+          </header>
+          <div className="rrugc-blueprint-panel-visual">
+            <div className="rrugc-blueprint-selected-hat">
+              <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
+                alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
+              <div className="rrugc-blueprint-selected-design">
+                <BlueprintSmoothImage key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
+                  style={{ transform: "scale(" + (scale / 100) + ")" }}
+                  alt={designName(activeDesign) + " mockup on " + activeColor.label} draggable={false}/>
+              </div>
+              {guides && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
+                <span>Front embroidery area</span>
+              </div>}
             </div>
           </div>
-          <div className="rrugc-blueprint-selected-info" role="status" aria-live="polite">
-            <strong title={designName(activeDesign)}>{designName(activeDesign)}</strong>
-            <span>{activeColor.label}</span>
+          <footer className="rrugc-blueprint-panel-footer">
+            <div className="rrugc-blueprint-selected-info" role="status" aria-live="polite">
+              <strong title={designName(activeDesign)}>{designName(activeDesign)}</strong>
+              <span>{activeColor.label}</span>
+            </div>
+            <a className="rrugc-blueprint-original" href={activeDesign.url} target="_blank" rel="noreferrer">View original design ↗</a>
+          </footer>
+        </article>
+        <article className="rrugc-blueprint-side-card" aria-label={"Left side of " + activeColor.label}
+          onPointerDown={event => onPointerDown(event,"both")}
+          onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+          onPointerCancel={() => { dragOrigin.current = null; }}>
+          <header className="rrugc-blueprint-panel-header">
+            <div className="rrugc-blueprint-panel-heading">
+              <strong>LEFT SIDE</strong>
+              <small>Hoop Cap Clamp · Placement preview</small>
+            </div>
+            <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
+          </header>
+          <div className="rrugc-blueprint-panel-visual">
+            {sideAtlasFailed
+              ? <div className="rrugc-blueprint-side-unavailable" role="status">Side reference image could not be loaded</div>
+              : <div className={"rrugc-blueprint-side-image" + (sideAtlasReady ? " is-ready" : "")}
+                  role="img" aria-label={"Valucap 8869 original left side, " + activeColor.label}
+                  style={blueprintSidePosition(colorIndex)}>
+                  <img className="rrugc-blueprint-side-probe" src={BLUEPRINT_SIDE_ATLAS} alt=""
+                    aria-hidden="true" onLoad={() => setSideAtlasReady(true)}
+                    onError={() => setSideAtlasFailed(true)} />
+                  {guides && <div className="rrugc-blueprint-side-guide" aria-label="Side embroidery guideline">
+                    <span>Side embroidery area</span>
+                  </div>}
+                </div>}
           </div>
-          <a className="rrugc-blueprint-original" href={activeDesign.url} target="_blank" rel="noreferrer">View original design ↗</a>
-        </div>
-        <div className="rrugc-blueprint-side-card" aria-label={"Side view of " + activeColor.label}>
-          <div className="rrugc-blueprint-panel-label"><strong>LEFT SIDE</strong><small>Hoop Cap Clamp · placement preview</small></div>
-          <div className="rrugc-blueprint-side-image">
-            {missingSideColors.has(activeColor.id)
-              ? <div className="rrugc-blueprint-side-unavailable" role="status">Side reference photo unavailable for {activeColor.label}</div>
-              : <BlueprintSmoothImage key={activeColor.id} src={blueprintSidePhoto(activeColor.id)}
-                  alt={"Valucap 8869 original left side, " + activeColor.label} draggable={false}
-                  onLoad={() => setSidePhotosReady(true)}
-                  onError={() => setMissingSideColors(current => new Set(current).add(activeColor.id))} />}
-            {guides && !missingSideColors.has(activeColor.id) && <div className="rrugc-blueprint-side-guide" aria-label="Side embroidery guideline"><span>Side embroidery area</span></div>}
-          </div>
-          <div className="rrugc-blueprint-side-note">{activeColor.label} · Reference side image</div>
-        </div>
-        <div className="rrugc-blueprint-nav-hint">← → change design <span>·</span> ↑ ↓ change hat color <span>·</span> drag to browse</div>
+          <footer className="rrugc-blueprint-panel-footer">
+            <span className="rrugc-blueprint-side-note">{activeColor.label}</span>
+            <small>Original side reference · Placement is approximate</small>
+          </footer>
+        </article>
+        <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>
       </div>
     </div>
     <div className="rrugc-blueprint-footnote">
