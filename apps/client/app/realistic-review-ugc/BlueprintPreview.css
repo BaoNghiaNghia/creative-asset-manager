@@ -350,10 +350,27 @@
 /* The tiny swatch indicates the active brim-matched embroidery thread color.
    It is inside the header, not over the hat or the zoom control. */
 .rrugc-blueprint-thread-swatch{
-  display:inline-block;flex:0 0 auto;width:13px;height:13px;
-  border-radius:50%;border:1px solid rgba(0,0,0,.18);
+  display:inline-block;flex:0 0 auto;width:30px;height:14px;
+  border-radius:5px;border:1px solid rgba(0,0,0,.18);
   box-shadow:0 0 0 2px #fff,0 0 0 3px #e4eaf0;
 }
 @media(max-width:680px){
-  .rrugc-blueprint-thread-swatch{width:11px;height:11px}
+  .rrugc-blueprint-thread-swatch{width:23px;height:12px}
+}
+/* Clickable multi-thread swatch: a compact way to cycle dark alternatives
+   without changing the original artwork, cap image or embroidery size. */
+button.rrugc-blueprint-thread-swatch{
+  width:41px;height:20px;padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:flex-end;
+  font-size:12px;font-weight:800;color:#2c3441;
+}
+button.rrugc-blueprint-thread-swatch span{
+  display:grid;place-items:center;width:15px;height:100%;
+  background:rgba(255,255,255,.76);border-radius:0 5px 5px 0;
+}
+button.rrugc-blueprint-thread-swatch:focus-visible{
+  outline:2px solid #308fc0;outline-offset:3px;
+}
+@media(max-width:680px){
+  button.rrugc-blueprint-thread-swatch{width:34px;height:18px}
 }

@@ -127,8 +127,11 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(chosen(host)).toContain("design_7.png");
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(chosen(host)).toContain("Natural / Brown");
-    expect(host.querySelectorAll('[aria-label$="embroidery thread: Brown"]')).toHaveLength(2);
-    expect(host.querySelector<HTMLElement>('[aria-label="Front embroidery thread: Brown"]')?.style.backgroundColor).toBe("rgb(91, 65, 48)");
+    expect(host.querySelectorAll('button[aria-label$="embroidery palette for Brown"]')).toHaveLength(2);
+    const paletteSwatch = host.querySelector<HTMLButtonElement>('button[aria-label="Next Front embroidery palette for Brown"]');
+    expect(paletteSwatch?.style.backgroundImage).toContain("linear-gradient");
+    expect(paletteSwatch?.title).toContain("Palette:");
+    expect(paletteSwatch?.style.backgroundImage).toContain("#");
     expect(host.querySelector(".rrugc-blueprint-design-choice.is-selected")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.max).toBe("200");
@@ -166,6 +169,32 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("50% 0%");
     await act(async () => root.unmount());
+  });
+
+  it("cycles and remembers alternative multi-thread palettes for one design and colorway", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<BlueprintPreview versions={versions} />));
+    const front = () => host.querySelector<HTMLButtonElement>('button[aria-label="Next Front embroidery palette for Black"]')!;
+    const side = () => host.querySelector<HTMLButtonElement>('button[aria-label="Next Right side embroidery palette for Black"]')!;
+    const initial = front().title;
+    expect(initial).toContain("Graphite");
+    expect(front().style.backgroundImage).toBe(side().style.backgroundImage);
+    await act(async () => front().click());
+    expect(front().title).toContain("Midnight Navy");
+    expect(front().style.backgroundImage).toBe(side().style.backgroundImage);
+    expect(front().title).not.toBe(initial);
+    await act(async () => click(host, "Next design columns"));
+    await act(async () => click(host, "Next design columns"));
+    expect(front().title).toContain("Espresso");
+    await act(async () => click(host, "Previous design columns"));
+    await act(async () => click(host, "Previous design columns"));
+    expect(front().title).toContain("Midnight Navy");
+    await act(async () => side().click());
+    expect(front().title).toContain("Espresso");
+    await act(async () => root.unmount());
+    host.remove();
   });
 
   it("scales only embroidery artwork with independent header sliders (not cap photos)", async () => {

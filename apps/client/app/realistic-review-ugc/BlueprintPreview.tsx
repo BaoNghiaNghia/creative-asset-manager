@@ -6,7 +6,8 @@ import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
-import { useBlueprintEmbroideryTint, BLUEPRINT_THREAD_COLORS } from "./BlueprintEmbroideryTint";
+import { useBlueprintEmbroideryTint } from "./BlueprintEmbroideryTint";
+import { BLUEPRINT_DARK_PALETTES, selectBlueprintThreadPalette } from "./BlueprintThreadPalettes";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -80,6 +81,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [colorIndex, setColorIndex] = useState(0);
   const [frontDesignSize, setFrontDesignSize] = useState(100);
   const [sideDesignSize, setSideDesignSize] = useState(100);
+  const [paletteOverrides, setPaletteOverrides] = useState<Record<string, number>>({});
   const [guides, setGuides] = useState(false);
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
@@ -91,8 +93,14 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
   const activeDesignSrc = activeDesign?.url ? thumbnailUrl(activeDesign.url, 512) : "";
-  const tintedFrontSrc = useBlueprintEmbroideryTint(activeDesignSrc, activeColor.id);
-  const tintedSideSrc = useBlueprintEmbroideryTint(BLUEPRINT_SIDE_CALIBRATION_DESIGN, activeColor.id);
+  const paletteKey = activeColor.id + ":" + (activeDesign?.version ?? "none");
+  const activePaletteOrdinal = paletteOverrides[paletteKey] ?? selectedDesign;
+  const activePalette = selectBlueprintThreadPalette(activeColor.id, activePaletteOrdinal);
+  const paletteCount = (BLUEPRINT_DARK_PALETTES[activeColor.id] ?? BLUEPRINT_DARK_PALETTES.black).length;
+  const cyclePalette = () => setPaletteOverrides(current => ({ ...current, [paletteKey]: (activePaletteOrdinal + 1) % paletteCount }));
+  const tintedFrontSrc = useBlueprintEmbroideryTint(activeDesignSrc, activeColor.id, activePaletteOrdinal);
+  const tintedSideSrc = useBlueprintEmbroideryTint(BLUEPRINT_SIDE_CALIBRATION_DESIGN, activeColor.id, activePaletteOrdinal);
+  const paletteSwatch = "linear-gradient(90deg, " + activePalette.primary + " 0 52%, " + activePalette.secondary + " 52% 80%, " + activePalette.accent + " 80% 100%)";
   const frontFit = useBlueprintArtworkFit(activeDesignSrc, frontDesignSize);
 
   useEffect(() => {
@@ -265,9 +273,12 @@ export function BlueprintPreview({ versions, initialVersion }: {
                 <span className="rrugc-blueprint-selected-badge">● SELECTED</span>
                 <span>{selectedDesign + 1}/{versions.length} designs · {colorIndex + 1}/12 colors</span>
               </div>
-              <span className="rrugc-blueprint-thread-swatch" title={"Thread color matches " + activeColor.short + " brim"}
-                role="img" aria-label={"Front embroidery thread: " + activeColor.short}
-                style={{ backgroundColor: BLUEPRINT_THREAD_COLORS[activeColor.id] }}/>
+              <button type="button" className="rrugc-blueprint-thread-swatch"
+                title={"Palette: " + activePalette.name + " (" + ((activePaletteOrdinal % paletteCount) + 1) + "/" + paletteCount + ") · Click to try the next dark combination"}
+                aria-label={"Next Front embroidery palette for " + activeColor.short}
+                onClick={event => { event.stopPropagation(); cyclePalette(); }}
+                onPointerDown={event => event.stopPropagation()}
+                style={{ backgroundImage: paletteSwatch }}><span aria-hidden="true">↻</span></button>
               <BlueprintViewZoom label="Front" value={frontDesignSize} onChange={setFrontDesignSize}/>
             </div>
           </header>
@@ -335,9 +346,12 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
               <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
-              <span className="rrugc-blueprint-thread-swatch" title={"Thread color matches " + activeColor.short + " brim"}
-                role="img" aria-label={"Right side embroidery thread: " + activeColor.short}
-                style={{ backgroundColor: BLUEPRINT_THREAD_COLORS[activeColor.id] }}/>
+              <button type="button" className="rrugc-blueprint-thread-swatch"
+                title={"Palette: " + activePalette.name + " (" + ((activePaletteOrdinal % paletteCount) + 1) + "/" + paletteCount + ") · Click to try the next dark combination"}
+                aria-label={"Next Right side embroidery palette for " + activeColor.short}
+                onClick={event => { event.stopPropagation(); cyclePalette(); }}
+                onPointerDown={event => event.stopPropagation()}
+                style={{ backgroundImage: paletteSwatch }}><span aria-hidden="true">↻</span></button>
               <BlueprintViewZoom label="Right side" value={sideDesignSize} onChange={setSideDesignSize}/>
             </div>
           </header>
