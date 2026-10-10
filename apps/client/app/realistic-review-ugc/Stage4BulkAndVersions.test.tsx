@@ -90,7 +90,7 @@ describe("Version history comparison", () => {
     expect(blueprint).toBeDefined();
     await act(async () => blueprint.click());
     expect(blueprint.getAttribute("aria-pressed")).toBe("true");
-    expect(host.querySelectorAll(".rrugc-blueprint-cell")).toHaveLength(48);
+    expect(host.querySelectorAll(".rrugc-blueprint-cell")).toHaveLength(60);
     expect(host.querySelectorAll(".rrugc-blueprint-color")).toHaveLength(12);
     expect(host.querySelector(".rrugc-version-compare-card")).toBeNull();
     await act(async () => masonryButton.click());

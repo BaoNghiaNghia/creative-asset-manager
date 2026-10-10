@@ -1,58 +1,84 @@
-/* Blueprint is an interactive, preview-only matrix in the Stage 1 output dialog. */
-.rrugc-output-version-dialog:has(.rrugc-blueprint){width:min(1370px,calc(100vw - 28px));max-height:calc(100vh - 24px)}
+/* Puzzle grid: horizontally swappable designs, twelve vertical colorways, cyan selection corridor. */
+.rrugc-output-version-dialog:has(.rrugc-blueprint){width:min(1480px,calc(100vw - 22px));max-height:calc(100vh - 20px)}
 .rrugc-blueprint{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0;overflow:hidden;padding:0 13px 12px;background:#f7f9fd}
-.rrugc-blueprint-controls{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:11px 3px 9px}
-.rrugc-blueprint-description{display:grid;gap:4px;min-width:160px}
-.rrugc-blueprint-description strong{color:#354d71;font-size:13px;font-weight:800}
-.rrugc-blueprint-description span{color:#7486a0;font-size:10px;line-height:1.4}
+.rrugc-blueprint-controls{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:9px 3px}
+.rrugc-blueprint-description{display:grid;gap:4px;min-width:180px}
+.rrugc-blueprint-description>strong{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:#354d71;font-size:13px;font-weight:850}
+.rrugc-blueprint-count{padding:3px 8px;border:1px solid #cde1f5;border-radius:99px;background:#eff6ff;color:#4579a9;font-size:9px}
+.rrugc-blueprint-description>span{color:#7385a0;font-size:10px;line-height:1.4}
 .rrugc-blueprint-options{display:flex;flex:none;align-items:center;gap:13px;flex-wrap:wrap}
 .rrugc-blueprint-guides,.rrugc-blueprint-scale{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:#63748e;font-size:10px;font-weight:750}
-.rrugc-blueprint-guides input{accent-color:#536fcb;cursor:pointer}
-.rrugc-blueprint-scale input{width:92px;height:4px;accent-color:#567ac6;cursor:pointer}
+.rrugc-blueprint-guides input{accent-color:#168fce;cursor:pointer}
+.rrugc-blueprint-scale input{width:88px;height:4px;accent-color:#168fce;cursor:pointer}
 .rrugc-blueprint-scale b{min-width:31px;text-align:right;font-size:10px;font-variant-numeric:tabular-nums}
-.rrugc-blueprint-nav{display:flex;align-items:center;gap:6px;padding:3px;border:1px solid #dce5f0;border-radius:9px;background:#fff}
-.rrugc-blueprint-nav button{display:grid;width:29px;height:28px;place-items:center;border:1px solid #d7e1ef;border-radius:7px;background:#fff;color:#476899;cursor:pointer}
-.rrugc-blueprint-nav button svg{width:14px;height:14px}
-.rrugc-blueprint-nav button:hover:not(:disabled){background:#eff4ff;border-color:#a9bde5}
-.rrugc-blueprint-nav button:disabled{opacity:.3;cursor:default}
-.rrugc-blueprint-nav button:focus-visible{outline:2px solid #6387d1;outline-offset:2px}
-.rrugc-blueprint-nav>span{min-width:68px;color:#50657e;text-align:center;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}
-.rrugc-blueprint-disclaimer{flex:none;margin:0 0 9px;padding:8px 11px;border:1px solid #f0dfba;border-radius:8px;background:#fff9ed;color:#966a27;font-size:10px;line-height:1.45}
-.rrugc-blueprint-viewport{flex:1;min-height:120px;min-width:0;overflow:auto;overscroll-behavior:contain;border:1px solid #dbe4ef;border-radius:11px;background:#edf2f8;scrollbar-color:#b8c6db transparent;scrollbar-width:thin}
-.rrugc-blueprint-viewport:focus-visible{outline:2px solid #7c9dd5;outline-offset:2px}
-.rrugc-blueprint-matrix{display:grid;min-width:max-content;gap:1px;background:#e2e8f1}
-.rrugc-blueprint-corner,.rrugc-blueprint-heading{position:sticky;top:0;z-index:3;display:grid;align-content:center;gap:4px;min-height:68px;box-sizing:border-box;padding:10px 12px;background:#f9fbff}
-.rrugc-blueprint-corner{left:0;z-index:5;border-right:1px solid #dae3ef}
-.rrugc-blueprint-corner span,.rrugc-blueprint-heading span{color:#7487a5;font-size:9px;font-weight:850;letter-spacing:.055em}
-.rrugc-blueprint-corner strong{color:#3a506d;font-size:10px}
-.rrugc-blueprint-heading{grid-template-columns:1fr auto;align-items:center;column-gap:8px}
-.rrugc-blueprint-heading span{grid-column:1/-1}
-.rrugc-blueprint-heading strong{min-width:0;overflow:hidden;color:#3d5474;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:850}
-.rrugc-blueprint-heading a{color:#4870ae;font-size:9px;white-space:nowrap;text-decoration:none}
-.rrugc-blueprint-heading a:hover{text-decoration:underline}
-.rrugc-blueprint-color{position:sticky;left:0;z-index:2;display:grid;align-content:center;justify-content:start;gap:3px;box-sizing:border-box;padding:9px 11px;background:#f9fbfe;border-right:1px solid #dae3ef}
-.rrugc-blueprint-color-count{color:#8b9bb2;font-size:9px;font-weight:850}
+.rrugc-blueprint-focusbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 12px;margin-bottom:8px;border:1px solid #cce5f6;border-radius:9px;background:#eff9ff}
+.rrugc-blueprint-focus-label{display:flex;align-items:center;gap:9px;min-width:0}
+.rrugc-blueprint-focus-square{flex:none;width:12px;height:12px;border:2px solid #0ca4e2;border-radius:3px;background:#5ec9f2;box-shadow:0 0 0 3px #d4effb}
+.rrugc-blueprint-focus-label>span:last-child{display:grid;min-width:0;gap:3px}
+.rrugc-blueprint-focus-label b{max-width:350px;overflow:hidden;color:#27567e;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.rrugc-blueprint-focus-label small{color:#6885a1;font-size:9px}
+.rrugc-blueprint-direction-controls{display:flex;flex:none;align-items:center;gap:4px}
+.rrugc-blueprint-direction-controls button{display:grid;place-items:center;width:29px;height:28px;padding:0;border:1px solid #c9ddea;border-radius:6px;background:#fff;color:#2675b0;font-size:16px;font-weight:850;cursor:pointer}
+.rrugc-blueprint-direction-controls button:hover:not(:disabled){border-color:#5da6cf;background:#e1f5ff}
+.rrugc-blueprint-direction-controls button:disabled{opacity:.35;cursor:default}
+.rrugc-blueprint-direction-controls button:focus-visible{outline:2px solid #168fce;outline-offset:2px}
+.rrugc-blueprint-control-separator{width:1px;height:17px;margin:0 4px;background:#bbd3e5}
+.rrugc-blueprint-viewport{flex:1;min-height:130px;min-width:0;overflow:auto;overscroll-behavior:contain;border:1px solid #cee1ed;border-radius:10px;background:#dcebf6;scrollbar-color:#b0c7d9 transparent;scrollbar-width:thin;cursor:grab;touch-action:pan-y}
+.rrugc-blueprint-viewport:active{cursor:grabbing}
+.rrugc-blueprint-viewport:focus-visible{outline:2px solid #63b7df;outline-offset:2px}
+.rrugc-blueprint-matrix{display:grid;min-width:max-content;gap:2px;background:#d8e5ee}
+.rrugc-blueprint-corner,.rrugc-blueprint-heading{position:sticky;top:0;z-index:4;box-sizing:border-box;min-height:165px;background:#f9fbff}
+.rrugc-blueprint-corner{left:0;z-index:8;display:grid;align-content:center;gap:5px;padding:12px;border-right:1px solid #bdd8e8}
+.rrugc-blueprint-corner>span{color:#6f92aa;font-size:9px;font-weight:850;letter-spacing:.06em}
+.rrugc-blueprint-corner strong{color:#3a506d;font-size:11px}
+.rrugc-blueprint-corner small{color:#88a0b3;font-size:9px}
+.rrugc-blueprint-heading{position:sticky;display:flex;flex-direction:column;align-items:stretch;padding:6px;border:1px solid transparent;border-bottom:2px solid #cbdbe8}
+.rrugc-blueprint-heading.is-active-column{z-index:5;border:2px solid #05a8e3;border-bottom-color:#05a8e3;background:#dbf3ff;box-shadow:inset 0 0 0 1px #fff}
+.rrugc-blueprint-heading-button{display:grid;justify-items:start;gap:4px;flex:1;min-width:0;padding:5px;border:none;border-radius:7px;background:#fff;text-align:left;cursor:pointer}
+.rrugc-blueprint-heading-button:hover{background:#f0f8ff}
+.rrugc-blueprint-heading-button:focus-visible{outline:2px solid #0ba3dc;outline-offset:0}
+.rrugc-blueprint-heading-button img{display:block;justify-self:center;width:100%;height:91px;object-fit:contain;pointer-events:none;background:#f7f8fa;border-radius:5px}
+.rrugc-blueprint-heading-index{color:#7e90a7;font-size:8px;font-weight:850;letter-spacing:.055em;white-space:nowrap}
+.rrugc-blueprint-heading.is-active-column .rrugc-blueprint-heading-index{color:#038ab9}
+.rrugc-blueprint-heading-button strong{max-width:100%;overflow:hidden;color:#344c69;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
+.rrugc-blueprint-heading>a{padding:3px 5px 0;align-self:flex-end;color:#5281ab;font-size:8px;text-decoration:none}
+.rrugc-blueprint-heading>a:hover{text-decoration:underline}
+.rrugc-blueprint-color{position:sticky;left:0;z-index:3;display:grid;align-content:center;justify-items:start;gap:5px;box-sizing:border-box;padding:10px 12px;background:#f9fbfe;border-right:1px solid #ccdeea}
+.rrugc-blueprint-color-count{color:#829ab0;font-size:9px;font-weight:850}
 .rrugc-blueprint-color strong{color:#3a5274;font-size:12px;line-height:1.1}
-.rrugc-blueprint-color small{color:#8190a4;font-size:9px}
-.rrugc-blueprint-cell{display:flex;align-items:center;justify-content:center;min-height:230px;padding:10px;background:#fff}
-.rrugc-blueprint-hat{position:relative;flex:none;width:160px;aspect-ratio:4/5;background-image:url('/rrugc/blueprint/8869-hat-atlas.svg');background-repeat:no-repeat;background-size:400% 300%;background-color:#fff;isolation:isolate}
+.rrugc-blueprint-color small{color:#8190a4;font-size:8px;line-height:1.3}
+.rrugc-blueprint-color.is-active-row{background:#e6f7ff;border-right:3px solid #04a5df}
+.rrugc-blueprint-row-marker{padding:3px 5px;border-radius:4px;background:#caebfc;color:#067ba9;font-size:8px;font-weight:850}
+.rrugc-blueprint-cell{position:relative;display:grid;place-items:center;min-width:0;min-height:221px;box-sizing:border-box;padding:8px;border:1px solid transparent;background:#fff;text-align:center;cursor:pointer}
+.rrugc-blueprint-cell.is-active-row{background:#f5fbff}
+.rrugc-blueprint-cell.is-active-column{border-left:2px solid #1daee8;border-right:2px solid #1daee8;background:#ebf9ff}
+.rrugc-blueprint-cell.is-active-cell{border:3px solid #04a6e4;background:#cbf1ff;box-shadow:inset 0 0 0 3px #fff,0 0 0 1px #00a7df}
+.rrugc-blueprint-cell:hover:not(.is-active-cell){background:#f1f8ff;border-color:#acd1e5}
+.rrugc-blueprint-cell:focus-visible{outline:2px solid #0ba5df;outline-offset:-3px}
+.rrugc-blueprint-cell-indicator{position:absolute;top:4px;right:5px;padding:2px 5px;border-radius:4px;background:#039fda;color:#fff;font-size:8px;font-weight:850}
+.rrugc-blueprint-hat{position:relative;flex:none;width:150px;aspect-ratio:4/5;background-image:url('/rrugc/blueprint/8869-hat-atlas.svg');background-repeat:no-repeat;background-size:400% 300%;background-color:#fff;isolation:isolate}
 .rrugc-blueprint-design-zone{position:absolute;top:30%;left:22%;width:56%;height:27%;display:grid;place-items:center;z-index:1}
 .rrugc-blueprint-design-zone.is-guided{outline:1.5px dashed #20aca9;outline-offset:1px;background:rgba(21,194,188,.045)}
 .rrugc-blueprint-design-zone>img{display:block;max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply;opacity:.96;transform-origin:center;pointer-events:none}
-.rrugc-blueprint-footnote{display:flex;flex:none;justify-content:space-between;flex-wrap:wrap;gap:4px;padding:8px 2px 0;color:#8796ad;font-size:9px}
-@media(max-width:930px){
+.rrugc-blueprint-footnote{display:flex;flex:none;justify-content:space-between;flex-wrap:wrap;gap:5px;padding:8px 2px 0;color:#8796ad;font-size:9px}
+@media(max-width:1060px){
  .rrugc-blueprint-controls{align-items:flex-start;flex-direction:column}
  .rrugc-blueprint-options{width:100%;justify-content:space-between}
- .rrugc-blueprint-viewport{max-height:70vh}
+ .rrugc-blueprint-matrix{grid-template-columns:126px repeat(5,minmax(190px,1fr))!important}
 }
-@media(max-width:560px){
+@media(max-width:620px){
  .rrugc-output-version-dialog:has(.rrugc-blueprint){width:calc(100vw - 12px);max-height:calc(100vh - 12px)}
  .rrugc-blueprint{padding:0 7px 9px}
+ .rrugc-blueprint-description>strong{font-size:11px}
+ .rrugc-blueprint-description>span{font-size:9px}
+ .rrugc-blueprint-focusbar{align-items:flex-start;flex-wrap:wrap;padding:7px}
+ .rrugc-blueprint-direction-controls{margin-left:auto}
  .rrugc-blueprint-scale input{width:65px}
- .rrugc-blueprint-matrix{grid-template-columns:100px repeat(4, minmax(196px, 1fr))!important}
+ .rrugc-blueprint-matrix{grid-template-columns:105px repeat(5,minmax(180px,1fr))!important}
  .rrugc-blueprint-color{padding:6px 8px}
  .rrugc-blueprint-color strong{font-size:10px}
  .rrugc-blueprint-color small{font-size:8px}
- .rrugc-blueprint-description span{font-size:9px}
- .rrugc-blueprint-cell{min-height:220px;padding:6px}
+ .rrugc-blueprint-cell{min-height:202px;padding:5px}
+ .rrugc-blueprint-hat{width:143px}
+ .rrugc-blueprint-heading-button img{height:80px}
 }
