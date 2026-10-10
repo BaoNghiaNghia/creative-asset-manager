@@ -60,7 +60,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).not.toContain("rrugc-blueprint-cell");
     expect(html).toContain("rrugc-blueprint-design-carousel");
     expect(html).toContain("rrugc-blueprint-color-carousel");
-    expect(html).toContain("Front and left side previews for selected hat");
+    expect(html).toContain("Front and right-facing side previews for selected hat");
     expect((html.match(/rrugc-blueprint-panel-header/g) || []).length).toBe(2);
     expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
     expect((html.match(/class="rrugc-blueprint-selected-hat"/g) || []).length).toBe(1);
@@ -141,14 +141,14 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
     expect(host.querySelectorAll(".rrugc-blueprint-side-guides")).toHaveLength(2);
-    const sideGuides = host.querySelector<SVGSVGElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-guides")!;
+    const sideGuides = host.querySelector<SVGSVGElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content > .rrugc-blueprint-side-guides")!;
     expect(sideGuides.getAttribute("viewBox")).toBe("0 0 700 430");
     expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")).not.toBeNull();
     expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")).not.toBeNull();
     expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")).not.toBeNull();
     expect(sideGuides.querySelectorAll("path")).toHaveLength(3);
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
-    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("50% 0%");
     await act(async () => root.unmount());
   });
 
@@ -192,7 +192,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     setupBounds(side);
     await act(async () => dispatch(side, "pointermove"));
     expect(sideLens.style.opacity).toBe("1");
-    expect(sideLens.querySelector<HTMLElement>(".rrugc-blueprint-magnifier-side-surface")?.style.backgroundPosition).toBe("0% 0%");
+    expect(sideLens.querySelector<HTMLElement>(".rrugc-blueprint-magnifier-side-surface > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("0% 0%");
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(sideLens.style.opacity).toBe("0");
     await act(async () => root.unmount());
@@ -208,7 +208,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => probe.dispatchEvent(new Event("load")));
     expect(host.querySelector(".rrugc-blueprint-side-image.is-ready")).not.toBeNull();
     await act(async () => click(host, "Select hat color Natural / Brown"));
-    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("50% 0%");
     expect(host.querySelectorAll(".rrugc-blueprint-side-probe")).toHaveLength(1);
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")?.src).toBe(probe.src);
     expect(host.querySelectorAll(".rrugc-blueprint-panel-header")).toHaveLength(2);

@@ -28,6 +28,12 @@ it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () 
   expect(css).toContain(".rrugc-blueprint-side-hoop{stroke:#446eff");
   expect(css).toContain(".rrugc-blueprint-side-sew-field{stroke:#f04460");
   expect(css).toContain(".rrugc-blueprint-side-design-field{stroke:#0baed5");
+  expect(css).toContain(".rrugc-blueprint-side-content{");
+  expect(css).toContain("transform:scaleX(-1);transform-origin:50% 50%");
+  expect(css).toContain(".rrugc-blueprint-side-image.is-ready>.rrugc-blueprint-side-content,");
+  expect(css).toContain(".rrugc-blueprint-magnifier-side-surface>.rrugc-blueprint-side-content{");
+  expect(css).toContain(".rrugc-blueprint-side-image.is-ready{background-image:none}");
+  expect(css).toContain(".rrugc-blueprint-magnifier-side-surface{background-image:none}");
   expect(css).not.toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{");
   // Maintain exact picture bounds; the change must affect guides only.
   expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");

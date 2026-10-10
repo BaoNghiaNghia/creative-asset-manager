@@ -247,7 +247,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
           disabled={colorIndex === BLUEPRINT_HAT_COLORS.length - 1} onClick={() => move("down")}>↓</button>
       </div>
 
-      <div className="rrugc-blueprint-preview-area" role="region" aria-label="Front and left side previews for selected hat">
+      <div className="rrugc-blueprint-preview-area" role="region" aria-label="Front and right-facing side previews for selected hat">
         <article className="rrugc-blueprint-selected-card" onPointerDown={event => onPointerDown(event,"both")}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onPointerCancel={() => { dragOrigin.current = null; }}>
@@ -301,13 +301,13 @@ export function BlueprintPreview({ versions, initialVersion }: {
             <a className="rrugc-blueprint-original" href={activeDesign.url} target="_blank" rel="noreferrer">View original design ↗</a>
           </footer>
         </article>
-        <article className="rrugc-blueprint-side-card" aria-label={"Left side of " + activeColor.label}
+        <article className="rrugc-blueprint-side-card" aria-label={"Right-facing side preview of " + activeColor.label}
           onPointerDown={event => onPointerDown(event,"both")}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onPointerCancel={() => { dragOrigin.current = null; }}>
           <header className="rrugc-blueprint-panel-header">
             <div className="rrugc-blueprint-panel-heading">
-              <strong>LEFT SIDE</strong>
+              <strong>RIGHT SIDE</strong>
               <small>Hoop Cap Clamp · Placement preview</small>
             </div>
             <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
@@ -316,19 +316,22 @@ export function BlueprintPreview({ versions, initialVersion }: {
             {sideAtlasFailed
               ? <div className="rrugc-blueprint-side-unavailable" role="status">Side reference image could not be loaded</div>
               : <div className={"rrugc-blueprint-side-image" + (sideAtlasReady ? " is-ready" : "")}
-                  role="img" aria-label={"Valucap 8869 original left side, " + activeColor.label}
-                  style={blueprintSidePosition(colorIndex)}
+                  role="img" aria-label={"Valucap 8869 right-facing mirrored side reference, " + activeColor.label}
                   onPointerMove={event => moveBlueprintLens(event, sideLens.current, sideAtlasReady)}
                   onPointerLeave={() => hideBlueprintLens(sideLens.current)}
                   onPointerDown={() => hideBlueprintLens(sideLens.current)}>
                   <img className="rrugc-blueprint-side-probe" src={BLUEPRINT_SIDE_ATLAS} alt=""
                     aria-hidden="true" onLoad={() => setSideAtlasReady(true)}
                     onError={() => setSideAtlasFailed(true)} />
-                  {guides && <BlueprintSideGuides />}
+                  <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
+                    {guides && <BlueprintSideGuides />}
+                  </div>
                   <div ref={sideLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                     <div className="rrugc-blueprint-magnifier-scene">
-                      <div className="rrugc-blueprint-magnifier-side-surface" style={blueprintSidePosition(colorIndex)}>
-                        {guides && <BlueprintSideGuides decorative />}
+                      <div className="rrugc-blueprint-magnifier-side-surface">
+                        <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
+                          {guides && <BlueprintSideGuides decorative />}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -336,7 +339,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
           </div>
           <footer className="rrugc-blueprint-panel-footer">
             <span className="rrugc-blueprint-side-note">{activeColor.label}</span>
-            <small>Original side reference · Placement is approximate</small>
+            <small>Mirrored side reference · Placement is approximate</small>
           </footer>
         </article>
         <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>

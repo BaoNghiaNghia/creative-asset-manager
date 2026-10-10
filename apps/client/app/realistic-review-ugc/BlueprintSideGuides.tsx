@@ -1,5 +1,6 @@
-/** Approximate Valucap 8869 side hoop geometry for the brim-left reference photo.
- *  Scales with the complete side image, including inside the hover magnifier.
+/** Approximate Valucap 8869 embroidery guides in the source image coordinates.
+ *  The whole scene (reference photo plus guide paths) is mirrored for a
+ *  right-facing display, including inside the hover magnifier.
  *  Blue = hoop boundary, red = stitchable field, cyan = design placement.
  */
 export function BlueprintSideGuides({ decorative = false }: { decorative?: boolean }) {

@@ -227,3 +227,23 @@
 .rrugc-blueprint-side-hoop{stroke:#446eff;stroke-width:2.3}
 .rrugc-blueprint-side-sew-field{stroke:#f04460;stroke-width:2;stroke-dasharray:5 4}
 .rrugc-blueprint-side-design-field{stroke:#0baed5;stroke-width:2;stroke-dasharray:3 3}
+
+/* Right-facing side view: mirror the native brim-left photograph AND its
+   embroidery guide geometry as one scene. The hit-area, header/footer and
+   magnifier remain in standard screen coordinates. Do not mirror them. */
+.rrugc-blueprint-side-image.is-ready{background-image:none}
+.rrugc-blueprint-magnifier-side-surface{background-image:none}
+.rrugc-blueprint-side-content{
+  position:absolute;inset:0;width:100%;height:100%;
+  background-size:300% 400%;background-repeat:no-repeat;
+  background-color:transparent;
+  transform:scaleX(-1);transform-origin:50% 50%;
+  pointer-events:none;
+}
+.rrugc-blueprint-side-image.is-ready>.rrugc-blueprint-side-content,
+.rrugc-blueprint-magnifier-side-surface>.rrugc-blueprint-side-content{
+  background-image:url("/rrugc/blueprint/sides-atlas-fit.webp");
+}
+.rrugc-blueprint-side-content>.rrugc-blueprint-side-guides{
+  position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+}
