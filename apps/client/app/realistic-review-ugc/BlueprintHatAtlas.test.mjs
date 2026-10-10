@@ -15,6 +15,9 @@ it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () 
   expect(css).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
   expect(css).toContain(".rrugc-blueprint-panel-header{");
   expect(css).toContain(".rrugc-blueprint-panel-footer{");
+  expect(css).toContain("transform:scale(1.20);transform-origin:center center");
+  expect(css).toContain(".rrugc-blueprint-side-image{background-size:600% 800%");
+  expect(css).toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:2%;top:26%;width:72%;height:36%}");
 });
 
 it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPEG files", () => {

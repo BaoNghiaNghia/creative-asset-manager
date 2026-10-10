@@ -45,8 +45,12 @@ export function blueprintHatPhoto(colorId: string) {
 
 export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas.svg";
 
+// Each atlas cell is 1/3 × 1/4. Display at 2× while keeping the selected
+// color cell centered inside the fixed viewport, without another image fetch.
 export function blueprintSidePosition(colorIndex: number) {
-  return { backgroundPosition: `${(colorIndex % 3) * 50}% ${(Math.floor(colorIndex / 3) * 100) / 3}%` };
+  const col = colorIndex % 3;
+  const row = Math.floor(colorIndex / 3);
+  return { backgroundPosition: `${((2 * col + 0.5) / 5) * 100}% ${((2 * row + 0.5) / 7) * 100}%` };
 }
 
 function designName(version: GenerationOutputVersion) {

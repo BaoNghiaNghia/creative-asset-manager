@@ -143,7 +143,7 @@
 .rrugc-blueprint-selected-design{z-index:1}
 .rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img:not(.is-loaded){opacity:0}
 .rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img.is-loaded{opacity:.97}
-.rrugc-blueprint-side-image{background-size:300% 400%;background-repeat:no-repeat;background-color:#f6f9fc}
+.rrugc-blueprint-side-image{background-size:600% 800%;background-repeat:no-repeat;background-color:#f6f9fc}
 .rrugc-blueprint-side-image:not(.is-ready){background-image:linear-gradient(105deg,#eef3f8,#fff,#eef3f8);background-size:200% 100%;animation:rrugc-blueprint-skeleton 1.3s ease-in-out infinite}
 .rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas.svg")}
 .rrugc-blueprint-side-probe{position:absolute!important;inset:auto!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
@@ -157,3 +157,7 @@
 @media(max-width:950px){.rrugc-blueprint-panel-header{padding:7px 8px}.rrugc-blueprint-panel-visual{padding:4px 5px}.rrugc-blueprint-panel-header .rrugc-blueprint-selected-top{font-size:8px}.rrugc-blueprint-panel-heading strong{font-size:11px}}
 @media(max-width:680px){.rrugc-blueprint-preview-area{display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}.rrugc-blueprint-preview-area>.rrugc-blueprint-selected-card,.rrugc-blueprint-preview-area>.rrugc-blueprint-side-card{flex:0 0 auto;height:320px;min-height:320px;width:100%}.rrugc-blueprint-panel-header{min-height:40px}.rrugc-blueprint-panel-footer{min-height:44px}.rrugc-blueprint-preview-area>.rrugc-blueprint-nav-hint{flex:none;min-height:18px}}
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-side-image:not(.is-ready){animation:none}}
+/* Enlarged caps: keep the panel headers/footers fixed and scale only the picture layer. */
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{transform:scale(1.20);transform-origin:center center}
+/* Side atlas is drawn at 2×; keep its embroidery bounds aligned to the same zoomed crop. */
+.rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:2%;top:26%;width:72%;height:36%}
