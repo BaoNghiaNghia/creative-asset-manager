@@ -39,7 +39,36 @@ Authenticated coverage uses a Playwright storage-state file outside the reposito
 
 ### One-time QA login (trusted desktop)
 
-Use a **dedicated read-only QA account** that can visit AI Operations, Asset Explorer, Review Board, and the UGC stages. The capture tool requires an interactive terminal and a graphical desktop; do not try to use it through the root-only headless VPS browser. On a trusted Windows PowerShell workstation with this repository checked out:
+Use a **dedicated read-only QA account** that can visit AI Operations, Asset Explorer, Review Board, and the UGC stages. Capture from a trusted graphical desktop, not from the VPS. **Google may reject OAuth authentication in Playwright's automated Firefox.** Never disable browser security protections or try to automate the Google sign-in itself.
+
+#### Ubuntu / Linux with Google Chrome (recommended for Google OAuth)
+
+The command below uses a **separate QA Chrome profile**. It starts regular Chrome without Playwright/remote debugging. Sign into Creative Asset Management with Google, verify the AI Operations page is visible, then **close all Chrome windows for this QA profile**.
+
+```bash
+cd ~/creative-asset-manager
+git pull --ff-only origin main
+cd apps/client
+# If not installed yet, install Google Chrome Stable using its official package.
+google-chrome --user-data-dir="$HOME/.config/cam-qa-chrome-profile" \
+  "https://creative-assets.ddns.net/ai-operations"
+```
+
+After Chrome exits, run the following in the same trusted Linux desktop terminal:
+
+```bash
+node scripts/production-ui-auth-capture-chrome.mjs \
+  --url https://creative-assets.ddns.net \
+  --profile-dir "$HOME/.config/cam-qa-chrome-profile" \
+  --output "$HOME/cam-production-ui-session.json"
+stat -c '%a %n' "$HOME/cam-production-ui-session.json"
+```
+
+The second command starts regular Chrome **only after** sign-in, attaches locally to a temporary loopback Chrome DevTools port, checks that the AI Operations page is visible, and saves only Creative Asset Management cookies and local storage. Google cookies and other websites' storage are explicitly discarded. An existing output is never overwritten. Chrome is not given `--no-sandbox` or stealth flags. If Chrome's executable has another name, add `--chrome /path/to/google-chrome`. Never point the capture tool at your everyday/default Chrome profile. Close the capture Chrome instance before deleting the dedicated QA profile when no longer needed; that profile itself contains login credentials.
+
+#### Windows / alternative authentication
+
+For sites that permit automated browser login without a Google security block, the original Firefox flow remains available from a graphical desktop:
 
 ```powershell
 cd apps/client
@@ -48,7 +77,11 @@ npx playwright install firefox
 node scripts/production-ui-auth-capture.mjs --url https://creative-assets.ddns.net --output "$env:USERPROFILE\cam-production-ui-session.json"
 ```
 
-The Windows workstation must have CodeLocal or a locally checked-out copy of this project, Node.js, and a graphical desktop. If Firefox browser installation is missing, run `npx playwright install firefox` from `apps/client` first. Sign in in the opened Firefox window. The tool waits until the **AI Operations workspace** is visible, then saves a protected storage-state file outside Git without printing session cookies. Transfer it over an encrypted, trusted channel to the root-owned `/etc/creative-asset-manager/production-ui-storage-state.json` on the VPS, make it readable only by the QA runner account (`chmod 600` for root-owned deployment), and securely delete the transfer copy. Do not send this file via chat or email. Repeat the capture if the login expires.
+If Google rejects the Playwright Firefox sign-in, use the manual Chrome flow above on Ubuntu instead.
+
+#### Secure transfer and validation
+
+Transfer the protected session file over an encrypted, trusted channel to the root-owned `/etc/creative-asset-manager/production-ui-storage-state.json` on the VPS, with permissions `600` and directory access restricted to the QA runner. Do not place either the app session file or QA Chrome profile in Git, chat, email, logs, public downloads, or a shared folder. Rotate/delete both after their QA purpose ends. Repeat the manual login if the app session expires.
 
 Before treating authenticated QA as a release gate, run `CAM_PRODUCTION_UI_MODE=strict make production-ui-smoke` and verify the report says `Coverage: authenticated` with no skipped routes. **A public-only PASS is never equivalent to authenticated private-route coverage.**
 
