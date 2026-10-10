@@ -39,6 +39,8 @@ Authenticated coverage uses a Playwright storage-state file outside the reposito
 
 ### One-time QA login (trusted desktop)
 
+For a lightweight, isolated VPS-side desktop (Xvfb + Openbox + noVNC + a private QA Chrome profile) and a conservative disk cleanup procedure, follow [VPS QA noVNC setup](VPS_QA_NOVNC.md). Keep VNC available only through a loopback SSH tunnel; the provider's serial console is not a noVNC desktop.
+
 Use a **dedicated read-only QA account** that can visit AI Operations, Asset Explorer, Review Board, and the UGC stages. Capture from a trusted graphical desktop, not from the VPS. **Google may reject OAuth authentication in Playwright's automated Firefox.** Never disable browser security protections or try to automate the Google sign-in itself.
 
 #### Ubuntu / Linux with Google Chrome (recommended for Google OAuth)
