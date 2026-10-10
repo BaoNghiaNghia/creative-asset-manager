@@ -24,7 +24,13 @@ it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () 
   expect(css).toContain(".rrugc-blueprint-side-image{background-size:300% 400%");
   expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
   expect(css).not.toContain(".rrugc-blueprint-side-image{background-size:600% 800%");
-  expect(css).toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:34%;top:30%;width:33%;height:35%}");
+  expect(css).toContain(".rrugc-blueprint-side-guides{");
+  expect(css).toContain(".rrugc-blueprint-side-hoop{stroke:#446eff");
+  expect(css).toContain(".rrugc-blueprint-side-sew-field{stroke:#f04460");
+  expect(css).toContain(".rrugc-blueprint-side-design-field{stroke:#0baed5");
+  expect(css).not.toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{");
+  // Maintain exact picture bounds; the change must affect guides only.
+  expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
 });
 
 it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPEG files", () => {

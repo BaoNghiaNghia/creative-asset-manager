@@ -3,6 +3,7 @@ import type { GenerationOutputVersion } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { BlueprintSmoothImage, prefetchBlueprintImage } from "./BlueprintSmoothImage";
 import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
+import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -323,13 +324,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
                   <img className="rrugc-blueprint-side-probe" src={BLUEPRINT_SIDE_ATLAS} alt=""
                     aria-hidden="true" onLoad={() => setSideAtlasReady(true)}
                     onError={() => setSideAtlasFailed(true)} />
-                  {guides && <div className="rrugc-blueprint-side-guide" aria-label="Side embroidery guideline">
-                    <span>Side embroidery area</span>
-                  </div>}
+                  {guides && <BlueprintSideGuides />}
                   <div ref={sideLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                     <div className="rrugc-blueprint-magnifier-scene">
                       <div className="rrugc-blueprint-magnifier-side-surface" style={blueprintSidePosition(colorIndex)}>
-                        {guides && <div className="rrugc-blueprint-side-guide"><span>Side embroidery area</span></div>}
+                        {guides && <BlueprintSideGuides decorative />}
                       </div>
                     </div>
                   </div>

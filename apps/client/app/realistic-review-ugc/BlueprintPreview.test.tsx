@@ -140,7 +140,13 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
-    expect(host.querySelector(".rrugc-blueprint-side-guide")).not.toBeNull();
+    expect(host.querySelectorAll(".rrugc-blueprint-side-guides")).toHaveLength(2);
+    const sideGuides = host.querySelector<SVGSVGElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-guides")!;
+    expect(sideGuides.getAttribute("viewBox")).toBe("0 0 700 430");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")).not.toBeNull();
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")).not.toBeNull();
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")).not.toBeNull();
+    expect(sideGuides.querySelectorAll("path")).toHaveLength(3);
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
     await act(async () => root.unmount());

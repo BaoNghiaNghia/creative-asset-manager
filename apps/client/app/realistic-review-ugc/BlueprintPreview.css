@@ -110,8 +110,7 @@
 .rrugc-blueprint-panel-label small{font-size:9px;color:#7890ab}
 .rrugc-blueprint-side-image{position:relative;width:100%;max-width:430px;aspect-ratio:4/5;max-height:calc(100% - 28px);overflow:hidden;background:#fff}
 .rrugc-blueprint-side-image img{display:block;width:100%;height:100%;object-fit:contain}
-.rrugc-blueprint-side-guide{position:absolute;left:26%;top:38%;width:36%;height:18%;box-sizing:border-box;border:2px dashed #14a9c4;border-radius:4px;transform:rotate(-8deg);pointer-events:none}
-.rrugc-blueprint-side-guide span,.rrugc-blueprint-front-guide span{position:absolute;left:0;bottom:calc(100% + 3px);color:#148ca5;font-size:9px;font-weight:750;white-space:nowrap}
+.rrugc-blueprint-front-guide span{position:absolute;left:0;bottom:calc(100% + 3px);color:#148ca5;font-size:9px;font-weight:750;white-space:nowrap}
 .rrugc-blueprint-front-guide{position:absolute;z-index:2;left:26.5%;top:33%;width:47%;height:21%;box-sizing:border-box;border:2px dashed #14a9c4;pointer-events:none}
 .rrugc-blueprint-side-note{color:#607891;font-size:10px;text-align:center}
 .rrugc-blueprint-selected-top{top:6px;left:10px;right:10px}
@@ -147,7 +146,7 @@
 .rrugc-blueprint-side-image:not(.is-ready){background-image:linear-gradient(105deg,#eef3f8,#fff,#eef3f8);background-size:200% 100%;animation:rrugc-blueprint-skeleton 1.3s ease-in-out infinite}
 .rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas-fit.webp")}
 .rrugc-blueprint-side-probe{position:absolute!important;inset:auto!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
-.rrugc-blueprint-side-guide,.rrugc-blueprint-front-guide{pointer-events:none;z-index:2}
+.rrugc-blueprint-front-guide{pointer-events:none;z-index:2}
 .rrugc-blueprint-panel-footer{position:relative;z-index:2;display:flex;flex:none;flex-direction:column;justify-content:center;align-items:center;gap:3px;box-sizing:border-box;min-height:48px;padding:7px 10px;border-top:1px solid #edf2f7;background:#fff;text-align:center}
 .rrugc-blueprint-panel-footer .rrugc-blueprint-selected-info{position:static;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:7px;margin:0;line-height:1.4}
 .rrugc-blueprint-panel-footer .rrugc-blueprint-original{position:static;display:inline;transform:none;font-size:10px;line-height:1.35}
@@ -159,8 +158,7 @@
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-side-image:not(.is-ready){animation:none}}
 /* Enlarged caps: keep the panel headers/footers fixed and scale only the picture layer. */
 .rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{transform:none;transform-origin:center center}
-/* Side atlas is drawn at 2×; keep its embroidery bounds aligned to the same zoomed crop. */
-.rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:34%;top:30%;width:33%;height:35%}
+/* Left side guides mirror the reference hoop/sew/design field geometry. */
 
 /* Circular hover magnifier: one paint-only layer, no React updates while moving. */
 .rrugc-blueprint-magnifier{
@@ -184,9 +182,7 @@
   background-image:url("/rrugc/blueprint/sides-atlas-fit.webp");
   background-size:300% 400%;background-repeat:no-repeat;background-color:#fff;
 }
-.rrugc-blueprint-magnifier-side-surface .rrugc-blueprint-side-guide{
-  left:34%;top:30%;width:33%;height:35%;
-}
+
 .rrugc-blueprint-magnifier::after{
   content:"2.4×";position:absolute;bottom:9px;right:9px;
   z-index:3;padding:3px 7px;border-radius:999px;
@@ -217,3 +213,17 @@
   .rrugc-blueprint-selected-hat>.rrugc-blueprint-front-scene,
   .rrugc-blueprint-magnifier-scene>.rrugc-blueprint-front-scene{transform:scale(1.12)}
 }
+
+/* Side reference follows the original brim-left image; guide geometry uses
+   the same 700×430 canvas in the preview and in the circular magnifier. */
+.rrugc-blueprint-side-guides{
+  position:absolute;inset:0;display:block;width:100%;height:100%;
+  z-index:2;pointer-events:none;overflow:visible;
+}
+.rrugc-blueprint-side-guides path{
+  fill:none;stroke-linecap:round;stroke-linejoin:round;
+  vector-effect:non-scaling-stroke;
+}
+.rrugc-blueprint-side-hoop{stroke:#446eff;stroke-width:2.3}
+.rrugc-blueprint-side-sew-field{stroke:#f04460;stroke-width:2;stroke-dasharray:5 4}
+.rrugc-blueprint-side-design-field{stroke:#0baed5;stroke-width:2;stroke-dasharray:3 3}
