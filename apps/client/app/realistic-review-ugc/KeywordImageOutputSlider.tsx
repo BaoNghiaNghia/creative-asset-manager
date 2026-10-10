@@ -109,27 +109,42 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
   const count = Math.max(row.saved_output_count, images.length);
   return <div className="rrugc-keyword-output" ref={rootRef} aria-label={`Generated images for ${row.keyword}`}>
     {slides.length > 0
-      ? <div ref={viewportRef} className="rrugc-keyword-output-track" role="group"
-          aria-label={`Drag to browse ${count || slides.length} generated images for ${row.keyword}`}
-          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd}
-          onPointerCancel={onPointerEnd} onScroll={updateScroll}
-          onDragStart={event => event.preventDefault()}
-          onClickCapture={event => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
-          onKeyDown={event => {
-            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-              event.preventDefault();
-              moveByPage(event.key === "ArrowRight" ? 1 : -1);
-            }
-          }} tabIndex={0}>
-          {slides.map((image, index) => <button type="button" key={image.version}
-            className="rrugc-keyword-output-image"
-            onClick={() => onOpenVersion(image.version)}
-            title={image.output_name || `Image ${index + 1} · Version ${image.version}`}
-            aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}`}
-            draggable={false}>
-            <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256"}
-              alt={`Generated image ${index + 1}`} loading="lazy" draggable={false} />
-          </button>)}
+      ? <div className="rrugc-keyword-output-gallery" role="group"
+          aria-label={`Browse generated images for ${row.keyword}`}>
+          <button type="button" className="rrugc-keyword-output-arrow is-prev"
+            aria-label={`Previous images for ${row.keyword}`} title="Previous images"
+            onClick={() => moveByPage(-1)} disabled={scroll.left < 2}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <div ref={viewportRef} className="rrugc-keyword-output-track" role="group"
+            aria-label={`Drag to browse ${count || slides.length} generated images for ${row.keyword}`}
+            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd}
+            onPointerCancel={onPointerEnd} onScroll={updateScroll}
+            onDragStart={event => event.preventDefault()}
+            onClickCapture={event => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
+            onKeyDown={event => {
+              if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+                event.preventDefault();
+                moveByPage(event.key === "ArrowRight" ? 1 : -1);
+              }
+            }} tabIndex={0}>
+            {slides.map((image, index) => <button type="button" key={image.version}
+              className="rrugc-keyword-output-image"
+              onClick={() => onOpenVersion(image.version)}
+              title={image.output_name || `Image ${index + 1} · Version ${image.version}`}
+              aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}`}
+              draggable={false}>
+              <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256"}
+                alt={`Generated image ${index + 1}`} loading="lazy" draggable={false} />
+            </button>)}
+          </div>
+          <button type="button" className="rrugc-keyword-output-arrow is-next"
+            aria-label={`Next images for ${row.keyword}`} title="Next images"
+            onClick={() => moveByPage(1)} disabled={scroll.end}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
         </div>
       : <div className="rrugc-keyword-output-placeholder">
           {error ? "Could not load images"
@@ -145,12 +160,6 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
         <OutputActivityLoader compact status={row.status} />}
       {error && <button type="button" className="rrugc-keyword-output-retry"
         title="Reload images" aria-label={`Reload images for ${row.keyword}`} onClick={() => setReload(current => current + 1)}>↻</button>}
-      {slides.length > 4 && <div className="rrugc-keyword-output-nav" role="group" aria-label="Scroll output images">
-        <button type="button" aria-label={`Previous images for ${row.keyword}`} title="Previous images"
-          onClick={() => moveByPage(-1)} disabled={scroll.left < 2}>‹</button>
-        <button type="button" aria-label={`Next images for ${row.keyword}`} title="Next images"
-          onClick={() => moveByPage(1)} disabled={scroll.end}>›</button>
-      </div>}
     </div>
   </div>;
 }

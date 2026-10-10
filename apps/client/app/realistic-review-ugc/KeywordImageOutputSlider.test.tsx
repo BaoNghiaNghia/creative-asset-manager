@@ -69,9 +69,41 @@ describe("Stage 1 draggable image strip", () => {
     expect(onOpenVersion).toHaveBeenCalledTimes(1);
     expect(onOpenVersion).toHaveBeenCalledWith(6);
     expect(host.querySelectorAll('img[loading="lazy"]')).toHaveLength(8);
-    expect(host.querySelectorAll(".rrugc-keyword-output-nav button")).toHaveLength(2);
+    const gallery = host.querySelector(".rrugc-keyword-output-gallery");
+    expect(gallery).not.toBeNull();
+    expect(Array.from(gallery!.children).map(item => item.classList.contains("rrugc-keyword-output-arrow")
+      ? item.classList.contains("is-prev") ? "previous" : "next"
+      : "track")).toEqual(["previous", "track", "next"]);
+    expect(host.querySelectorAll(".rrugc-keyword-output-arrow")).toHaveLength(2);
+    expect(host.querySelector(".rrugc-keyword-output-nav")).toBeNull();
   });
 
+
+  it("keeps previous and next buttons on opposite ends and updates disabled states after scrolling", async () => {
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
+    const prev = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-prev")!;
+    const next = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")!;
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 240 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 600 });
+    Object.defineProperty(track, "scrollBy", { configurable: true, value: ({ left }: { left: number }) => {
+      track.scrollLeft = Math.min(360, Math.max(0, track.scrollLeft + left));
+      track.dispatchEvent(new Event("scroll", { bubbles: true }));
+    } });
+    await act(async () => track.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(prev.disabled).toBe(true);
+    expect(next.disabled).toBe(false);
+    await act(async () => next.click());
+    expect(track.scrollLeft).toBe(240);
+    expect(prev.disabled).toBe(false);
+    await act(async () => next.click());
+    expect(track.scrollLeft).toBe(360);
+    expect(next.disabled).toBe(true);
+    await act(async () => prev.click());
+    expect(track.scrollLeft).toBe(120);
+    expect(next.disabled).toBe(false);
+  });
 
   it("supports mouse drag-scrolling without opening thumbnails by mistake", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
