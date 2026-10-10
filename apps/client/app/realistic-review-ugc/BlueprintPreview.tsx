@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { GenerationOutputVersion } from "./api";
+import { DeferredImage } from "./DeferredImage";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -169,7 +170,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
               aria-pressed={delta === 0} aria-label={"Select design " + designName(design)}
               onClick={() => setDesignIndex(index)}>
               <span className="rrugc-blueprint-design-caption">DESIGN {index + 1}{delta === 0 ? " · SELECTED" : ""}</span>
-              <img src={thumbnailUrl(design.url, 240)} alt="" draggable={false} loading="lazy" decoding="async"/>
+              <DeferredImage src={thumbnailUrl(design.url, 240)} rootMargin="180px" alt="" draggable={false} loading="lazy" decoding="async"/>
               <strong title={designName(design)}>{designName(design)}</strong>
             </button>;
           })}
@@ -193,7 +194,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
               style={{ transform: "translate(-50%, calc(-50% + " + (delta * 94) + "px))" }}
               aria-label={"Select hat color " + color.label} aria-pressed={delta === 0}
               onClick={() => setColorIndex(index)}>
-              <img className="rrugc-blueprint-color-hat" src={blueprintHatPhoto(color.id)}
+              <DeferredImage className="rrugc-blueprint-color-hat" src={blueprintHatPhoto(color.id)} rootMargin="180px"
                 alt="" loading="lazy" decoding="async" draggable={false}/>
               <span className="rrugc-blueprint-color-name">{color.short}</span>
             </button>;
@@ -212,11 +213,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
             <span>{selectedDesign + 1} / {versions.length} designs · {colorIndex + 1} / 12 colors</span>
           </div>
           <div className="rrugc-blueprint-selected-hat">
-            <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
+            <DeferredImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} rootMargin="800px"
               alt={"Valucap 8869 original cap front, " + activeColor.label}
               loading="eager" decoding="async" draggable={false}/>
             <div className={"rrugc-blueprint-selected-design" + (guides ? " is-guided" : "")}>
-              <img key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
+              <DeferredImage key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)} rootMargin="800px"
                 style={{ transform: "scale(" + (scale / 100) + ")" }}
                 alt={designName(activeDesign) + " mockup on " + activeColor.label}
                 loading="lazy" decoding="async" draggable={false}/>

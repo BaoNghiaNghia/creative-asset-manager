@@ -25,9 +25,10 @@ export function GenerationOutputVersionsDialog({
   const [selectedVersions, setSelectedVersions] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">("auto");
+  const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">(stage === "stage1" ? "blueprint" : "auto");
 
   useEffect(() => {
+    setGalleryMode(stage === "stage1" ? "blueprint" : "auto");
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -109,12 +110,12 @@ export function GenerationOutputVersionsDialog({
           {blueprint ? "Blueprint · 12 colorways" : masonry ? "Masonry gallery" : "Compare versions"} <strong>{compared.length}/{versions.length}</strong>
         </span>
         <div className="rrugc-version-layout-toggle" role="group" aria-label="Image gallery layout">
+          {stage === "stage1" && <button type="button" aria-pressed={blueprint} onClick={() => setGalleryMode("blueprint")}
+            title="Preview each design on 12 hat colors">Blueprint</button>}
           <button type="button" aria-pressed={masonry} onClick={() => setGalleryMode("masonry")}
             title="Display all selected images in masonry grid">Masonry</button>
           <button type="button" aria-pressed={!masonry && !blueprint} onClick={() => setGalleryMode("compare")}
             title="Compare selected images in horizontal rows">Compare</button>
-          {stage === "stage1" && <button type="button" aria-pressed={blueprint} onClick={() => setGalleryMode("blueprint")}
-            title="Preview each design on 12 hat colors">Blueprint</button>}
         </div>
         {stage !== "stage1" && <div className="rrugc-version-compare-actions" role="group" aria-label="Select output versions">
           <button type="button" title="Select all versions" aria-label="Select all versions"

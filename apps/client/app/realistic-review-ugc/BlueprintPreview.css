@@ -1,4 +1,8 @@
 /* Stage 1 Blueprint Cross Puzzle: two independent centered strips + one immovable preview. */
+.rrugc-blueprint-cross img.rrugc-deferred-img:not(.is-loaded):not(.is-failed){background:linear-gradient(100deg,#edf2f8 20%,#f9fbfd 40%,#edf2f8 60%);background-size:200% 100%;animation:rrugc-blueprint-skeleton 1.3s ease-in-out infinite;color:transparent}
+.rrugc-blueprint-cross img.rrugc-deferred-img.is-loaded{animation:none}
+@keyframes rrugc-blueprint-skeleton{to{background-position-x:-200%}}
+@media(prefers-reduced-motion:reduce){.rrugc-blueprint-cross img.rrugc-deferred-img:not(.is-loaded):not(.is-failed){animation:none}}
 .rrugc-output-version-dialog.rrugc-job-log-dialog:has(.rrugc-blueprint-cross){width:min(1330px,calc(100vw - 24px));height:min(900px,calc(100dvh - 20px));max-height:calc(100dvh - 20px)}
 .rrugc-blueprint-cross{--blueprint-rail-width:158px;display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;gap:9px;padding:0 14px 11px;background:#f6f9fc;overflow:hidden}
 .rrugc-blueprint-controls{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:10px 3px 0}
