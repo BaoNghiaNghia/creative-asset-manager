@@ -129,3 +129,29 @@ sudo scripts/cam-rebuild-backend.sh --rollback
 ```
 
 Backend rollback does not execute an Alembic downgrade. Schema compatibility with the previous application release remains required. Neither deployment script deletes processing jobs, PostgreSQL data, Elasticsearch data, or search aliases.
+
+### Browser QA automatic cleanup after successful deploy
+
+The production frontend deployment performs a **non-blocking, narrowly scoped**
+Browser QA cleanup **only after Nginx activation and public health checks pass**.
+It runs `python3 scripts/cam-clean-browser-qa.py`. It does **not** clean
+R2/Google Drive product assets, Stage 1 images, Codex final output staging,
+visual-baselines, database backups, Docker volumes, or Playwright browser
+binaries. If cleanup fails, the deployment remains healthy and a warning is logged.
+
+| QA evidence | Retention |
+| --- | --- |
+| Ordinary `apps/client/.ui-qa/<run-id>` | Keep newest 3 and at least 3 days |
+| Production smoke | Keep newest 5; preserve failed runs for at least 14 days |
+| Accepted baseline proposals | Keep newest 2; prune proposals older than 7 days **only after verifying the approved image copies exist** in `visual-baselines/` |
+| Unapproved/incomplete proposals | Never automatically remove |
+| Failed QA and any run in progress | Failed run evidence retained 14 days; no run modified within last 2 hours |
+| Autofix/repair sessions, other unknown folders | Never automatically remove |
+
+Review without deletion: `python3 scripts/cam-clean-browser-qa.py --dry-run`.
+Manual approved cleanup: `python3 scripts/cam-clean-browser-qa.py`.
+Temporarily disable on deploy with `CAM_BROWSER_QA_CLEANUP_AFTER_DEPLOY=0`.
+The cleaner uses a lock, refuses symlinked QA roots, and only removes
+known timestamp-named directories directly inside the allowlisted QA paths.
+The cleanup is limited to Browser QA: if disk usage stays high, investigate
+the separate model cache, release storage, staging files, Docker and logs.

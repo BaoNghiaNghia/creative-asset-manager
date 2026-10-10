@@ -124,5 +124,13 @@ for release in "$RELEASES"/*; do
   [[ -d "$release" && ! -L "$release" ]] || continue
   [[ "$release" == "$TARGET" ]] || rm -rf -- "$release"
 done
+# Post-success housekeeping: only Browser QA scratch evidence, never
+# production assets or model outputs. Cleanup warnings must not revert a
+# healthy deployment; failed and recent QA evidence is preserved.
+if [[ "${CAM_BROWSER_QA_CLEANUP_AFTER_DEPLOY:-1}" == "1" ]]; then
+  if ! python3 "$SOURCE_DIR/scripts/cam-clean-browser-qa.py"; then
+    printf "WARNING: Browser QA cleanup failed; production remains active.\n" >&2
+  fi
+fi
 printf "Frontend release %s activated.\n" "$RELEASE_ID"
 printf "Post-deploy UI smoke: set CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1; auto mode uses authenticated coverage when secure storage state exists and otherwise falls back to public read-only coverage.\n"

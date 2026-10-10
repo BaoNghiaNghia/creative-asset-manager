@@ -46,7 +46,7 @@ class ProductionUiSmokeTests(unittest.TestCase):
 
         rrugc = next(route for route in plan["routes"] if route["name"] == "realistic-review-ugc")
         stage3 = next(state for state in rrugc["states"] if state["name"] == "stage3-review")
-        self.assertEqual(stage3["click"], "#rrugc-tab-stage3")
+        self.assertEqual(stage3["click"], "#rrugc-tab-stage5")
         self.assertEqual(stage3["waitFor"], ".rrugc-stage3")
         assertion_types = {item["type"] for item in stage3["assertions"]}
         self.assertEqual(
