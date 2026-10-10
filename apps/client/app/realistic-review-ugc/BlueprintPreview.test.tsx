@@ -131,7 +131,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("200");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.value).toBe("100");
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")?.style.transform).toBe("scale(1)");
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")?.style.opacity).toBe("0");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.getAttribute("alt")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.classList.contains("rrugc-blueprint-smooth-img")).toBe(true);
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
@@ -140,6 +140,10 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
+    expect(host.querySelectorAll(".rrugc-blueprint-front-height-guides")).toHaveLength(2);
+    expect(host.querySelectorAll(".rrugc-blueprint-height-line.is-upper")).toHaveLength(2);
+    expect(host.querySelectorAll(".rrugc-blueprint-height-line.is-lower")).toHaveLength(2);
+    expect(host.querySelector(".rrugc-blueprint-front-height-guides[role=img]")?.getAttribute("aria-label")).toContain("Maximum height");
     expect(host.querySelectorAll(".rrugc-blueprint-side-guides")).toHaveLength(2);
     const sideGuides = host.querySelector<SVGSVGElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-guides")!;
     expect(sideGuides.getAttribute("viewBox")).toBe("0 0 700 430");

@@ -4,6 +4,7 @@ import { DeferredImage } from "./DeferredImage";
 import { BlueprintSmoothImage, prefetchBlueprintImage } from "./BlueprintSmoothImage";
 import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import { BlueprintSideGuides } from "./BlueprintSideGuides";
+import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -86,6 +87,8 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const selectedDesign = clamp(designIndex, versions.length);
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
+  const activeDesignSrc = activeDesign?.url ? thumbnailUrl(activeDesign.url, 512) : "";
+  const frontFit = useBlueprintArtworkFit(activeDesignSrc, scale);
 
   useEffect(() => {
     hideBlueprintLens(frontLens.current);
@@ -271,24 +274,37 @@ export function BlueprintPreview({ versions, initialVersion }: {
               <div className="rrugc-blueprint-front-scene">
                 <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
                   alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
-                <div className="rrugc-blueprint-selected-design">
-                  <BlueprintSmoothImage key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
-                    style={{ transform: "scale(" + (scale / 100) + ")" }}
-                    alt={designName(activeDesign) + " mockup on " + activeColor.label} draggable={false}/>
+                <div ref={frontFit.frameRef} className="rrugc-blueprint-selected-design">
+                  <BlueprintSmoothImage key={activeDesign.version} src={activeDesignSrc}
+                    onLoad={frontFit.onLoad}
+                    style={frontFit.style ?? { opacity: 0 }}
+                    alt={designName(activeDesign) + " fitted embroidery on " + activeColor.label} draggable={false}/>
                 </div>
-                {guides && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
-                  <span>Front embroidery area</span>
-                </div>}
+                {guides && <>
+                  <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
+                    <span>Front embroidery area</span>
+                  </div>
+                  <div className="rrugc-blueprint-front-height-guides" role="img" aria-label="Maximum height of front embroidery between two blue horizontal lines">
+                    <span className="rrugc-blueprint-height-line is-upper"/>
+                    <span className="rrugc-blueprint-height-line is-lower"/>
+                  </div>
+                </>}
               </div>
               <div ref={frontLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                 <div className="rrugc-blueprint-magnifier-scene">
                   <div className="rrugc-blueprint-front-scene">
                     <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
                     <div className="rrugc-blueprint-selected-design">
-                      <img src={thumbnailUrl(activeDesign.url, 512)} alt="" draggable={false}
-                        style={{ transform: "scale(" + (scale / 100) + ")" }}/>
+                      <img src={activeDesignSrc} alt="" draggable={false}
+                        style={frontFit.style ?? { opacity: 0 }}/>
                     </div>
-                    {guides && <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>}
+                    {guides && <>
+                      <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>
+                      <div className="rrugc-blueprint-front-height-guides" aria-hidden="true">
+                        <span className="rrugc-blueprint-height-line is-upper"/>
+                        <span className="rrugc-blueprint-height-line is-lower"/>
+                      </div>
+                    </>}
                   </div>
                 </div>
               </div>

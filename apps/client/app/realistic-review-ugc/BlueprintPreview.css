@@ -270,3 +270,21 @@
   width:24.8%;height:auto;max-width:none;max-height:none;
   object-fit:contain;left:20.7%;top:65%;
 }
+
+/* Front embroidery must use the visible PNG artwork, not a padded 512px image
+   canvas. The renderer measures its painted bounds and fits them at 100%. */
+.rrugc-blueprint-selected-design{overflow:visible;display:block}
+.rrugc-blueprint-selected-design img{
+  position:absolute;display:block;max-width:none;max-height:none;
+  object-fit:fill;transform:none;transition:opacity 100ms ease-out;
+}
+.rrugc-blueprint-front-height-guides{
+  position:absolute;inset:0;z-index:3;pointer-events:none;
+}
+.rrugc-blueprint-height-line{
+  position:absolute;left:0;right:0;display:block;height:0;
+  border-top:1.7px solid #587bff;
+  filter:drop-shadow(0 1px 0 rgba(255,255,255,.55));
+}
+.rrugc-blueprint-height-line.is-upper{top:27%}
+.rrugc-blueprint-height-line.is-lower{top:60%}
