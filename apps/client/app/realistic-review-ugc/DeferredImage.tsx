@@ -68,16 +68,20 @@ export function DeferredImage({
 }: DeferredImageProps) {
   const imageRef = useRef<HTMLImageElement>(null);
   const ticketRef = useRef<QueueTicket | null>(null);
+  const settledSourceRef = useRef<string | null>(null);
   const [nearViewport, setNearViewport] = useState(false);
   const [grantedSource, setGrantedSource] = useState<string | null>(null);
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
 
   useEffect(() => {
     ticketRef.current?.cancel();
     ticketRef.current = null;
+    settledSourceRef.current = null;
     setNearViewport(false);
     setGrantedSource(null);
     setLoadedSource(null);
+    setFailedSource(null);
   }, [src]);
 
   useEffect(() => {
@@ -95,12 +99,17 @@ export function DeferredImage({
 
   useEffect(() => {
     if (!nearViewport || !src) {
+      // A settled image must stay mounted when scrolled offscreen. Dropping
+      // its src here causes a new load, skeleton flash and gallery reflow
+      // whenever the user scrolls back up.
+      if (settledSourceRef.current === src) return;
       ticketRef.current?.cancel();
       ticketRef.current = null;
       setGrantedSource(current => current === null ? current : null);
       setLoadedSource(current => current === null ? current : null);
       return;
     }
+    if (settledSourceRef.current === src) return;
     const ticket = imageQueue.acquire(() => setGrantedSource(src));
     ticketRef.current = ticket;
     return () => {
@@ -116,23 +125,27 @@ export function DeferredImage({
 
   const renderedSource = grantedSource === src ? grantedSource : undefined;
   const loaded = loadedSource === src;
+  const failed = failedSource === src;
 
-  return <img
+  return <><img
     {...props}
     ref={imageRef}
     src={renderedSource}
-    className={(className + " rrugc-deferred-img" + (loaded ? " is-loaded" : "")).trim()}
+    className={(className + " rrugc-deferred-img" + (loaded ? " is-loaded" : "") + (failed ? " is-failed" : "")).trim()}
     decoding={props.decoding ?? "async"}
     loading={props.loading ?? "lazy"}
     onLoad={event => {
+      settledSourceRef.current = src;
       setLoadedSource(src);
+      setFailedSource(null);
       release();
       onLoad?.(event);
     }}
     onError={event => {
-      setLoadedSource(src);
+      settledSourceRef.current = src;
+      setFailedSource(src);
       release();
       onError?.(event);
     }}
-  />;
+  />{failed && <span className="rrugc-deferred-error" role="status">Image unavailable</span>}</>;
 }

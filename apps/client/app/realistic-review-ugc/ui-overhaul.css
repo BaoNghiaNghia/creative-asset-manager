@@ -2133,7 +2133,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-source-review-modal .rrugc-source-review-image,
   .rrugc-output-version-dialog .rrugc-version-image-link,
   .rrugc-stage3-review-modal .rrugc-stage3-review-modal-media
-):has(> img.rrugc-deferred-img:not(.is-loaded)){
+):has(> img.rrugc-deferred-img:not(.is-loaded):not(.is-failed)){
   position:relative;
   background:linear-gradient(90deg,#e8eef6 20%,#f7faff 42%,#e8eef6 65%);
   background-size:260% 100%;
@@ -2165,7 +2165,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
     .rrugc-source-review-modal .rrugc-source-review-image,
     .rrugc-output-version-dialog .rrugc-version-image-link,
     .rrugc-stage3-review-modal .rrugc-stage3-review-modal-media
-  ):has(> img.rrugc-deferred-img:not(.is-loaded)){
+  ):has(> img.rrugc-deferred-img:not(.is-loaded):not(.is-failed)){
     animation:none;
   }
 }
@@ -2196,6 +2196,111 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-output-version-dialog .rrugc-version-grid.is-masonry{column-count:2;column-width:130px;column-gap:8px}
   .rrugc-output-version-dialog .rrugc-version-grid.is-masonry article.rrugc-version-compare-card{padding:7px;margin-bottom:8px}
   .rrugc-output-version-dialog .rrugc-version-layout-toggle button{padding:4px 6px}
+}
+
+/* Small source-image comparison grids also reserve card height before loading. */
+.rrugc-source-image-review-modal .rrugc-source-image-review-card .rrugc-source-review-image{
+  position:relative;
+  width:100%;
+  height:auto;
+  min-height:0;
+  aspect-ratio:4 / 5;
+}
+.rrugc-source-image-review-modal .rrugc-source-image-review-card .rrugc-source-review-image>img{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  min-height:0;
+  object-fit:contain;
+}
+/* Stable responsive masonry: images cannot trigger CSS-column rebalance. */
+.rrugc-source-review-modal .rrugc-stable-masonry,
+.rrugc-output-version-dialog .rrugc-stable-masonry.rrugc-version-grid.is-masonry{
+  display:grid;
+  min-width:0;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+  align-content:start;
+  align-items:start;
+  column-width:auto;
+  column-count:auto;
+  gap:12px;
+  scroll-snap-type:none;
+}
+.rrugc-stable-masonry-column{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  gap:12px;
+  align-self:start;
+}
+.rrugc-source-review-modal .rrugc-stable-masonry .rrugc-source-review-card,
+.rrugc-output-version-dialog .rrugc-stable-masonry .rrugc-version-compare-card{
+  display:flex;
+  flex-direction:column;
+  width:100%;
+  min-width:0;
+  margin:0;
+  break-inside:auto;
+  align-self:stretch;
+}
+.rrugc-source-review-modal .rrugc-stable-masonry .rrugc-source-review-image{
+  position:relative;
+  width:100%;
+  height:auto;
+  min-height:0;
+  aspect-ratio:3 / 4;
+  background:#e7edf5;
+}
+.rrugc-source-review-modal .rrugc-stable-masonry .rrugc-source-review-image>img{
+  position:absolute;
+  inset:0;
+  display:block;
+  width:100%;
+  height:100%;
+  min-height:0;
+  object-fit:contain;
+}
+.rrugc-output-version-dialog .rrugc-stable-masonry .rrugc-version-image-link{
+  position:relative;
+  display:block;
+  flex:none;
+  height:auto;
+  min-height:0;
+  aspect-ratio:1;
+  overflow:hidden;
+}
+.rrugc-output-version-dialog .rrugc-stable-masonry .rrugc-version-image-link>img{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+/* An actual download error is a distinct state, not an endless skeleton or
+   broken-image glyph. This also preserves the tile's reserved dimensions. */
+.rrugc-deferred-error{
+  position:absolute;
+  z-index:1;
+  inset:0;
+  display:grid;
+  place-items:center;
+  padding:12px;
+  text-align:center;
+  font-size:10px;
+  font-weight:700;
+  color:#697c94;
+  background:#f1f4f8;
+  pointer-events:none;
+}
+.rrugc-deferred-img.is-failed{opacity:0!important}
+@media(max-width:760px){
+  .rrugc-source-review-modal .rrugc-stable-masonry,
+  .rrugc-output-version-dialog .rrugc-stable-masonry.rrugc-version-grid.is-masonry{gap:8px;padding:9px}
+  .rrugc-stable-masonry-column{gap:8px}
 }
 
 /* Recover intentionally archived keyword-only skills through audited admin flow. */

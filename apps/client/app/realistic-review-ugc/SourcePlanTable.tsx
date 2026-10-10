@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
@@ -276,8 +277,10 @@ export function ReferenceReviewModal({
         </div>
         <button type="button" className="rrugc-source-review-close" aria-label="Close reference review" onClick={onClose}>×</button>
       </header>
-      <div className="rrugc-source-review-masonry">
-        {plan.reference_previews.map((reference, index) => {
+      <StableMasonryGrid className="rrugc-source-review-masonry" items={plan.reference_previews}
+        getKey={reference => reference.id}
+        getRatio={reference => stableMasonryRatio(reference.width, reference.height)}
+        renderItem={(reference, index) => {
           const reviewing = reviewingReferenceIds.has(reference.id);
           const pending = reference.status === "analysis_queued" || reference.status === "analyzing";
           return <article
@@ -289,7 +292,7 @@ export function ReferenceReviewModal({
               + (reference.rejected ? " is-rejected" : "")
             }
           >
-            <div className="rrugc-source-review-image">
+            <div className="rrugc-source-review-image" style={{ aspectRatio: stableMasonryRatio(reference.width, reference.height) }}>
               <DeferredImage
                 src={reference.image_url}
                 alt=""
@@ -333,8 +336,7 @@ export function ReferenceReviewModal({
               <a href={reference.pin_url} target="_blank" rel="noreferrer">Pinterest ↗</a>
             </footer>
           </article>;
-        })}
-      </div>
+        }} />
     </section>
   </div>;
 }

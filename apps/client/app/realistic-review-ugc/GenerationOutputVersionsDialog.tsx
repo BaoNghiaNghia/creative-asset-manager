@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listGenerationOutputVersions, type GenerationOutputVersion } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 
 function SelectionIcon({ mode }: { mode: "all" | "none" }) {
   return mode === "all"
@@ -65,6 +66,29 @@ export function GenerationOutputVersionsDialog({
   const compared = versions.filter(version => selectedVersions.has(version.version));
   const masonry = galleryMode === "masonry" || (galleryMode === "auto" && compared.length > 6);
 
+  function renderVersion(version: GenerationOutputVersion) {
+    return <article key={version.version}
+      ref={version.version === initialVersion ? openedVersionRef : undefined}
+      className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "")}>
+      <div className="rrugc-version-card-heading">
+        <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
+        {version.version === versions[0]?.version && <span>Latest</span>}
+      </div>
+      <a className="rrugc-version-image-link"
+        style={masonry ? { aspectRatio: stableMasonryRatio(version.width, version.height, 1) } : undefined}
+        href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
+        <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400"} rootMargin="260px 0px"
+          alt={"Output version " + version.version} loading="lazy" />
+      </a>
+      <div className="rrugc-version-card-meta">
+        <small>{new Date(version.created_at).toLocaleString()}</small>
+        {version.width && version.height && <small>{version.width}×{version.height}</small>}
+        {version.output_name && <small title={version.output_name}>v{version.version} · {version.output_name}</small>}
+      </div>
+      <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>
+    </article>;
+  }
+
   return <div className="rrugc-skill-modal-backdrop" role="presentation"
     onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <section className="rrugc-job-log-dialog rrugc-output-version-dialog" role="dialog" aria-modal="true"
@@ -119,29 +143,18 @@ export function GenerationOutputVersionsDialog({
 
       {loading && <p role="status" className="rrugc-version-message">Loading saved output versions…</p>}
       {error && <p role="alert" className="rrugc-source-error">{error}</p>}
-      {!loading && !error && <div className={"rrugc-version-grid" + (masonry ? " is-masonry" : "")}
-        aria-label={masonry ? "Masonry gallery of saved images" : "Side-by-side version comparison"}>
-        {compared.map(version => <article key={version.version}
-          ref={version.version === initialVersion ? openedVersionRef : undefined}
-          className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "")}>
-          <div className="rrugc-version-card-heading">
-            <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
-            {version.version === versions[0]?.version && <span>Latest</span>}
+      {!loading && !error && (masonry
+        ? <StableMasonryGrid className="rrugc-version-grid is-masonry"
+            ariaLabel="Masonry gallery of saved images"
+            items={compared} getKey={version => version.version}
+            getRatio={version => stableMasonryRatio(version.width, version.height, 1)}
+            renderItem={renderVersion} minColumnWidth={185} />
+        : <div className="rrugc-version-grid" aria-label="Side-by-side version comparison">
+            {compared.map(renderVersion)}
           </div>
-          <a className="rrugc-version-image-link" style={masonry && version.width && version.height ? { aspectRatio: String(version.width) + " / " + String(version.height) } : undefined} href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
-            <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400"} rootMargin="260px 0px"
-              alt={"Output version " + version.version} loading="lazy" />
-          </a>
-          <div className="rrugc-version-card-meta">
-            <small>{new Date(version.created_at).toLocaleString()}</small>
-            {version.width && version.height && <small>{version.width}×{version.height}</small>}
-            {version.output_name && <small title={version.output_name}>v{version.version} · {version.output_name}</small>}
-          </div>
-          <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>
-        </article>)}
-        {versions.length === 0 && <p className="rrugc-version-empty">No completed output version is available yet.</p>}
-        {versions.length > 0 && compared.length === 0 && <p className="rrugc-version-empty">Select versions above to compare them side by side.</p>}
-      </div>}
+      )}
+      {!loading && !error && versions.length === 0 && <p className="rrugc-version-empty">No completed output version is available yet.</p>}
+      {!loading && !error && versions.length > 0 && compared.length === 0 && <p className="rrugc-version-empty">Select versions above to compare them side by side.</p>}
     </section>
   </div>;
 }

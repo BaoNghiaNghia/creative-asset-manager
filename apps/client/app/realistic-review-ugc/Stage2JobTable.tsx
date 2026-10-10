@@ -6,6 +6,7 @@ import {
   stage2JobOutputUrl,
 } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
@@ -236,8 +237,10 @@ export function Stage2ReferenceReviewModal({
             aria-label="Close Pinterest reference preview" onClick={onClose}>×</button>
         </div>
       </header>
-      <div className="rrugc-source-review-masonry rrugc-stage2-reference-review-masonry">
-        {references.map((reference, index) => {
+      <StableMasonryGrid className="rrugc-source-review-masonry rrugc-stage2-reference-review-masonry"
+        items={references} getKey={reference => reference.id}
+        getRatio={reference => stableMasonryRatio(reference.width, reference.height)}
+        renderItem={(reference, index) => {
           const alreadyGenerated = generated.has(reference.id);
           const checked = !alreadyGenerated && selected.includes(reference.id);
           return <article
@@ -283,8 +286,7 @@ export function Stage2ReferenceReviewModal({
               {reference.pin_url && <a href={reference.pin_url} target="_blank" rel="noreferrer">Pinterest ↗</a>}
             </footer>
           </article>;
-        })}
-      </div>
+        }} />
     </section>
   </div>;
 }
@@ -482,8 +484,9 @@ export function Stage2OutputReviewModal({
         </div>
         <button type="button" className="rrugc-source-review-close" aria-label="Close generated output preview" onClick={onClose}>×</button>
       </header>
-      <div className="rrugc-source-review-masonry rrugc-stage2-output-review-masonry">
-        {jobs.map((run, index) => (
+      <StableMasonryGrid className="rrugc-source-review-masonry rrugc-stage2-output-review-masonry"
+        items={jobs} getKey={run => run.id} getRatio={() => 1}
+        renderItem={(run, index) => (
           <article key={run.id} className="rrugc-source-review-card rrugc-stage2-output-review-card">
             <div className="rrugc-source-review-image">
               <DeferredImage
@@ -505,8 +508,7 @@ export function Stage2OutputReviewModal({
               </div>
             </footer>
           </article>
-        ))}
-      </div>
+        )} />
       {versionError && <p role="alert">{versionError}</p>}
       {versionsJobId && <GenerationOutputVersionsDialog stage="stage4" jobId={versionsJobId}
         title={plan.source_name} onClose={() => setVersionsJobId(null)}
