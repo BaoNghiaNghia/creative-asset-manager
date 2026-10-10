@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
+import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, retryKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
@@ -74,10 +74,11 @@ export function KeywordImageRowControls({
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const regenerate = row.status === "completed";
   const generate = row.status === "not_run";
-  const runnable = regenerate || generate;
-  const runLabel = regenerate ? "Regenerate" : "Redesign Qoutes";
+  const resumeUpload = row.status === "failed" && Boolean(row.upload_recovery_available);
+  const runnable = regenerate || generate || resumeUpload;
+  const runLabel = resumeUpload ? "Resume upload" : regenerate ? "Regenerate" : "Redesign Qoutes";
   const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? "Regenerate image" : "Redesign Qoutes";
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : resumeUpload ? "Retry Google Drive upload using saved finals — no image regeneration" : regenerate ? "Regenerate image" : "Redesign Qoutes";
 
   useEffect(() => {
     if (!confirmRegenerate) return;
@@ -119,10 +120,10 @@ export function KeywordImageRowControls({
       : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
     </div>}
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
-      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "regenerate" : "generate")}
+      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (resumeUpload ? "retry" : regenerate ? "regenerate" : "generate")}
         ref={regenerateButtonRef} onClick={() => regenerate ? setConfirmRegenerate(true) : onRun()}
         disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
-        <KeywordActionGlyph kind={regenerate ? "regenerate" : "generate"} />
+        <KeywordActionGlyph kind={resumeUpload ? "retry" : regenerate ? "regenerate" : "generate"} />
         <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
       {row.job_id && <button type="button" className="rrugc-keyword-result-action"
@@ -305,7 +306,10 @@ export function KeywordImageStage({
     setError("");
     setMessage("");
     try {
-      if (row.status === "completed") {
+      if (row.status === "failed" && row.upload_recovery_available) {
+        await retryKeywordImage(row.keyword_id);
+        setMessage("Resuming Drive upload for " + row.keyword + " using preserved final images; no generation rerun.");
+      } else if (row.status === "completed") {
         await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage("New output version queued for " + row.keyword + ". Previous output stays available.");
       } else if (row.status === "not_run" && selectedSkillInput) {
@@ -450,7 +454,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>6 final images per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Failed jobs stop after one attempt.</span>
+        <span>6 final images per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Skill generation runs once; temporary Drive errors are retried automatically and saved finals may be resumed without regenerating.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>

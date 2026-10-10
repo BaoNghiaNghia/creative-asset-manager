@@ -307,6 +307,15 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
             ) from exc
 
     async def store_asset(self, input: StoreAssetInput) -> StoredAsset:
+        try:
+            return await self._store_asset_impl(input)
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise StorageProviderError(
+                "Google Drive managed asset upload temporarily unavailable.",
+                code="managed_storage_network_error", retryable=True,
+            ) from exc
+
+    async def _store_asset_impl(self, input: StoreAssetInput) -> StoredAsset:
         access_token = await self._get_access_token()
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(
@@ -612,6 +621,22 @@ class GoogleDriveAssetStorage(AssetStorageProvider):
     @staticmethod
     def _raise_for_status(response: httpx.Response) -> None:
         status_code = response.status_code
+        # Google Drive can report rate limiting as 403, not only 429.
+        # Do not retry genuine permission failures.
+        if status_code == 403:
+            try:
+                payload = response.json()
+                errors = (payload.get("error") or {}).get("errors") or []
+                reasons = {str(item.get("reason") or "") for item in errors if isinstance(item, dict)}
+            except (ValueError, TypeError, AttributeError):
+                reasons = set()
+            if reasons.intersection({"rateLimitExceeded", "userRateLimitExceeded", "backendError"}):
+                raise StorageProviderError(
+                    "Google Drive temporarily rate limited the storage request.",
+                    code="managed_storage_temporarily_unavailable",
+                    status_code=status_code, retryable=True,
+                    details={"provider": GoogleDriveAssetStorage.provider_name},
+                )
         error_by_status = {
             401: ("managed_storage_unauthorized", False),
             403: ("managed_storage_forbidden", False),

@@ -121,6 +121,11 @@ describe("Stage 1 compact output and action controls", () => {
     await act(async () => render({ ...outputRow, status: "failed", output_url: null, saved_output_count: 2 }, true));
     expect(host.querySelector(".rrugc-keyword-result-caption")?.textContent).toContain("partial");
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="View all generated images for BEACH PLEASE"]')).toBeNull();
+    await act(async () => render({ ...outputRow, status: "failed", output_url: null, saved_output_count: 2, upload_recovery_available: true }, true));
+    const resume = host.querySelector<HTMLButtonElement>('button[aria-label="Resume upload BEACH PLEASE"]');
+    expect(resume?.title).toContain("no image regeneration");
+    await act(async () => resume?.click());
+    expect(run).toHaveBeenCalledTimes(2);
     await act(async () => render({ ...outputRow, status: "queued", output_url: null, saved_output_count: 0 }, true, true));
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(1);
     expect(host.querySelector(".rrugc-keyword-result-pending")?.textContent).toContain("In queue");

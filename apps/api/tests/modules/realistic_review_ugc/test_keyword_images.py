@@ -160,10 +160,83 @@ def test_failed_stage1_job_never_creates_a_second_run(db):
     db.commit()
     with pytest.raises(KeywordImageError, match="No generation job exists"):
         KeywordImageService(db).retry(tenant_id="tenant-b", keyword_id=kw.id)
-    with pytest.raises(KeywordImageError, match="one attempt per job"):
+    with pytest.raises(KeywordImageError, match="Only failed Drive uploads"):
         KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
     assert row.processing_job_id == old_processing.id
     assert row.retry_count == 0
+    assert db.query(ProcessingJobModel).count() == 1
+
+
+def test_failed_drive_job_can_resume_upload_only_from_preserved_finals(db, tmp_path):
+    from PIL import Image
+
+    kw = keyword(db, "recover-kw", "tenant-a", picked=True)
+    original = ProcessingJobModel(
+        id="original-run", tenant_id="tenant-a", job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="recover-job",
+        idempotency_key="original-run", payload_json={"keyword_image_job_id": "recover-job"},
+        status="failed", max_attempts=1,
+    )
+    job = RrugcKeywordImageJobModel(
+        id="recover-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local",
+        skill_name="gatorhats-stage1-six-designs",
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        last_error_code="managed_storage_temporarily_unavailable",
+        processing_job_id=original.id,
+    )
+    db.add_all([original, job])
+    db.commit()
+    root = tmp_path / "codex" / "recover-job" / "output" / "final"
+    root.mkdir(parents=True)
+    for index in range(1, 7):
+        Image.new("RGB", (800, 800), (index * 30, 40, 60)).save(root / f"design_{index:02}.png")
+    settings = get_settings().model_copy(update={"IMAGE_GENERATION_STAGING_ROOT": str(tmp_path)})
+    service = KeywordImageService(db, settings)
+    item = service.list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]
+    assert item["upload_recovery_available"] is True
+    service.retry(tenant_id="tenant-a", keyword_id=kw.id)
+    assert job.processing_job_id != original.id
+    resumed = db.get(ProcessingJobModel, job.processing_job_id)
+    assert resumed.payload_json["upload_only"] is True
+    assert resumed.payload_json["generation_processing_id"] == original.id
+    assert resumed.max_attempts == 1
+    assert job.status == "queued"
+    assert db.query(ProcessingJobModel).count() == 2
+    # A second upload-only failure must keep the FIRST generation identity.
+    resumed.status = "failed"
+    job.status = "failed"
+    job.last_error_code = "managed_storage_temporarily_unavailable"
+    db.commit()
+    service.retry(tenant_id="tenant-a", keyword_id=kw.id)
+    second_resume = db.get(ProcessingJobModel, job.processing_job_id)
+    assert second_resume.payload_json["generation_processing_id"] == original.id
+    assert second_resume.payload_json["upload_only"] is True
+    assert db.query(ProcessingJobModel).count() == 3
+
+
+def test_old_drive_failure_without_local_finals_never_restarts_generation(db, tmp_path):
+    kw = keyword(db, "missing-finals", "tenant-a", picked=True)
+    original = ProcessingJobModel(
+        id="missing-original", tenant_id="tenant-a", job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="missing-job",
+        idempotency_key="missing-original", payload_json={"keyword_image_job_id": "missing-job"},
+        status="failed", max_attempts=1,
+    )
+    job = RrugcKeywordImageJobModel(
+        id="missing-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name="gatorhats-stage1-six-designs",
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        last_error_code="managed_storage_temporarily_unavailable",
+        processing_job_id=original.id,
+    )
+    db.add_all([original, job])
+    db.commit()
+    settings = get_settings().model_copy(update={"IMAGE_GENERATION_STAGING_ROOT": str(tmp_path)})
+    service = KeywordImageService(db, settings)
+    assert service.list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]["upload_recovery_available"] is False
+    with pytest.raises(KeywordImageError, match="unavailable"):
+        service.retry(tenant_id="tenant-a", keyword_id=kw.id)
     assert db.query(ProcessingJobModel).count() == 1
 
 
@@ -192,7 +265,7 @@ def test_completed_job_remains_untouched_by_manual_retry(db):
     )
     db.add(row)
     db.commit()
-    with pytest.raises(KeywordImageError, match="one attempt per job"):
+    with pytest.raises(KeywordImageError, match="Only failed Drive uploads"):
         KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
     assert db.get(RrugcKeywordImageJobModel, row.id).output_remote_file_id == "output-safe"
 

@@ -175,6 +175,46 @@ class GoogleDriveAssetStorageTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertTrue(context.exception.retryable)
 
+    async def test_drive_500_and_network_errors_are_retryable_for_asset_upload(self) -> None:
+        for failure in (
+            httpx.Response(500, json={"error": {"message": "internalError"}}),
+            httpx.ConnectTimeout("connect timeout"),
+        ):
+            def handler(request):
+                if isinstance(failure, Exception):
+                    raise failure
+                return failure
+
+            provider = GoogleDriveAssetStorage(
+                "storage-token", root_folder_id="managed-root",
+                transport=httpx.MockTransport(handler),
+            )
+            with self.assertRaises(StorageProviderError) as context:
+                await provider.store_asset(StoreAssetInput(
+                    tenant_id="tenant-a", asset_id="asset-1", content_hash="x" * 64,
+                    body=body(b"abc"),
+                ))
+            self.assertTrue(context.exception.retryable)
+
+    async def test_google_403_rate_limit_is_retryable_but_permission_denied_is_not(self) -> None:
+        for reason, expected in (
+            ("userRateLimitExceeded", True),
+            ("rateLimitExceeded", True),
+            ("insufficientFilePermissions", False),
+        ):
+            provider = GoogleDriveAssetStorage(
+                "storage-token", root_folder_id="managed-root",
+                transport=httpx.MockTransport(lambda request: httpx.Response(
+                    403, json={"error": {"errors": [{"reason": reason}]}},
+                )),
+            )
+            with self.assertRaises(StorageProviderError) as context:
+                await provider.store_asset(StoreAssetInput(
+                    tenant_id="tenant-a", asset_id="asset-1", content_hash="y" * 64,
+                    body=body(b"abc"),
+                ))
+            self.assertEqual(context.exception.retryable, expected)
+
     async def test_metadata_sidecar_create_then_update_reuses_remote_file(self) -> None:
         remote = None
         methods = []

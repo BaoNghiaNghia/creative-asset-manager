@@ -240,6 +240,7 @@ export type KeywordImageRow = {
   skill_version: string | null;
   retry_count: number;
   saved_output_count: number;
+  upload_recovery_available?: boolean;
   attempt_count: number;
   max_attempts: number;
   error_code: string | null;

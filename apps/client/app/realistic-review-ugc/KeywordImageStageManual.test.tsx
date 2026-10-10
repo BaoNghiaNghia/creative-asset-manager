@@ -156,10 +156,11 @@ describe("Stage 1 manual keyword generation", () => {
     expect(thumbnail?.tagName).toBe("BUTTON");
     await act(async () => { thumbnail.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(host.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull();
-    expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(5);
+    expect(host.querySelector(".rrugc-blueprint-cross")).not.toBeNull();
+    expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(0);
     expect(host.querySelector(".rrugc-version-filter")).toBeNull();
     expect(host.querySelector('[aria-label="Select output versions"]')).toBeNull();
-    expect(host.querySelector<HTMLAnchorElement>(".is-focused-version .rrugc-version-image-link")?.getAttribute("href"))
+    expect(host.querySelector<HTMLAnchorElement>(".rrugc-blueprint-original")?.getAttribute("href"))
       .toBe("/api/v1/image/4");
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close output versions"]')?.click());
     expect(host.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();

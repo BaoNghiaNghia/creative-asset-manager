@@ -4,6 +4,10 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from io import BytesIO
+from pathlib import Path
+from types import SimpleNamespace
+
+from app.modules.image_generation.providers import GeneratedImageResult
 from uuid import uuid4
 
 from PIL import Image
@@ -34,6 +38,12 @@ from app.providers.ai.codex_image import (
 
 JOB_TYPE = "rrugc_keyword_image_generate"
 STAGE1_MAX_ATTEMPTS = 1
+# Skill generation is once; only Drive I/O can retry.
+STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
+STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
+    "managed_storage_temporarily_unavailable", "managed_storage_network_error",
+    "keyword_image_storage_invalid",
+})
 DEFAULT_SKILL = "gatorhats-stage1-six-designs"
 
 
@@ -123,7 +133,10 @@ class KeywordImageService:
             ).with_for_update()
         )
 
-    def _enqueue(self, job: RrugcKeywordImageJobModel) -> None:
+    def _enqueue(
+        self, job: RrugcKeywordImageJobModel, *, upload_only: bool = False,
+        generation_processing_id: str | None = None,
+    ) -> None:
         sequence = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == job.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_keyword_image_job",
@@ -132,7 +145,11 @@ class KeywordImageService:
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=job.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_keyword_image_job",
             entity_id=job.id, idempotency_key=f"rrugc-keyword-image:{job.id}:{sequence}",
-            payload={"keyword_image_job_id": job.id},
+            payload={
+                "keyword_image_job_id": job.id,
+                **({"upload_only": True, "generation_processing_id": generation_processing_id}
+                   if upload_only else {}),
+            },
             priority=20, max_attempts=STAGE1_MAX_ATTEMPTS, provider_key="codex", provider_scope="ai",
         )
         job.processing_job_id = processing.id
@@ -285,12 +302,36 @@ class KeywordImageService:
         job = self._job(tenant_id, keyword_id)
         if job is None:
             raise KeywordImageError("keyword_image_job_not_found", "No generation job exists.", 404)
-        # Existing clients can still call this endpoint, but Stage 1 jobs
-        # execute once only. Never create another Run after a failure.
-        raise KeywordImageError(
-            "keyword_image_retry_not_allowed",
-            "Stage 1 allows one attempt per job; failed jobs cannot be retried.",
+        # Resume ONLY the six original final files after an upload fault.
+        # This does not regenerate images or consume another Skill attempt.
+        if (job.status != "failed"
+                or job.last_error_code not in STAGE1_RETRYABLE_STORAGE_CODES
+                or not job.processing_job_id):
+            raise KeywordImageError(
+                "keyword_image_retry_not_allowed",
+                "Only failed Drive uploads with six preserved finals can be resumed.",
+            )
+        workspace = (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                     / "codex" / job.id)
+        try:
+            CodexImageGenRunner._collect_six_final_designs(workspace)
+        except (CodexImageProviderError, OSError) as exc:
+            raise KeywordImageError(
+                "keyword_image_saved_finals_missing",
+                "Original final images are unavailable; generation will not be repeated automatically.",
+            ) from exc
+        previous_processing = self.session.get(ProcessingJobModel, job.processing_job_id)
+        previous_payload = previous_processing.payload_json if previous_processing else {}
+        generation_processing_id = (
+            str((previous_payload or {}).get("generation_processing_id") or job.processing_job_id)
         )
+        job.status = "queued"
+        job.last_error_code = None
+        job.last_error_message = None
+        self._enqueue(job, upload_only=True, generation_processing_id=generation_processing_id)
+        self.session.commit()
+        self.session.refresh(job)
+        return job
 
     def list_used(self, *, tenant_id: str, page: int, page_size: int, q: str = "", status: str = "all") -> dict:
         filters = [RrugcKeywordVolumeModel.tenant_id == tenant_id, RrugcKeywordVolumeModel.picked.is_(True)]
@@ -354,6 +395,17 @@ class KeywordImageService:
                 "saved_output_count": int(saved_counts.get(job.id, 0)) if job else 0,
                 "attempt_count": processing.attempt_count if processing else 0,
                 "max_attempts": processing.max_attempts if processing else STAGE1_MAX_ATTEMPTS,
+                "upload_recovery_available": bool(
+                    job and state == "failed"
+                    and job.last_error_code in STAGE1_RETRYABLE_STORAGE_CODES
+                    and job.processing_job_id
+                    and all(
+                        (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                         / "codex" / job.id / "output" / "final"
+                         / f"design_{index:02}.png").is_file()
+                        for index in range(1, 7)
+                    )
+                ),
                 "error_code": (job.last_error_code or (processing.last_error_code if processing else None)) if job else None,
                 "error_message": (job.last_error_message or (processing.last_error_message if processing else None)) if job else None,
                 "output_url": f"/api/v1/realistic-review-ugc/keyword-images/jobs/{job.id}/output" if job and job.output_remote_file_id else None,
@@ -422,28 +474,29 @@ class KeywordImageGenerateHandler:
                 return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
             if job.status == "completed":
                 return JobHandlerResult.completed()
-            try:
-                verify_stage2_skill_runtime(
-                    settings=settings, skill_source=job.skill_source, skill_id=job.skill_id,
-                    skill_name=job.skill_name, skill_version=job.skill_version,
-                )
-                if job.skill_bundle_sha256 != installed_stage2_skill_sha256(job.skill_name, settings=settings):
-                    raise Stage2SkillRegistryError("keyword_image_skill_changed", "Skill changed after queueing.")
-            except Stage2SkillRegistryError as exc:
-                job.status = "failed"
-                job.last_error_code = exc.code
-                job.last_error_message = exc.message
-                session.commit()
-                return JobHandlerResult.non_retryable(exc.code, exc.message)
-            manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, job.skill_name)
-            if manifest is None or "keyword_six_designs" not in manifest.workflows:
-                job.status = "failed"
-                job.last_error_code = "stage1_legacy_skill_not_supported"
-                job.last_error_message = "Stage 1 requires exactly six final designs. Legacy jobs must be requeued using the new Six Designs Skill."
-                session.commit()
-                return JobHandlerResult.non_retryable(
-                    "stage1_legacy_skill_not_supported", job.last_error_message,
-                )
+            if not context.job.payload.get("upload_only"):
+                try:
+                    verify_stage2_skill_runtime(
+                        settings=settings, skill_source=job.skill_source, skill_id=job.skill_id,
+                        skill_name=job.skill_name, skill_version=job.skill_version,
+                    )
+                    if job.skill_bundle_sha256 != installed_stage2_skill_sha256(job.skill_name, settings=settings):
+                        raise Stage2SkillRegistryError("keyword_image_skill_changed", "Skill changed after queueing.")
+                except Stage2SkillRegistryError as exc:
+                    job.status = "failed"
+                    job.last_error_code = exc.code
+                    job.last_error_message = exc.message
+                    session.commit()
+                    return JobHandlerResult.non_retryable(exc.code, exc.message)
+                manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, job.skill_name)
+                if manifest is None or "keyword_six_designs" not in manifest.workflows:
+                    job.status = "failed"
+                    job.last_error_code = "stage1_legacy_skill_not_supported"
+                    job.last_error_message = "Stage 1 requires exactly six final designs. Legacy jobs must be requeued using the new Six Designs Skill."
+                    session.commit()
+                    return JobHandlerResult.non_retryable(
+                        "stage1_legacy_skill_not_supported", job.last_error_message,
+                    )
             job.status = "running"
             job.started_at = job.started_at or datetime.now(timezone.utc)
             job.last_error_code = None
@@ -465,32 +518,54 @@ class KeywordImageGenerateHandler:
             expected_quote=keyword_text if skill_name == "hanh-redesign-8869-ver-4" else None,
             execution_log_id=context.job.id,
         ))
+        preserve_finals = False
+        upload_only = bool(context.job.payload.get("upload_only"))
         try:
-            generated = await runner.generate_from_references(
-                attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
-            )
-            return await self._save_skill_outputs(context, storage, generated)
-        finally:
-            # Keep compact previews even when the Skill fails or returns
-            # fewer than six finals; never confuse them with final versions.
-            # Draft upload failures must not mask the original job error.
-            try:
-                from pathlib import Path
+            if upload_only:
+                # No Skill call on recovery. Verify the existing six final files.
                 workspace = (Path(runner.config.staging_root).resolve()
                              / "codex" / context.job.entity_id)
-                await upload_temp_previews(
-                    storage, workspace=workspace,
-                    tenant_id=context.job.tenant_id,
-                    job_id=context.job.entity_id,
-                    processing_job_id=context.job.id,
+                final_files = CodexImageGenRunner._collect_six_final_designs(workspace)
+                generated = GeneratedImageResult(
+                    provider="codex", model=None, image_bytes=b"",
+                    mime_type="image/png", output_files=final_files,
                 )
-            except Exception:
-                context.logger.exception("stage1_temp_preview_save_failed")
-            # File-backed drafts and finals must remain valid until uploads
-            # finish; deleting them is always the last step.
-            runner.cleanup_attempt(context.job.entity_id)
+            else:
+                generated = await runner.generate_from_references(
+                    attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
+                )
+            original_attempt = (
+                str(context.job.payload.get("generation_processing_id") or context.job.id)
+                if upload_only else context.job.id
+            )
+            return await self._save_skill_outputs(
+                context, storage, generated, generation_processing_id=original_attempt,
+            )
+        except StorageProviderError:
+            # Disk-backed finals are the durable recovery source after Drive
+            # outages. Never destroy a six-image generation on an upload fault.
+            preserve_finals = True
+            raise
+        finally:
+            if not preserve_finals and not upload_only:
+                try:
+                    workspace = (Path(runner.config.staging_root).resolve()
+                                 / "codex" / context.job.entity_id)
+                    await upload_temp_previews(
+                        storage, workspace=workspace,
+                        tenant_id=context.job.tenant_id,
+                        job_id=context.job.entity_id,
+                        processing_job_id=context.job.id,
+                    )
+                except Exception:
+                    context.logger.exception("stage1_temp_preview_save_failed")
+            if not preserve_finals:
+                runner.cleanup_attempt(context.job.entity_id)
 
-    async def _save_skill_outputs(self, context: JobHandlerContext, storage, generated) -> JobHandlerResult:
+    async def _save_skill_outputs(
+        self, context: JobHandlerContext, storage, generated,
+        *, generation_processing_id: str | None = None,
+    ) -> JobHandlerResult:
         """Persist the six validated final designs; intermediate drafts stay transient."""
         import hashlib
         from pathlib import Path
@@ -518,7 +593,32 @@ class KeywordImageGenerateHandler:
         # Never upload image-generation intermediates or QA previews.
         first_uploaded = None
         uploaded_count = 0
+        generation_processing_id = generation_processing_id or context.job.id
         for index, (name, mime_type, path, body) in enumerate(payloads):
+            # A prior upload may have completed before a later Drive 500.
+            # Match both the original generation attempt and output filename.
+            with context.dependencies.session_factory() as session:
+                checkpoint = session.scalar(select(RrugcImageOutputVersionModel).where(
+                    RrugcImageOutputVersionModel.tenant_id == context.job.tenant_id,
+                    RrugcImageOutputVersionModel.stage == "stage1",
+                    RrugcImageOutputVersionModel.job_id == context.job.entity_id,
+                    RrugcImageOutputVersionModel.processing_job_id == generation_processing_id,
+                    RrugcImageOutputVersionModel.output_name == name,
+                ))
+                existing_job = session.get(RrugcKeywordImageJobModel, context.job.entity_id)
+                if checkpoint is not None:
+                    if first_uploaded is None:
+                        first_uploaded = (
+                            SimpleNamespace(
+                                remote_file_id=checkpoint.remote_file_id,
+                                web_url=(existing_job.output_web_url if existing_job is not None
+                                         and existing_job.output_remote_file_id == checkpoint.remote_file_id else None),
+                            ),
+                            checkpoint.size_bytes, checkpoint.width, checkpoint.height,
+                            checkpoint.content_type,
+                        )
+                    uploaded_count += 1
+                    continue
             if path is not None:
                 with Image.open(path) as image:
                     width, height = image.size
@@ -534,28 +634,44 @@ class KeywordImageGenerateHandler:
                             yield chunk
                             await asyncio.sleep(0)
 
-                payload_stream = file_body()
             else:
                 assert body is not None
                 with Image.open(BytesIO(body)) as image:
                     image.load()
                     width, height = image.size
                 content_hash, size_bytes = hashlib.sha256(body).hexdigest(), len(body)
-                payload_stream = _bytes_body(body)
-            stored = await storage.store_asset(StoreAssetInput(
-                tenant_id=context.job.tenant_id, content_hash=content_hash,
-                body=payload_stream,
-                asset_id="rrugc-keyword-image:" + context.job.entity_id + ":"
-                         + context.job.id + ":" + str(index),
-                content_type=mime_type, size_bytes=size_bytes,
-                filename="keyword_" + context.job.entity_id + "_"
-                         + str(index + 1).zfill(3) + "_" + Path(name).name,
-            ))
-            if not stored.remote_file_id:
-                raise StorageProviderError(
-                    "Managed storage did not return a file ID.", retryable=True,
-                    code="keyword_image_storage_invalid",
-                )
+            # Each failed attempt may consume an async upload stream. Create
+            # a NEW stream on every retry; Drive store_asset finds an already
+            # committed asset by its stable logical asset id before re-upload.
+            for storage_attempt in range(len(STAGE1_DRIVE_RETRY_DELAYS) + 1):
+                payload_stream = file_body() if path is not None else _bytes_body(body)
+                try:
+                    stored = await storage.store_asset(StoreAssetInput(
+                        tenant_id=context.job.tenant_id, content_hash=content_hash,
+                        body=payload_stream,
+                        asset_id="rrugc-keyword-image:" + context.job.entity_id + ":"
+                                 + generation_processing_id + ":" + str(index),
+                        content_type=mime_type, size_bytes=size_bytes,
+                        filename="keyword_" + context.job.entity_id + "_"
+                                 + str(index + 1).zfill(3) + "_" + Path(name).name,
+                    ))
+                    if not stored.remote_file_id:
+                        raise StorageProviderError(
+                            "Managed storage did not return a file ID.", retryable=True,
+                            code="keyword_image_storage_invalid",
+                        )
+                    break
+                except StorageProviderError as exc:
+                    if not exc.retryable or storage_attempt >= len(STAGE1_DRIVE_RETRY_DELAYS):
+                        raise
+                    delay = STAGE1_DRIVE_RETRY_DELAYS[storage_attempt]
+                    context.logger.warning(
+                        "rrugc_keyword_image_drive_upload_retry",
+                        extra={"job_id": context.job.entity_id,
+                               "output_index": index + 1, "retry": storage_attempt + 1,
+                               "delay_seconds": delay, "error_code": exc.code},
+                    )
+                    await asyncio.sleep(delay)
             with context.dependencies.session_factory() as session:
                 job = session.scalar(select(RrugcKeywordImageJobModel).where(
                     RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
@@ -573,7 +689,7 @@ class KeywordImageGenerateHandler:
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
                     remote_file_id=stored.remote_file_id, content_type=mime_type,
                     size_bytes=size_bytes, width=width, height=height,
-                    processing_job_id=context.job.id,
+                    processing_job_id=generation_processing_id,
                     allow_multiple_per_attempt=index > 0,
                     output_name=name,
                 )
