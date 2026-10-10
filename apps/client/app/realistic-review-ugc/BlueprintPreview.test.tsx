@@ -145,6 +145,52 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows a circular hover lens for both Front and Side, then hides on drag or leave", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<BlueprintPreview versions={versions} />));
+    const front = host.querySelector<HTMLElement>(".rrugc-blueprint-selected-hat")!;
+    const frontLens = front.querySelector<HTMLElement>(".rrugc-blueprint-magnifier")!;
+    expect(frontLens.getAttribute("aria-hidden")).toBe("true");
+    for (const img of front.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")) img.classList.add("is-loaded");
+    const setupBounds = (node: HTMLElement) => {
+      Object.defineProperty(node, "clientWidth", { configurable: true, value: 400 });
+      Object.defineProperty(node, "clientHeight", { configurable: true, value: 500 });
+      node.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 500, width: 400, height: 500 } as DOMRect);
+    };
+    const dispatch = (node: HTMLElement, type: string, buttons = 0, pointerType = "mouse") => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, {
+        clientX: { value: 200 }, clientY: { value: 250 },
+        buttons: { value: buttons }, pointerType: { value: pointerType },
+      });
+      node.dispatchEvent(event);
+    };
+    setupBounds(front);
+    await act(async () => dispatch(front, "pointermove"));
+    expect(frontLens.style.opacity).toBe("1");
+    expect(frontLens.style.left).toBe("118px");
+    expect(frontLens.querySelector(".rrugc-blueprint-selected-design img")).not.toBeNull();
+    await act(async () => dispatch(front, "pointermove", 1));
+    expect(frontLens.style.opacity).toBe("0");
+    await act(async () => dispatch(front, "pointermove"));
+    await act(async () => dispatch(front, "pointerout"));
+    expect(frontLens.style.opacity).toBe("0");
+
+    const probe = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")!;
+    await act(async () => probe.dispatchEvent(new Event("load")));
+    const side = host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")!;
+    const sideLens = side.querySelector<HTMLElement>(".rrugc-blueprint-magnifier")!;
+    setupBounds(side);
+    await act(async () => dispatch(side, "pointermove"));
+    expect(sideLens.style.opacity).toBe("1");
+    expect(sideLens.querySelector<HTMLElement>(".rrugc-blueprint-magnifier-side-surface")?.style.backgroundPosition).toBe("10% 7.142857142857142%");
+    await act(async () => click(host, "Select hat color Natural / Brown"));
+    expect(sideLens.style.opacity).toBe("0");
+    await act(async () => root.unmount());
+  });
+
   it("loads the twelve Side views from one atlas and switches the tile without refetching", async () => {
     const host = document.createElement("div");
     document.body.append(host);

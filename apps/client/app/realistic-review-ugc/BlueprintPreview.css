@@ -161,3 +161,36 @@
 .rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{transform:scale(1.20);transform-origin:center center}
 /* Side atlas is drawn at 2×; keep its embroidery bounds aligned to the same zoomed crop. */
 .rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:2%;top:26%;width:72%;height:36%}
+
+/* Circular hover magnifier: one paint-only layer, no React updates while moving. */
+.rrugc-blueprint-magnifier{
+  position:absolute;top:0;left:0;z-index:15;box-sizing:border-box;
+  width:164px;height:164px;overflow:hidden;border:3px solid rgba(255,255,255,.97);
+  border-radius:50%;box-shadow:0 7px 28px rgba(24,48,76,.28),0 0 0 1px rgba(37,98,153,.22);
+  background:#fff;opacity:0;pointer-events:none;will-change:transform,opacity;
+  transition:opacity 90ms ease-out;
+}
+.rrugc-blueprint-magnifier-scene{
+  position:absolute;top:0;left:0;overflow:hidden;transform-origin:0 0;
+  contain:paint;pointer-events:none;
+}
+.rrugc-blueprint-magnifier-scene>.rrugc-blueprint-hat-original{
+  display:block;width:100%;height:100%;object-fit:contain;
+}
+.rrugc-blueprint-magnifier-scene .rrugc-blueprint-selected-design{z-index:1}
+.rrugc-blueprint-magnifier-scene .rrugc-blueprint-selected-design img{opacity:.97}
+.rrugc-blueprint-magnifier-side-surface{
+  position:relative;width:100%;height:100%;
+  background-image:url("/rrugc/blueprint/sides-atlas.svg");
+  background-size:600% 800%;background-repeat:no-repeat;background-color:#fff;
+}
+.rrugc-blueprint-magnifier-side-surface .rrugc-blueprint-side-guide{
+  left:2%;top:26%;width:72%;height:36%;
+}
+.rrugc-blueprint-magnifier::after{
+  content:"2.4×";position:absolute;bottom:9px;right:9px;
+  z-index:3;padding:3px 7px;border-radius:999px;
+  background:rgba(18,38,58,.72);color:#fff;font-size:10px;font-weight:800;
+}
+@media(hover:none),(pointer:coarse){.rrugc-blueprint-magnifier{display:none!important}}
+@media(prefers-reduced-motion:reduce){.rrugc-blueprint-magnifier{transition:none}}

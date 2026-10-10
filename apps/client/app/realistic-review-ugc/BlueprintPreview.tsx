@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import type { GenerationOutputVersion } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { BlueprintSmoothImage, prefetchBlueprintImage } from "./BlueprintSmoothImage";
+import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -78,9 +79,16 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
   const dragOrigin = useRef<DragOrigin | null>(null);
   const suppressNextClick = useRef(false);
+  const frontLens = useRef<HTMLDivElement>(null);
+  const sideLens = useRef<HTMLDivElement>(null);
   const selectedDesign = clamp(designIndex, versions.length);
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
+
+  useEffect(() => {
+    hideBlueprintLens(frontLens.current);
+    hideBlueprintLens(sideLens.current);
+  }, [activeColor.id, activeDesign?.url]);
 
   const move = useCallback((direction: "left" | "right" | "up" | "down", steps = 1) => {
     if (direction === "left" || direction === "right") {
@@ -253,7 +261,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
           </header>
           <div className="rrugc-blueprint-panel-visual">
-            <div className="rrugc-blueprint-selected-hat">
+            <div className="rrugc-blueprint-selected-hat"
+              onPointerMove={event => moveBlueprintLens(event, frontLens.current,
+                Array.from(event.currentTarget.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")).every(image => image.classList.contains("is-loaded")))}
+              onPointerLeave={() => hideBlueprintLens(frontLens.current)}
+              onPointerDown={() => hideBlueprintLens(frontLens.current)}>
               <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
                 alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
               <div className="rrugc-blueprint-selected-design">
@@ -264,6 +276,16 @@ export function BlueprintPreview({ versions, initialVersion }: {
               {guides && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
                 <span>Front embroidery area</span>
               </div>}
+              <div ref={frontLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
+                <div className="rrugc-blueprint-magnifier-scene">
+                  <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
+                  <div className="rrugc-blueprint-selected-design">
+                    <img src={thumbnailUrl(activeDesign.url, 512)} alt="" draggable={false}
+                      style={{ transform: "scale(" + (scale / 100) + ")" }}/>
+                  </div>
+                  {guides && <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>}
+                </div>
+              </div>
             </div>
           </div>
           <footer className="rrugc-blueprint-panel-footer">
@@ -290,13 +312,23 @@ export function BlueprintPreview({ versions, initialVersion }: {
               ? <div className="rrugc-blueprint-side-unavailable" role="status">Side reference image could not be loaded</div>
               : <div className={"rrugc-blueprint-side-image" + (sideAtlasReady ? " is-ready" : "")}
                   role="img" aria-label={"Valucap 8869 original left side, " + activeColor.label}
-                  style={blueprintSidePosition(colorIndex)}>
+                  style={blueprintSidePosition(colorIndex)}
+                  onPointerMove={event => moveBlueprintLens(event, sideLens.current, sideAtlasReady)}
+                  onPointerLeave={() => hideBlueprintLens(sideLens.current)}
+                  onPointerDown={() => hideBlueprintLens(sideLens.current)}>
                   <img className="rrugc-blueprint-side-probe" src={BLUEPRINT_SIDE_ATLAS} alt=""
                     aria-hidden="true" onLoad={() => setSideAtlasReady(true)}
                     onError={() => setSideAtlasFailed(true)} />
                   {guides && <div className="rrugc-blueprint-side-guide" aria-label="Side embroidery guideline">
                     <span>Side embroidery area</span>
                   </div>}
+                  <div ref={sideLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
+                    <div className="rrugc-blueprint-magnifier-scene">
+                      <div className="rrugc-blueprint-magnifier-side-surface" style={blueprintSidePosition(colorIndex)}>
+                        {guides && <div className="rrugc-blueprint-side-guide"><span>Side embroidery area</span></div>}
+                      </div>
+                    </div>
+                  </div>
                 </div>}
           </div>
           <footer className="rrugc-blueprint-panel-footer">
