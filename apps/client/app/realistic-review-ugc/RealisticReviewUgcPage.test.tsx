@@ -1317,7 +1317,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(modalMarkup).toContain('aria-label="Next review"');
     expect(modalMarkup).toContain("1 / 2");
     expect(modalMarkup).toContain("Synthetic UGC review");
-    expect(modalMarkup).toContain('src="https://img.example/review-1.jpg"');
+    expect(modalMarkup).toContain('rrugc-deferred-img');
+    expect(modalMarkup).toContain('loading="lazy"');
+    expect(modalMarkup).not.toContain('src="https://img.example/review-1.jpg"');
     expect(modalMarkup).toContain(
       'data-original-src="https://img.example/review-1-original.png"',
     );

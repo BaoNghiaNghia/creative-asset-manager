@@ -2125,6 +2125,51 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-output-version-dialog .rrugc-version-grid article>a.rrugc-version-image-link{height:260px}
 }
 
+/* Every image-bearing Stage 0–5 modal shares deferred image shimmer.
+   Images stay transparent until decoded; the parent shimmer is visible
+   without layout shifting. Existing DeferredImage queue limits concurrency. */
+:is(
+  .rrugc-stage0-detail-modal .rrugc-stage0-detail-source a,
+  .rrugc-source-review-modal .rrugc-source-review-image,
+  .rrugc-output-version-dialog .rrugc-version-image-link,
+  .rrugc-stage3-review-modal .rrugc-stage3-review-modal-media
+):has(> img.rrugc-deferred-img:not(.is-loaded)){
+  position:relative;
+  background:linear-gradient(90deg,#e8eef6 20%,#f7faff 42%,#e8eef6 65%);
+  background-size:260% 100%;
+  animation:rrugc-media-shimmer 1.15s ease-in-out infinite;
+}
+:is(
+  .rrugc-stage0-detail-modal,
+  .rrugc-source-review-modal,
+  .rrugc-output-version-dialog,
+  .rrugc-stage3-review-modal
+) img.rrugc-deferred-img:not(.is-loaded){
+  opacity:0;
+}
+:is(
+  .rrugc-stage0-detail-modal,
+  .rrugc-source-review-modal,
+  .rrugc-output-version-dialog,
+  .rrugc-stage3-review-modal
+) img.rrugc-deferred-img.is-loaded{
+  opacity:1;
+  transition:opacity .18s ease;
+}
+.rrugc-output-version-dialog .rrugc-version-grid.is-masonry .rrugc-version-image-link{
+  min-height:115px;
+}
+@media(prefers-reduced-motion:reduce){
+  :is(
+    .rrugc-stage0-detail-modal .rrugc-stage0-detail-source a,
+    .rrugc-source-review-modal .rrugc-source-review-image,
+    .rrugc-output-version-dialog .rrugc-version-image-link,
+    .rrugc-stage3-review-modal .rrugc-stage3-review-modal-media
+  ):has(> img.rrugc-deferred-img:not(.is-loaded)){
+    animation:none;
+  }
+}
+
 /* Masonry gallery for >6 saved images; comparison mode remains available. */
 .rrugc-output-version-dialog .rrugc-version-layout-toggle{display:flex;flex:none;gap:3px;padding:3px;border:1px solid #dce6f4;border-radius:8px;background:#f0f4fb}
 .rrugc-output-version-dialog .rrugc-version-layout-toggle button{min-height:25px;border:0;border-radius:6px;padding:4px 9px;background:transparent;color:#6b7d97;font-size:10px;font-weight:750;cursor:pointer}

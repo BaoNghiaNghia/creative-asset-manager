@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { DeferredImage } from "./DeferredImage";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
@@ -203,11 +204,12 @@ export function Stage3ReviewModal({
       >×</button>
 
       <div className="rrugc-stage3-review-modal-media">
-        <img
+        <DeferredImage
           src={displayedImageUrl}
           data-original-src={image.original_url}
           alt={image.source_name ? "Review image for " + image.source_name : "UGC review image"}
-          decoding="async"
+          rootMargin="300px 0px"
+          loading="lazy"
         />
 
         <button

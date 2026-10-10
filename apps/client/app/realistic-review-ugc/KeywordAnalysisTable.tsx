@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { KeywordSearchInput } from "./KeywordSearchInput";
+import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import type {
   KeywordAnalysisSortBy,
@@ -283,7 +284,8 @@ export function KeywordDetailModal({
           <div className="rrugc-stage0-detail-source">
             {item.source_image_url
               ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer">
-                  <img src={item.source_image_url} alt={"Source for " + item.keyword} />
+                  <DeferredImage src={item.source_image_url} alt={"Source for " + item.keyword}
+                    loading="lazy" rootMargin="280px 0px" referrerPolicy="no-referrer" />
                   <span>Open source ↗</span>
                 </a>
               : <div className="rrugc-stage0-detail-source-empty"><Icon name="search" /><span>No source image</span></div>}

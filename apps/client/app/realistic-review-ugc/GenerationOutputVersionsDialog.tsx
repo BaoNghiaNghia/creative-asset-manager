@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listGenerationOutputVersions, type GenerationOutputVersion } from "./api";
+import { DeferredImage } from "./DeferredImage";
 
 function SelectionIcon({ mode }: { mode: "all" | "none" }) {
   return mode === "all"
@@ -128,7 +129,8 @@ export function GenerationOutputVersionsDialog({
             {version.version === versions[0]?.version && <span>Latest</span>}
           </div>
           <a className="rrugc-version-image-link" style={masonry && version.width && version.height ? { aspectRatio: String(version.width) + " / " + String(version.height) } : undefined} href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
-            <img src={version.url + "?thumbnail=true&size=400"} loading="lazy" alt={"Output version " + version.version} />
+            <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400"} rootMargin="260px 0px"
+              alt={"Output version " + version.version} loading="lazy" />
           </a>
           <div className="rrugc-version-card-meta">
             <small>{new Date(version.created_at).toLocaleString()}</small>

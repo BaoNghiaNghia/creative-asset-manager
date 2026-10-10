@@ -465,27 +465,25 @@ class KeywordImageGenerateHandler:
             generated = await runner.generate_from_references(
                 attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
             )
-            try:
-                return await self._save_skill_outputs(context, storage, generated)
-            finally:
-                # Drafts are kept outside the six final file contracts and
-                # uploaded at reduced resolution even if final Drive upload
-                # encounters an error. Draft failures never mask final errors.
-                try:
-                    from pathlib import Path
-                    workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
-                                 / "codex" / context.job.entity_id)
-                    await upload_temp_previews(
-                        storage, workspace=workspace,
-                        tenant_id=context.job.tenant_id,
-                        job_id=context.job.entity_id,
-                        processing_job_id=context.job.id,
-                    )
-                except Exception:
-                    context.logger.exception("stage1_temp_preview_save_failed")
+            return await self._save_skill_outputs(context, storage, generated)
         finally:
-            # Cleanup is always last so file-backed drafts and final images
-            # remain readable while Drive uploads are in progress.
+            # Keep compact previews even when the Skill fails or returns
+            # fewer than six finals; never confuse them with final versions.
+            # Draft upload failures must not mask the original job error.
+            try:
+                from pathlib import Path
+                workspace = (Path(runner.config.staging_root).resolve()
+                             / "codex" / context.job.entity_id)
+                await upload_temp_previews(
+                    storage, workspace=workspace,
+                    tenant_id=context.job.tenant_id,
+                    job_id=context.job.entity_id,
+                    processing_job_id=context.job.id,
+                )
+            except Exception:
+                context.logger.exception("stage1_temp_preview_save_failed")
+            # File-backed drafts and finals must remain valid until uploads
+            # finish; deleting them is always the last step.
             runner.cleanup_attempt(context.job.entity_id)
 
     async def _save_skill_outputs(self, context: JobHandlerContext, storage, generated) -> JobHandlerResult:
