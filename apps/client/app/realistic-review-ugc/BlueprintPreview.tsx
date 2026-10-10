@@ -37,8 +37,8 @@ export function blueprintNavigate(
   };
 }
 
-function spritePosition(index: number) {
-  return { backgroundPosition: (index % 4 / 3 * 100) + "% " + (Math.floor(index / 4) / 2 * 100) + "%" };
+export function blueprintHatPhoto(colorId: string) {
+  return "/rrugc/blueprint/fronts/" + encodeURIComponent(colorId) + ".jpg";
 }
 
 function designName(version: GenerationOutputVersion) {
@@ -142,7 +142,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
         <label className="rrugc-blueprint-guides"><input type="checkbox" checked={guides}
           onChange={event => setGuides(event.target.checked)} /> Show guides</label>
         <label className="rrugc-blueprint-scale">Design size
-          <input type="range" min="60" max="140" step="5" value={scale}
+          <input type="range" min="40" max="100" step="5" value={scale}
             onChange={event => setScale(Number(event.target.value))} aria-label="Blueprint design size" />
           <b>{scale}%</b>
         </label>
@@ -190,10 +190,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
             if (!color) return null;
             return <button type="button" key={color.id}
               className={"rrugc-blueprint-color-choice" + (delta === 0 ? " is-selected" : "")}
-              style={{ transform: "translateY(calc(-50% + " + (delta * 94) + "px))" }}
+              style={{ transform: "translate(-50%, calc(-50% + " + (delta * 94) + "px))" }}
               aria-label={"Select hat color " + color.label} aria-pressed={delta === 0}
               onClick={() => setColorIndex(index)}>
-              <span className="rrugc-blueprint-color-hat" style={spritePosition(index)} aria-hidden="true"/>
+              <img className="rrugc-blueprint-color-hat" src={blueprintHatPhoto(color.id)}
+                alt="" loading="lazy" decoding="async" draggable={false}/>
               <span className="rrugc-blueprint-color-name">{color.short}</span>
             </button>;
           })}
@@ -210,7 +211,10 @@ export function BlueprintPreview({ versions, initialVersion }: {
             <span className="rrugc-blueprint-selected-badge">● SELECTED</span>
             <span>{selectedDesign + 1} / {versions.length} designs · {colorIndex + 1} / 12 colors</span>
           </div>
-          <div className="rrugc-blueprint-selected-hat" style={spritePosition(colorIndex)}>
+          <div className="rrugc-blueprint-selected-hat">
+            <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
+              alt={"Valucap 8869 original cap front, " + activeColor.label}
+              loading="eager" decoding="async" draggable={false}/>
             <div className={"rrugc-blueprint-selected-design" + (guides ? " is-guided" : "")}>
               <img key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
                 style={{ transform: "scale(" + (scale / 100) + ")" }}
