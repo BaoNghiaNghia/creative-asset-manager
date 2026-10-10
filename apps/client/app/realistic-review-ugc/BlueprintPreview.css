@@ -289,31 +289,48 @@
 .rrugc-blueprint-height-line.is-upper{top:27%}
 .rrugc-blueprint-height-line.is-lower{top:60%}
 
-/* Dedicated viewport zoom per preview. The controls stay above the artwork
-   and do not inherit the cap/design zoom, or trigger drag-to-browse. */
-.rrugc-blueprint-panel-visual{position:relative}
+/* Each header owns its own embroidery-design size slider. The cap image,
+   photo viewport and guides remain at exactly 100% when either slider moves. */
+.rrugc-blueprint-panel-header-actions{
+  display:flex;align-items:center;justify-content:flex-end;gap:10px;
+  min-width:0;flex:0 1 auto;margin-left:auto;
+}
+.rrugc-blueprint-panel-header-actions .rrugc-blueprint-selected-top{
+  max-width:none;flex:0 1 auto;min-width:0;
+}
 .rrugc-blueprint-view-zoom{
-  position:absolute;top:8px;right:10px;z-index:22;
-  display:flex;align-items:center;gap:3px;padding:4px;
-  border:1px solid #dce6f0;border-radius:9px;
-  background:rgba(255,255,255,.96);
-  box-shadow:0 2px 9px rgba(35,63,93,.1);
-  user-select:none;touch-action:manipulation;
+  position:relative;display:flex;align-items:center;gap:6px;
+  flex:0 0 auto;min-width:0;padding:4px 6px;
+  border:1px solid #dce6f0;border-radius:8px;
+  background:#f8fbff;color:#607994;
+  user-select:none;touch-action:pan-x;
 }
-.rrugc-blueprint-view-zoom button{
-  border:0;border-radius:6px;background:transparent;
-  color:#506987;cursor:pointer;font-size:13px;font-weight:800;line-height:1.2;
-  display:grid;place-items:center;width:25px;height:25px;
+.rrugc-blueprint-view-zoom-caption{
+  font-size:9px;font-weight:750;color:#607994;white-space:nowrap;
 }
-.rrugc-blueprint-view-zoom button:hover:not(:disabled){background:#eef5fc;color:#277eac}
-.rrugc-blueprint-view-zoom button:focus-visible{outline:2px solid #378ac4;outline-offset:2px}
-.rrugc-blueprint-view-zoom button:disabled{cursor:default;opacity:.35}
-.rrugc-blueprint-view-zoom .rrugc-blueprint-view-zoom-value{
-  min-width:43px;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums;
+.rrugc-blueprint-view-zoom-slider{
+  display:block;width:90px;min-width:58px;max-width:100px;height:17px;
+  margin:0;accent-color:#3895c7;cursor:pointer;touch-action:pan-x;
 }
-.rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat,
-.rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{
-  transform-origin:center center;transition:transform 130ms ease-out;
+.rrugc-blueprint-view-zoom-slider:focus-visible{
+  outline:2px solid #3895c7;outline-offset:2px;border-radius:3px;
+}
+.rrugc-blueprint-view-zoom-value{
+  display:block;min-width:33px;text-align:right;
+  font-size:10px;font-weight:800;line-height:1.1;
+  font-variant-numeric:tabular-nums;color:#415c79;white-space:nowrap;
+}
+@media(max-width:1160px){
+  .rrugc-blueprint-panel-header-actions .rrugc-blueprint-selected-top>span:not(.rrugc-blueprint-selected-badge){display:none}
+  .rrugc-blueprint-view-zoom-slider{width:75px}
+}
+@media(max-width:680px){
+  .rrugc-blueprint-panel-header-actions .rrugc-blueprint-selected-top{display:none}
+  .rrugc-blueprint-side-color{display:none}
+}
+@media(max-width:375px){
+  .rrugc-blueprint-view-zoom-slider{width:62px}
+  .rrugc-blueprint-view-zoom-caption{display:none}
 }
 /* WACE placement: wider horizontal design boundary; height limit on the front
    moves above the crown embroidery and finishes at the brim seam. */

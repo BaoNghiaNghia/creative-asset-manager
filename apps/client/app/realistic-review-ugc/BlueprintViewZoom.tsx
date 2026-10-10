@@ -1,12 +1,9 @@
-import type { PointerEvent } from "react";
+import { useId, type PointerEvent } from "react";
 
-export const BLUEPRINT_VIEW_ZOOM_MIN = 75;
-export const BLUEPRINT_VIEW_ZOOM_MAX = 200;
-export const BLUEPRINT_VIEW_ZOOM_STEP = 25;
-
-export function clampBlueprintViewZoom(value: number) {
-  return Math.max(BLUEPRINT_VIEW_ZOOM_MIN, Math.min(BLUEPRINT_VIEW_ZOOM_MAX, value));
-}
+/** Per-preview embroidery artwork scale. Never scales the underlying hat photo. */
+export const BLUEPRINT_DESIGN_MIN = 40;
+export const BLUEPRINT_DESIGN_MAX = 200;
+export const BLUEPRINT_DESIGN_STEP = 5;
 
 type Props = {
   label: "Front" | "Right side";
@@ -15,19 +12,17 @@ type Props = {
 };
 
 export function BlueprintViewZoom({ label, value, onChange }: Props) {
-  // Zoom must never start the card's drag-to-change-design gesture.
+  const inputId = useId();
+  // The card supports drag-to-browse; sliding should only resize the artwork.
   const stopDrag = (event: PointerEvent<HTMLDivElement>) => event.stopPropagation();
-  return <div className="rrugc-blueprint-view-zoom" role="group" aria-label={label + " view zoom"}
+  return <div className="rrugc-blueprint-view-zoom" role="group" aria-label={label + " design size"}
     onPointerDown={stopDrag} onPointerMove={stopDrag} onPointerUp={stopDrag}
     onPointerCancel={stopDrag} onClick={event => event.stopPropagation()}>
-    <button type="button" aria-label={"Zoom out " + label}
-      disabled={value <= BLUEPRINT_VIEW_ZOOM_MIN}
-      onClick={() => onChange(clampBlueprintViewZoom(value - BLUEPRINT_VIEW_ZOOM_STEP))}>−</button>
-    <button type="button" className="rrugc-blueprint-view-zoom-value"
-      aria-label={"Reset " + label + " zoom to 100%"} title="Reset zoom to 100%"
-      onClick={() => onChange(100)}>{value}%</button>
-    <button type="button" aria-label={"Zoom in " + label}
-      disabled={value >= BLUEPRINT_VIEW_ZOOM_MAX}
-      onClick={() => onChange(clampBlueprintViewZoom(value + BLUEPRINT_VIEW_ZOOM_STEP))}>+</button>
+    <label className="rrugc-blueprint-view-zoom-caption" htmlFor={inputId}>Design</label>
+    <input id={inputId} className="rrugc-blueprint-view-zoom-slider" type="range"
+      min={BLUEPRINT_DESIGN_MIN} max={BLUEPRINT_DESIGN_MAX} step={BLUEPRINT_DESIGN_STEP}
+      value={value} aria-label={label + " design zoom"}
+      onChange={event => onChange(Number(event.currentTarget.value))}/>
+    <output className="rrugc-blueprint-view-zoom-value" htmlFor={inputId}>{value}%</output>
   </div>;
 }
