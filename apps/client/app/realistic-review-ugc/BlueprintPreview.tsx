@@ -5,6 +5,7 @@ import { BlueprintSmoothImage, prefetchBlueprintImage } from "./BlueprintSmoothI
 import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
+import { BlueprintViewZoom } from "./BlueprintViewZoom";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -77,6 +78,8 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
   const [colorIndex, setColorIndex] = useState(0);
   const [scale, setScale] = useState(100);
+  const [frontZoom, setFrontZoom] = useState(100);
+  const [sideZoom, setSideZoom] = useState(100);
   const [guides, setGuides] = useState(false);
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
@@ -266,7 +269,8 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
           </header>
           <div className="rrugc-blueprint-panel-visual">
-            <div className="rrugc-blueprint-selected-hat"
+            <BlueprintViewZoom label="Front" value={frontZoom} onChange={setFrontZoom}/>
+            <div className="rrugc-blueprint-selected-hat" style={{ transform: `scale(${frontZoom / 100})` }}
               onPointerMove={event => moveBlueprintLens(event, frontLens.current,
                 Array.from(event.currentTarget.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")).every(image => image.classList.contains("is-loaded")))}
               onPointerLeave={() => hideBlueprintLens(frontLens.current)}
@@ -330,9 +334,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
             <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
           </header>
           <div className="rrugc-blueprint-panel-visual">
+            <BlueprintViewZoom label="Right side" value={sideZoom} onChange={setSideZoom}/>
             {sideAtlasFailed
               ? <div className="rrugc-blueprint-side-unavailable" role="status">Side reference image could not be loaded</div>
               : <div className={"rrugc-blueprint-side-image" + (sideAtlasReady ? " is-ready" : "")}
+                  style={{ transform: `scale(${sideZoom / 100})` }}
                   role="img" aria-label={"Valucap 8869 right-facing mirrored side reference, " + activeColor.label}
                   onPointerMove={event => moveBlueprintLens(event, sideLens.current, sideAtlasReady)}
                   onPointerLeave={() => hideBlueprintLens(sideLens.current)}

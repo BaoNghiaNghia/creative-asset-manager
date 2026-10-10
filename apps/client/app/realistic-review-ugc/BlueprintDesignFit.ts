@@ -109,9 +109,9 @@ export function useBlueprintArtworkFit(source: string, percent: number) {
   const fitted = ready
     ? blueprintFitArtwork(
       image, frame.width, frame.height, percent,
-      // Front print height is between the two horizontal limits: 27%-60%
-      // of the hat photo. Keep a little room to avoid touching the lines.
-      { maxWidth: frame.width * (0.80 / 0.47), maxHeight: frame.height * (0.32 / 0.21) },
+      // Keep visible stitches inside the wider cyan field and between the
+      // 19%-63% height lines even when Design size is increased to 200%.
+      { maxWidth: frame.width * .98, maxHeight: frame.height * (.37 / .21) },
     ) : null;
   return { frameRef, onLoad, style: fitted?.style, ready, fitted };
 }

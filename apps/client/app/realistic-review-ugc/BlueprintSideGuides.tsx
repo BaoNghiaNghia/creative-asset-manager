@@ -4,9 +4,9 @@
  * Blue: cap-clamp hoop, red: sew field, cyan: reference design safe area.
  */
 export const RIGHT_SIDE_GUIDE = {
-  hoop: "M 2 345 Q 8 305 39 266 L 92 208 L 297 174 Q 325 169 347 184 L 439 237 Q 461 252 468 284 L 473 331 Q 473 351 446 363 L 149 419 Q 124 426 104 409 L 35 376 Q 7 368 2 345 Z",
+  hoop: "M 46 312 Q 45 292 57 276 L 113 223 Q 121 215 138 211 L 333 165 Q 351 159 368 170 L 451 224 Q 481 242 488 271 L 497 324 Q 501 344 479 357 L 164 402 Q 142 404 127 390 L 68 358 Q 46 346 46 312 Z",
   sewField: "M 57 267 L 391 210 L 406 337 L 72 373 Z",
-  designField: "M 145 295 L 301 271 L 318 335 L 155 352 Z",
+  designField: "M 171 283 L 309 265 L 322 328 L 184 348 Z",
 } as const;
 
 export function BlueprintSideGuides({ decorative = false }: { decorative?: boolean }) {

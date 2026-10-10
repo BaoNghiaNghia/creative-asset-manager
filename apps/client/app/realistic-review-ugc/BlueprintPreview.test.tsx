@@ -140,6 +140,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
+    expect(host.querySelectorAll(".rrugc-blueprint-view-zoom")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-blueprint-front-height-guides")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-blueprint-height-line.is-upper")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-blueprint-height-line.is-lower")).toHaveLength(2);
@@ -152,9 +153,9 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")).not.toBeNull();
     expect(sideGuides.querySelectorAll("path")).toHaveLength(3);
     expect(sideGuides.parentElement?.classList.contains("rrugc-blueprint-side-image")).toBe(true);
-    expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")?.getAttribute("d")).toContain("L 149 419");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")?.getAttribute("d")).toContain("L 164 402");
     expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")?.getAttribute("d")).toContain("M 57 267");
-    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")?.getAttribute("d")).toContain("M 145 295");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")?.getAttribute("d")).toContain("M 171 283");
     const calibration = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-calibration-design")!;
     expect(calibration.src).toContain("/rrugc/blueprint/roberts-reference.png");
     expect(calibration.style.getPropertyValue("--side-design-scale")).toBe("1");
@@ -162,6 +163,37 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-magnifier-side-surface > .rrugc-blueprint-side-guides")).not.toBeNull();
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("50% 0%");
+    await act(async () => root.unmount());
+  });
+
+  it("zooms Front and Right side independently from the top-right controls without changing design size", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<BlueprintPreview versions={versions} />));
+    const front = host.querySelector<HTMLElement>(".rrugc-blueprint-selected-hat")!;
+    const side = host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")!;
+    const frontGroup = host.querySelector<HTMLElement>('[aria-label="Front view zoom"]')!;
+    const sideGroup = host.querySelector<HTMLElement>('[aria-label="Right side view zoom"]')!;
+    expect(frontGroup).not.toBeNull();
+    expect(sideGroup).not.toBeNull();
+    expect(front.style.transform).toBe("scale(1)");
+    expect(side.style.transform).toBe("scale(1)");
+    await act(async () => click(host, "Zoom in Front"));
+    expect(frontGroup.textContent).toContain("125%");
+    expect(front.style.transform).toBe("scale(1.25)");
+    expect(side.style.transform).toBe("scale(1)");
+    await act(async () => click(host, "Zoom in Right side"));
+    expect(sideGroup.textContent).toContain("125%");
+    expect(side.style.transform).toBe("scale(1.25)");
+    await act(async () => click(host, "Reset Front zoom to 100%"));
+    expect(front.style.transform).toBe("scale(1)");
+    expect(side.style.transform).toBe("scale(1.25)");
+    for (let i = 0; i < 3; i++) await act(async () => click(host, "Zoom in Right side"));
+    expect(side.style.transform).toBe("scale(2)");
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in Right side"]')?.disabled).toBe(true);
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.value).toBe("100");
+    expect(chosen(host)).toContain("design_9.png");
     await act(async () => root.unmount());
   });
 

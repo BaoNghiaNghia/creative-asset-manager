@@ -288,3 +288,45 @@
 }
 .rrugc-blueprint-height-line.is-upper{top:27%}
 .rrugc-blueprint-height-line.is-lower{top:60%}
+
+/* Dedicated viewport zoom per preview. The controls stay above the artwork
+   and do not inherit the cap/design zoom, or trigger drag-to-browse. */
+.rrugc-blueprint-panel-visual{position:relative}
+.rrugc-blueprint-view-zoom{
+  position:absolute;top:8px;right:10px;z-index:22;
+  display:flex;align-items:center;gap:3px;padding:4px;
+  border:1px solid #dce6f0;border-radius:9px;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 2px 9px rgba(35,63,93,.1);
+  user-select:none;touch-action:manipulation;
+}
+.rrugc-blueprint-view-zoom button{
+  border:0;border-radius:6px;background:transparent;
+  color:#506987;cursor:pointer;font-size:13px;font-weight:800;line-height:1.2;
+  display:grid;place-items:center;width:25px;height:25px;
+}
+.rrugc-blueprint-view-zoom button:hover:not(:disabled){background:#eef5fc;color:#277eac}
+.rrugc-blueprint-view-zoom button:focus-visible{outline:2px solid #378ac4;outline-offset:2px}
+.rrugc-blueprint-view-zoom button:disabled{cursor:default;opacity:.35}
+.rrugc-blueprint-view-zoom .rrugc-blueprint-view-zoom-value{
+  min-width:43px;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums;
+}
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat,
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{
+  transform-origin:center center;transition:transform 130ms ease-out;
+}
+/* WACE placement: wider horizontal design boundary; height limit on the front
+   moves above the crown embroidery and finishes at the brim seam. */
+.rrugc-blueprint-front-guide{left:21%;width:58%}
+.rrugc-blueprint-selected-design{left:21%;width:58%}
+.rrugc-blueprint-height-line.is-upper{top:19%}
+.rrugc-blueprint-height-line.is-lower{top:63%}
+/* Roberts safe sample and matching cyan rectangle are smaller on Right Side. */
+.rrugc-blueprint-side-calibration-design{left:25%;top:66%;width:20%}
+.rrugc-blueprint-side-image>img.rrugc-blueprint-side-calibration-design{
+  left:25%;top:66%;width:20%;
+}
+@media(prefers-reduced-motion:reduce){
+  .rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat,
+  .rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{transition:none}
+}
