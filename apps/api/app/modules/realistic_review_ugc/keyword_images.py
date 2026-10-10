@@ -33,7 +33,7 @@ from app.providers.ai.codex_image import (
 
 JOB_TYPE = "rrugc_keyword_image_generate"
 STAGE1_MAX_ATTEMPTS = 1
-DEFAULT_SKILL = "gatorhats-keyword-embroidery"
+DEFAULT_SKILL = "gatorhats-stage1-six-designs"
 
 
 class KeywordImageError(RuntimeError):
@@ -46,6 +46,18 @@ class KeywordImageError(RuntimeError):
 
 def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str | None = None) -> str:
     """Generate a bounded keyword-only prompt tailored to the selected Skill."""
+    if skill_name == "gatorhats-stage1-six-designs":
+        return (
+            "Create exactly SIX distinct original embroidery artworks, each a separate "
+            "PNG for the exact quote " + repr(keyword) + ". "
+            "Use the $gatorhats-stage1-six-designs Skill. "
+            "Produce only output/final/design_01.png through design_06.png. "
+            "Never make concept boards, a 13-color collection, or extra "
+            "full-resolution intermediate files. "
+            "If a procedural intermediate preview is required, use at most "
+            "640px WebP quality 65 and keep it out of output/final/. "
+            + ((custom or "").strip() if custom else "")
+        ).strip()
     if skill_name == "hanh-redesign-8869-ver-4":
         return (
             "Generate the COMPLETE Hanh Redesign v4 independent-concepts workflow for "
@@ -153,10 +165,10 @@ class KeywordImageService:
             manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, skill.skill_name)
             # The Stage 1 runner supplies a keyword prompt and zero image files;
             # any installed image-generation Skill can decide how to use that input.
-            if manifest is None or not ({"image_studio", "keyword_artwork"} & set(manifest.workflows)):
+            if manifest is None or "keyword_six_designs" not in manifest.workflows:
                 raise KeywordImageError(
                     "keyword_image_skill_unavailable",
-                    "Stage 1 needs an installed image-generation Skill.",
+                    "Stage 1 requires the installed Six Designs Skill; legacy 10-concept and colorway Skills are not supported.",
                     422,
                 )
         except Stage2SkillRegistryError as exc:
@@ -244,9 +256,9 @@ class KeywordImageService:
                     skill_id=skill.skill_id, skill_name=skill.skill_name,
                 )
                 manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, skill.skill_name)
-                if manifest is None or not ({"image_studio", "keyword_artwork"} & set(manifest.workflows)):
+                if manifest is None or "keyword_six_designs" not in manifest.workflows:
                     raise KeywordImageError(
-                        "keyword_image_skill_unavailable", "Selected Skill is not an image-generation Skill.", 422,
+                        "keyword_image_skill_unavailable", "Stage 1 requires the Six Designs Skill.", 422,
                     )
             except Stage2SkillRegistryError as exc:
                 raise KeywordImageError(exc.code, exc.message, exc.status_code) from exc
@@ -418,6 +430,15 @@ class KeywordImageGenerateHandler:
                 job.last_error_message = exc.message
                 session.commit()
                 return JobHandlerResult.non_retryable(exc.code, exc.message)
+            manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, job.skill_name)
+            if manifest is None or "keyword_six_designs" not in manifest.workflows:
+                job.status = "failed"
+                job.last_error_code = "stage1_legacy_skill_not_supported"
+                job.last_error_message = "Stage 1 requires exactly six final designs. Legacy jobs must be requeued using the new Six Designs Skill."
+                session.commit()
+                return JobHandlerResult.non_retryable(
+                    "stage1_legacy_skill_not_supported", job.last_error_message,
+                )
             job.status = "running"
             job.started_at = job.started_at or datetime.now(timezone.utc)
             job.last_error_code = None
@@ -435,7 +456,7 @@ class KeywordImageGenerateHandler:
                 int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
             ),
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
-            output_contract="all_generated_images",
+            output_contract="stage1_six_final_designs",
             expected_quote=keyword_text if skill_name == "hanh-redesign-8869-ver-4" else None,
             execution_log_id=context.job.id,
         ))
@@ -450,7 +471,7 @@ class KeywordImageGenerateHandler:
             runner.cleanup_attempt(context.job.entity_id)
 
     async def _save_skill_outputs(self, context: JobHandlerContext, storage, generated) -> JobHandlerResult:
-        """Persist every generated image, with no hard-coded two-board/count cap."""
+        """Persist the six validated final designs; intermediate drafts stay transient."""
         import hashlib
         from pathlib import Path
 
@@ -465,15 +486,16 @@ class KeywordImageGenerateHandler:
                 (f"output_{index + 1:03}.png", generated.mime_type, None, body)
                 for index, body in enumerate(bodies)
             ]
-        if not payloads:
+        if len(payloads) != 6:
             raise CodexImageProviderError(
-                "keyword_image_output_missing", "Skill returned no generated images.",
-                retryable=True,
+                "stage1_six_outputs_required",
+                "Stage 1 requires exactly six individual final design images.",
+                retryable=False,
             )
 
-        # Stage 1 may produce 100+ images. Persist each upload as a durable
-        # checkpoint instead of waiting for every Drive upload to succeed.
-        # If storage fails at image 70/140, the first 69 remain browsable.
+        # Checkpoint the six final uploads individually, so an interrupted
+        # Drive operation preserves previously uploaded final assets.
+        # Never upload image-generation intermediates or QA previews.
         first_uploaded = None
         uploaded_count = 0
         for index, (name, mime_type, path, body) in enumerate(payloads):

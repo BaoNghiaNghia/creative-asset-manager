@@ -28,10 +28,9 @@ def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = Non
         manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, skill_name)
     except CodexImageProviderError:
         return False
-    return bool(
-        manifest is not None
-        and ("image_studio" in manifest.workflows or "keyword_artwork" in manifest.workflows)
-    )
+    # Stage 1 has a fixed six-file contract. Legacy image_studio skills can
+    # generate 10+ concepts and 13 colorways; do not advertise them as ready.
+    return bool(manifest is not None and "keyword_six_designs" in manifest.workflows)
 
 
 def stage_skill_defaults(session: Session, *, tenant_id: str) -> dict[str, str]:

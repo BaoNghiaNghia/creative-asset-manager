@@ -83,7 +83,7 @@ def test_stage_defaults_independent_and_tenant_scoped(monkeypatch):
                                 for name in ("colors", "studio", "other-tenant")
                             ]))
         monkeypatch.setattr(stage_skill_settings, "load_codex_skill_manifest",
-                            lambda *_args: SimpleNamespace(workflows=("image_studio",),
+                            lambda *_args: SimpleNamespace(workflows=("image_studio", "keyword_six_designs"),
                                                            required_reference_roles=("artwork",)))
         with Session(engine) as session:
             session.add_all([a, b, c])

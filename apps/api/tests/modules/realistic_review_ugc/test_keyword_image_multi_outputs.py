@@ -1,4 +1,4 @@
-"""Stage 1 must durably save every Skill-produced image, without a count cap."""
+"""Stage 1 must save exactly six separate final files and keep partial uploads durable."""
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +19,7 @@ from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerate
 from app.modules.realistic_review_ugc.model import RrugcKeywordImageJobModel, RrugcImageOutputVersionModel
 
 
-def test_stage1_persists_all_37_image_files_and_their_names(tmp_path):
+def test_stage1_persists_six_individual_final_files_and_their_names(tmp_path):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     for table in (RrugcKeywordImageJobModel.__table__, RrugcImageOutputVersionModel.__table__):
         table.create(engine)
@@ -31,11 +31,11 @@ def test_stage1_persists_all_37_image_files_and_their_names(tmp_path):
         ))
         session.commit()
     files = []
-    for index in range(37):
+    for index in range(6):
         path = tmp_path / f"artwork_{index:03}.png"
-        Image.new("RGB", (80, 90), (index, 30, 140)).save(path)
+        Image.new("RGB", (800, 900), (index, 30, 140)).save(path)
         files.append(GeneratedImageFile(
-            path=str(path), filename=f"artworks/artwork_{index:03}.png",
+            path=str(path), filename=f"output/final/design_{index + 1:02}.png",
             mime_type="image/png",
         ))
     generated = GeneratedImageResult(
@@ -63,14 +63,14 @@ def test_stage1_persists_all_37_image_files_and_their_names(tmp_path):
         context, storage, generated,
     ))
     assert result.outcome.value == "completed"
-    assert len(storage.uploads) == 37
+    assert len(storage.uploads) == 6
     with Session(engine) as session:
         rows = session.scalars(
             select(RrugcImageOutputVersionModel).order_by(RrugcImageOutputVersionModel.version)
         ).all()
-        assert len(rows) == 37
-        assert [row.version for row in rows] == list(range(1, 38))
-        assert rows[36].output_name == "artworks/artwork_036.png"
+        assert len(rows) == 6
+        assert [row.version for row in rows] == list(range(1, 7))
+        assert rows[5].output_name == "output/final/design_06.png"
         job = session.get(RrugcKeywordImageJobModel, "image-job-1")
         assert job.status == "completed"
         assert job.output_remote_file_id == "remote-1"
@@ -78,7 +78,7 @@ def test_stage1_persists_all_37_image_files_and_their_names(tmp_path):
     engine.dispose()
 
 def test_stage1_retains_checkpointed_images_if_upload_fails_midway(tmp_path):
-    """Three generated images, third Drive upload fails: the first two survive."""
+    """Six final images, third Drive upload fails: the first two survive."""
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     for table in (RrugcKeywordImageJobModel.__table__, RrugcImageOutputVersionModel.__table__):
         table.create(engine)
@@ -90,7 +90,7 @@ def test_stage1_retains_checkpointed_images_if_upload_fails_midway(tmp_path):
         ))
         session.commit()
     files = []
-    for index in range(3):
+    for index in range(6):
         path = tmp_path / f"part-{index}.png"
         Image.new("RGB", (20, 30), (20 + index, 50, 80)).save(path)
         files.append(GeneratedImageFile(path=str(path), filename=f"artwork/part-{index}.png", mime_type="image/png"))

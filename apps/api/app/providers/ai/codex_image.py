@@ -434,7 +434,12 @@ class CodexImageGenRunner:
         if process.returncode != 0:
             raise _classify_failure(stderr, stdout)
 
-        if self.config.output_contract == "all_generated_images":
+        files: tuple[GeneratedImageFile, ...] = ()
+        if self.config.output_contract == "stage1_six_final_designs":
+            files = self._collect_six_final_designs(workspace)
+            image_bytes = Path(files[0].path).read_bytes()
+            extra_images = ()
+        elif self.config.output_contract == "all_generated_images":
             files = self._collect_generated_images(workspace)
             if not files:
                 raise CodexImageProviderError(
@@ -466,8 +471,55 @@ class CodexImageGenRunner:
             provider_request_id=_request_id_from_jsonl(stdout),
             provider_metadata={"skill": self.config.skill_name},
             additional_images=extra_images,
-            output_files=files if self.config.output_contract == "all_generated_images" else (),
+            output_files=files if self.config.output_contract in ("all_generated_images", "stage1_six_final_designs") else (),
         )
+
+    @staticmethod
+    def _collect_six_final_designs(workspace: Path) -> tuple[GeneratedImageFile, ...]:
+        """Read *only* six named final files; never import temporary images.
+
+        Fail closed on missing files, accidental extras or duplicates. Do not
+        mark a 100-image job complete by merely taking its first six files.
+        """
+        final_dir = workspace / "output" / "final"
+        if not final_dir.is_dir() or final_dir.is_symlink():
+            raise CodexImageProviderError(
+                "stage1_six_outputs_missing",
+                "Stage 1 must write six final designs to output/final/.",
+            )
+        expected = [f"design_{number:02}.png" for number in range(1, 7)]
+        actual = [p.name for p in final_dir.iterdir()]
+        if sorted(actual) != sorted(expected):
+            raise CodexImageProviderError(
+                "stage1_six_outputs_invalid",
+                "Stage 1 must produce only design_01.png to design_06.png.",
+            )
+        workspace_root = workspace.resolve()
+        found = []
+        digests = set()
+        for name in expected:
+            path = final_dir / name
+            if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(workspace_root):
+                raise CodexImageProviderError("stage1_six_outputs_invalid", "Invalid final design file.")
+            try:
+                with Image.open(path) as image:
+                    image.verify()
+                    if image.format != "PNG" or min(image.size) < 512:
+                        raise ValueError("Final designs must be PNG with both dimensions at least 512.")
+            except (OSError, ValueError, Image.DecompressionBombError) as exc:
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_invalid", "Stage 1 returned an invalid final PNG."
+                ) from exc
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest in digests:
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_duplicate", "Stage 1 returned duplicate final images."
+                )
+            digests.add(digest)
+            found.append(GeneratedImageFile(
+                path=str(path.resolve()), filename=f"output/final/{name}", mime_type="image/png",
+            ))
+        return tuple(found)
 
     @staticmethod
     def _collect_generated_images(workspace: Path) -> tuple[GeneratedImageFile, ...]:
@@ -649,6 +701,20 @@ class CodexImageGenRunner:
         )
         extra = user_prompt.strip()
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
+        if self.config.output_contract == "stage1_six_final_designs":
+            return (
+                "Use $gatorhats-stage1-six-designs and $imagegen.\n"
+                "This is Stage 1: SIX independent embroidery design concepts only.\n"
+                "Generate exactly six final artworks, one per image-generation call; no trial "
+                "image generations, 10-concept boards, Hero selection, 13 hats, mockups or colorways.\n"
+                "Keep the quote's exact text and make each concept truly distinct.\n"
+                "Save exactly six PNG files: output/final/design_01.png through design_06.png.\n"
+                "Keep intermediates out of output/final; if needed, save compressed WebP "
+                "previews to working/previews, max 640px longest edge, quality ~65.\n"
+                "Do not use an API-key-backed image generation fallback.\n"
+                "Use one generated image per final file. Do not print image data.\n"
+                + extra_block
+            )
         if self.config.skill_name == "hanh-redesign-8869-ver-4" and self.config.output_contract in ("independent_concepts_v4", "all_generated_images"):
             return (
                 "Use $" + self.config.skill_name + " and $imagegen.\n"

@@ -161,7 +161,7 @@ export function KeywordImageStage({
     }
   }, [readySkills, selectedSkillKey]);
   const selectedSkill = readySkills.find(item => skillKey(item) === selectedSkillKey) || null;
-  const isV4Skill = selectedSkill?.skill_name === "hanh-redesign-8869-ver-4";
+  const isSixDesignSkill = selectedSkill?.skill_name === "gatorhats-stage1-six-designs";
   const selectedSkillInput: Stage2SkillSelection | null = selectedSkill ? {
     source: selectedSkill.source, skill_id: selectedSkill.skill_id,
     skill_name: selectedSkill.skill_name,
@@ -299,7 +299,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker="STAGE 1 / KEYWORD-TO-IMAGE"
       title="Generate images from used keywords"
-      description="Generate artwork from Stage 0 keywords, follow each job, and compare output versions."
+      description="Generate six separate final embroidery concepts per keyword, track progress, and compare previous output versions."
       actions={<div className="rrugc-keyword-gen-actions">
         <button type="button" className="rrugc-global-management-button rrugc-icon-action" onClick={onManageSkills}><RrugcActionIcon name="skills" />Manage skills</button>
         {bulkRunning
@@ -310,7 +310,7 @@ export function KeywordImageStage({
     <form className="rrugc-keyword-manual" onSubmit={event => void submitManual(event)}>
       <div className="rrugc-keyword-manual-heading">
         <strong>Create artwork from a keyword</strong>
-        <span>{isV4Skill ? "10 independent concepts + 13 hat colorways · 2 output boards" : "Use the selected Skill · Outputs are saved as versions"}</span>
+        <span>{isSixDesignSkill ? "6 separate high-resolution final designs · intermediate drafts excluded" : "Stage 1 requires the Six Designs Skill"}</span>
       </div>
       <div className="rrugc-keyword-manual-controls">
         <label htmlFor="rrugc-stage1-manual-keyword" className="sr-only">Enter keyword or saying</label>
@@ -368,7 +368,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>Generate and Regenerate use the selected Skill. Failed jobs stop after one attempt.</span>
+        <span>6 final images per job; intermediate previews are not uploaded. Failed jobs stop after one attempt.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>

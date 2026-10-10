@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-stage1-six-designs",
+  "display_name": "GatorHats · Stage 1 Six Designs",
+  "description": "Exactly 6 separate final embroidery artwork PNGs per keyword; compact intermediates, no colorway renders.",
+  "workflows": [
+    "image_studio",
+    "keyword_artwork",
+    "keyword_six_designs"
+  ],
+  "product_types": [
+    "baseball_cap",
+    "trucker_hat"
+  ],
+  "required_reference_roles": [],
+  "optional_reference_roles": [],
+  "max_references": 1
+}

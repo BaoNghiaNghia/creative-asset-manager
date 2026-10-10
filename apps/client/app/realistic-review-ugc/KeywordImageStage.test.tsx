@@ -14,9 +14,9 @@ const keyword = {
 } satisfies Stage2Skill;
 
 describe("Stage 1 keyword skill selection", () => {
-  it("accepts any ready image-generation Skill, including an existing redesign Skill", () => {
-    expect(isKeywordArtworkSkill(keyword)).toBe(true);
-    expect(isKeywordArtworkSkill({ ...keyword, skill_name: "hanh-redesign-8869-ver-3", keyword_artwork_ready: true })).toBe(true);
+  it("accepts only ready Stage 1 six-design workflows advertised by the backend", () => {
+    expect(isKeywordArtworkSkill({ ...keyword, skill_name: "gatorhats-stage1-six-designs" })).toBe(true);
+    expect(isKeywordArtworkSkill({ ...keyword, skill_name: "hanh-redesign-8869-ver-4", keyword_artwork_ready: false })).toBe(false);
     expect(isKeywordArtworkSkill({ ...keyword, ready: false })).toBe(false);
   });
 });

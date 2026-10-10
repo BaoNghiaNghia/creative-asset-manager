@@ -40,11 +40,11 @@ vi.mock("./api", async importOriginal => ({
 afterEach(() => document.body.replaceChildren());
 
 describe("Stage 1 manual keyword generation", () => {
-  it("describes both independent v4 boards when the v4 Skill is selected", async () => {
+  it("describes six separate final designs when the new Stage 1 Skill is selected", async () => {
     vi.mocked(listStage2Skills).mockResolvedValueOnce({
-      stage_defaults: { stage1: "local:hanh-redesign-8869-ver-4" },
-      items: [{ source: "local", skill_id: null, skill_name: "hanh-redesign-8869-ver-4",
-        display_name: "GatorHats v4", ready: true, keyword_artwork_ready: true,
+      stage_defaults: { stage1: "local:gatorhats-stage1-six-designs" },
+      items: [{ source: "local", skill_id: null, skill_name: "gatorhats-stage1-six-designs",
+        display_name: "GatorHats Stage 1 Six Designs", ready: true, keyword_artwork_ready: true,
         default_version: null, synced_version: null, local_version: "4.0.0",
         version_options: [], sync_state: "ready" }],
     } as never);
@@ -54,9 +54,9 @@ describe("Stage 1 manual keyword generation", () => {
     await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(host.querySelector(".rrugc-keyword-manual-heading")?.textContent)
-      .toContain("10 independent concepts + 13 hat colorways");
+      .toContain("6 separate high-resolution final designs");
     expect(host.querySelector(".rrugc-keyword-gen-list-title")?.textContent)
-      .toContain("Regenerate");
+      .toContain("6 final images per job");
     await act(async () => root.unmount());
   });
 
