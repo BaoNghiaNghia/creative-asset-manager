@@ -9,6 +9,7 @@ import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
+import { OutputActivityLoader } from "./OutputActivityLoader";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
@@ -983,7 +984,10 @@ export function Stage2JobTable({
                 </div>
                 <div className="rrugc-stage4-output-status-summary" aria-label={"Generation summary for " + plan.source_name}>
                   <span className="is-done">{runs.completed} done</span>
-                  {runs.active > 0 && <span className="is-active">{runs.active} active</span>}
+                  {runs.active > 0 && <span className="is-active">
+                    <OutputActivityLoader compact status={planJobs.some(run => run.status === "running") ? "running" : "queued"} />
+                    {runs.active} active
+                  </span>}
                   {runs.failed > 0 && <span className="is-failed">{runs.failed} failed</span>}
                   {runs.cancelled > 0 && <span className="is-cancelled">{runs.cancelled} cancelled</span>}
                   {runs.remaining > 0 && <span className="is-empty">{runs.remaining} not run</span>}
@@ -1014,9 +1018,13 @@ export function Stage2JobTable({
                     />
                     <span>v{1 + completedJobs.filter(other => (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
                   </button>)}
-                </div> : <div className="rrugc-stage2-results-empty">
-                  <strong>No results yet</strong>
-                  <small>Completed generations will appear here.</small>
+                </div> : <div className={"rrugc-stage2-results-empty" + (runs.active > 0 ? " is-generating" : "")}>
+                  {runs.active > 0
+                    ? <OutputActivityLoader status={planJobs.some(run => run.status === "running") ? "running" : "queued"} />
+                    : <>
+                        <strong>No results yet</strong>
+                        <small>Completed generations will appear here.</small>
+                      </>}
                 </div>}
                 <details className="rrugc-stage4-run-history">
                   <summary>Run history · latest {planJobs.length} <span>{runs.failed ? "View failures & retry" : "View statuses"}</span></summary>

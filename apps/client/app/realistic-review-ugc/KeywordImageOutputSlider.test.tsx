@@ -108,6 +108,23 @@ describe("Stage 1 draggable image strip", () => {
     expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
   });
 
+  it("uses three rotating dots for queued/running output without hiding saved versions", async () => {
+    for (const status of ["queued", "running"] as const) {
+      await act(async () => root.render(<KeywordImageOutputSlider row={{
+        ...row, status, saved_output_count: 0, output_url: null,
+      }} onOpenVersion={onOpenVersion} />));
+      const spinner = host.querySelector(".rrugc-output-activity");
+      expect(spinner).not.toBeNull();
+      expect(spinner?.getAttribute("aria-label")).toBe(status === "queued" ? "Output waiting in queue" : "Generating output");
+      expect(spinner?.querySelectorAll(".rrugc-output-activity-orbit > span")).toHaveLength(3);
+    }
+    expect(listGenerationOutputVersions).not.toHaveBeenCalled();
+    await act(async () => root.render(<KeywordImageOutputSlider row={{ ...row, status: "running" }} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(host.querySelector(".rrugc-output-activity.is-compact")).not.toBeNull();
+  });
+
   it("does not call the output API for unstarted jobs", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={{
       ...row, status: "not_run", job_id: null, saved_output_count: 0, output_url: null,

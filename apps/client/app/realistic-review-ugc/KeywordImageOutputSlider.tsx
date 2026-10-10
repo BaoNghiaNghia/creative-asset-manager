@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { listGenerationOutputVersions, type GenerationOutputVersion } from "./api";
 import type { KeywordImageRow } from "./types";
+import { OutputActivityLoader } from "./OutputActivityLoader";
 
 /**
  * Stage 1 table output strip. Fetch only when this row enters the viewport;
@@ -131,12 +132,17 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
           </button>)}
         </div>
       : <div className="rrugc-keyword-output-placeholder">
-          {loading || (hasOutput && !error) ? "Loading images…" : error ? "Could not load images" : row.status === "running" ? "Generating…" : "No images yet"}
+          {error ? "Could not load images"
+            : row.status === "running" || row.status === "queued"
+              ? <OutputActivityLoader status={row.status} />
+              : loading || hasOutput ? "Loading images…" : "No images yet"}
         </div>}
     <div className="rrugc-keyword-output-footer">
       <span title={row.status === "failed" && count > 0 ? "Partial output is preserved" : undefined}>
         {count ? `${count} image${count === 1 ? "" : "s"}${row.status === "failed" ? " · Partial" : ""}` : "Output"}
       </span>
+      {(row.status === "queued" || row.status === "running") && slides.length > 0 &&
+        <OutputActivityLoader compact status={row.status} />}
       {error && <button type="button" className="rrugc-keyword-output-retry"
         title="Reload images" aria-label={`Reload images for ${row.keyword}`} onClick={() => setReload(current => current + 1)}>↻</button>}
       {slides.length > 4 && <div className="rrugc-keyword-output-nav" role="group" aria-label="Scroll output images">

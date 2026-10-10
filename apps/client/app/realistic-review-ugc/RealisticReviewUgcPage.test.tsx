@@ -480,6 +480,29 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain(">Generate selected<");
   });
 
+  it("shows the shared orbit loader in Stage 4 while outputs are queued or generating", () => {
+    const queued = renderToStaticMarkup(<Stage2JobTable
+      plans={[makePlan(4)]}
+      overview={GLOBAL_OVERVIEW}
+      jobs={[makeStage2Job("waiting-for-output", "queued")]}
+      creatingPlanIds={new Set()}
+      onCreateJob={() => undefined}
+    />);
+    expect(queued).toContain("rrugc-stage2-results-empty is-generating");
+    expect(queued).toContain('aria-label="Output waiting in queue"');
+    expect(queued).toContain("rrugc-output-activity-orbit");
+
+    const running = renderToStaticMarkup(<Stage2JobTable
+      plans={[makePlan(4)]}
+      overview={GLOBAL_OVERVIEW}
+      jobs={[makeStage2Job("making-output", "running")]}
+      creatingPlanIds={new Set()}
+      onCreateJob={() => undefined}
+    />);
+    expect(running).toContain('aria-label="Generating output"');
+    expect(running).toContain("rrugc-stage2-results-empty is-generating");
+  });
+
   it("combines completed, active, failed, and not-run status with output and retry actions", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable

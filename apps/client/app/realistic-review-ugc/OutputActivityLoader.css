@@ -1,0 +1,70 @@
+/* Three rose dots orbit in place, matching the generation/loading reference.
+   Transform-only animation keeps table cells stable while many jobs run. */
+.rrugc-output-activity {
+  --rrugc-output-dot: 6px;
+  --rrugc-output-orbit: 11px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+  color: #b25d7c;
+  text-align: center;
+}
+
+.rrugc-output-activity-orbit {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  animation: rrugc-output-orbit-spin 1.05s linear infinite;
+  will-change: transform;
+}
+
+.rrugc-output-activity-orbit > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--rrugc-output-dot);
+  height: var(--rrugc-output-dot);
+  margin: calc(var(--rrugc-output-dot) / -2);
+  border-radius: 50%;
+  background: #c96586;
+}
+
+.rrugc-output-activity-orbit > span:nth-child(1) {
+  transform: rotate(0deg) translateY(calc(var(--rrugc-output-orbit) * -1));
+}
+.rrugc-output-activity-orbit > span:nth-child(2) {
+  transform: rotate(120deg) translateY(calc(var(--rrugc-output-orbit) * -1));
+}
+.rrugc-output-activity-orbit > span:nth-child(3) {
+  transform: rotate(240deg) translateY(calc(var(--rrugc-output-orbit) * -1));
+}
+
+.rrugc-output-activity-label {
+  color: #8695a9;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rrugc-output-activity.is-compact {
+  --rrugc-output-dot: 3.5px;
+  --rrugc-output-orbit: 5.5px;
+}
+.rrugc-output-activity.is-compact .rrugc-output-activity-orbit {
+  width: 17px;
+  height: 17px;
+}
+
+@keyframes rrugc-output-orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rrugc-output-activity-orbit { animation: none; will-change: auto; }
+}

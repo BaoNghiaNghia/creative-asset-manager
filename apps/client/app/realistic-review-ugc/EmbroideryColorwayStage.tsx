@@ -4,6 +4,7 @@ import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, 
 import type { ColorwayJob, ColorwayReadiness } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
+import { OutputActivityLoader } from "./OutputActivityLoader";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
@@ -410,7 +411,11 @@ export function EmbroideryColorwayStage({
                         onClick={() => void retryFailed(job)} title={label + " · " + (job.error_code || "Failed") + (job.retry_count >= 3 ? " · Retry limit" : " · Click to retry")}
                         aria-label={"Retry " + label}>{contents}</button>;
                     }
-                    return <span key={index} className={style} title={label + " · " + (job?.status || "Not run")}>{contents}</span>;
+                    return <span key={index} className={style} title={label + " · " + (job?.status || "Not run")}>
+                      {job?.status === "running" || job?.status === "queued"
+                        ? <><OutputActivityLoader compact status={job.status} /><b>{colorSlotLabel(index)}</b></>
+                        : contents}
+                    </span>;
                   })}
                 </div>
               </td>
