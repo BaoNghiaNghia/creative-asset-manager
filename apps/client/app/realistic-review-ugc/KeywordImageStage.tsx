@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { ActionMessageToast } from "../components/ActionToast";
@@ -58,22 +59,49 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
 }
 
 export function KeywordImageRowControls({
-  row, busy, canGenerate, onRun, onVersions, onLogs, showPreview = true,
+  row, busy, canGenerate, onRun, onLogs, showPreview = true,
 }: {
   row: KeywordImageRow;
   busy: boolean;
   canGenerate: boolean;
   onRun: () => void;
-  onVersions: () => void;
   onLogs: () => void;
   showPreview?: boolean;
 }) {
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const regenerateButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const regenerate = row.status === "completed";
   const generate = row.status === "not_run";
   const runnable = regenerate || generate;
   const runLabel = regenerate ? "Regenerate" : "Generate";
   const runDisabled = busy || (generate && !canGenerate);
   const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : runLabel + " image";
+
+  useEffect(() => {
+    if (!confirmRegenerate) return;
+    cancelButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setConfirmRegenerate(false);
+      } else if (event.key === "Tab") {
+        if (event.shiftKey && document.activeElement === cancelButtonRef.current) {
+          event.preventDefault();
+          acceptButtonRef.current?.focus();
+        } else if (!event.shiftKey && document.activeElement === acceptButtonRef.current) {
+          event.preventDefault();
+          cancelButtonRef.current?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      regenerateButtonRef.current?.focus();
+    };
+  }, [confirmRegenerate]);
 
   return <div className="rrugc-keyword-result-cell" aria-busy={busy}>
     {showPreview && <div className="rrugc-keyword-result-media">
@@ -92,14 +120,10 @@ export function KeywordImageRowControls({
     </div>}
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
       {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "regenerate" : "generate")}
-        onClick={onRun} disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
+        ref={regenerateButtonRef} onClick={() => regenerate ? setConfirmRegenerate(true) : onRun()}
+        disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
         <KeywordActionGlyph kind={regenerate ? "regenerate" : "generate"} />
         <span className="rrugc-keyword-action-label">{runLabel}</span>
-      </button>}
-      {row.job_id && (row.saved_output_count > 0 || row.output_url) && <button type="button" className="rrugc-keyword-result-action"
-        onClick={onVersions} title="View all generated images and versions" aria-label={"View all generated images for " + row.keyword}>
-        <KeywordActionGlyph kind="versions" />
-        <span className="rrugc-keyword-action-label">Versions</span>
       </button>}
       {row.job_id && <button type="button" className="rrugc-keyword-result-action"
         onClick={onLogs} title="View job logs" aria-label={"View logs for " + row.keyword}>
@@ -111,6 +135,25 @@ export function KeywordImageRowControls({
         {row.status === "queued" ? "In queue" : "Processing"}
       </span>}
     </div>
+    {confirmRegenerate && regenerate && createPortal(
+      <div className="rrugc-keyword-regenerate-backdrop" onMouseDown={event => {
+        if (event.target === event.currentTarget) setConfirmRegenerate(false);
+      }}>
+        <section className="rrugc-keyword-regenerate-dialog" role="dialog" aria-modal="true"
+          aria-labelledby="rrugc-regenerate-title" aria-describedby="rrugc-regenerate-description">
+          <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
+          <h2 id="rrugc-regenerate-title">Regenerate image?</h2>
+          <p id="rrugc-regenerate-description">Queue a new version for <strong>{row.keyword}</strong>? Your previous images will be kept.</p>
+          <div className="rrugc-keyword-regenerate-buttons">
+            <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
+            <button ref={acceptButtonRef} type="button" className="is-accept" onClick={() => {
+              setConfirmRegenerate(false);
+              onRun();
+            }}>Accept</button>
+          </div>
+        </section>
+      </div>, document.body,
+    )}
   </div>;
 }
 
@@ -370,7 +413,6 @@ export function KeywordImageStage({
           ? <KeywordImageRowControls row={manualResult} busy={workingIds.has(manualResult.keyword_id)}
               canGenerate={Boolean(selectedSkill)}
               onRun={() => void runOne(manualResult)}
-              onVersions={() => { if (manualResult.job_id) setVersionsJob({ jobId: manualResult.job_id, title: manualResult.keyword }); }}
               onLogs={() => { if (manualResult.job_id) setLogJobId(manualResult.job_id); }} />
           : <span className="rrugc-keyword-manual-pending">Waiting for job…</span>}
         {manualResult?.status === "completed" && manualResult.output_url
@@ -450,7 +492,6 @@ export function KeywordImageStage({
                 <td className="rrugc-keyword-gen-result">
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)} showPreview={false}
                     onRun={() => void runOne(row)}
-                    onVersions={() => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword }); }}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
                 </td>
               </tr>;
