@@ -141,7 +141,7 @@ def test_stage1_does_not_generate_unpicked_or_other_tenant(db):
     assert not db.query(RrugcKeywordImageJobModel).count()
 
 
-def test_failed_stage1_job_never_creates_a_second_run(db):
+def test_failed_stage1_retry_queues_one_replacement_run(db):
     kw = keyword(db, "used-a", "tenant-a", picked=True)
     row = RrugcKeywordImageJobModel(
         id="job-a", tenant_id=kw.tenant_id, keyword_id=kw.id,
@@ -160,11 +160,12 @@ def test_failed_stage1_job_never_creates_a_second_run(db):
     db.commit()
     with pytest.raises(KeywordImageError, match="No generation job exists"):
         KeywordImageService(db).retry(tenant_id="tenant-b", keyword_id=kw.id)
-    with pytest.raises(KeywordImageError, match="Only failed Drive uploads"):
-        KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
-    assert row.processing_job_id == old_processing.id
-    assert row.retry_count == 0
-    assert db.query(ProcessingJobModel).count() == 1
+    renewed = KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
+    assert renewed.processing_job_id != old_processing.id
+    assert renewed.retry_count == 0
+    assert db.get(ProcessingJobModel, renewed.processing_job_id).payload_json["replace_outputs"] is True
+    assert db.get(ProcessingJobModel, old_processing.id).status == "failed"
+    assert db.query(ProcessingJobModel).count() == 2
 
 
 def test_failed_drive_job_can_resume_upload_only_from_preserved_finals(db, tmp_path):
@@ -195,7 +196,7 @@ def test_failed_drive_job_can_resume_upload_only_from_preserved_finals(db, tmp_p
     service = KeywordImageService(db, settings)
     item = service.list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]
     assert item["upload_recovery_available"] is True
-    service.retry(tenant_id="tenant-a", keyword_id=kw.id)
+    service.resume_upload(tenant_id="tenant-a", keyword_id=kw.id)
     assert job.processing_job_id != original.id
     resumed = db.get(ProcessingJobModel, job.processing_job_id)
     assert resumed.payload_json["upload_only"] is True
@@ -208,7 +209,7 @@ def test_failed_drive_job_can_resume_upload_only_from_preserved_finals(db, tmp_p
     job.status = "failed"
     job.last_error_code = "managed_storage_temporarily_unavailable"
     db.commit()
-    service.retry(tenant_id="tenant-a", keyword_id=kw.id)
+    service.resume_upload(tenant_id="tenant-a", keyword_id=kw.id)
     second_resume = db.get(ProcessingJobModel, job.processing_job_id)
     assert second_resume.payload_json["generation_processing_id"] == original.id
     assert second_resume.payload_json["upload_only"] is True
@@ -236,7 +237,7 @@ def test_old_drive_failure_without_local_finals_never_restarts_generation(db, tm
     service = KeywordImageService(db, settings)
     assert service.list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]["upload_recovery_available"] is False
     with pytest.raises(KeywordImageError, match="unavailable"):
-        service.retry(tenant_id="tenant-a", keyword_id=kw.id)
+        service.resume_upload(tenant_id="tenant-a", keyword_id=kw.id)
     assert db.query(ProcessingJobModel).count() == 1
 
 
@@ -255,7 +256,7 @@ def test_stage1_enqueue_has_one_worker_attempt(db):
     assert db.get(ProcessingJobModel, row.processing_job_id).max_attempts == 1
 
 
-def test_completed_job_remains_untouched_by_manual_retry(db):
+def test_completed_job_retry_is_explicit_replacement_worker_cleanup(db):
     kw = keyword(db, "used-a", "tenant-a", picked=True)
     row = RrugcKeywordImageJobModel(
         id="job-complete", tenant_id="tenant-a", keyword_id=kw.id,
@@ -265,8 +266,11 @@ def test_completed_job_remains_untouched_by_manual_retry(db):
     )
     db.add(row)
     db.commit()
-    with pytest.raises(KeywordImageError, match="Only failed Drive uploads"):
-        KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
+    renewed = KeywordImageService(db).retry(tenant_id="tenant-a", keyword_id=kw.id)
+    assert renewed.status == "queued"
+    assert db.get(ProcessingJobModel, renewed.processing_job_id).payload_json["replace_outputs"] is True
+    assert db.get(ProcessingJobModel, renewed.processing_job_id).max_attempts == 1
+    # Deletion is checkpointed by the worker before starting imagegen.
     assert db.get(RrugcKeywordImageJobModel, row.id).output_remote_file_id == "output-safe"
 
 
@@ -383,11 +387,11 @@ def test_zero_png_failed_job_can_be_manually_regenerated_as_new_one_attempt_run(
     assert db.get(ProcessingJobModel, previous.id).status == "failed"
     second = db.get(ProcessingJobModel, renewed.processing_job_id)
     assert second.max_attempts == 1
-    assert second.payload_json == {"keyword_image_job_id": job.id}
+    assert second.payload_json == {"keyword_image_job_id": job.id, "replace_outputs": True}
     assert db.query(ProcessingJobModel).count() == 2
 
 
-def test_partial_outputs_and_drive_failure_never_offer_new_generation_by_default(db):
+def test_partial_outputs_and_drive_failure_can_be_replaced_only_by_new_run(db):
     row = keyword(db, "part-failed", "tenant-a", picked=True)
     job = RrugcKeywordImageJobModel(
         id="part-failed-job", tenant_id="tenant-a", keyword_id=row.id,
@@ -399,10 +403,130 @@ def test_partial_outputs_and_drive_failure_never_offer_new_generation_by_default
     db.add(job)
     db.commit()
     service = KeywordImageService(db)
-    with pytest.raises(KeywordImageError, match="zero generated PNGs"):
+    renewed = service.regenerate(tenant_id="tenant-a", keyword_id=row.id)
+    assert renewed.status == "queued"
+    assert db.get(ProcessingJobModel, renewed.processing_job_id).payload_json["replace_outputs"]
+    with pytest.raises(KeywordImageError, match="Only completed or failed"):
         service.regenerate(tenant_id="tenant-a", keyword_id=row.id)
+    current = db.get(ProcessingJobModel, renewed.processing_job_id)
+    current.status = "failed"
+    job.status = "failed"
     job.last_error_code = "managed_storage_temporarily_unavailable"
-    job.last_error_message = "Google Drive HTTP 500"
     db.commit()
-    with pytest.raises(KeywordImageError, match="Resume upload"):
-        service.regenerate(tenant_id="tenant-a", keyword_id=row.id)
+    replacement = service.retry(tenant_id="tenant-a", keyword_id=row.id)
+    assert replacement.processing_job_id != current.id
+    assert db.get(ProcessingJobModel, replacement.processing_job_id).payload_json["replace_outputs"]
+
+def test_retry_removes_only_own_stage1_versions_from_drive_before_new_generation(db):
+    import asyncio
+    from types import SimpleNamespace
+    from sqlalchemy.orm import sessionmaker
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+
+    ours = keyword(db, "replace-ours", "tenant-a", picked=True)
+    other = keyword(db, "replace-others", "tenant-b", picked=True)
+    rows = [
+        RrugcKeywordImageJobModel(
+            id="replace-job", tenant_id="tenant-a", keyword_id=ours.id,
+            keyword_text=ours.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="running", created_by_user_id="actor",
+            output_remote_file_id="remote-a",
+        ),
+        RrugcKeywordImageJobModel(
+            id="other-job", tenant_id="tenant-b", keyword_id=other.id,
+            keyword_text=other.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="completed", created_by_user_id="other",
+            output_remote_file_id="remote-other",
+        ),
+        RrugcImageOutputVersionModel(id="ours-1", tenant_id="tenant-a", stage="stage1",
+                                     job_id="replace-job", version=1, remote_file_id="remote-a"),
+        RrugcImageOutputVersionModel(id="ours-2", tenant_id="tenant-a", stage="stage1",
+                                     job_id="replace-job", version=2, remote_file_id="remote-b"),
+        RrugcImageOutputVersionModel(id="other-1", tenant_id="tenant-b", stage="stage1",
+                                     job_id="other-job", version=1, remote_file_id="remote-other"),
+    ]
+    db.add_all(rows)
+    db.commit()
+    deleted = []
+    class Storage:
+        async def delete_asset(self, entry):
+            deleted.append((entry.tenant_id, entry.remote_file_id))
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id="replace-job", tenant_id="tenant-a"),
+        dependencies=SimpleNamespace(session_factory=sessionmaker(bind=db.get_bind())),
+        logger=SimpleNamespace(info=lambda *a, **kw: None),
+    )
+    handler = KeywordImageGenerateHandler()
+    asyncio.run(handler._delete_previous_stage1_outputs(context, Storage()))
+    assert deleted == [("tenant-a", "remote-a"), ("tenant-a", "remote-b")]
+    assert db.get(RrugcImageOutputVersionModel, "ours-1") is None
+    assert db.get(RrugcImageOutputVersionModel, "ours-2") is None
+    assert db.get(RrugcImageOutputVersionModel, "other-1") is not None
+    assert db.get(RrugcKeywordImageJobModel, "replace-job").output_remote_file_id is None
+    asyncio.run(handler._delete_previous_stage1_outputs(context, Storage()))
+    assert len(deleted) == 2
+
+
+def test_retry_drive_cleanup_failure_keeps_pending_versions_and_no_new_images(db):
+    import asyncio
+    from types import SimpleNamespace
+    from sqlalchemy.orm import sessionmaker
+    from app.domain.providers.contracts import StorageProviderError
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+
+    kw = keyword(db, "replace-partial", "tenant-a", picked=True)
+    db.add_all([
+        RrugcKeywordImageJobModel(
+            id="replace-partial-job", tenant_id="tenant-a", keyword_id=kw.id,
+            keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="running", created_by_user_id="actor",
+            output_remote_file_id="remote-first",
+        ),
+        RrugcImageOutputVersionModel(id="partial-a", tenant_id="tenant-a", stage="stage1",
+                                     job_id="replace-partial-job", version=1, remote_file_id="remote-first"),
+        RrugcImageOutputVersionModel(id="partial-b", tenant_id="tenant-a", stage="stage1",
+                                     job_id="replace-partial-job", version=2, remote_file_id="remote-second"),
+    ])
+    db.commit()
+    class Storage:
+        async def delete_asset(self, entry):
+            if entry.remote_file_id == "remote-second":
+                raise StorageProviderError("Drive unavailable", code="managed_storage_network_error", retryable=True)
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id="replace-partial-job", tenant_id="tenant-a"),
+        dependencies=SimpleNamespace(session_factory=sessionmaker(bind=db.get_bind())),
+        logger=SimpleNamespace(info=lambda *a, **kw: None),
+    )
+    with pytest.raises(StorageProviderError) as raised:
+        asyncio.run(KeywordImageGenerateHandler()._delete_previous_stage1_outputs(context, Storage()))
+    assert raised.value.code == "stage1_previous_images_delete_failed"
+    assert db.get(RrugcImageOutputVersionModel, "partial-a") is None
+    assert db.get(RrugcImageOutputVersionModel, "partial-b") is not None
+
+
+def test_retry_legacy_preview_only_is_also_removed(db):
+    import asyncio
+    from types import SimpleNamespace
+    from sqlalchemy.orm import sessionmaker
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+
+    kw = keyword(db, "legacy-preview", "tenant-a", picked=True)
+    db.add(RrugcKeywordImageJobModel(
+        id="legacy-preview-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="running", created_by_user_id="actor",
+        output_remote_file_id="legacy-remote",
+    ))
+    db.commit()
+    deleted = []
+    class Storage:
+        async def delete_asset(self, entry):
+            deleted.append(entry.remote_file_id)
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id="legacy-preview-job", tenant_id="tenant-a"),
+        dependencies=SimpleNamespace(session_factory=sessionmaker(bind=db.get_bind())),
+        logger=SimpleNamespace(info=lambda *a, **kw: None),
+    )
+    asyncio.run(KeywordImageGenerateHandler()._delete_previous_stage1_outputs(context, Storage()))
+    assert deleted == ["legacy-remote"]
+    assert not db.query(RrugcImageOutputVersionModel).filter_by(job_id="legacy-preview-job").count()

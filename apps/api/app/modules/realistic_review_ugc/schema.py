@@ -908,6 +908,7 @@ class KeywordImageCreateRequest(BaseModel):
     skill_name: str | None = Field(default=None, max_length=128)
     skill_version: str | None = Field(default=None, max_length=64)
     prompt: str | None = Field(default=None, max_length=4000)
+    confirm_replace_outputs: bool = False
 
 
 class KeywordImageRowResponse(BaseModel):

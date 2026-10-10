@@ -4691,6 +4691,15 @@ def list_stage2_skill_registry(
     )
 
 
+def _stage1_replacement_pending(session: Session, job: RrugcKeywordImageJobModel) -> bool:
+    """Do not serve prior images while a confirmed replacement is pending."""
+    if job.status not in ("queued", "running") or not job.processing_job_id:
+        return False
+    from app.modules.processing.model import ProcessingJobModel
+    processing = session.get(ProcessingJobModel, job.processing_job_id)
+    return bool(processing and (processing.payload_json or {}).get("replace_outputs"))
+
+
 @router.get("/generation-jobs/{stage}/{job_id}/outputs")
 def list_generation_output_versions(
     stage: str, job_id: str,
@@ -4708,7 +4717,8 @@ def list_generation_output_versions(
         model.tenant_id == principal.active_tenant_id, model.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Generation job not found")
-    rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
+    rows = ([] if stage == "stage1" and _stage1_replacement_pending(session, job)
+            else output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job))
     output_roles: dict[int, str] = {}
     if stage == "stage1" and job.skill_name == "hanh-redesign-8869-ver-4":
         # Pair by the actual processing attempt so legacy single-image outputs
@@ -4752,6 +4762,8 @@ async def get_generation_output_version(
         model.tenant_id == principal.active_tenant_id, model.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Generation job not found")
+    if stage == "stage1" and _stage1_replacement_pending(session, job):
+        raise HTTPException(status_code=404, detail="Previous Stage 1 images are being replaced")
     match = next((r for r in output_versions(
         session, tenant_id=principal.active_tenant_id, stage=stage, job=job
     ) if r["version"] == version), None)
@@ -5404,6 +5416,8 @@ def regenerate_keyword_image(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
+    if not request or not request.confirm_replace_outputs:
+        raise HTTPException(status_code=422, detail="Confirmation required to replace Stage 1 outputs")
     try:
         row = KeywordImageService(session).regenerate(
             tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
@@ -5421,11 +5435,30 @@ def regenerate_keyword_image(
 @router.post("/keyword-images/{keyword_id}/retry", status_code=202)
 def retry_keyword_image(
     keyword_id: str,
+    request: KeywordImageCreateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    if not request.confirm_replace_outputs:
+        raise HTTPException(status_code=422, detail="Confirmation required to replace Stage 1 outputs")
+    try:
+        row = KeywordImageService(session).retry(
+            tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
+        )
+    except KeywordImageError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {"job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
+
+
+@router.post("/keyword-images/{keyword_id}/resume-upload", status_code=202)
+def resume_keyword_image_upload(
+    keyword_id: str,
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     try:
-        row = KeywordImageService(session).retry(
+        row = KeywordImageService(session).resume_upload(
             tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
         )
     except KeywordImageError as exc:
@@ -5448,12 +5481,13 @@ def get_keyword_image_job_status(
     if row is None:
         raise HTTPException(status_code=404, detail="Keyword generation not found")
     processing = session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+    replacing = _stage1_replacement_pending(session, row)
     return {
         "keyword_id": row.keyword_id, "keyword": row.keyword_text,
         "search_volume": 0, "status": effective_status(row, processing),
         "job_id": row.id, "skill_name": row.skill_name,
         "skill_version": row.skill_version, "retry_count": row.retry_count,
-        "saved_output_count": int(session.scalar(select(func.count()).select_from(RrugcImageOutputVersionModel).where(
+        "saved_output_count": 0 if replacing else int(session.scalar(select(func.count()).select_from(RrugcImageOutputVersionModel).where(
             RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
             RrugcImageOutputVersionModel.stage == "stage1",
             RrugcImageOutputVersionModel.job_id == row.id,
@@ -5462,7 +5496,7 @@ def get_keyword_image_job_status(
         "max_attempts": processing.max_attempts if processing else 1,
         "error_code": row.last_error_code or (processing.last_error_code if processing else None),
         "error_message": row.last_error_message or (processing.last_error_message if processing else None),
-        "output_url": "/api/v1/realistic-review-ugc/keyword-images/jobs/" + row.id + "/output" if row.output_remote_file_id else None,
+        "output_url": "/api/v1/realistic-review-ugc/keyword-images/jobs/" + row.id + "/output" if row.output_remote_file_id and not replacing else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "started_at": (row.started_at or (processing.claimed_at if processing else None)).isoformat()
             if (row.started_at or (processing.claimed_at if processing else None)) else None,
@@ -5485,7 +5519,7 @@ async def keyword_image_output(
     ))
     if row is None:
         raise HTTPException(status_code=404, detail="Keyword generation not found")
-    if not row.output_remote_file_id:
+    if _stage1_replacement_pending(session, row) or not row.output_remote_file_id:
         raise HTTPException(status_code=409, detail="Keyword generation is not ready")
     remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
     session.close()

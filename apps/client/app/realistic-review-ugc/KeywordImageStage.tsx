@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, retryKeywordImage } from "./api";
+import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
@@ -58,22 +58,6 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 0-2.5 6"/><path d="M20 4v7h-7"/></svg>;
 }
 
-const ZERO_PNG_ERROR_CODES = new Set([
-  "stage1_no_generated_images",
-  "stage1_imagegen_unavailable",
-  "stage1_imagegen_limited",
-  "stage1_codex_turn_failed",
-  "stage1_imagegen_not_invoked",
-  "stage1_imagegen_no_output",
-]);
-
-function canRegenerateZeroPngFailure(row: KeywordImageRow): boolean {
-  return row.status === "failed" && row.saved_output_count === 0 &&
-    (ZERO_PNG_ERROR_CODES.has(row.error_code || "") ||
-      (row.error_code === "stage1_six_outputs_invalid" &&
-        (row.error_message || "").includes("0 PNG candidates")));
-}
-
 export function KeywordImageRowControls({
   row, busy, canGenerate, onRun, onLogs, showPreview = true,
 }: {
@@ -88,14 +72,13 @@ export function KeywordImageRowControls({
   const regenerateButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
-  const failedNoImages = canRegenerateZeroPngFailure(row);
-  const regenerate = row.status === "completed" || failedNoImages;
+
+  const regenerate = row.status === "completed" || row.status === "failed";
   const generate = row.status === "not_run";
-  const resumeUpload = row.status === "failed" && Boolean(row.upload_recovery_available);
-  const runnable = regenerate || generate || resumeUpload;
-  const runLabel = resumeUpload ? "Resume upload" : failedNoImages ? "Generate again" : regenerate ? "Regenerate" : "Redesign Qoutes";
+  const runnable = regenerate || generate;
+  const runLabel = regenerate ? "Retry" : "Redesign Qoutes";
   const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : resumeUpload ? "Retry Google Drive upload using saved finals — no image regeneration" : failedNoImages ? "Manually start a new generation after the previous Skill produced zero images" : regenerate ? "Regenerate image" : "Redesign Qoutes";
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? "Replace existing images and generate six new designs (confirmation required)" : "Redesign Qoutes";
 
   useEffect(() => {
     if (!confirmRegenerate) return;
@@ -137,10 +120,10 @@ export function KeywordImageRowControls({
       : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
     </div>}
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
-      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (resumeUpload ? "retry" : regenerate ? "regenerate" : "generate")}
+      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "retry" : "generate")}
         ref={regenerateButtonRef} onClick={() => regenerate ? setConfirmRegenerate(true) : onRun()}
         disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
-        <KeywordActionGlyph kind={resumeUpload ? "retry" : regenerate ? "regenerate" : "generate"} />
+        <KeywordActionGlyph kind={regenerate ? "retry" : "generate"} />
         <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
       {row.job_id && <button type="button" className="rrugc-keyword-result-action"
@@ -160,11 +143,11 @@ export function KeywordImageRowControls({
         <section className="rrugc-keyword-regenerate-dialog" role="dialog" aria-modal="true"
           aria-labelledby="rrugc-regenerate-title" aria-describedby="rrugc-regenerate-description">
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
-          <h2 id="rrugc-regenerate-title">{failedNoImages ? "Generate again?" : "Regenerate image?"}</h2>
+          <h2 id="rrugc-regenerate-title">Replace Stage 1 images?</h2>
           <p id="rrugc-regenerate-description">
-            {failedNoImages
-              ? <>The previous Skill attempt generated no PNG images for <strong>{row.keyword}</strong>. Start a NEW generation run? It may consume image generation capacity; the failed run and its logs are preserved. No automatic retry will occur.</>
-              : <>Queue a new version for <strong>{row.keyword}</strong>? Your previous images will be kept.</>}
+            Retry <strong>{row.keyword}</strong>? Every previous Stage 1 image and saved output version for this job
+            will be permanently deleted from Google Drive before generating six new designs.
+            Previous Skill logs remain available. If deletion fails, generation will not start.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
             <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
@@ -327,12 +310,9 @@ export function KeywordImageStage({
     setError("");
     setMessage("");
     try {
-      if (row.status === "failed" && row.upload_recovery_available) {
-        await retryKeywordImage(row.keyword_id);
-        setMessage("Resuming Drive upload for " + row.keyword + " using preserved final images; no generation rerun.");
-      } else if (row.status === "completed" || canRegenerateZeroPngFailure(row)) {
+      if (row.status === "completed" || row.status === "failed") {
         await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
-        setMessage("New manually confirmed Skill run queued for " + row.keyword + ". Previous logs remain available.");
+        setMessage("Retry queued for " + row.keyword + ". Previous images will be deleted before six new designs are generated.");
       } else if (row.status === "not_run" && selectedSkillInput) {
         const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");
@@ -407,7 +387,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker="STAGE 1 / KEYWORD-TO-IMAGE"
       title="Generate images from used keywords"
-      description="Generate six separate final embroidery concepts per keyword, track progress, and compare previous output versions."
+      description="Generate six separate final embroidery concepts per keyword, track progress, and replace all old images on confirmed Retry."
       actions={<div className="rrugc-keyword-gen-actions">
         <button type="button" className="rrugc-global-management-button rrugc-icon-action" onClick={onManageSkills}><RrugcActionIcon name="skills" />Manage skills</button>
         {bulkRunning

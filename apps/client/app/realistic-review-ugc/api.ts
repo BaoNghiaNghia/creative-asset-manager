@@ -284,7 +284,7 @@ export const queueAllKeywordImages = (skill: Stage2SkillSelection, signal?: Abor
 export const retryKeywordImage = (keywordId: string) =>
   request<{ job_id: string; status: string }>(
     "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/retry",
-    { method: "POST" },
+    { method: "POST", body: JSON.stringify({ confirm_replace_outputs: true }) },
   );
 
 
@@ -583,7 +583,7 @@ export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage
 export const regenerateKeywordImage = (keywordId: string, skill?: Stage2SkillSelection | null) =>
   request<{ job_id: string; status: string }>(
     "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/regenerate",
-    { method: "POST", ...(skill ? { body: JSON.stringify(skill) } : {}) },
+    { method: "POST", body: JSON.stringify({ ...(skill || {}), confirm_replace_outputs: true }) },
   );
 export const regenerateColorwayJob = (jobId: string) =>
   request<{ job_id: string; status: string }>(
