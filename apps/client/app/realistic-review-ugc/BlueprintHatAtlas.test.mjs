@@ -16,6 +16,11 @@ it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () 
   expect(css).toContain(".rrugc-blueprint-panel-header{");
   expect(css).toContain(".rrugc-blueprint-panel-footer{");
   expect(css).toContain("transform:none;transform-origin:center center");
+  expect(css).toContain(".rrugc-blueprint-selected-hat>.rrugc-blueprint-front-scene");
+  expect(css).toContain("transform:scale(1.30);transform-origin:center center");
+  expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{overflow:visible}");
+  expect(css).toContain(".rrugc-blueprint-panel-visual{display:grid;place-items:center;flex:1 1 auto;min-height:0;min-width:0;padding:6px 12px;box-sizing:border-box;overflow:hidden}");
+  expect(css).toContain(".rrugc-blueprint-magnifier-scene>.rrugc-blueprint-front-scene");
   expect(css).toContain(".rrugc-blueprint-side-image{background-size:300% 400%");
   expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
   expect(css).not.toContain(".rrugc-blueprint-side-image{background-size:600% 800%");

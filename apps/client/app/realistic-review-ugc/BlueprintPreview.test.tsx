@@ -64,6 +64,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect((html.match(/rrugc-blueprint-panel-header/g) || []).length).toBe(2);
     expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
     expect((html.match(/class="rrugc-blueprint-selected-hat"/g) || []).length).toBe(1);
+    expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
     expect((html.match(/rrugc-blueprint-design-choice/g) || []).length).toBeLessThanOrEqual(7);
     expect((html.match(/rrugc-blueprint-color-choice/g) || []).length).toBeLessThanOrEqual(7);
     expect(html).toContain("design_9.png");

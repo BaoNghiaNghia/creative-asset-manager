@@ -266,24 +266,28 @@ export function BlueprintPreview({ versions, initialVersion }: {
                 Array.from(event.currentTarget.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")).every(image => image.classList.contains("is-loaded")))}
               onPointerLeave={() => hideBlueprintLens(frontLens.current)}
               onPointerDown={() => hideBlueprintLens(frontLens.current)}>
-              <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
-                alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
-              <div className="rrugc-blueprint-selected-design">
-                <BlueprintSmoothImage key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
-                  style={{ transform: "scale(" + (scale / 100) + ")" }}
-                  alt={designName(activeDesign) + " mockup on " + activeColor.label} draggable={false}/>
+              <div className="rrugc-blueprint-front-scene">
+                <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
+                  alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
+                <div className="rrugc-blueprint-selected-design">
+                  <BlueprintSmoothImage key={activeDesign.version} src={thumbnailUrl(activeDesign.url, 512)}
+                    style={{ transform: "scale(" + (scale / 100) + ")" }}
+                    alt={designName(activeDesign) + " mockup on " + activeColor.label} draggable={false}/>
+                </div>
+                {guides && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
+                  <span>Front embroidery area</span>
+                </div>}
               </div>
-              {guides && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
-                <span>Front embroidery area</span>
-              </div>}
               <div ref={frontLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                 <div className="rrugc-blueprint-magnifier-scene">
-                  <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
-                  <div className="rrugc-blueprint-selected-design">
-                    <img src={thumbnailUrl(activeDesign.url, 512)} alt="" draggable={false}
-                      style={{ transform: "scale(" + (scale / 100) + ")" }}/>
+                  <div className="rrugc-blueprint-front-scene">
+                    <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
+                    <div className="rrugc-blueprint-selected-design">
+                      <img src={thumbnailUrl(activeDesign.url, 512)} alt="" draggable={false}
+                        style={{ transform: "scale(" + (scale / 100) + ")" }}/>
+                    </div>
+                    {guides && <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>}
                   </div>
-                  {guides && <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>}
                 </div>
               </div>
             </div>

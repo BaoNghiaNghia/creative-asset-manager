@@ -196,3 +196,24 @@
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-magnifier{transition:none}}
 /* Keep entire cap visible: never enlarge photo beyond its viewport or crop atlas cells. */
 .rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}
+
+/* Front cap enlargement: the 12 source hats nearly fill the original
+   photo width. Permit horizontal overflow from the 4:5 photo viewport into
+   the unused front panel space; the panel still clips against header/footer. */
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{overflow:visible}
+/* Front cap enlargement: scale only the photograph/artwork/guides as one layer.
+   The fixed 4:5 frame, hover lens hit area, header and footer never scale. */
+.rrugc-blueprint-selected-hat>.rrugc-blueprint-front-scene,
+.rrugc-blueprint-magnifier-scene>.rrugc-blueprint-front-scene{
+  position:absolute;inset:0;width:100%;height:100%;
+  transform:scale(1.30);transform-origin:center center;
+  pointer-events:none;
+}
+.rrugc-blueprint-front-scene>.rrugc-blueprint-hat-original{
+  display:block;width:100%;height:100%;object-fit:contain;
+}
+/* At short preview heights, protect crown and brim from the panel edges. */
+@media(max-height:700px){
+  .rrugc-blueprint-selected-hat>.rrugc-blueprint-front-scene,
+  .rrugc-blueprint-magnifier-scene>.rrugc-blueprint-front-scene{transform:scale(1.12)}
+}
