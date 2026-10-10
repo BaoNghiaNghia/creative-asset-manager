@@ -234,6 +234,12 @@ export const listKeywordImages = (
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };
 
+export const getKeywordAnalysisDetail = (keywordId: string, signal?: AbortSignal) =>
+  request<import("./types").KeywordVolume>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/detail/" + encodeURIComponent(keywordId),
+    { signal },
+  );
+
 export const getKeywordImageJobStatus = (jobId: string, signal?: AbortSignal) =>
   request<KeywordImageRow>(
     "/api/v1/realistic-review-ugc/keyword-images/jobs/" + encodeURIComponent(jobId) + "/status",

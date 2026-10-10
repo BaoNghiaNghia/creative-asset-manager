@@ -246,6 +246,8 @@ export type KeywordImageRow = {
   error_message: string | null;
   output_url: string | null;
   updated_at: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
 };
 export type KeywordImagePage = {
   items: KeywordImageRow[];

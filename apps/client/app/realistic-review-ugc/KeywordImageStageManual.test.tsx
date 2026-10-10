@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeywordImageStage } from "./KeywordImageStage";
-import { createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills } from "./api";
+import { createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,6 +15,13 @@ vi.mock("./api", async importOriginal => ({
       display_name: "Redesign 8869 V3", ready: true, keyword_artwork_ready: true,
       default_version: null, synced_version: null, local_version: null,
       version_options: [], sync_state: "ready" }],
+  })),
+  getKeywordAnalysisDetail: vi.fn(async (id: string) => ({
+    id, keyword: "BEACH PLEASE", search_volume: 100, provider: "aebrowse_google_ads",
+    competition: "HIGH", cpc_low: 1.17, cpc_high: 5.16,
+    source_image_url: null, source_pin_url: null, picked: true, favorite: false,
+    picked_at: null, favorite_at: null, fetched_at: "2026-10-10T01:00:00Z",
+    trend: [{ period: "2026-08", volume: 100 }, { period: "2026-09", volume: 200 }],
   })),
   listKeywordImages: vi.fn(async () => ({
     total: 0, page: 1, page_size: 20, items: [],
@@ -134,12 +141,14 @@ describe("Stage 1 manual keyword generation", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source", "Search volume", "Generation skill", "Job status", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source", "Search volume", "Generation skill", "Job status", "Duration", "Finished at", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
-    expect(cells).toHaveLength(6);
-    expect(cells[4].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
-    expect(cells[5].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
-    expect(cells[5].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    expect(cells).toHaveLength(8);
+    expect(cells[4].textContent).toBe("—");
+    expect(cells[5].textContent).toBe("—");
+    expect(cells[6].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(cells[7].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
+    expect(cells[7].querySelector(".rrugc-keyword-output-track")).toBeNull();
     // A real thumbnail click must restore the same gallery modal used by Versions;
     // dragging the strip remains separate and never navigates to a raw image URL.
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -148,11 +157,20 @@ describe("Stage 1 manual keyword generation", () => {
     await act(async () => { thumbnail.click(); await Promise.resolve(); await Promise.resolve(); });
     expect(host.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull();
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(5);
+    expect(host.querySelector(".rrugc-version-filter")).toBeNull();
+    expect(host.querySelector('[aria-label="Select output versions"]')).toBeNull();
     expect(host.querySelector<HTMLAnchorElement>(".is-focused-version .rrugc-version-image-link")?.getAttribute("href"))
       .toBe("/api/v1/image/4");
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close output versions"]')?.click());
     expect(host.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
     expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Open keyword details for BEACH PLEASE"]')?.click();
+      await Promise.resolve(); await Promise.resolve();
+    });
+    expect(getKeywordAnalysisDetail).toHaveBeenCalledWith("key-1", expect.anything());
+    expect(host.querySelector(".rrugc-stage0-detail-modal")?.textContent).toContain("Monthly search volume");
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close keyword details"]')?.click());
     await act(async () => root.unmount());
   });
 

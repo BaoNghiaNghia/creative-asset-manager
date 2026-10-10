@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
+import { formatKeywordJobDuration, isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
 import type { KeywordImageRow, Stage2Skill } from "./types";
 
 const keyword = {
@@ -12,6 +12,16 @@ const keyword = {
   synced_version: null, ready: true, keyword_artwork_ready: true,
   sync_state: "ready", version_options: [],
 } satisfies Stage2Skill;
+
+describe("Stage 1 job elapsed time", () => {
+  it("formats completed time precisely and does not invent missing timestamps", () => {
+    expect(formatKeywordJobDuration("2026-10-10T01:00:00Z", "2026-10-10T01:01:23Z")).toBe("1m 23s");
+    expect(formatKeywordJobDuration("2026-10-10T01:00:00Z", "2026-10-10T03:10:00Z")).toBe("2h 10m");
+    expect(formatKeywordJobDuration("2026-10-10T01:00:00Z", null, Date.parse("2026-10-10T01:00:07Z"))).toBe("7s");
+    expect(formatKeywordJobDuration(null, null)).toBe("—");
+    expect(formatKeywordJobDuration("invalid", null)).toBe("—");
+  });
+});
 
 describe("Stage 1 keyword skill selection", () => {
   it("accepts only ready Stage 1 six-design workflows advertised by the backend", () => {

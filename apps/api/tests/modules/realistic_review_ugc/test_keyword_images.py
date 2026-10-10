@@ -51,6 +51,49 @@ def test_stage1_only_lists_used_keyword_and_is_tenant_scoped(db):
     assert KeywordImageService(db).list_used(tenant_id="tenant-b", page=1, page_size=20)["total"] == 1
 
 
+def test_stage1_job_timestamps_use_actual_run_and_completion_times(db):
+    row = keyword(db, "used-timed", "tenant-a", picked=True)
+    started = datetime(2026, 10, 10, 1, 0, tzinfo=timezone.utc)
+    finished = datetime(2026, 10, 10, 1, 2, tzinfo=timezone.utc)
+    job = RrugcKeywordImageJobModel(
+        id="timed-job", tenant_id=row.tenant_id, keyword_id=row.id,
+        keyword_text=row.keyword, skill_source="local", skill_name="skill",
+        prompt_text="prompt", status="completed", created_by_user_id="actor",
+        started_at=started, completed_at=finished,
+    )
+    db.add(job)
+    db.commit()
+    item = KeywordImageService(db).list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]
+    assert item["started_at"].startswith("2026-10-10T01:00:00")
+    assert item["finished_at"].startswith("2026-10-10T01:02:00")
+    other = KeywordImageService(db).list_used(tenant_id="tenant-b", page=1, page_size=20)
+    assert other["items"] == []
+
+
+def test_stage1_failed_job_has_processing_finish_time_even_without_keyword_completion(db):
+    row = keyword(db, "used-failed", "tenant-a", picked=True)
+    started = datetime(2026, 10, 10, 1, 0, tzinfo=timezone.utc)
+    finished = datetime(2026, 10, 10, 1, 1, tzinfo=timezone.utc)
+    processing = ProcessingJobModel(
+        id="failed-process", tenant_id="tenant-a", job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="failed-job",
+        idempotency_key="failed-process", payload_json={}, status="failed", max_attempts=1,
+        claimed_at=started, completed_at=finished,
+    )
+    job = RrugcKeywordImageJobModel(
+        id="failed-job", tenant_id=row.tenant_id, keyword_id=row.id,
+        keyword_text=row.keyword, skill_source="local", skill_name="skill",
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        processing_job_id=processing.id,
+    )
+    db.add_all([processing, job])
+    db.commit()
+    item = KeywordImageService(db).list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]
+    assert item["status"] == "failed"
+    assert item["started_at"].startswith("2026-10-10T01:00:00")
+    assert item["finished_at"].startswith("2026-10-10T01:01:00")
+
+
 def test_stage1_saved_output_count_is_scoped_and_available_on_failed_jobs(db):
     first = keyword(db, "used-a", "tenant-a", picked=True)
     kw_other = keyword(db, "used-b", "tenant-b", picked=True)

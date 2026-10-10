@@ -927,6 +927,8 @@ class KeywordImageRowResponse(BaseModel):
     error_message: str | None = None
     output_url: str | None = None
     updated_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class KeywordImagePageResponse(BaseModel):

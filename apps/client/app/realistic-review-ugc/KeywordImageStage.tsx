@@ -1,15 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createKeywordImage, createManualKeywordImage, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
+import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
-import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
+import { KeywordDetailModal } from "./KeywordAnalysisTable";
+import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
 
 const PAGE_SIZES = [20, 50, 100] as const;
+
+export function formatKeywordJobDuration(startedAt: string | null | undefined, finishedAt: string | null | undefined, now = Date.now()): string {
+  if (!startedAt) return "—";
+  const start = Date.parse(startedAt);
+  const end = finishedAt ? Date.parse(finishedAt) : now;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  const seconds = Math.floor((end - start) / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  const rest = seconds % 60;
+  return hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m ${rest}s` : `${rest}s`;
+}
+
+function formatKeywordJobFinishedAt(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
 const STATUS_LABEL: Record<KeywordImageStatus, string> = {
   not_run: "Not run", queued: "Queued", running: "Running", completed: "Completed", failed: "Failed",
 };
@@ -114,6 +135,10 @@ export function KeywordImageStage({
   const [workingIds, setWorkingIds] = useState<Set<string>>(new Set());
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string; initialVersion?: number } | null>(null);
+  const [keywordDetailTarget, setKeywordDetailTarget] = useState<{ id: string; keyword: string } | null>(null);
+  const [keywordDetail, setKeywordDetail] = useState<KeywordVolume | null>(null);
+  const [keywordDetailLoading, setKeywordDetailLoading] = useState(false);
+  const [keywordDetailError, setKeywordDetailError] = useState("");
   const [allQueued, setAllQueued] = useState(0);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
@@ -208,6 +233,21 @@ export function KeywordImageStage({
     }, 5000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [active, manualFocus]);
+
+  useEffect(() => {
+    if (!keywordDetailTarget) return;
+    const controller = new AbortController();
+    setKeywordDetail(null);
+    setKeywordDetailError("");
+    setKeywordDetailLoading(true);
+    void getKeywordAnalysisDetail(keywordDetailTarget.id, controller.signal)
+      .then(item => { if (!controller.signal.aborted) setKeywordDetail(item); })
+      .catch(reason => {
+        if (!controller.signal.aborted) setKeywordDetailError(reason instanceof Error ? reason.message : "Could not load keyword details.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setKeywordDetailLoading(false); });
+    return () => controller.abort();
+  }, [keywordDetailTarget]);
 
   // Stopping a batch stops only future queue requests; durable jobs already queued continue.
   useEffect(() => () => bulkAbortRef.current?.abort(), []);
@@ -374,19 +414,21 @@ export function KeywordImageStage({
     </div>
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
       <table className="rrugc-keyword-gen-table">
-        <thead><tr><th>Keyword / Source</th><th>Search volume</th><th>Generation skill</th><th>Job status</th><th>Output</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Keyword / Source</th><th>Search volume</th><th>Generation skill</th><th>Job status</th><th>Duration</th><th>Finished at</th><th>Output</th><th>Actions</th></tr></thead>
         <tbody>
           {loading && !data.items.length
-            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={6}><span /></td></tr>)
+            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={8}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
               return <tr key={row.keyword_id} className={"rrugc-keyword-row status-" + row.status}>
-                <td><div className="rrugc-keyword-gen-keyword">
+                <td><button type="button" className="rrugc-keyword-gen-keyword"
+                  onClick={() => setKeywordDetailTarget({ id: row.keyword_id, keyword: row.keyword })}
+                  aria-label={"Open keyword details for " + row.keyword} title="View Stage 0 Google Ads keyword details">
                   <div className="rrugc-keyword-gen-source">
                     {row.source_image_url ? <img src={row.source_image_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span aria-hidden="true">Aa</span>}
                   </div>
-                  <div><strong title={row.keyword}>{row.keyword}</strong><small>Used in Stage 0</small></div>
-                </div></td>
+                  <div><strong title={row.keyword}>{row.keyword}</strong><small>View Stage 0 details ↗</small></div>
+                </button></td>
                 <td className="rrugc-keyword-gen-volume">{row.search_volume.toLocaleString("en-US")}</td>
                 <td><div className="rrugc-keyword-gen-skill-cell">
                   <span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "Choose Skill"}</span>
@@ -398,6 +440,11 @@ export function KeywordImageStage({
                   {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Attempt " + Math.max(1, row.attempt_count) + " of " + row.max_attempts}</small> : null}
                   {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
                 </div></td>
+                <td className="rrugc-keyword-gen-duration" title={row.started_at || "Job has not started"}>{row.started_at
+                  ? formatKeywordJobDuration(row.started_at, row.finished_at) : "—"}{row.started_at && !row.finished_at && row.status === "running" && <small>Running</small>}</td>
+                <td className="rrugc-keyword-gen-finished">{row.finished_at
+                  ? <time dateTime={row.finished_at}>{formatKeywordJobFinishedAt(row.finished_at)}</time>
+                  : <span className="rrugc-keyword-gen-muted">{row.status === "running" ? "In progress" : row.status === "queued" ? "In queue" : "—"}</span>}</td>
                 <td className="rrugc-keyword-gen-output-column"><KeywordImageOutputSlider row={row}
                   onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>
                 <td className="rrugc-keyword-gen-result">
@@ -408,7 +455,7 @@ export function KeywordImageStage({
                 </td>
               </tr>;
             })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={6}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={8}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
         </tbody>
       </table>
     </div>
@@ -424,5 +471,22 @@ export function KeywordImageStage({
     {logJobId && <SkillJobLogDialog stage="stage1" jobId={logJobId} onClose={() => setLogJobId(null)} />}
     {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title}
       initialVersion={versionsJob.initialVersion} onClose={() => setVersionsJob(null)} />}
+    {keywordDetailTarget && (keywordDetail
+      ? <KeywordDetailModal item={keywordDetail} onClose={() => setKeywordDetailTarget(null)} />
+      : <div className="rrugc-stage0-detail-backdrop" onMouseDown={event => {
+          if (event.target === event.currentTarget) setKeywordDetailTarget(null);
+        }}>
+          <section role="dialog" aria-modal="true" aria-label={"Keyword details for " + keywordDetailTarget.keyword}
+            className="rrugc-stage0-detail-modal rrugc-stage1-detail-loading">
+            <header className="rrugc-stage0-detail-header">
+              <div><small>KEYWORD DETAIL · GOOGLE ADS</small><h2>{keywordDetailTarget.keyword}</h2></div>
+              <button type="button" className="rrugc-stage0-detail-close" aria-label="Close keyword details"
+                onClick={() => setKeywordDetailTarget(null)}>×</button>
+            </header>
+            <div className="rrugc-stage1-detail-placeholder" role={keywordDetailError ? "alert" : "status"}>
+              {keywordDetailError || (keywordDetailLoading ? "Loading Stage 0 Google Ads and trademark details…" : "Loading keyword details…")}
+            </div>
+          </section>
+        </div>)}
   </div>;
 }

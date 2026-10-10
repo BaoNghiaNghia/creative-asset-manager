@@ -112,21 +112,21 @@ export function GenerationOutputVersionsDialog({
           <button type="button" aria-pressed={!masonry} onClick={() => setGalleryMode("compare")}
             title="Compare selected images in horizontal rows">Compare</button>
         </div>
-        <div className="rrugc-version-compare-actions" role="group" aria-label="Select output versions">
+        {stage !== "stage1" && <div className="rrugc-version-compare-actions" role="group" aria-label="Select output versions">
           <button type="button" title="Select all versions" aria-label="Select all versions"
             disabled={loading || compared.length === versions.length || versions.length === 0}
             onClick={() => setSelectedVersions(new Set(versions.map(item => item.version)))}><SelectionIcon mode="all" /></button>
           <button type="button" title="Deselect all versions" aria-label="Deselect all versions"
             disabled={loading || compared.length === 0}
             onClick={() => setSelectedVersions(new Set())}><SelectionIcon mode="none" /></button>
-        </div>
+        </div>}
         {onRegenerate && <button type="button" className="rrugc-version-create" onClick={onRegenerate}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14m-7-7h14" /></svg>
           New version
         </button>}
       </div>
 
-      {!loading && !error && versions.length > 1 && versions.length <= 24 && <div className="rrugc-version-filter" role="group" aria-label="Versions to compare">
+      {stage !== "stage1" && !loading && !error && versions.length > 1 && versions.length <= 24 && <div className="rrugc-version-filter" role="group" aria-label="Versions to compare">
         {versions.map((version, index) => <button type="button" key={version.version}
           aria-label={"Compare version " + version.version} aria-pressed={selectedVersions.has(version.version)}
           className={selectedVersions.has(version.version) ? "is-selected" : ""}

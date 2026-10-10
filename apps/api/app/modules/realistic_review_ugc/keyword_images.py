@@ -358,6 +358,10 @@ class KeywordImageService:
                 "error_message": (job.last_error_message or (processing.last_error_message if processing else None)) if job else None,
                 "output_url": f"/api/v1/realistic-review-ugc/keyword-images/jobs/{job.id}/output" if job and job.output_remote_file_id else None,
                 "updated_at": job.updated_at.isoformat() if job else None,
+                "started_at": (job.started_at or (processing.claimed_at if processing else None)).isoformat()
+                    if job and (job.started_at or (processing.claimed_at if processing else None)) else None,
+                "finished_at": (job.completed_at or (processing.completed_at if processing and state in ("completed", "failed") else None)).isoformat()
+                    if job and (job.completed_at or (processing.completed_at if processing and state in ("completed", "failed") else None)) else None,
             })
         return {"items": items, "total": total, "page": page,
                 "page_size": page_size, "overview": counts}

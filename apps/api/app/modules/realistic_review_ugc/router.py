@@ -5269,6 +5269,22 @@ async def colorway_output(
     )
 
 
+@router.get("/keyword-analysis/detail/{keyword_id}", response_model=KeywordVolumeResponse)
+def get_keyword_analysis_detail(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Fetch the exact Stage 0 record used by Stage 1 without an expensive list scan."""
+    row = session.scalar(select(RrugcKeywordVolumeModel).where(
+        RrugcKeywordVolumeModel.id == keyword_id,
+        RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword not found")
+    return _keyword_volume_response(row, statuses_for_rows(session, principal.active_tenant_id, [row]))
+
+
 @router.post("/keyword-images/manual", status_code=202)
 def create_manual_keyword_image(
     request: KeywordImageManualCreateRequest,
@@ -5448,6 +5464,10 @@ def get_keyword_image_job_status(
         "error_message": row.last_error_message or (processing.last_error_message if processing else None),
         "output_url": "/api/v1/realistic-review-ugc/keyword-images/jobs/" + row.id + "/output" if row.output_remote_file_id else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "started_at": (row.started_at or (processing.claimed_at if processing else None)).isoformat()
+            if (row.started_at or (processing.claimed_at if processing else None)) else None,
+        "finished_at": (row.completed_at or (processing.completed_at if processing and effective_status(row, processing) in ("completed", "failed") else None)).isoformat()
+            if (row.completed_at or (processing.completed_at if processing and effective_status(row, processing) in ("completed", "failed") else None)) else None,
     }
 
 
