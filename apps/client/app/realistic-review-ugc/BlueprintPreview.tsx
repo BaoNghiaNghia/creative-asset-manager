@@ -173,7 +173,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
         <label className="rrugc-blueprint-guides"><input type="checkbox" checked={guides}
           onChange={event => setGuides(event.target.checked)} /> Show guides</label>
         <label className="rrugc-blueprint-scale">Design size
-          <input type="range" min="40" max="100" step="5" value={scale}
+          <input type="range" min="40" max="200" step="5" value={scale}
             onChange={event => setScale(Number(event.target.value))} aria-label="Blueprint design size" />
           <b>{scale}%</b>
         </label>

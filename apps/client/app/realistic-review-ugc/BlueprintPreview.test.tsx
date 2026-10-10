@@ -128,12 +128,14 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(chosen(host)).toContain("Natural / Brown");
     expect(host.querySelector(".rrugc-blueprint-design-choice.is-selected")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("100");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("200");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.value).toBe("100");
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")?.style.transform).toBe("scale(1)");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.getAttribute("alt")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.classList.contains("rrugc-blueprint-smooth-img")).toBe(true);
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
     expect(host.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-color-hat").length).toBeGreaterThanOrEqual(5);
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("100");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("200");
     await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
