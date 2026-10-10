@@ -44,21 +44,21 @@
 .rrugc-blueprint-color-name{min-width:0;color:#455e78;font-size:10px;font-weight:750;line-height:1.25;overflow-wrap:anywhere}
 .rrugc-blueprint-color-choice.is-selected .rrugc-blueprint-color-name{color:#007fae}
 .rrugc-blueprint-preview-area{position:relative;display:flex;min-height:0;min-width:0;align-items:center;justify-content:center;flex-direction:column;gap:8px;overflow:hidden;border:1px solid #d8e6f0;border-radius:11px;background:radial-gradient(ellipse at 50% 43%,#fff 0%,#fafcff 68%,#f2f7fc 100%)}
-.rrugc-blueprint-selected-card{position:relative;z-index:1;display:flex;align-items:center;flex-direction:column;justify-content:center;min-height:0;box-sizing:border-box;width:min(470px,calc(100% - 16px));max-height:calc(100% - 38px);padding:9px 12px 10px;border:2px solid #08abe4;border-radius:13px;background:#fff;box-shadow:0 0 0 5px rgba(6,164,224,.09),0 10px 30px rgba(41,92,136,.08);transform:translateX(calc(var(--blueprint-rail-width) * -0.50));touch-action:none;cursor:grab}
+.rrugc-blueprint-selected-card{position:relative;z-index:1;display:grid;place-items:center;min-height:0;box-sizing:border-box;width:min(700px,calc(100% - 16px));height:calc(100% - 22px);max-height:100%;padding:0;border:none;border-radius:0;background:transparent;box-shadow:none;transform:translateX(calc(var(--blueprint-rail-width) * -0.50));touch-action:none;cursor:grab}
 .rrugc-blueprint-selected-card:active{cursor:grabbing}
-.rrugc-blueprint-selected-top{display:flex;align-items:center;justify-content:space-between;gap:10px;align-self:stretch;min-width:0;color:#7188a0;font-size:9px;font-weight:700}
+.rrugc-blueprint-selected-top{position:absolute;top:0;left:14px;right:14px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;color:#7188a0;font-size:9px;font-weight:700}
 .rrugc-blueprint-selected-badge{padding:4px 8px;border-radius:5px;background:#d9f4ff;color:#078dbd;font-size:9px;font-weight:850;letter-spacing:.035em}
-.rrugc-blueprint-selected-hat{position:relative;flex:0 1 auto;width:min(280px,70%);height:auto;aspect-ratio:4/5;min-height:0;max-height:min(350px,58vh);background:#fff;isolation:isolate;overflow:hidden}
+.rrugc-blueprint-selected-hat{position:relative;box-sizing:border-box;height:min(540px,calc(100% - 74px));width:auto;aspect-ratio:4/5;max-width:calc(100% - 24px);min-height:0;background:#fff;isolation:isolate;overflow:hidden}
 .rrugc-blueprint-hat-original{display:block;width:100%;height:100%;object-fit:contain;object-position:center;user-select:none;pointer-events:none}
 .rrugc-blueprint-selected-design{position:absolute;top:33%;left:26.5%;width:47%;height:21%;display:grid;place-items:center;overflow:hidden;isolation:isolate}
 .rrugc-blueprint-selected-design.is-guided{outline:1.5px dashed #1bb6b0;outline-offset:2px;background:rgba(15,202,183,.03)}
 .rrugc-blueprint-selected-design img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;mix-blend-mode:multiply;pointer-events:none;opacity:.97;transform-origin:center;overflow:hidden}
-.rrugc-blueprint-selected-info{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;max-width:100%;margin-top:2px;text-align:center}
+.rrugc-blueprint-selected-info{position:absolute;bottom:23px;left:10px;right:10px;display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;text-align:center}
 .rrugc-blueprint-selected-info strong{max-width:240px;overflow:hidden;color:#314a69;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
 .rrugc-blueprint-selected-info span{color:#70879e;font-size:10px}
-.rrugc-blueprint-original{margin-top:4px;color:#3975ab;font-size:10px;font-weight:700;text-decoration:none}
+.rrugc-blueprint-original{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);white-space:nowrap;color:#3975ab;font-size:10px;font-weight:700;text-decoration:none}
 .rrugc-blueprint-original:hover{text-decoration:underline}
-.rrugc-blueprint-nav-hint{position:absolute;bottom:9px;left:50%;width:max-content;max-width:90%;transform:translateX(-50%);color:#8799ac;text-align:center;font-size:9px}
+.rrugc-blueprint-nav-hint{position:absolute;bottom:9px;left:11px;max-width:calc(100% - 22px);color:#8799ac;text-align:left;font-size:9px}
 .rrugc-blueprint-nav-hint span{padding:0 5px}
 .rrugc-blueprint-footnote{display:flex;justify-content:space-between;gap:8px;flex:none;flex-wrap:wrap;color:#8296ad;font-size:9px}
 .rrugc-blueprint-empty{padding:28px;color:#8095af;text-align:center}
@@ -71,8 +71,9 @@
  .rrugc-blueprint-color-choice{width:99px;height:76px;gap:4px;padding:4px}
  .rrugc-blueprint-color-hat{width:38px;height:48px}
  .rrugc-blueprint-color-name{font-size:9px}
- .rrugc-blueprint-selected-card{transform:none;width:min(440px,calc(100% - 12px))}
- .rrugc-blueprint-selected-hat{width:min(260px,86%)}
+ .rrugc-blueprint-selected-card{transform:none;width:min(620px,calc(100% - 12px))}
+ .rrugc-blueprint-selected-hat{height:min(510px,calc(100% - 76px));max-width:calc(100% - 14px)}
+ .rrugc-blueprint-nav-hint{display:none}
 }
 @media(max-width:520px){
  .rrugc-output-version-dialog:has(.rrugc-blueprint-cross){width:calc(100vw - 10px);max-height:calc(100dvh - 10px)}
@@ -89,9 +90,9 @@
  .rrugc-blueprint-color-choice{width:82px}
  .rrugc-blueprint-color-hat{width:33px;height:42px}
  .rrugc-blueprint-color-name{font-size:8px}
- .rrugc-blueprint-selected-card{padding:7px 5px}
+ .rrugc-blueprint-selected-card{width:100%;padding:0}
  .rrugc-blueprint-selected-top{font-size:8px}
- .rrugc-blueprint-selected-hat{width:92%;max-height:45vh}
+ .rrugc-blueprint-selected-hat{height:min(480px,calc(100% - 86px));max-width:calc(100% - 8px)}
  .rrugc-blueprint-nav-hint{font-size:8px}
 }
 @media(prefers-reduced-motion:reduce){
