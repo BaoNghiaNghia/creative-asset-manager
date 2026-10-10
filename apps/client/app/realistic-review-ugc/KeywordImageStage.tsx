@@ -113,7 +113,7 @@ export function KeywordImageStage({
   const [message, setMessage] = useState("");
   const [workingIds, setWorkingIds] = useState<Set<string>>(new Set());
   const [logJobId, setLogJobId] = useState<string | null>(null);
-  const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string } | null>(null);
+  const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string; initialVersion?: number } | null>(null);
   const [allQueued, setAllQueued] = useState(0);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
@@ -398,7 +398,8 @@ export function KeywordImageStage({
                   {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Attempt " + Math.max(1, row.attempt_count) + " of " + row.max_attempts}</small> : null}
                   {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
                 </div></td>
-                <td className="rrugc-keyword-gen-output-column"><KeywordImageOutputSlider row={row} /></td>
+                <td className="rrugc-keyword-gen-output-column"><KeywordImageOutputSlider row={row}
+                  onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>
                 <td className="rrugc-keyword-gen-result">
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)} showPreview={false}
                     onRun={() => void runOne(row)}
@@ -421,6 +422,7 @@ export function KeywordImageStage({
       </div>
     </footer>
     {logJobId && <SkillJobLogDialog stage="stage1" jobId={logJobId} onClose={() => setLogJobId(null)} />}
-    {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title} onClose={() => setVersionsJob(null)} />}
+    {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title}
+      initialVersion={versionsJob.initialVersion} onClose={() => setVersionsJob(null)} />}
   </div>;
 }

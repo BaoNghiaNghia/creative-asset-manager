@@ -306,6 +306,8 @@
   position: relative;
   display: block;
   min-width: 0;
+  padding: 0;
+  cursor: zoom-in;
   aspect-ratio: 1 / 1;
   overflow: hidden;
   scroll-snap-align: start;

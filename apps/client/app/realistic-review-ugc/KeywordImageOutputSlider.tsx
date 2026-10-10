@@ -6,7 +6,10 @@ import type { KeywordImageRow } from "./types";
  * Stage 1 table output strip. Fetch only when this row enters the viewport;
  * keep the complete version list but show at most four thumbnails in the strip.
  */
-export function KeywordImageOutputSlider({ row }: { row: KeywordImageRow }) {
+export function KeywordImageOutputSlider({ row, onOpenVersion }: {
+  row: KeywordImageRow;
+  onOpenVersion: (version: number) => void;
+}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; scrollLeft: number; moved: boolean } | null>(null);
@@ -117,15 +120,15 @@ export function KeywordImageOutputSlider({ row }: { row: KeywordImageRow }) {
               moveByPage(event.key === "ArrowRight" ? 1 : -1);
             }
           }} tabIndex={0}>
-          {slides.map((image, index) => <a key={image.version}
+          {slides.map((image, index) => <button type="button" key={image.version}
             className="rrugc-keyword-output-image"
-            href={image.url} target="_blank" rel="noreferrer"
+            onClick={() => onOpenVersion(image.version)}
             title={image.output_name || `Image ${index + 1} · Version ${image.version}`}
             aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}`}
             draggable={false}>
             <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256"}
               alt={`Generated image ${index + 1}`} loading="lazy" draggable={false} />
-          </a>)}
+          </button>)}
         </div>
       : <div className="rrugc-keyword-output-placeholder">
           {loading || (hasOutput && !error) ? "Loading images…" : error ? "Could not load images" : row.status === "running" ? "Generating…" : "No images yet"}

@@ -29,6 +29,7 @@ const row: KeywordImageRow = {
 let host: HTMLDivElement;
 let root: Root;
 let notifyVisibility: ((visible: boolean) => void) | null = null;
+const onOpenVersion = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,21 +56,25 @@ afterEach(async () => {
 
 describe("Stage 1 draggable image strip", () => {
   it("loads only when the row is visible and keeps all images in a four-slot slider", async () => {
-    await act(async () => root.render(<KeywordImageOutputSlider row={row} />));
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     expect(listGenerationOutputVersions).not.toHaveBeenCalled();
     await act(async () => notifyVisibility?.(true));
     expect(listGenerationOutputVersions).toHaveBeenCalledWith("stage1", "job-1", expect.anything());
     expect(host.querySelectorAll(".rrugc-keyword-output-image")).toHaveLength(8);
     expect(host.querySelectorAll(".rrugc-keyword-output-track")).toHaveLength(1);
     expect(host.textContent).toContain("8 images");
-    expect(host.querySelector<HTMLAnchorElement>(".rrugc-keyword-output-image")?.getAttribute("href")).toBe("/api/v1/image/8");
+    expect(host.querySelector(".rrugc-keyword-output-image")?.tagName).toBe("BUTTON");
+    expect(host.querySelector(".rrugc-keyword-output-image")?.hasAttribute("href")).toBe(false);
+    await act(async () => host.querySelectorAll<HTMLButtonElement>(".rrugc-keyword-output-image")[2].click());
+    expect(onOpenVersion).toHaveBeenCalledTimes(1);
+    expect(onOpenVersion).toHaveBeenCalledWith(6);
     expect(host.querySelectorAll('img[loading="lazy"]')).toHaveLength(8);
     expect(host.querySelectorAll(".rrugc-keyword-output-nav button")).toHaveLength(2);
   });
 
 
   it("supports mouse drag-scrolling without opening thumbnails by mistake", async () => {
-    await act(async () => root.render(<KeywordImageOutputSlider row={row} />));
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));
     const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
     Object.defineProperty(track, "clientWidth", { configurable: true, value: 240 });
@@ -89,14 +94,15 @@ describe("Stage 1 draggable image strip", () => {
       pointer("pointermove", 30, 1);
     });
     expect(track.scrollLeft).toBe(80);
-    const link = track.querySelector<HTMLAnchorElement>("a")!;
+    const thumbnail = track.querySelector<HTMLButtonElement>(".rrugc-keyword-output-image")!;
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
-    await act(async () => link.dispatchEvent(click));
+    await act(async () => thumbnail.dispatchEvent(click));
     expect(click.defaultPrevented).toBe(true);
+    expect(onOpenVersion).not.toHaveBeenCalled();
   });
 
   it("preserves partial results on failed runs without reloading the Skill", async () => {
-    await act(async () => root.render(<KeywordImageOutputSlider row={{ ...row, status: "failed", saved_output_count: 2 }} />));
+    await act(async () => root.render(<KeywordImageOutputSlider row={{ ...row, status: "failed", saved_output_count: 2 }} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));
     expect(host.textContent).toContain("Partial");
     expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
@@ -105,7 +111,7 @@ describe("Stage 1 draggable image strip", () => {
   it("does not call the output API for unstarted jobs", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={{
       ...row, status: "not_run", job_id: null, saved_output_count: 0, output_url: null,
-    }} />));
+    }} onOpenVersion={onOpenVersion} />));
     expect(listGenerationOutputVersions).not.toHaveBeenCalled();
     expect(host.textContent).toContain("No images yet");
   });

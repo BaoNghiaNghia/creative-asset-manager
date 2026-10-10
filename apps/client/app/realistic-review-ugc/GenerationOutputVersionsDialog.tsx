@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listGenerationOutputVersions, type GenerationOutputVersion } from "./api";
 
 function SelectionIcon({ mode }: { mode: "all" | "none" }) {
@@ -8,14 +8,16 @@ function SelectionIcon({ mode }: { mode: "all" | "none" }) {
 }
 
 export function GenerationOutputVersionsDialog({
-  stage, jobId, title, onClose, onRegenerate,
+  stage, jobId, title, onClose, onRegenerate, initialVersion,
 }: {
   stage: "stage1" | "stage2" | "stage4";
   jobId: string;
   title: string;
   onClose: () => void;
   onRegenerate?: () => void;
+  initialVersion?: number;
 }) {
+  const openedVersionRef = useRef<HTMLElement>(null);
   const [versions, setVersions] = useState<GenerationOutputVersion[]>([]);
   const [selectedVersions, setSelectedVersions] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
@@ -49,6 +51,14 @@ export function GenerationOutputVersionsDialog({
       window.removeEventListener("keydown", handler);
     };
   }, [onClose]);
+
+  // Opening the dialog from a slider thumbnail keeps the complete gallery and
+  // places the clicked image in view, without changing the comparison selection.
+  useEffect(() => {
+    if (loading || !initialVersion || !versions.some(item => item.version === initialVersion)) return;
+    const frame = window.requestAnimationFrame(() => openedVersionRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [initialVersion, loading, versions]);
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
 
@@ -101,7 +111,9 @@ export function GenerationOutputVersionsDialog({
       {loading && <p role="status" className="rrugc-version-message">Loading saved output versions…</p>}
       {error && <p role="alert" className="rrugc-source-error">{error}</p>}
       {!loading && !error && <div className="rrugc-version-grid" aria-label="Side-by-side version comparison">
-        {compared.map(version => <article key={version.version} className="rrugc-version-compare-card">
+        {compared.map(version => <article key={version.version}
+          ref={version.version === initialVersion ? openedVersionRef : undefined}
+          className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "")}>
           <div className="rrugc-version-card-heading">
             <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
             {version.version === versions[0]?.version && <span>Latest</span>}

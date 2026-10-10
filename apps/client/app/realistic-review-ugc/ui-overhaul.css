@@ -2102,6 +2102,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   min-width:0;margin:0;padding:9px;border:1px solid #dfe7f2;border-radius:10px;
   background:#fff;box-shadow:0 2px 7px rgba(33,56,94,.04);scroll-snap-align:start
 }
+.rrugc-output-version-dialog .rrugc-version-grid article.rrugc-version-compare-card.is-focused-version{border-color:#6a95d9;box-shadow:0 0 0 2px #d8e6fc,0 2px 7px rgba(33,56,94,.07)}
 .rrugc-output-version-dialog .rrugc-version-card-heading{display:flex;align-items:center;justify-content:space-between;gap:7px}
 .rrugc-output-version-dialog .rrugc-version-card-heading strong{color:#314d76;font-size:11px}
 .rrugc-output-version-dialog .rrugc-version-card-heading span{border-radius:6px;background:#eaf8ef;padding:3px 6px;color:#328057;font-size:8px;font-weight:800}

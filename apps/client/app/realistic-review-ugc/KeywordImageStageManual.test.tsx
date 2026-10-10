@@ -140,6 +140,19 @@ describe("Stage 1 manual keyword generation", () => {
     expect(cells[4].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
     expect(cells[5].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
     expect(cells[5].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    // A real thumbnail click must restore the same gallery modal used by Versions;
+    // dragging the strip remains separate and never navigates to a raw image URL.
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const thumbnail = host.querySelectorAll<HTMLButtonElement>(".rrugc-keyword-output-image")[1];
+    expect(thumbnail?.tagName).toBe("BUTTON");
+    await act(async () => { thumbnail.click(); await Promise.resolve(); await Promise.resolve(); });
+    expect(host.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull();
+    expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(5);
+    expect(host.querySelector<HTMLAnchorElement>(".is-focused-version .rrugc-version-image-link")?.getAttribute("href"))
+      .toBe("/api/v1/image/4");
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close output versions"]')?.click());
+    expect(host.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+    expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
     await act(async () => root.unmount());
   });
 
