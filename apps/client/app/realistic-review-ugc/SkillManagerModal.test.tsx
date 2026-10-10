@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillManagerModal } from "./SkillManagerModal";
+import { ActionToastViewport } from "../components/ActionToast";
 import { RrugcApiError, createStage2Skill, listStage2SkillRegistry, restoreArchivedStage1Skill, uploadLocalKeywordSkillForStage1, updateStageSkillDefault } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -192,7 +193,7 @@ describe("Duplicate local Skill ZIP upload", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => root.render(<><ActionToastViewport /><SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} /></>));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-skill-add-toggle")!.click());
     const input = host.querySelector<HTMLInputElement>(".rrugc-skill-upload input[type=file]")!;
@@ -203,7 +204,7 @@ describe("Duplicate local Skill ZIP upload", () => {
     expect(confirm).toHaveBeenCalledOnce();
     expect(createStage2Skill).toHaveBeenNthCalledWith(1, file);
     expect(createStage2Skill).toHaveBeenNthCalledWith(2, file, true);
-    expect(host.textContent).toContain("Existing Skill replaced");
+    expect(host.querySelector(".cam-action-toast--success")?.textContent).toContain("Existing Skill replaced");
     confirm.mockRestore();
     await act(async () => root.unmount());
   });

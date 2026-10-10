@@ -571,8 +571,9 @@ describe("AI Operations dashboard", () => {
     expect(markup).toContain('class="ops-tabs-carousel"');
     expect(markup).toContain('aria-label="Scroll AI Operations tabs left"');
     expect(markup).toContain('aria-label="Scroll AI Operations tabs right"');
-    expect(markup).toContain("&lt;");
-    expect(markup).toContain("&gt;");
+    expect(markup).toContain('class="ops-control-icon"');
+    expect((markup.match(/class="ops-control-icon"/g) || []).length).toBeGreaterThanOrEqual(4);
+    expect(markup).toContain('viewBox="0 0 24 24"');
   });
 
   it("preserves all filters and active tab in URL state", () => {

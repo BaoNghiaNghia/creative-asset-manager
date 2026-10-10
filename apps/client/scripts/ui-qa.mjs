@@ -28,6 +28,7 @@ const VIEWPORTS = {
   tabletLandscape: { width: 1024, height: 768 },
   tabletPortrait: { width: 768, height: 1024 },
   mobile: { width: 390, height: 844 },
+  mobileSmall: { width: 320, height: 700 },
 };
 
 function argValue(name) {
@@ -560,7 +561,7 @@ try {
       for (const step of executionSteps) {
         try {
           await performStep(page, step);
-      if (viewportName === "mobile") {
+      if (viewportName === "mobile" || viewportName === "mobileSmall") {
         await assertUiStep(page, plan.mobileAssertions || []);
         await assertUiStep(page, step.mobileAssertions || []);
       }
@@ -571,6 +572,13 @@ try {
       }
       const name = sanitize(step.name || "state");
       if (!captureStateNames.has(name)) continue;
+      // Clicking a horizontally scrolled AI Operations tab can leave window.scrollY
+      // nonzero. Normalize document scroll before full-page captures so sticky
+      // navigation is not composited across the page header in the screenshot.
+      if (step.click?.includes("data-ops-tab")) {
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForTimeout(50);
+      }
       const filename = `${viewportName}--${name}.png`;
       const screenshotPath = path.join(runDir, filename);
       await page.screenshot({

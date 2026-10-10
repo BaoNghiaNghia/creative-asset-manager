@@ -121,3 +121,37 @@ test("Production smoke rejects horizontal overflow beyond tolerance", async () =
     /horizontal overflow/,
   );
 });
+
+test("Production AI Operations viewport check passes with a responsive layout", async () => {
+  const page = fakePage();
+  page.evaluate = async () => 0;
+  const issues = [];
+  await runState(
+    page,
+    {
+      name: "default",
+      assertions: [
+        { type: "visible", selector: ".ops-tabs-carousel" },
+        { type: "no-viewport-overflow", selector: "body" },
+      ],
+    },
+    "ai-operations",
+    "mobile",
+    ".",
+    issues,
+  );
+  assert.deepEqual(issues, []);
+});
+
+test("Production AI Operations viewport check detects horizontal page overflow", async () => {
+  const page = fakePage();
+  page.evaluate = async () => 12;
+  await assert.rejects(
+    runAssertion(
+      page,
+      { type: "no-viewport-overflow", selector: "body", tolerancePx: 1 },
+      5_000,
+    ),
+    /viewport overflow: 12px > 1px/,
+  );
+});

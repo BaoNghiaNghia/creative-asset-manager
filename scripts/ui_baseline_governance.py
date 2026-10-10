@@ -101,6 +101,32 @@ def expected_names(manifest: dict[str, Any]) -> set[str]:
     return {f"{viewport}--{state}.png" for viewport in viewport_names for state in states}
 
 
+def is_additive_manifest_extension(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """Allow expanding an existing QA profile without weakening visual approvals."""
+    old_viewports = {item["name"]: item for item in before.get("viewports", [])}
+    new_viewports = {item["name"]: item for item in after.get("viewports", [])}
+    old_states = before.get("states", [])
+    new_states = after.get("states", [])
+    if not old_viewports or not old_states:
+        return False
+    if len(new_viewports) != len(after.get("viewports", [])) or len(new_states) != len(set(new_states)):
+        return False
+    if not all(new_viewports.get(name) == value for name, value in old_viewports.items()):
+        return False
+    if not all(name in new_states for name in old_states):
+        return False
+    for name, value in new_viewports.items():
+        if not isinstance(name, str) or not name:
+            return False
+        if any(not isinstance(value.get(key), int) or value[key] <= 0 for key in ("width", "height")):
+            return False
+    before_other = {k: v for k, v in before.items() if k not in ("states", "viewports")}
+    after_other = {k: v for k, v in after.items() if k not in ("states", "viewports")}
+    return before_other == after_other and (
+        old_viewports != new_viewports or old_states != new_states
+    )
+
+
 def runtime_issue_count(report: dict[str, Any]) -> int:
     total = 0
     for result in report.get("results", []):
@@ -195,11 +221,21 @@ def create_proposal(run_dir: Path, baseline_dir: Path, proposal_dir: Path, task:
             "ERROR: Refusing baseline proposal without a frontend source change or a new fixture-backed QA profile bootstrap."
         )
 
-    allowed_bootstrap_change = baseline_rel + "/manifest.json"
+    allowed_manifest_change = baseline_rel + "/manifest.json"
+    additive_extension = False
+    if allowed_manifest_change in target_baseline_changes and not bootstrap_profile:
+        try:
+            original = json.loads(_git("show", f"HEAD:{allowed_manifest_change}"))
+            additive_extension = is_additive_manifest_extension(original, manifest)
+        except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+            additive_extension = False
     unexpected_target_changes = [
         file_path
         for file_path in target_baseline_changes
-        if not (bootstrap_profile and file_path == allowed_bootstrap_change)
+        if not (
+            file_path == allowed_manifest_change
+            and (bootstrap_profile or additive_extension)
+        )
     ]
     if unexpected_target_changes:
         raise SystemExit(

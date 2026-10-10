@@ -371,3 +371,9 @@ button.rrugc-blueprint-thread-swatch:focus-visible{
   box-shadow:none;
   mix-blend-mode:normal;
 }
+/* The front hat itself is a keyboard-accessible enlargement target. */
+.rrugc-blueprint-selected-hat.rrugc-blueprint-front-open-detail{cursor:zoom-in;outline-offset:4px}
+.rrugc-blueprint-front-open-detail:focus-visible{outline:3px solid #278ecb;border-radius:6px}
+.rrugc-blueprint-detail-affordance{position:absolute;right:7px;bottom:7px;z-index:18;display:block;pointer-events:none;padding:5px 8px;border:1px solid rgba(255,255,255,.6);border-radius:7px;background:rgba(28,52,78,.78);color:white;font-size:11px;font-weight:750;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+@media(hover:hover){.rrugc-blueprint-detail-affordance{opacity:0;transition:opacity .14s}.rrugc-blueprint-front-open-detail:hover .rrugc-blueprint-detail-affordance,.rrugc-blueprint-front-open-detail:focus-visible .rrugc-blueprint-detail-affordance{opacity:1}}
+@media(prefers-reduced-motion:reduce){.rrugc-blueprint-detail-affordance{transition:none}}

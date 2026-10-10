@@ -37,6 +37,22 @@ import {
 
 const tabs = AI_OPERATIONS_TABS;
 
+type OpsControlIconName = "left" | "right" | "download" | "image" | "video" | "retry";
+function OpsControlIcon({ name }: { name: OpsControlIconName }) {
+  const paths: Record<OpsControlIconName, React.ReactNode> = {
+    left: <path d="m14.5 18-6-6 6-6" />,
+    right: <path d="m9.5 18 6-6-6-6" />,
+    download: <><path d="M12 3v12m-4-4 4 4 4-4" /><path d="M4 17v3h16v-3" /></>,
+    image: <><rect x="3.5" y="4" width="17" height="16" rx="2" /><circle cx="8.7" cy="9" r="1.5" /><path d="m4 17 5-5 4 4 3-3 4 4" /></>,
+    video: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m10 9 5 3-5 3V9Z" /></>,
+    retry: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.6 9A7 7 0 0 1 19 8M5 16a7 7 0 0 0 12.4-1" /></>,
+  };
+  return <svg className="ops-control-icon" data-ui-icon="true" aria-hidden="true" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {paths[name]}
+  </svg>;
+}
+
 function TabIcon({ src }: { src: string }) {
   return <img className="ops-tab-icon" src={src} alt="" aria-hidden="true" />;
 }
@@ -461,7 +477,7 @@ export function AiOperationsContent({
         disabled={!tabScrollState.left}
         onClick={() => scrollOperationsTabs(-1)}
       >
-        <span aria-hidden="true">&lt;</span>
+        <OpsControlIcon name="left" />
       </button>
       <nav
         ref={tabsRef}
@@ -483,14 +499,14 @@ export function AiOperationsContent({
         disabled={!tabScrollState.right}
         onClick={() => scrollOperationsTabs(1)}
       >
-        <span aria-hidden="true">&gt;</span>
+        <OpsControlIcon name="right" />
       </button>
     </div>
     {tab !== "inventory" && tab !== "visual-search" && tab !== "creative-pipeline" && <div className="ops-query-bar">
       {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
       <details className="ops-export-menu">
-        <summary>Export data</summary>
+        <summary><OpsControlIcon name="download" />Export data</summary>
         <nav aria-label="AI Operations CSV exports">
           {(["daily", "usage", "failures", "jobs"] as const).map(kind => <a key={kind} href={aiOperationsExportUrl(kind, filters)}>Export {kind} CSV</a>)}
         </nav>
@@ -498,7 +514,7 @@ export function AiOperationsContent({
     </div>}
     {tab !== "inventory" && tab !== "visual-search" && tab !== "creative-pipeline" && errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
-      <button type="button" onClick={onRetry}>Retry</button>
+      <button type="button" onClick={onRetry}><OpsControlIcon name="retry" />Retry</button>
     </div>}
     {!independentTabs.some(value => value === tab) && <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
       {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
@@ -531,7 +547,7 @@ function MediaTypeTabs({ media, onMedia, label }: {
   media: "image" | "video"; onMedia: (media: "image" | "video") => void; label: string;
 }) {
   return <div className="ops-media-tabs" role="tablist" aria-label={label}>
-    {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}>{kind === "image" ? "Image AI" : "Video AI"}</button>)}
+    {(["image", "video"] as const).map(kind => <button key={kind} type="button" role="tab" aria-selected={media === kind} className={media === kind ? "active" : ""} onClick={() => onMedia(kind)}><OpsControlIcon name={kind} />{kind === "image" ? "Image AI" : "Video AI"}</button>)}
   </div>;
 }
 

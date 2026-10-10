@@ -31,11 +31,26 @@ The frontend script builds and scans only generated `apps/client/dist`, installs
 
 ### Read-only Production UI smoke
 
-After an explicitly authorized frontend deploy, run the live Browser smoke separately with `make production-ui-smoke`, or opt in during that deploy with `CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1`. The smoke never deploys anything and blocks every HTTP method except GET, HEAD, and OPTIONS. It verifies HTTPS, `/build-info.json` provenance, console/page/network health, and sequential desktop/tablet/mobile rendering for Asset Explorer, Review Board, Realistic Review UGC, Privacy, and Terms. On the root-operated VPS this smoke uses the Playwright Firefox build so the browser sandbox stays enabled; do not reintroduce Chromium `--no-sandbox` flags.
+After an explicitly authorized frontend deploy, run the live Browser smoke separately with `make production-ui-smoke`, or opt in during that deploy with `CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY=1`. The smoke never deploys anything and blocks every HTTP method except GET, HEAD, and OPTIONS. It verifies HTTPS, `/build-info.json` provenance, console/page/network health, and sequential desktop/tablet/mobile rendering for Asset Explorer, AI Operations, Review Board, Realistic Review UGC, Privacy, and Terms. On the root-operated VPS this smoke uses the Playwright Firefox build so the browser sandbox stays enabled; do not reintroduce Chromium `--no-sandbox` flags.
 
 Production smoke has three coverage modes. `CAM_PRODUCTION_UI_MODE=auto` is the default: when a secure storage-state file exists it covers authenticated private routes; when the default storage-state file is absent it falls back to public Privacy/Terms coverage, reports the downgrade as `public-only`, and does not fail an otherwise healthy deploy. `strict` requires authenticated coverage and fails if storage state is unavailable. `public` deliberately runs only public routes. `CAM_PRODUCTION_UI_PUBLIC_ONLY=1` remains a compatibility alias for `public`.
 
 Authenticated coverage uses a Playwright storage-state file outside the repository, normally `/etc/creative-asset-manager/production-ui-storage-state.json`, with mode `600` or stricter. Treat that file as a credential: never commit, print, copy into `.ui-qa`, or place it under the source checkout. If `CAM_PRODUCTION_UI_STORAGE_STATE` is explicitly set but missing, auto mode fails instead of silently ignoring that operator mistake.
+
+### One-time QA login (trusted desktop)
+
+Use a **dedicated read-only QA account** that can visit AI Operations, Asset Explorer, Review Board, and the UGC stages. The capture tool requires an interactive terminal and a graphical desktop; do not try to use it through the root-only headless VPS browser. On a trusted Windows PowerShell workstation with this repository checked out:
+
+```powershell
+cd apps/client
+npm ci
+npx playwright install firefox
+node scripts/production-ui-auth-capture.mjs --url https://creative-assets.ddns.net --output "$env:USERPROFILE\cam-production-ui-session.json"
+```
+
+The Windows workstation must have CodeLocal or a locally checked-out copy of this project, Node.js, and a graphical desktop. If Firefox browser installation is missing, run `npx playwright install firefox` from `apps/client` first. Sign in in the opened Firefox window. The tool waits until the **AI Operations workspace** is visible, then saves a protected storage-state file outside Git without printing session cookies. Transfer it over an encrypted, trusted channel to the root-owned `/etc/creative-asset-manager/production-ui-storage-state.json` on the VPS, make it readable only by the QA runner account (`chmod 600` for root-owned deployment), and securely delete the transfer copy. Do not send this file via chat or email. Repeat the capture if the login expires.
+
+Before treating authenticated QA as a release gate, run `CAM_PRODUCTION_UI_MODE=strict make production-ui-smoke` and verify the report says `Coverage: authenticated` with no skipped routes. **A public-only PASS is never equivalent to authenticated private-route coverage.**
 
 ```bash
 # Default: authenticated when possible, safe public-only fallback otherwise.

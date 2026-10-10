@@ -7,6 +7,16 @@
       "height": 900
     },
     {
+      "name": "compact",
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "name": "tabletLandscape",
+      "width": 1024,
+      "height": 768
+    },
+    {
       "name": "tabletPortrait",
       "width": 768,
       "height": 1024
@@ -15,21 +25,39 @@
       "name": "mobile",
       "width": 390,
       "height": 844
+    },
+    {
+      "name": "mobileSmall",
+      "width": 320,
+      "height": 700
     }
   ],
   "states": [
     "default",
+    "analysis-initial",
     "kpi-hover",
-    "filter-focus"
+    "filter-focus",
+    "export-open",
+    "export-close",
+    "tab-pipeline",
+    "tab-overview",
+    "tab-processing",
+    "tab-visual-search",
+    "tab-creative-pipeline",
+    "tab-inventory",
+    "tab-cost",
+    "tab-providers",
+    "tab-configuration",
+    "configuration-return"
   ],
   "pixelThreshold": 0.1,
   "maxDiffRatio": 0.001,
   "governance": {
-    "lastAcceptedProposalId": "20261002T082157Z-d7a092cd-ai-operations",
-    "task": "Bootstrap fixture-backed visual regression coverage for AI Operations as the next requested UI automation phase",
-    "acceptanceReason": "User explicitly requested continuation of fixture-backed visual regression coverage for AI Operations.",
-    "sourceHead": "d7a092cdcc83eb5ea44c722094cf461c6891e6cd",
-    "workspaceFingerprint": "e8a78c9e0bb0034db825965fef634ab6e1bb37fd559f3ce461ba0baabc7f1f10",
-    "acceptedAt": "2026-10-02T08:22:40.246208+00:00"
+    "lastAcceptedProposalId": "20261010T134411Z-12d76754-ai-operations",
+    "task": "Visual QA after scroll-normalized screenshots across AI Operations 6 viewports",
+    "acceptanceReason": "User approved proposal 20261010T134411Z-12d76754-ai-operations after visual review and six-viewport QA",
+    "sourceHead": "12d767541d07c4dc09c8bfc6e566707952bd41aa",
+    "workspaceFingerprint": "f863f50340bea736765ea753eaddd3f1f4feddab834d5fb4d774db965f4ca6eb",
+    "acceptedAt": "2026-10-10T13:52:38.664467+00:00"
   }
 }

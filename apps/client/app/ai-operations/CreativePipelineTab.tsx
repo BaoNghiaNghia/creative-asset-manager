@@ -1,3 +1,4 @@
+import { AiOperationsActionIcon } from "./AiOperationsActionIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Node = {
@@ -371,7 +372,7 @@ export function CreativePipelineTab({ canManage }: { canManage: boolean }) {
               type="button"
               onClick={() => setSkillManagerOpen(true)}
             >
-              GPT Skills
+              <AiOperationsActionIcon name="edit" />GPT Skills
             </button>
           )}
           <button
@@ -380,7 +381,7 @@ export function CreativePipelineTab({ canManage }: { canManage: boolean }) {
             disabled={refreshing || mutationBusy}
             onClick={() => void load(false)}
           >
-            {refreshing ? "Refreshing…" : "Refresh"}
+            <AiOperationsActionIcon name="refresh" />{refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </header>
@@ -546,6 +547,7 @@ function PipelineGroupCard({
               type="button"
               onClick={() => onSelect(listing)}
             >
+              <AiOperationsActionIcon name="right" />
               <div className="creative-pipeline-row-copy">
                 <b>{listing.folder_name}</b>
                 <small>

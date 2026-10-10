@@ -1,3 +1,4 @@
+import { AiOperationsActionIcon } from "./AiOperationsActionIcon";
 import { useEffect, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import {
@@ -174,7 +175,7 @@ const DeleteIcon = () => <svg className="gemini-backup-action-icon" viewBox="0 0
           <div><button type="submit" disabled={!drafts[item.slot].apiKey}>{item.configured ? "Test and replace" : "Test and save"}</button><button type="button" className="secondary" onClick={() => discard(item.slot)}>Cancel</button></div>
         </form>}
       </div>)}
-      {canAdd && <button type="button" className="gemini-backup-pool-add" onClick={add}>+ Add backup key</button>}
+      {canAdd && <button type="button" className="gemini-backup-pool-add" onClick={add}><AiOperationsActionIcon name="plus" />Add backup key</button>}
     </div>
 
     {!rows.length && <p className="inventory-muted">No backup key has been configured yet.</p>}

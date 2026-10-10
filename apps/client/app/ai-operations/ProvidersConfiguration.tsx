@@ -13,6 +13,7 @@ import { GeminiBackupPoolSettings } from "./GeminiBackupPoolSettings";
 import { ManagedStorageCredentialSettings } from "./ManagedStorageCredentialSettings";
 import { VideoCdnDeliverySettings } from "./VideoCdnDeliverySettings";
 import { ConfigurationCardHeader, type ConfigurationCardIconName } from "./ConfigurationCardHeader";
+import { AiOperationsActionIcon } from "./AiOperationsActionIcon";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
 import openAiLogo from "../../assets/openai-logo.svg";
 
@@ -259,7 +260,7 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
             <label><input type="checkbox" checked={provider.single_enabled} onChange={event => optimistic(provider.id, { single_enabled: event.target.checked })} /> Single enabled</label>
             <label><input type="checkbox" checked={provider.batch_enabled} onChange={event => optimistic(provider.id, { batch_enabled: event.target.checked })} /> Batch enabled</label>
           </fieldset>
-          <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}>{provider.paused ? "Resume provider" : "Pause provider"}</button>
+          <button className={provider.paused ? "primary" : "danger"} type="button" disabled={pauseDisabled} onClick={() => { setConfirmProvider(provider.id); setReason(""); }}><AiOperationsActionIcon name="pause" />{provider.paused ? "Resume provider" : "Pause provider"}</button>
         </div>
         {provider.id === "gemini" && <section className="ops-provider-gemini-credentials" aria-label="Google Gemini credential settings">
           <div className="ops-provider-gemini-credentials-grid">
@@ -390,7 +391,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
         </div>
         <div className="ops-form-footer">
           <label>Change reason<input disabled={!canEdit} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: tăng giới hạn xử lý cho chiến dịch tháng 7" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
-          <button className="primary" disabled={!canEdit || saving} type="submit">Save tenant defaults</button>
+          <button className="primary" disabled={!canEdit || saving} type="submit"><AiOperationsActionIcon name="save" />Save tenant defaults</button>
         </div>
       </form>
       <JobPriorityConfigurationCard icon="image-job-priority" title="Ưu tiên job Image" description="Chọn chế độ cho tải xuống, phân tích ảnh và lập chỉ mục ảnh." saveLabel="Save image job priorities" priorities={jobPriorities} canEdit={canEdit} modes={JOB_PRIORITY_MODES} items={IMAGE_JOB_PRIORITY_ITEMS} ariaLabel="Biểu đồ mức ưu tiên job Image" onReload={onReload} />
@@ -419,7 +420,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
             <label>Hard-stop threshold (%)<input disabled={!canUpdateBudget} type="number" min="1" max="100" value={budget.hard_stop_threshold_percent} onChange={event => setBudget({ ...budget, hard_stop_threshold_percent: Number(event.target.value) })} /><small>Chặn tác vụ AI mới khi đạt tỷ lệ này.</small></label>
           </div>
         </div>
-        <button className="primary ops-form-submit" disabled={!canUpdateBudget || saving} type="submit">Review budget update</button>
+        <button className="primary ops-form-submit" disabled={!canUpdateBudget || saving} type="submit"><AiOperationsActionIcon name="test" />Review budget update</button>
       </form> : <section className="ops-config-card ops-config-budget">
         <ConfigurationCardHeader
           icon="budget-policy"
@@ -430,7 +431,7 @@ export function ConfigurationForm({ configuration, onChanged: _onChanged, onRelo
       </section>}
       <section className="ops-global-settings ops-config-global"><ConfigurationCardHeader icon="global-controls" title="Global controls" description="Giới hạn toàn cục do deployment quản lý và chỉ có thể xem tại đây." kicker="Read-only" /><dl><div><dt>Single pipeline</dt><dd>{configuration.global.single_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Batch pipeline</dt><dd>{configuration.global.batch_enabled ? "Enabled" : "Disabled"}</dd></div><div><dt>Global emergency stop</dt><dd>{configuration.global.emergency_stop ? "Active" : "Inactive"}</dd></div></dl><p>Tenant không thể bật lại chức năng đã bị tắt ở cấp toàn cục.</p>
         {configuration.permissions.can_manage_global ? <button type="button" className="danger" onClick={() => setConfirmAction("global-stop")}>{configuration.global.emergency_stop ? "Resume global AI" : "Emergency stop all AI"}</button> : <small>Chỉ Platform administrator mới có thể thay đổi cấu hình toàn cục.</small>}
-        <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}>{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
+        <button type="button" className={form.ai_enabled ? "danger" : "primary"} disabled={!canEmergencyStop} onClick={() => setConfirmAction("tenant-stop")}><AiOperationsActionIcon name="pause" />{form.ai_enabled ? "Pause tenant AI" : "Resume tenant AI"}</button>
       </section>
       {configuration.permissions.platform_admin && <VideoCdnDeliverySettings />}
     </ConfigurationMasonryGrid>
@@ -480,7 +481,7 @@ export function JobPriorityConfigurationCard({ icon, title, description, saveLab
     <JobPriorityModeChart priorities={priorities} canEdit={canEdit} modes={modes} items={items} ariaLabel={ariaLabel} onSelect={changes => setPriorities({ ...priorities, ...changes })} />
     <div className="ops-form-footer">
       <label>Change reason<input disabled={!canEdit || saving} required value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: ưu tiên xử lý chiến dịch mới" /><small>Lý do được lưu trong nhật ký kiểm toán.</small></label>
-      <button className="primary" disabled={!canEdit || saving} type="submit">{saving ? "Saving…" : saveLabel}</button>
+      <button className="primary" disabled={!canEdit || saving} type="submit"><AiOperationsActionIcon name="save" />{saving ? "Saving…" : saveLabel}</button>
     </div>
   </form>;
 }
@@ -497,7 +498,7 @@ function JobPriorityModeChart({ priorities, canEdit, modes, items, ariaLabel, on
   return <div className="ops-priority-control">
     <div className="ops-priority-mode-picker" role="group" aria-label="Chế độ ưu tiên job">
       {modes.map(mode => <button key={mode.id} type="button" disabled={!canEdit} className={selectedMode === mode.id ? "active" : ""} aria-pressed={selectedMode === mode.id} onClick={() => onSelect(Object.fromEntries(items.map(([key]) => [key, mode.priorities[key]])) as Partial<JobPriorities>)}>
-        <strong>{mode.label}</strong><span>{mode.description}</span>
+        <strong className="ops-priority-mode-title"><AiOperationsActionIcon name={selectedMode === mode.id ? "test" : "edit"} />{mode.label}</strong><span>{mode.description}</span>
       </button>)}
     </div>
     {!selectedMode && <small className="ops-priority-custom">Thiết lập hiện tại là tuỳ chỉnh. Chọn một chế độ để áp dụng preset mới.</small>}
@@ -580,11 +581,11 @@ function MetadataPromptTemplateCard({ profile, canEdit, onReload, media }: {
       className="ops-prompt-card-header"
     />
     <dl className="ops-prompt-profile ops-prompt-profile-grid"><div><dt>{isVideo ? "Video metadata profile" : "Metadata profile"}</dt><dd>{profile.profile_name}</dd></div><div><dt>Version</dt><dd>{profile.profile_version}</dd></div></dl>{profile.is_draft && <p className="ops-prompt-message">Đây là prompt mặc định. Bấm lưu lần đầu để tạo {isVideo ? "video " : ""}metadata profile active cho tenant.</p>}
-    <section className="ops-prompt-editor"><div className="ops-prompt-editor-heading"><div><strong>Prompt template</strong><small>JSON structure is previewed in the expanded view.</small></div><button type="button" className="ops-prompt-expand" onClick={() => setExpanded(true)} disabled={saving}>⤢ Expand</button></div>
+    <section className="ops-prompt-editor"><div className="ops-prompt-editor-heading"><div><strong>Prompt template</strong><small>JSON structure is previewed in the expanded view.</small></div><button type="button" className="ops-prompt-expand" onClick={() => setExpanded(true)} disabled={saving}><AiOperationsActionIcon name="expand" />Expand</button></div>
     <textarea aria-label={isVideo ? "Video metadata prompt template" : "Image metadata prompt template"} disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} rows={12} spellCheck={false} />
     <p className="ops-prompt-help">{isVideo ? "Các quy tắc evidence bắt buộc được worker nối tự động. " : <>Giữ <code>{"{{ asset }}"}</code> nếu prompt của bạn cần chèn mã tài sản. </>}Schema và search configuration hiện có được giữ nguyên.</p></section>
     <footer className="ops-prompt-footer"><label>Change reason<input disabled={!canEdit || saving} value={reason} onChange={event => setReason(event.target.value)} placeholder="Ví dụ: bổ sung nhận diện màu sắc và đối tượng" /></label>
-    <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}>{saving ? "Saving prompt…" : `Save ${media} prompt template`}</button></footer>
+    <button className="primary" type="submit" disabled={!canEdit || saving || !promptTemplate.trim() || !reason.trim()}><AiOperationsActionIcon name="save" />{saving ? "Saving prompt…" : `Save ${media} prompt template`}</button></footer>
     <ActionMessageToast message={message} />{error && <p className="ops-inline-error" role="alert">{error}</p>}
     {expanded && <div className="ops-prompt-modal-backdrop" role="presentation" onMouseDown={() => setExpanded(false)}><section className="ops-prompt-modal" role="dialog" aria-modal="true" aria-labelledby="prompt-template-expanded-title" onMouseDown={event => event.stopPropagation()}><header><div><h3 id="prompt-template-expanded-title">Prompt template</h3><p>Chỉnh sửa toàn màn hình và xem cấu trúc JSON được tô màu theo cấp.</p></div><div className="ops-prompt-modal-actions"><button type="button" className="ops-prompt-action" onClick={() => void copyExpandedPrompt()} aria-label="Copy prompt template">Copy {copyStatus ? "· " + copyStatus : ""}</button><button type="button" className="ops-prompt-action primary-action" onClick={editExpandedPrompt} disabled={!canEdit || saving}>Edit</button><button type="button" className="ops-prompt-close" onClick={() => setExpanded(false)} aria-label="Đóng prompt template">×</button></div></header><div className="ops-prompt-modal-content" style={{ gridTemplateColumns: "minmax(0, " + previewSplit + "fr) 14px minmax(0, " + (100 - previewSplit) + "fr)" }}><label>Prompt template<textarea ref={expandedEditorRef} aria-label="Expanded metadata prompt template" autoFocus disabled={!canEdit || saving} value={promptTemplate} onChange={event => setPromptTemplate(event.target.value)} spellCheck={false} /></label><button type="button" className={"ops-prompt-resizer" + (resizingPreview ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label="Resize prompt editor and preview" aria-valuemin={30} aria-valuemax={70} aria-valuenow={previewSplit} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setResizingPreview(true); }} onPointerMove={event => { if (!resizingPreview) return; const bounds = event.currentTarget.parentElement?.getBoundingClientRect(); if (!bounds) return; setPreviewSplit(Math.max(30, Math.min(70, ((event.clientX - bounds.left) / bounds.width) * 100))); }} onPointerUp={event => { event.currentTarget.releasePointerCapture(event.pointerId); setResizingPreview(false); }} onPointerCancel={() => setResizingPreview(false)}><span aria-hidden="true">⋮</span></button><section className="ops-prompt-preview" aria-label="Prompt structure preview"><PromptStructurePreview prompt={promptTemplate} /></section></div></section></div>}
   </form>;

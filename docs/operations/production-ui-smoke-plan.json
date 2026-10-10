@@ -66,6 +66,58 @@
       ]
     },
     {
+      "name": "ai-operations",
+      "path": "/ai-operations",
+      "public": false,
+      "requiresAuth": true,
+      "ready": ".ops-content",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        {
+          "name": "default",
+          "assertions": [
+            { "type": "visible", "selector": ".ops-tabs-carousel" },
+            { "type": "no-viewport-overflow", "selector": "body" }
+          ]
+        },
+        {
+          "name": "tab-pipeline",
+          "click": "[data-ops-tab='pipeline']",
+          "waitFor": "#ops-panel-pipeline",
+          "assertions": [
+            { "type": "visible", "selector": "#ops-panel-pipeline" }
+          ]
+        },
+        {
+          "name": "tab-visual-search",
+          "click": "[data-ops-tab='visual-search']",
+          "waitFor": "#ops-panel-visual-search",
+          "assertions": [
+            { "type": "visible", "selector": "#ops-panel-visual-search" }
+          ]
+        },
+        {
+          "name": "tab-creative-pipeline",
+          "click": "[data-ops-tab='creative-pipeline']",
+          "waitFor": "#ops-panel-creative-pipeline",
+          "assertions": [
+            { "type": "visible", "selector": "#ops-panel-creative-pipeline" }
+          ]
+        },
+        {
+          "name": "tab-inventory",
+          "click": "[data-ops-tab='inventory']",
+          "waitFor": "#ops-panel-inventory",
+          "assertions": [
+            { "type": "visible", "selector": "#ops-panel-inventory" }
+          ]
+        }
+      ]
+    },
+    {
       "name": "realistic-review-ugc",
       "path": "/realistic-review-ugc",
       "public": false,

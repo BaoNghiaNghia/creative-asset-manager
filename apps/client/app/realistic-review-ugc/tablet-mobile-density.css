@@ -141,3 +141,19 @@
   .rrugc-stage2-result-grid{grid-template-columns:repeat(5,44px);gap:4px}
   .rrugc-stage2-result{width:44px;height:44px}
 }
+
+/* 320px: management controls must reflow instead of expanding the document. */
+@media(max-width:360px){
+  .rrugc-main,.rrugc-header,.rrugc-page-body,.rrugc-stage-tabs-shell{min-width:0;max-width:100%;box-sizing:border-box}
+  .rrugc-header .workspace-page-header-actions{width:100%;max-width:100%;min-width:0;overflow:visible;flex:1 1 100%}
+  .rrugc-global-management-actions{display:grid;width:100%;min-width:0;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .rrugc-global-management-actions>.rrugc-global-management-button{min-width:0;width:100%;white-space:nowrap}
+  .rrugc-global-management-actions>:last-child{grid-column:1/-1;max-width:100%;min-width:0;justify-self:start}
+  .rrugc-source-plan-toolbar{max-width:100%;min-width:0;box-sizing:border-box}
+  .rrugc-source-plan-sort{width:100%;min-width:0;max-width:100%;grid-template-columns:auto minmax(0,1fr) auto}
+  .rrugc-source-plan-sort>label,.rrugc-source-plan-sort select{min-width:0;max-width:100%;width:100%}
+  .rrugc-source-plan-sort-count{grid-column:1/-1;justify-self:end}
+  .rrugc-source-pagination{grid-template-columns:minmax(0,1fr);justify-items:start;gap:8px}
+  .rrugc-source-pagination>label{justify-self:start;max-width:100%;grid-column:1}
+  .rrugc-source-page-controls{max-width:100%;min-width:0}
+}

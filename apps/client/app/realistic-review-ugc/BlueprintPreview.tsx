@@ -8,6 +8,7 @@ import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
 import { useBlueprintEmbroideryTint } from "./BlueprintEmbroideryTint";
 import { BLUEPRINT_DARK_PALETTES, selectBlueprintThreadPalette } from "./BlueprintThreadPalettes";
+import { BlueprintFrontDetailModal } from "./BlueprintFrontDetailModal";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -83,6 +84,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [sideDesignSize, setSideDesignSize] = useState(100);
   const [paletteOverrides, setPaletteOverrides] = useState<Record<string, number>>({});
   const [guides, setGuides] = useState(false);
+  const [frontDetailOpen, setFrontDetailOpen] = useState(false);
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
   const dragOrigin = useRef<DragOrigin | null>(null);
@@ -279,7 +281,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
           </header>
           <div className="rrugc-blueprint-panel-visual">
-            <div className="rrugc-blueprint-selected-hat"
+            <div className="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail" role="button" tabIndex={0}
+              aria-label={"Enlarge front embroidery: " + designName(activeDesign) + " on " + activeColor.label}
+              title="Click to enlarge and inspect embroidery details"
+              onClick={() => { if (!suppressNextClick.current) { hideBlueprintLens(frontLens.current); setFrontDetailOpen(true); } }}
+              onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); setFrontDetailOpen(true); } }}
               onPointerMove={event => moveBlueprintLens(event, frontLens.current,
                 Array.from(event.currentTarget.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")).every(image => image.classList.contains("is-loaded")))}
               onPointerLeave={() => hideBlueprintLens(frontLens.current)}
@@ -303,6 +309,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
                   </div>
                 </>}
               </div>
+              <span className="rrugc-blueprint-detail-affordance" aria-hidden="true">⤢ View larger</span>
               <div ref={frontLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                 <div className="rrugc-blueprint-magnifier-scene">
                   <div className="rrugc-blueprint-front-scene">
@@ -396,5 +403,12 @@ export function BlueprintPreview({ versions, initialVersion }: {
       <span>Placement is approximate; verify embroidery proof before production.</span>
       <span>12 supplied 8869 references · No AI generation required</span>
     </div>
+    {frontDetailOpen && <BlueprintFrontDetailModal
+      hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesign.url}
+      colorId={activeColor.id} colorLabel={activeColor.label}
+      designLabel={designName(activeDesign)} designSize={frontDesignSize}
+      paletteOrdinal={activePaletteOrdinal} guides={guides}
+      onClose={() => setFrontDetailOpen(false)}
+    />}
   </section>;
 }

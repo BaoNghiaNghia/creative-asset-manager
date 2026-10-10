@@ -1,3 +1,4 @@
+import { AiOperationsActionIcon } from "../ai-operations/AiOperationsActionIcon";
 import { useEffect, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import {
@@ -193,8 +194,8 @@ export function InventoryGeminiCredentialSettings({
     </dl>
     <div className="inventory-actions">
       {canManage ? <>
-        <button type="button" className="secondary" onClick={() => void testCurrentConnection()} disabled={!credential.configured || submitting || currentTestButtonStatus !== null}><span className={currentTestButtonStatus ? "inventory-test-button-text" : undefined}>{currentTestButtonStatus || "Test Connection"}</span></button>
-        <button type="button" onClick={() => { setDialogOpen(true); setMessage(""); }}>Replace API Key</button>
+        <button type="button" className="secondary" onClick={() => void testCurrentConnection()} disabled={!credential.configured || submitting || currentTestButtonStatus !== null}><AiOperationsActionIcon name="test" /><span className={currentTestButtonStatus ? "inventory-test-button-text" : undefined}>{currentTestButtonStatus || "Test Connection"}</span></button>
+        <button type="button" onClick={() => { setDialogOpen(true); setMessage(""); }}><AiOperationsActionIcon name="edit" />Replace API Key</button>
       </> : <p className="inventory-muted">You can view this credential status, but <code>inventory.credentials.manage</code> is required to test or replace the key.</p>}
     </div>
     {message ? <ErrorMessage error={message} /> : null}
@@ -214,7 +215,7 @@ export function InventoryGeminiCredentialSettings({
         <ActionMessageToast message={testStatus ? credentialStatusLabel(testStatus, true) : ""} tone="info" />
         {message ? <ErrorMessage error={message} /> : null}
         <div className="inventory-actions">
-          <button type="button" onClick={() => void testConnection()} disabled={!draft.apiKey || submitting}>{submitting ? "Testing…" : "Test Connection"}</button>
+          <button type="button" onClick={() => void testConnection()} disabled={!draft.apiKey || submitting}><AiOperationsActionIcon name="test" />{submitting ? "Testing…" : "Test Connection"}</button>
           <button type="button" onClick={() => void save()} disabled={!draft.apiKey || submitting}>{submitting ? "Saving…" : "Test & Save"}</button>
           <button type="button" className="secondary" onClick={closeDialog} disabled={submitting}>Cancel</button>
         </div>

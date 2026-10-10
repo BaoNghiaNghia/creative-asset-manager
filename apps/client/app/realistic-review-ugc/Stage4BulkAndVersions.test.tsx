@@ -70,19 +70,25 @@ describe("Version history comparison", () => {
     await act(async () => root.render(<GenerationOutputVersionsDialog stage="stage1"
       jobId="stage1-job" title="Artworks" onClose={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    // Stage 1 now defaults to the 12-color Blueprint puzzle. Switching to
+    // masonry/compare must still retain every original Skill output.
+    expect(host.querySelectorAll(".rrugc-blueprint-selected-card")).toHaveLength(1);
+    expect(host.querySelector(".rrugc-version-compare-card")).toBeNull();
+    expect(host.querySelector(".rrugc-version-filter")).toBeNull();
+    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toContain("Blueprint");
+    const masonryButton = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
+      .find(button => button.textContent?.includes("Masonry"))!;
+    await act(async () => masonryButton.click());
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     expect(host.querySelector('[aria-label="Masonry gallery of saved images"]')).not.toBeNull();
-    expect(host.querySelector(".rrugc-version-filter")).toBeNull();
-    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toContain("Masonry");
     const compareButton = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
       .find(button => button.textContent?.includes("Compare"))!;
     await act(async () => compareButton.click());
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).toBeNull();
-    const masonryButton = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
-      .find(button => button.textContent?.includes("Masonry"))!;
     await act(async () => masonryButton.click());
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
+    expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
     expect(host.textContent).toContain("37 saved images");
     expect(host.textContent).toContain("concept_37");
     const blueprint = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]

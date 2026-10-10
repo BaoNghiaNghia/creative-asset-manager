@@ -2422,3 +2422,148 @@
 @media(max-width:1280px){.ops-content[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:860px){.ops-content[aria-labelledby="providers-title"] .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.ops-content[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid{grid-template-columns:1fr}}
 @media(max-width:640px){.ops-content[aria-labelledby="providers-title"] .ops-provider-card{padding:10px}.ops-content[aria-labelledby="providers-title"] .ops-provider-card .ops-provider-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-content[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-models,.ops-content[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-error{grid-column:1/-1}.ops-content[aria-labelledby="providers-title"] .gemini-backup-pool-head{display:none}.ops-content[aria-labelledby="providers-title"] .gemini-backup-pool-row,.ops-content[aria-labelledby="providers-title"] .gemini-backup-pool-editor{grid-template-columns:1fr}.ops-content[aria-labelledby="providers-title"] .gemini-backup-pool-row>.gemini-backup-pool-actions{height:auto;min-height:31px;visibility:visible;opacity:1;padding:0 8px 6px!important}}
+
+/* AI Operations responsive audit · mobile (320–430), tablet (768–1024), desktop.
+   Keep dense data tables horizontally scrollable inside the table, never the page. */
+.ops-control-icon{display:block;width:17px;height:17px;flex:0 0 17px}
+.ops-tabs-arrow .ops-control-icon{width:19px;height:19px;flex-basis:19px}
+.ops-media-tabs button,.ops-export-menu>summary,.ops-partial-error>button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+}
+.ops-export-menu>summary{white-space:nowrap}
+.ops-query-bar,.ops-content,.ops-provider-card,.ops-configuration,
+.ops-config-grid,.ops-config-grid>*{min-width:0}
+.ops-table-scroll{max-width:100%;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}
+.ops-tabs{scroll-padding-inline:10px}
+.ops-provider-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr))}
+.ops-shell{max-width:100%;min-width:0}
+.ops-main{max-width:100%;min-width:0}
+.ops-tabs-arrow:focus-visible,.ops-media-tabs button:focus-visible,
+.ops-export-menu>summary:focus-visible,.ops-partial-error button:focus-visible{
+  outline:2px solid #4e7ff0;outline-offset:-2px;
+}
+@media(max-width:1100px){
+  .ops-header{flex-wrap:wrap;gap:13px}
+  .ops-header-actions{flex-wrap:wrap;justify-content:flex-start;max-width:100%}
+  .ops-query-bar{flex-wrap:wrap;gap:10px}
+  .ops-query-bar .ops-filters{order:3;flex:1 1 100%;width:100%}
+  .ops-query-bar .ops-media-tabs{order:1}
+  .ops-query-bar .ops-export-menu{order:2;margin-left:auto}
+  .ops-content{padding-inline:20px}
+  .ops-skeleton{padding-inline:20px}
+  .ops-partial-error{margin-inline:20px}
+}
+@media(max-width:980px){
+  /* iPad portrait should not keep a 248px desktop sidebar. */
+  .ops-shell{display:block;grid-template-columns:minmax(0,1fr)}
+  .ops-sidebar{
+    position:relative;top:auto;display:flex;height:auto;width:100%;
+    padding:12px 16px 9px;flex-direction:column;align-items:stretch;
+    gap:8px;border-right:0;border-bottom:1px solid #dfe7f1;
+  }
+  .ops-sidebar .brand{margin:0;min-width:0}
+  .ops-sidebar .workspace-navigation{
+    display:flex;flex-direction:row;align-items:center;min-width:0;
+    margin:0;padding:0 0 3px;gap:5px;overflow-x:auto;overflow-y:hidden;
+    white-space:nowrap;scrollbar-width:thin;overscroll-behavior-x:contain;
+  }
+  .ops-sidebar .workspace-navigation a{
+    flex:0 0 auto;min-height:42px;min-width:0;white-space:nowrap;
+    padding:8px 10px;font-size:12px;
+  }
+  .ops-sidebar .workspace-navigation .workspace-nav-icon{width:22px;height:22px;flex-basis:22px}
+  .ops-sidebar-note,.ops-sidebar>p{display:none}
+  .ops-tabs button{min-height:46px;padding:10px 15px}
+  .ops-tabs-arrow{width:42px;min-width:42px;min-height:46px}
+  .ops-tabs-carousel{grid-template-columns:42px minmax(0,1fr) 42px}
+  .ops-header{padding:18px 20px;align-items:flex-start}
+  .ops-header-actions{width:100%;gap:6px;box-sizing:border-box}
+  .ops-worker-control,.ops-refresh-control,.ops-refresh-status{min-width:0!important;flex:1 1 120px}
+  .ops-query-bar{padding:12px 20px}
+  .ops-query-bar .ops-filters{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .ops-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .ops-config-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ops-provider-card{min-width:0}
+  .creative-skill-manager-layout{grid-template-columns:180px minmax(0,1fr);min-height:0;max-height:calc(100dvh - 130px)}
+}
+@media(max-width:680px){
+  .ops-sidebar{padding:10px 12px 8px;gap:6px}
+  .ops-header{padding:14px 12px;gap:10px}
+  .ops-header h1{font-size:clamp(20px,5.5vw,25px)}
+  .ops-header-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .ops-worker-controls{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+  .ops-worker-control,.ops-refresh-control,.ops-refresh-status{min-width:0!important;flex:1 1 0;width:auto;padding:6px!important}
+  .ops-worker-control button{min-height:40px;font-size:11px}
+  .ops-refresh-control select{min-height:40px;font-size:13px}
+  .ops-refresh-status{border-top:0!important;border-left:0!important;padding-left:6px!important}
+  .ops-back-link{grid-column:1/-1;width:100%;min-height:42px!important}
+  .ops-tabs-carousel{grid-template-columns:36px minmax(0,1fr) 36px}
+  .ops-tabs-arrow{min-width:36px;width:36px}
+  .ops-tabs button{min-height:46px;padding-inline:11px;font-size:12px}
+  .ops-tabs button .ops-tab-icon{width:21px;height:21px}
+  .ops-query-bar{padding:10px 12px;gap:8px}
+  .ops-query-bar .ops-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ops-query-bar .ops-filters label{font-size:11px}
+  .ops-query-bar .ops-filters :is(input,select){min-height:42px;font-size:13px}
+  .ops-query-bar .ops-export-menu>summary{min-height:42px;padding:0 11px}
+  .ops-media-tabs button{min-height:42px;padding-inline:10px}
+  .ops-content{padding:14px 12px 36px}
+  .ops-partial-error{margin:12px;flex-wrap:wrap}
+  .ops-partial-error button{min-height:42px}
+  .ops-skeleton{padding:14px 12px}
+  .ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .ops-kpis article{min-height:96px;padding:12px}
+  .ops-kpis .ops-kpi-title{font-size:12px}
+  .ops-kpis strong{font-size:clamp(18px,5vw,23px)}
+  .ops-chart h3{font-size:14px}
+  .ops-chart p,.ops-chart-table{font-size:11px}
+  .ops-chart-label{font-size:10px}
+  .ops-table-scroll{border-radius:9px}
+  .ops-data-table :is(th,td){padding:10px 9px;font-size:11px}
+  .ops-pagination{flex-wrap:wrap;justify-content:center;padding-block:7px}
+  .ops-pagination button,.ops-section-heading button{min-height:42px}
+  .ops-config-grid,.ops-provider-grid{grid-template-columns:minmax(0,1fr)}
+  .ops-provider-card,.ops-config-card{max-width:100%;min-width:0}
+  .ops-provider-card button,.ops-configuration button{min-height:40px}
+  .creative-skill-manager-layout{grid-template-columns:minmax(0,1fr);max-height:calc(100dvh - 85px)}
+  .creative-skill-manager-layout>nav{
+    display:flex;flex-direction:row;align-content:stretch;gap:5px;min-height:0;
+    max-height:120px;overflow-x:auto;overflow-y:hidden;
+    border-right:0;border-bottom:1px solid #e6ebf1;padding:8px;
+  }
+  .creative-skill-manager-layout>nav button{flex:0 0 150px;width:150px;min-height:44px}
+  .creative-skill-editor{padding:12px;min-height:0;overflow:auto}
+  .creative-skill-editor textarea{font-size:12px}
+  .creative-skill-editor input{min-height:40px;font-size:13px}
+  .creative-skill-editor>label,.creative-skill-knowledge>span{font-size:12px}
+  .creative-skill-manager-layout>nav :is(strong,small){font-size:11px}
+}
+@media(max-width:360px){
+  .ops-header-actions{grid-template-columns:minmax(0,1fr)}
+  .ops-query-bar .ops-filters{grid-template-columns:minmax(0,1fr)}
+  .ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ops-kpis article{padding:10px;min-height:92px}
+  .ops-kpis strong{font-size:18px}
+  .ops-export-menu nav{right:0;max-width:calc(100vw - 24px)}
+}
+@media(prefers-reduced-motion:reduce){
+  .ops-tabs button,.ops-media-tabs button,.ops-header-actions button{scroll-behavior:auto;transition:none}
+}
+/* Consistent inline action glyphs for configuration, credentials and diagnostics. */
+.ops-action-icon{display:inline-block;width:16px;height:16px;flex:0 0 16px;vertical-align:middle}
+.ops-priority-mode-title{display:flex;align-items:center;gap:7px;min-width:0}
+.ops-priority-mode-title .ops-action-icon{width:15px;height:15px;flex-basis:15px}
+.ops-provider-card button:has(>.ops-action-icon),
+.ops-configuration button:has(>.ops-action-icon),
+.inventory-actions button:has(>.ops-action-icon),
+.gemini-backup-pool-add:has(>.ops-action-icon),
+.visual-ops-heading-actions button:has(>.ops-action-icon){
+  display:inline-flex;align-items:center;justify-content:center;gap:6px
+}
+@media(max-width:680px){
+  .ops-provider-card button:has(>.ops-action-icon),
+  .ops-configuration button:has(>.ops-action-icon){min-height:42px}
+}
+/* Prevent long Save prompt labels from pushing compact configuration cards outside the viewport. */
+.ops-config-prompt .ops-prompt-footer{grid-template-columns:minmax(0,1fr)}
+.ops-config-prompt .ops-prompt-footer .primary{width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}

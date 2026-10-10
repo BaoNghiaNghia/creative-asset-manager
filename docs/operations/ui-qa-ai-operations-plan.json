@@ -1,13 +1,134 @@
 {
-  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "viewports": [
+    "desktop",
+    "compact",
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
   "qualityBudgets": {
-    "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0}
+    "desktop": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "compact": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletLandscape": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobile": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0,
+      "maxSmallTargets": 0
+    },
+    "mobileSmall": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0,
+      "maxSmallTargets": 0
+    }
   },
   "steps": [
-    {"name":"default","waitFor":".ops-content","waitMs":400},
-    {"name":"kpi-hover","hover":".ops-kpis article"},
-    {"name":"filter-focus","focus":".ops-filters select"}
+    {
+      "name": "analysis-initial",
+      "waitFor": ".ops-content",
+      "waitMs": 280,
+      "requireIcons": [
+        ".ops-tabs-arrow",
+        ".ops-export-menu > summary",
+        ".ops-media-tabs button"
+      ]
+    },
+    {
+      "name": "kpi-hover",
+      "hover": ".ops-kpis article"
+    },
+    {
+      "name": "filter-focus",
+      "focus": ".ops-filters select"
+    },
+    {
+      "name": "export-open",
+      "click": ".ops-export-menu>summary",
+      "waitFor": ".ops-export-menu[open] nav",
+      "waitMs": 80
+    },
+    {
+      "name": "export-close",
+      "click": ".ops-export-menu>summary",
+      "waitMs": 80
+    },
+    {
+      "name": "tab-pipeline",
+      "click": "[data-ops-tab=\"pipeline\"]",
+      "waitFor": "#ops-panel-pipeline",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-overview",
+      "click": "[data-ops-tab=\"overview\"]",
+      "waitFor": "#ops-panel-overview",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-processing",
+      "click": "[data-ops-tab=\"processing\"]",
+      "waitFor": "#ops-panel-processing",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-visual-search",
+      "click": "[data-ops-tab=\"visual-search\"]",
+      "waitFor": "#ops-panel-visual-search",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-creative-pipeline",
+      "click": "[data-ops-tab=\"creative-pipeline\"]",
+      "waitFor": "#ops-panel-creative-pipeline",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-inventory",
+      "click": "[data-ops-tab=\"inventory\"]",
+      "waitFor": "#ops-panel-inventory",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-cost",
+      "click": "[data-ops-tab=\"cost\"]",
+      "waitFor": "#ops-panel-cost",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-providers",
+      "click": "[data-ops-tab=\"providers\"]",
+      "waitFor": "#ops-panel-providers",
+      "waitMs": 300
+    },
+    {
+      "name": "tab-configuration",
+      "click": "[data-ops-tab=\"configuration\"]",
+      "waitFor": "#ops-panel-configuration",
+      "waitMs": 300
+    },
+    {
+      "name": "configuration-return",
+      "click": "[data-ops-tab=\"configuration\"]",
+      "waitMs": 180
+    }
   ]
 }

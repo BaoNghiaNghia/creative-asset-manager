@@ -163,6 +163,20 @@ export async function runAssertion(page, assertion, timeoutMs) {
     return;
   }
 
+  if (type === "no-viewport-overflow") {
+    const tolerancePx = Number(assertion.tolerancePx ?? 0);
+    if (!Number.isFinite(tolerancePx) || tolerancePx < 0) {
+      throw new Error("no-viewport-overflow tolerancePx must be a non-negative number.");
+    }
+    const overflow = await page.evaluate(
+      () => Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+    );
+    if (overflow > tolerancePx) {
+      throw new Error(`viewport overflow: ${overflow}px > ${tolerancePx}px`);
+    }
+    return;
+  }
+
   throw new Error(`Unknown state assertion type: ${type}`);
 }
 

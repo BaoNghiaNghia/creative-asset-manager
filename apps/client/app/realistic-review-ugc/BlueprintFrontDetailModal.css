@@ -1,0 +1,28 @@
+/* Portal is above the versions dialog and independent of its scroll clipping. */
+.rrugc-blueprint-detail-backdrop{position:fixed;inset:0;z-index:25000;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:rgba(13,25,43,.82)}
+.rrugc-blueprint-detail-dialog{display:flex;flex-direction:column;width:min(1050px,100%);height:min(92dvh,930px);max-height:100%;min-height:0;overflow:hidden;border:1px solid #cfdae8;border-radius:14px;background:#fff;box-shadow:0 20px 80px rgba(0,0,0,.3);color:#28425d}
+.rrugc-blueprint-detail-header,.rrugc-blueprint-detail-footer{position:relative;z-index:1;display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:11px 17px;background:#fff}
+.rrugc-blueprint-detail-header{border-bottom:1px solid #dce5ef}
+.rrugc-blueprint-detail-header>div{min-width:0;display:flex;flex-direction:column;gap:4px}
+.rrugc-blueprint-detail-header strong{font-size:15px;font-weight:800}
+.rrugc-blueprint-detail-header span{font-size:11px;color:#72879b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-blueprint-detail-close{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #ccd8e5;border-radius:9px;color:#294564;background:#f7faff;font-size:27px;line-height:1;cursor:pointer}
+.rrugc-blueprint-detail-viewport{flex:1;position:relative;display:grid;place-items:center;overflow:hidden;min-width:0;min-height:0;background:#f6f8fb;touch-action:none;user-select:none}
+.rrugc-blueprint-detail-pan{width:100%;height:100%;display:grid;place-items:center;will-change:transform;transform-origin:center center}
+.rrugc-blueprint-detail-image{position:relative;max-width:100%;max-height:100%;width:auto;height:100%;aspect-ratio:4/5;overflow:visible;isolation:isolate}
+.rrugc-blueprint-detail-image>.rrugc-blueprint-front-scene{position:absolute;inset:0;width:100%;height:100%;transform:scale(1.23);transform-origin:center center;pointer-events:none}
+.rrugc-blueprint-detail-image .rrugc-blueprint-hat-original{display:block;width:100%;height:100%;object-fit:contain}
+.rrugc-blueprint-detail-image .rrugc-blueprint-selected-design{position:absolute;top:33%;left:21%;width:58%;height:21%;overflow:visible}
+.rrugc-blueprint-detail-image .rrugc-blueprint-selected-design img{position:absolute;object-fit:fill;max-width:none;max-height:none;filter:none;mix-blend-mode:normal;box-shadow:none}
+.rrugc-blueprint-detail-image .rrugc-blueprint-front-guide{position:absolute;left:21%;top:33%;width:58%;height:21%}
+.rrugc-blueprint-detail-footer{border-top:1px solid #dce5ef;flex-wrap:wrap}
+.rrugc-blueprint-detail-footer>span{font-size:11px;color:#7a8da2}
+.rrugc-blueprint-detail-zoom-controls{display:flex;gap:9px;align-items:center}
+.rrugc-blueprint-detail-zoom-controls button{height:34px;min-width:34px;padding:0 10px;border:1px solid #ccd9e7;border-radius:8px;background:#f8fbff;color:#29577d;font-size:16px;cursor:pointer}
+.rrugc-blueprint-detail-zoom-controls button:disabled{opacity:.4;cursor:default}
+.rrugc-blueprint-detail-zoom-controls input{width:clamp(95px,23vw,195px);accent-color:#258aca}
+.rrugc-blueprint-detail-zoom-controls output{min-width:42px;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.rrugc-blueprint-detail-zoom-controls .rrugc-blueprint-detail-reset{font-size:12px;font-weight:700}
+.rrugc-blueprint-detail-dialog button:focus-visible,.rrugc-blueprint-detail-dialog input:focus-visible{outline:2px solid #2c89d2;outline-offset:3px}
+@media(max-width:680px){.rrugc-blueprint-detail-backdrop{padding:6px}.rrugc-blueprint-detail-dialog{height:calc(100dvh - 12px);border-radius:10px}.rrugc-blueprint-detail-header,.rrugc-blueprint-detail-footer{padding:10px}.rrugc-blueprint-detail-image{width:min(100%,calc((100dvh - 148px) * .8));height:auto;max-height:100%}.rrugc-blueprint-detail-image>.rrugc-blueprint-front-scene{transform:scale(1.15)}.rrugc-blueprint-detail-footer>span{display:none}.rrugc-blueprint-detail-zoom-controls{width:100%;justify-content:center}}
+@media(prefers-reduced-motion:reduce){.rrugc-blueprint-detail-pan{will-change:auto}}

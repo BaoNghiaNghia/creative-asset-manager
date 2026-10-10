@@ -67,12 +67,41 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).toContain('aria-label="Front design zoom"');
     expect(html).toContain('aria-label="Next Front embroidery palette for Black"');
     expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
-    expect((html.match(/class="rrugc-blueprint-selected-hat"/g) || []).length).toBe(1);
+    expect((html.match(/class="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail"/g) || []).length).toBe(1);
     expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
     expect((html.match(/rrugc-blueprint-design-choice/g) || []).length).toBeLessThanOrEqual(7);
     expect((html.match(/rrugc-blueprint-color-choice/g) || []).length).toBeLessThanOrEqual(7);
     expect(html).toContain("design_9.png");
     expect(html).toContain("Natural / Black");
+  });
+
+  it("opens a full-quality front embroidery detail modal, zooms, and closes without losing selection", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<BlueprintPreview versions={versions} />));
+    const front = host.querySelector<HTMLElement>(".rrugc-blueprint-front-open-detail")!;
+    expect(front.getAttribute("role")).toBe("button");
+    expect(front.getAttribute("tabindex")).toBe("0");
+    expect(front.getAttribute("aria-label")).toContain("Enlarge front embroidery");
+    await act(async () => front.click());
+    expect(document.querySelectorAll(".rrugc-blueprint-detail-dialog")).toHaveLength(1);
+    expect(document.querySelector(".rrugc-blueprint-detail-dialog")?.getAttribute("aria-modal")).toBe("true");
+    const image = document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design img")!;
+    // Detail fetches the full output, never the 512px preview thumbnail.
+    expect(image.getAttribute("src")).toBe(versions[0].url);
+    expect(document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/black.jpg");
+    await act(async () => click(document.body, "Zoom in front detail"));
+    expect(document.querySelector(".rrugc-blueprint-detail-zoom-controls output")?.textContent).toBe("125%");
+    expect(document.querySelector<HTMLElement>(".rrugc-blueprint-detail-pan")?.style.transform).toContain("scale(1.25)");
+    await act(async () => click(document.body, "Close front embroidery detail"));
+    expect(document.querySelector(".rrugc-blueprint-detail-dialog")).toBeNull();
+    expect(chosen(host)).toContain("design_9.png");
+    await act(async () => { front.focus(); front.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(document.querySelector(".rrugc-blueprint-detail-dialog")).not.toBeNull();
+    await sendKey("Escape");
+    expect(document.querySelector(".rrugc-blueprint-detail-dialog")).toBeNull();
+    await act(async () => root.unmount());
   });
 
   it("keeps both selection positions centered while arrow keys browse all designs and colors", async () => {

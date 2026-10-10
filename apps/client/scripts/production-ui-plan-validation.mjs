@@ -3,10 +3,22 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const SUPPORTED_ASSERTIONS = new Set([
+  "visible",
+  "width-ratio",
+  "no-horizontal-overflow",
+  "no-viewport-overflow",
+]);
+
 export function validateProductionUiPlan(plan) {
   const issues = [];
   for (const route of plan?.routes || []) {
     for (const state of route.states || []) {
+      for (const assertion of state.assertions || []) {
+        if (!SUPPORTED_ASSERTIONS.has(assertion.type)) {
+          issues.push(`${route.name}/${state.name}: unsupported Production UI assertion ${assertion.type}`);
+        }
+      }
       const selectedStage = String(state.click || "").match(/^#rrugc-tab-stage(\d+)$/)?.[1];
       if (selectedStage) {
         for (const assertion of state.assertions || []) {

@@ -4,9 +4,23 @@
     "user_id": "qa-ai-admin",
     "actor_id": "qa-ai-admin",
     "active_tenant_id": "qa-tenant",
-    "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
-    "roles": ["processing_admin"],
-    "permissions": ["assets.read","ai_operations.read","ai_operations.manage","inventory.read","inventory.credentials.manage"],
+    "available_tenants": [
+      {
+        "id": "qa-tenant",
+        "name": "QA Studio",
+        "slug": "qa-studio"
+      }
+    ],
+    "roles": [
+      "processing_admin"
+    ],
+    "permissions": [
+      "assets.read",
+      "ai_operations.read",
+      "ai_operations.manage",
+      "inventory.read",
+      "inventory.credentials.manage"
+    ],
     "is_processing_admin": true,
     "authorization_source": "tenant_rbac",
     "application_auth_provider": "google",
@@ -16,171 +30,884 @@
   },
   "providerSession": {
     "authenticated": true,
-    "user": {"id":"qa-google-ai","name":"QA AI Admin","email":"qa.ai@example.test"}
+    "user": {
+      "id": "qa-google-ai",
+      "name": "QA AI Admin",
+      "email": "qa.ai@example.test"
+    }
   },
   "sources": [],
   "folders": {},
   "apiRoutes": [
     {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/summary",
-      "body":{
-        "requested":1280,
-        "queued":34,
-        "running":8,
-        "completed":1194,
-        "failed":44,
-        "cancelled":0,
-        "budget_blocked":0,
-        "deferred":12,
-        "next_deferred_retry_at":"2026-10-02T08:20:00Z",
-        "local_rate_limited":5,
-        "quota_deferred":4,
-        "provider_cooldown_deferred":3,
-        "next_local_rate_limit_retry_at":"2026-10-02T08:11:00Z",
-        "next_quota_retry_at":"2026-10-02T08:14:00Z",
-        "next_provider_retry_at":"2026-10-02T08:12:00Z",
-        "success_rate":0.964,
-        "input_units":284000,
-        "output_units":91000,
-        "cost":{
-          "estimated_cost_micros":4280000,
-          "provider_reported_cost_micros":4210000,
-          "reconciled_cost_micros":4210000,
-          "currency":"USD"
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/summary",
+      "body": {
+        "requested": 1280,
+        "queued": 34,
+        "running": 8,
+        "completed": 1194,
+        "failed": 44,
+        "cancelled": 0,
+        "budget_blocked": 0,
+        "deferred": 12,
+        "next_deferred_retry_at": "2026-10-02T08:20:00Z",
+        "local_rate_limited": 5,
+        "quota_deferred": 4,
+        "provider_cooldown_deferred": 3,
+        "next_local_rate_limit_retry_at": "2026-10-02T08:11:00Z",
+        "next_quota_retry_at": "2026-10-02T08:14:00Z",
+        "next_provider_retry_at": "2026-10-02T08:12:00Z",
+        "success_rate": 0.964,
+        "input_units": 284000,
+        "output_units": 91000,
+        "cost": {
+          "estimated_cost_micros": 4280000,
+          "provider_reported_cost_micros": 4210000,
+          "reconciled_cost_micros": 4210000,
+          "currency": "USD"
         },
-        "latency":{"average_ms":2680,"p50_ms":2210,"p95_ms":5940},
-        "average_cost_per_completed_asset_micros":3526
+        "latency": {
+          "average_ms": 2680,
+          "p50_ms": 2210,
+          "p95_ms": 5940
+        },
+        "average_cost_per_completed_asset_micros": 3526
       }
     },
     {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/daily",
-      "body":{"items":[
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/daily",
+      "body": {
+        "items": [
+          {
+            "date": "2026-10-01",
+            "requested": 610,
+            "completed": 570,
+            "failed": 20,
+            "estimated_cost_micros": 2020000,
+            "provider_reported_cost_micros": 1980000,
+            "reconciled_cost_micros": 1980000,
+            "provider_estimated_cost_micros": {
+              "gemini": 1620000,
+              "openai": 400000
+            },
+            "average_latency_ms": 2750,
+            "p95_latency_ms": 6100
+          },
+          {
+            "date": "2026-10-02",
+            "requested": 670,
+            "completed": 624,
+            "failed": 24,
+            "estimated_cost_micros": 2260000,
+            "provider_reported_cost_micros": 2230000,
+            "reconciled_cost_micros": 2230000,
+            "provider_estimated_cost_micros": {
+              "gemini": 1840000,
+              "openai": 420000
+            },
+            "average_latency_ms": 2610,
+            "p95_latency_ms": 5790
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/providers",
+      "body": {
+        "items": [
+          {
+            "provider": "gemini",
+            "model": "gemini-fixture",
+            "processing_mode": "batch",
+            "count": 980,
+            "completed": 940,
+            "failed": 24,
+            "success_rate": 0.975,
+            "average_latency_ms": 2510,
+            "p95_latency_ms": 5480,
+            "input_units": 224000,
+            "output_units": 72000,
+            "estimated_cost_micros": 3440000,
+            "provider_reported_cost_micros": 3390000,
+            "reconciled_cost_micros": 3390000,
+            "currency": "USD"
+          },
+          {
+            "provider": "openai",
+            "model": "fixture-model",
+            "processing_mode": "single",
+            "count": 300,
+            "completed": 254,
+            "failed": 20,
+            "success_rate": 0.927,
+            "average_latency_ms": 3240,
+            "p95_latency_ms": 6900,
+            "input_units": 60000,
+            "output_units": 19000,
+            "estimated_cost_micros": 840000,
+            "provider_reported_cost_micros": 820000,
+            "reconciled_cost_micros": 820000,
+            "currency": "USD"
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/failures",
+      "body": {
+        "items": [
+          {
+            "source": "image_analysis",
+            "error_code": "provider_timeout",
+            "count": 16
+          },
+          {
+            "source": "video_analysis",
+            "error_code": "quota_deferred",
+            "count": 9
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/configuration/credentials/gemini",
+      "body": {
+        "provider": "gemini",
+        "configured": true,
+        "source": "configuration",
+        "masked_key": "••••••••IMG1",
+        "label": "Image primary",
+        "status": "connected",
+        "last_tested_at": "2026-10-07T07:00:00Z",
+        "updated_at": "2026-10-07T07:00:00Z",
+        "updated_by": "qa-ai-admin"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/configuration/credentials/gemini-video",
+      "body": {
+        "provider": "gemini_video",
+        "configured": true,
+        "source": "configuration",
+        "masked_key": "••••••••VID1",
+        "label": "Video primary",
+        "status": "connected",
+        "last_tested_at": "2026-10-07T07:00:00Z",
+        "updated_at": "2026-10-07T07:00:00Z",
+        "updated_by": "qa-ai-admin"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/configuration/credentials/gemini-backups",
+      "body": [
         {
-          "date":"2026-10-01","requested":610,"completed":570,"failed":20,
-          "estimated_cost_micros":2020000,"provider_reported_cost_micros":1980000,
-          "reconciled_cost_micros":1980000,"provider_estimated_cost_micros":{"gemini":1620000,"openai":400000},
-          "average_latency_ms":2750,"p95_latency_ms":6100
+          "provider": "gemini_backup_1",
+          "slot": 1,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I001",
+          "label": "Image key 1",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
         },
         {
-          "date":"2026-10-02","requested":670,"completed":624,"failed":24,
-          "estimated_cost_micros":2260000,"provider_reported_cost_micros":2230000,
-          "reconciled_cost_micros":2230000,"provider_estimated_cost_micros":{"gemini":1840000,"openai":420000},
-          "average_latency_ms":2610,"p95_latency_ms":5790
+          "provider": "gemini_backup_2",
+          "slot": 2,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I002",
+          "label": "Image key 2",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_3",
+          "slot": 3,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I003",
+          "label": "Image key 3",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_4",
+          "slot": 4,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I004",
+          "label": "Image key 4",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_5",
+          "slot": 5,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I005",
+          "label": "Image key 5",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_6",
+          "slot": 6,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I006",
+          "label": "Image key 6",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_7",
+          "slot": 7,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I007",
+          "label": "Image key 7",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_8",
+          "slot": 8,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I008",
+          "label": "Image key 8",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_9",
+          "slot": 9,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I009",
+          "label": "Image key 9",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_10",
+          "slot": 10,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I010",
+          "label": "Image key 10",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_11",
+          "slot": 11,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I011",
+          "label": "Image key 11",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_12",
+          "slot": 12,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••I012",
+          "label": "Image key 12",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_13",
+          "slot": 13,
+          "configured": false,
+          "source": "unavailable",
+          "masked_key": null,
+          "label": null,
+          "status": "unavailable",
+          "last_tested_at": null,
+          "updated_at": null,
+          "updated_by": null
         }
-      ]}
+      ]
     },
     {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/providers",
-      "body":{"items":[
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups",
+      "body": [
         {
-          "provider":"gemini","model":"gemini-fixture","processing_mode":"batch",
-          "count":980,"completed":940,"failed":24,"success_rate":0.975,
-          "average_latency_ms":2510,"p95_latency_ms":5480,"input_units":224000,"output_units":72000,
-          "estimated_cost_micros":3440000,"provider_reported_cost_micros":3390000,
-          "reconciled_cost_micros":3390000,"currency":"USD"
+          "provider": "gemini_video_backup_1",
+          "slot": 1,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••V001",
+          "label": "Video key 1",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
         },
         {
-          "provider":"openai","model":"fixture-model","processing_mode":"single",
-          "count":300,"completed":254,"failed":20,"success_rate":0.927,
-          "average_latency_ms":3240,"p95_latency_ms":6900,"input_units":60000,"output_units":19000,
-          "estimated_cost_micros":840000,"provider_reported_cost_micros":820000,
-          "reconciled_cost_micros":820000,"currency":"USD"
+          "provider": "gemini_video_backup_2",
+          "slot": 2,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••V002",
+          "label": "Video key 2",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_video_backup_3",
+          "slot": 3,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••V003",
+          "label": "Video key 3",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_video_backup_4",
+          "slot": 4,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••V004",
+          "label": "Video key 4",
+          "status": "connected",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_video_backup_5",
+          "slot": 5,
+          "configured": false,
+          "source": "unavailable",
+          "masked_key": null,
+          "label": null,
+          "status": "unavailable",
+          "last_tested_at": null,
+          "updated_at": null,
+          "updated_by": null
         }
-      ]}
+      ]
     },
     {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/failures",
-      "body":{"items":[
-        {"source":"image_analysis","error_code":"provider_timeout","count":16},
-        {"source":"video_analysis","error_code":"quota_deferred","count":9}
-      ]}
+      "method": "GET",
+      "path": "/api/inventory/configuration/ai-credential",
+      "body": {
+        "provider": "gemini",
+        "configured": true,
+        "source": "configuration",
+        "masked_key": "••••••••INV1",
+        "label": "Inventory primary",
+        "status": "connected",
+        "health_status": "VALID",
+        "last_test_status": "VALID",
+        "last_tested_at": "2026-10-07T07:00:00Z",
+        "updated_at": "2026-10-07T07:00:00Z",
+        "updated_by": "qa-ai-admin"
+      }
     },
     {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini",
-      "body":{"provider":"gemini","configured":true,"source":"configuration","masked_key":"••••••••IMG1","label":"Image primary","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"}
-    },
-    {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini-video",
-      "body":{"provider":"gemini_video","configured":true,"source":"configuration","masked_key":"••••••••VID1","label":"Video primary","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"}
-    },
-    {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini-backups",
-      "body":[{"provider":"gemini_backup_1","slot":1,"configured":true,"source":"configuration","masked_key":"••••••••I001","label":"Image key 1","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_2","slot":2,"configured":true,"source":"configuration","masked_key":"••••••••I002","label":"Image key 2","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_3","slot":3,"configured":true,"source":"configuration","masked_key":"••••••••I003","label":"Image key 3","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_4","slot":4,"configured":true,"source":"configuration","masked_key":"••••••••I004","label":"Image key 4","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_5","slot":5,"configured":true,"source":"configuration","masked_key":"••••••••I005","label":"Image key 5","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_6","slot":6,"configured":true,"source":"configuration","masked_key":"••••••••I006","label":"Image key 6","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_7","slot":7,"configured":true,"source":"configuration","masked_key":"••••••••I007","label":"Image key 7","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_8","slot":8,"configured":true,"source":"configuration","masked_key":"••••••••I008","label":"Image key 8","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_9","slot":9,"configured":true,"source":"configuration","masked_key":"••••••••I009","label":"Image key 9","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_10","slot":10,"configured":true,"source":"configuration","masked_key":"••••••••I010","label":"Image key 10","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_11","slot":11,"configured":true,"source":"configuration","masked_key":"••••••••I011","label":"Image key 11","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_12","slot":12,"configured":true,"source":"configuration","masked_key":"••••••••I012","label":"Image key 12","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_13","slot":13,"configured":false,"source":"unavailable","masked_key":null,"label":null,"status":"unavailable","last_tested_at":null,"updated_at":null,"updated_by":null}]
-    },
-    {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/configuration/credentials/gemini-video-backups",
-      "body":[{"provider":"gemini_video_backup_1","slot":1,"configured":true,"source":"configuration","masked_key":"••••••••V001","label":"Video key 1","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_2","slot":2,"configured":true,"source":"configuration","masked_key":"••••••••V002","label":"Video key 2","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_3","slot":3,"configured":true,"source":"configuration","masked_key":"••••••••V003","label":"Video key 3","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_4","slot":4,"configured":true,"source":"configuration","masked_key":"••••••••V004","label":"Video key 4","status":"connected","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_video_backup_5","slot":5,"configured":false,"source":"unavailable","masked_key":null,"label":null,"status":"unavailable","last_tested_at":null,"updated_at":null,"updated_by":null}]
-    },
-    {
-      "method":"GET",
-      "path":"/api/inventory/configuration/ai-credential",
-      "body":{"provider":"gemini","configured":true,"source":"configuration","masked_key":"••••••••INV1","label":"Inventory primary","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"}
-    },
-    {
-      "method":"GET",
-      "path":"/api/inventory/configuration/ai-credential-backups",
-      "body":[{"provider":"gemini_backup_1","slot":1,"configured":true,"source":"configuration","masked_key":"••••••••N001","label":"Inventory key 1","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_2","slot":2,"configured":true,"source":"configuration","masked_key":"••••••••N002","label":"Inventory key 2","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_3","slot":3,"configured":true,"source":"configuration","masked_key":"••••••••N003","label":"Inventory key 3","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_4","slot":4,"configured":true,"source":"configuration","masked_key":"••••••••N004","label":"Inventory key 4","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_5","slot":5,"configured":true,"source":"configuration","masked_key":"••••••••N005","label":"Inventory key 5","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_6","slot":6,"configured":true,"source":"configuration","masked_key":"••••••••N006","label":"Inventory key 6","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_7","slot":7,"configured":true,"source":"configuration","masked_key":"••••••••N007","label":"Inventory key 7","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_8","slot":8,"configured":true,"source":"configuration","masked_key":"••••••••N008","label":"Inventory key 8","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_9","slot":9,"configured":true,"source":"configuration","masked_key":"••••••••N009","label":"Inventory key 9","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_10","slot":10,"configured":true,"source":"configuration","masked_key":"••••••••N010","label":"Inventory key 10","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_11","slot":11,"configured":true,"source":"configuration","masked_key":"••••••••N011","label":"Inventory key 11","status":"connected","health_status":"VALID","last_test_status":"VALID","last_tested_at":"2026-10-07T07:00:00Z","updated_at":"2026-10-07T07:00:00Z","updated_by":"qa-ai-admin"},{"provider":"gemini_backup_12","slot":12,"configured":false,"source":"unavailable","masked_key":null,"label":null,"status":"unavailable","health_status":"NOT_TESTED","last_test_status":null,"last_tested_at":null,"updated_at":null,"updated_by":null}]
-    },
-    {
-      "method":"GET",
-      "path":"/api/v1/admin/ai-operations/configuration",
-      "body":{
-        "tenant_id":"qa-tenant",
-        "scope":{"tenant":"qa-tenant","global_upper_bounds_read_only":true},
-        "permissions":{
-          "can_manage_tenant":true,
-          "can_configure_provider":true,
-          "can_read_budget":true,
-          "can_update_budget":true,
-          "can_emergency_stop":false,
-          "can_retry_jobs":true,
-          "can_cancel_jobs":true,
-          "can_manage_global":false,
-          "platform_admin":false
+      "method": "GET",
+      "path": "/api/inventory/configuration/ai-credential-backups",
+      "body": [
+        {
+          "provider": "gemini_backup_1",
+          "slot": 1,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N001",
+          "label": "Inventory key 1",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
         },
-        "tenant":{
-          "ai_enabled":true,
-          "video_enabled":true,
-          "processing_paused":false,
-          "default_provider":"gemini",
-          "default_model":"gemini-fixture",
-          "default_mode":"batch",
-          "default_metadata_profile":"default",
-          "auto_analyze_new_assets":true,
-          "daily_item_limit":5000,
-          "total_ai_concurrency":8,
-          "retry_count":3,
-          "timeout_seconds":90
+        {
+          "provider": "gemini_backup_2",
+          "slot": 2,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N002",
+          "label": "Inventory key 2",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
         },
-        "global":{
-          "ai_auto_analyze_enabled":true,
-          "single_enabled":true,
-          "batch_enabled":true,
-          "emergency_stop":false
+        {
+          "provider": "gemini_backup_3",
+          "slot": 3,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N003",
+          "label": "Inventory key 3",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
         },
-        "providers":[
-          {"id":"gemini","label":"Google Gemini","enabled":true,"connection_configured":true,"processing_enabled":true,"paused":false,"single_enabled":true,"batch_enabled":false,"default_model":"gemini-fixture","allowed_models":["gemini-fixture","gemini-2.5-flash-lite","gemini-2.5-flash"],"active_jobs_limit":8,"single_concurrency":4,"batch_concurrency":1,"last_error":null},
-          {"id":"openai","label":"OpenAI","enabled":false,"connection_configured":false,"processing_enabled":false,"paused":false,"single_enabled":false,"batch_enabled":false,"default_model":null,"allowed_models":[],"active_jobs_limit":1,"single_concurrency":1,"batch_concurrency":1,"last_error":null}
+        {
+          "provider": "gemini_backup_4",
+          "slot": 4,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N004",
+          "label": "Inventory key 4",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_5",
+          "slot": 5,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N005",
+          "label": "Inventory key 5",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_6",
+          "slot": 6,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N006",
+          "label": "Inventory key 6",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_7",
+          "slot": 7,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N007",
+          "label": "Inventory key 7",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_8",
+          "slot": 8,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N008",
+          "label": "Inventory key 8",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_9",
+          "slot": 9,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N009",
+          "label": "Inventory key 9",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_10",
+          "slot": 10,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N010",
+          "label": "Inventory key 10",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_11",
+          "slot": 11,
+          "configured": true,
+          "source": "configuration",
+          "masked_key": "••••••••N011",
+          "label": "Inventory key 11",
+          "status": "connected",
+          "health_status": "VALID",
+          "last_test_status": "VALID",
+          "last_tested_at": "2026-10-07T07:00:00Z",
+          "updated_at": "2026-10-07T07:00:00Z",
+          "updated_by": "qa-ai-admin"
+        },
+        {
+          "provider": "gemini_backup_12",
+          "slot": 12,
+          "configured": false,
+          "source": "unavailable",
+          "masked_key": null,
+          "label": null,
+          "status": "unavailable",
+          "health_status": "NOT_TESTED",
+          "last_test_status": null,
+          "last_tested_at": null,
+          "updated_at": null,
+          "updated_by": null
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/configuration",
+      "body": {
+        "tenant_id": "qa-tenant",
+        "scope": {
+          "tenant": "qa-tenant",
+          "global_upper_bounds_read_only": true
+        },
+        "permissions": {
+          "can_manage_tenant": true,
+          "can_configure_provider": true,
+          "can_read_budget": true,
+          "can_update_budget": true,
+          "can_emergency_stop": false,
+          "can_retry_jobs": true,
+          "can_cancel_jobs": true,
+          "can_manage_global": false,
+          "platform_admin": false
+        },
+        "tenant": {
+          "ai_enabled": true,
+          "video_enabled": true,
+          "processing_paused": false,
+          "default_provider": "gemini",
+          "default_model": "gemini-fixture",
+          "default_mode": "batch",
+          "default_metadata_profile": "default",
+          "auto_analyze_new_assets": true,
+          "daily_item_limit": 5000,
+          "total_ai_concurrency": 8,
+          "retry_count": 3,
+          "timeout_seconds": 90
+        },
+        "global": {
+          "ai_auto_analyze_enabled": true,
+          "single_enabled": true,
+          "batch_enabled": true,
+          "emergency_stop": false
+        },
+        "providers": [
+          {
+            "id": "gemini",
+            "label": "Google Gemini",
+            "enabled": true,
+            "connection_configured": true,
+            "processing_enabled": true,
+            "paused": false,
+            "single_enabled": true,
+            "batch_enabled": false,
+            "default_model": "gemini-fixture",
+            "allowed_models": [
+              "gemini-fixture",
+              "gemini-2.5-flash-lite",
+              "gemini-2.5-flash"
+            ],
+            "active_jobs_limit": 8,
+            "single_concurrency": 4,
+            "batch_concurrency": 1,
+            "last_error": null
+          },
+          {
+            "id": "openai",
+            "label": "OpenAI",
+            "enabled": false,
+            "connection_configured": false,
+            "processing_enabled": false,
+            "paused": false,
+            "single_enabled": false,
+            "batch_enabled": false,
+            "default_model": null,
+            "allowed_models": [],
+            "active_jobs_limit": 1,
+            "single_concurrency": 1,
+            "batch_concurrency": 1,
+            "last_error": null
+          }
         ],
-        "metadata_profiles":["default"],
-        "metadata_prompt_template":null,
-        "video_prompt_template":null,
-        "budget":{
-          "enabled":true,
-          "daily_limit_micros":10000000,
-          "monthly_limit_micros":200000000,
-          "warning_threshold_percent":80,
-          "hard_stop_threshold_percent":100,
-          "currency":"USD"
+        "metadata_profiles": [
+          "default"
+        ],
+        "metadata_prompt_template": null,
+        "video_prompt_template": null,
+        "budget": {
+          "enabled": true,
+          "daily_limit_micros": 10000000,
+          "monthly_limit_micros": 200000000,
+          "warning_threshold_percent": 80,
+          "hard_stop_threshold_percent": 100,
+          "currency": "USD"
         }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/pipeline",
+      "body": {
+        "generated_at": "2026-10-10T08:00:00Z",
+        "latest_source_sync": null,
+        "overall": {
+          "source_items_discovered": 2600,
+          "supported_assets": 2100,
+          "unsupported_assets": 350,
+          "completed": 1960,
+          "active": 12,
+          "queued": 90,
+          "failed": 4,
+          "indexed_percentage": 93,
+          "throughput_today": 38,
+          "asset_progress": [
+            {
+              "key": "ready",
+              "count": 1960
+            }
+          ]
+        },
+        "stages": [],
+        "active_job": null,
+        "failure_groups": [],
+        "recent_assets": {
+          "items": [],
+          "page": 1,
+          "page_size": 25,
+          "total": 0
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/media-dashboard",
+      "body": {
+        "workers": [],
+        "video": {
+          "queued": 0,
+          "running": 0,
+          "completed": 0,
+          "failed": 0
+        },
+        "video_indexing": {
+          "queued": 0,
+          "running": 0,
+          "completed": 0,
+          "failed": 0
+        },
+        "recent_video": {
+          "items": [],
+          "page": 1,
+          "page_size": 25,
+          "total": 0
+        },
+        "video_processed_today": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/jobs",
+      "body": {
+        "items": [],
+        "page": 1,
+        "page_size": 25,
+        "total": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai-operations/usage",
+      "body": {
+        "items": [],
+        "page": 1,
+        "page_size": 25,
+        "total": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/visual-search/coverage/dashboard",
+      "body": {
+        "generated_at": "2026-10-10T08:00:00Z",
+        "index_state": "available",
+        "totals": {
+          "discovered_images": 2600,
+          "imported_images": 2450,
+          "visual_eligible": 2100,
+          "visual_indexed_current": 1960,
+          "visual_index_missing": 120,
+          "visual_index_stale": 20,
+          "unsupported_images": 350,
+          "visual_jobs_pending": 90,
+          "visual_jobs_processing": 12,
+          "visual_jobs_failed": 4
+        },
+        "ratios": {
+          "import_coverage": 0.94,
+          "eligible_visual_coverage": 0.933,
+          "whole_resource_searchable": 0.75
+        },
+        "sources": [
+          {
+            "source_id": "fixture-drive",
+            "display_name": "QA Google Drive",
+            "source_type": "google_drive",
+            "discovered_images": 2600,
+            "imported_images": 2450,
+            "visual_eligible": 2100,
+            "visual_indexed_current": 1960,
+            "visual_index_missing": 120,
+            "visual_index_stale": 20,
+            "unsupported_images": 350,
+            "visual_jobs_pending": 90,
+            "visual_jobs_processing": 12,
+            "visual_jobs_failed": 4,
+            "ratios": {
+              "import_coverage": 0.94,
+              "eligible_visual_coverage": 0.933,
+              "whole_resource_searchable": 0.75
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creative-pipeline/groups",
+      "body": {
+        "items": [
+          {
+            "id": "fixture-group",
+            "name": "QA Product Group",
+            "platform": "etsy",
+            "listing_count": 1,
+            "active_listing_count": 1,
+            "current_runs": {
+              "running": 1,
+              "queued": 0,
+              "failed": 0,
+              "completed": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creative-pipeline/listings",
+      "body": {
+        "items": [
+          {
+            "id": "fixture-listing",
+            "source_group_id": "fixture-group",
+            "listing_key": "QA-SAMPLE",
+            "folder_name": "Sample listing",
+            "platform": "etsy",
+            "source_status": "ready",
+            "pipeline_status": "running",
+            "current_run": null
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/status",
+      "body": {
+        "timezone": "Asia/Ho_Chi_Minh",
+        "operational_state": "healthy",
+        "execution_mode": "v4_slots",
+        "current_local_date": "2026-10-10",
+        "working_business_date": "2026-10-10",
+        "carry_forward_time": "08:00",
+        "snapshot_time": "16:00",
+        "reconcile_time": "20:00",
+        "last_snapshot": null,
+        "last_reconciliation": null,
+        "last_reconciliation_summary": null,
+        "working_spreadsheet_url": null,
+        "carry_forward": null
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/lifecycle-history",
+      "body": {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 25
       }
     }
   ]

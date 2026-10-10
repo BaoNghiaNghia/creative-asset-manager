@@ -41,7 +41,29 @@ export async function assertUiState(page, assertion) {
     );
     const max = Number(assertion.maxPx ?? 0);
     if (overflow > max) {
-      throw new Error(`UI QA viewport overflow: ${overflow}px > ${max}px`);
+      const offenders = await page.evaluate(() => [...document.querySelectorAll("body *")]
+        .map(node => ({node, rect: node.getBoundingClientRect()}))
+        .filter(({ node, rect }) => {
+          const css = getComputedStyle(node);
+          if (css.display === "none" || css.visibility === "hidden"
+              || rect.width <= 0 || rect.right <= innerWidth + 1) return false;
+          for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+            const overflow = getComputedStyle(parent).overflowX;
+            if (overflow === "auto" || overflow === "scroll" || overflow === "hidden" || overflow === "clip") {
+              if (parent.getBoundingClientRect().right <= innerWidth + 1) return false;
+            }
+          }
+          return true;
+        })
+        .sort((a, b) => b.rect.right - a.rect.right)
+        .slice(0, 8).map(({ node, rect }) => ({
+          tag: node.tagName.toLowerCase(),
+          className: typeof node.className === "string" ? node.className.slice(0, 75) : "",
+          parent: typeof node.parentElement?.className === "string" ? node.parentElement.className.slice(0, 80) : "",
+          ancestor: typeof node.parentElement?.parentElement?.className === "string" ? node.parentElement.parentElement.className.slice(0, 80) : "",
+          right: Math.round(rect.right),
+        })));
+      throw new Error(`UI QA viewport overflow: ${overflow}px > ${max}px. Right-edge elements: ${JSON.stringify(offenders)}`);
     }
   } else if (type === "min-control-size") {
     const minimum = Number(assertion.minPx ?? 24);
