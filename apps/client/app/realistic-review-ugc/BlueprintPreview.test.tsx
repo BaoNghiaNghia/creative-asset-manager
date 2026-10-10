@@ -128,11 +128,28 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("100");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.getAttribute("alt")).toContain("Natural / Brown");
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.classList.contains("rrugc-deferred-img")).toBe(true);
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.classList.contains("rrugc-blueprint-smooth-img")).toBe(true);
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
     expect(host.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-color-hat").length).toBeGreaterThanOrEqual(5);
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Blueprint design size"]')?.max).toBe("100");
     await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
     expect(host.querySelector(".rrugc-blueprint-selected-design.is-guided")).not.toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-side-guide")).not.toBeNull();
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image img")?.alt).toContain("Natural / Brown");
+    await act(async () => root.unmount());
+  });
+
+  it("shows a clear Side fallback when an image is missing without blocking navigation", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<BlueprintPreview versions={versions} />));
+    await act(async () => host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image img")!.dispatchEvent(new Event("error")));
+    expect(host.querySelector(".rrugc-blueprint-side-unavailable")?.textContent).toContain("Natural / Black");
+    await act(async () => click(host, "Select hat color Natural / Brown"));
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image img")?.src).toContain("/rrugc/blueprint/sides/brown.jpg");
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
     await act(async () => root.unmount());
   });
 
