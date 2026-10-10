@@ -6,6 +6,7 @@ import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
+import { useBlueprintEmbroideryTint, BLUEPRINT_THREAD_COLORS } from "./BlueprintEmbroideryTint";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -90,6 +91,8 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
   const activeDesignSrc = activeDesign?.url ? thumbnailUrl(activeDesign.url, 512) : "";
+  const tintedFrontSrc = useBlueprintEmbroideryTint(activeDesignSrc, activeColor.id);
+  const tintedSideSrc = useBlueprintEmbroideryTint(BLUEPRINT_SIDE_CALIBRATION_DESIGN, activeColor.id);
   const frontFit = useBlueprintArtworkFit(activeDesignSrc, frontDesignSize);
 
   useEffect(() => {
@@ -262,6 +265,9 @@ export function BlueprintPreview({ versions, initialVersion }: {
                 <span className="rrugc-blueprint-selected-badge">● SELECTED</span>
                 <span>{selectedDesign + 1}/{versions.length} designs · {colorIndex + 1}/12 colors</span>
               </div>
+              <span className="rrugc-blueprint-thread-swatch" title={"Thread color matches " + activeColor.short + " brim"}
+                role="img" aria-label={"Front embroidery thread: " + activeColor.short}
+                style={{ backgroundColor: BLUEPRINT_THREAD_COLORS[activeColor.id] }}/>
               <BlueprintViewZoom label="Front" value={frontDesignSize} onChange={setFrontDesignSize}/>
             </div>
           </header>
@@ -275,7 +281,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
                 <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
                   alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
                 <div ref={frontFit.frameRef} className="rrugc-blueprint-selected-design">
-                  <BlueprintSmoothImage key={activeDesign.version} src={activeDesignSrc}
+                  <BlueprintSmoothImage key={activeDesign.version} src={tintedFrontSrc}
                     onLoad={frontFit.onLoad}
                     style={frontFit.style ?? { opacity: 0 }}
                     alt={designName(activeDesign) + " fitted embroidery on " + activeColor.label} draggable={false}/>
@@ -295,7 +301,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
                   <div className="rrugc-blueprint-front-scene">
                     <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
                     <div className="rrugc-blueprint-selected-design">
-                      <img src={activeDesignSrc} alt="" draggable={false}
+                      <img src={tintedFrontSrc} alt="" draggable={false}
                         style={frontFit.style ?? { opacity: 0 }}/>
                     </div>
                     {guides && <>
@@ -329,6 +335,9 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
               <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
+              <span className="rrugc-blueprint-thread-swatch" title={"Thread color matches " + activeColor.short + " brim"}
+                role="img" aria-label={"Right side embroidery thread: " + activeColor.short}
+                style={{ backgroundColor: BLUEPRINT_THREAD_COLORS[activeColor.id] }}/>
               <BlueprintViewZoom label="Right side" value={sideDesignSize} onChange={setSideDesignSize}/>
             </div>
           </header>
@@ -346,7 +355,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
                   <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
                   </div>
                   <img className="rrugc-blueprint-side-calibration-design"
-                    src={BLUEPRINT_SIDE_CALIBRATION_DESIGN}
+                    src={tintedSideSrc}
                     style={{ "--side-design-scale": sideDesignSize / 100 } as React.CSSProperties}
                     draggable={false} alt="Roberts reference embroidery, default right-side sizing design"/>
                   {guides && <BlueprintSideGuides />}
@@ -356,7 +365,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
                         <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
                         </div>
                         <img className="rrugc-blueprint-side-calibration-design"
-                          src={BLUEPRINT_SIDE_CALIBRATION_DESIGN}
+                          src={tintedSideSrc}
                           style={{ "--side-design-scale": sideDesignSize / 100 } as React.CSSProperties}
                           draggable={false} alt=""/>
                         {guides && <BlueprintSideGuides decorative />}

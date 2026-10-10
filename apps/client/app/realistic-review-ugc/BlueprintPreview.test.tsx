@@ -127,6 +127,8 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(chosen(host)).toContain("design_7.png");
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(chosen(host)).toContain("Natural / Brown");
+    expect(host.querySelectorAll('[aria-label$="embroidery thread: Brown"]')).toHaveLength(2);
+    expect(host.querySelector<HTMLElement>('[aria-label="Front embroidery thread: Brown"]')?.style.backgroundColor).toBe("rgb(91, 65, 48)");
     expect(host.querySelector(".rrugc-blueprint-design-choice.is-selected")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.max).toBe("200");

@@ -347,3 +347,13 @@
   .rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat,
   .rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{transition:none}
 }
+/* The tiny swatch indicates the active brim-matched embroidery thread color.
+   It is inside the header, not over the hat or the zoom control. */
+.rrugc-blueprint-thread-swatch{
+  display:inline-block;flex:0 0 auto;width:13px;height:13px;
+  border-radius:50%;border:1px solid rgba(0,0,0,.18);
+  box-shadow:0 0 0 2px #fff,0 0 0 3px #e4eaf0;
+}
+@media(max-width:680px){
+  .rrugc-blueprint-thread-swatch{width:11px;height:11px}
+}
