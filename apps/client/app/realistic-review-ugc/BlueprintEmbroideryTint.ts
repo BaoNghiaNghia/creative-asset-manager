@@ -90,6 +90,16 @@ export function tintBlueprintPixels(
  * original stitch shading and outline. Unlike flat tint, warm/cool lettering
  * and pale stitching use different threads within the chosen palette.
  */
+/** Slightly darken stitched edges without drawing a thick black outline.
+ * A large outline contrast reads as a raised patch when placed over twill.
+ */
+export function thinEmbroideryEdgeColor(
+  primary: readonly number[], outline: readonly number[],
+): [number, number, number] {
+  return [0, 1, 2].map(i =>
+    Math.round(primary[i] * .82 + outline[i] * .18)) as [number, number, number];
+}
+
 export function remapBlueprintPixels(
   data: Uint8ClampedArray, width: number, height: number,
   palette: BlueprintThreadPalette,
@@ -146,6 +156,7 @@ export function remapBlueprintPixels(
     accent: blueprintPaletteRgb(palette.accent),
     outline: blueprintPaletteRgb(palette.outline),
   };
+  const thinOutline = thinEmbroideryEdgeColor(threads.primary, threads.outline);
   for (let pixel = 0; pixel < count; pixel++) {
     const i = pixel * 4;
     const alpha = opacity[pixel];
@@ -170,8 +181,10 @@ export function remapBlueprintPixels(
       role = "secondary";
     }
     if (light < mean - 36 && role === "primary") role = "outline";
-    const rgb = threads[role];
-    const brightness = Math.max(.72, Math.min(1.29, 1 + (light - mean) / 185));
+    // A low-relief satin/fill stitch has restrained edge shading, not
+    // a black beveled ring around each glyph.
+    const rgb = role === "outline" ? thinOutline : threads[role];
+    const brightness = Math.max(.84, Math.min(1.16, 1 + (light - mean) / 270));
     result[i] = Math.min(255, Math.round(rgb[0] * brightness));
     result[i + 1] = Math.min(255, Math.round(rgb[1] * brightness));
     result[i + 2] = Math.min(255, Math.round(rgb[2] * brightness));

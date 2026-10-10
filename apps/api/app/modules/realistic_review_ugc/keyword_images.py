@@ -61,7 +61,12 @@ def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str |
         return (
             "Create exactly SIX distinct original embroidery artworks, each a separate "
             "PNG for the exact quote " + repr(keyword) + ". "
-            "Use the $gatorhats-stage1-six-designs Skill. "
+            "Use the $gatorhats-stage1-six-designs Skill, preset embroidered-flat-thin. "
+            "Every concept is low-profile, thin realistic satin/fill embroidery that sits "
+            "flush with cap twill: NO thick external outlines, double borders, puff/foam "
+            "or extruded lettering, bevels or fake drop shadows; no sticker/patch appearance. "
+            "Fine closely spaced thread relief only, clean typography, genuine transparent "
+            "PNG alpha and no cap photo or background. Preserve all counters and letter holes. "
             "Produce only output/final/design_01.png through design_06.png. "
             "Never make concept boards, a 13-color collection, or extra "
             "full-resolution intermediate files. "

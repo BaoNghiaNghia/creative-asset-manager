@@ -2,7 +2,7 @@
   "schema_version": 1,
   "skill_name": "gatorhats-stage1-six-designs",
   "display_name": "GatorHats · Stage 1 Six Designs",
-  "description": "Exactly 6 separate final embroidery artwork PNGs per keyword; compact intermediates, no colorway renders.",
+  "description": "Exactly 6 separate thin, low-relief embroidery PNG masters per keyword; no thick borders, puffy 3D or shadows; no colorway renders.",
   "workflows": [
     "image_studio",
     "keyword_artwork",

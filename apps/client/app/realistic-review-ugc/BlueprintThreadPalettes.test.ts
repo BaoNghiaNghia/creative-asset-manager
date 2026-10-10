@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BLUEPRINT_DARK_PALETTES, blueprintPaletteRgb, selectBlueprintThreadPalette } from "./BlueprintThreadPalettes";
-import { remapBlueprintPixels } from "./BlueprintEmbroideryTint";
+import { remapBlueprintPixels, thinEmbroideryEdgeColor } from "./BlueprintEmbroideryTint";
 
 function sample(pixels: Array<{ rgb: [number, number, number]; alpha?: number }>) {
   const bytes = new Uint8ClampedArray(pixels.length * 4);
@@ -11,6 +11,20 @@ function rgb(bytes: Uint8ClampedArray, i: number) {
   return Array.from(bytes.slice(i * 4, i * 4 + 3));
 }
 describe("Blueprint dark multi-thread palettes", () => {
+  it("uses restrained outline contrast to keep stitching low-profile and fabric-adherent", () => {
+    const palette = selectBlueprintThreadPalette("brown", 0);
+    const primary = blueprintPaletteRgb(palette.primary);
+    const outline = blueprintPaletteRgb(palette.outline);
+    const thinEdge = thinEmbroideryEdgeColor(primary, outline);
+    expect(thinEdge).toHaveLength(3);
+    for (let channel = 0; channel < 3; channel++) {
+      expect(Math.abs(primary[channel] - thinEdge[channel]))
+        .toBeLessThan(Math.abs(primary[channel] - outline[channel]));
+      expect(Math.abs(primary[channel] - thinEdge[channel]))
+        .toBeLessThanOrEqual(Math.ceil(Math.abs(primary[channel] - outline[channel]) * .2) + 1);
+    }
+  });
+
   it("provides 3–5 dark combinations for every supplied colorway", () => {
     expect(Object.keys(BLUEPRINT_DARK_PALETTES)).toHaveLength(12);
     for (const options of Object.values(BLUEPRINT_DARK_PALETTES)) {
