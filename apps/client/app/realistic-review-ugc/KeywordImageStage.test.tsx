@@ -109,9 +109,11 @@ describe("Stage 1 compact output and action controls", () => {
       <KeywordImageRowControls row={row} busy={busy} canGenerate={canGenerate}
         onRun={run} onLogs={() => undefined} />);
     await act(async () => render({ ...outputRow, status: "not_run", job_id: null, output_url: null }, false));
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Generate BEACH PLEASE"]')?.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Redesign Qoutes BEACH PLEASE"]')?.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Redesign Qoutes BEACH PLEASE"]')?.textContent).toBe("Redesign Qoutes");
+    expect(host.querySelector(".rrugc-keyword-result-action.is-generate svg")).not.toBeNull();
     await act(async () => render({ ...outputRow, status: "not_run", job_id: null, output_url: null }, true));
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Generate BEACH PLEASE"]')?.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Redesign Qoutes BEACH PLEASE"]')?.click());
     expect(run).toHaveBeenCalledOnce();
     await act(async () => render({ ...outputRow, status: "failed", output_url: null, saved_output_count: 0, retry_count: 0 }, true));
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]')).toBeNull();

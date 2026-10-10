@@ -213,14 +213,14 @@
   text-align: left;
   text-transform: uppercase;
 }
-.rrugc-keyword-gen-table th:nth-child(1) { width: 17%; }
+.rrugc-keyword-gen-table th:nth-child(1) { width: 16%; }
 .rrugc-keyword-gen-table th:nth-child(2) { width: 8%; }
-.rrugc-keyword-gen-table th:nth-child(3) { width: 13%; }
+.rrugc-keyword-gen-table th:nth-child(3) { width: 12%; }
 .rrugc-keyword-gen-table th:nth-child(4) { width: 12%; }
 .rrugc-keyword-gen-table th:nth-child(5) { width: 9%; }
 .rrugc-keyword-gen-table th:nth-child(6) { width: 12%; }
-.rrugc-keyword-gen-table th:nth-child(7) { width: 20%; }
-.rrugc-keyword-gen-table th:nth-child(8) { width: 9%; }
+.rrugc-keyword-gen-table th:nth-child(7) { width: 19%; }
+.rrugc-keyword-gen-table th:nth-child(8) { width: 12%; }
 .rrugc-keyword-gen-table tbody tr { transition: background .12s; }
 .rrugc-keyword-gen-table tbody tr:not(:last-child) { border-bottom: 1px solid #edf1f5; }
 .rrugc-keyword-gen-table tbody tr:hover,
@@ -270,7 +270,9 @@
 .rrugc-keyword-result-actions { display: flex; min-width: 0; align-items: center; gap: 4px; flex-wrap: nowrap; }
 .rrugc-keyword-result-action { display: grid; flex: 0 0 28px; width: 28px; height: 28px; min-height: 28px; place-items: center; padding: 0; border: 1px solid #d6e0ed; border-radius: 6px; background: #fff; color: #6b7f99; cursor: pointer; }
 .rrugc-keyword-result-action svg { width: 14px; height: 14px; }
-.rrugc-keyword-result-action.is-generate { border-color: #c5d4f2; background: #eef3ff; color: #476db5; }
+.rrugc-keyword-result-action.is-generate { display: inline-flex; flex: 0 0 auto; width: auto; gap: 6px; padding: 0 10px; border-color: #c5d4f2; background: #eef3ff; color: #476db5; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.rrugc-keyword-result-action.is-generate .rrugc-keyword-action-label { display: inline; }
+.rrugc-keyword-result-action.is-generate svg { flex: none; }
 .rrugc-keyword-result-action.is-regenerate { border-color: #e8bd80; background: #fff3dd; color: #a65b08; }
 .rrugc-keyword-result-action.is-retry { border-color: #e6cea2; background: #fff8eb; color: #9a711e; }
 .rrugc-keyword-result-action:hover:not(:disabled) { background: #eaf1ff; border-color: #a9c0e4; color: #3e6095; }

@@ -75,9 +75,9 @@ export function KeywordImageRowControls({
   const regenerate = row.status === "completed";
   const generate = row.status === "not_run";
   const runnable = regenerate || generate;
-  const runLabel = regenerate ? "Regenerate" : "Generate";
+  const runLabel = regenerate ? "Regenerate" : "Redesign Qoutes";
   const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : runLabel + " image";
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? "Regenerate image" : "Redesign Qoutes";
 
   useEffect(() => {
     if (!confirmRegenerate) return;
