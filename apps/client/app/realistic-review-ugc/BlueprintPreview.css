@@ -143,9 +143,9 @@
 .rrugc-blueprint-selected-design{z-index:1}
 .rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img:not(.is-loaded){opacity:0}
 .rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img.is-loaded{opacity:.97}
-.rrugc-blueprint-side-image{background-size:600% 800%;background-repeat:no-repeat;background-color:#f6f9fc}
+.rrugc-blueprint-side-image{background-size:300% 400%;background-repeat:no-repeat;background-color:#f6f9fc}
 .rrugc-blueprint-side-image:not(.is-ready){background-image:linear-gradient(105deg,#eef3f8,#fff,#eef3f8);background-size:200% 100%;animation:rrugc-blueprint-skeleton 1.3s ease-in-out infinite}
-.rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas.svg")}
+.rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas-fit.svg")}
 .rrugc-blueprint-side-probe{position:absolute!important;inset:auto!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
 .rrugc-blueprint-side-guide,.rrugc-blueprint-front-guide{pointer-events:none;z-index:2}
 .rrugc-blueprint-panel-footer{position:relative;z-index:2;display:flex;flex:none;flex-direction:column;justify-content:center;align-items:center;gap:3px;box-sizing:border-box;min-height:48px;padding:7px 10px;border-top:1px solid #edf2f7;background:#fff;text-align:center}
@@ -158,9 +158,9 @@
 @media(max-width:680px){.rrugc-blueprint-preview-area{display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}.rrugc-blueprint-preview-area>.rrugc-blueprint-selected-card,.rrugc-blueprint-preview-area>.rrugc-blueprint-side-card{flex:0 0 auto;height:320px;min-height:320px;width:100%}.rrugc-blueprint-panel-header{min-height:40px}.rrugc-blueprint-panel-footer{min-height:44px}.rrugc-blueprint-preview-area>.rrugc-blueprint-nav-hint{flex:none;min-height:18px}}
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-side-image:not(.is-ready){animation:none}}
 /* Enlarged caps: keep the panel headers/footers fixed and scale only the picture layer. */
-.rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{transform:scale(1.20);transform-origin:center center}
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{transform:none;transform-origin:center center}
 /* Side atlas is drawn at 2×; keep its embroidery bounds aligned to the same zoomed crop. */
-.rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:2%;top:26%;width:72%;height:36%}
+.rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:34%;top:30%;width:33%;height:35%}
 
 /* Circular hover magnifier: one paint-only layer, no React updates while moving. */
 .rrugc-blueprint-magnifier{
@@ -181,11 +181,11 @@
 .rrugc-blueprint-magnifier-scene .rrugc-blueprint-selected-design img{opacity:.97}
 .rrugc-blueprint-magnifier-side-surface{
   position:relative;width:100%;height:100%;
-  background-image:url("/rrugc/blueprint/sides-atlas.svg");
-  background-size:600% 800%;background-repeat:no-repeat;background-color:#fff;
+  background-image:url("/rrugc/blueprint/sides-atlas-fit.svg");
+  background-size:300% 400%;background-repeat:no-repeat;background-color:#fff;
 }
 .rrugc-blueprint-magnifier-side-surface .rrugc-blueprint-side-guide{
-  left:2%;top:26%;width:72%;height:36%;
+  left:34%;top:30%;width:33%;height:35%;
 }
 .rrugc-blueprint-magnifier::after{
   content:"2.4×";position:absolute;bottom:9px;right:9px;
@@ -194,3 +194,5 @@
 }
 @media(hover:none),(pointer:coarse){.rrugc-blueprint-magnifier{display:none!important}}
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-magnifier{transition:none}}
+/* Keep entire cap visible: never enlarge photo beyond its viewport or crop atlas cells. */
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}

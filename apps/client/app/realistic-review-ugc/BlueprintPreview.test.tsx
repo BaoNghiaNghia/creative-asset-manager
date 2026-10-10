@@ -141,7 +141,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-side-guide")).not.toBeNull();
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
-    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 7.142857142857142%");
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
     await act(async () => root.unmount());
   });
 
@@ -185,7 +185,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     setupBounds(side);
     await act(async () => dispatch(side, "pointermove"));
     expect(sideLens.style.opacity).toBe("1");
-    expect(sideLens.querySelector<HTMLElement>(".rrugc-blueprint-magnifier-side-surface")?.style.backgroundPosition).toBe("10% 7.142857142857142%");
+    expect(sideLens.querySelector<HTMLElement>(".rrugc-blueprint-magnifier-side-surface")?.style.backgroundPosition).toBe("0% 0%");
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(sideLens.style.opacity).toBe("0");
     await act(async () => root.unmount());
@@ -197,11 +197,11 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     const root = createRoot(host);
     await act(async () => root.render(<BlueprintPreview versions={versions} />));
     const probe = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")!;
-    expect(probe.src).toContain("/rrugc/blueprint/sides-atlas.svg");
+    expect(probe.src).toContain("/rrugc/blueprint/sides-atlas-fit.svg");
     await act(async () => probe.dispatchEvent(new Event("load")));
     expect(host.querySelector(".rrugc-blueprint-side-image.is-ready")).not.toBeNull();
     await act(async () => click(host, "Select hat color Natural / Brown"));
-    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 7.142857142857142%");
+    expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.style.backgroundPosition).toBe("50% 0%");
     expect(host.querySelectorAll(".rrugc-blueprint-side-probe")).toHaveLength(1);
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")?.src).toBe(probe.src);
     expect(host.querySelectorAll(".rrugc-blueprint-panel-header")).toHaveLength(2);
@@ -240,11 +240,11 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
 
   it("preserves the navigation helper bounds and handles empty galleries", () => {
     expect(blueprintWindow(versions, 99).offset).toBe(4);
-    expect(BLUEPRINT_SIDE_ATLAS).toBe("/rrugc/blueprint/sides-atlas.svg");
-    expect(blueprintSidePosition(0).backgroundPosition).toBe("10% 7.142857142857142%");
-    expect(blueprintSidePosition(1).backgroundPosition).toBe("50% 7.142857142857142%");
-    expect(blueprintSidePosition(3).backgroundPosition).toBe("10% 35.714285714285715%");
-    expect(blueprintSidePosition(11).backgroundPosition).toBe("90% 92.85714285714286%");
+    expect(BLUEPRINT_SIDE_ATLAS).toBe("/rrugc/blueprint/sides-atlas-fit.svg");
+    expect(blueprintSidePosition(0).backgroundPosition).toBe("0% 0%");
+    expect(blueprintSidePosition(1).backgroundPosition).toBe("50% 0%");
+    expect(blueprintSidePosition(3).backgroundPosition).toBe("0% 33.333333333333336%");
+    expect(blueprintSidePosition(11).backgroundPosition).toBe("100% 100%");
     expect(blueprintNavigate(0, 0, "left", 9)).toEqual({ design: 0, color: 0 });
     expect(blueprintNavigate(8, 11, "down", 9)).toEqual({ design: 8, color: 11 });
     expect(renderToStaticMarkup(<BlueprintPreview versions={[]} />)).toContain("No designs available");

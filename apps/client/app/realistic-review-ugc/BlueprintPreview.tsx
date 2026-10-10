@@ -44,14 +44,14 @@ export function blueprintHatPhoto(colorId: string) {
   return "/rrugc/blueprint/fronts/" + encodeURIComponent(colorId) + ".jpg";
 }
 
-export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas.svg";
+export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas-fit.svg";
 
-// Each atlas cell is 1/3 × 1/4. Display at 2× while keeping the selected
-// color cell centered inside the fixed viewport, without another image fetch.
+// The trimmed 3 × 4 atlas contains entire side caps; display one full cell
+// without zooming or cropping any part of the brim or crown.
 export function blueprintSidePosition(colorIndex: number) {
   const col = colorIndex % 3;
   const row = Math.floor(colorIndex / 3);
-  return { backgroundPosition: `${((2 * col + 0.5) / 5) * 100}% ${((2 * row + 0.5) / 7) * 100}%` };
+  return { backgroundPosition: `${col * 50}% ${(row * 100) / 3}%` };
 }
 
 function designName(version: GenerationOutputVersion) {

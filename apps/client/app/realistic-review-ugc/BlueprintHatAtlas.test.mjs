@@ -15,9 +15,11 @@ it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () 
   expect(css).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
   expect(css).toContain(".rrugc-blueprint-panel-header{");
   expect(css).toContain(".rrugc-blueprint-panel-footer{");
-  expect(css).toContain("transform:scale(1.20);transform-origin:center center");
-  expect(css).toContain(".rrugc-blueprint-side-image{background-size:600% 800%");
-  expect(css).toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:2%;top:26%;width:72%;height:36%}");
+  expect(css).toContain("transform:none;transform-origin:center center");
+  expect(css).toContain(".rrugc-blueprint-side-image{background-size:300% 400%");
+  expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
+  expect(css).not.toContain(".rrugc-blueprint-side-image{background-size:600% 800%");
+  expect(css).toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{left:34%;top:30%;width:33%;height:35%}");
 });
 
 it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPEG files", () => {
@@ -33,8 +35,8 @@ it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPE
 });
 
 it("bundles the 12 uploaded left-side cap photos in the compact optimized atlas", () => {
-  const svg = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/sides-atlas.svg"), "utf8");
-  expect(svg).toContain('viewBox="0 0 2100 3500"');
+  const svg = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/sides-atlas-fit.svg"), "utf8");
+  expect(svg).toContain('viewBox="0 0 2100 1720"');
   expect(svg).toContain("data:image/webp;base64,");
   const encoded = svg.match(/data:image\/webp;base64,([A-Za-z0-9+/=]+)/)?.[1];
   expect(encoded).toBeTruthy();
@@ -42,5 +44,5 @@ it("bundles the 12 uploaded left-side cap photos in the compact optimized atlas"
   expect(webp.toString("ascii", 0, 4)).toBe("RIFF");
   expect(webp.toString("ascii", 8, 12)).toBe("WEBP");
   expect(webp.length).toBeGreaterThan(100000);
-  expect(webp.length).toBeLessThan(200000);
+  expect(webp.length).toBeLessThan(400000);
 });
