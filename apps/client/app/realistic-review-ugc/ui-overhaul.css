@@ -1532,7 +1532,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 }
 
 /* Stage 0 keyword detail: compact scan-first layout + interactive trend */
-.rrugc-stage0-detail-modal{width:min(1040px,calc(100vw - 36px));max-height:min(820px,calc(100vh - 36px));border-radius:15px}
+.rrugc-stage0-detail-modal{width:min(1240px,calc(100vw - 32px));max-height:min(960px,calc(100vh - 28px));border-radius:15px}
 .rrugc-stage0-detail-header{padding:13px 16px 11px}
 .rrugc-stage0-detail-header>div>small{font-size:7.5px}
 .rrugc-stage0-detail-header h2{margin:2px 0 5px;font-size:18px}
@@ -1540,12 +1540,12 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-detail-badges span{min-height:19px;padding:2px 6px;font-size:6.8px}
 .rrugc-stage0-detail-close{flex-basis:30px;width:30px;height:30px;border-radius:8px;font-size:17px}
 .rrugc-stage0-detail-body{padding:10px 12px 12px;overflow-x:hidden}
-.rrugc-stage0-detail-hero{grid-template-columns:116px minmax(0,1fr);gap:8px;margin-bottom:8px}
-.rrugc-stage0-detail-source{min-height:82px}
-.rrugc-stage0-detail-source>a,.rrugc-stage0-detail-source-empty{height:82px;border-radius:9px}
+.rrugc-stage0-detail-hero{grid-template-columns:minmax(230px,270px) minmax(0,1fr);gap:10px;margin-bottom:10px}
+.rrugc-stage0-detail-source{min-height:200px}
+.rrugc-stage0-detail-source>a,.rrugc-stage0-detail-source-empty{height:200px;border-radius:10px}
 .rrugc-stage0-detail-source>a>span{right:5px;bottom:5px;padding:3px 5px;border-radius:5px;font-size:6.5px}
 .rrugc-stage0-detail-summary{gap:6px}
-.rrugc-stage0-detail-summary>div{gap:2px;min-height:82px;box-sizing:border-box;padding:9px 11px;border-radius:9px}
+.rrugc-stage0-detail-summary>div{gap:5px;min-height:200px;box-sizing:border-box;padding:13px 15px;border-radius:10px}
 .rrugc-stage0-detail-summary small,.rrugc-stage0-detail-metrics small{font-size:6.7px}
 .rrugc-stage0-detail-summary strong{font-size:9.5px}
 .rrugc-stage0-detail-summary span{font-size:7px}
@@ -1561,22 +1561,35 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-detail-trend-stats{gap:4px}
 .rrugc-stage0-detail-trend-stats span{padding:3px 6px;border-radius:6px;font-size:6.4px}
 .rrugc-stage0-detail-trend-stats b{font-size:7.2px}
-.rrugc-stage0-detail-chart{position:relative;padding:2px 5px 0;border-radius:8px;overflow:visible}
-.rrugc-stage0-detail-chart svg{height:180px;overflow:visible}
-.rrugc-stage0-detail-chart .rrugc-stage0-spark-line{stroke-width:2}
-.rrugc-stage0-detail-chart .rrugc-stage0-detail-hit{fill:transparent;stroke:none;cursor:crosshair;pointer-events:all}
-.rrugc-stage0-detail-chart .rrugc-stage0-detail-point{fill:#537dbd;stroke:#fff;stroke-width:1.5;pointer-events:none;transition:r .12s ease,stroke-width .12s ease}
-.rrugc-stage0-detail-chart g.is-active .rrugc-stage0-detail-point{r:5.5px;stroke-width:2.2}
-.rrugc-stage0-detail-chart g:focus{outline:none}
-.rrugc-stage0-detail-chart-tooltip{position:absolute;z-index:4;display:grid;box-sizing:border-box;min-width:116px;max-width:calc(100% - 2px);gap:1px;padding:7px 9px;border-radius:7px;background:#1f2530;color:#fff;box-shadow:0 8px 24px rgba(15,23,42,.22);pointer-events:none;white-space:nowrap;transform:translate(-50%,calc(-100% - 12px))}
-.rrugc-stage0-detail-chart-tooltip:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;background:#1f2530;transform:translateX(-50%) rotate(45deg)}
-.rrugc-stage0-detail-chart-tooltip.is-left-edge{transform:translate(-5px,calc(-100% - 12px))}
+.rrugc-stage0-detail-source img{object-fit:contain;background:#fff;transition:transform .2s ease}
+.rrugc-stage0-detail-source>a:hover img{transform:scale(1.035)}
+.rrugc-stage0-detail-chart{position:relative;padding:3px 5px;border:1px solid #dce5f0;border-radius:10px;background:linear-gradient(180deg,#f9fbff,#fff 86%);overflow:visible}
+.rrugc-stage0-detail-chart svg{height:258px;overflow:visible;cursor:crosshair;touch-action:pan-y}
+.rrugc-stage0-detail-chart svg:focus-visible{outline:2px solid #7498cf;outline-offset:3px;border-radius:6px}
+.rrugc-stage0-detail-interaction{fill:transparent;pointer-events:all}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-grid line{stroke:#e5ebf3;stroke-width:1;stroke-dasharray:3 4;vector-effect:non-scaling-stroke}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-grid text{fill:#8190a6;font-size:9px;font-weight:600}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-axis-month{fill:#74859e;font-size:9.2px;font-weight:650}
+.rrugc-stage0-detail-area{pointer-events:none}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-line{fill:none;stroke:#4c79c2;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;pointer-events:none}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-point{fill:#537dbd;stroke:#fff;stroke-width:2;vector-effect:non-scaling-stroke;pointer-events:none;transition:r .12s ease}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-point.is-active{fill:#315fae;stroke-width:3}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-point-halo{fill:rgba(76,121,194,.18);stroke:none;pointer-events:none}
+.rrugc-stage0-detail-chart .rrugc-stage0-detail-guide{stroke:#4c79c2;stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke;pointer-events:none}
+.rrugc-stage0-detail-chart-tooltip{position:absolute;z-index:4;display:grid;box-sizing:border-box;min-width:160px;max-width:calc(100% - 8px);gap:3px;padding:10px 12px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#1f304b;color:#fff;box-shadow:0 12px 30px rgba(15,23,42,.24);pointer-events:none;white-space:nowrap;transform:translate(-50%,calc(-100% - 13px))}
+.rrugc-stage0-detail-chart-tooltip:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;background:#1f304b;transform:translateX(-50%) rotate(45deg)}
+.rrugc-stage0-detail-chart-tooltip.is-left-edge{transform:translate(-5px,calc(-100% - 13px))}
 .rrugc-stage0-detail-chart-tooltip.is-left-edge:after{left:5px}
-.rrugc-stage0-detail-chart-tooltip.is-right-edge{transform:translate(calc(-100% + 5px),calc(-100% - 12px))}
+.rrugc-stage0-detail-chart-tooltip.is-right-edge{transform:translate(calc(-100% + 5px),calc(-100% - 13px))}
 .rrugc-stage0-detail-chart-tooltip.is-right-edge:after{right:5px;left:auto;transform:translateX(50%) rotate(45deg)}
-.rrugc-stage0-detail-chart-tooltip strong{font-size:8px;line-height:1.25}
-.rrugc-stage0-detail-chart-tooltip span{color:#b9c1ce;font-size:6.7px}
-.rrugc-stage0-detail-chart-tooltip b{font-size:11px;font-variant-numeric:tabular-nums}
+.rrugc-stage0-detail-chart-tooltip strong{font-size:11px;line-height:1.3}
+.rrugc-stage0-detail-chart-tooltip span{color:#c9d8eb;font-size:9px}
+.rrugc-stage0-detail-chart-tooltip b{font-size:18px;font-variant-numeric:tabular-nums}
+.rrugc-stage0-detail-chart-tooltip small{color:#c9d8eb;font-size:8px}
+.rrugc-stage0-detail-chart-tooltip.is-below{transform:translate(-50%,13px)}
+.rrugc-stage0-detail-chart-tooltip.is-below.is-left-edge{transform:translate(-5px,13px)}
+.rrugc-stage0-detail-chart-tooltip.is-below.is-right-edge{transform:translate(calc(-100% + 5px),13px)}
+.rrugc-stage0-detail-chart-tooltip.is-below:after{top:-5px;bottom:auto}
 .rrugc-stage0-detail-month-axis{display:flex;gap:0;padding:5px 6px 0}
 .rrugc-stage0-detail-month-axis span{min-width:0;flex:1;color:#8794a6;font-size:5.9px;text-align:center;white-space:nowrap}
 .rrugc-stage0-detail-metadata{padding:0;border-radius:9px;background:#fff}
@@ -1598,12 +1611,15 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-stage0-detail-header{padding:11px 12px 9px}
   .rrugc-stage0-detail-body{padding:8px}
   .rrugc-stage0-detail-hero{grid-template-columns:1fr}
-  .rrugc-stage0-detail-source{display:none}
+  .rrugc-stage0-detail-source{display:block;min-height:170px}
   .rrugc-stage0-detail-summary{grid-template-columns:1fr 1fr}
   .rrugc-stage0-detail-summary>div{min-height:66px;padding:7px 8px}
   .rrugc-stage0-detail-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
   .rrugc-stage0-detail-trend-stats{display:flex}
-  .rrugc-stage0-detail-chart svg{height:160px}
+  .rrugc-stage0-detail-source>a,.rrugc-stage0-detail-source-empty{height:210px}
+  .rrugc-stage0-detail-summary>div{min-height:72px}
+  .rrugc-stage0-detail-chart svg{height:205px}
+  .rrugc-stage0-detail-chart .rrugc-stage0-detail-axis-month{font-size:8px}
   .rrugc-stage0-detail-month-axis{overflow-x:auto;justify-content:flex-start}
   .rrugc-stage0-detail-month-axis span{flex:0 0 64px}
   .rrugc-stage0-detail-metadata-summary{display:none}

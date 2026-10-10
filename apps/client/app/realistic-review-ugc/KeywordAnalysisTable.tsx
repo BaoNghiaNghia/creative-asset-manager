@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { KeywordSearchInput } from "./KeywordSearchInput";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -125,11 +125,59 @@ function Icon({
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>;
 }
 
-function detailTooltipPlacement(x: number, width = 720): "is-left-edge" | "is-centered" | "is-right-edge" {
+const DETAIL_CHART_WIDTH = 720;
+const DETAIL_CHART_HEIGHT = 224;
+const DETAIL_PLOT_LEFT = 48;
+const DETAIL_PLOT_RIGHT = 706;
+const DETAIL_PLOT_TOP = 24;
+const DETAIL_PLOT_BOTTOM = 190;
+
+function detailTooltipPlacement(x: number, width = DETAIL_CHART_WIDTH): "is-left-edge" | "is-centered" | "is-right-edge" {
   const ratio = width > 0 ? x / width : .5;
   if (ratio <= .24) return "is-left-edge";
   if (ratio >= .76) return "is-right-edge";
   return "is-centered";
+}
+
+export function nearestTrendPointIndex(
+  pointerClientX: number,
+  chartLeft: number,
+  chartWidth: number,
+  pointCount: number,
+): number {
+  if (pointCount < 1 || chartWidth <= 0) return -1;
+  if (pointCount === 1) return 0;
+  const relativeX = (pointerClientX - chartLeft) / chartWidth * DETAIL_CHART_WIDTH;
+  const ratio = (relativeX - DETAIL_PLOT_LEFT) / (DETAIL_PLOT_RIGHT - DETAIL_PLOT_LEFT);
+  return Math.min(pointCount - 1, Math.max(0, Math.round(ratio * (pointCount - 1))));
+}
+
+function makeDetailChartGeometry(points: KeywordVolumeTrendPoint[]) {
+  if (points.length < 2) return null;
+  const values = points.map(point => Math.max(0, point.volume));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = Math.max(max - min, max * .08, 1);
+  const lower = Math.max(0, min - spread * .3);
+  const upper = Math.max(1, max + spread * .3);
+  const graphHeight = DETAIL_PLOT_BOTTOM - DETAIL_PLOT_TOP;
+  const dots = values.map((value, index) => ({
+    x: DETAIL_PLOT_LEFT + index * (DETAIL_PLOT_RIGHT - DETAIL_PLOT_LEFT) / (values.length - 1),
+    y: DETAIL_PLOT_BOTTOM - (value - lower) / (upper - lower) * graphHeight,
+  }));
+  // Horizontal-tangent cubic segments are smooth without overshooting a data point.
+  const line = dots.reduce((path, dot, index) => {
+    if (!index) return `M ${dot.x.toFixed(1)} ${dot.y.toFixed(1)}`;
+    const previous = dots[index - 1];
+    const control = (dot.x - previous.x) * .38;
+    return path + ` C ${(previous.x + control).toFixed(1)} ${previous.y.toFixed(1)} ${(dot.x - control).toFixed(1)} ${dot.y.toFixed(1)} ${dot.x.toFixed(1)} ${dot.y.toFixed(1)}`;
+  }, "");
+  const area = line + ` L ${DETAIL_PLOT_RIGHT} ${DETAIL_PLOT_BOTTOM} L ${DETAIL_PLOT_LEFT} ${DETAIL_PLOT_BOTTOM} Z`;
+  const ticks = [0, 1, 2, 3].map(index => ({
+    y: DETAIL_PLOT_TOP + graphHeight * index / 3,
+    label: Math.round(upper - (upper - lower) * index / 3).toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 }),
+  }));
+  return { dots, line, area, ticks };
 }
 
 function makeChartGeometry(points: KeywordVolumeTrendPoint[], width: number, height: number, pad = 4) {
@@ -228,10 +276,14 @@ export function KeywordDetailModal({
   onClose: () => void;
 }) {
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
+  const chartGradientId = useId();
+
+  // Live Stage 0/1 polling may replace the row object or onClose callback.
+  // Reset only when the actual keyword changes, not on every refreshed render.
+  useEffect(() => { setHoveredTrendIndex(null); }, [item?.id]);
 
   useEffect(() => {
     if (!item) return;
-    setHoveredTrendIndex(null);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
@@ -247,7 +299,7 @@ export function KeywordDetailModal({
   if (!item) return null;
 
   const trend = item.trend ?? [];
-  const chart = trend.length > 1 ? makeChartGeometry(trend, 720, 180, 14) : null;
+  const chart = makeDetailChartGeometry(trend);
   const volumes = trend.map(point => point.volume);
   const low = volumes.length ? Math.min(...volumes) : null;
   const high = volumes.length ? Math.max(...volumes) : null;
@@ -349,43 +401,76 @@ export function KeywordDetailModal({
           {chart ? <>
             <div className="rrugc-stage0-detail-chart">
               <svg
-                viewBox="0 0 720 180"
+                className="rrugc-stage0-detail-chart-svg"
+                viewBox="0 0 720 224"
                 preserveAspectRatio="none"
-                aria-label={"Monthly search trend for " + item.keyword}
-                onMouseLeave={() => setHoveredTrendIndex(null)}
+                tabIndex={0}
+                role="img"
+                aria-label={"Monthly search volume for " + item.keyword + ". Move anywhere across the chart to inspect months, or use the left and right arrow keys."}
+                onPointerMove={event => {
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  const index = nearestTrendPointIndex(event.clientX, bounds.left, bounds.width, trend.length);
+                  if (index >= 0) setHoveredTrendIndex(current => current === index ? current : index);
+                }}
+                onPointerLeave={() => setHoveredTrendIndex(null)}
+                onFocus={() => setHoveredTrendIndex(current => current ?? trend.length - 1)}
+                onBlur={() => setHoveredTrendIndex(null)}
+                onKeyDown={event => {
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                  event.preventDefault();
+                  setHoveredTrendIndex(current => {
+                    if (event.key === "Home") return 0;
+                    if (event.key === "End") return trend.length - 1;
+                    const next = (current ?? trend.length - 1) + (event.key === "ArrowLeft" ? -1 : 1);
+                    return Math.max(0, Math.min(trend.length - 1, next));
+                  });
+                }}
               >
-                <line x1="14" y1="45" x2="706" y2="45" />
-                <line x1="14" y1="90" x2="706" y2="90" />
-                <line x1="14" y1="135" x2="706" y2="135" />
-                <path className="rrugc-stage0-spark-area" d={chart.area} />
-                <path className="rrugc-stage0-spark-line" d={chart.line} />
-                {chart.dots.map((dot, index) => <g
-                  key={trend[index]?.period || index}
-                  className={hoveredTrendIndex === index ? "is-active" : ""}
-                  onMouseEnter={() => setHoveredTrendIndex(index)}
-                  onFocus={() => setHoveredTrendIndex(index)}
-                  onBlur={() => setHoveredTrendIndex(null)}
-                  tabIndex={0}
-                  aria-label={`${formatTrendPeriod(trend[index]?.period || "")}: ${trend[index]?.volume.toLocaleString()} searches`}
-                >
-                  <circle className="rrugc-stage0-detail-hit" cx={dot.x} cy={dot.y} r="13" />
-                  <circle className="rrugc-stage0-detail-point" cx={dot.x} cy={dot.y} r="4" />
+                <defs>
+                  <linearGradient id={chartGradientId} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#4c79c2" stopOpacity=".22" />
+                    <stop offset="100%" stopColor="#4c79c2" stopOpacity=".015" />
+                  </linearGradient>
+                </defs>
+                <rect className="rrugc-stage0-detail-interaction" x="0" y="0" width="720" height="224" />
+                {chart.ticks.map((tick, index) => <g key={index} className="rrugc-stage0-detail-grid">
+                  <line x1={DETAIL_PLOT_LEFT} y1={tick.y} x2={DETAIL_PLOT_RIGHT} y2={tick.y} />
+                  <text x="6" y={tick.y + 4}>{tick.label}</text>
                 </g>)}
+                <path className="rrugc-stage0-detail-area" d={chart.area} fill={"url(#" + chartGradientId + ")"} />
+                <path className="rrugc-stage0-detail-line" d={chart.line} />
+                {hoveredTrendIndex !== null && chart.dots[hoveredTrendIndex] && <>
+                  <line className="rrugc-stage0-detail-guide" x1={chart.dots[hoveredTrendIndex].x}
+                    y1={DETAIL_PLOT_TOP} x2={chart.dots[hoveredTrendIndex].x} y2={DETAIL_PLOT_BOTTOM} />
+                  <circle className="rrugc-stage0-detail-point-halo"
+                    cx={chart.dots[hoveredTrendIndex].x} cy={chart.dots[hoveredTrendIndex].y} r="11" />
+                </>}
+                {chart.dots.map((dot, index) => <circle key={trend[index].period}
+                  className={"rrugc-stage0-detail-point" + (hoveredTrendIndex === index ? " is-active" : "")}
+                  aria-label={formatTrendPeriod(trend[index].period) + ": " + trend[index].volume.toLocaleString() + " searches"}
+                  cx={dot.x} cy={dot.y} r={hoveredTrendIndex === index ? 6 : 4} />)}
+                {chart.dots.map((dot, index) => <text key={trend[index].period}
+                  className="rrugc-stage0-detail-axis-month" x={dot.x} y="216" textAnchor="middle">
+                    {formatTrendPeriod(trend[index].period)}
+                  </text>)}
               </svg>
               {hoveredTrendIndex !== null && chart.dots[hoveredTrendIndex] && trend[hoveredTrendIndex] && <div
-                className={"rrugc-stage0-detail-chart-tooltip " + detailTooltipPlacement(chart.dots[hoveredTrendIndex].x)}
+                role="tooltip"
+                className={"rrugc-stage0-detail-chart-tooltip " + detailTooltipPlacement(chart.dots[hoveredTrendIndex].x) +
+                  (chart.dots[hoveredTrendIndex].y < 80 ? " is-below" : "")}
                 style={{
-                  left: `${(chart.dots[hoveredTrendIndex].x / 720) * 100}%`,
-                  top: `${(chart.dots[hoveredTrendIndex].y / 180) * 100}%`,
+                  left: (chart.dots[hoveredTrendIndex].x / DETAIL_CHART_WIDTH * 100) + "%",
+                  top: (chart.dots[hoveredTrendIndex].y / DETAIL_CHART_HEIGHT * 100) + "%",
                 }}
               >
                 <strong>{formatTrendPeriod(trend[hoveredTrendIndex].period)}</strong>
-                <span>Search volume</span>
+                <span>Monthly searches</span>
                 <b>{trend[hoveredTrendIndex].volume.toLocaleString()}</b>
+                <small>{hoveredTrendIndex === 0 ? "First month" : (() => {
+                  const delta = trend[hoveredTrendIndex].volume - trend[hoveredTrendIndex - 1].volume;
+                  return (delta > 0 ? "+" : "") + delta.toLocaleString() + " vs previous month";
+                })()}</small>
               </div>}
-            </div>
-            <div className="rrugc-stage0-detail-month-axis" aria-hidden="true">
-              {trend.map(point => <span key={point.period}>{formatTrendPeriod(point.period)}</span>)}
             </div>
           </> : <div className="rrugc-stage0-detail-no-trend">
             <Icon name="chart" />
