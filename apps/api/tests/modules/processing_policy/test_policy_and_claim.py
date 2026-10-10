@@ -216,6 +216,23 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (0, 0))
             self.assertEqual((provider.active_jobs, provider.single_active_jobs), (0, 0))
 
+    def test_stage1_batch_queues_wait_for_a_single_active_codex_generation(self):
+        self.policy("tenant", total=5, ai=5)
+        jobs = [self.job("tenant", f"stage1-{index}",
+                         kind="rrugc_keyword_image_generate",
+                         provider="codex", scope="ai")
+                for index in range(3)]
+        first = self.claim("worker-a", ("rrugc_keyword_image_generate",), worker_role="image")
+        self.assertEqual(first.id, jobs[0])
+        # Other workers must not start simultaneous long-running Stage 1
+        # Codex calls even when the tenant's general AI capacity is higher.
+        self.assertIsNone(self.claim("worker-b", ("rrugc_keyword_image_generate",), worker_role="image"))
+        with self.sessions() as session:
+            ProcessingJobService(ProcessingRepository(session)).complete(
+                job_id=jobs[0], worker_id="worker-a")
+        second = self.claim("worker-b", ("rrugc_keyword_image_generate",), worker_role="image")
+        self.assertEqual(second.id, jobs[1])
+
     def test_rrugc_jobs_are_claimable_by_image_worker(self):
         cases = (
             ("rrugc_source_plan_analyze", "gemini", "ai"),

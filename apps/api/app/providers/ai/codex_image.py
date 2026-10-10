@@ -482,17 +482,72 @@ class CodexImageGenRunner:
         mark a 100-image job complete by merely taking its first six files.
         """
         final_dir = workspace / "output" / "final"
-        if not final_dir.is_dir() or final_dir.is_symlink():
+        if final_dir.is_symlink() or (final_dir.exists() and not final_dir.is_dir()):
             raise CodexImageProviderError(
-                "stage1_six_outputs_missing",
-                "Stage 1 must write six final designs to output/final/.",
+                "stage1_six_outputs_invalid", "Invalid output/final directory."
             )
+        # A Skill may place all six correctly numbered PNGs directly in
+        # output/. Normalize only when a complete, unambiguous set exists.
+        final_dir.mkdir(parents=True, exist_ok=True)
         expected = [f"design_{number:02}.png" for number in range(1, 7)]
-        actual = [p.name for p in final_dir.iterdir()]
-        if sorted(actual) != sorted(expected):
+        # Codex can write harmless README/manifest sidecars in final/, or
+        # save the six numbered PNGs under output/ instead. These must not
+        # turn a successfully generated set into a failed job.
+        # NEVER truncate more than six PNGs to six or silently use drafts.
+        output_root = workspace / "output"
+        direct_final_pngs = [
+            path for path in final_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".png"
+        ]
+        canonical_complete = (
+            len(direct_final_pngs) == 6
+            and all((final_dir / name).is_file() for name in expected)
+        )
+        if canonical_complete:
+            # Other PNGs under output/artworks are intermediate drafts and
+            # are not part of the final contract.
+            candidates = [final_dir / name for name in expected]
+        else:
+            candidates = [
+                path for path in output_root.rglob("*")
+                if path.is_file() and path.suffix.lower() == ".png"
+                and not path.is_symlink()
+                and path.resolve().is_relative_to(output_root.resolve())
+                and not any(parent.is_symlink() for parent in path.parents if parent != workspace)
+            ]
+        number_pattern = re.compile(r"(?i)^(?:design|final|artwork|concept)[_. -]*0?([1-6])$")
+        numbered: dict[int, Path] = {}
+        unmatched = []
+        for path in candidates:
+            match = number_pattern.fullmatch(path.stem)
+            if match is None:
+                unmatched.append(path)
+                continue
+            number = int(match.group(1))
+            if number in numbered:
+                unmatched.append(path)
+                continue
+            numbered[number] = path
+        if len(candidates) == 6 and not unmatched and len(numbered) == 6:
+            # Copy instead of moving so temp diagnostic previews can still be
+            # collected, and rename only within this isolated attempt.
+            from shutil import copyfile
+            for number, path in sorted(numbered.items()):
+                target = final_dir / f"design_{number:02}.png"
+                if path != target:
+                    if target.exists():
+                        raise CodexImageProviderError(
+                            "stage1_six_outputs_invalid", "Conflicting final design filenames."
+                        )
+                    copyfile(path, target)
+        else:
+            missing = sorted(set(range(1, 7)) - set(numbered))
             raise CodexImageProviderError(
                 "stage1_six_outputs_invalid",
-                "Stage 1 must produce only design_01.png to design_06.png.",
+                f"Stage 1 returned {len(candidates)} PNG candidates, "
+                f"{len(numbered)}/6 uniquely numbered finals; "
+                f"missing design numbers {','.join(map(str, missing)) or 'none'}. "
+                "No outputs were discarded or counted as completed.",
             )
         workspace_root = workspace.resolve()
         found = []

@@ -417,6 +417,26 @@ class TenantAwareJobClaimer:
         if tenant_reserved is None:
             return False
 
+        if job.job_type == "rrugc_keyword_image_generate":
+            # Accept arbitrary batch queue sizes, but allow only one active
+            # Stage 1 Codex generation per tenant. The atomic tenant policy
+            # UPDATE above serializes concurrent worker claims.
+            active_stage1 = int(
+                self.session.scalar(
+                    select(func.count(ProcessingJobModel.id)).where(
+                        ProcessingJobModel.tenant_id == job.tenant_id,
+                        ProcessingJobModel.id != job.id,
+                        ProcessingJobModel.job_type == "rrugc_keyword_image_generate",
+                        ProcessingJobModel.status == JobStatus.PROCESSING.value,
+                        ProcessingJobModel.concurrency_accounted.is_(True),
+                    )
+                )
+                or 0
+            )
+            if active_stage1 >= 1:
+                self._release_tenant_reservation(job)
+                return False
+
         if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
             _interval_seconds, rrugc_concurrency_limit, _drain_mode = (
                 self._rrugc_lane_profile(job, now)

@@ -53,6 +53,45 @@ def test_six_final_contract_fails_closed(tmp_path, problem):
         runner()._collect_six_final_designs(tmp_path)
 
 
+
+def test_six_numbered_pngs_in_output_root_are_normalized_to_canonical_final_paths(tmp_path):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    for number in range(1, 7):
+        Image.new("RGBA", (800, 800), (number * 30, 30, 100)).save(
+            output_dir / f"concept-{number}.png"
+        )
+    saved = runner()._collect_six_final_designs(tmp_path)
+    assert [Path(image.path).name for image in saved] == [
+        f"design_{n:02}.png" for n in range(1, 7)
+    ]
+    assert all((output_dir / "final" / f"design_{n:02}.png").is_file() for n in range(1, 7))
+
+
+def test_six_exact_finals_ignore_harmless_metadata_in_final_dir(tmp_path):
+    folder = outputs(tmp_path)
+    (folder / "audit.json").write_text('{"status":"ok"}')
+    (folder / "notes").mkdir()
+    found = runner()._collect_six_final_designs(tmp_path)
+    assert len(found) == 6
+
+
+def test_complete_six_final_set_does_not_reject_intermediate_output_png(tmp_path):
+    outputs(tmp_path)
+    intermediate = tmp_path / "output" / "artworks"
+    intermediate.mkdir()
+    Image.new("RGB", (900, 900), (90, 90, 90)).save(intermediate / "draft_01.png")
+    found = runner()._collect_six_final_designs(tmp_path)
+    assert len(found) == 6
+    assert all(Path(item.path).parent.name == "final" for item in found)
+
+
+def test_partial_set_error_reports_count_and_missing_indexes(tmp_path):
+    folder = outputs(tmp_path)
+    (folder / "design_06.png").unlink()
+    with pytest.raises(CodexImageProviderError, match="5 PNG candidates.*missing design numbers 6"):
+        runner()._collect_six_final_designs(tmp_path)
+
 def test_stage1_prompt_does_not_request_v4_ten_concepts_or_colorways():
     value = runner()._prompt(person_name=None, references=[], user_prompt="BEACH LIFE")
     assert "exactly six" in value
