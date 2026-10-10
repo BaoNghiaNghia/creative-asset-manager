@@ -50,8 +50,6 @@
 .rrugc-blueprint-preview-area{position:relative;display:flex;min-height:0;min-width:0;align-items:center;justify-content:center;flex-direction:column;gap:8px;overflow:hidden;border:1px solid #d8e6f0;border-radius:11px;background:radial-gradient(ellipse at 50% 43%,#fff 0%,#fafcff 68%,#f2f7fc 100%)}
 .rrugc-blueprint-selected-card{position:relative;z-index:1;display:grid;place-items:center;min-height:0;box-sizing:border-box;width:min(700px,calc(100% - 16px));height:calc(100% - 22px);max-height:100%;padding:0;border:none;border-radius:0;background:transparent;box-shadow:none;transform:translateX(calc(var(--blueprint-rail-width) * -0.50));touch-action:none;cursor:grab}
 .rrugc-blueprint-selected-card:active{cursor:grabbing}
-.rrugc-blueprint-selected-top{position:absolute;top:0;left:14px;right:14px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;color:#7188a0;font-size:9px;font-weight:700}
-.rrugc-blueprint-selected-badge{padding:4px 8px;border-radius:5px;background:#d9f4ff;color:#078dbd;font-size:9px;font-weight:850;letter-spacing:.035em}
 .rrugc-blueprint-selected-hat{position:relative;box-sizing:border-box;height:min(540px,calc(100% - 74px));width:auto;aspect-ratio:4/5;max-width:calc(100% - 24px);min-height:0;background:#fff;isolation:isolate;overflow:hidden}
 .rrugc-blueprint-hat-original{display:block;width:100%;height:100%;object-fit:contain;object-position:center;user-select:none;pointer-events:none}
 .rrugc-blueprint-selected-design{position:absolute;top:33%;left:26.5%;width:47%;height:21%;display:grid;place-items:center;overflow:visible;isolation:isolate}
@@ -95,7 +93,6 @@
  .rrugc-blueprint-color-hat{width:33px;height:42px}
  .rrugc-blueprint-color-name{font-size:8px}
  .rrugc-blueprint-selected-card{width:100%;padding:0}
- .rrugc-blueprint-selected-top{font-size:8px}
  .rrugc-blueprint-selected-hat{height:min(480px,calc(100% - 86px));max-width:calc(100% - 8px)}
  .rrugc-blueprint-nav-hint{font-size:8px}
 }
@@ -113,7 +110,6 @@
 .rrugc-blueprint-front-guide span{position:absolute;left:0;bottom:calc(100% + 3px);color:#148ca5;font-size:9px;font-weight:750;white-space:nowrap}
 .rrugc-blueprint-front-guide{position:absolute;z-index:2;left:26.5%;top:33%;width:47%;height:21%;box-sizing:border-box;border:2px dashed #14a9c4;pointer-events:none}
 .rrugc-blueprint-side-note{color:#607891;font-size:10px;text-align:center}
-.rrugc-blueprint-selected-top{top:6px;left:10px;right:10px}
 .rrugc-blueprint-selected-hat{height:min(470px,calc(100% - 98px));max-width:100%}
 .rrugc-blueprint-selected-info{bottom:20px}
 @media(max-width:800px){.rrugc-blueprint-preview-area{padding:8px 5px 20px;gap:4px}.rrugc-blueprint-side-card{padding:35px 4px 25px}.rrugc-blueprint-panel-label{font-size:9px}.rrugc-blueprint-panel-label small{font-size:8px}.rrugc-blueprint-selected-hat{height:min(410px,calc(100% - 105px))}}
@@ -133,8 +129,6 @@
 .rrugc-blueprint-panel-heading{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:3px;min-width:0;text-align:left}
 .rrugc-blueprint-panel-heading strong{font-size:12px;line-height:1.25;color:#304b6c;font-weight:850}
 .rrugc-blueprint-panel-heading small{font-size:9px;line-height:1.35;color:#8194ad;white-space:normal}
-.rrugc-blueprint-panel-header .rrugc-blueprint-selected-top{position:static;z-index:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;flex:none;max-width:52%;gap:5px;color:#7085a0;font-size:9px;text-align:right;line-height:1.3}
-.rrugc-blueprint-panel-header .rrugc-blueprint-selected-badge{display:inline-flex;align-items:center;padding:4px 6px;border-radius:5px;white-space:nowrap}
 .rrugc-blueprint-side-color{flex:none;color:#57728d;font-size:10px;font-weight:700;white-space:nowrap}
 .rrugc-blueprint-panel-visual{display:grid;place-items:center;flex:1 1 auto;min-height:0;min-width:0;padding:6px 12px;box-sizing:border-box;overflow:hidden}
 .rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat,.rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{display:block;position:relative;box-sizing:border-box;width:auto;height:100%;min-width:0;min-height:0;max-width:100%;max-height:100%;aspect-ratio:4/5;overflow:hidden;border:0;border-radius:0;background-color:#fff}
@@ -153,7 +147,7 @@
 .rrugc-blueprint-panel-footer .rrugc-blueprint-side-note{font-size:10px;font-weight:750}
 .rrugc-blueprint-panel-footer>small{font-size:9px;color:#8398b1;line-height:1.3}
 .rrugc-blueprint-preview-area>.rrugc-blueprint-nav-hint{position:static;display:block;grid-column:1/-1;min-height:12px;max-width:none;padding:0 3px;font-size:9px;color:#8194ad;line-height:1.4}
-@media(max-width:950px){.rrugc-blueprint-panel-header{padding:7px 8px}.rrugc-blueprint-panel-visual{padding:4px 5px}.rrugc-blueprint-panel-header .rrugc-blueprint-selected-top{font-size:8px}.rrugc-blueprint-panel-heading strong{font-size:11px}}
+@media(max-width:950px){.rrugc-blueprint-panel-header{padding:7px 8px}.rrugc-blueprint-panel-visual{padding:4px 5px}.rrugc-blueprint-panel-heading strong{font-size:11px}}
 @media(max-width:680px){.rrugc-blueprint-preview-area{display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}.rrugc-blueprint-preview-area>.rrugc-blueprint-selected-card,.rrugc-blueprint-preview-area>.rrugc-blueprint-side-card{flex:0 0 auto;height:320px;min-height:320px;width:100%}.rrugc-blueprint-panel-header{min-height:40px}.rrugc-blueprint-panel-footer{min-height:44px}.rrugc-blueprint-preview-area>.rrugc-blueprint-nav-hint{flex:none;min-height:18px}}
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-side-image:not(.is-ready){animation:none}}
 /* Enlarged caps: keep the panel headers/footers fixed and scale only the picture layer. */
@@ -295,7 +289,6 @@
   display:flex;align-items:center;justify-content:flex-end;gap:10px;
   min-width:0;flex:0 1 auto;margin-left:auto;
 }
-.rrugc-blueprint-panel-header-actions .rrugc-blueprint-selected-top{
   max-width:none;flex:0 1 auto;min-width:0;
 }
 .rrugc-blueprint-view-zoom{
@@ -321,11 +314,9 @@
   font-variant-numeric:tabular-nums;color:#415c79;white-space:nowrap;
 }
 @media(max-width:1160px){
-  .rrugc-blueprint-panel-header-actions .rrugc-blueprint-selected-top>span:not(.rrugc-blueprint-selected-badge){display:none}
   .rrugc-blueprint-view-zoom-slider{width:75px}
 }
 @media(max-width:680px){
-  .rrugc-blueprint-panel-header-actions .rrugc-blueprint-selected-top{display:none}
   .rrugc-blueprint-side-color{display:none}
 }
 @media(max-width:375px){

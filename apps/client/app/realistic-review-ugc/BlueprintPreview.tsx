@@ -269,10 +269,6 @@ export function BlueprintPreview({ versions, initialVersion }: {
               <small>Hoop Red WACE · Placement preview</small>
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
-              <div className="rrugc-blueprint-selected-top">
-                <span className="rrugc-blueprint-selected-badge">● SELECTED</span>
-                <span>{selectedDesign + 1}/{versions.length} designs · {colorIndex + 1}/12 colors</span>
-              </div>
               <button type="button" className="rrugc-blueprint-thread-swatch"
                 title={"Palette: " + activePalette.name + " (" + ((activePaletteOrdinal % paletteCount) + 1) + "/" + paletteCount + ") · Click to try the next dark combination"}
                 aria-label={"Next Front embroidery palette for " + activeColor.short}

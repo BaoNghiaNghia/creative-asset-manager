@@ -62,6 +62,10 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).toContain("rrugc-blueprint-color-carousel");
     expect(html).toContain("Front and right-facing side previews for selected hat");
     expect((html.match(/class="rrugc-blueprint-panel-header"/g) || []).length).toBe(2);
+    expect(html).not.toContain("rrugc-blueprint-selected-top");
+    expect(html).not.toContain("rrugc-blueprint-selected-badge");
+    expect(html).toContain('aria-label="Front design zoom"');
+    expect(html).toContain('aria-label="Next Front embroidery palette for Black"');
     expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
     expect((html.match(/class="rrugc-blueprint-selected-hat"/g) || []).length).toBe(1);
     expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
