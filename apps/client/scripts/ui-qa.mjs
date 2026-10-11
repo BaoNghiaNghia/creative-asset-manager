@@ -774,6 +774,31 @@ try {
             state,
             message: error instanceof Error ? error.message : String(error),
           };
+          // Capture click interception geometry for debugging sticky headers,
+          // modal overlays and nested scroll containers; no text or secrets.
+          if (typeof step.click === "string") {
+            try {
+              failure.hitTest = await page.locator(step.click).first().evaluate(node => {
+                const bounds = element => {
+                  if (!element) return null;
+                  const rect = element.getBoundingClientRect();
+                  const css = getComputedStyle(element);
+                  return { tag: element.tagName.toLowerCase(),
+                    className: typeof element.className === "string" ? element.className.slice(0, 80) : "",
+                    top: Math.round(rect.top), bottom: Math.round(rect.bottom),
+                    left: Math.round(rect.left), right: Math.round(rect.right),
+                    position: css.position, zIndex: css.zIndex };
+                };
+                const rect = node.getBoundingClientRect();
+                const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+                const hit = document.elementFromPoint(x, y);
+                return { target: bounds(node), blocker: bounds(hit),
+                  inboxHead: bounds(document.querySelector(".rrugc-research-inbox-head")),
+                  inboxBody: bounds(document.querySelector(".rrugc-research-inbox-body")),
+                  pageScrollY: Math.round(window.scrollY), innerHeight: window.innerHeight };
+              });
+            } catch { /* Preserve original failure. */ }
+          }
           issues.stepFailures.push(failure);
           const filename = `${viewportName}--${state}--failure.png`;
           try {

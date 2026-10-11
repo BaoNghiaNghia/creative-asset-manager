@@ -22,6 +22,9 @@
   "folders": {},
   "apiRoutes": [
     {"method":"GET","path":"/api/v1/realistic-review-ugc/research/signals","body":{"items":[{"id":"qa-research-signal-1","source":"rss","channel":"US Cap Trends","title":"Cap embroidery trends","excerpt":"A public headline to review","url":"https://news.google.com/rss/articles/qa-1","status":"pending","keyword":null,"created_at":"2026-10-10T08:00:00Z"}]}},
+    {"method":"POST","path":"/api/v1/realistic-review-ugc/research/signals/import","body":{"added":1,"duplicates":0}},
+    {"method":"POST","path":"/api/v1/realistic-review-ugc/research/signals/qa-research-signal-1/review","body":{"id":"qa-research-signal-1","status":"approved","keyword":"MADE TO WORSHIP"}},
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/research/stage0-export","body":{"keywords":["MADE TO WORSHIP"],"force":false}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"openai_configured":false,"openai_status":"not_configured","error_code":null,"items":[{"source":"local","skill_id":null,"skill_name":"gatorhats-8869-image-studio","display_name":"GatorHats 8869 Image Studio","description":"Generate cap artwork","default_version":"1.0","latest_version":"1.0","local_version":"1.0","synced_version":"1.0","ready":true,"sync_state":"ready","version_options":["1.0"]}]}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-jobs","body":[]},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage3/review-groups","body":{"items":[],"total_groups":0,"total_images":0,"ready_images":0,"rejected_images":0,"analyzing_images":0,"pending_images":0,"error_images":0}},

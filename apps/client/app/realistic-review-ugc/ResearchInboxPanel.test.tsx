@@ -19,5 +19,9 @@ describe("Research Intelligence Stage 0 Inbox", () => {
     expect(() => parseResearchImport("[]")).toThrow();
     expect(() => parseResearchImport(JSON.stringify([{source:"unknown",title:"a",url:"https://example.com"}]))).toThrow();
     expect(() => parseResearchImport(JSON.stringify(Array(51).fill(signals[0])))).toThrow();
+    for (const url of ["http://news.google.com/a", "https://localhost/", "https://127.0.0.1/",
+      "https://evil.example@news.google.com/a", "javascript:alert(1)"]) {
+      expect(() => parseResearchImport(JSON.stringify([{ ...signals[0], url }]))).toThrow();
+    }
   });
 });

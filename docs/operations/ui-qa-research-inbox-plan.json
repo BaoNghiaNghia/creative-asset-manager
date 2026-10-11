@@ -1,12 +1,30 @@
 {
-  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
   "qualityBudgets": {
-    "desktop": { "maxUnnamedControls": 0, "maxMissingAlt": 0 },
-    "tabletPortrait": { "maxUnnamedControls": 0, "maxMissingAlt": 0 },
-    "mobile": { "maxViewportOverflowPx": 0, "maxUnnamedControls": 0, "maxMissingAlt": 0 }
+    "desktop": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobile": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    }
   },
   "mobileAssertions": [
-    { "type": "no-viewport-overflow", "selector": "html", "maxPx": 0 }
+    {
+      "type": "no-viewport-overflow",
+      "selector": "html",
+      "maxPx": 0
+    }
   ],
   "steps": [
     {
@@ -17,16 +35,119 @@
     {
       "name": "research-inbox-open",
       "click": ".rrugc-research-expand",
-      "waitFor": ".rrugc-research-signal"
+      "waitFor": ".rrugc-research-signal",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".rrugc-research-expand",
+          "name": "aria-expanded",
+          "value": "true"
+        },
+        {
+          "type": "no-horizontal-overflow",
+          "selector": ".rrugc-research-inbox",
+          "maxPx": 1
+        }
+      ]
     },
     {
       "name": "research-keyword-focus",
       "focus": "#research-keyword-qa-research-signal-1"
     },
     {
+      "name": "research-import-open",
+      "click": ".rrugc-research-actions button:first-child",
+      "waitFor": "#rrugc-research-import-text",
+      "assertions": [
+        {
+          "type": "min-control-size",
+          "selector": ".rrugc-research-actions button",
+          "minPx": 36
+        }
+      ]
+    },
+    {
+      "name": "research-invalid-link-fill",
+      "fill": {
+        "selector": "#rrugc-research-import-text",
+        "value": "[{\"source\":\"rss\",\"channel\":\"Cap trends\",\"title\":\"Hat news\",\"url\":\"http://127.0.0.1/private\"}]"
+      }
+    },
+    {
+      "name": "research-invalid-link",
+      "click": ".rrugc-research-import button",
+      "waitFor": ".rrugc-research-error",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-research-error",
+          "value": "HTTPS"
+        }
+      ]
+    },
+    {
+      "name": "research-valid-import-fill",
+      "fill": {
+        "selector": "#rrugc-research-import-text",
+        "value": "[{\"source\":\"rss\",\"channel\":\"Cap trends\",\"title\":\"Hat news\",\"url\":\"https://news.google.com/rss/articles/qa-2\"}]"
+      }
+    },
+    {
+      "name": "research-valid-import",
+      "click": ".rrugc-research-import button",
+      "waitFor": ".rrugc-research-notice",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-research-notice",
+          "value": "Đã thêm 1"
+        }
+      ]
+    },
+    {
+      "name": "research-review-keyword-fill",
+      "fill": {
+        "selector": "#research-keyword-qa-research-signal-1",
+        "value": "MADE TO WORSHIP"
+      }
+    },
+    {
+      "name": "research-review-keyword",
+      "click": ".rrugc-research-signal-review button:first-child",
+      "waitFor": ".rrugc-research-notice",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-research-notice",
+          "value": "Đã duyệt keyword"
+        }
+      ]
+    },
+    {
+      "name": "research-stage0-preview",
+      "click": ".rrugc-research-actions button:nth-child(2)",
+      "waitFor": "#rrugc-research-export-text",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": "#rrugc-research-export-text",
+          "name": "readonly",
+          "value": ""
+        }
+      ]
+    },
+    {
       "name": "research-inbox-collapse",
       "click": ".rrugc-research-expand",
-      "waitFor": ".rrugc-research-inbox-head"
+      "waitFor": ".rrugc-research-inbox-head",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".rrugc-research-expand",
+          "name": "aria-expanded",
+          "value": "false"
+        }
+      ]
     }
   ]
 }

@@ -22,6 +22,21 @@ async function researchRequest<T>(path: string, init?: RequestInit): Promise<T> 
   return response.json() as Promise<T>;
 }
 
+function isPublicHttpsUrl(value: unknown): boolean {
+  if (typeof value !== "string" || value.length < 8 || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    return url.protocol === "https:" && !url.username && !url.password
+      && (!url.port || url.port === "443") && Boolean(hostname)
+      && hostname !== "localhost" && !hostname.endsWith(".local")
+      && !hostname.endsWith(".internal") && !/^[0-9.]+$/.test(hostname)
+      && !hostname.startsWith("[");
+  } catch {
+    return false;
+  }
+}
+
 export function parseResearchImport(value: string): Array<Record<string, unknown>> {
   const parsed: unknown = JSON.parse(value);
   if (!Array.isArray(parsed) || !parsed.length || parsed.length > 50) {
@@ -31,7 +46,9 @@ export function parseResearchImport(value: string): Array<Record<string, unknown
     if (!signal || typeof signal !== "object" || Array.isArray(signal)
       || !["rss", "github", "youtube", "web"].includes((signal as Record<string, unknown>).source as string)
       || typeof (signal as Record<string, unknown>).title !== "string"
-      || typeof (signal as Record<string, unknown>).url !== "string") {
+      || !String((signal as Record<string, unknown>).title).trim()
+      || String((signal as Record<string, unknown>).title).length > 240
+      || !isPublicHttpsUrl((signal as Record<string, unknown>).url)) {
       throw new Error("Dữ liệu research phải có source, title và URL HTTPS hợp lệ.");
     }
   }
@@ -59,6 +76,7 @@ export function ResearchInboxPanel() {
         signal ? { signal } : undefined);
       if (signal?.aborted) return;
       setItems(result.items);
+      setUnavailable(false);
     } catch (e) {
       if (signal?.aborted) return;
       const message = e instanceof Error ? e.message : "Không tải được Research Inbox.";
@@ -70,11 +88,11 @@ export function ResearchInboxPanel() {
   }, []);
 
   useEffect(() => {
-    if (!open || unavailable) return;
+    if (!open) return;
     const controller = new AbortController();
     void refresh(controller.signal);
     return () => controller.abort();
-  }, [open, unavailable, refresh]);
+  }, [open, refresh]);
 
   async function importBatch() {
     setError(""); setNotice(""); setBusyId("import");
@@ -131,7 +149,10 @@ export function ResearchInboxPanel() {
       </button>
     </header>
     {open && <div className="rrugc-research-inbox-body">
-      {unavailable ? <p role="status">Research Intelligence chưa kích hoạt trên backend.</p> : <>
+      {unavailable ? <div className="rrugc-research-unavailable" role="status">
+        <p>Research Intelligence chưa kích hoạt trên backend.</p>
+        <button type="button" disabled={loading} onClick={() => void refresh()}>Thử kết nối lại</button>
+      </div> : <>
         <div className="rrugc-research-actions">
           <button type="button" onClick={() => setImportOpen(v => !v)}
             aria-expanded={importOpen}>Nhập research JSON</button>

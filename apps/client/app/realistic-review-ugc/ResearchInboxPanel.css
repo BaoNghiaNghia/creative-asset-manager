@@ -1,4 +1,6 @@
 .rrugc-research-inbox {
+  grid-column: 1 / -1;
+  min-width: 0;
   margin: 0 0 16px;
   border: 1px solid #dce5ef;
   border-radius: 13px;
@@ -9,14 +11,14 @@
 .rrugc-research-inbox-head {
   position: relative;
   z-index: 2;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 12px;
   padding: 16px 18px;
   background: #f8fbff;
 }
+.rrugc-research-inbox-head > div { min-width: 0; }
 .rrugc-research-eyebrow {
   display: block;
   margin-bottom: 4px;
@@ -41,6 +43,12 @@
 }
 .rrugc-research-inbox button:hover { background: #e8f0ff; }
 .rrugc-research-inbox button:disabled { opacity: .5; cursor: not-allowed; }
+/* Leave clearance for the Stage 0 sticky workspace navigation and the inbox
+   header when keyboard focus has scrolled a later field into view. */
+.rrugc-research-inbox-body :is(button, input, textarea, a) {
+  scroll-margin-block-start: 160px;
+  scroll-margin-block-end: 32px;
+}
 .rrugc-research-inbox button:focus-visible,
 .rrugc-research-inbox a:focus-visible,
 .rrugc-research-inbox textarea:focus-visible,
@@ -64,6 +72,8 @@
 .rrugc-research-error { color: #b23838; }
 .rrugc-research-notice { color: #276c56; }
 .rrugc-research-loading,.rrugc-research-empty { color: #73849a; font-size: 12px; }
+.rrugc-research-unavailable { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.rrugc-research-unavailable p { margin: 0; color: #905f18; font-size: 12px; }
 .rrugc-research-signal-list { display: grid; gap: 10px; }
 .rrugc-research-signal {
   display: grid;
@@ -84,7 +94,12 @@
 .rrugc-research-signal-review > div button { flex: 1; }
 @media (max-width: 760px) {
   .rrugc-research-inbox { margin: 0 0 12px; }
-  .rrugc-research-inbox-head { padding: 12px; }
+  .rrugc-research-inbox-head {
+    padding: 12px;
+    grid-template-columns: minmax(0,1fr);
+    min-height: 156px;
+    box-sizing: border-box;
+  }
   .rrugc-research-inbox-head h3 { font-size: 14px; }
   .rrugc-research-inbox-body { padding: 10px; }
   .rrugc-research-signal { grid-template-columns: minmax(0,1fr); }
