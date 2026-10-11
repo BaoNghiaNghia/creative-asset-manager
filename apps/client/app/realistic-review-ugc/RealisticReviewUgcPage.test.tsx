@@ -869,7 +869,15 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by Low CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by High CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by Created date ascending"');
+    const platformHeader = markup.indexOf('class="rrugc-stage0-platform-heading"');
+    expect(platformHeader).toBeGreaterThan(markup.indexOf('aria-label="Sort by High CPC ($) ascending"'));
+    expect(platformHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date ascending"'));
+    expect(markup.indexOf('class="rrugc-stage0-platform-cell"')).toBeGreaterThan(
+      markup.indexOf('class="rrugc-stage0-cpc"'),
+    );
     expect(markup).toContain("Created date");
+    expect(markup).toContain('title="Pinterest source"');
+    expect(markup).toContain('title="No Pinterest source recorded"');
     expect(markup).toContain('title="Open keyword details"');
     expect(markup).toContain('aria-label="Open details and 12-month Google Ads trend for Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('role="tooltip"');

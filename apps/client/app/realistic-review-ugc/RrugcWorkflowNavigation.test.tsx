@@ -88,6 +88,11 @@ describe("GatorHats sidebar groups and stage navigation", () => {
     expect(rrugcStageFromSearch("?workflow=invalid&stage=unknown")).toBe("stage0");
   });
 
+  it("keeps one selected stage tab in each workflow", () => {
+    expect(host.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  });
+
   it("updates workflow/stage in the URL while keeping unrelated query and hash", () => {
     window.history.replaceState(null, "", "/realistic-review-ugc?foo=bar#top");
     replaceRrugcStageInUrl("stage4");

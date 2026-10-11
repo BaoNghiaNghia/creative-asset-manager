@@ -2801,6 +2801,12 @@ Follow-up hardening: added specialized `gatorhats-8869-scale-image` Skill for th
 
 Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID scoped cancellation and sequential batching, Stage 5 queue drain, conservative QA and AI-generated labels. Tenant/user authorization, durable job idempotency, old storage intact. No migration or new dependency. Still requires real image/canary, Gemini tuning and Stage 5 gallery pagination. Rollback via code revert, preserve durable output and jobs. See docs/operations/RRUGC_STAGE_HARDENING.md.
 
+## 2026-10-11 — Compact Stage tabs and Stage 0 Platform alignment
+
+- Scoped GatorHats Products Stage 0–2 and Reviews Stage 3–5 navigation to intrinsic-width horizontal tabs instead of flex-grow equal columns; active tab is a compact standard blue-underline tab, not a screen-wide yellow gradient. Mobile retains horizontal tab scrolling and keyboard navigation.
+- Stage 0 Platform moved directly before Created date (column 11), sized to Pinterest icon + label via auto table layout/nowrap. Missing Pinterest source remains an em dash. All 13 table headers and row cells still match, with horizontal table scroll on small viewports.
+- UI-only change, no migration/secrets/API/worker modifications. Targeted 45 Vitest tests and desktop/tablet/mobile fixture-backed Browser QA passed with 0 functional issues; visual baseline comparisons remain unapproved and were not overwritten. Rollback by reverting this UI-only commit / frontend release.
+
 ## 2026-10-11 — Scout Manager optional / VPS Agent-Reach always-on design
 
 - Inspected actual Windows Tauri supervisor: pressing Run automation starts Review/Keyword processes, quitting kills owned Windows process trees and leaves the independent server untouched. Pinterest query pool currently holds 45-minute leases, so abrupt quit can temporarily leave leased queries. Existing server research adapter only supports bounded manual cycles; marketplace web discovery remains unscheduled.
