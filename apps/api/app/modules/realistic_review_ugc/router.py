@@ -5328,12 +5328,15 @@ def list_keyword_images(
     page_size: int = Query(default=20, ge=1, le=100),
     q: str = Query(default="", max_length=150),
     status: str = Query(default="all", pattern="^(all|not_run|queued|running|completed|failed)$"),
+    sort_by: str = Query(default="finished_at", pattern="^(keyword|search_volume|duration|finished_at)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     return KeywordImageService(session).list_used(
         tenant_id=principal.active_tenant_id,
         page=page, page_size=page_size, q=q, status=status,
+        sort_by=sort_by, sort_dir=sort_dir,
     )
 
 

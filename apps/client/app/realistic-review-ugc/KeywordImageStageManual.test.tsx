@@ -141,14 +141,15 @@ describe("Stage 1 manual keyword generation", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source", "Search volume", "Generation skill", "Job status", "Duration", "Finished at", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Generation skill", "Job status", "Duration↕", "Finished at↓", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
-    expect(cells).toHaveLength(8);
-    expect(cells[4].textContent).toBe("—");
+    expect(cells).toHaveLength(9);
+    expect(cells[1].querySelector(".rrugc-stage0-trend")).not.toBeNull();
     expect(cells[5].textContent).toBe("—");
-    expect(cells[6].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
-    expect(cells[7].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
-    expect(cells[7].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    expect(cells[6].textContent).toBe("—");
+    expect(cells[7].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(cells[8].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
+    expect(cells[8].querySelector(".rrugc-keyword-output-track")).toBeNull();
     // A real thumbnail click must restore the same gallery modal used by Versions;
     // dragging the strip remains separate and never navigates to a raw image URL.
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -172,6 +173,23 @@ describe("Stage 1 manual keyword generation", () => {
     expect(getKeywordAnalysisDetail).toHaveBeenCalledWith("key-1", expect.anything());
     expect(host.querySelector(".rrugc-stage0-detail-modal")?.textContent).toContain("Monthly search volume");
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close keyword details"]')?.click());
+    expect(host.querySelector('th[aria-sort="descending"]')?.textContent).toContain("Finished at");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Search volume descending"]')?.click();
+      await Promise.resolve(); await Promise.resolve();
+    });
+    expect(listKeywordImages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "search_volume", sortDirection: "desc", page: 1 }),
+      expect.anything(),
+    );
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Search volume ascending"]')?.click();
+      await Promise.resolve(); await Promise.resolve();
+    });
+    expect(listKeywordImages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "search_volume", sortDirection: "asc", page: 1 }),
+      expect.anything(),
+    );
     await act(async () => root.unmount());
   });
 

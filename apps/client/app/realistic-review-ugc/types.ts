@@ -233,6 +233,9 @@ export type KeywordImageRow = {
   keyword_id: string;
   keyword: string;
   search_volume: number;
+  trend?: KeywordVolumeTrendPoint[];
+  three_month_change_pct?: number | null;
+  yoy_change_pct?: number | null;
   source_image_url: string | null;
   status: KeywordImageStatus;
   job_id: string | null;

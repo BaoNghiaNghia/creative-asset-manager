@@ -51,6 +51,58 @@ def test_stage1_only_lists_used_keyword_and_is_tenant_scoped(db):
     assert KeywordImageService(db).list_used(tenant_id="tenant-b", page=1, page_size=20)["total"] == 1
 
 
+def test_stage1_sort_applies_across_pages_and_keeps_missing_values_last(db):
+    first = keyword(db, "alpha", "tenant-a", picked=True)
+    second = keyword(db, "zebra", "tenant-a", picked=True)
+    third = keyword(db, "middle", "tenant-a", picked=True)
+    other = keyword(db, "other", "tenant-b", picked=True)
+    first.search_volume = 300
+    second.search_volume = 50
+    third.search_volume = 200
+    other.search_volume = 9999
+    first.provider_raw_json = {"trend": [{"period": "2026-08", "volume": 120},
+                                         {"period": "2026-09", "volume": 300}],
+                               "three_month_change_pct": 20, "yoy_change_pct": 3.5}
+    started = datetime(2026, 10, 10, 1, 0, tzinfo=timezone.utc)
+    db.add_all([
+        RrugcKeywordImageJobModel(
+            id="job-alpha", tenant_id="tenant-a", keyword_id=first.id,
+            keyword_text=first.keyword, skill_source="local", skill_name="skill",
+            prompt_text="prompt", status="completed", created_by_user_id="actor",
+            started_at=started, completed_at=datetime(2026, 10, 10, 1, 1, tzinfo=timezone.utc),
+        ),
+        RrugcKeywordImageJobModel(
+            id="job-zebra", tenant_id="tenant-a", keyword_id=second.id,
+            keyword_text=second.keyword, skill_source="local", skill_name="skill",
+            prompt_text="prompt", status="completed", created_by_user_id="actor",
+            started_at=started, completed_at=datetime(2026, 10, 10, 1, 5, tzinfo=timezone.utc),
+        ),
+    ])
+    db.commit()
+    service = KeywordImageService(db)
+    def ordered(sort_by, sort_dir):
+        return [
+            row["keyword_id"] for row in service.list_used(
+                tenant_id="tenant-a", page=1, page_size=1,
+                sort_by=sort_by, sort_dir=sort_dir)["items"]
+        ] + [
+            row["keyword_id"] for page_num in (2, 3) for row in service.list_used(
+                tenant_id="tenant-a", page=page_num, page_size=1,
+                sort_by=sort_by, sort_dir=sort_dir)["items"]
+        ]
+    assert ordered("keyword", "asc") == ["alpha", "middle", "zebra"]
+    assert ordered("search_volume", "desc") == ["alpha", "middle", "zebra"]
+    assert ordered("duration", "desc") == ["zebra", "alpha", "middle"]
+    assert ordered("finished_at", "asc") == ["alpha", "zebra", "middle"]
+    row = service.list_used(tenant_id="tenant-a", page=1, page_size=1,
+                            sort_by="keyword", sort_dir="asc")["items"][0]
+    assert row["trend"] == [{"period": "2026-08", "volume": 120}, {"period": "2026-09", "volume": 300}]
+    assert row["three_month_change_pct"] == 20.0
+    assert service.list_used(tenant_id="tenant-b", page=1, page_size=10)["total"] == 1
+    with pytest.raises(ValueError, match="Unsupported Stage 1 ordering"):
+        service.list_used(tenant_id="tenant-a", page=1, page_size=10, sort_by="arbitrary_sql")
+
+
 def test_stage1_job_timestamps_use_actual_run_and_completion_times(db):
     row = keyword(db, "used-timed", "tenant-a", picked=True)
     started = datetime(2026, 10, 10, 1, 0, tzinfo=timezone.utc)

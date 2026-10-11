@@ -56,6 +56,45 @@ class KeywordImageError(RuntimeError):
         super().__init__(message)
 
 
+def stage1_keyword_percentage(raw_value: dict | None, key: str) -> float | None:
+    if not isinstance(raw_value, dict):
+        return None
+    try:
+        value = float(raw_value.get(key))
+        return value if value == value and abs(value) != float("inf") else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def stage1_keyword_trend(raw_value: dict | None) -> list[dict]:
+    """Reuse bounded, provider-supplied month history for Stage 1's read-only trend."""
+    raw = raw_value if isinstance(raw_value, dict) else {}
+    for key in ("monthly_breakdown", "monthly_search_volumes", "monthly_searches", "history", "trend"):
+        candidate = raw.get(key)
+        if not isinstance(candidate, list):
+            continue
+        points: list[dict] = []
+        for entry in candidate[:100]:
+            if not isinstance(entry, dict):
+                continue
+            value = next((entry[name] for name in ("monthly_searches", "search_volume", "volume") if entry.get(name) is not None), None)
+            try:
+                volume = max(0, int(float(value)))
+            except (ValueError, TypeError, OverflowError):
+                continue
+            period = str(entry.get("period") or entry.get("date") or "").strip()
+            if not period and entry.get("year") is not None and entry.get("month") is not None:
+                try:
+                    period = f"{int(entry['year']):04d}-{int(entry['month']):02d}"
+                except (ValueError, TypeError):
+                    continue
+            if period:
+                points.append({"period": period[:32], "volume": volume})
+        if points:
+            return points[-24:]
+    return []
+
+
 def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str | None = None) -> str:
     """Generate a bounded keyword-only prompt tailored to the selected Skill."""
     if skill_name == "gatorhats-stage1-six-designs":
@@ -352,7 +391,8 @@ class KeywordImageService:
         self.session.refresh(job)
         return job
 
-    def list_used(self, *, tenant_id: str, page: int, page_size: int, q: str = "", status: str = "all") -> dict:
+    def list_used(self, *, tenant_id: str, page: int, page_size: int, q: str = "", status: str = "all",
+                  sort_by: str = "finished_at", sort_dir: str = "desc") -> dict:
         filters = [RrugcKeywordVolumeModel.tenant_id == tenant_id, RrugcKeywordVolumeModel.picked.is_(True)]
         if q.strip():
             filters.append(RrugcKeywordVolumeModel.keyword.ilike("%" + q.strip().replace("%", r"\%").replace("_", r"\_") + "%", escape="\\"))
@@ -364,8 +404,25 @@ class KeywordImageService:
         ).outerjoin(
             ProcessingJobModel, (ProcessingJobModel.id == RrugcKeywordImageJobModel.processing_job_id)
             & (ProcessingJobModel.tenant_id == tenant_id),
-        ).where(*filters).order_by(
-            RrugcKeywordVolumeModel.picked_at.desc().nullslast(),
+        ).where(*filters)
+        start_at = func.coalesce(RrugcKeywordImageJobModel.started_at, ProcessingJobModel.claimed_at)
+        finished_at = func.coalesce(RrugcKeywordImageJobModel.completed_at, ProcessingJobModel.completed_at)
+        duration_seconds = case(
+            (start_at.is_not(None),
+             func.extract("epoch", func.coalesce(finished_at, func.now())) - func.extract("epoch", start_at)),
+            else_=None,
+        )
+        sort_columns = {
+            "keyword": func.lower(RrugcKeywordVolumeModel.keyword),
+            "search_volume": RrugcKeywordVolumeModel.search_volume,
+            "duration": duration_seconds,
+            "finished_at": finished_at,
+        }
+        if sort_by not in sort_columns or sort_dir not in ("asc", "desc"):
+            raise ValueError("Unsupported Stage 1 ordering")
+        selected = sort_columns[sort_by]
+        stmt = stmt.order_by(
+            (selected.asc() if sort_dir == "asc" else selected.desc()).nullslast(),
             RrugcKeywordVolumeModel.id.asc(),
         )
         # Aggregate and paginate in SQL so a large continuous Scout history never
@@ -409,6 +466,9 @@ class KeywordImageService:
             items.append({
                 "keyword_id": keyword.id, "keyword": keyword.keyword,
                 "search_volume": keyword.search_volume, "source_image_url": keyword.source_image_url,
+                "trend": stage1_keyword_trend(keyword.provider_raw_json),
+                "three_month_change_pct": stage1_keyword_percentage(keyword.provider_raw_json, "three_month_change_pct"),
+                "yoy_change_pct": stage1_keyword_percentage(keyword.provider_raw_json, "yoy_change_pct"),
                 "status": state, "job_id": job.id if job else None,
                 "skill_name": job.skill_name if job else None,
                 "skill_version": job.skill_version if job else None,

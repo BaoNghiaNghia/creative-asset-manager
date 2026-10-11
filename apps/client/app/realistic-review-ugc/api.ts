@@ -222,7 +222,7 @@ export const getQueryIntelligence = (signal?: AbortSignal) =>
 
 
 export const listKeywordImages = (
-  filters: { page?: number; pageSize?: number; query?: string; status?: string } = {},
+  filters: { page?: number; pageSize?: number; query?: string; status?: string; sortBy?: "keyword" | "search_volume" | "duration" | "finished_at"; sortDirection?: "asc" | "desc" } = {},
   signal?: AbortSignal,
 ) => {
   const params = new URLSearchParams({
@@ -230,6 +230,8 @@ export const listKeywordImages = (
     page_size: String(filters.pageSize ?? 20),
     q: filters.query ?? "",
     status: filters.status ?? "all",
+    sort_by: filters.sortBy ?? "finished_at",
+    sort_dir: filters.sortDirection ?? "desc",
   });
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };

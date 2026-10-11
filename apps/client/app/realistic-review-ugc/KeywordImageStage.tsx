@@ -7,11 +7,29 @@ import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
-import { KeywordDetailModal } from "./KeywordAnalysisTable";
+import { KeywordDetailModal, KeywordTrendChart } from "./KeywordAnalysisTable";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
 
 const PAGE_SIZES = [20, 50, 100] as const;
+export type KeywordImageSortBy = "keyword" | "search_volume" | "duration" | "finished_at";
+type KeywordImageSortDirection = "asc" | "desc";
+
+function Stage1SortHeader({ column, label, sortBy, sortDirection, onSort }: {
+  column: KeywordImageSortBy;
+  label: string;
+  sortBy: KeywordImageSortBy;
+  sortDirection: KeywordImageSortDirection;
+  onSort: (column: KeywordImageSortBy) => void;
+}) {
+  const active = sortBy === column;
+  return <th aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
+    <button type="button" className={"rrugc-keyword-gen-sort" + (active ? " active" : "")}
+      onClick={() => onSort(column)} aria-label={`Sort by ${label} ${active ? (sortDirection === "asc" ? "descending" : "ascending") : (column === "keyword" ? "ascending" : "descending")}`}>
+      <span>{label}</span><span aria-hidden="true">{active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}</span>
+    </button>
+  </th>;
+}
 
 export function formatKeywordJobDuration(startedAt: string | null | undefined, finishedAt: string | null | undefined, now = Date.now()): string {
   if (!startedAt) return "—";
@@ -177,6 +195,13 @@ export function KeywordImageStage({
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [status, setStatus] = useState<"all" | KeywordImageStatus>("all");
+  const [sortBy, setSortBy] = useState<KeywordImageSortBy>("finished_at");
+  const [sortDirection, setSortDirection] = useState<KeywordImageSortDirection>("desc");
+  const onSort = (column: KeywordImageSortBy) => {
+    setSortDirection(current => column === sortBy ? (current === "asc" ? "desc" : "asc") : column === "keyword" ? "asc" : "desc");
+    setSortBy(column);
+    setPage(1);
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -242,7 +267,7 @@ export function KeywordImageStage({
   } : null;
 
   const refresh = (signal?: AbortSignal) => listKeywordImages(
-    { page, pageSize, query: debouncedQuery, status }, signal,
+    { page, pageSize, query: debouncedQuery, status, sortBy, sortDirection }, signal,
   ).then(value => {
     if (!signal?.aborted) {
       setData(value);
@@ -264,7 +289,7 @@ export function KeywordImageStage({
       void refresh(controller.signal).catch(() => undefined).finally(() => { busy = false; });
     }, 5000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [active, page, pageSize, debouncedQuery, status]);
+  }, [active, page, pageSize, debouncedQuery, status, sortBy, sortDirection]);
 
   useEffect(() => {
     if (!active || !manualFocus) return;
@@ -459,12 +484,20 @@ export function KeywordImageStage({
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>
-    <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading}>
+    <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading} role="region" aria-label="Stage 1 keyword jobs scrollable table" tabIndex={0}>
       <table className="rrugc-keyword-gen-table">
-        <thead><tr><th>Keyword / Source</th><th>Search volume</th><th>Generation skill</th><th>Job status</th><th>Duration</th><th>Finished at</th><th>Output</th><th>Actions</th></tr></thead>
+        <thead><tr>
+          <Stage1SortHeader column="keyword" label="Keyword / Source" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+          <th>Trend</th>
+          <Stage1SortHeader column="search_volume" label="Search volume" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+          <th>Generation skill</th><th>Job status</th>
+          <Stage1SortHeader column="duration" label="Duration" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+          <Stage1SortHeader column="finished_at" label="Finished at" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+          <th>Output</th><th>Actions</th>
+        </tr></thead>
         <tbody>
           {loading && !data.items.length
-            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={8}><span /></td></tr>)
+            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={9}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
               return <tr key={row.keyword_id} className={"rrugc-keyword-row status-" + row.status}>
@@ -476,6 +509,7 @@ export function KeywordImageStage({
                   </div>
                   <div><strong title={row.keyword}>{row.keyword}</strong><small>View Stage 0 details ↗</small></div>
                 </button></td>
+                <td className="rrugc-keyword-gen-trend"><KeywordTrendChart item={row} onOpen={() => setKeywordDetailTarget({ id: row.keyword_id, keyword: row.keyword })} /></td>
                 <td className="rrugc-keyword-gen-volume">{row.search_volume.toLocaleString("en-US")}</td>
                 <td><div className="rrugc-keyword-gen-skill-cell">
                   <span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "Choose Skill"}</span>
@@ -501,7 +535,7 @@ export function KeywordImageStage({
                 </td>
               </tr>;
             })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={8}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={9}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
         </tbody>
       </table>
     </div>

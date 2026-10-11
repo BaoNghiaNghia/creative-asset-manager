@@ -915,6 +915,9 @@ class KeywordImageRowResponse(BaseModel):
     keyword_id: str
     keyword: str
     search_volume: int
+    trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
+    three_month_change_pct: float | None = None
+    yoy_change_pct: float | None = None
     source_image_url: str | None = None
     status: Literal["not_run", "queued", "running", "completed", "failed"]
     job_id: str | None = None

@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { KeywordSearchInput } from "./KeywordSearchInput";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import "./KeywordAnalysisPlatform.css";
 import type {
   KeywordAnalysisSortBy,
   KeywordAnalysisSortDirection,
@@ -200,7 +201,7 @@ function makeChartGeometry(points: KeywordVolumeTrendPoint[], width: number, hei
   return { line, area, dots };
 }
 
-function KeywordTrendChart({ item, onOpen }: { item: KeywordVolume; onOpen: () => void }) {
+export function KeywordTrendChart({ item, onOpen }: { item: Pick<KeywordVolume, "keyword" | "search_volume" | "trend" | "three_month_change_pct" | "yoy_change_pct">; onOpen: () => void }) {
   const trend = item.trend ?? [];
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -727,10 +728,11 @@ export function KeywordAnalysisTable({
       </div>
     </div>
 
-    <div className="rrugc-stage0-table-wrap">
+    <div className="rrugc-stage0-table-wrap" role="region" aria-label="Stage 0 keyword analysis scrollable table" tabIndex={0}>
       <table className="rrugc-stage0-table rrugc-stage0-keyword-table" aria-busy={loading}>
         <thead><tr>
           <th>Preview</th>
+          <th>Platform</th>
           <SortHeader column="keyword" label="Keyword" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <th>Trend</th>
           <SortHeader column="search_volume" label="Avg searches / mo" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
@@ -744,7 +746,7 @@ export function KeywordAnalysisTable({
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={12}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={13}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
             const feedbackScope: ScoutFeedbackScope = item.source_pin_url ? "both" : "keyword";
             const feedbackStatus = scoutFeedbackForScope(item, feedbackScope);
             const hasFeedback = feedbackStatus !== "neutral";
@@ -752,6 +754,9 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-source-image">
                 {item.source_image_url ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open source for " + item.keyword}><img src={item.source_image_url} alt="" loading="lazy" decoding="async" /></a> : <span className="rrugc-stage0-source-empty">No image</span>}
               </td>
+              <td className="rrugc-stage0-platform-cell">{item.source_pin_url
+                ? <span className="rrugc-stage0-platform" title="Pinterest source"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="#bd081c"/><path d="M12.6 5.5c-3.9 0-6.4 2.8-6.4 5.5 0 1.7.6 3 1.8 3.5.2-.5.4-1.2.5-1.6-.4-.5-.6-1.2-.6-2 0-2.6 2-4.5 4.6-4.5 2.2 0 3.8 1.4 3.8 3.5 0 2.5-1.2 4.4-2.8 4.4-.9 0-1.5-.8-1.3-1.7.2-1.1.7-2.3.7-3.2 0-.8-.4-1.3-1.1-1.3-1 0-1.8 1-1.8 2.4 0 .8.3 1.4.3 1.4l-1.3 5.4c-.3 1.4 0 2.7.1 3.1.1.2.2.2.3 0 .2-.3 1.2-1.7 1.5-3l.6-2.1c.3.6 1.2 1 2.3 1 3 0 5-2.7 5-6.2 0-3.2-2.7-5.8-6.1-5.8Z" fill="#fff"/></svg><span>Pinterest</span></span>
+                : <span className="rrugc-stage0-platform-empty" title="No Pinterest source recorded">—</span>}</td>
               <td className="rrugc-stage0-keyword-name">
                 <button type="button" className="rrugc-stage0-keyword-link" onClick={() => setDetailItem(item)} title="Open keyword details">
                   <strong>{item.keyword}</strong>
@@ -798,7 +803,7 @@ export function KeywordAnalysisTable({
               </td>
             </tr>;
           })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={12} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={13} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
         </tbody>
       </table>
     </div>

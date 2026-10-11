@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { KeywordDetailModal, nearestTrendPointIndex } from "./KeywordAnalysisTable";
+import { KeywordAnalysisTable, KeywordDetailModal, nearestTrendPointIndex } from "./KeywordAnalysisTable";
 import type { KeywordVolume } from "./types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -22,6 +22,41 @@ const keyword: KeywordVolume = {
 };
 
 afterEach(() => { document.body.replaceChildren(); });
+
+describe("Stage 0 platform source attribution", () => {
+  it("shows a Pinterest icon and text for Pin-sourced keywords, without inventing a platform for missing sources", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const noop = () => undefined;
+    const data = {
+      items: [keyword, { ...keyword, id: "keyword-no-pin", keyword: "Manual Word", source_pin_url: null }],
+      page: 1, page_size: 20, total: 2,
+      overview: {
+        total_keywords: 2, total_search_volume: 22200, high_competition: 0, zero_volume: 0,
+        short_tail_keywords: 2, mid_tail_keywords: 0, long_tail_keywords: 0,
+        picked_keywords: 1, favorite_keywords: 0, suggested_keywords: 0,
+      },
+    };
+    await act(async () => root.render(<KeywordAnalysisTable
+      data={data} query="" sortBy="keyword" sortDirection="asc"
+      usageFilter="all" tailFilter="all" favoritesOnly={false} suggestedOnly={false}
+      pickingIds={new Set()} favoritingIds={new Set()} feedbackUpdatingIds={new Set()}
+      onFeedbackChange={noop} onSortChange={noop} onUsageFilterChange={noop}
+      onTailFilterChange={noop} onFavoritesOnlyChange={noop}
+      onSuggestedOnlyChange={noop} onResetAll={noop}
+      onPickChange={noop} onFavoriteChange={noop}
+      onPageChange={noop} onPageSizeChange={noop} onQueryChange={noop}
+    />));
+    const headers = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th")).map(header => header.textContent);
+    expect(headers.slice(0, 3)).toEqual(["Preview", "Platform", "Keyword↑"]);
+    expect(host.querySelectorAll(".rrugc-stage0-keyword-table tbody tr")).toHaveLength(2);
+    expect(host.querySelector(".rrugc-stage0-platform")?.textContent).toBe("Pinterest");
+    expect(host.querySelector(".rrugc-stage0-platform svg")).not.toBeNull();
+    expect(host.querySelector(".rrugc-stage0-platform-empty")?.textContent).toBe("—");
+    await act(async () => root.unmount());
+  });
+});
 
 describe("Keyword detail trend chart", () => {
   it("selects the nearest month across the full chart width, including the empty spaces between dots", () => {

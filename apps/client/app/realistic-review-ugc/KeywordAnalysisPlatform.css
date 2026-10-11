@@ -1,0 +1,22 @@
+/* Stage 0 platform attribution is source-backed, not inferred from Google Ads. */
+table.rrugc-stage0-keyword-table { min-width: 1420px; }
+table.rrugc-stage0-keyword-table th:nth-child(1) { width: 5%; }
+table.rrugc-stage0-keyword-table th:nth-child(2) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(3) { width: 16%; }
+table.rrugc-stage0-keyword-table th:nth-child(4) { width: 10%; }
+table.rrugc-stage0-keyword-table th:nth-child(5) { width: 8%; }
+table.rrugc-stage0-keyword-table th:nth-child(6) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(7) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(8) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(9) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(10) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(11) { width: 6%; }
+table.rrugc-stage0-keyword-table th:nth-child(12) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(13) { width: 6%; }
+.rrugc-stage0-platform-cell { vertical-align: middle !important; }
+.rrugc-stage0-platform { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; color: #364860; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.rrugc-stage0-platform svg { flex: none; display: block; width: 16px; height: 16px; }
+.rrugc-stage0-platform-empty { color: #9ba8b9; }
+@media (max-width: 767px) {
+  .rrugc-stage0-platform { font-size: 10px; }
+}
