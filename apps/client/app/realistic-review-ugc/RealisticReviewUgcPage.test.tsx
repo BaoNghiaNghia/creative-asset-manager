@@ -639,22 +639,25 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders Stage 0 through Stage 5 as accessible workflow tabs with global management actions", () => {
+  it("renders Products Stage 0–2 initially and keeps Reviews Stage 3–5 behind a workflow subtab", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
-    expect(markup).toContain('aria-label="Realistic Review UGC sections"');
+    expect(markup).toContain('aria-label="GatorHats workflows"');
+    expect(markup).toContain('aria-label="GatorHats Products stages"');
+    expect(markup).toContain('id="rrugc-workflow-products"');
+    expect(markup).toContain('id="rrugc-workflow-reviews"');
+    expect(markup).toContain("GatorHats Products");
+    expect(markup).toContain("GatorHats Reviews");
     expect(markup).toContain('id="rrugc-tab-stage0"');
     expect(markup).toContain('id="rrugc-tab-stage1"');
     expect(markup).toContain('id="rrugc-tab-stage2"');
-    expect(markup).toContain('id="rrugc-tab-stage3"');
-    expect(markup).toContain('id="rrugc-tab-stage4"');
-    expect(markup).toContain('id="rrugc-tab-stage5"');
+    expect(markup).not.toContain('id="rrugc-tab-stage3"');
+    expect(markup).not.toContain('id="rrugc-tab-stage4"');
+    expect(markup).not.toContain('id="rrugc-tab-stage5"');
     expect(markup).not.toContain('id="rrugc-tab-settings"');
     expect(markup).toContain("Analysis Keyword");
     expect(markup).toContain("Embroidery → 13 Colors");
-    expect(markup).toContain("Pinterest References");
-    expect(markup).toContain("Image Generation");
-    expect(markup).toContain("UGC Review");
+    expect(markup).not.toContain('aria-label="GatorHats Reviews stages"');
     expect(markup).toContain("Manage skills");
     expect(markup).toContain("Settings");
     expect(markup).toContain('aria-selected="true"');

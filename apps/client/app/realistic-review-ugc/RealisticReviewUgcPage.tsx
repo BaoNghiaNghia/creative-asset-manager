@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -38,6 +38,7 @@ import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
 import { mergeStage5Pages } from "./stage5Pagination";
+import { RrugcWorkflowNavigation, type RrugcStageTab } from "./RrugcWorkflowNavigation";
 import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection, Stage3ReviewGroupList } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
@@ -100,17 +101,6 @@ const EMPTY_SOURCE_PAGE: SourcePlanPage = {
     stage2_active_jobs: 0,
   },
 };
-
-type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
-
-const RRUGC_STAGE_TABS: Array<{ id: RrugcStageTab; label: string; description: string; marker: string }> = [
-  { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
-  { id: "stage1", label: "Stage 1", description: "Keyword Image Generation", marker: "1" },
-  { id: "stage2", label: "Stage 2", description: "Embroidery → 13 Colors", marker: "2" },
-  { id: "stage3", label: "Stage 3", description: "Pinterest References", marker: "3" },
-  { id: "stage4", label: "Stage 4", description: "Image Generation", marker: "4" },
-  { id: "stage5", label: "Stage 5", description: "UGC Review", marker: "5" },
-];
 
 export function sourcePlanPageRenderFingerprint(page: SourcePlanPage): string {
   return JSON.stringify({
@@ -902,26 +892,14 @@ export function RealisticReviewUgcPage() {
   }, [activeStage]);
 
   function selectStage(nextStage: RrugcStageTab) {
+    // Reselecting the active stage must not restart a skeleton without a new
+    // fetch: effect dependencies do not change when the same tab is clicked.
+    if (nextStage === activeStage) return;
     if (nextStage === "stage3" || nextStage === "stage4") {
       setSourcePageNumber(1);
       setSourcePageLoading(true);
     }
     setActiveStage(nextStage);
-    window.requestAnimationFrame?.(() => {
-      document.getElementById("rrugc-tab-" + nextStage)?.focus();
-    });
-  }
-
-  function handleStageTabsKeyDown(event: KeyboardEvent<HTMLElement>) {
-    const currentIndex = RRUGC_STAGE_TABS.findIndex(item => item.id === activeStage);
-    let nextIndex = currentIndex;
-    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % RRUGC_STAGE_TABS.length;
-    else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + RRUGC_STAGE_TABS.length) % RRUGC_STAGE_TABS.length;
-    else if (event.key === "Home") nextIndex = 0;
-    else if (event.key === "End") nextIndex = RRUGC_STAGE_TABS.length - 1;
-    else return;
-    event.preventDefault();
-    selectStage(RRUGC_STAGE_TABS[nextIndex].id);
   }
 
   return <main className="rrugc-shell rrugc-source-first-shell">
@@ -949,31 +927,7 @@ export function RealisticReviewUgcPage() {
           <WorkspaceBackToAssets />
         </div>}
       />
-      <div className="rrugc-stage-tabs-shell">
-        <nav
-          className="ops-tabs rrugc-stage-tabs"
-          aria-label="Realistic Review UGC sections"
-          role="tablist"
-          onKeyDown={handleStageTabsKeyDown}
-        >
-          {RRUGC_STAGE_TABS.map(item => (
-            <button
-              key={item.id}
-              id={"rrugc-tab-" + item.id}
-              type="button"
-              role="tab"
-              aria-selected={activeStage === item.id}
-              aria-controls={"rrugc-panel-" + item.id}
-              tabIndex={activeStage === item.id ? 0 : -1}
-              className={activeStage === item.id ? "active" : ""}
-              onClick={() => selectStage(item.id)}
-            >
-              <span className="rrugc-stage-tab-number" aria-hidden="true">{item.marker}</span>
-              <span className="rrugc-stage-tab-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
-            </button>
-          ))}
-        </nav>
-      </div>
+      <RrugcWorkflowNavigation activeStage={activeStage} onSelectStage={selectStage} />
 
       <div className="rrugc-page-body rrugc-source-first-body">
         {error && <div className="rrugc-error" role="alert">{error}</div>}

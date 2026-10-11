@@ -15,6 +15,11 @@
   ],
   "steps": [
     {
+      "name": "reviews-workflow",
+      "click": "#rrugc-workflow-reviews",
+      "waitFor": "#rrugc-tab-stage3"
+    },
+    {
       "name": "default",
       "click": "#rrugc-tab-stage3",
       "waitFor": "#rrugc-source-plans",
@@ -37,6 +42,11 @@
     },
     { "name": "candidate-filter-focus", "focus": "#rrugc-stage3-search-input" },
     {
+      "name": "products-workflow",
+      "click": "#rrugc-workflow-products",
+      "waitFor": "#rrugc-tab-stage0"
+    },
+    {
       "name": "stage1-actions",
       "click": "#rrugc-tab-stage1",
       "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen",
@@ -53,6 +63,11 @@
         "#rrugc-panel-stage2 .rrugc-colorway-header-actions button",
         "#rrugc-panel-stage2 .rrugc-colorway-toolbar > button"
       ]
+    },
+    {
+      "name": "reviews-workflow-return",
+      "click": "#rrugc-workflow-reviews",
+      "waitFor": "#rrugc-tab-stage3"
     },
     {
       "name": "stage4-actions",

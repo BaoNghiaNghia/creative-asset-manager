@@ -1,0 +1,112 @@
+/* Product and Review workflows are separate navigation levels.
+   Stage selection remains a single active panel, so background polling does not change. */
+.rrugc-workflow-navigation {
+  width: 100%;
+  min-width: 0;
+  border-top: 1px solid #e7ecf3;
+  border-bottom: 1px solid #dfe5ed;
+  background: #fff;
+}
+.rrugc-workflow-group-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 13px clamp(20px,3.5vw,56px);
+  border-bottom: 1px solid #e7edf5;
+  background: #f8fafd;
+}
+.rrugc-workflow-group-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 69px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border: 1px solid #dfe6f1;
+  border-radius: 12px;
+  background: #fff;
+  color: #506078;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 1px 3px rgb(24 43 71 / 3%);
+  transition: border-color .15s ease, background .15s ease;
+}
+.rrugc-workflow-group-tab.active {
+  border-color: #8ba9e5;
+  background: #eef4ff;
+  color: #214c9c;
+  box-shadow: inset 0 0 0 1px rgb(73 112 206 / 8%);
+}
+.rrugc-workflow-group-tab:hover:not(.active) { border-color: #bdcce3; background: #fbfdff; }
+.rrugc-workflow-group-tab:focus-visible,
+.rrugc-stage-tabs button:focus-visible { outline: 2px solid #315fe9; outline-offset: 2px; }
+.rrugc-workflow-group-icon {
+  display: grid;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #e0e8f2;
+  border-radius: 10px;
+  background: #f1f5fb;
+  color: #647a9d;
+}
+.rrugc-workflow-group-tab.active .rrugc-workflow-group-icon { border-color: #cfdefa; background: #dce9ff; color: #345fb8; }
+.rrugc-workflow-group-icon svg { display: block; width: 22px; height: 22px; }
+.rrugc-workflow-group-copy { display: grid; flex: 1 1 auto; min-width: 0; gap: 4px; }
+.rrugc-workflow-group-copy strong { font-size: 14px; line-height: 1.2; font-weight: 800; }
+.rrugc-workflow-group-copy small { color: #77879c; font-size: 11px; line-height: 1.3; font-weight: 600; }
+.rrugc-workflow-group-tab.active .rrugc-workflow-group-copy small { color: #5274af; }
+.rrugc-workflow-group-count {
+  flex: none;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f0f3f8;
+  color: #6b7b93;
+  font-size: 10px;
+  font-weight: 800;
+}
+.rrugc-workflow-group-tab.active .rrugc-workflow-group-count { color: #345fb8; background: #dce9ff; }
+.rrugc-workflow-group-panel { width: 100%; min-width: 0; }
+.rrugc-workflow-group-panel[hidden] { display: none; }
+.rrugc-workflow-group-panel .rrugc-stage-tabs {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  padding-block: 3px;
+}
+.rrugc-workflow-group-panel .rrugc-stage-tabs button { min-height: 52px; min-width: 0; flex: 1 1 0; }
+@media (max-width: 1024px) {
+  .rrugc-workflow-group-tabs { padding-inline: 18px; }
+  .rrugc-workflow-group-count { display: none; }
+}
+@media (max-width: 680px) {
+  .rrugc-workflow-group-tabs { gap: 7px; padding: 9px 10px; }
+  .rrugc-workflow-group-tab { min-height: 60px; gap: 8px; padding: 9px; border-radius: 11px; }
+  .rrugc-workflow-group-icon { flex-basis: 32px; width: 32px; height: 32px; border-radius: 8px; }
+  .rrugc-workflow-group-icon svg { width: 19px; height: 19px; }
+  .rrugc-workflow-group-copy { gap: 2px; }
+  .rrugc-workflow-group-copy strong { font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; }
+  .rrugc-workflow-group-copy small { font-size: 10px; line-height: 1.2; }
+  .rrugc-workflow-group-panel .rrugc-stage-tabs { gap: 0; padding: 0 5px; }
+  .rrugc-workflow-group-panel .rrugc-stage-tabs button {
+    min-width: 110px;
+    flex: 1 1 110px;
+    min-height: 56px;
+    gap: 6px;
+    padding: 8px;
+  }
+  .rrugc-workflow-group-panel .rrugc-stage-tab-copy strong { font-size: 11.5px; }
+  .rrugc-workflow-group-panel .rrugc-stage-tab-copy small { font-size: 10px; }
+}
+@media (max-width: 360px) {
+  .rrugc-workflow-group-tabs { padding-inline: 7px; gap: 5px; }
+  .rrugc-workflow-group-tab { padding: 7px 6px; gap: 6px; }
+  .rrugc-workflow-group-icon { flex-basis: 28px; width: 28px; height: 28px; }
+  .rrugc-workflow-group-copy strong { font-size: 11px; }
+  .rrugc-workflow-group-copy small { font-size: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rrugc-workflow-group-tab { transition: none; }
+}
