@@ -1,5 +1,19 @@
 # VPS production deployment
 
+## Standing approval: automatically deploy after verified changes (2026-10-11)
+
+The project owner has explicitly authorized **all routine Creative Asset Management production releases without asking for repeated approval**. CodeLocal workspace access is `full` and Live Project mode is configured. For each requested code/UI/fix rollout, the agent may run tests, commit, push `main`, deploy affected production components and verify live version/health/smoke. A request that explicitly says `do not deploy`, `staging only` or `proposal only` supersedes the default.
+
+**No extra approval needed for normal release actions:**
+- Frontend (including mobile/Stage UI): follow `scripts/deploy-cam-frontend.sh` with a clean checkout, committed build-info provenance and read-only post-deploy smoke.
+- Backend/API/workers/Stage scheduler: follow `scripts/cam-rebuild-backend.sh` with the latest reviewed release, available disk/memory, test pass, and health checks. Inspect migration scope; do not execute destructive/unsafe migrations merely because deploy is preapproved.
+- Desktop agent: use its actual supported build/update publisher; authorization is not a substitute for a connected Windows host or signing credentials.
+
+**CodeLocal host-policy:** Its `full` mode does **not** bypass hard blocks on `sudo`, arbitrary host paths or privilege escalation. On the existing root-run VPS agent, the official project-root scripts have passed preflight when invoked via `bash scripts/deploy-cam-frontend.sh --commit COMMIT` and `bash scripts/cam-rebuild-backend.sh --commit COMMIT`, without adding `sudo` to the tool command. This is not a guarantee that a future call will be permitted; preflight/execute under the active host policy on each operation. If blocked, report the exact blocker and use only an operator-approved narrow broker, never a bypass.
+
+Always verify `build-info.json`/backend revision, `/live`/`/ready`, essential workers and the corresponding read-only smoke after deployment; report which authenticated routes were or were not covered. Do not auto-accept visual baselines to conceal regressions. If deploy/health fails, stop further rollouts and follow the documented rollback, preserving job and user data. Standing approval excludes unrestricted root, production secrets/IAM/network/SSH modifications, bulk deletions, irreversible DB mutations, and changing the CodeLocal security boundary.
+
+
 Production uses exactly two operator deployment entrypoints:
 
 ```bash
