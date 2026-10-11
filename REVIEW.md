@@ -2800,3 +2800,12 @@ Follow-up hardening: added specialized `gatorhats-8869-scale-image` Skill for th
 ## 2026-10-08 — RRUGC six-stage follow-up hardening (source only)
 
 Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID scoped cancellation and sequential batching, Stage 5 queue drain, conservative QA and AI-generated labels. Tenant/user authorization, durable job idempotency, old storage intact. No migration or new dependency. Still requires real image/canary, Gemini tuning and Stage 5 gallery pagination. Rollback via code revert, preserve durable output and jobs. See docs/operations/RRUGC_STAGE_HARDENING.md.
+
+## 2026-10-11 — Agent-Reach Research Intelligence sync hardening
+
+- Scoped public RSS adapter now resolves all allowed feed IPs as public before connecting to a pinned IP using hostname-preserving TLS SNI and certificate verification. Disables redirects/proxies and bounds body size; unexpected DNS/network/complete feed failure never reports a successful collection.
+- Public feed and JSON imports are processed in 50-item chunks without silently dropping item 51+; `make research-cycle` is an explicit, bounded collect-then-sync command and is not a production timer or auto-approved billable operation.
+- Scout delivery accepts only full integer receipts whose added+duplicates count equals the transmitted batch. Incomplete, malformed and failed responses leave local pending signals intact for a safe retry.
+- CAM API import uses PostgreSQL/SQLite ON CONFLICT on `(tenant_id, fingerprint)` instead of a race-prone read-before-write, preserving existing approved/rejected signals and protecting tenant isolation.
+- Verification: 12 adapter unit tests and 6 API/security/migration tests passed; two real allowlisted public feeds succeeded, 51 received, 1 new, 50 duplicate. No new migrations, production credential changes, auto-AEBrowse calls or source-data deletions.
+- Remaining: dedicated Scout token provisioning and authenticated production browser QA are unavailable without an authorized operator session; scheduled background syncing stays off. Code rollback via previous release; additive research table and approved keywords remain unchanged. See `docs/operations/CAM_AI_QA_RESEARCH_INTEGRATION.md`.

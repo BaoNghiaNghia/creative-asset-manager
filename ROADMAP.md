@@ -178,3 +178,6 @@
 
 - [x] RRUGC-SIX-STAGE-HARDENING-1: Stage 1 standalone Keyword Skill; Stage 2 Codex executable preflight; Stage 4 scoped cancellation and sequential 3-reference queue; Stage 5 incomplete-only 500-item analysis drain, conservative quality gate and synthetic disclosure. No migration. See docs/operations/RRUGC_STAGE_HARDENING.md.
 - [ ] RRUGC-SIX-STAGE-HARDENING-2: Stage 0 keyword provenance and short-token policy, Stage 3 calibrated prefilter and Gemini throughput, Stage 2 output revision history/QA and authenticated canary, Stage 5 gallery pagination.
+
+- [x] CAM-RESEARCH-SYNC-HARDENING: DNS-pinned TLS public RSS collection; no unacknowledged sync, concurrent PostgreSQL ON CONFLICT dedup, complete feed batch ingestion, bounded operator-triggered `research-cycle`. See `docs/operations/CAM_AI_QA_RESEARCH_INTEGRATION.md`.
+- [ ] CAM-RESEARCH-SYNC-OPERATIONS: pair dedicated Research Scout Agent with operator-managed secret, verify authenticated production Research Inbox, then enable a non-root reviewed collection/sync schedule. Do not infer authenticated PASS from public-only smoke.

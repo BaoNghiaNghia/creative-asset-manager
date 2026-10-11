@@ -54,6 +54,22 @@ def test_research_signals_are_tenant_scoped_and_require_review(session):
                       user_id="user-a", decision="rejected", keyword=None)
 
 
+def test_batch_duplicates_do_not_reset_reviewed_signals(session):
+    item = _signal()
+    assert import_signals(session, tenant_id="tenant-a", user_id="u", signals=[item, item]) == {
+        "added": 1, "duplicates": 1}
+    first = list_signals(session, tenant_id="tenant-a")[0]
+    review_signal(session, tenant_id="tenant-a", user_id="u",
+                  signal_id=first["id"], decision="approved", keyword="TEXAS HATS")
+    other = _signal("https://news.google.com/rss/articles/other")
+    assert import_signals(session, tenant_id="tenant-a", user_id="u", signals=[
+        item, other]) == {"added": 1, "duplicates": 1}
+    rows = list_signals(session, tenant_id="tenant-a", status="all")
+    assert len(rows) == 2
+    assert next(row for row in rows if row["id"] == first["id"])["status"] == "approved"
+    assert stage0_export(session, tenant_id="tenant-a")["keywords"] == ["TEXAS HATS"]
+
+
 def test_invalid_url_and_keyword_fail_closed(session):
     for url in ("http://news.google.com/a", "https://localhost/admin",
                 "https://127.0.0.1/a", "https://foo.internal/a",

@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import socket
 import sqlite3
+import ssl
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -66,38 +67,58 @@ def safe_public_url(raw_url: str, *, hosts: frozenset[str] | None = None) -> str
     return raw_url
 
 
-def _validate_feed_host(hostname: str) -> None:
-    # DNS fail closed on private IP ranges, despite the fixed hostname allowlist.
+def _resolve_feed_ip(hostname: str) -> str:
+    """Resolve once and pin HTTPS to that public IP, including TLS SNI.
+
+    Validation followed by an independent HTTP DNS lookup is unsafe: a DNS
+    answer can change between the safety check and the outbound connection.
+    """
     answers = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
     if not answers:
         raise ValueError("DNS returned no addresses")
+    addresses = []
     for address in answers:
         ip = ipaddress.ip_address(address[4][0])
         if not ip.is_global:
             raise ValueError("Resolved address is not public")
+        addresses.append(str(ip))
+    return addresses[0]
 
 
 def fetch_rss(feed_url: str, *, max_bytes: int = MAX_BODY) -> bytes:
-    """No HTTP redirects, proxy, credential forwarding, or unlimited response."""
-    import requests
+    """Pinned DNS + HTTPS verification; no redirects, proxies or large bodies."""
+    import urllib3
     url = safe_public_url(feed_url, hosts=ALLOWED_FEED_HOSTS)
-    hostname = urlsplit(url).hostname or ""
-    _validate_feed_host(hostname)
-    with requests.Session() as session:
-        session.trust_env = False
-        with session.get(url, allow_redirects=False, timeout=(4, 12),
-                         headers={"User-Agent": "CAM-Research-Reader/1.0"},
-                         stream=True) as response:
-            if response.status_code != 200:
+    parsed = urlsplit(url)
+    hostname = parsed.hostname or ""
+    pinned_ip = _resolve_feed_ip(hostname)
+    target = parsed.path or "/"
+    if parsed.query:
+        target += "?" + parsed.query
+    pool = urllib3.HTTPSConnectionPool(
+        pinned_ip, port=443, server_hostname=hostname, assert_hostname=hostname,
+        ssl_context=ssl.create_default_context(),
+        timeout=urllib3.Timeout(connect=4, read=12), retries=False,
+    )
+    try:
+        response = pool.urlopen(
+            "GET", target, headers={"Host": hostname,
+                                    "User-Agent": "CAM-Research-Reader/1.0"},
+            redirect=False, retries=False, preload_content=False,
+        )
+        try:
+            if response.status != 200:
                 raise ValueError("Feed fetch returned non-200 or redirect")
             collected = bytearray()
-            for chunk in response.iter_content(chunk_size=16384):
-                if not chunk:
-                    continue
+            for chunk in response.stream(16384):
                 collected.extend(chunk)
                 if len(collected) > max_bytes:
                     raise ValueError("Feed exceeds maximum size")
             return bytes(collected)
+        finally:
+            response.release_conn()
+    finally:
+        pool.close()
 
 
 def parse_rss(data: bytes, *, feed_name: str) -> list[dict[str, str]]:
@@ -263,6 +284,10 @@ def sync_to_cam(connection: sqlite3.Connection, *,
         receipt = response.json()
     if not isinstance(receipt, dict) or not all(k in receipt for k in ("added","duplicates")):
         raise ValueError("CAM research sync returned an invalid receipt")
+    added, duplicates = receipt["added"], receipt["duplicates"]
+    if (type(added) is not int or type(duplicates) is not int
+            or added < 0 or duplicates < 0 or added + duplicates != len(rows)):
+        raise ValueError("CAM research sync receipt did not acknowledge the complete batch")
     # Server is idempotent by tenant+fingerprint; avoid retrying already received items.
     connection.executemany(
         "UPDATE research_signal SET status='synced' WHERE id=? AND status='pending'",
@@ -270,7 +295,7 @@ def sync_to_cam(connection: sqlite3.Connection, *,
     )
     connection.commit()
     return {"status": "ok", "sent": len(rows),
-            "added": int(receipt["added"]), "duplicates": int(receipt["duplicates"])}
+            "added": added, "duplicates": duplicates}
 
 
 def public_channel_doctor() -> dict:
@@ -314,6 +339,34 @@ print(json.dumps(result))
         return {"status": "error", "reason": "Malformed channel status"}
 
 
+def collect_once(database: Path) -> dict:
+    """Bounded public collection; process every permitted item without truncation."""
+    import urllib3
+    config = json.loads(FEEDS_FILE.read_text(encoding="utf-8"))
+    pending = []
+    succeeded = failed = 0
+    for item in config.get("feeds", [])[:6]:
+        try:
+            url = safe_public_url(item["url"], hosts=ALLOWED_FEED_HOSTS)
+            pending.extend(parse_rss(fetch_rss(url), feed_name=str(item["name"])[:60]))
+            succeeded += 1
+        except (urllib3.exceptions.HTTPError, OSError, ValueError, KeyError,
+                TimeoutError) as exc:
+            failed += 1
+            print("Research source skipped:", type(exc).__name__, file=sys.stderr)
+    if not succeeded:
+        raise ValueError("No permitted research source could be collected")
+    with init_db(database) as connection:
+        added = duplicates = 0
+        for offset in range(0, len(pending), MAX_BATCH):
+            new, repeated = ingest(connection, pending[offset:offset + MAX_BATCH])
+            added += new
+            duplicates += repeated
+    return {"status": "partial" if failed else "ok", "received": len(pending),
+            "added": added, "duplicates": duplicates,
+            "sources_ok": succeeded, "sources_failed": failed}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DB_DEFAULT)
@@ -330,30 +383,43 @@ def main(argv: list[str] | None = None) -> int:
     p_review.add_argument("--keyword", default=None)
     sub.add_parser("export-stage0")
     sub.add_parser("sync-cam")
+    p_cycle = sub.add_parser("cycle", help="Collect public RSS, then sync using an already paired Scout token")
+    p_cycle.add_argument("--max-batches", type=int, default=4, choices=range(1, 5))
     args = parser.parse_args(argv)
     if args.command == "doctor":
         print(json.dumps(public_channel_doctor(), ensure_ascii=False, indent=2))
         return 0
-    if args.command == "collect":
-        feeds = json.loads(FEEDS_FILE.read_text(encoding="utf-8"))
-        pending = []
-        for item in feeds.get("feeds", [])[:6]:
-            try:
-                url = safe_public_url(item["url"], hosts=ALLOWED_FEED_HOSTS)
-                pending += parse_rss(fetch_rss(url), feed_name=str(item["name"])[:60])
-            except (OSError, ValueError, KeyError, TimeoutError) as exc:
-                print("Research source skipped:", type(exc).__name__, file=sys.stderr)
+    if args.command in ("collect", "cycle"):
+        collected = collect_once(args.database)
+        if args.command == "collect":
+            print(json.dumps(collected))
+            return 0
         with init_db(args.database) as db:
-            added, duplicated = ingest(db, pending)
-        print(json.dumps({"status":"ok", "received":len(pending),
-                          "added":added, "duplicates":duplicated}))
+            sent = 0
+            batches = 0
+            for _ in range(args.max_batches):
+                outcome = sync_to_cam(db)
+                if outcome["status"] == "idle":
+                    break
+                sent += outcome["sent"]
+                batches += 1
+            remaining = db.execute(
+                "SELECT COUNT(*) FROM research_signal WHERE status='pending'"
+            ).fetchone()[0]
+        print(json.dumps({"collection": collected, "sync": {
+            "sent": sent, "batches": batches, "remaining": remaining,
+        }}))
         return 0
     with init_db(args.database) as db:
         if args.command == "ingest-json":
             data = json.loads(args.input.read_text(encoding="utf-8"))
             if not isinstance(data, list) or len(data) > 100:
                 raise ValueError("Research imports must be a list with at most 100 records")
-            added, duplicated = ingest(db, data)
+            added = duplicated = 0
+            for offset in range(0, len(data), MAX_BATCH):
+                created, repeated = ingest(db, data[offset:offset + MAX_BATCH])
+                added += created
+                duplicated += repeated
             result = {"added": added, "duplicates": duplicated}
         elif args.command == "list":
             result = list_inbox(db,status=args.status)

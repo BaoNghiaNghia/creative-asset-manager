@@ -65,6 +65,11 @@ research-doctor:
 research-collect:
 	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py collect
 
+# Explicit, bounded cycle. Requires a separately paired agent and secure env;
+# never runs automatically on a frontend/backend deployment.
+research-cycle:
+	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py cycle --max-batches 4
+
 research-inbox:
 	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py list
 

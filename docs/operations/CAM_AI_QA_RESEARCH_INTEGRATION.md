@@ -42,7 +42,13 @@ make research-collect
 make research-inbox
 ```
 
-This does not schedule recurring crawls. For production transfer, provide a **paired dedicated Scout token via secret environment** (never commit): `CAM_RESEARCH_SCOUT_AGENT_ID`, `CAM_RESEARCH_SCOUT_TOKEN`; then run `integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py sync-cam`. If auth/network/receipt fails, pending rows remain eligible for retry. Never log or display the token.
+This does not schedule recurring crawls. To configure safe production transfer, an operator with `realistic_review_ugc.run` should create **a dedicated Research Scout Agent** through the existing authenticated `POST /api/v1/realistic-review-ugc/scout-agents` workflow (or its Scout management UI). Its one-time pairing token is shown **once**: provision it into a narrowly scoped external secret environment for a non-root research runner. Do not use the Pinterest Scout token, app-session cookies, a terminal command argument, or a source-controlled `.env`.
+
+With that dedicated identity, set `CAM_RESEARCH_SCOUT_AGENT_ID` and `CAM_RESEARCH_SCOUT_TOKEN` through the operator-managed runtime secret mechanism and run `make research-cycle` (at most two allowlisted feeds, four API batches per invocation). `make research-collect` remains independent of token setup. `sync-cam` sends one batch, while `cycle` collects then transmits up to four batches. If auth/network/receipt fails, pending rows stay retryable; **a partially acknowledged receipt is never accepted**. No AEBrowse calls, keyword auto-approvals or browser-cookie imports occur. Never log or display the token.
+
+The RSS client connects to a **DNS-pinned public IP**, preserving the allowlisted hostname for TLS SNI and certificate verification, rejecting redirects, proxy use, non-public DNS answers and oversized responses. Collection processes all bounded feed items in 50-item chunks rather than silently dropping the remainder. On a complete feed outage it fails instead of reporting a false successful cycle.
+
+**Scheduling remains intentionally off** until the dedicated agent is paired and the restricted non-root runner is provisioned. Do not install a root cron job or inject tokens into shell history merely to enable automatic synchronization. Test a single cycle with the provisioned runner first, then add an operator-reviewed bounded schedule.
 
 ## Deployment order, access and rollback
 

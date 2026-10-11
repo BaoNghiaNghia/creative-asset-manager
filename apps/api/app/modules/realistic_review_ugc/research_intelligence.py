@@ -4,9 +4,12 @@ from datetime import datetime, timezone
 import hashlib
 import ipaddress
 import re
+from uuid import uuid4
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel
@@ -71,22 +74,28 @@ def import_signals(
         if not title:
             raise ResearchValidationError("Research title is required")
         fingerprint = hashlib.sha256((source + "|" + url.lower()).encode()).hexdigest()
-        existing = session.scalar(select(RrugcResearchSignalModel.id).where(
-            RrugcResearchSignalModel.tenant_id == tenant_id,
-            RrugcResearchSignalModel.fingerprint == fingerprint,
-        ))
-        if existing:
-            duplicates += 1
-            continue
-        session.add(RrugcResearchSignalModel(
+        # The database uniqueness constraint, not a read-then-insert check,
+        # arbitrates concurrent Scout deliveries. Both SQLite tests and
+        # production PostgreSQL support ON CONFLICT DO NOTHING.
+        dialect = session.get_bind().dialect.name
+        if dialect == "postgresql":
+            statement = postgresql_insert(RrugcResearchSignalModel)
+        elif dialect == "sqlite":
+            statement = sqlite_insert(RrugcResearchSignalModel)
+        else:
+            raise ResearchValidationError("Unsupported research database dialect")
+        inserted = session.execute(statement.values(
+            id=str(uuid4()),
             tenant_id=tenant_id, fingerprint=fingerprint, source=source,
             channel=_text(signal.get("channel") or source, 80),
             url=url, title=title, excerpt=_text(signal.get("excerpt") or "", 480),
             status="pending", created_by_user_id=user_id,
             created_at=datetime.now(timezone.utc),
-        ))
-        session.flush()
-        added += 1
+        ).on_conflict_do_nothing(index_elements=["tenant_id", "fingerprint"]))
+        if inserted.rowcount == 1:
+            added += 1
+        else:
+            duplicates += 1
     session.commit()
     return {"added": added, "duplicates": duplicates}
 
