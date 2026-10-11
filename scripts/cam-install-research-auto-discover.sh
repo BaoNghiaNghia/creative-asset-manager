@@ -14,7 +14,10 @@ if ! id -u cam-research >/dev/null 2>&1; then
     --shell /usr/sbin/nologin cam-research
 fi
 install -d -o cam-research -g cam-research -m 0700 /var/lib/creative-asset-manager-research
-install -d -o root -g cam-research -m 0750 /etc/creative-asset-manager
+# The directory is shared by the API's creative-assets account and the
+# independent cam-research account. Preserve traverse permission for both;
+# individual secrets remain protected by their own 0640 group ownership.
+install -d -o root -g root -m 0755 /etc/creative-asset-manager
 if [[ ! -e /etc/creative-asset-manager/research-auto-discover.env ]]; then
   (umask 027; : > /etc/creative-asset-manager/research-auto-discover.env)
 fi
