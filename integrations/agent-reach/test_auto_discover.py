@@ -145,6 +145,44 @@ class AutoDiscoverTests(unittest.TestCase):
                 sync.assert_called_once()
                 heartbeat.assert_called_with("error", "cam_sync_retryable")
 
+    def test_exa_rpc_json_rate_limit_is_cooldown_not_generic_error(self):
+        client = auto.ExaMcpSearch()
+        client.http.post = lambda *args, **kwargs: type("Response", (), {
+            "status_code": 200, "headers": {"content-type": "application/json"},
+            "content": b'{"jsonrpc":"2.0","error":{"code":-32000,"message":"Rate limit exceeded"},"id":2}',
+            "json": lambda self: {"error": {"code": -32000, "message": "Rate limit exceeded"}},
+        })()
+        with self.assertRaisesRegex(RuntimeError, "exa_rate_limited"):
+            client.rpc("tools/call", {}, 2)
+
+    def test_exa_mcp_notification_429_enters_cooldown(self):
+        client = auto.ExaMcpSearch()
+        client.http.post = lambda *args, **kwargs: type("Response", (), {"status_code": 429})()
+        with self.assertRaisesRegex(RuntimeError, "exa_rate_limited"):
+            client.rpc("notifications/initialized", {}, None)
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "flush_outbox", return_value="")
+    @patch.object(auto, "heartbeat")
+    def test_cooldown_reports_rate_limit_in_heartbeat(self, heartbeat, flush, gate):
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                auto.save_meta(db, cooldown_until=(datetime.now(timezone.utc)
+                              + timedelta(hours=2)).isoformat(), last_error="exa_rate_limited")
+                result = auto.run_once(db, search_provider=FakeSearch())
+        self.assertEqual(result["status"], "provider_cooldown")
+        heartbeat.assert_called_once_with("error", "exa_rate_limited")
+
+    @patch.object(auto.requests, "Session")
+    def test_rejected_heartbeat_never_breaks_discovery(self, session_factory):
+        response = type("Response", (), {"status_code": 403})()
+        session_factory.return_value.post.return_value = response
+        paired = {"CAM_RESEARCH_SCOUT_AGENT_ID": "12345678-1234-1234-1234-123456789abc",
+                  "CAM_RESEARCH_SCOUT_TOKEN": "test-only-token-with-minimum-length"}
+        with patch.dict(os.environ, paired):
+            self.assertIsNone(auto.heartbeat("ready"))
+
     def test_rate_limit_inside_successful_mcp_response_is_not_treated_as_results(self):
         client = auto.ExaMcpSearch()
         client.initialized = True

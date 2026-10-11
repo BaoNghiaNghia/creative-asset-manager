@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { parseResearchImport, ResearchInboxPanel } from "./ResearchInboxPanel";
+import { discoveryErrorMessage, parseResearchImport, ResearchInboxPanel, type AutoDiscoverStatus } from "./ResearchInboxPanel";
 
 describe("Research Intelligence Stage 0 Inbox", () => {
+  it("distinguishes Exa quota and CAM sync failures from healthy status", () => {
+    const base = {state:"error", connected:true, server:"VPS", source:"Agent-Reach / Exa",
+      last_seen_at:null, last_error_code:"exa_rate_limited", total_evidence:0,
+      pending_review:0, platforms:{pinterest:0, amazon:0, etsy:0}} as AutoDiscoverStatus;
+    expect(discoveryErrorMessage(base)).toContain("Exa");
+    expect(discoveryErrorMessage({...base,last_error_code:"cam_sync_retryable"})).toContain("đồng bộ");
+    expect(discoveryErrorMessage({...base,state:"ready"})).toBe("");
+    expect(discoveryErrorMessage(null)).toBe("");
+  });
+
   it("renders as an opt-in, collapsed Stage 0 research tool", () => {
     const markup = renderToStaticMarkup(<ResearchInboxPanel />);
     expect(markup).toContain("Research Inbox");

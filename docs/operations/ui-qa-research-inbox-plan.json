@@ -47,6 +47,11 @@
           "type": "no-horizontal-overflow",
           "selector": ".rrugc-research-inbox",
           "maxPx": 1
+        },
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-discovery-status",
+          "value": "Exa đang giới hạn tìm kiếm"
         }
       ]
     },

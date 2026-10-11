@@ -17,6 +17,17 @@ const DISCOVERY_LABELS: Record<AutoDiscoverStatus["state"], string> = {
   ready: "Sẵn sàng", busy: "Đang tìm kiếm", offline: "Mất kết nối", error: "Có lỗi",
 };
 
+export function discoveryErrorMessage(status: AutoDiscoverStatus | null): string {
+  if (status?.state !== "error") return "";
+  if (status.last_error_code === "exa_rate_limited") {
+    return "Exa đang giới hạn tìm kiếm. VPS sẽ tự thử lại sau cooldown; kết quả đã lưu vẫn được giữ.";
+  }
+  if (status.last_error_code === "cam_sync_retryable") {
+    return "Chưa đồng bộ được về CAM. Dữ liệu vẫn nằm trong hàng chờ an toàn để thử lại.";
+  }
+  return "VPS gặp lỗi tìm kiếm hoặc kết nối. Kiểm tra log Agent-Reach để biết chi tiết.";
+}
+
 const API_ROOT = "/api/v1/realistic-review-ugc/research";
 
 async function researchRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -213,6 +224,7 @@ export function ResearchInboxPanel() {
             {autoDiscover ? DISCOVERY_LABELS[autoDiscover.state] : "Chưa xác định"}
           </span>
           {autoDiscover && <small>{autoDiscover.total_evidence} nguồn · {autoDiscover.pending_review} chờ duyệt · Etsy {autoDiscover.platforms.etsy} / Amazon {autoDiscover.platforms.amazon} / Pinterest {autoDiscover.platforms.pinterest}</small>}
+          {discoveryErrorMessage(autoDiscover) && <small>{discoveryErrorMessage(autoDiscover)}</small>}
           {autoDiscover?.connected && <button type="button" disabled={discoveryBusy}
             onClick={() => void toggleDiscoveryPause()}>
             {autoDiscover.state === "paused" ? "Tiếp tục VPS" : "Tạm dừng VPS"}

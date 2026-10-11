@@ -130,12 +130,21 @@ class ExaMcpSearch:
         response = self.http.post(ENDPOINT, headers=headers, json=payload,
                                   timeout=(5, 25), allow_redirects=False)
         if request_id is None:
+            if response.status_code == 429:
+                raise RuntimeError("exa_rate_limited")
             if response.status_code not in (200, 202, 204):
                 raise RuntimeError("exa_notify_http_" + str(response.status_code))
             return {}
         self.session_id = response.headers.get("mcp-session-id", self.session_id)
         data = decode_rpc(response)
         if data.get("error"):
+            error = data["error"]
+            message = str(error.get("message", "")).lower() if isinstance(error, dict) else ""
+            if isinstance(error, dict) and (error.get("code") == 429 or
+                 ("rate" in message and "limit" in message) or
+                 ("quota" in message and "exceed" in message) or
+                 "too many requests" in message):
+                raise RuntimeError("exa_rate_limited")
             raise RuntimeError("exa_rpc_error")
         return data.get("result") or {}
 
@@ -147,14 +156,16 @@ class ExaMcpSearch:
             self.initialized = True
         result = self.rpc("tools/call", {"name": "web_search_exa",
                          "arguments": {"query": query, "numResults": 8}}, 2)
+        blocks = result.get("content") or []
+        if (result.get("_meta") or {}).get("ai.exa/rateLimited") or any(
+            isinstance(block, dict) and (
+                "rate limit" in str(block.get("text", "")).lower() or
+                "free limit" in str(block.get("text", "")).lower() or
+                "quota exceeded" in str(block.get("text", "")).lower())
+            for block in blocks):
+            raise RuntimeError("exa_rate_limited")
         if result.get("isError"):
             raise RuntimeError("exa_tool_error")
-        if (result.get("_meta") or {}).get("ai.exa/rateLimited"):
-            raise RuntimeError("exa_rate_limited")
-        blocks = result.get("content") or []
-        if any("hit Exa" in str(block.get("text", "")) and "limit" in str(block.get("text", "")).lower()
-               for block in blocks if isinstance(block, dict)):
-            raise RuntimeError("exa_rate_limited")
         return blocks
 
 
@@ -235,8 +246,8 @@ def heartbeat(status: str, error_code: str = "") -> None:
             timeout=(5, 12), allow_redirects=False)
         if response.status_code != 200:
             raise RuntimeError("heartbeat_rejected")
-    except requests.RequestException:
-        pass  # Outbox is authoritative; short network outages must not lose it.
+    except (requests.RequestException, RuntimeError):
+        pass  # Best-effort heartbeat never jeopardizes the durable outbox.
 
 
 def flush_outbox(db: sqlite3.Connection) -> str:
@@ -270,7 +281,7 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
         try:
             if datetime.fromisoformat(cooldown) > datetime.now(timezone.utc):
                 sync_error = flush_outbox(db)
-                heartbeat("error" if sync_error else "ready", sync_error)
+                heartbeat("error", sync_error or "exa_rate_limited")
                 return {"status": "error" if sync_error else "provider_cooldown", **status_dict(db)}
         except ValueError:
             pass
