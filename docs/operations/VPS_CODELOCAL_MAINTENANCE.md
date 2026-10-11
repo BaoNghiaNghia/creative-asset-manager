@@ -20,7 +20,7 @@ The broker permits **only**:
 
 The allowlist intentionally excludes arbitrary shell/Python, apt/package operations, unattended reboot, SSH/firewall/DNS/Netplan modification, bulk file deletion, Docker pruning, database writes and secrets inspection. A future action needs a reviewed code change, negative tests and a **new root-controlled install**. "Full" in CodeLocal does not grant any additional sudoers commands.
 
-Each invocation gets a host-level `flock` lock and a root-only JSONL audit entry at `/var/log/cam-vps-maintenance/audit.jsonl` (action, timestamp, outcome, original caller UID and exception class; **no credentials or arbitrary request payloads**). Swap backups/rollback markers are owned by root in `/var/lib/creative-asset-manager/maintenance`.
+Each invocation gets a host-level `flock` lock and a root-only JSONL audit entry at `/var/log/cam-vps-maintenance/audit.jsonl` (action, timestamp, outcome, original caller UID and exception class; **no credentials or arbitrary request payloads**). Swap backups/rollback markers are owned by root in `/var/lib/cam-vps-maintenance`.
 
 ## Operator-controlled one-time provisioning
 

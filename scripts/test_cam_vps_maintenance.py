@@ -105,6 +105,10 @@ class BrokerTests(unittest.TestCase):
                 maint.do_swap_repair(fstab=fstab, backup=base / "bak",
                                      marker=base / "marker", active_names={maint.LIVE_SWAP})
 
+    def test_root_state_path_is_outside_application_writable_tree(self):
+        self.assertEqual(maint.STATE_DIR, Path("/var/lib/cam-vps-maintenance"))
+        self.assertEqual(maint.LOG_DIR, Path("/var/log/cam-vps-maintenance"))
+
     def test_only_five_actions_have_a_handler(self):
         self.assertEqual(set(maint.ALLOWED), {
             "status", "swap-repair", "swap-rollback",

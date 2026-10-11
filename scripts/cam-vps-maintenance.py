@@ -21,7 +21,7 @@ import tempfile
 from datetime import datetime, timezone
 
 FSTAB = Path("/etc/fstab")
-STATE_DIR = Path("/var/lib/creative-asset-manager/maintenance")
+STATE_DIR = Path("/var/lib/cam-vps-maintenance")
 LOG_DIR = Path("/var/log/cam-vps-maintenance")
 AUDIT_LOG = LOG_DIR / "audit.jsonl"
 LOCK = STATE_DIR / "maintenance.lock"
