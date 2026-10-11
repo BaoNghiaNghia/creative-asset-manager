@@ -1,0 +1,19 @@
+id,width_css,height_css,dpr,device_class,orientation,priority,notes
+phone_tiny,320,700,2,phone,portrait,core,Min width
+phone_android,360,780,3,phone,portrait,extended,Android small
+phone_standard,390,844,3,phone,portrait,core,Required every new UI feature
+phone_pro,402,874,3,phone,portrait,extended,High DPI controls
+phone_android_large,412,915,2.625,phone,portrait,extended,Android display scale
+phone_max,440,956,3,phone,portrait,core,Large mobile viewer and toolbar
+phone_wide,480,900,2,phone,portrait,extended,Fold cover or wide browser
+fold_unfolded,600,900,2,foldable,portrait,extended,Unfolded width
+shell_edge_phone,680,900,2,phone,portrait,boundary,Below tablet breakpoint
+shell_edge_tablet,681,900,2,tablet,portrait,boundary,Above tablet breakpoint
+tablet_portrait,768,1024,2,tablet,portrait,core,Required every new UI feature
+tablet_mid,834,1194,2,tablet,portrait,extended,Mid tablet viewport
+tablet_landscape,1024,768,2,tablet,landscape,core,Required for orientation UI
+tablet_large,1032,1376,2,tablet,portrait,extended,Large modal and panels
+desktop_compact,1280,800,1,desktop,landscape,extended,Compact laptop
+desktop_standard,1440,900,1,desktop,landscape,core,Required every new UI feature
+desktop_wide,1600,900,1,desktop,landscape,boundary,Wide desktop edge
+desktop_fullhd,1920,1080,1,desktop,landscape,extended,Full HD

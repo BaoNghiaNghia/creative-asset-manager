@@ -7,6 +7,10 @@ alwaysApply: false
 
 # Creative Asset Manager UI design workflow
 
+## Default for every FUTURE frontend feature
+
+Multi-device support is mandatory for every new/changed CAM UI feature even when the user does not say "responsive". Read docs/operations/CAM_MULTI_DEVICE_STANDARD.md and docs/operations/CAM_MULTI_DEVICE_QA.md. Define and verify phone (390 CSS px), tablet (768 CSS px) and desktop (1440 CSS px) layouts for the final feature, with narrow 320px/mobile-large 440px/orientation/DPR checks as warranted. New components must be touch-usable with no hover-only essential controls, preserve permissions/state and handle dialog focus, safe-area, keyboard and image loading. Do not declare the task fully ready without 3-class Browser evidence or a clearly reported NOT_RUN blocker. Use existing fixture-backed Playwright profiles, never production credentials.
+
 Use this rule for UI redesign, screenshot matching, responsive layout, card/grid, navigation, modal, panel, hover/focus/selected-state, and visual polish tasks.
 
 Follow `AGENTS.md`, `docs/operations/UI_AUTOMATION_WORKFLOW.md`, and `.cursor/rules/cam-safe-delivery.mdc` first. This Cursor-specific rule extends the project-wide UI workflow and does not authorize production deployment.

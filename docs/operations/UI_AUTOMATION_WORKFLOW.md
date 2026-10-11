@@ -4,6 +4,14 @@ This is the project-wide default workflow for UI work in Creative Asset Manager.
 It is intentionally independent of paid Cursor features and uses the existing
 CodeLocal + Browser (Playwright) surface.
 
+## Always-on multi-device requirement for new and changed UI
+
+Every feature with visible/interactive frontend behavior is a responsive task by default. Read [CAM_MULTI_DEVICE_STANDARD.md](CAM_MULTI_DEVICE_STANDARD.md) and [CAM_MULTI_DEVICE_QA.md](CAM_MULTI_DEVICE_QA.md) **before implementing**, whether or not the user explicitly mentions Desktop/iPad/Mobile. In the task plan include phone/tablet/desktop behavior, touch vs hover, safe-area, virtual keyboard, modal/scroll/focus, CSS viewport/container width and DPR/media delivery as relevant.
+
+At acceptance, a new UI feature must have meaningful tests/screenshots at a **phone** (390x844), **tablet** (768x1024), and **desktop** (1440x900), using fixture-backed Playwright profiles. On navigation, global layout, viewer or dense content changes also test 320px phone, 440px large phone and 1024px tablet landscape where applicable. Reuse the existing viewport names and project runner; adding new names or baseline files is a separate reviewed change. Run selected Browser profiles sequentially to conserve resources. For devices not checked, report NOT_RUN and remaining risk; do not silently claim PASS.
+
+A targeted fix may still use a smaller repair matrix during iteration. The multi-device requirement applies to the **final feature acceptance evidence**. Pure backend-only/nonvisual work does not require Browser screenshots. Preexisting unrelated failures must be disclosed rather than bypassed. Production release and visual baseline acceptance retain their existing explicit permission requirements.
+
 ## Trigger
 
 Treat a task as UI work when the user's request changes any visible or interactive

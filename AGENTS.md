@@ -97,6 +97,14 @@ Those documents are the repository source of truth for database-backup requireme
 
 When implementing backup work, start from current `main` on a feature branch unless the current user explicitly asks for another workflow, inspect the actual current code before editing, and reuse managed Google Drive credential/storage infrastructure where practical. Never use tenant or user Source Drive OAuth credentials for production database backups. Do not add migrations or frontend work unless a later explicit requirement needs them. Run the checks in the implementation plan and update the documentation if an intentional architectural decision changes.
 
+## Mandatory multi-device UI contract — present and future features
+
+**Every new CAM web UI feature and every meaningful UI edit must work on mobile phones, tablets/iPads and desktop by default, even when the task only asks for a new feature and does not mention responsiveness.** Apply [docs/operations/CAM_MULTI_DEVICE_STANDARD.md](docs/operations/CAM_MULTI_DEVICE_STANDARD.md) and [docs/operations/CAM_MULTI_DEVICE_QA.md](docs/operations/CAM_MULTI_DEVICE_QA.md) together with the existing UI workflow below.
+
+At task planning, specify functional phone/tablet/desktop layouts, touch and keyboard behavior, responsive media/DPR needs, loading/error/empty/modal states and authorized roles. Preserve existing behavior and backend RBAC. For new UI functionality, obtain browser/fixture evidence on at least one phone, one tablet and one desktop viewport; use the extended QA matrix for cross-workspace shell changes. Do not declare success based solely on a desktop screenshot or CSS unit tests. Document PASS/FAIL/NOT_RUN per device class; any intentional exception needs explicit review, not silent removal of mobile actions. For major releases, disclose missing real iOS/Android/iPad checks.
+
+This is a durable repository requirement for **future work**, not a claim that older pages are already responsive-certified. Never override existing production security or baseline-approval boundaries to satisfy UI QA.
+
 ## Automatic UI work
 
 For any request that changes visible or interactive frontend behavior, follow [docs/operations/UI_AUTOMATION_WORKFLOW.md](docs/operations/UI_AUTOMATION_WORKFLOW.md) automatically. This includes screenshot-driven redesigns, spacing/typography/layout, hover/selected/focus states, responsive changes, cards/grids, menus/dialogs/panels, media presentation, and visible permission states.
