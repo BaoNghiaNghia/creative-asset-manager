@@ -22,6 +22,12 @@ export function discoveryErrorMessage(status: AutoDiscoverStatus | null): string
   if (status.last_error_code === "exa_rate_limited") {
     return "Exa đang giới hạn tìm kiếm. VPS sẽ tự thử lại sau cooldown; kết quả đã lưu vẫn được giữ.";
   }
+  if (status.last_error_code === "brave_rate_limited") {
+    return "Brave Search đã hết quota hoặc giới hạn tạm thời. VPS sẽ dùng Exa có API key nếu đã cấu hình, hoặc tự thử lại.";
+  }
+  if (status.last_error_code === "brave_not_configured" || status.last_error_code === "brave_auth_rejected") {
+    return "Brave Search chưa có API key hợp lệ. Hãy kiểm tra cấu hình riêng của VPS.";
+  }
   if (status.last_error_code === "cam_sync_retryable") {
     return "Chưa đồng bộ được về CAM. Dữ liệu vẫn nằm trong hàng chờ an toàn để thử lại.";
   }

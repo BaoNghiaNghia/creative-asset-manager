@@ -145,6 +145,102 @@ class AutoDiscoverTests(unittest.TestCase):
                 sync.assert_called_once()
                 heartbeat.assert_called_with("error", "cam_sync_retryable")
 
+    def test_brave_search_uses_only_official_api_and_item_urls(self):
+        class Response:
+            status_code = 200
+            headers = {"content-type": "application/json"}
+            content = b'{}'
+            def json(self):
+                return {"web": {"results": [
+                    {"title": "MADE TO WORSHIP embroidered trucker hat",
+                     "url": "https://www.etsy.com/listing/123456789/cap?ref=test",
+                     "description": "A lightweight baseball cap with lettering"},
+                    {"title": "Ignore other domains", "url": "https://unsafe.test/private",
+                     "description": "cap"},
+                ]}}
+        client = auto.BraveWebSearch()
+        calls = []
+        def get(url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+        client.http.get = get
+        with patch.dict(os.environ, {"CAM_RESEARCH_BRAVE_API_KEY": "test-private-key"}):
+            blocks = client.search("site:etsy.com/listing embroidered trucker hat")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], auto.BRAVE_ENDPOINT)
+        self.assertEqual(calls[0][1]["headers"]["X-Subscription-Token"], "test-private-key")
+        self.assertFalse(calls[0][1]["allow_redirects"])
+        self.assertNotIn("test-private-key", str(calls[0][1]["params"]))
+        items = auto.parse_marketplace_results("etsy", blocks, "cap", auto.BRAVE_PROVIDER)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["url"], "https://www.etsy.com/listing/123456789")
+        self.assertIn("brave-search", items[0]["excerpt"])
+
+    def test_brave_429_safely_preserves_outbox_and_provider_cooldown(self):
+        class LimitedBrave:
+            provider = auto.BRAVE_PROVIDER
+            def search(self, query):
+                raise RuntimeError("brave_rate_limited")
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                with patch.object(auto, "service_gate", return_value=True), patch.object(auto, "heartbeat"):
+                    result = auto.run_once(db, search_provider=LimitedBrave())
+                    self.assertEqual(result["status"], "error")
+                    self.assertEqual(result["provider"], auto.BRAVE_PROVIDER)
+                    self.assertTrue(auto._future_cooldown(db, "brave_cooldown_until"))
+                    self.assertFalse(auto._future_cooldown(db, "cooldown_until"))
+                    later = auto.run_once(db, search_provider=LimitedBrave())
+                    self.assertEqual(later["status"], "provider_cooldown")
+                    self.assertEqual(result["queries_today"], later["queries_today"])
+
+    def test_auto_switches_from_brave_to_authenticated_exa_on_provider_cooldown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                paired = {"CAM_RESEARCH_BRAVE_API_KEY": "brave-test-key",
+                          "CAM_RESEARCH_EXA_API_KEY": "exa-test-key",
+                          "CAM_RESEARCH_SEARCH_PROVIDER": "auto"}
+                with patch.dict(os.environ, paired):
+                    self.assertIsInstance(auto.configured_search(db), auto.BraveWebSearch)
+                    auto.save_meta(db, brave_cooldown_until=(datetime.now(timezone.utc)
+                                  + timedelta(hours=6)).isoformat())
+                    self.assertIsInstance(auto.configured_search(db), auto.ExaMcpSearch)
+                    # Previously exhausted anonymous Exa must not block a new
+                    # authenticated Exa account.
+                    auto.save_meta(db, cooldown_until=(datetime.now(timezone.utc)
+                                  + timedelta(hours=6)).isoformat())
+                    self.assertIsInstance(auto.configured_search(db), auto.ExaMcpSearch)
+                    auto.save_meta(db, exa_keyed_cooldown_until=(datetime.now(timezone.utc)
+                                  + timedelta(hours=6)).isoformat())
+                    self.assertIsInstance(auto.configured_search(db), auto.BraveWebSearch)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_attempt").fetchone()[0], 0)
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_successful_brave_discovery_preserves_exa_cooldown(self, heartbeat, gate):
+        class SuccessfulBrave(FakeSearch):
+            provider = auto.BRAVE_PROVIDER
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "research.sqlite3") as db:
+                auto.prepare_state(db)
+                old_exa_cooldown = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+                auto.save_meta(db, cooldown_until=old_exa_cooldown)
+                result = auto.run_once(db, search_provider=SuccessfulBrave(), max_queries=2)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["provider"], auto.BRAVE_PROVIDER)
+                self.assertEqual(result["pending_outbox"], 2)
+                self.assertEqual(auto.meta(db, "cooldown_until"), old_exa_cooldown)
+                self.assertEqual(auto.meta(db, "brave_cooldown_until"), "")
+
+    def test_brave_requires_key_and_never_uses_anonymous_endpoint(self):
+        client = auto.BraveWebSearch()
+        with patch.dict(os.environ, {"CAM_RESEARCH_BRAVE_API_KEY": ""}):
+            with self.assertRaisesRegex(RuntimeError, "brave_not_configured"):
+                client.search("site:etsy.com/listing embroidered cap")
+        self.assertGreaterEqual(len(auto.SEARCH_QUERIES), 18)
+        self.assertEqual(set(source for source, _ in auto.SEARCH_QUERIES),
+                         {"etsy", "amazon", "pinterest"})
+
     def test_exa_rpc_json_rate_limit_is_cooldown_not_generic_error(self):
         client = auto.ExaMcpSearch()
         client.http.post = lambda *args, **kwargs: type("Response", (), {

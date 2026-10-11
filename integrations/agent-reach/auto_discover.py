@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Independent, single-worker public marketplace discovery for RRUGC Stage 0.
 
-Never starts/controls Windows Scouts. The only outbound research target is the
-fixed Exa MCP endpoint; product pages are NOT fetched. Durable SQLite outbox
-and CAM's existing tenant-scoped Scout Agent import make replays idempotent.
+Never starts/controls Windows Scouts. Research uses only official fixed-host
+Exa MCP or Brave Search APIs; product pages are NOT fetched. Durable SQLite
+outbox and CAM's tenant-scoped Scout Agent import make replays idempotent.
 """
 from __future__ import annotations
 
@@ -27,9 +27,13 @@ from research_intelligence import (
 )
 
 ENDPOINT = "https://mcp.exa.ai/mcp"
+BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 PROVIDER = "exa-mcp"
+BRAVE_PROVIDER = "brave-search"
 SCOUT_NAME = "Agent-Reach Auto Discover"
 MAX_RESPONSE_BYTES = 524288
+# Query diversity for quotes on real hats; each index is attempted at most once
+# per UTC day. Keep provider calls bounded by --max-queries and --daily-limit.
 SEARCH_QUERIES = (
     ("etsy", "site:etsy.com/listing embroidered trucker hat funny saying"),
     ("amazon", "site:amazon.com/dp embroidered trucker hat quote"),
@@ -37,6 +41,24 @@ SEARCH_QUERIES = (
     ("etsy", "site:etsy.com/listing retro slogan baseball cap"),
     ("amazon", "site:amazon.com/dp embroidered baseball cap saying"),
     ("pinterest", "site:pinterest.com/pin trucker hat words embroidery"),
+    ("etsy", "site:etsy.com/listing vintage washed dad hat embroidered phrase"),
+    ("amazon", "site:amazon.com/dp funny embroidered trucker hat lettering"),
+    ("pinterest", "site:pinterest.com/pin hand holding embroidered trucker hat quote"),
+    ("etsy", "site:etsy.com/listing faith saying embroidered baseball cap"),
+    ("amazon", "site:amazon.com/dp religious saying embroidered trucker hat"),
+    ("pinterest", "site:pinterest.com/pin western trucker hat embroidered saying"),
+    ("etsy", "site:etsy.com/listing sarcastic quote embroidered baseball cap"),
+    ("amazon", "site:amazon.com/dp western country slogan embroidered cap"),
+    ("pinterest", "site:pinterest.com/pin retro typography cap embroidery"),
+    ("etsy", "site:etsy.com/listing minimal text custom trucker cap saying"),
+    ("amazon", "site:amazon.com/dp novelty funny phrase snapback cap"),
+    ("pinterest", "site:pinterest.com/pin selfie wearing embroidered slogan hat"),
+    ("etsy", "site:etsy.com/listing motivational saying stitched baseball cap"),
+    ("amazon", "site:amazon.com/dp funny quote embroidered women's cap"),
+    ("pinterest", "site:pinterest.com/pin five panel embroidered text cap"),
+    ("etsy", "site:etsy.com/listing funny embroidered rope cap saying"),
+    ("amazon", "site:amazon.com/dp funny saying mesh back trucker hat"),
+    ("pinterest", "site:pinterest.com/pin baseball cap phrase embroidery lettering"),
 )
 PUBLIC_ITEM_RE = re.compile(r"https://(?:www\.)?(?:etsy|amazon|pinterest)\.com/[^\s<>\]\[\"']+", re.I)
 CAP_RE = re.compile(r"\b(hats?|caps?|trucker|embroider(?:ed|y|ing)|baseball|snapback)\b", re.I)
@@ -169,7 +191,103 @@ class ExaMcpSearch:
         return blocks
 
 
-def parse_marketplace_results(source: str, content: list[dict], query: str) -> list[dict]:
+class BraveWebSearch:
+    """Official Brave Search API; never scrape search HTML or marketplace pages."""
+
+    provider = BRAVE_PROVIDER
+
+    def __init__(self):
+        self.http = requests.Session()
+        self.http.trust_env = False
+
+    def search(self, query: str) -> list[dict]:
+        key = os.getenv("CAM_RESEARCH_BRAVE_API_KEY", "")
+        if not key:
+            raise RuntimeError("brave_not_configured")
+        response = self.http.get(
+            BRAVE_ENDPOINT,
+            headers={"Accept": "application/json", "X-Subscription-Token": key},
+            params={"q": query, "count": 10, "country": "US", "search_lang": "en"},
+            timeout=(5, 25), allow_redirects=False,
+        )
+        if response.status_code == 429:
+            raise RuntimeError("brave_rate_limited")
+        if response.status_code in (401, 403):
+            raise RuntimeError("brave_auth_rejected")
+        if response.status_code != 200:
+            raise RuntimeError("brave_http_" + str(response.status_code))
+        if len(response.content) > MAX_RESPONSE_BYTES:
+            raise RuntimeError("brave_response_too_large")
+        if "application/json" not in response.headers.get("content-type", "").lower():
+            raise RuntimeError("brave_invalid_response")
+        try:
+            data = response.json()
+        except ValueError:
+            raise RuntimeError("brave_invalid_response") from None
+        if not isinstance(data, dict) or not isinstance(data.get("web"), dict):
+            raise RuntimeError("brave_invalid_response")
+        results = data["web"].get("results")
+        if not isinstance(results, list):
+            raise RuntimeError("brave_invalid_response")
+        blocks = []
+        for result in results[:10]:
+            if not isinstance(result, dict):
+                continue
+            url = str(result.get("url") or "")[:2048]
+            # No requests to arbitrary result URLs; canonicalization below
+            # rejects unsupported domains and listing/search paths.
+            if not PUBLIC_ITEM_RE.fullmatch(url):
+                continue
+            title = normalize_text(str(result.get("title") or ""), 200)
+            description = normalize_text(str(result.get("description") or ""), 240)
+            blocks.append({"type": "text", "text": (
+                "Title: " + title + "\nURL: " + url + "\nDescription: " + description)})
+        return blocks
+
+
+def _future_cooldown(db: sqlite3.Connection, key: str) -> bool:
+    raw = meta(db, key)
+    if not raw:
+        return False
+    try:
+        return datetime.fromisoformat(raw) > datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return False
+
+
+def _cooldown_key_for(provider: str) -> str:
+    if provider == BRAVE_PROVIDER:
+        return "brave_cooldown_until"
+    # A key upgrades the Exa billing identity, so an old anonymous IP
+    # cooldown must not block the newly authenticated account.
+    return "exa_keyed_cooldown_until" if os.getenv("CAM_RESEARCH_EXA_API_KEY") else "cooldown_until"
+
+
+def configured_search(db: sqlite3.Connection):
+    """Use a configured independent API before Exa's anonymous IP quota.
+
+    In auto mode, switch to another keyed provider on the next timer tick
+    during a provider-specific 429 cooldown. No scraping or key rotation.
+    """
+    mode = os.getenv("CAM_RESEARCH_SEARCH_PROVIDER", "auto").strip().lower()
+    has_brave = bool(os.getenv("CAM_RESEARCH_BRAVE_API_KEY"))
+    has_exa = bool(os.getenv("CAM_RESEARCH_EXA_API_KEY"))
+    if mode not in ("auto", "exa", "brave"):
+        raise RuntimeError("search_provider_invalid")
+    if mode == "brave":
+        return BraveWebSearch()
+    if mode == "exa":
+        return ExaMcpSearch()
+    if has_brave and not _future_cooldown(db, "brave_cooldown_until"):
+        return BraveWebSearch()
+    if has_exa and not _future_cooldown(db, "exa_keyed_cooldown_until"):
+        return ExaMcpSearch()
+    if has_brave:
+        return BraveWebSearch()  # The per-provider cooldown gate still applies.
+    return ExaMcpSearch()  # Anonymous Exa remains a bounded last resort.
+
+
+def parse_marketplace_results(source: str, content: list[dict], query: str, provider: str = PROVIDER) -> list[dict]:
     """Accept only exact official item paths plus cap-related search evidence."""
     found: dict[str, dict] = {}
     for block in content[:16]:
@@ -197,7 +315,7 @@ def parse_marketplace_results(source: str, content: list[dict], query: str) -> l
                 title = "Embroidered cap listing"
             found[canonical] = {"source": source, "channel": "auto-discover",
                  "title": title, "url": canonical,
-                 "excerpt": normalize_text("Public Exa search result; unverified. " + query, 480)}
+                 "excerpt": normalize_text("Public " + provider + " search result; unverified. " + query, 480)}
     return list(found.values())[:20]
 
 
@@ -206,7 +324,7 @@ def status_dict(db: sqlite3.Connection) -> dict:
     day = today()
     attempts = db.execute("SELECT COUNT(*) FROM discovery_attempt WHERE day=?", (day,)).fetchone()[0]
     pending = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='pending'").fetchone()[0]
-    return {"provider": PROVIDER, "last_run_at": meta(db, "last_run_at") or None,
+    return {"provider": meta(db, "active_provider", PROVIDER), "last_run_at": meta(db, "last_run_at") or None,
             "last_success_at": meta(db, "last_success_at") or None,
             "last_error": meta(db, "last_error") or None,
             "queries_today": attempts, "pending_outbox": pending,
@@ -276,15 +394,15 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
         # The server owns the paused state; do not overwrite it via heartbeat.
         save_meta(db, last_run_at=now_iso(), last_error="")
         return {"status": "paused", **status_dict(db)}
-    cooldown = meta(db, "cooldown_until")
-    if cooldown:
-        try:
-            if datetime.fromisoformat(cooldown) > datetime.now(timezone.utc):
-                sync_error = flush_outbox(db)
-                heartbeat("error", sync_error or "exa_rate_limited")
-                return {"status": "error" if sync_error else "provider_cooldown", **status_dict(db)}
-        except ValueError:
-            pass
+    search = search_provider or configured_search(db)
+    provider = getattr(search, "provider", PROVIDER)
+    cooldown_key = _cooldown_key_for(provider)
+    cooldown_error = "brave_rate_limited" if provider == BRAVE_PROVIDER else "exa_rate_limited"
+    save_meta(db, active_provider=provider)
+    if _future_cooldown(db, cooldown_key):
+        sync_error = flush_outbox(db)
+        heartbeat("error", sync_error or cooldown_error)
+        return {"status": "error" if sync_error else "provider_cooldown", **status_dict(db)}
     attempts = db.execute("SELECT query_index FROM discovery_attempt WHERE day=?", (today(),)).fetchall()
     attempted = {int(row[0]) for row in attempts}
     used = len(attempted)
@@ -296,7 +414,6 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
     start = int(meta(db, "query_cursor", "0")) % len(SEARCH_QUERIES)
     candidates = [(start + i) % len(SEARCH_QUERIES) for i in range(len(SEARCH_QUERIES))]
     planned = [i for i in candidates if i not in attempted][:max_queries]
-    search = search_provider or ExaMcpSearch()
     added = duplicates = 0
     error = ""
     heartbeat("busy")
@@ -308,20 +425,20 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
                    (today(), index, now_iso()))
         db.commit()
         try:
-            items = parse_marketplace_results(source, search.search(query), query)
+            items = parse_marketplace_results(source, search.search(query), query, provider)
             for start_at in range(0, len(items), MAX_BATCH):
                 created, repeated = ingest(db, items[start_at:start_at + MAX_BATCH])
                 added += created
                 duplicates += repeated
             save_meta(db, query_cursor=(index + 1) % len(SEARCH_QUERIES),
-                      last_success_at=now_iso(), last_error="", cooldown_until="")
+                      last_success_at=now_iso(), last_error="", **{cooldown_key: ""})
         except (RuntimeError, requests.RequestException, ValueError) as exc:
             error = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
             # Never include search-provider result contents or secrets in error.
             save_meta(db, last_error=error[:100])
-            if error == "exa_rate_limited":
-                save_meta(db, cooldown_until=(datetime.now(timezone.utc)
-                          + timedelta(hours=6)).isoformat())
+            if error == cooldown_error:
+                save_meta(db, **{cooldown_key: (datetime.now(timezone.utc)
+                          + timedelta(hours=6)).isoformat()})
             break
     save_meta(db, last_run_at=now_iso(), added_last_run=added, duplicates_last_run=duplicates)
     sync_error = flush_outbox(db)
@@ -346,6 +463,9 @@ def main() -> int:
                 outcome = {"enabled": os.getenv("CAM_RESEARCH_AUTO_DISCOVER_ENABLED", "0") == "1",
                            "paired": bool(os.getenv("CAM_RESEARCH_SCOUT_AGENT_ID") and
                                           os.getenv("CAM_RESEARCH_SCOUT_TOKEN")),
+                           "brave_configured": bool(os.getenv("CAM_RESEARCH_BRAVE_API_KEY")),
+                           "exa_key_configured": bool(os.getenv("CAM_RESEARCH_EXA_API_KEY")),
+                           "mode": os.getenv("CAM_RESEARCH_SEARCH_PROVIDER", "auto"),
                            **status_dict(db)}
             elif os.getenv("CAM_RESEARCH_AUTO_DISCOVER_ENABLED", "0") != "1":
                 outcome = {"status": "disabled", **status_dict(db)}

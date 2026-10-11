@@ -51,7 +51,7 @@ def discovery_status(session: Session, tenant_id: str) -> dict:
     )) or 0
     return {
         "state": status, "connected": agent is not None,
-        "server": "VPS", "source": "Agent-Reach / Exa",
+        "server": "VPS", "source": "Agent-Reach / Web Search",
         "last_seen_at": agent.last_seen_at.isoformat() if agent and agent.last_seen_at else None,
         "last_error_code": agent.last_error_code if agent else None,
         "total_evidence": sum(values.values()),
