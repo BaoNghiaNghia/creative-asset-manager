@@ -59,6 +59,10 @@ make ui-qa-visual
 
 The visual audit may fail if the UI has changed since its baselines were approved. Do not automatically accept/update baselines to conceal differences. The matrix summary reports `functionalStatus` and `visualStatus` separately to avoid false overall PASS results. All fixture-backed checks use a localhost Vite preview and mock data, not authenticated production. Continue using `CAM_PRODUCTION_UI_MODE=public make production-ui-smoke` for public production endpoints; authenticated production remains a distinct optional test requiring a protected session.
 
+### CodeLocal Full Access and scoped VPS maintenance
+
+The ongoing CodeLocal Full Access policy applies to the Creative Asset Management **workspace**, not unrestricted root access. The reviewed root-owned maintenance broker, exact-command sudoers policy, audit log, rollback, and one-time non-root operator setup are documented in [CodeLocal scoped VPS maintenance](VPS_CODELOCAL_MAINTENANCE.md). Do not assume the broker is installed just because Full Access is enabled; the existing CodeLocal host-policy and root-owned runtime require a separate operator-managed migration.
+
 ### VPS post-kernel-upgrade recovery
 
 For the October 2026 systemd swap warning and network wait-online timeout, see [Post-reboot recovery](VPS_POST_REBOOT_RECOVERY.md). The documented repair is deliberately root-operated and does not change SSH/public network routes automatically.
