@@ -43,6 +43,21 @@ Before changing IPv6 route flags or readiness policy:
 
 Setting `optional: true` on the public interface or overriding the wait-online unit merely to hide the failure is **not** applied as a default remediation: it changes boot readiness semantics for all dependent services. Fix the network cause before suppressing diagnostics.
 
+## Stage 1 temporary preview retention after a transient Google timeout
+
+On 2026-10-11 at 09:00 local time, `creative-asset-manager-stage1-temp-retention.service` failed while refreshing its managed Google OAuth token with `httpx.ConnectTimeout`. Token acquisition precedes all Drive reads and deletions, so that attempt removed no images. Earlier runs succeeded and scanned 5,426 files without any deletion.
+
+Once the backend change is deployed, the Stage 1 retention code retries **only retryable token refresh errors** up to three attempts (1s, then 2s backoff), still failing closed for rejected credentials or three consecutive failures. The normal systemd timer runs hourly and will retry the entire task on its next scheduled run. The repair does not change the 48-hour TTL, ownership checks, Drive folder checks, or per-file revalidation before delete. Never log or print Google credentials while diagnosing this.
+
+Check the next scheduled run, then clear the old failed state only if the new run has succeeded:
+
+```bash
+sudo journalctl -u creative-asset-manager-stage1-temp-retention.service --since '2026-10-11 09:00' --no-pager -n 50
+sudo systemctl --failed --no-pager
+```
+
+Persistent failures may indicate real outbound network/DNS problems; do not confuse them with invalid OAuth credentials, and do not loosen folder/ownership restrictions to force cleanup.
+
 ## QA verification after the operator swap fix
 
 ```bash

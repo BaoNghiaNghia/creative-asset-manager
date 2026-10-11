@@ -15,6 +15,7 @@ import re
 import httpx
 
 from app.core.config import get_settings
+from app.domain.providers.contracts import StorageProviderError
 from app.modules.realistic_review_ugc.stage1_temp_previews import TEMP_FOLDER_ID, PREVIEW_TTL_HOURS
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.google.storage import GoogleDriveAssetStorage, _escape_query
@@ -24,6 +25,26 @@ OWNED_ASSET = re.compile(
     r"^rrugc-stage1-draft:[0-9a-f-]{36}:[0-9a-f-]{36}:[0-9]{1,8}$"
 )
 ENDPOINT = "https://www.googleapis.com/drive/v3/files"
+TOKEN_ATTEMPTS = 3
+
+
+async def access_token_with_retry(storage: GoogleDriveAssetStorage) -> str:
+    """Bounded retries for transient Google OAuth network failures only.
+
+    Do not retry rejected/invalid credentials, and do not log any OAuth data.
+    All retries precede Drive mutations, retaining the existing fail-closed
+    deletion and ownership checks in ``purge``.
+    """
+    for attempt in range(TOKEN_ATTEMPTS):
+        try:
+            return await storage.get_access_token()
+        except StorageProviderError as exc:
+            if not exc.retryable or attempt == TOKEN_ATTEMPTS - 1:
+                raise
+            log.warning("stage1_temp_token_retry attempt=%d error_type=%s",
+                        attempt + 1, type(exc).__name__)
+            await asyncio.sleep(2 ** attempt)
+    raise AssertionError("Unreachable token retry state")
 
 
 def eligible(metadata: dict, *, now: datetime) -> bool:
@@ -54,7 +75,7 @@ def eligible(metadata: dict, *, now: datetime) -> bool:
 async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
                 now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
-    token = await storage.get_access_token()
+    token = await access_token_with_retry(storage)
     summary = {"scanned": 0, "eligible": 0, "deleted": 0, "skipped": 0,
                "errors": 0, "mode": "apply" if apply else "dry-run"}
     targets: list[dict] = []

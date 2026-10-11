@@ -7,13 +7,74 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from PIL import Image
 
 from app.modules.realistic_review_ugc.stage1_temp_previews import (
     TEMP_FOLDER_ID, compact_preview, preview_paths, upload_temp_previews,
 )
-from app.operations.stage1_temp_retention import eligible, purge
+from app.domain.providers.contracts import StorageProviderError
+from app.operations.stage1_temp_retention import access_token_with_retry, eligible, purge
 from app.providers.google.storage import GoogleDriveAssetStorage
+
+
+
+def test_temp_retention_retries_retryable_token_errors(monkeypatch):
+    calls = []
+    delays = []
+
+    class FakeStorage:
+        async def get_access_token(self):
+            calls.append(1)
+            if len(calls) < 3:
+                raise StorageProviderError("temporary network error", retryable=True)
+            return "stub-token"
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr("app.operations.stage1_temp_retention.asyncio.sleep", fake_sleep)
+    assert asyncio.run(access_token_with_retry(FakeStorage())) == "stub-token"
+    assert len(calls) == 3
+    assert delays == [1, 2]
+
+
+def test_temp_retention_does_not_retry_rejected_google_credentials(monkeypatch):
+    calls = []
+    delays = []
+
+    class FakeStorage:
+        async def get_access_token(self):
+            calls.append(1)
+            raise StorageProviderError("rejected credentials", retryable=False)
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr("app.operations.stage1_temp_retention.asyncio.sleep", fake_sleep)
+    with pytest.raises(StorageProviderError, match="rejected credentials"):
+        asyncio.run(access_token_with_retry(FakeStorage()))
+    assert len(calls) == 1
+    assert delays == []
+
+
+def test_temp_retention_exhaustion_fails_closed_without_further_calls(monkeypatch):
+    calls = []
+    delays = []
+
+    class FakeStorage:
+        async def get_access_token(self):
+            calls.append(1)
+            raise StorageProviderError("connect timeout", retryable=True)
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr("app.operations.stage1_temp_retention.asyncio.sleep", fake_sleep)
+    with pytest.raises(StorageProviderError, match="connect timeout"):
+        asyncio.run(access_token_with_retry(FakeStorage()))
+    assert len(calls) == 3
+    assert delays == [1, 2]
 
 
 def test_compacts_large_draft_and_ignores_final_outputs(tmp_path):
