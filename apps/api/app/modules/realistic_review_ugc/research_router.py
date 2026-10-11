@@ -28,7 +28,7 @@ RUN = require_permission("realistic_review_ugc.run")
 
 
 class ResearchSignalInput(BaseModel):
-    source: Literal["rss", "github", "youtube", "web"]
+    source: Literal["rss", "github", "youtube", "web", "pinterest", "etsy", "amazon"]
     channel: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=240)
     url: str = Field(min_length=8, max_length=2048)

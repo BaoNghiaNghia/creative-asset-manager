@@ -25,7 +25,17 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 DB_DEFAULT = ROOT / "data" / "research-inbox.sqlite3"
 ALLOWED_FEED_HOSTS = frozenset({"news.google.com", "github.com", "www.youtube.com"})
-ALLOWED_SOURCE_NAMES = frozenset({"rss", "github", "youtube", "web"})
+ALLOWED_SOURCE_NAMES = frozenset({"rss", "github", "youtube", "web", "pinterest", "etsy", "amazon"})
+MARKETPLACE_HOSTS = {
+    "pinterest": frozenset({"pinterest.com", "www.pinterest.com"}),
+    "etsy": frozenset({"etsy.com", "www.etsy.com"}),
+    "amazon": frozenset({"amazon.com", "www.amazon.com"}),
+}
+MARKETPLACE_ITEM_PATHS = {
+    "pinterest": re.compile(r"^/pin/(\d+)(?:/|$)", re.I),
+    "etsy": re.compile(r"^/listing/(\d+)(?:/|$)", re.I),
+    "amazon": re.compile(r"^/(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)", re.I),
+}
 FEEDS_FILE = ROOT / "feeds.json"
 MAX_ITEMS = 30
 MAX_BODY = 700_000
@@ -65,6 +75,24 @@ def safe_public_url(raw_url: str, *, hosts: frozenset[str] | None = None) -> str
     if hostname.endswith(".local") or hostname in ("localhost",):
         raise ValueError("Localhost is not allowed")
     return raw_url
+
+
+def canonical_marketplace_url(source: str, raw_url: str) -> str:
+    """Canonicalize item links without fetching pages or claiming API verification."""
+    checked = safe_public_url(raw_url)
+    if source not in MARKETPLACE_HOSTS:
+        return checked
+    url = urlsplit(checked)
+    host = (url.hostname or "").lower().rstrip(".")
+    if host not in MARKETPLACE_HOSTS[source]:
+        raise ValueError("Source and marketplace hostname do not match")
+    match = MARKETPLACE_ITEM_PATHS[source].match(url.path)
+    if not match:
+        raise ValueError("A canonical marketplace item link is required")
+    item_id = match.group(1).upper() if source == "amazon" else match.group(1)
+    paths = {"pinterest": f"/pin/{item_id}", "etsy": f"/listing/{item_id}",
+             "amazon": f"/dp/{item_id}"}
+    return "https://www." + source + ".com" + paths[source]
 
 
 def _resolve_feed_ip(hostname: str) -> str:
@@ -178,7 +206,7 @@ def ingest(connection: sqlite3.Connection, signals: list[dict[str, object]]) -> 
         excerpt = normalize_text(signal.get("excerpt", ""), MAX_EXCERPT)
         channel = normalize_text(signal.get("channel", source), 70)
         try:
-            url = safe_public_url(str(signal.get("url", "")))
+            url = canonical_marketplace_url(source, str(signal.get("url", "")))
         except ValueError:
             continue
         if not title:

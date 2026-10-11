@@ -180,4 +180,6 @@
 - [ ] RRUGC-SIX-STAGE-HARDENING-2: Stage 0 keyword provenance and short-token policy, Stage 3 calibrated prefilter and Gemini throughput, Stage 2 output revision history/QA and authenticated canary, Stage 5 gallery pagination.
 
 - [x] CAM-RESEARCH-SYNC-HARDENING: DNS-pinned TLS public RSS collection; no unacknowledged sync, concurrent PostgreSQL ON CONFLICT dedup, complete feed batch ingestion, bounded operator-triggered `research-cycle`. See `docs/operations/CAM_AI_QA_RESEARCH_INTEGRATION.md`.
+- [x] RRUGC-MARKET-INTELLIGENCE-PHASE0: canonical Pinterest/Etsy/Amazon listing links accepted into *unverified* read-only Research Inbox without API calls, paid volume requests, migrations or new secrets; domain spoofing rejected, same listing query parameters deduplicated.
+- [ ] RRUGC-MARKET-INTELLIGENCE-PHASE1/2: additive marketplace evidence graph + authorized Etsy/Amazon connectors, rate-limit budgets, normalized quote clustering and unified Stage 0 platform filter; access and licensing required before activation. See `docs/architecture/RRUGC_MULTI_PLATFORM_MARKET_INTELLIGENCE.md`.
 - [ ] CAM-RESEARCH-SYNC-OPERATIONS: pair dedicated Research Scout Agent with operator-managed secret, verify authenticated production Research Inbox, then enable a non-root reviewed collection/sync schedule. Do not infer authenticated PASS from public-only smoke.

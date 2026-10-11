@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import "./ResearchInboxPanel.css";
 
 export type ResearchSignal = {
-  id: string; source: string; channel: string; title: string; excerpt: string;
+  id: string; source: string; platform?: string; channel: string; title: string; excerpt: string;
   url: string; status: string; keyword: string | null; created_at: string;
 };
 
@@ -37,6 +37,22 @@ function isPublicHttpsUrl(value: unknown): boolean {
   }
 }
 
+function isMarketplaceListing(source: string, inputUrl: string): boolean {
+  if (!["pinterest", "etsy", "amazon"].includes(source)) return true;
+  try {
+    const url = new URL(inputUrl);
+    const host = url.hostname.toLowerCase().replace(/\.$/, "");
+    const allowed = host === source + ".com" || host === "www." + source + ".com";
+    if (!allowed) return false;
+    const patterns: Record<string, RegExp> = {
+      pinterest: /^\/pin\/\d+(?:\/|$)/i,
+      etsy: /^\/listing\/\d+(?:\/|$)/i,
+      amazon: /^\/(?:dp|gp\/product)\/[a-z0-9]{10}(?:\/|$)/i,
+    };
+    return patterns[source].test(url.pathname);
+  } catch { return false; }
+}
+
 export function parseResearchImport(value: string): Array<Record<string, unknown>> {
   const parsed: unknown = JSON.parse(value);
   if (!Array.isArray(parsed) || !parsed.length || parsed.length > 50) {
@@ -44,11 +60,12 @@ export function parseResearchImport(value: string): Array<Record<string, unknown
   }
   for (const signal of parsed) {
     if (!signal || typeof signal !== "object" || Array.isArray(signal)
-      || !["rss", "github", "youtube", "web"].includes((signal as Record<string, unknown>).source as string)
+      || !["rss", "github", "youtube", "web", "pinterest", "etsy", "amazon"].includes((signal as Record<string, unknown>).source as string)
       || typeof (signal as Record<string, unknown>).title !== "string"
       || !String((signal as Record<string, unknown>).title).trim()
       || String((signal as Record<string, unknown>).title).length > 240
-      || !isPublicHttpsUrl((signal as Record<string, unknown>).url)) {
+      || !isPublicHttpsUrl((signal as Record<string, unknown>).url)
+      || !isMarketplaceListing(String((signal as Record<string, unknown>).source), String((signal as Record<string, unknown>).url))) {
       throw new Error("Dữ liệu research phải có source, title và URL HTTPS hợp lệ.");
     }
   }
@@ -140,7 +157,7 @@ export function ResearchInboxPanel() {
       <div>
         <span className="rrugc-research-eyebrow">Agent-Reach · Research Intelligence</span>
         <h3>Research Inbox <span aria-hidden="true">·</span> GatorHats Products</h3>
-        <p>Tín hiệu thị trường chờ duyệt. Không tự sinh keyword hay chạy AEBrowse.</p>
+        <p>Tín hiệu đa nguồn chờ duyệt · Link marketplace chưa xác minh. Không tự sinh keyword hay chạy AEBrowse.</p>
       </div>
       <button type="button" className="rrugc-research-expand" aria-expanded={open}
         onClick={() => setOpen(v => !v)}>
@@ -167,7 +184,7 @@ export function ResearchInboxPanel() {
           <label htmlFor="rrugc-research-import-text">Research signals JSON (tối đa 50)</label>
           <textarea id="rrugc-research-import-text" rows={4} value={importText}
             onChange={event => setImportText(event.target.value)}
-            placeholder={'[{"source":"rss","channel":"hats","title":"...","url":"https://...","excerpt":"..."}]'} />
+            placeholder={'[{"source":"etsy","channel":"listing","title":"Embroidered trucker hat","url":"https://www.etsy.com/listing/123456789"}]'} />
           <button type="button" disabled={busyId !== null || !importText.trim()}
             onClick={() => void importBatch()}>Nhập vào hàng chờ duyệt</button>
         </div>}
@@ -182,7 +199,7 @@ export function ResearchInboxPanel() {
         <div className="rrugc-research-signal-list">
           {items.map(row => <article className="rrugc-research-signal" key={row.id}>
             <div className="rrugc-research-signal-main">
-              <small>{row.channel} · {row.source}</small>
+              <small>{row.channel} · {row.platform && row.platform !== "other" ? row.platform.charAt(0).toUpperCase() + row.platform.slice(1) : row.source} · Chưa xác minh</small>
               <strong>{row.title}</strong>
               {row.excerpt && <p>{row.excerpt}</p>}
               <a href={row.url} target="_blank" rel="noopener noreferrer">Xem nguồn gốc <span aria-hidden="true">↗</span></a>

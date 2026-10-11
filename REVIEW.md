@@ -2801,6 +2801,13 @@ Follow-up hardening: added specialized `gatorhats-8869-scale-image` Skill for th
 
 Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID scoped cancellation and sequential batching, Stage 5 queue drain, conservative QA and AI-generated labels. Tenant/user authorization, durable job idempotency, old storage intact. No migration or new dependency. Still requires real image/canary, Gemini tuning and Stage 5 gallery pagination. Rollback via code revert, preserve durable output and jobs. See docs/operations/RRUGC_STAGE_HARDENING.md.
 
+## 2026-10-11 — Marketplace research Stage 0 foundation
+
+- Added canonical source URLs for manually provided Etsy listing IDs, Amazon US ASINs and Pinterest Pin IDs, rejecting mismatched/spoofed domains and non-listing paths in both local isolated adapter and authenticated CAM API. Source and title are **not** evidence of official API verification; human approval remains mandatory.
+- Research Inbox accepts corresponding source labels, shows the platform from server-side classification, and continues to prohibit automatic paid AEBrowse calls; legacy RSS/Web/YouTube/GitHub imports remain unchanged. No provider credentials, cookies, migration, background scout, external network fetch, or licensing assumptions were introduced.
+- Required next steps, access prerequisites, schema design, stage gates, failure handling and rollback: `docs/architecture/RRUGC_MULTI_PLATFORM_MARKET_INTELLIGENCE.md`. Rollback this phase by reverting source/adapter/API/UI; historical pending rows remain inert suggestions. No new persistent API token required.
+- Verification: backend security and service tests **18 passed**; isolated Agent-Reach adapter **13 passed**; focused frontend **2 passed**; TypeScript typecheck passed; fixture-backed desktop/tablet/mobile Browser QA **passed with 0 functional issues**, visual baseline deliberately skipped (7 baseline states still await separate approval). Existing Impeccable scanner retained 13 advisory findings. No real marketplace API credentials/queries were exercised.
+
 ## 2026-10-11 — Agent-Reach Research Intelligence sync hardening
 
 - Scoped public RSS adapter now resolves all allowed feed IPs as public before connecting to a pinned IP using hostname-preserving TLS SNI and certificate verification. Disables redirects/proxies and bounds body size; unexpected DNS/network/complete feed failure never reports a successful collection.

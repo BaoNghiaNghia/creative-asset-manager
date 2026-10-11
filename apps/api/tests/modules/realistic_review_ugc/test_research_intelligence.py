@@ -54,6 +54,53 @@ def test_research_signals_are_tenant_scoped_and_require_review(session):
                       user_id="user-a", decision="rejected", keyword=None)
 
 
+@pytest.mark.parametrize("source,links,expected", [
+    ("pinterest", ["https://www.pinterest.com/pin/123456789/?ref=abc",
+                   "https://pinterest.com/pin/123456789/"], "https://www.pinterest.com/pin/123456789"),
+    ("etsy", ["https://etsy.com/listing/123456789/cap?utm_campaign=foo",
+              "https://www.etsy.com/listing/123456789/other-name"], "https://www.etsy.com/listing/123456789"),
+    ("amazon", ["https://amazon.com/gp/product/b012345678?tag=foo",
+                "https://www.amazon.com/dp/B012345678"], "https://www.amazon.com/dp/B012345678"),
+])
+def test_marketplace_research_dedupes_listing_urls_without_any_provider_call(
+        session, source, links, expected, monkeypatch):
+    import httpx
+    def deny(*args, **kwargs):
+        raise AssertionError("Import must never fetch a marketplace product page")
+    monkeypatch.setattr(httpx, "get", deny)
+    signals = [
+        {"source": source, "channel": "manual-listing", "title": "Cap quote listing",
+         "url": url, "excerpt": "unverified operator supplied link"}
+        for url in links
+    ]
+    assert import_signals(session, tenant_id="tenant-a", user_id="actor", signals=signals) == {
+        "added": 1, "duplicates": 1}
+    saved = list_signals(session, tenant_id="tenant-a")
+    assert len(saved) == 1
+    assert saved[0]["url"] == expected
+    assert saved[0]["platform"] == source
+    assert stage0_export(session, tenant_id="tenant-a") == {"keywords": [], "force": False}
+
+
+@pytest.mark.parametrize("source,url", [
+    ("etsy", "https://www.etsy.com.evil.example/listing/123456"),
+    ("etsy", "https://www.amazon.com/dp/B012345678"),
+    ("etsy", "https://www.etsy.com/search?q=trucker+hat"),
+    ("amazon", "https://amazon.com.evil.example/dp/B012345678"),
+    ("amazon", "https://www.amazon.com/s?k=trucker+hat"),
+    ("amazon", "https://www.amazon.com/dp/ABC"),
+    ("pinterest", "https://notpinterest.com/pin/123456"),
+    ("pinterest", "https://www.pinterest.com/search/pins/?q=cap"),
+    ("pinterest", "https://www.pinterest.com@evil.example/pin/123456"),
+])
+def test_marketplace_source_requires_matching_official_listing_domain(session, source, url):
+    with pytest.raises(ResearchValidationError):
+        import_signals(session, tenant_id="tenant-a", user_id="actor", signals=[
+            {"source": source, "channel": "manual", "title": "Hat", "url": url},
+        ])
+    assert list_signals(session, tenant_id="tenant-a") == []
+
+
 def test_batch_duplicates_do_not_reset_reviewed_signals(session):
     item = _signal()
     assert import_signals(session, tenant_id="tenant-a", user_id="u", signals=[item, item]) == {

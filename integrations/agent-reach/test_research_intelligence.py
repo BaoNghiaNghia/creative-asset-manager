@@ -41,6 +41,40 @@ class ResearchInboxTests(unittest.TestCase):
                 self.assertEqual(research.review(connection, signal_id=rows[0]["id"],
                                                  decision="rejected"), 0)
 
+    def test_marketplace_ingest_normalizes_listing_identity_and_rejects_spoofing(self):
+        samples = [
+            ("etsy", "https://www.etsy.com/listing/987654321/design?utm_source=x",
+             "https://etsy.com/listing/987654321/other",
+             "https://www.etsy.com/listing/987654321"),
+            ("amazon", "https://www.amazon.com/gp/product/b012345678?tag=tracker",
+             "https://amazon.com/dp/B012345678",
+             "https://www.amazon.com/dp/B012345678"),
+            ("pinterest", "https://pinterest.com/pin/123456789/?ref=tracking",
+             "https://www.pinterest.com/pin/123456789",
+             "https://www.pinterest.com/pin/123456789"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            with research.init_db(Path(directory) / "inbox.sqlite3") as connection:
+                for source, first, second, expected in samples:
+                    signals = [{"source": source, "channel": "manual", "title": "Cap artwork",
+                                "url": url} for url in (first, second)]
+                    self.assertEqual(research.ingest(connection, signals), (1, 1))
+                    row = connection.execute(
+                        "SELECT url FROM research_signal WHERE source=?", (source,)).fetchone()
+                    self.assertEqual(row[0], expected)
+                for source, url in (
+                    ("amazon", "https://www.amazon.com.evil.example/dp/B012345678"),
+                    ("etsy", "https://www.etsy.com/search?q=hat"),
+                    ("pinterest", "https://www.etsy.com/listing/123456789"),
+                ):
+                    self.assertEqual(research.ingest(connection, [{
+                        "source": source, "channel": "manual", "title": "Bad",
+                        "url": url,
+                    }]), (0, 0))
+                self.assertEqual(connection.execute(
+                    "SELECT COUNT(*) FROM research_signal").fetchone()[0], 3)
+
+
     def test_reject_bogus_source_and_missing_title(self):
         with tempfile.TemporaryDirectory() as directory:
             with research.init_db(Path(directory) / "inbox.sqlite3") as connection:
