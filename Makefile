@@ -53,5 +53,23 @@ ui-visual-update:
 	@echo "Direct baseline writes are disabled; creating a governed proposal instead."
 	bash scripts/cam-ui-baseline-propose.sh
 
+ui-design-audit:
+	node apps/client/scripts/ui-qa-impeccable.mjs --mode "$${CAM_IMPECCABLE_MODE:-advisory}"
+
+ai-qa-research-install:
+	bash scripts/cam-install-ai-qa-research.sh
+
+research-doctor:
+	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py doctor
+
+research-collect:
+	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py collect
+
+research-inbox:
+	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py list
+
+research-stage0-export:
+	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py export-stage0
+
 production-ui-smoke:
 	bash scripts/cam-production-ui-smoke.sh

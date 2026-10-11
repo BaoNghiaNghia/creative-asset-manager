@@ -1740,3 +1740,27 @@ class RrugcDeliveryItemModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
+
+class RrugcResearchSignalModel(Base):
+    """Tenant-scoped, provenance-preserving external research awaiting approval."""
+
+    __tablename__ = "rrugc_research_signals"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "fingerprint", name="uq_rrugc_research_tenant_fingerprint"),
+        Index("ix_rrugc_research_tenant_status", "tenant_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    channel: Mapped[str] = mapped_column(String(80), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    excerpt: Mapped[str] = mapped_column(String(480), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    keyword: Mapped[str | None] = mapped_column(String(150))
+    created_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

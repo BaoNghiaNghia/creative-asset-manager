@@ -160,6 +160,21 @@ for profile in "${PROFILES[@]}"; do
   fi
 done
 
+# Impeccable augments, but never replaces, the Playwright functional matrix.
+# No npm downloads from the QA process; CLI is an explicitly pinned installation.
+if [[ "${CAM_IMPECCABLE_MODE:-advisory}" != "off" ]]; then
+  note "Impeccable Design Quality (mode=${CAM_IMPECCABLE_MODE:-advisory})"
+  if ! node "$CLIENT/scripts/ui-qa-impeccable.mjs" \
+    --mode "${CAM_IMPECCABLE_MODE:-advisory}" \
+    --output "$LOG_DIR/impeccable-report.json"; then
+    if [[ "${CAM_IMPECCABLE_MODE:-advisory}" == "enforce" ]]; then
+      FAILURES+=("impeccable-design:2")
+    else
+      printf 'WARN: Impeccable advisory scan was not completed; inspect report.\\n' >&2
+    fi
+  fi
+fi
+
 MATRIX_PROFILE_CSV="$(IFS=,; printf '%s' "${PROFILES[*]}")"
 if ! node "$CLIENT/scripts/ui-qa-matrix-summary.mjs" \
   --profiles "$MATRIX_PROFILE_CSV" \
@@ -167,6 +182,25 @@ if ! node "$CLIENT/scripts/ui-qa-matrix-summary.mjs" \
   --since "$MATRIX_STARTED_AT" \
   --output "$LOG_DIR/matrix-summary.json"; then
   FAILURES+=("matrix-summary:2")
+fi
+
+# New Research Inbox checks are functional-only until their visuals have an
+# explicitly reviewed baseline. Run sequentially in the existing loopback
+# browser preview; do not contaminate the legacy profile's visual report.
+if [[ "${CAM_UI_QA_RESEARCH_INBOX:-1}" == "1" ]]; then
+  for profile in "${PROFILES[@]}"; do
+    if [[ "$profile" == "realistic-review-ugc" ]]; then
+      note "Research Inbox interactive QA (no visual baseline auto-acceptance)"
+      if ! npm run ui:qa -- \
+        --url "${ROOT_URL}realistic-review-ugc" \
+        --fixture "$ROOT/apps/client/scripts/fixtures/realistic-review-ugc.json" \
+        --plan "$ROOT/docs/operations/ui-qa-research-inbox-plan.json" \
+        --viewports "$VIEWPORTS" --strict; then
+        FAILURES+=("research-inbox:2")
+      fi
+      break
+    fi
+  done
 fi
 
 printf '\nUI profile matrix summary: %s/%s passed.\n' "$PASSED" "${#PROFILES[@]}"

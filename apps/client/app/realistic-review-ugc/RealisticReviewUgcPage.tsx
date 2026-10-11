@@ -31,6 +31,7 @@ import {
 import { RrugcWorkflowSettingsModal } from "./RrugcWorkflowSettingsModal";
 import { SkillManagerModal } from "./SkillManagerModal";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
+import { ResearchInboxPanel } from "./ResearchInboxPanel";
 import { SearchIntelligenceModal } from "./SearchIntelligencePanel";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { KeywordImageStage } from "./KeywordImageStage";
@@ -942,6 +943,7 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage0" ? 0 : -1}
           hidden={activeStage !== "stage0"}
         >
+          <ResearchInboxPanel />
           <KeywordAnalysisTable
             data={keywordPage}
             query={keywordQuery}

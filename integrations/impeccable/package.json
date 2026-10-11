@@ -1,0 +1,9 @@
+{
+  "name": "@cam/impeccable-qa",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned, opt-in Impeccable detector for CAM Browser QA",
+  "dependencies": {
+    "impeccable": "4.5.2"
+  }
+}

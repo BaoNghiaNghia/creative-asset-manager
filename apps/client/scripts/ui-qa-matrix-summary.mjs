@@ -77,9 +77,25 @@ export async function collectQaMatrix({ profiles, since, root = ROOT, viewports 
       : { profile: profileName, status: "missing", reason: "No QA report from this matrix run" };
   });
   const baseline = await collectVisualCoverage(root);
+  let designQuality = { status: "not-run", findingCount: null, engine: null };
+  try {
+    const file = path.join(qaDir, "impeccable-report.json");
+    const stored = JSON.parse(await fs.readFile(file, "utf8"));
+    const timestamp = Date.parse(stored.generatedAt || "");
+    if (stored.kind === "impeccable-design-quality" &&
+        Number.isFinite(timestamp) && timestamp >= since - 1000) {
+      designQuality = {
+        status: stored.status, findingCount: Number(stored.findingCount || 0),
+        engine: stored.engine || null, mode: stored.mode,
+        reportPath: path.relative(root, file),
+      };
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   return {
     schemaVersion: 1, kind: "fixture-browser-qa",
-    generatedAt: new Date().toISOString(), profiles: rows,
+    generatedAt: new Date().toISOString(), profiles: rows, designQuality,
     summary: { total: rows.length, passed: rows.filter(r => r.status === "pass").length,
       failed: rows.filter(r => r.status !== "pass").length,
       functionalPassed: rows.filter(r => r.functionalStatus === "pass").length,
@@ -112,5 +128,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       `(functional=${row.functionalStatus || "missing"}, visual=${row.visualStatus || "missing"}, ` +
       `visualIssues=${row.visualIssueCount ?? "n/a"}; ${row.viewports?.join(",") || row.reason || "unknown"})`);
   }
+  console.log(`Design QA: ${report.designQuality.status}; ` +
+    `findings=${report.designQuality.findingCount ?? "not run"}`);
   if (report.summary.failed) process.exitCode = 2;
 }

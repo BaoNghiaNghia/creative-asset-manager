@@ -1,0 +1,32 @@
+{
+  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "qualityBudgets": {
+    "desktop": { "maxUnnamedControls": 0, "maxMissingAlt": 0 },
+    "tabletPortrait": { "maxUnnamedControls": 0, "maxMissingAlt": 0 },
+    "mobile": { "maxViewportOverflowPx": 0, "maxUnnamedControls": 0, "maxMissingAlt": 0 }
+  },
+  "mobileAssertions": [
+    { "type": "no-viewport-overflow", "selector": "html", "maxPx": 0 }
+  ],
+  "steps": [
+    {
+      "name": "stage0-products",
+      "goto": "/realistic-review-ugc?workflow=products&stage=stage0",
+      "waitFor": "#rrugc-panel-stage0 .rrugc-research-expand"
+    },
+    {
+      "name": "research-inbox-open",
+      "click": ".rrugc-research-expand",
+      "waitFor": ".rrugc-research-signal"
+    },
+    {
+      "name": "research-keyword-focus",
+      "focus": "#research-keyword-qa-research-signal-1"
+    },
+    {
+      "name": "research-inbox-collapse",
+      "click": ".rrugc-research-expand",
+      "waitFor": ".rrugc-research-inbox-head"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/404QAQ/Agent-Reach.git",
+  "commit": "64123aa9c0c20c4fb39b06212f51fac888077ab0",
+  "upstream": "https://github.com/Panniantong/agent-reach",
+  "mode": "isolated-read-only",
+  "socialCookies": false
+}

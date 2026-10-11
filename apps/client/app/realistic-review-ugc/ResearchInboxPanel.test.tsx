@@ -1,0 +1,23 @@
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { parseResearchImport, ResearchInboxPanel } from "./ResearchInboxPanel";
+
+describe("Research Intelligence Stage 0 Inbox", () => {
+  it("renders as an opt-in, collapsed Stage 0 research tool", () => {
+    const markup = renderToStaticMarkup(<ResearchInboxPanel />);
+    expect(markup).toContain("Research Inbox");
+    expect(markup).toContain("GatorHats Products");
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain("research-keyword-");
+  });
+
+  it("accepts only bounded, source-attributed records", () => {
+    const signals = [{ source: "rss", channel: "hats", title: "Cap news",
+      url: "https://news.google.com/a", excerpt: "Safe" }];
+    expect(parseResearchImport(JSON.stringify(signals))).toHaveLength(1);
+    expect(() => parseResearchImport("{}")).toThrow();
+    expect(() => parseResearchImport("[]")).toThrow();
+    expect(() => parseResearchImport(JSON.stringify([{source:"unknown",title:"a",url:"https://example.com"}]))).toThrow();
+    expect(() => parseResearchImport(JSON.stringify(Array(51).fill(signals[0])))).toThrow();
+  });
+});

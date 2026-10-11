@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "feeds": [
+    {
+      "name": "US Trucker Hat Trends",
+      "url": "https://news.google.com/rss/search?q=trucker+hat+embroidery&hl=en-US&gl=US&ceid=US:en"
+    },
+    {
+      "name": "US Cap And Quote Trends",
+      "url": "https://news.google.com/rss/search?q=embroidered+baseball+cap+quotes&hl=en-US&gl=US&ceid=US:en"
+    }
+  ]
+}
