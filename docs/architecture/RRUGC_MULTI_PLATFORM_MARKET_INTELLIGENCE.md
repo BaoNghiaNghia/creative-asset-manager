@@ -81,6 +81,10 @@ Implement additive versioned migration + repository/service/tests:
 - Dashboard cards per connector: enabled, auth healthy/expired, backlog, scanned/new/duplicate, 429 rate limit, estimated API cost, AEBrowse calls prevented by cache, extraction queue and error retries.
 - Desktop/tablet/mobile parity required; horizontal tables may scroll in their own labeled region. Actions and review remain operable on touch and keyboard.
 
+## Intermittent Windows Scout + always-on VPS discovery
+
+Scout Manager is an **optional Windows client**, not a global on/off switch. For lease recovery, independent heartbeat, scheduled Agent-Reach lifecycle, shared AEBrowse idempotency, dashboard and offline scenarios, follow the operational contract in [`RRUGC_ALWAYS_ON_DISCOVERY_RUNBOOK.md`](../operations/RRUGC_ALWAYS_ON_DISCOVERY_RUNBOOK.md). This is a design contract only; persistent VPS search remains inactive until separately implemented, paired and enabled.
+
 ## Safety gates and rollout
 
 1. Use an isolated staging dry run (25–50 marketplace records per source), no paid calls, no silent auto-approval. Check provenance, keyword dedup, timeouts, storage growth and rights.
