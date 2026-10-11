@@ -16,6 +16,9 @@ from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
 from app.modules.realistic_review_ugc.service import RrugcError
+from app.modules.realistic_review_ugc.research_discovery import (
+    AGENT_NAME, discovery_status, set_discovery_pause,
+)
 from app.modules.realistic_review_ugc.research_intelligence import (
     ResearchValidationError, import_signals, list_signals,
     review_signal, stage0_export,
@@ -37,6 +40,10 @@ class ResearchSignalInput(BaseModel):
 
 class ResearchImportRequest(BaseModel):
     signals: list[ResearchSignalInput] = Field(min_length=1, max_length=50)
+
+
+class DiscoveryControlRequest(BaseModel):
+    paused: bool
 
 
 class ResearchReviewRequest(BaseModel):
@@ -83,6 +90,66 @@ def import_agent_research_signals(
     except ResearchValidationError as exc:
         session.rollback()
         raise invalid(exc) from exc
+
+
+@router.get("/auto-discover/status")
+def get_auto_discover_status(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    enabled()
+    return discovery_status(session, principal.active_tenant_id)
+
+
+@router.post("/auto-discover/control")
+def control_auto_discover(
+    request: DiscoveryControlRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    enabled()
+    try:
+        return set_discovery_pause(session, principal.active_tenant_id, request.paused)
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/scout-agents/{agent_id}/auto-discover/config")
+def get_auto_discover_config(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    enabled()
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing agent Bearer token")
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id, raw_token=authorization[7:].strip(),
+        )
+    except RrugcError as exc:
+        raise HTTPException(status_code=exc.status_code, detail="Invalid scout agent") from exc
+    if agent.name != AGENT_NAME:
+        raise HTTPException(status_code=403, detail="Dedicated research pairing required")
+    return {"enabled": agent.status != "paused", "platforms": ["etsy", "amazon", "pinterest"]}
+
+
+@router.get("/scout-agents/{agent_id}/auto-discover/status")
+def get_agent_auto_discover_status(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    enabled()
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing agent Bearer token")
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id, raw_token=authorization[7:].strip(),
+        )
+    except RrugcError as exc:
+        raise HTTPException(status_code=exc.status_code, detail="Invalid scout agent") from exc
+    return discovery_status(session, agent.tenant_id)
 
 
 @router.get("/signals")

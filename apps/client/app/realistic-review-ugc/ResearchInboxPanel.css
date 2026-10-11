@@ -56,6 +56,15 @@
 .rrugc-research-expand { display: flex; align-items: center; gap: 10px; }
 .rrugc-research-expand span { font-size: 18px; line-height: 1; }
 .rrugc-research-inbox-body { padding: 12px 16px 16px; }
+.rrugc-discovery-status {display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px;margin-bottom:12px;border:1px solid #dbe6f2;border-radius:10px;background:#f6faff;min-width:0}
+.rrugc-discovery-status>div{display:grid;gap:3px;flex:1;min-width:min(200px,100%)}
+.rrugc-discovery-status strong{font-size:12px}
+.rrugc-discovery-status small{font-size:10.5px;color:#647a98}
+.rrugc-discovery-state{font-size:11px;border-radius:999px;background:#edf0f5;color:#64748b;padding:6px 9px;font-weight:700;white-space:nowrap}
+.rrugc-discovery-state.state-ready,.rrugc-discovery-state.state-busy{background:#e9f6ed;color:#286846}
+.rrugc-discovery-state.state-error{background:#fff1ee;color:#ad3e32}
+.rrugc-discovery-state.state-paused{background:#fff5df;color:#986415}
+.rrugc-research-setup-note {font-size:11px;line-height:1.5;margin:0 0 12px;color:#806025}
 .rrugc-research-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .rrugc-research-import,.rrugc-research-export {
   display: grid; gap: 7px; padding: 11px; margin: 8px 0 14px;

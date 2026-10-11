@@ -1140,7 +1140,10 @@ class RrugcAutoScoutService:
             lock=True,
         )
         now = datetime.now(timezone.utc)
-        agent.status = status
+        # A RUN-authorized operator pause is authoritative for the isolated
+        # VPS research agent. A late in-flight heartbeat cannot re-enable it.
+        if not (agent.name == "Agent-Reach Auto Discover" and agent.status == "paused"):
+            agent.status = status
         agent.last_seen_at = now
         agent.client_version = (client_version or "").strip()[:64] or agent.client_version
         agent.machine_label = (machine_label or "").strip()[:160] or agent.machine_label

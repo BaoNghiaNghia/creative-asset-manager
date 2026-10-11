@@ -19,6 +19,10 @@ def test_research_routes_are_private_by_default():
     client = TestClient(app)
     assert client.get("/api/v1/realistic-review-ugc/research/signals").status_code == 401
     assert client.get("/api/v1/realistic-review-ugc/research/stage0-export").status_code == 401
+    assert client.get("/api/v1/realistic-review-ugc/research/auto-discover/status").status_code == 401
+    assert client.post("/api/v1/realistic-review-ugc/research/auto-discover/control", json={"paused": True}).status_code == 401
+    assert client.get("/api/v1/realistic-review-ugc/research/scout-agents/unknown/auto-discover/config").status_code == 401
+    assert client.get("/api/v1/realistic-review-ugc/research/scout-agents/unknown/auto-discover/status").status_code == 401
     assert client.post("/api/v1/realistic-review-ugc/research/signals/import",
                        json={"signals":[{"source":"rss","channel":"hats",
                                          "title":"Hats","url":"https://news.google.com/a"}]}).status_code == 401

@@ -257,6 +257,23 @@ def claim_query(session: Session, tenant_id: str, agent_id: str) -> dict | None:
     return None
 
 
+def release_owned_queries(session: Session, tenant_id: str, agent_id: str) -> int:
+    """Best-effort graceful Windows stop: only this agent's live leases.
+
+    The owner/token are erased atomically; any late response from the old
+    process is rejected by finish_query's fencing predicate.
+    """
+    now = utcnow()
+    result = session.execute(update(RrugcScoutQueryModel).where(
+        RrugcScoutQueryModel.tenant_id == tenant_id,
+        RrugcScoutQueryModel.claimed_by_agent_id == agent_id,
+        RrugcScoutQueryModel.lease_token.is_not(None),
+        RrugcScoutQueryModel.lease_expires_at > now,
+    ).values(claimed_by_agent_id=None, lease_token=None, lease_expires_at=None))
+    session.commit()
+    return result.rowcount
+
+
 def renew_query(
     session: Session, tenant_id: str, agent_id: str, item_id: str, lease_token: str,
 ) -> bool:

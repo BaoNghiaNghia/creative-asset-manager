@@ -1,6 +1,6 @@
 # RRUGC — Always-on discovery with intermittent Windows Scout Manager
 
-**Design status:** Approved architecture proposal for implementation, **not a claim that Auto Discover is live**.
+**Design status:** Phase 1 independently scheduled Exa search worker, CAM server status and read-only Windows Scout status implemented in source. Whether the VPS timer is running and ingestion is paired must be verified separately; do not infer live operation from source. Detailed installation: [RRUGC_AUTO_DISCOVER_DEPLOYMENT.md](RRUGC_AUTO_DISCOVER_DEPLOYMENT.md).
 **Created:** 2026-10-11. **Scope:** CAM Stage 0, Windows Scout Manager (Tauri), independent Agent-Reach research runner on production VPS.
 
 ## User contract

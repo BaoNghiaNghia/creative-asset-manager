@@ -6,6 +6,17 @@ export type ResearchSignal = {
   url: string; status: string; keyword: string | null; created_at: string;
 };
 
+export type AutoDiscoverStatus = {
+  state: "not_configured" | "paused" | "ready" | "busy" | "offline" | "error";
+  connected: boolean; server: string; source: string; last_seen_at: string | null;
+  last_error_code: string | null; total_evidence: number; pending_review: number;
+  platforms: { pinterest: number; amazon: number; etsy: number };
+};
+const DISCOVERY_LABELS: Record<AutoDiscoverStatus["state"], string> = {
+  not_configured: "Chưa kết nối", paused: "Đã tạm dừng",
+  ready: "Sẵn sàng", busy: "Đang tìm kiếm", offline: "Mất kết nối", error: "Có lỗi",
+};
+
 const API_ROOT = "/api/v1/realistic-review-ugc/research";
 
 async function researchRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -84,6 +95,8 @@ export function ResearchInboxPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [unavailable, setUnavailable] = useState(false);
+  const [autoDiscover, setAutoDiscover] = useState<AutoDiscoverStatus | null>(null);
+  const [discoveryBusy, setDiscoveryBusy] = useState(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -94,6 +107,10 @@ export function ResearchInboxPanel() {
       if (signal?.aborted) return;
       setItems(result.items);
       setUnavailable(false);
+      try {
+        const current = await researchRequest<AutoDiscoverStatus>("/auto-discover/status", signal ? { signal } : undefined);
+        if (!signal?.aborted) setAutoDiscover(current);
+      } catch { if (!signal?.aborted) setAutoDiscover(null); }
     } catch (e) {
       if (signal?.aborted) return;
       const message = e instanceof Error ? e.message : "Không tải được Research Inbox.";
@@ -110,6 +127,23 @@ export function ResearchInboxPanel() {
     void refresh(controller.signal);
     return () => controller.abort();
   }, [open, refresh]);
+
+  async function toggleDiscoveryPause() {
+    if (!autoDiscover?.connected || discoveryBusy) return;
+    setDiscoveryBusy(true);
+    setError("");
+    try {
+      const changed = await researchRequest<AutoDiscoverStatus>("/auto-discover/control", {
+        method: "POST", body: JSON.stringify({ paused: autoDiscover.state !== "paused" }),
+      });
+      setAutoDiscover(changed);
+      setNotice(changed.state === "paused"
+        ? "Đã tạm dừng Auto Discover trên VPS. Scout Windows không bị ảnh hưởng."
+        : "Đã cho phép VPS tiếp tục lịch tìm kiếm. Scout Windows không bị ảnh hưởng.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không thay đổi được trạng thái Auto Discover.");
+    } finally { setDiscoveryBusy(false); }
+  }
 
   async function importBatch() {
     setError(""); setNotice(""); setBusyId("import");
@@ -170,6 +204,21 @@ export function ResearchInboxPanel() {
         <p>Research Intelligence chưa kích hoạt trên backend.</p>
         <button type="button" disabled={loading} onClick={() => void refresh()}>Thử kết nối lại</button>
       </div> : <>
+        <div className="rrugc-discovery-status" role="status" aria-label="VPS Agent-Reach Auto Discover status">
+          <div>
+            <strong>Agent-Reach Auto Discover · VPS</strong>
+            <small>Hoạt động độc lập với Windows Scout Manager · chỉ tìm kiếm web công khai</small>
+          </div>
+          <span className={"rrugc-discovery-state state-" + (autoDiscover?.state || "unknown")}>
+            {autoDiscover ? DISCOVERY_LABELS[autoDiscover.state] : "Chưa xác định"}
+          </span>
+          {autoDiscover && <small>{autoDiscover.total_evidence} nguồn · {autoDiscover.pending_review} chờ duyệt · Etsy {autoDiscover.platforms.etsy} / Amazon {autoDiscover.platforms.amazon} / Pinterest {autoDiscover.platforms.pinterest}</small>}
+          {autoDiscover?.connected && <button type="button" disabled={discoveryBusy}
+            onClick={() => void toggleDiscoveryPause()}>
+            {autoDiscover.state === "paused" ? "Tiếp tục VPS" : "Tạm dừng VPS"}
+          </button>}
+        </div>
+        {autoDiscover?.state === "not_configured" && <p className="rrugc-research-setup-note">VPS có thể thu thập công khai vào outbox riêng. Để đồng bộ vào CAM và bật điều khiển Pause/Resume, ghép một Scout Agent tên <strong>Agent-Reach Auto Discover</strong> và cấu hình token riêng trên VPS. Không dùng token Windows.</p>}
         <div className="rrugc-research-actions">
           <button type="button" onClick={() => setImportOpen(v => !v)}
             aria-expanded={importOpen}>Nhập research JSON</button>

@@ -22,6 +22,43 @@ def create_db():
     return engine
 
 
+
+
+
+def test_graceful_windows_stop_releases_only_owned_query_and_priority_leases():
+    from app.modules.realistic_review_ugc.query_intelligence import release_owned_queries
+    from app.modules.realistic_review_ugc.scout_feedback import (
+        claim_priority, release_owned_priority,
+    )
+    engine = create_db()
+    try:
+        with Session(engine) as s:
+            own = claim_query(s, "tenant-a", "agent-a")
+            other = claim_query(s, "tenant-a", "agent-b")
+            s.add(RrugcScoutFeedbackModel(
+                tenant_id="tenant-a", target_type="keyword", target_key="sample cap",
+                display_value="Sample Cap", keyword="Sample Cap", status="suggested",
+                updated_by_user_id="operator",
+            ))
+            s.commit()
+            priority = claim_priority(s, "tenant-a", "agent-a")
+            assert own and other and priority
+            assert release_owned_queries(s, "tenant-b", "agent-a") == 0
+            assert release_owned_priority(s, "tenant-b", "agent-a") == 0
+            assert release_owned_queries(s, "tenant-a", "agent-a") == 1
+            assert release_owned_priority(s, "tenant-a", "agent-a") == 1
+            assert release_owned_queries(s, "tenant-a", "agent-a") == 0
+            assert not finish_query(s, "tenant-a", "agent-a", own["id"], own["lease_token"],
+                                    success=True, scanned_pins=10, found_quotes=1,
+                                    new_keywords=1, duplicate_pins=0)
+            assert s.get(RrugcScoutQueryModel, other["id"]).claimed_by_agent_id == "agent-b"
+            from app.modules.realistic_review_ugc.scout_feedback import finish_priority
+            assert not finish_priority(s, "tenant-a", "agent-a", priority["id"],
+                                       priority["lease_token"], True)
+            assert claim_priority(s, "tenant-a", "agent-b")["id"] == priority["id"]
+    finally:
+        engine.dispose()
+
 def test_query_expansion_remains_product_focused_and_not_one_seed():
     assert cap_query("Houston Astros") == "Houston Astros trucker hat"
     assert cap_query("Retro Saying", 1) == "Retro Saying embroidered cap"

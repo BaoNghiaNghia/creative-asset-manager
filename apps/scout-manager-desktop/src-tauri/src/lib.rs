@@ -113,10 +113,19 @@ struct GeminiPoolHealth {
     keyword_max_rate_per_minute: Option<u64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
+struct AutoDiscoverStatus {
+    state: String,
+    total_evidence: u64,
+    pending_review: u64,
+    last_seen_at: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
 struct OperationsSummary {
     review: ReviewJobCounts,
     keyword: KeywordJobCounts,
     gemini: GeminiPoolHealth,
+    #[serde(default)]
+    auto_discover: Option<AutoDiscoverStatus>,
     fetched_at: String,
 }
 
@@ -439,6 +448,31 @@ impl Controller {
         scout.state = "Stopped".into();
         scout.started_at = None;
     }
+    fn release_owned_leases_best_effort(&self) {
+        // The two Windows processes were already stopped. A bounded (2 s)
+        // API request requeues *our* unfinished jobs, not any other machine's.
+        // Offline shutdown never blocks longer than the timeout: old leases
+        // still expire naturally if the VPS is unreachable.
+        let values = config_values(&self.repo);
+        let get = |name: &str| values.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        let Some(agent_id) = get("RRUGC_AGENT_ID").filter(|v| !v.is_empty()) else { return; };
+        let Some(token) = get("RRUGC_SCOUT_TOKEN").filter(|v| !v.is_empty()) else { return; };
+        if !agent_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') { return; }
+        let base = get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+        let Ok(origin) = reqwest::Url::parse(base) else { return; };
+        if origin.scheme() != "https" || origin.host_str().is_none()
+            || !origin.username().is_empty() || origin.password().is_some()
+            || origin.query().is_some() || origin.fragment().is_some() { return; }
+        let url = format!(
+            "{}/api/v1/realistic-review-ugc/scout-agents/{}/keyword-analysis/leases/release",
+            base.trim_end_matches('/'), agent_id,
+        );
+        let Ok(client) = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .redirect(reqwest::redirect::Policy::none())
+            .build() else { return; };
+        let _ = client.post(url).bearer_auth(token).send();
+    }
     fn control(&self, mode: &str, command: &str) -> Result<(), String> {
         self.require_manager_lock()?;
         if self.updating.load(Ordering::SeqCst) {
@@ -461,6 +495,8 @@ impl Controller {
             "stop" => {
                 scout.desired = false;
                 self.terminate(scout);
+                drop(all);
+                if mode == "keyword" { self.release_owned_leases_best_effort(); }
                 Ok(())
             }
             "restart" => {
@@ -719,6 +755,7 @@ impl Controller {
                 self.terminate(scout);
             }
         }
+        self.release_owned_leases_best_effort();
     }
 }
 #[cfg(windows)]

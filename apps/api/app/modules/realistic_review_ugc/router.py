@@ -4262,6 +4262,10 @@ def scout_operations_summary(
         "keyword_next_slot_seconds": int(keyword_gate["retry_seconds"]),
         "keyword_max_rate_per_minute": 1 if analysis_pressure["active"] else None,
     }
+    # Windows Manager observes server discovery status; its Run/Pause controls
+    # remain scoped to the two local Scouts, never to this VPS service.
+    from .research_discovery import discovery_status
+    result["auto_discover"] = discovery_status(session, agent.tenant_id)
     return result
 
 
@@ -4271,6 +4275,26 @@ def get_keyword_search_intelligence(
     principal: CurrentPrincipal = Depends(READ),
 ):
     return intelligence_summary(session, principal.active_tenant_id)
+
+
+@router.post("/scout-agents/{agent_id}/keyword-analysis/leases/release")
+def release_stopped_scout_leases(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    """Only the paired agent may release its own leases on a normal stop.
+
+    Crashes are still recovered by lease expiry; this endpoint never expires
+    other agents' claims and cannot mark work complete or modify search scores.
+    """
+    agent = RrugcAutoScoutService(session).authenticate_agent(
+        agent_id=agent_id, raw_token=_bearer_token(authorization),
+    )
+    from .query_intelligence import release_owned_queries
+    from .scout_feedback import release_owned_priority
+    return {"queries": release_owned_queries(session, agent.tenant_id, agent_id),
+            "priority": release_owned_priority(session, agent.tenant_id, agent_id)}
 
 
 @router.post("/scout-agents/{agent_id}/keyword-analysis/query/claim")

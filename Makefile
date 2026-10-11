@@ -73,6 +73,17 @@ research-collect:
 research-cycle:
 	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py cycle --max-batches 4
 
+research-auto-doctor:
+	apps/api/.venv/bin/python integrations/agent-reach/auto_discover.py doctor
+
+# One operator-requested discovery cycle. Network search budget is always bounded.
+research-auto-once:
+	CAM_RESEARCH_AUTO_DISCOVER_ENABLED=1 apps/api/.venv/bin/python integrations/agent-reach/auto_discover.py once --max-queries 2 --daily-limit 20
+
+# Installs an isolated VPS-only systemd timer, never a Windows process.
+research-auto-install:
+	bash scripts/cam-install-research-auto-discover.sh
+
 research-inbox:
 	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py list
 

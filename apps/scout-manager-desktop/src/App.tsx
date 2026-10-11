@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Clock3, Copy, FileText, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, Settings2, ShieldCheck, Terminal, X } from "lucide-react";
+import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, Copy, FileText, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, Settings2, ShieldCheck, Terminal, X } from "lucide-react";
 
 type ModeName = "review" | "keyword";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
@@ -29,6 +29,7 @@ type OperationsSummary = {
     review_backpressure: boolean; keyword_fair_share_limited: boolean;
     keyword_next_slot_seconds: number; keyword_max_rate_per_minute: number | null;
   };
+  auto_discover?: { state: string; total_evidence: number; pending_review: number; last_seen_at: string | null };
   fetched_at: string;
 };
 type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
@@ -234,6 +235,12 @@ export default function App() {
       <div className="summary-item"><span className={"sum-icon " + (updateProblem ? "off" : "ok")}><RefreshCcw size={19}/></span><div><span className="sum-title">Auto update</span><strong className={updateProblem ? "warn-text" : ""}>{state.updateState}</strong></div></div>
       <div className="summary-item"><span className="sum-icon ok"><Search size={19}/></span><div><span className="sum-title">Stage 0 keywords</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") + " saved · +" + keywordSummary.added_24h + " / 24h" : keywordError ? "Stats unavailable" : "Checking server..."}</strong></div></div>
     </div>
+    <section className="server-discovery-strip" aria-label="Agent-Reach VPS discovery status" role="status">
+      <Cloud size={20} aria-hidden="true"/>
+      <div><strong>Agent-Reach · VPS Auto Discover</strong><small>Independent server search · unaffected by Windows Run / Pause / Quit</small></div>
+      <span className={"status-pill " + (operations?.auto_discover?.state === "ready" || operations?.auto_discover?.state === "busy" ? "success" : "neutral")}>{operations?.auto_discover?.state?.replaceAll("_", " ") || (operationsError ? "Status unavailable" : "Checking server…")}</span>
+      <small>{operations?.auto_discover ? operations.auto_discover.total_evidence + " evidence · " + operations.auto_discover.pending_review + " pending review" : "No local controls"}</small>
+    </section>
     {!state.controllerAvailable && <div className="alert"><CircleAlert size={18}/><span>Another Scout Manager is running. Close the legacy Manager before using automation controls in Tauri.</span></div>}
     {toast && <div className="alert"><CircleAlert size={18}/><span>{toast}</span><button onClick={() => setToast(null)} aria-label="Dismiss alert"><X size={16}/></button></div>}
     <section className="mode-grid">

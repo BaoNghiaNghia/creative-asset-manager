@@ -102,6 +102,19 @@ def claim_priority(session: Session, tenant_id: str, agent_id: str):
     return None
 
 
+def release_owned_priority(session: Session, tenant_id: str, agent_id: str) -> int:
+    """Unclaim only this offline Windows agent's unfinished priority work."""
+    result = session.execute(update(RrugcScoutFeedbackModel).where(
+        RrugcScoutFeedbackModel.tenant_id == tenant_id,
+        RrugcScoutFeedbackModel.claimed_by_agent_id == agent_id,
+        RrugcScoutFeedbackModel.status == "suggested",
+        RrugcScoutFeedbackModel.processed_at.is_(None),
+    ).values(claimed_by_agent_id=None, lease_token=None,
+             lease_expires_at=None))
+    session.commit()
+    return result.rowcount
+
+
 def renew_priority(
     session: Session, tenant_id: str, agent_id: str,
     item_id: str, lease_token: str,

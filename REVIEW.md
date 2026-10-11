@@ -2801,6 +2801,14 @@ Follow-up hardening: added specialized `gatorhats-8869-scale-image` Skill for th
 
 Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID scoped cancellation and sequential batching, Stage 5 queue drain, conservative QA and AI-generated labels. Tenant/user authorization, durable job idempotency, old storage intact. No migration or new dependency. Still requires real image/canary, Gemini tuning and Stage 5 gallery pagination. Rollback via code revert, preserve durable output and jobs. See docs/operations/RRUGC_STAGE_HARDENING.md.
 
+## 2026-10-11 — Agent-Reach Auto Discover VPS + Windows Scout Manager v0.1.18
+
+- New `integrations/agent-reach/auto_discover.py` fixed-host Exa Streamable HTTP search worker: 1 concurrent process, max 2 searches/hour, 20/day hard cap (six query rotation), strict marketplace listing canonicalization, SQLite WAL outbox, full-receipt idempotent sync via separately paired Scout Agent, 429/Exa MCP rate-limit detection and six-hour cooldown. No arbitrary browser, marketplace cookies, image downloads or AEBrowse requests.
+- New `scripts/cam-install-research-auto-discover.sh` isolated non-root systemd timer. Production installation is an explicit operator step; source commit alone cannot start service or provision secrets.
+- CAM API Research Inbox status, pause/resume and paired-worker configuration endpoints with tenant RBAC and scoped bearer credentials. Existing Windows operations-summary now includes server discovery status. Windows manager v0.1.18 displays read-only VPS status, preserves local-only Run/Pause, and on normal stop/quit best-effort requeues only its own unfinished Pinterest query and priority leases. Sudden crashes still rely on TTL expiry.
+- Anonymous Exa MCP was **live-probed**: the HTTPS MCP endpoint returned real indexed Etsy search results, but the free shared quota also returned `ai.exa/rateLimited=true`; the worker must surface that as a provider outage, not a successful scan. Larger reliable quotas may require an optional single Exa API key. Worker search results alone are unverified evidence, not reviewed quote text or auto-generated Stage 0 volume work.
+- Release/rollback and one-time server Scout pairing runbook: `docs/operations/RRUGC_AUTO_DISCOVER_DEPLOYMENT.md`. No credentials should be logged or committed.
+
 ## 2026-10-11 — Compact Stage tabs and Stage 0 Platform alignment
 
 - Scoped GatorHats Products Stage 0–2 and Reviews Stage 3–5 navigation to intrinsic-width horizontal tabs instead of flex-grow equal columns; active tab is a compact standard blue-underline tab, not a screen-wide yellow gradient. Mobile retains horizontal tab scrolling and keyboard navigation.
