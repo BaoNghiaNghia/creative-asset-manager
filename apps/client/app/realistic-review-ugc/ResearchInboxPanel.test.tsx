@@ -9,6 +9,8 @@ describe("Research Intelligence Stage 0 Inbox", () => {
       pending_review:0, platforms:{pinterest:0, amazon:0, etsy:0}} as AutoDiscoverStatus;
     expect(discoveryErrorMessage(base)).toContain("Exa");
     expect(discoveryErrorMessage({...base,last_error_code:"cam_sync_retryable"})).toContain("đồng bộ");
+    expect(discoveryErrorMessage({...base,last_error_code:"tavily_rate_limited"})).toContain("Tavily");
+    expect(discoveryErrorMessage({...base,last_error_code:"tavily_keyless_denied"})).toContain("miễn phí");
     expect(discoveryErrorMessage({...base,last_error_code:"brave_rate_limited"})).toContain("Brave");
     expect(discoveryErrorMessage({...base,last_error_code:"brave_auth_rejected"})).toContain("API key");
     expect(discoveryErrorMessage({...base,state:"ready"})).toBe("");

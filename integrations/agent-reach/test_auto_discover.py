@@ -145,6 +145,93 @@ class AutoDiscoverTests(unittest.TestCase):
                 sync.assert_called_once()
                 heartbeat.assert_called_with("error", "cam_sync_retryable")
 
+    def test_tavily_keyless_official_endpoint_and_marketplace_filtering(self):
+        class Response:
+            status_code = 200
+            headers = {"content-type": "application/json"}
+            content = b'{}'
+            def json(self):
+                return {"results": [
+                    {"title": "Embroidered trucker hat funny saying",
+                     "url": "https://www.etsy.com/listing/1828424924/cap?ref=search",
+                     "content": "Stitched quote on a cap"},
+                    {"title": "Category (not a listing)",
+                     "url": "https://www.etsy.com/market/trucker_hats",
+                     "content": "Hats"},
+                    {"title": "Untrusted third-party item",
+                     "url": "https://evil.example/listing/12345",
+                     "content": "Cap"},
+                ]}
+        client = auto.TavilyKeylessSearch()
+        calls = []
+        def post(url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+        client.http.post = post
+        blocks = client.search("site:etsy.com/listing funny saying embroidered trucker hat")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], auto.TAVILY_ENDPOINT)
+        self.assertEqual(calls[0][1]["headers"]["X-Tavily-Access-Mode"], "keyless")
+        self.assertEqual(calls[0][1]["json"]["include_domains"], ["etsy.com"])
+        self.assertNotIn("api_key", calls[0][1]["json"])
+        self.assertFalse(calls[0][1]["allow_redirects"])
+        items = auto.parse_marketplace_results("etsy", blocks, "cap", auto.TAVILY_PROVIDER)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["url"], "https://www.etsy.com/listing/1828424924")
+        self.assertIn("tavily-keyless", items[0]["excerpt"])
+        with self.assertRaisesRegex(ValueError, "tavily_source_invalid"):
+            client.search("other random search")
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_keyless_results_enter_durable_outbox_without_secret(self, heartbeat, gate):
+        class FakeTavily:
+            provider = auto.TAVILY_PROVIDER
+            def search(self, query):
+                return FakeSearch().search(query)
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                with patch.dict(os.environ, {"CAM_RESEARCH_SEARCH_PROVIDER": "auto",
+                                             "CAM_RESEARCH_BRAVE_API_KEY": "",
+                                             "CAM_RESEARCH_EXA_API_KEY": ""}):
+                    self.assertIsInstance(auto.configured_search(db), auto.TavilyKeylessSearch)
+                result = auto.run_once(db, search_provider=FakeTavily(), max_queries=2,
+                                       daily_limit=20)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["provider"], auto.TAVILY_PROVIDER)
+                self.assertEqual(result["pending_outbox"], 2)
+                self.assertEqual(result["queries_today"], 2)
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_tavily_429_is_independent_and_does_not_repeat_or_drop_data(self, heartbeat, gate):
+        class Limited:
+            provider = auto.TAVILY_PROVIDER
+            def search(self, query):
+                raise RuntimeError("tavily_rate_limited")
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                auto.ingest(db, [{"source": "etsy", "channel": "auto-discover",
+                                  "title": "Trucker hat quote",
+                                  "url": "https://www.etsy.com/listing/123456789",
+                                  "excerpt": "Search result"}])
+                result = auto.run_once(db, search_provider=Limited())
+                self.assertEqual(result["status"], "error")
+                self.assertTrue(auto._future_cooldown(db, "tavily_cooldown_until"))
+                self.assertEqual(result["pending_outbox"], 1)
+                again = auto.run_once(db, search_provider=Limited())
+                self.assertEqual(again["status"], "provider_cooldown")
+                self.assertEqual(again["queries_today"], 1)
+                self.assertEqual(again["pending_outbox"], 1)
+
+    def test_tavily_http_429_is_not_misread_as_search_success(self):
+        client = auto.TavilyKeylessSearch()
+        client.http.post = lambda *a, **k: type("Response", (), {"status_code": 429})()
+        with self.assertRaisesRegex(RuntimeError, "tavily_rate_limited"):
+            client.search("site:pinterest.com/pin embroidered cap")
+
     def test_brave_search_uses_only_official_api_and_item_urls(self):
         class Response:
             status_code = 200
@@ -201,18 +288,20 @@ class AutoDiscoverTests(unittest.TestCase):
                           "CAM_RESEARCH_EXA_API_KEY": "exa-test-key",
                           "CAM_RESEARCH_SEARCH_PROVIDER": "auto"}
                 with patch.dict(os.environ, paired):
+                    self.assertIsInstance(auto.configured_search(db), auto.TavilyKeylessSearch)
+                    auto.save_meta(db, tavily_cooldown_until=(datetime.now(timezone.utc)
+                                  + timedelta(hours=6)).isoformat())
                     self.assertIsInstance(auto.configured_search(db), auto.BraveWebSearch)
                     auto.save_meta(db, brave_cooldown_until=(datetime.now(timezone.utc)
                                   + timedelta(hours=6)).isoformat())
                     self.assertIsInstance(auto.configured_search(db), auto.ExaMcpSearch)
-                    # Previously exhausted anonymous Exa must not block a new
-                    # authenticated Exa account.
+                    # Anonymous Exa cooldown must not block a keyed account.
                     auto.save_meta(db, cooldown_until=(datetime.now(timezone.utc)
                                   + timedelta(hours=6)).isoformat())
                     self.assertIsInstance(auto.configured_search(db), auto.ExaMcpSearch)
                     auto.save_meta(db, exa_keyed_cooldown_until=(datetime.now(timezone.utc)
                                   + timedelta(hours=6)).isoformat())
-                    self.assertIsInstance(auto.configured_search(db), auto.BraveWebSearch)
+                    self.assertIsInstance(auto.configured_search(db), auto.TavilyKeylessSearch)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_attempt").fetchone()[0], 0)
 
     @patch.object(auto, "service_gate", return_value=True)

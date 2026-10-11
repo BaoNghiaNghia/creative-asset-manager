@@ -22,6 +22,12 @@ export function discoveryErrorMessage(status: AutoDiscoverStatus | null): string
   if (status.last_error_code === "exa_rate_limited") {
     return "Exa đang giới hạn tìm kiếm. VPS sẽ tự thử lại sau cooldown; kết quả đã lưu vẫn được giữ.";
   }
+  if (status.last_error_code === "tavily_rate_limited") {
+    return "Tavily Keyless đã đạt hạn mức miễn phí. VPS sẽ chờ cooldown; dữ liệu đã lưu vẫn được giữ.";
+  }
+  if (status.last_error_code === "tavily_keyless_denied") {
+    return "Tavily Keyless đang từ chối tìm kiếm miễn phí. VPS sẽ tự thử lại theo lịch, không phát sinh phí.";
+  }
   if (status.last_error_code === "brave_rate_limited") {
     return "Brave Search đã hết quota hoặc giới hạn tạm thời. VPS sẽ dùng Exa có API key nếu đã cấu hình, hoặc tự thử lại.";
   }

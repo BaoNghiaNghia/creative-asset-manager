@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Independent, single-worker public marketplace discovery for RRUGC Stage 0.
 
-Never starts/controls Windows Scouts. Research uses only official fixed-host
-Exa MCP or Brave Search APIs; product pages are NOT fetched. Durable SQLite
-outbox and CAM's tenant-scoped Scout Agent import make replays idempotent.
+Never starts/controls Windows Scouts. Research uses official fixed-host
+Tavily Keyless, Exa MCP or Brave Search APIs; product pages are NOT fetched.
+Durable SQLite outbox and CAM's tenant-scoped Scout Agent import make replays
+idempotent.
 """
 from __future__ import annotations
 
@@ -28,8 +29,10 @@ from research_intelligence import (
 
 ENDPOINT = "https://mcp.exa.ai/mcp"
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+TAVILY_ENDPOINT = "https://api.tavily.com/search"
 PROVIDER = "exa-mcp"
 BRAVE_PROVIDER = "brave-search"
+TAVILY_PROVIDER = "tavily-keyless"
 SCOUT_NAME = "Agent-Reach Auto Discover"
 MAX_RESPONSE_BYTES = 524288
 # Query diversity for quotes on real hats; each index is attempted at most once
@@ -191,6 +194,78 @@ class ExaMcpSearch:
         return blocks
 
 
+class TavilyKeylessSearch:
+    """Official Tavily keyless Search API: no login, no key, no billing setup.
+
+    Uses the provider's published keyless headers and strictly filters
+    returned result URLs. The caller keeps a bounded daily budget.
+    """
+
+    provider = TAVILY_PROVIDER
+
+    def __init__(self):
+        self.http = requests.Session()
+        self.http.trust_env = False
+
+    def search(self, query: str) -> list[dict]:
+        # Search is restricted to our static marketplace queries. This is
+        # NOT a general-purpose URL fetch or arbitrary browsing agent.
+        source = next((host for host in ("etsy", "amazon", "pinterest")
+                       if "site:" + host + ".com" in query.lower()), None)
+        if source is None:
+            raise ValueError("tavily_source_invalid")
+        response = self.http.post(
+            TAVILY_ENDPOINT,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "X-Tavily-Access-Mode": "keyless",
+                "X-Client-Source": "cam-research-keyless",
+            },
+            json={
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 8,
+                "include_domains": [source + ".com"],
+            },
+            timeout=(5, 25),
+            allow_redirects=False,
+        )
+        if response.status_code in (402, 429):
+            raise RuntimeError("tavily_rate_limited")
+        if response.status_code in (401, 403):
+            raise RuntimeError("tavily_keyless_denied")
+        if response.status_code != 200:
+            raise RuntimeError("tavily_http_" + str(response.status_code))
+        if len(response.content) > MAX_RESPONSE_BYTES:
+            raise RuntimeError("tavily_response_too_large")
+        if "application/json" not in response.headers.get("content-type", "").lower():
+            raise RuntimeError("tavily_invalid_response")
+        try:
+            data = response.json()
+        except ValueError:
+            raise RuntimeError("tavily_invalid_response") from None
+        if not isinstance(data, dict):
+            raise RuntimeError("tavily_invalid_response")
+        if data.get("error") or data.get("detail"):
+            raise RuntimeError("tavily_keyless_denied")
+        results = data.get("results")
+        if not isinstance(results, list):
+            raise RuntimeError("tavily_invalid_response")
+        blocks = []
+        for result in results[:8]:
+            if not isinstance(result, dict):
+                continue
+            url = str(result.get("url") or "")[:2048]
+            if not PUBLIC_ITEM_RE.fullmatch(url):
+                continue
+            title = normalize_text(str(result.get("title") or ""), 200)
+            description = normalize_text(str(result.get("content") or ""), 240)
+            blocks.append({"type": "text", "text": (
+                "Title: " + title + "\nURL: " + url + "\nDescription: " + description)})
+        return blocks
+
+
 class BraveWebSearch:
     """Official Brave Search API; never scrape search HTML or marketplace pages."""
 
@@ -256,6 +331,8 @@ def _future_cooldown(db: sqlite3.Connection, key: str) -> bool:
 
 
 def _cooldown_key_for(provider: str) -> str:
+    if provider == TAVILY_PROVIDER:
+        return "tavily_cooldown_until"
     if provider == BRAVE_PROVIDER:
         return "brave_cooldown_until"
     # A key upgrades the Exa billing identity, so an old anonymous IP
@@ -264,27 +341,31 @@ def _cooldown_key_for(provider: str) -> str:
 
 
 def configured_search(db: sqlite3.Connection):
-    """Use a configured independent API before Exa's anonymous IP quota.
+    """Prefer the real, free Tavily keyless tier with no credentials.
 
-    In auto mode, switch to another keyed provider on the next timer tick
-    during a provider-specific 429 cooldown. No scraping or key rotation.
+    Auto switches to an existing keyed provider after Tavily's own quota
+    cooldown. Never rotates IPs or starts Windows/browser workers.
     """
     mode = os.getenv("CAM_RESEARCH_SEARCH_PROVIDER", "auto").strip().lower()
     has_brave = bool(os.getenv("CAM_RESEARCH_BRAVE_API_KEY"))
     has_exa = bool(os.getenv("CAM_RESEARCH_EXA_API_KEY"))
-    if mode not in ("auto", "exa", "brave"):
+    if mode not in ("auto", "tavily", "exa", "brave"):
         raise RuntimeError("search_provider_invalid")
+    if mode == "tavily":
+        return TavilyKeylessSearch()
     if mode == "brave":
         return BraveWebSearch()
     if mode == "exa":
         return ExaMcpSearch()
+    if not _future_cooldown(db, "tavily_cooldown_until"):
+        return TavilyKeylessSearch()
     if has_brave and not _future_cooldown(db, "brave_cooldown_until"):
         return BraveWebSearch()
     if has_exa and not _future_cooldown(db, "exa_keyed_cooldown_until"):
         return ExaMcpSearch()
-    if has_brave:
-        return BraveWebSearch()  # The per-provider cooldown gate still applies.
-    return ExaMcpSearch()  # Anonymous Exa remains a bounded last resort.
+    # If every optional provider is unavailable, report Tavily's cooldown
+    # instead of consuming a fresh request against exhausted anonymous Exa.
+    return TavilyKeylessSearch()
 
 
 def parse_marketplace_results(source: str, content: list[dict], query: str, provider: str = PROVIDER) -> list[dict]:
@@ -397,7 +478,10 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
     search = search_provider or configured_search(db)
     provider = getattr(search, "provider", PROVIDER)
     cooldown_key = _cooldown_key_for(provider)
-    cooldown_error = "brave_rate_limited" if provider == BRAVE_PROVIDER else "exa_rate_limited"
+    cooldown_error = {
+        BRAVE_PROVIDER: "brave_rate_limited",
+        TAVILY_PROVIDER: "tavily_rate_limited",
+    }.get(provider, "exa_rate_limited")
     save_meta(db, active_provider=provider)
     if _future_cooldown(db, cooldown_key):
         sync_error = flush_outbox(db)
@@ -436,7 +520,9 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
             error = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
             # Never include search-provider result contents or secrets in error.
             save_meta(db, last_error=error[:100])
-            if error == cooldown_error:
+            if error == cooldown_error or (
+                provider == TAVILY_PROVIDER and error == "tavily_keyless_denied"
+            ):
                 save_meta(db, **{cooldown_key: (datetime.now(timezone.utc)
                           + timedelta(hours=6)).isoformat()})
             break
