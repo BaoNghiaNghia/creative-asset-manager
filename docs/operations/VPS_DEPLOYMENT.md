@@ -59,6 +59,10 @@ make ui-qa-visual
 
 The visual audit may fail if the UI has changed since its baselines were approved. Do not automatically accept/update baselines to conceal differences. The matrix summary reports `functionalStatus` and `visualStatus` separately to avoid false overall PASS results. All fixture-backed checks use a localhost Vite preview and mock data, not authenticated production. Continue using `CAM_PRODUCTION_UI_MODE=public make production-ui-smoke` for public production endpoints; authenticated production remains a distinct optional test requiring a protected session.
 
+### VPS post-kernel-upgrade recovery
+
+For the October 2026 systemd swap warning and network wait-online timeout, see [Post-reboot recovery](VPS_POST_REBOOT_RECOVERY.md). The documented repair is deliberately root-operated and does not change SSH/public network routes automatically.
+
 ### One-time QA login (trusted desktop)
 
 For a lightweight, isolated VPS-side desktop (Xvfb + Openbox + noVNC + a private QA Chrome profile) and a conservative disk cleanup procedure, follow [VPS QA noVNC setup](VPS_QA_NOVNC.md). Keep VNC available only through a loopback SSH tunnel; the provider's serial console is not a noVNC desktop.
