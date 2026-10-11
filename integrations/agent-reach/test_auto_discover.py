@@ -1,4 +1,6 @@
 import importlib.util
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -88,6 +90,60 @@ class AutoDiscoverTests(unittest.TestCase):
                 cooled = auto.run_once(db, search_provider=Failure(), daily_limit=2)
                 self.assertEqual(cooled["status"], "provider_cooldown")
                 self.assertEqual(cooled["queries_today"], 1)
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_outbox_sync_during_provider_cooldown_or_exhausted_budget(self, heartbeat, gate):
+        paired = {"CAM_RESEARCH_SCOUT_AGENT_ID": "12345678-1234-1234-1234-123456789abc",
+                  "CAM_RESEARCH_SCOUT_TOKEN": "test-only-token-with-minimum-length"}
+        for mode in ("cooldown", "budget"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                with auto.init_db(Path(folder) / "state.sqlite") as db:
+                    auto.prepare_state(db)
+                    auto.ingest(db, [{"source": "etsy", "channel": "auto-discover",
+                                      "title": "Trucker hat quote",
+                                      "url": "https://www.etsy.com/listing/123456789",
+                                      "excerpt": "Public search result"}])
+                    if mode == "cooldown":
+                        auto.save_meta(db, cooldown_until=(datetime.now(timezone.utc)
+                                      + timedelta(hours=2)).isoformat())
+
+                    def acknowledge(_db):
+                        _db.execute("UPDATE research_signal SET status='synced' WHERE status='pending'")
+                        _db.commit()
+                        return {"status": "idle", "sent": 1}
+
+                    with patch.dict(os.environ, paired), patch.object(auto, "sync_to_cam",
+                         side_effect=acknowledge) as sync:
+                        result = auto.run_once(db, search_provider=FakeSearch(), max_queries=0)
+                    self.assertEqual(result["status"], "provider_cooldown" if
+                                     mode == "cooldown" else "rate_budget_exhausted")
+                    self.assertEqual(result["pending_outbox"], 0)
+                    self.assertEqual(sync.call_count, 1)
+                    self.assertEqual(result["queries_today"], 0)
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_sync_failure_in_cooldown_preserves_pending_signal(self, heartbeat, gate):
+        paired = {"CAM_RESEARCH_SCOUT_AGENT_ID": "12345678-1234-1234-1234-123456789abc",
+                  "CAM_RESEARCH_SCOUT_TOKEN": "test-only-token-with-minimum-length"}
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                auto.ingest(db, [{"source": "etsy", "channel": "auto-discover",
+                                  "title": "Trucker hat quote",
+                                  "url": "https://www.etsy.com/listing/123456789",
+                                  "excerpt": "Public search result"}])
+                auto.save_meta(db, cooldown_until=(datetime.now(timezone.utc)
+                              + timedelta(hours=2)).isoformat())
+                with patch.dict(os.environ, paired), patch.object(
+                        auto, "sync_to_cam", side_effect=ValueError("rejected")) as sync:
+                    result = auto.run_once(db, search_provider=FakeSearch())
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(result["last_error"], "cam_sync_retryable")
+                self.assertEqual(result["pending_outbox"], 1)
+                sync.assert_called_once()
+                heartbeat.assert_called_with("error", "cam_sync_retryable")
 
     def test_rate_limit_inside_successful_mcp_response_is_not_treated_as_results(self):
         client = auto.ExaMcpSearch()

@@ -239,6 +239,25 @@ def heartbeat(status: str, error_code: str = "") -> None:
         pass  # Outbox is authoritative; short network outages must not lose it.
 
 
+def flush_outbox(db: sqlite3.Connection) -> str:
+    """Retry durable CAM delivery even when Exa discovery is on cooldown.
+
+    Never use Windows Scout credentials; leave every signal pending on failure.
+    Limit one timer invocation to four acknowledged batches.
+    """
+    if not (os.getenv("CAM_RESEARCH_SCOUT_AGENT_ID") and os.getenv("CAM_RESEARCH_SCOUT_TOKEN")):
+        return ""
+    try:
+        for _ in range(4):
+            receipt = sync_to_cam(db)
+            if receipt["status"] == "idle":
+                break
+    except (ValueError, requests.RequestException):
+        save_meta(db, last_error="cam_sync_retryable")
+        return "cam_sync_retryable"
+    return ""
+
+
 def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int = 20,
              search_provider=None) -> dict:
     prepare_state(db)
@@ -250,7 +269,9 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
     if cooldown:
         try:
             if datetime.fromisoformat(cooldown) > datetime.now(timezone.utc):
-                return {"status": "provider_cooldown", **status_dict(db)}
+                sync_error = flush_outbox(db)
+                heartbeat("error" if sync_error else "ready", sync_error)
+                return {"status": "error" if sync_error else "provider_cooldown", **status_dict(db)}
         except ValueError:
             pass
     attempts = db.execute("SELECT query_index FROM discovery_attempt WHERE day=?", (today(),)).fetchall()
@@ -258,8 +279,9 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
     used = len(attempted)
     max_queries = max(0, min(3, max_queries, max(0, daily_limit - used)))
     if max_queries == 0:
-        heartbeat("ready")
-        return {"status": "rate_budget_exhausted", **status_dict(db)}
+        sync_error = flush_outbox(db)
+        heartbeat("error" if sync_error else "ready", sync_error)
+        return {"status": "error" if sync_error else "rate_budget_exhausted", **status_dict(db)}
     start = int(meta(db, "query_cursor", "0")) % len(SEARCH_QUERIES)
     candidates = [(start + i) % len(SEARCH_QUERIES) for i in range(len(SEARCH_QUERIES))]
     planned = [i for i in candidates if i not in attempted][:max_queries]
@@ -291,15 +313,9 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
                           + timedelta(hours=6)).isoformat())
             break
     save_meta(db, last_run_at=now_iso(), added_last_run=added, duplicates_last_run=duplicates)
-    if os.getenv("CAM_RESEARCH_SCOUT_AGENT_ID") and os.getenv("CAM_RESEARCH_SCOUT_TOKEN"):
-        try:
-            for _ in range(4):
-                sent = sync_to_cam(db)
-                if sent["status"] == "idle":
-                    break
-        except (ValueError, requests.RequestException) as exc:
-            error = "cam_sync_retryable"
-            save_meta(db, last_error=error)
+    sync_error = flush_outbox(db)
+    if sync_error and not error:
+        error = sync_error
     heartbeat("error" if error else "ready", error)
     return {"status": "error" if error else "ok", **status_dict(db)}
 
