@@ -85,6 +85,21 @@ class ResearchInboxTests(unittest.TestCase):
                 ])
                 self.assertEqual((added,duplicated),(0,0))
 
+    def test_amazon_slug_product_links_normalize_without_crawling(self):
+        self.assertEqual(
+            research.canonical_marketplace_url(
+                "amazon", "https://www.amazon.com/Funny-Trucker-Hat/dp/B0FWK3Q83P?tag=aff"),
+            "https://www.amazon.com/dp/B0FWK3Q83P",
+        )
+        for url in (
+            "https://www.amazon.com/clp/B0FWK3Q83P",
+            "https://www.amazon.com/embroidered-hat/s",
+            "https://www.amazon.com/a/b/dp/B0FWK3Q83P",
+            "https://www.amazon.com.evil.example/hat/dp/B0FWK3Q83P",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                research.canonical_marketplace_url("amazon", url)
+
     def test_keyword_validation(self):
         self.assertEqual(research.validate_keyword("  MADE TO WORSHIP  "), "MADE TO WORSHIP")
         for invalid in ["hello", "<script>", "one", "abc def /;", ""]:

@@ -34,7 +34,13 @@ MARKETPLACE_HOSTS = {
 MARKETPLACE_ITEM_PATHS = {
     "pinterest": re.compile(r"^/pin/(\d+)(?:/|$)", re.I),
     "etsy": re.compile(r"^/listing/(\d+)(?:/|$)", re.I),
-    "amazon": re.compile(r"^/(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)", re.I),
+    # Amazon product URLs often prepend a human-readable product slug:
+    # /Funny-Trucker-Hat/dp/B0XXXXXXXX -> /dp/B0XXXXXXXX.
+    # Reject catalog/search/category URLs (e.g. /clp/ and /s).
+    "amazon": re.compile(
+        r"^/(?:[a-z0-9][a-z0-9_-]{0,159}/)?(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)",
+        re.I,
+    ),
 }
 FEEDS_FILE = ROOT / "feeds.json"
 MAX_ITEMS = 30

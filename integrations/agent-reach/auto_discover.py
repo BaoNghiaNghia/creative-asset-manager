@@ -38,10 +38,10 @@ MAX_RESPONSE_BYTES = 524288
 # Query diversity for quotes on real hats; each index is attempted at most once
 # per UTC day. Keep provider calls bounded by --max-queries and --daily-limit.
 SEARCH_QUERIES = (
-    ("etsy", "site:etsy.com/listing embroidered trucker hat funny saying"),
-    ("amazon", "site:amazon.com/dp embroidered trucker hat quote"),
-    ("pinterest", "site:pinterest.com/pin embroidered cap quote"),
-    ("etsy", "site:etsy.com/listing retro slogan baseball cap"),
+    ("etsy", "site:etsy.com/listing funny saying embroidered trucker hat"),
+    ("amazon", "site:amazon.com/dp funny saying embroidered trucker hat"),
+    ("pinterest", "site:pinterest.com/pin embroidered trucker hat quote"),
+    ("etsy", "site:etsy.com/listing embroidered retro saying baseball cap -inurl:market"),
     ("amazon", "site:amazon.com/dp embroidered baseball cap saying"),
     ("pinterest", "site:pinterest.com/pin trucker hat words embroidery"),
     ("etsy", "site:etsy.com/listing vintage washed dad hat embroidered phrase"),

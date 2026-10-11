@@ -226,6 +226,20 @@ class AutoDiscoverTests(unittest.TestCase):
                 self.assertEqual(again["queries_today"], 1)
                 self.assertEqual(again["pending_outbox"], 1)
 
+    def test_tavily_parses_real_style_amazon_product_url_without_category_pages(self):
+        blocks = [{"type": "text", "text": (
+            "Title: Funny Saying Embroidered Trucker Hat\n"
+            "URL: https://www.amazon.com/Funny-Trucker-Hat/dp/B0FWK3Q83P?tag=tracker\n"
+            "Description: Classic embroidered cap")},
+            {"type": "text", "text": (
+            "Title: Hat Catalog\n"
+            "URL: https://www.amazon.com/clp/B0CRSBTQHD\n"
+            "Description: Trucker hats")}]
+        accepted = auto.parse_marketplace_results(
+            "amazon", blocks, "site:amazon.com/dp trucker hat", auto.TAVILY_PROVIDER)
+        self.assertEqual(len(accepted), 1)
+        self.assertEqual(accepted[0]["url"], "https://www.amazon.com/dp/B0FWK3Q83P")
+
     def test_tavily_http_429_is_not_misread_as_search_success(self):
         client = auto.TavilyKeylessSearch()
         client.http.post = lambda *a, **k: type("Response", (), {"status_code": 429})()
