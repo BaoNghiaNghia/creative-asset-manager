@@ -124,13 +124,25 @@
         {
           "type": "text-includes",
           "selector": ".rrugc-research-notice",
-          "value": "Đã duyệt keyword"
+          "value": "Đã thêm keyword vào Stage 0"
+        }
+      ]
+    },
+    {
+      "name": "research-stage0-backfill",
+      "click": ".rrugc-research-actions button:nth-child(2)",
+      "waitFor": ".rrugc-research-notice",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-research-notice",
+          "value": "Đã đồng bộ"
         }
       ]
     },
     {
       "name": "research-stage0-preview",
-      "click": ".rrugc-research-actions button:nth-child(2)",
+      "click": ".rrugc-research-actions button:nth-child(3)",
       "waitFor": "#rrugc-research-export-text",
       "assertions": [
         {

@@ -12,7 +12,11 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel
+from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel
+from app.modules.realistic_review_ugc.keyword_volume import (
+    KEYWORD_VOLUME_PENDING_PROVIDER, KeywordVolumeError,
+    normalize_keyword as normalize_stage0_keyword,
+)
 
 
 ALLOWED_SOURCES = frozenset({"rss", "github", "youtube", "web", "pinterest", "etsy", "amazon"})
@@ -155,6 +159,56 @@ def list_signals(session: Session, *, tenant_id: str, status: str = "pending",
     return [row_dict(row) for row in session.scalars(statement).all()]
 
 
+def _insert_stage0_pending_keyword(
+    session: Session, tenant_id: str, row: RrugcResearchSignalModel,
+) -> bool:
+    """Idempotent Stage 0 promotion without calling AEBrowse.
+
+    Concurrent or repeated approvals never reset existing provider metrics,
+    user picks, search volume or trademark checks.
+    """
+    if not row.keyword:
+        return False
+    try:
+        clean, normalized = normalize_stage0_keyword(row.keyword or "")
+    except KeywordVolumeError as exc:
+        raise ResearchValidationError(str(exc)) from exc
+    values = dict(
+        tenant_id=tenant_id, keyword=clean, keyword_normalized=normalized,
+        provider=KEYWORD_VOLUME_PENDING_PROVIDER, request_count=0,
+        source_pin_url=row.url if row.source == "pinterest" else None,
+        provider_raw_json={
+            "research_signal_id": row.id,
+            "research_source": row.source,
+            "research_source_url": row.url,
+            "research_unverified": True,
+        },
+    )
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = postgresql_insert(RrugcKeywordVolumeModel)
+    elif dialect == "sqlite":
+        statement = sqlite_insert(RrugcKeywordVolumeModel)
+    else:
+        raise ResearchValidationError("Unsupported research database dialect")
+    inserted = session.execute(statement.values(**values).on_conflict_do_nothing(
+        index_elements=["tenant_id", "keyword_normalized"]
+    ))
+    return inserted.rowcount == 1
+
+
+def apply_approved_to_stage0(session: Session, *, tenant_id: str) -> dict:
+    """Repair earlier approvals that only reached the Research Inbox export."""
+    rows = session.scalars(select(RrugcResearchSignalModel).where(
+        RrugcResearchSignalModel.tenant_id == tenant_id,
+        RrugcResearchSignalModel.status == "approved",
+        RrugcResearchSignalModel.keyword.is_not(None),
+    ).order_by(RrugcResearchSignalModel.created_at.asc()).limit(1000)).all()
+    added = sum(1 for row in rows if _insert_stage0_pending_keyword(session, tenant_id, row))
+    session.commit()
+    return {"added": added, "existing": len(rows) - added, "checked": len(rows)}
+
+
 def review_signal(
     session: Session, *, tenant_id: str, signal_id: str, user_id: str,
     decision: str, keyword: str | None,
@@ -170,6 +224,10 @@ def review_signal(
     if row.status != "pending":
         raise ResearchValidationError("Research signal has already been reviewed")
     row.keyword = normalize_keyword(keyword or "") if decision == "approved" else None
+    # Only a human-approved quote becomes a Stage 0 keyword. AEBrowse is not
+    # called here, and an unknown volume is never presented as verified.
+    if row.keyword:
+        _insert_stage0_pending_keyword(session, tenant_id, row)
     row.status = decision
     row.reviewed_by_user_id = user_id
     row.reviewed_at = datetime.now(timezone.utc)

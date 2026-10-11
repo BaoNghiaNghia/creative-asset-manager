@@ -21,7 +21,7 @@ from app.modules.realistic_review_ugc.research_discovery import (
 )
 from app.modules.realistic_review_ugc.research_intelligence import (
     ResearchValidationError, import_signals, list_signals,
-    review_signal, stage0_export,
+    review_signal, stage0_export, apply_approved_to_stage0,
 )
 
 router = APIRouter(prefix="/api/v1/realistic-review-ugc/research",
@@ -197,6 +197,16 @@ def review_research_signal(
     except ResearchValidationError as exc:
         session.rollback()
         raise invalid(exc) from exc
+
+
+@router.post("/stage0-apply")
+def apply_research_keywords_to_stage0(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Idempotently backfill previously approved keywords, without paid lookup."""
+    enabled()
+    return apply_approved_to_stage0(session, tenant_id=principal.active_tenant_id)
 
 
 @router.get("/stage0-export")

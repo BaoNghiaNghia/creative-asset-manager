@@ -5,17 +5,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.core.database import Base
-from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel
+from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel
 from app.modules.realistic_review_ugc.research_intelligence import (
     ResearchValidationError, import_signals, list_signals,
-    normalize_keyword, review_signal, stage0_export, validate_url,
+    normalize_keyword, review_signal, stage0_export, apply_approved_to_stage0, validate_url,
 )
 
 
 @pytest.fixture()
 def session():
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[RrugcResearchSignalModel.__table__])
+    Base.metadata.create_all(engine, tables=[RrugcResearchSignalModel.__table__, RrugcKeywordVolumeModel.__table__])
     with Session(engine) as db:
         yield db
     engine.dispose()
@@ -48,6 +48,14 @@ def test_research_signals_are_tenant_scoped_and_require_review(session):
                          keyword="MADE TO WORSHIP")["status"] == "approved"
     assert stage0_export(session, tenant_id="tenant-a") == {
         "keywords": ["MADE TO WORSHIP"], "force": False}
+    keyword_row = session.query(RrugcKeywordVolumeModel).filter_by(
+        tenant_id="tenant-a", keyword_normalized="made to worship").one()
+    assert keyword_row.keyword == "MADE TO WORSHIP"
+    assert keyword_row.provider == "pending"
+    assert keyword_row.search_volume == 0
+    assert keyword_row.request_count == 0
+    assert keyword_row.provider_raw_json["research_unverified"] is True
+    assert session.query(RrugcKeywordVolumeModel).filter_by(tenant_id="tenant-b").count() == 0
     assert stage0_export(session, tenant_id="tenant-b") == {"keywords": [], "force": False}
     with pytest.raises(ResearchValidationError):
         review_signal(session, tenant_id="tenant-a", signal_id=a[0]["id"],
@@ -115,6 +123,35 @@ def test_batch_duplicates_do_not_reset_reviewed_signals(session):
     assert len(rows) == 2
     assert next(row for row in rows if row["id"] == first["id"])["status"] == "approved"
     assert stage0_export(session, tenant_id="tenant-a")["keywords"] == ["TEXAS HATS"]
+
+
+def test_stage0_apply_repairs_old_approvals_without_overwriting_existing_volume(session):
+    import_signals(session, tenant_id="tenant-a", user_id="u", signals=[
+        {"source": "pinterest", "channel": "auto-discover",
+         "title": "Made to Worship hat", "url": "https://www.pinterest.com/pin/123456789"}
+    ])
+    research = list_signals(session, tenant_id="tenant-a")[0]
+    # Simulates historical versions where approval did not write Stage 0.
+    row = session.get(RrugcResearchSignalModel, research["id"])
+    row.status, row.keyword = "approved", "MADE TO WORSHIP"
+    session.commit()
+    assert session.query(RrugcKeywordVolumeModel).count() == 0
+    assert apply_approved_to_stage0(session, tenant_id="tenant-b") == {
+        "added": 0, "existing": 0, "checked": 0}
+    assert apply_approved_to_stage0(session, tenant_id="tenant-a") == {
+        "added": 1, "existing": 0, "checked": 1}
+    volume = session.query(RrugcKeywordVolumeModel).filter_by(
+        tenant_id="tenant-a", keyword_normalized="made to worship").one()
+    assert volume.source_pin_url == "https://www.pinterest.com/pin/123456789"
+    volume.search_volume = 412
+    volume.provider = "aebrowse_google_ads"
+    volume.picked = True
+    session.commit()
+    assert apply_approved_to_stage0(session, tenant_id="tenant-a") == {
+        "added": 0, "existing": 1, "checked": 1}
+    session.refresh(volume)
+    assert volume.search_volume == 412 and volume.picked is True
+    assert volume.provider == "aebrowse_google_ads"
 
 
 def test_invalid_url_and_keyword_fail_closed(session):

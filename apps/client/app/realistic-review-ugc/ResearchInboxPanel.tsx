@@ -106,7 +106,7 @@ export function parseResearchImport(value: string): Array<Record<string, unknown
   return parsed as Array<Record<string, unknown>>;
 }
 
-export function ResearchInboxPanel() {
+export function ResearchInboxPanel({ onKeywordApproved }: { onKeywordApproved?: () => void } = {}) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<ResearchSignal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -142,6 +142,14 @@ export function ResearchInboxPanel() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void researchRequest<AutoDiscoverStatus>("/auto-discover/status", { signal: controller.signal })
+      .then(status => { if (!controller.signal.aborted) setAutoDiscover(status); })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -192,10 +200,23 @@ export function ResearchInboxPanel() {
         }),
       });
       setNotice(decision === "approved"
-        ? "Đã duyệt keyword. Chưa tự gọi AEBrowse." : "Đã bỏ tín hiệu khỏi hàng chờ.");
+        ? "Đã thêm keyword vào Stage 0 (chờ lấy search volume, chưa gọi AEBrowse)." : "Đã bỏ tín hiệu khỏi hàng chờ.");
+      if (decision === "approved") onKeywordApproved?.();
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không cập nhật được tín hiệu.");
+    } finally { setBusyId(null); }
+  }
+
+  async function applyApprovedToStage0() {
+    setError(""); setBusyId("apply");
+    try {
+      const result = await researchRequest<{ added: number; existing: number; checked: number }>("/stage0-apply", { method: "POST" });
+      setNotice(`Đã đồng bộ ${result.added} keyword vào Stage 0; ${result.existing} keyword đã tồn tại. Không gọi AEBrowse.`);
+      onKeywordApproved?.();
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không đồng bộ được keyword đã duyệt.");
     } finally { setBusyId(null); }
   }
 
@@ -214,7 +235,9 @@ export function ResearchInboxPanel() {
       <div>
         <span className="rrugc-research-eyebrow">Agent-Reach · Research Intelligence</span>
         <h3>Research Inbox <span aria-hidden="true">·</span> GatorHats Products</h3>
-        <p>Tín hiệu đa nguồn chờ duyệt · Link marketplace chưa xác minh. Không tự sinh keyword hay chạy AEBrowse.</p>
+        <p>Tín hiệu đa nguồn chờ duyệt · Duyệt keyword để thêm vào Stage 0; không tự gọi AEBrowse.</p>
+        {autoDiscover?.state === "not_configured" && <p role="status">VPS chưa ghép Scout Agent: kết quả Tavily hiện chưa thể chuyển vào CAM và Stage 0.</p>}
+        {autoDiscover?.state === "offline" && <p role="status">VPS chưa báo heartbeat: kiểm tra token Scout Agent để đồng bộ các kết quả đã tìm.</p>}
       </div>
       <button type="button" className="rrugc-research-expand" aria-expanded={open}
         onClick={() => setOpen(v => !v)}>
@@ -246,6 +269,9 @@ export function ResearchInboxPanel() {
         <div className="rrugc-research-actions">
           <button type="button" onClick={() => setImportOpen(v => !v)}
             aria-expanded={importOpen}>Nhập research JSON</button>
+          <button type="button" disabled={busyId !== null} onClick={() => void applyApprovedToStage0()}>
+            Đồng bộ keyword đã duyệt vào Stage 0
+          </button>
           <button type="button" disabled={busyId !== null} onClick={() => void previewExport()}>
             Xem keyword đã duyệt
           </button>

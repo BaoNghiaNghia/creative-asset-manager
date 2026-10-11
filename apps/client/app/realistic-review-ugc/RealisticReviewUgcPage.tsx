@@ -943,7 +943,18 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage0" ? 0 : -1}
           hidden={activeStage !== "stage0"}
         >
-          <ResearchInboxPanel />
+          <ResearchInboxPanel onKeywordApproved={() => {
+            setKeywordPageNumber(1);
+            setKeywordQuery("");
+            setDebouncedKeywordQuery("");
+            setKeywordUsageFilter("all");
+            setKeywordTailFilter("all");
+            setKeywordFavoritesOnly(false);
+            setKeywordSuggestedOnly(false);
+            setKeywordSortBy("created_at");
+            setKeywordSortDirection("desc");
+            void refreshKeywordAnalysis().catch(() => undefined);
+          }} />
           <KeywordAnalysisTable
             data={keywordPage}
             query={keywordQuery}

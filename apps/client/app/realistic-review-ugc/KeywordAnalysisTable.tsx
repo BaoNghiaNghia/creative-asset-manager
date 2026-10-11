@@ -784,7 +784,7 @@ export function KeywordAnalysisTable({
                 </div>
               </td>
               <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} onOpen={() => setDetailItem(item)} /></td>
-              <td className="rrugc-stage0-volume"><strong>{item.search_volume.toLocaleString()}</strong><small>avg / month</small></td>
+              <td className="rrugc-stage0-volume">{item.provider === "pending" ? <><strong>—</strong><small>Chờ kiểm tra</small></> : <><strong>{item.search_volume.toLocaleString()}</strong><small>avg / month</small></>}</td>
               <td className="rrugc-stage0-change"><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong></td>
               <td className="rrugc-stage0-change"><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong></td>
               <td><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span>{typeof item.competition_index === "number" && <small className="rrugc-stage0-competition-index">{item.competition_index}</small>}</td>

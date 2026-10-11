@@ -25,6 +25,7 @@
     {"method":"GET","path":"/api/v1/realistic-review-ugc/research/auto-discover/status","body":{"state":"error","connected":true,"server":"VPS","source":"Agent-Reach / Exa","last_seen_at":"2026-10-11T14:00:00Z","last_error_code":"exa_rate_limited","total_evidence":0,"pending_review":0,"platforms":{"pinterest":0,"amazon":0,"etsy":0}}},
     {"method":"POST","path":"/api/v1/realistic-review-ugc/research/signals/import","body":{"added":1,"duplicates":0}},
     {"method":"POST","path":"/api/v1/realistic-review-ugc/research/signals/qa-research-signal-1/review","body":{"id":"qa-research-signal-1","status":"approved","keyword":"MADE TO WORSHIP"}},
+    {"method":"POST","path":"/api/v1/realistic-review-ugc/research/stage0-apply","body":{"added":1,"existing":0,"checked":1}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/research/stage0-export","body":{"keywords":["MADE TO WORSHIP"],"force":false}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-skills","body":{"openai_configured":false,"openai_status":"not_configured","error_code":null,"items":[{"source":"local","skill_id":null,"skill_name":"gatorhats-8869-image-studio","display_name":"GatorHats 8869 Image Studio","description":"Generate cap artwork","default_version":"1.0","latest_version":"1.0","local_version":"1.0","synced_version":"1.0","ready":true,"sync_state":"ready","version_options":["1.0"]}]}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/stage2-jobs","body":[]},

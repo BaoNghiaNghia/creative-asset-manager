@@ -405,7 +405,11 @@ def status_dict(db: sqlite3.Connection) -> dict:
     day = today()
     attempts = db.execute("SELECT COUNT(*) FROM discovery_attempt WHERE day=?", (day,)).fetchone()[0]
     pending = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='pending'").fetchone()[0]
-    return {"provider": meta(db, "active_provider", PROVIDER), "last_run_at": meta(db, "last_run_at") or None,
+    paired = bool(os.getenv("CAM_RESEARCH_SCOUT_AGENT_ID") and os.getenv("CAM_RESEARCH_SCOUT_TOKEN"))
+    synced = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='synced'").fetchone()[0]
+    return {"provider": meta(db, "active_provider", PROVIDER),
+            "paired": paired, "sync_status": ("paired" if paired else "waiting_pairing"),
+            "synced_total": int(synced), "last_run_at": meta(db, "last_run_at") or None,
             "last_success_at": meta(db, "last_success_at") or None,
             "last_error": meta(db, "last_error") or None,
             "queries_today": attempts, "pending_outbox": pending,
