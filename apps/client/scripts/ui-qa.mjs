@@ -367,6 +367,15 @@ async function performStep(page, step) {
   if (step.resetBefore) {
     await page.reload({ waitUntil: "domcontentloaded" });
   }
+  if (step.goto) {
+    const current = new URL(page.url());
+    const target = new URL(String(step.goto), current);
+    if (target.origin !== current.origin) {
+      throw new Error("UI QA navigation must remain on the fixture preview origin");
+    }
+    await page.goto(target.href, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.waitForTimeout(Number(process.env.CAM_UI_QA_SETTLE_MS || 800));
+  }
   if (step.click) {
     await page.locator(step.click).first().click();
   }

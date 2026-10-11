@@ -16,7 +16,7 @@
   "steps": [
     {
       "name": "reviews-workflow",
-      "click": "#rrugc-workflow-reviews",
+      "goto": "/realistic-review-ugc?workflow=reviews&stage=stage3",
       "waitFor": "#rrugc-tab-stage3"
     },
     {
@@ -43,7 +43,7 @@
     { "name": "candidate-filter-focus", "focus": "#rrugc-stage3-search-input" },
     {
       "name": "products-workflow",
-      "click": "#rrugc-workflow-products",
+      "goto": "/realistic-review-ugc?workflow=products&stage=stage0",
       "waitFor": "#rrugc-tab-stage0"
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "name": "reviews-workflow-return",
-      "click": "#rrugc-workflow-reviews",
+      "goto": "/realistic-review-ugc?workflow=reviews&stage=stage3",
       "waitFor": "#rrugc-tab-stage3"
     },
     {

@@ -1,5 +1,7 @@
 # GatorHats Products / Reviews workflow split — 2026-10-11
 
+**UI amendment:** The newer [sidebar submenu design](RRUGC_SIDEBAR_SUBMENU_20261011.md) replaces the in-page two-group selector described below. Products/Reviews are now nested under the global Realistic Review UGC menu; only the three Stage tabs remain inside the page.
+
 This change is frontend-only and follows [Mobile UI refresh](MOBILE_UI_REFRESH_20261011.md) and [Automatic UI workflow](UI_AUTOMATION_WORKFLOW.md).
 
 ## Two-tier navigation

@@ -47,6 +47,25 @@ describe("mobile workspace overflow interactions", () => {
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
   });
 
+
+
+  it("opens GatorHats Products and Reviews from the phone UGC tab", async () => {
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Choose GatorHats Products or Reviews"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => { trigger?.click(); });
+    const dialog = host.querySelector('#mobile-rrugc-workflow-dialog');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=products&stage=stage0"]')).not.toBeNull();
+    expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=reviews&stage=stage3"]')).not.toBeNull();
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(host.querySelector('#mobile-rrugc-workflow-dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("closes when the backdrop is tapped", async () => {
     await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="More workspaces"]')?.click(); });
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();

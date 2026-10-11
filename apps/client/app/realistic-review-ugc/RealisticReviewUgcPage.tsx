@@ -39,6 +39,7 @@ import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
 import { mergeStage5Pages } from "./stage5Pagination";
 import { RrugcWorkflowNavigation, type RrugcStageTab } from "./RrugcWorkflowNavigation";
+import { currentRrugcStage, replaceRrugcStageInUrl, workflowGroupForStage } from "./workflowRouting";
 import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection, Stage3ReviewGroupList } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
@@ -189,7 +190,7 @@ export function RealisticReviewUgcPage() {
   const [stage3Analyzing, setStage3Analyzing] = useState(false);
   const [stage3Message, setStage3Message] = useState("");
   const [error, setError] = useState("");
-  const [activeStage, setActiveStage] = useState<RrugcStageTab>("stage0");
+  const [activeStage, setActiveStage] = useState<RrugcStageTab>(currentRrugcStage);
   const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillCatalogRevision, setSkillCatalogRevision] = useState(0);
@@ -899,13 +900,14 @@ export function RealisticReviewUgcPage() {
       setSourcePageNumber(1);
       setSourcePageLoading(true);
     }
+    replaceRrugcStageInUrl(nextStage);
     setActiveStage(nextStage);
   }
 
   return <main className="rrugc-shell rrugc-source-first-shell">
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>UGC reference automation</small></span></div>
-      <WorkspaceNavigation active="realistic-review-ugc" />
+      <WorkspaceNavigation active="realistic-review-ugc" rrugcStage={activeStage} />
     </aside>
     <section className="rrugc-main">
       <WorkspacePageHeader

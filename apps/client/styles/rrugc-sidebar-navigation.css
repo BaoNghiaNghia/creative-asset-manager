@@ -1,0 +1,45 @@
+
+/* GatorHats workflow selector is nested under the workspace menu.
+   Tablet has a compact equivalent because the desktop sidebar is hidden. */
+.tablet-rrugc-workflow-nav { display: none; }
+@media (min-width: 681px) and (max-width: 1024px) {
+  .tablet-rrugc-workflow-nav {
+    position: sticky;
+    z-index: 949;
+    top: 62px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 18px;
+    border-bottom: 1px solid #e1e8f2;
+    background: #f8fafd;
+  }
+  .tablet-rrugc-workflow-nav a {
+    display: inline-flex;
+    min-height: 39px;
+    align-items: center;
+    padding: 7px 13px;
+    border: 1px solid #dfe6f1;
+    border-radius: 9px;
+    background: #fff;
+    color: #607087;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .tablet-rrugc-workflow-nav a.active,
+  .tablet-rrugc-workflow-nav a[aria-current=location] {
+    border-color: #cadbf8;
+    background: #edf3ff;
+    color: #2454b1;
+  }
+}
+@media (max-width: 680px) {
+  .mobile-rrugc-workflow-subtitle {
+    display: block;
+    margin-top: 3px;
+    color: #8996aa;
+    font-size: 11px;
+    font-weight: 500;
+  }
+}

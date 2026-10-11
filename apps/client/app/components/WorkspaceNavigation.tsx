@@ -7,6 +7,7 @@ import jobQueueIcon from "../../assets/navigation/job-queue.svg";
 import reviewBoardIcon from "../../assets/navigation/review-board.svg";
 import realisticReviewUgcIcon from "../../assets/navigation/realistic-review-ugc.svg";
 import videoGenerationIcon from "../../assets/navigation/video-generation.svg";
+import { currentRrugcStage, rrugcWorkflowHref, workflowGroupForStage, RRUGC_WORKFLOW_GROUPS, type RrugcStageTab } from "../realistic-review-ugc/workflowRouting";
 import {
   AI_OPERATIONS_TABS,
   aiOperationsTabHref,
@@ -40,6 +41,7 @@ export function WorkspaceNavigation({
   permissions,
   aiOperationsTab,
   onAiOperationsTab,
+  rrugcStage,
 }: {
   active: WorkspaceRoute;
   showOperations?: boolean;
@@ -47,9 +49,12 @@ export function WorkspaceNavigation({
   permissions?: readonly string[];
   aiOperationsTab?: AiOpsTab;
   onAiOperationsTab?: (tab: AiOpsTab) => void;
+  rrugcStage?: RrugcStageTab;
 }) {
   const [visible, setVisible] = useState(showReviewBoard ?? false);
   const [operationsOpen, setOperationsOpen] = useState(active === "operations");
+  const [rrugcOpen, setRrugcOpen] = useState(active === "realistic-review-ugc");
+  const selectedRrugcGroup = workflowGroupForStage(rrugcStage ?? currentRrugcStage());
 
   useEffect(() => {
     if (showReviewBoard !== undefined) {
@@ -65,6 +70,7 @@ export function WorkspaceNavigation({
 
   useEffect(() => {
     if (active === "operations") setOperationsOpen(true);
+    if (active === "realistic-review-ugc") setRrugcOpen(true);
   }, [active]);
 
   const permissionAware = permissions !== undefined;
@@ -79,7 +85,7 @@ export function WorkspaceNavigation({
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
     ] : []),
     ...(canViewRrugc ? [
-      { id: "realistic-review-ugc" as const, href: "/realistic-review-ugc", label: "Realistic Review UGC" },
+      { id: "realistic-review-ugc" as const, href: rrugcWorkflowHref("products"), label: "Realistic Review UGC" },
     ] : []),
     ...(canViewOperations ? [
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },
@@ -128,6 +134,41 @@ export function WorkspaceNavigation({
           >
             <img className="workspace-nav-submenu-icon" src={tab.iconSrc} alt="" aria-hidden="true" />
             <span>{tab.label}</span>
+          </a>;
+        })}
+      </div> : null}
+    </div> : item.id === "realistic-review-ugc" ? <div key={item.id} className={"workspace-nav-group workspace-nav-group-rrugc" + (active === item.id ? " active" : "")}>
+      <div className="workspace-nav-group-row">
+        <a href={item.href} className={active === item.id ? "active" : undefined} aria-current={active === item.id ? "page" : undefined}>
+          <WorkspaceNavigationIcon name={item.id} />
+          <span>{item.label}</span>
+        </a>
+        <button
+          type="button"
+          className="workspace-nav-expander"
+          aria-label={(rrugcOpen ? "Collapse" : "Expand") + " Realistic Review UGC navigation"}
+          aria-expanded={rrugcOpen}
+          aria-controls="workspace-rrugc-submenu"
+          onClick={() => setRrugcOpen(value => !value)}
+        >
+          <svg className="workspace-nav-expander-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m5.5 7.5 4.5 4.5 4.5-4.5" />
+          </svg>
+        </button>
+      </div>
+      {rrugcOpen ? <div id="workspace-rrugc-submenu" className="workspace-nav-submenu workspace-nav-rrugc-submenu" aria-label="GatorHats sections">
+        {RRUGC_WORKFLOW_GROUPS.map(group => {
+          const selected = active === "realistic-review-ugc" && selectedRrugcGroup === group.id;
+          return <a key={group.id} href={rrugcWorkflowHref(group.id)}
+            className={selected ? "active" : undefined}
+            aria-current={selected ? "location" : undefined}
+            data-rrugc-workflow={group.id}>
+            <svg className="workspace-nav-submenu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {group.id === "products" ? <>
+                <path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="M3 8v8l9 5 9-5V8M12 13v8" />
+              </> : <path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" />}
+            </svg>
+            <span>{group.title}</span>
           </a>;
         })}
       </div> : null}
