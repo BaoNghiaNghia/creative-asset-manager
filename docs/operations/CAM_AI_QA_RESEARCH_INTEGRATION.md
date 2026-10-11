@@ -31,6 +31,7 @@ python3 -m unittest integrations/agent-reach/test_research_intelligence.py
 apps/api/.venv/bin/python -m pytest apps/api/tests/modules/realistic_review_ugc/test_research_intelligence.py apps/api/tests/modules/realistic_review_ugc/test_research_routes_security.py -q
 npm --prefix apps/client run typecheck
 npm --prefix apps/client run test -- ResearchInboxPanel.test.tsx
+make research-runtime-setup
 make research-doctor
 make ui-design-audit
 ```

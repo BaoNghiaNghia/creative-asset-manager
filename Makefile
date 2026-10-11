@@ -1,4 +1,4 @@
-.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-profile-matrix ui-qa-headless ui-qa-visual ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke
+.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-profile-matrix ui-qa-headless ui-qa-visual ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke research-runtime-setup
 
 api:
 	bash scripts/dev-api.sh
@@ -58,6 +58,9 @@ ui-design-audit:
 
 ai-qa-research-install:
 	bash scripts/cam-install-ai-qa-research.sh
+
+research-runtime-setup:
+	bash scripts/cam-configure-research-runtime.sh
 
 research-doctor:
 	integrations/agent-reach/.venv/bin/python integrations/agent-reach/research_intelligence.py doctor

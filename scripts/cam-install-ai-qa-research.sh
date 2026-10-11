@@ -26,6 +26,7 @@ fi
 python3 -m venv "$TOOLS/.venv"
 "$TOOLS/.venv/bin/pip" install --disable-pip-version-check --no-cache-dir -r "$TOOLS/requirements.lock"
 mkdir -p -m 0700 "$TOOLS/runtime-home"
+bash "$ROOT/scripts/cam-configure-research-runtime.sh"
 cd "$ROOT"
 npm ci --prefix integrations/impeccable --ignore-scripts --no-audit --no-fund
 node apps/client/scripts/ui-qa-impeccable.mjs --mode advisory
