@@ -1,0 +1,290 @@
+/*
+ * Mobile workspace refresh.
+ * This late-loading layer owns PHONE-ONLY navigation and shared ergonomics.
+ * Desktop/tablet styles continue to use responsive-platform.css.
+ */
+
+.mobile-workspace-tabs,
+.mobile-workspace-more-layer { display: none; }
+
+@media (max-width: 680px) {
+  :root {
+    --cam-mobile-rail-height: 66px;
+    --cam-mobile-gutter: 12px;
+  }
+  html, body, #root { max-width: 100%; }
+  body { overflow-x: clip; }
+  :where(.ops-shell,.access-shell,.rrugc-shell,.review-board-shell,.video-generation-shell,.product-shell) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Replace the undiscoverable, horizontally scrolling icon-only navigation
+     with four stable destinations and a labeled overflow sheet. */
+  .responsive-workspace-nav {
+    z-index: var(--cam-z-dropdown, 1000);
+    display: block;
+    height: auto;
+    min-height: 0;
+    padding: 5px max(6px, env(safe-area-inset-right))
+      max(5px, env(safe-area-inset-bottom))
+      max(6px, env(safe-area-inset-left));
+  }
+  .responsive-workspace-nav > .workspace-navigation { display: none !important; }
+  .mobile-workspace-tabs {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+  }
+  .mobile-workspace-tabs .mobile-workspace-tab {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 55px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 2px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: #64748b;
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0;
+    white-space: nowrap;
+    touch-action: manipulation;
+  }
+  .mobile-workspace-tab .workspace-nav-icon,
+  .mobile-workspace-more svg {
+    display: block;
+    flex: 0 0 23px;
+    width: 23px;
+    height: 23px;
+    object-fit: contain;
+  }
+  .mobile-workspace-tab > span {
+    display: block !important;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mobile-workspace-tabs .mobile-workspace-tab.active,
+  .mobile-workspace-tabs .mobile-workspace-tab[aria-current="page"] {
+    background: #edf3ff;
+    border-color: #d7e4fa;
+    color: #2453b5;
+  }
+  .mobile-workspace-tab:focus-visible,
+  .mobile-workspace-more-panel :focus-visible {
+    outline: 2px solid #315fe9;
+    outline-offset: 2px;
+  }
+
+  .mobile-workspace-more-layer {
+    display: block;
+    position: fixed;
+    z-index: 1300;
+    inset: 0;
+  }
+  .mobile-workspace-more-scrim {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: rgb(15 23 42 / 48%);
+  }
+  .mobile-workspace-more-panel {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    max-height: min(76dvh, 650px);
+    overflow: hidden;
+    padding: 14px max(14px, env(safe-area-inset-right))
+      max(18px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+    border-radius: 20px 20px 0 0;
+    background: #fff;
+    box-shadow: 0 -14px 42px rgb(15 23 42 / 22%);
+  }
+  .mobile-workspace-more-heading {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    height: auto;
+    min-height: 58px;
+    padding: 0 0 13px;
+    gap: 14px;
+    border-bottom: 1px solid #e5ebf4;
+  }
+  .mobile-workspace-more-heading > div { display: grid; gap: 4px; }
+  .mobile-workspace-more-heading strong { font-size: 17px; color: #172033; }
+  .mobile-workspace-more-heading small { font-size: 12px; color: #738197; }
+  .mobile-workspace-more-heading button {
+    display: grid;
+    flex: 0 0 44px;
+    width: 44px;
+    min-height: 44px;
+    place-items: center;
+    border: 1px solid #e0e6ef;
+    border-radius: 12px;
+    background: #f8fafd;
+    color: #3d4f67;
+  }
+  .mobile-workspace-more-heading button svg { width: 19px; height: 19px; }
+  .mobile-workspace-more-items {
+    display: grid;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 0;
+    gap: 3px;
+  }
+  .mobile-workspace-more-items a {
+    display: flex;
+    align-items: center;
+    min-height: 54px;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    color: #35435b;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .mobile-workspace-more-items a.active { background: #edf3ff; color: #2453b5; }
+  .mobile-workspace-more-items .workspace-nav-icon { flex: 0 0 24px; width: 24px; height: 24px; }
+  .mobile-workspace-more-items span { min-width: 0; flex: 1; }
+  .mobile-workspace-more-chevron { flex: 0 0 17px; width: 17px; height: 17px; color: #8b9ab1; }
+
+  /* Prevent app content or action bars from being hidden behind the rail. */
+  .ops-shell,.access-shell,.review-board-shell,.video-generation-shell,.rrugc-shell,.product-shell {
+    padding-bottom: calc(var(--cam-mobile-rail-height) + env(safe-area-inset-bottom));
+  }
+  .product-shell .sidebar { bottom: calc(var(--cam-mobile-rail-height) + env(safe-area-inset-bottom)); }
+  .sidebar-mobile-scrim { bottom: calc(var(--cam-mobile-rail-height) + env(safe-area-inset-bottom)); }
+  .product-shell .bulk { bottom: calc(var(--cam-mobile-rail-height) + 10px + env(safe-area-inset-bottom)); }
+  .inventory-pipeline-details { bottom: calc(var(--cam-mobile-rail-height) + env(safe-area-inset-bottom)); }
+  .rrugc-campaign-editor-backdrop {
+    padding-bottom: calc(var(--cam-mobile-rail-height) + env(safe-area-inset-bottom));
+  }
+  .rrugc-campaign-editor {
+    max-height: calc(100dvh - var(--cam-mobile-rail-height) - env(safe-area-inset-bottom));
+  }
+
+  /* Shared mobile rhythm and touch-safe form controls. */
+  .workspace-page-header,
+  .workspace-page-header.rrugc-header,
+  .workspace-page-header.ops-header,
+  .workspace-page-header.access-header,
+  .workspace-page-header.review-board-header,
+  .workspace-page-header.video-generation-header,
+  .workspace-page-header.job-queue-header {
+    min-width: 0;
+    padding: 15px var(--cam-mobile-gutter) 13px;
+    gap: 10px;
+  }
+  .workspace-page-header h1 { font-size: clamp(20px, 5.4vw, 24px); line-height: 1.22; }
+  .workspace-page-header-copy { min-width: 0; max-width: 100%; }
+  .workspace-page-header-description { overflow-wrap: anywhere; }
+  .workspace-page-header-actions { min-width: 0; max-width: 100%; }
+  .workspace-page-header-actions > :where(button,a) { flex-shrink: 0; }
+  :where(.ops-shell,.access-shell,.inventory-shell,.review-board-shell,.rrugc-shell,.video-generation-shell,.product-shell)
+    input,
+  :where(.ops-shell,.access-shell,.inventory-shell,.review-board-shell,.rrugc-shell,.video-generation-shell,.product-shell)
+    select,
+  :where(.ops-shell,.access-shell,.inventory-shell,.review-board-shell,.rrugc-shell,.video-generation-shell,.product-shell)
+    textarea {
+    font-size: 16px !important; /* Prevent mobile Safari from zooming when focused. */
+  }
+
+  /* Keep wide operational tables horizontal INSIDE their own viewport,
+     without pushing the entire page beyond the phone's edges. */
+  :where(.ops-content,.access-content,.rrugc-page-body,.review-board-main,.video-generation-page-body,.inventory-shell) {
+    min-width: 0;
+    max-width: 100%;
+  }
+  :where(.ops-table-scroll,.access-table-wrap,.inventory-pipeline-scroll,
+    .rrugc-source-plan-table-wrap,.rrugc-stage2-table-wrap) {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .rrugc-stage-tabs,
+  .rrugc-workflow-rail,
+  .ops-tabs,.access-tabs {
+    scroll-padding-inline: 12px;
+    overscroll-behavior-x: contain;
+  }
+
+  /* Restore readable metadata in high-density RRUGC stages on phones.
+     Table columns remain scrollable; never squeeze fonts to 7px. */
+  .rrugc-section-heading small,
+  .rrugc-section-heading p,
+  .rrugc-source-plan-kpis span,
+  .rrugc-source-plan-filters button,
+  .rrugc-stage-tab-copy small,
+  .rrugc-workflow-rail small,
+  .rrugc-source-file small {
+    font-size: 11px !important;
+    line-height: 1.4;
+  }
+  .rrugc-source-plan-table th,
+  .rrugc-stage2-table th { font-size: 10.5px !important; }
+  .rrugc-source-plan-table td,
+  .rrugc-stage2-table td { font-size: 11px !important; }
+  .rrugc-source-plan-toolbar :where(input,select),
+  .rrugc-source-plan-filters button { min-height: 40px; }
+  .rrugc-stage2 .rrugc-source-file strong,
+  .rrugc-source-file strong { font-size: 11.5px; }
+  .rrugc-stage2 .rrugc-stage2-generate { min-height: 40px; font-size: 11px; }
+  .rrugc-stage-tab-copy strong { font-size: 11.5px; }
+
+  /* All mobile dialogs stay inside the visual viewport without hiding their
+     footer or close action behind device gesture areas. */
+  :where(.rrugc-shell,.ops-shell,.access-shell,.inventory-shell,.review-board-shell,
+    .video-generation-shell,.product-shell) [role="dialog"] {
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
+  .inventory-pipeline-details { width: 100vw; max-width: 100vw; }
+}
+
+@media (max-width: 360px) {
+  :root { --cam-mobile-gutter: 10px; }
+  .mobile-workspace-tabs { gap: 1px; }
+  .mobile-workspace-tabs .mobile-workspace-tab { padding-inline: 1px; font-size: 9px; }
+  .mobile-workspace-tab .workspace-nav-icon,
+  .mobile-workspace-more svg { width: 21px; height: 21px; flex-basis: 21px; }
+}
+
+@media (max-width: 900px) and (max-height: 600px) and (orientation: landscape) {
+  :root { --cam-mobile-rail-height: 56px; }
+  .mobile-workspace-tabs .mobile-workspace-tab { min-height: 45px; gap: 2px; }
+  .mobile-workspace-more-panel { max-height: 84dvh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-workspace-more-panel,
+  .mobile-workspace-more-scrim { animation: none !important; transition: none !important; }
+}

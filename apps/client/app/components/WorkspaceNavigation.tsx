@@ -29,7 +29,7 @@ const navigationIconSources: Record<WorkspaceRoute, string> = {
   access: accessManagementIcon,
 };
 
-function WorkspaceNavigationIcon({ name }: { name: WorkspaceRoute }) {
+export function WorkspaceNavigationIcon({ name }: { name: WorkspaceRoute }) {
   return <img className="workspace-nav-icon" src={navigationIconSources[name]} alt="" aria-hidden="true" />;
 }
 

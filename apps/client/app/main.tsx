@@ -19,6 +19,7 @@ import "../styles/review-board.css";
 import "../styles/workspace-page-header.css";
 import "../styles/responsive-platform.css";
 import "../styles/ui-foundation.css";
+import "../styles/mobile-workspace.css";
 
 function AppBoot() {
   useEffect(() => {
