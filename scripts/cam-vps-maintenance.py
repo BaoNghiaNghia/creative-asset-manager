@@ -192,7 +192,7 @@ def perform(action: str, *, active_names: set[str] | None = None,
     if action not in {"swap-repair", "swap-rollback"}:
         raise ValueError("Action not allowlisted")
     if active_names is None:
-        swaps = checked_run(["swapon", "--noheadings", "--raw", "--output", "NAME"])
+        swaps = checked_run(["swapon", "--show=NAME", "--noheadings", "--raw"])
         active_names = set(swaps.stdout.split())
     backup = state_dir / "fstab-before-swap-repair"
     marker = state_dir / "fstab-repair.json"

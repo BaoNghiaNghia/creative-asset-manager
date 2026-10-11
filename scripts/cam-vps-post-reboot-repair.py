@@ -38,7 +38,7 @@ def legacy_entry_indices(text: str) -> list[int]:
 
 def active_swap_names() -> set[str]:
     result = subprocess.run(
-        ["swapon", "--noheadings", "--raw", "--output", "NAME"],
+        ["swapon", "--show=NAME", "--noheadings", "--raw"],
         capture_output=True, text=True, check=True,
     )
     return {s.strip() for s in result.stdout.splitlines() if s.strip()}

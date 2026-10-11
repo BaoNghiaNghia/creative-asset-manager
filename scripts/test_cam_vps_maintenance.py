@@ -16,6 +16,32 @@ ACTIVE = "/swapfile-camqa none swap sw,nofail 0 0\n"
 
 
 class BrokerTests(unittest.TestCase):
+    def test_broker_queries_swapon_in_show_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            fstab = base / "fstab"
+            fstab.write_text(ACTIVE + OLD)
+            state = base / "state"
+            state.mkdir()
+            calls = []
+            original = maint.checked_run
+            try:
+                def mock_checked_run(argv, *, timeout=30):
+                    calls.append(argv)
+                    class Result:
+                        stdout = maint.LIVE_SWAP + "\n" if argv[0] == "swapon" else ""
+                    return Result()
+                maint.checked_run = mock_checked_run
+                maint.perform("swap-repair", fstab=fstab, state_dir=state)
+                self.assertEqual(calls[0],
+                    ["swapon", "--show=NAME", "--noheadings", "--raw"])
+                self.assertEqual(calls[1:], [
+                    ["systemctl", "daemon-reload"],
+                    ["systemctl", "reset-failed", "swapfile.swap"],
+                ])
+            finally:
+                maint.checked_run = original
+
     def test_swap_fix_and_exact_rollback(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

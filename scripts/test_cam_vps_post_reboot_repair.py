@@ -15,6 +15,19 @@ ACTIVE = "/swapfile-camqa none swap sw,nofail 0 0\n"
 
 
 class SwapRepairTests(unittest.TestCase):
+    def test_queries_swapon_in_show_mode(self):
+        from unittest.mock import patch
+        import subprocess
+        with patch.object(module.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=module.ACTIVE_SWAP + "\n",
+            )
+            self.assertEqual(module.active_swap_names(), {module.ACTIVE_SWAP})
+        run.assert_called_once_with(
+            ["swapon", "--show=NAME", "--noheadings", "--raw"],
+            capture_output=True, text=True, check=True,
+        )
+
     def test_legacy_exact_only(self):
         original = "# /swapfile none swap defaults 0 0\n" + ACTIVE + OLD
         self.assertEqual(module.legacy_entry_indices(original), [2])
