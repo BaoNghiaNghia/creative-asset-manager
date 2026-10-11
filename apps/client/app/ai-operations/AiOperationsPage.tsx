@@ -912,7 +912,9 @@ function QueueCount({ value, tone }: { value: number; tone: "neutral" | "ready" 
 
 const pipelineFailureGuidance: Record<string, { title: string; guidance: string }> = {
   InvalidPipelineContent: { title: "Invalid source record", guidance: "The source item is incomplete or invalid. Review the source record before retrying." },
-  gemini_http_error: { title: "Gemini request could not complete", guidance: "Temporary provider errors may retry automatically. Check the provider status only if this keeps recurring." },
+  gemini_http_error: { title: "Gemini HTTP error", guidance: "Check the HTTP status in worker diagnostics. Rate limits and temporary errors may recover; invalid API keys and unsupported models require correcting Gemini configuration before retrying." },
+  analysis_storage_read_failed: { title: "Managed Storage could not be read", guidance: "Check Google Drive storage-folder permissions and reconnect the managed-storage account. Do not retry until the source is accessible or source fallback is available." },
+  ValueError: { title: "Search Projection references an invalid analysis", guidance: "Use the verified pipeline recovery process to pin a completed analysis of the same asset before retrying projection." },
   analysis_image_dimensions: { title: "Image dimensions are not supported", guidance: "The image could not be prepared safely for analysis. Use a valid supported image before retrying." },
   unsupported_source_mime_type: { title: "Unsupported file type", guidance: "JPEG, PNG, WebP, AVIF, HEIC, and HEIF images enter the image-analysis pipeline. Modern image formats are converted safely to RGB JPEG before AI analysis." },
   source_content_too_large: { title: "Image is too large", guidance: "Reduce the source image dimensions or file size, then retry the pipeline stage." },

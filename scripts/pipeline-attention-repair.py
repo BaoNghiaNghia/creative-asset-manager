@@ -14,6 +14,7 @@ from app.core.database import SessionLocal
 from app.modules.pipeline.attention_recovery import PipelineAttentionRecovery
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.video_search.failed_job_recovery import recover_video_failures
 from app.modules.storage.managed_oauth import (
     ManagedStorageCredentialUnavailableError,
     ManagedStorageCredentialValidationError,
@@ -27,6 +28,8 @@ def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser()
     value.add_argument("--apply", action="store_true")
     value.add_argument("--limit", type=int, default=5000)
+    value.add_argument("--skip-storage-validation", action="store_true", help="Leave OAuth state untouched during bounded pipeline job recovery")
+    value.add_argument("--video-only", action="store_true", help="Recover only safe transient video failures; never retry disk errors without validated capacity")
     return value
 
 
@@ -70,11 +73,12 @@ def main() -> int:
     settings = get_settings()
     with SessionLocal() as session:
         tenants = tenant_ids(session)
-        storage_status = reconcile_managed_storage(
-            settings,
-            tenants[0] if tenants else None,
-            mark_reconnect=args.apply,
-        )
+        storage_status = ("not_checked" if args.skip_storage_validation else
+            reconcile_managed_storage(
+                settings,
+                tenants[0] if tenants else None,
+                mark_reconnect=args.apply,
+            ))
         print(f"PIPELINE_ATTENTION_REPAIR managed_storage={storage_status}")
         total = {
             "download_pipelines": 0,
@@ -86,6 +90,10 @@ def main() -> int:
             "skipped_no_profile": 0,
         }
         for tenant_id in tenants:
+            if args.video_only:
+                videos = recover_video_failures(session, tenant_id, limit=min(args.limit, 500), apply=args.apply)
+                print("VIDEO_TRANSIENT_RECOVERY " + " ".join(f"{key}={value}" for key, value in videos.items()))
+                continue
             recovery = PipelineAttentionRecovery(session, settings)
             result = (
                 recovery.apply(tenant_id, limit=args.limit)

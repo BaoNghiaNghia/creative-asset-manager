@@ -126,6 +126,40 @@ def test_source_reconnect_allows_another_recovery_after_previous_attempt():
         engine.dispose()
 
 
+def test_recovery_uses_another_live_link_when_original_source_is_offline():
+    engine = _database()
+    try:
+        with Session(engine) as session:
+            original, job = _seed(session, source_status="reconnect_required")
+            alternate = ExternalSourceModel(
+                id="alternate-external", tenant_id="tenant",
+                source_key="second-drive", source_type="onedrive",
+                status="active", oauth_connection_id="alternate-connection",
+            )
+            source = SourceAssetModel(
+                id="alternate-source", tenant_id="tenant",
+                external_source_id="alternate-external", external_asset_id="other-file",
+                filename="other.jpg", mime_type="image/jpeg",
+            )
+            link = AssetSourceLinkModel(
+                id="alternate-link", tenant_id="tenant",
+                asset_id="asset", source_asset_id="alternate-source",
+            )
+            session.add_all((alternate, source, link))
+            session.commit()
+            assert recover_failed_visual_jobs(session, tenant_id="tenant", limit=2) == 1
+            assert job.status == "retry"
+            assert job.payload_json["source_asset_id"] == "alternate-source"
+            assert job.payload_json["_visual_recovery_source_asset_id"] == "alternate-source"
+            # A repeated failure cannot loop unless the selected source changes.
+            job.status = "failed"
+            job.last_error_code = "visual_index_source_unavailable"
+            session.flush()
+            assert recover_failed_visual_jobs(session, tenant_id="tenant", limit=2) == 0
+    finally:
+        engine.dispose()
+
+
 def test_failed_visual_job_waits_while_source_requires_reconnect():
     engine = _database()
     try:

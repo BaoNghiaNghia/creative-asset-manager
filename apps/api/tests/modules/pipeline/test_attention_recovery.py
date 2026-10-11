@@ -448,7 +448,7 @@ def test_projection_failure_retries_only_with_completed_analysis():
                 entity_type="asset_pipeline",
                 entity_id=pipeline.id,
                 idempotency_key=f"pipeline:{pipeline.id}:search_projection_build:{analysis.id}:None:None",
-                payload_json={"pipeline_id": pipeline.id},
+                payload_json={"pipeline_id": pipeline.id, "analysis_id": "stale-analysis-id"},
                 status="failed",
                 last_error_code="ValueError",
                 last_error_message="no completed analysis is available",
@@ -461,7 +461,9 @@ def test_projection_failure_retries_only_with_completed_analysis():
 
             assert result.projection_jobs == 1
             assert session.get(AssetPipelineModel, pipeline.id).state == "projection_pending"
-            assert session.get(ProcessingJobModel, job.id).status == "retry"
+            repaired_job = session.get(ProcessingJobModel, job.id)
+            assert repaired_job.status == "retry"
+            assert repaired_job.payload_json["analysis_id"] == analysis.id
     finally:
         engine.dispose()
 

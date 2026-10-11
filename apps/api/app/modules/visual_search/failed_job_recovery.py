@@ -73,13 +73,11 @@ def recover_failed_visual_jobs(
     if not candidates:
         return 0
 
-    source_ids = {
-        str(job.payload_json.get("source_asset_id") or "")
-        for job in candidates
-        if isinstance(job.payload_json, dict)
-        and job.payload_json.get("source_asset_id")
-    }
-    if not source_ids:
+    # The original source link may have been deleted or deauthorized while
+    # another live source still contains the same content-addressed asset.
+    # Recovery must select a streamable link, never retry the dead link forever.
+    asset_ids = {str(job.entity_id) for job in candidates}
+    if not asset_ids:
         return 0
 
     rows = session.execute(
@@ -106,15 +104,16 @@ def recover_failed_visual_jobs(
         )
         .where(
             SourceAssetModel.tenant_id == tenant_id,
-            SourceAssetModel.id.in_(source_ids),
+            AssetSourceLinkModel.asset_id.in_(asset_ids),
             SourceAssetModel.deleted_at.is_(None),
         )
     ).all()
-    current = {
-        source.id: (str(asset_id), str(content_hash or ""), external)
-        for source, asset_id, content_hash, external in rows
-        if visual_source_streamable(external)
-    }
+    current: dict[tuple[str, str], list[tuple[str, ExternalSourceModel]]] = {}
+    for source, asset_id, content_hash, external in rows:
+        if visual_source_streamable(external):
+            current.setdefault((str(asset_id), str(content_hash or "")), []).append(
+                (source.id, external)
+            )
 
     recovered = 0
     for job in candidates:
@@ -122,24 +121,29 @@ def recover_failed_visual_jobs(
             break
         payload = dict(job.payload_json or {})
         source_asset_id = str(payload.get("source_asset_id") or "")
-        state = current.get(source_asset_id)
-        if state is None:
+        content_hash = str(payload.get("content_sha256") or "")
+        choices = current.get((str(job.entity_id), content_hash), [])
+        if not choices:
             continue
-        asset_id, content_hash, external = state
-        if str(job.entity_id) != asset_id:
-            continue
-        if str(payload.get("content_sha256") or "") != content_hash:
-            continue
+        # Preserve the previous link when healthy; switch only if it is no
+        # longer usable. Stable ordering avoids oscillating retry identities.
+        choices.sort(key=lambda choice: (choice[0] != source_asset_id, choice[0]))
+        selected_source_id, external = choices[0]
         if payload.get("embedding_schema_version") != VISUAL_EMBEDDING_SCHEMA_VERSION:
             continue
 
         previous_recovery = _marker(payload)
         source_changed_at = _aware(external.updated_at)
-        if previous_recovery is not None and (
+        same_source_retried = (
+            payload.get("_visual_recovery_source_asset_id") == selected_source_id
+        )
+        if previous_recovery is not None and same_source_retried and (
             source_changed_at is None or source_changed_at <= previous_recovery
         ):
             continue
 
+        payload["source_asset_id"] = selected_source_id
+        payload["_visual_recovery_source_asset_id"] = selected_source_id
         payload[_RECOVERY_MARKER] = moment.isoformat()
         job.payload_json = payload
         job.status = "retry"

@@ -523,7 +523,19 @@ class PipelineAttentionRecovery:
                 self._reset_analysis_job(analysis_job, analysis)
                 result.projection_analysis_jobs += 1
                 continue
+            payload = dict(job.payload_json or {})
+            if payload.get("active_analysis_id"):
+                # A deterministic active-analysis pin must be repaired through
+                # its own versioned workflow, not silently redirected.
+                continue
             pipeline.analysis_id = completed.id
+            # The failed job may still pin an older or incomplete analysis.
+            # Reusing it unchanged leads to another ValueError even though
+            # a completed analysis is available for the exact same asset.
+            # Active-analysis jobs have their own strict identity and are not
+            # repaired by this pipeline recovery branch.
+            payload["analysis_id"] = completed.id
+            job.payload_json = payload
             if pipeline.state == PipelineState.PROJECTION_FAILED.value:
                 self.pipelines.transition(pipeline, PipelineState.PROJECTION_PENDING)
             if pipeline.state != PipelineState.PROJECTION_PENDING.value:

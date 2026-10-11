@@ -25,6 +25,7 @@ from app.modules.pipeline.attention_recovery import ANALYSIS_RECOVERY_CODES
 from app.providers.microsoft.onedrive import close_thumbnail_stream, open_thumbnail_stream
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.video_search.model import VideoAnalysisRunModel
 from app.modules.storage.model import AssetStorageObjectModel
 
 TARGET_CODES = {
@@ -47,6 +48,41 @@ FAILURE_STATES = {
     "projection_failed",
     "search_failed",
 }
+
+
+def _diagnose_media_failures(session, tenant_id: str) -> None:
+    # Read only, grouped by known-safe error code. No source identifiers,
+    # filenames, raw provider messages or credentials are exported.
+    grouped = session.execute(
+        select(
+            ProcessingJobModel.job_type,
+            ProcessingJobModel.status,
+            ProcessingJobModel.last_error_code,
+            func.count(ProcessingJobModel.id),
+        ).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type.in_((
+                "visual_index_sync", "video_analyze", "video_search_index",
+                "asset_analyze", "search_projection_build",
+            )),
+        ).group_by(
+            ProcessingJobModel.job_type, ProcessingJobModel.status,
+            ProcessingJobModel.last_error_code,
+        )
+    ).all()
+    for job_type, status, error_code, count in grouped:
+        print(
+            f"MEDIA_JOB job_type={job_type} status={status} "
+            f"error_code={error_code or 'none'} count={count}"
+        )
+    runs = session.execute(
+        select(VideoAnalysisRunModel.status, VideoAnalysisRunModel.last_error_code,
+               func.count(VideoAnalysisRunModel.id))
+        .where(VideoAnalysisRunModel.tenant_id == tenant_id)
+        .group_by(VideoAnalysisRunModel.status, VideoAnalysisRunModel.last_error_code)
+    ).all()
+    for status, error_code, count in runs:
+        print(f"VIDEO_RUN status={status} error_code={error_code or 'none'} count={count}")
 
 
 def main() -> None:
@@ -207,6 +243,7 @@ def main() -> None:
                 str(state or "none")
                 for state in session.scalars(select(logical.c.pipeline_state))
             )
+            _diagnose_media_failures(session, tenant_id)
             print(
                 "LOGICAL_PIPELINE_STATES "
                 + ",".join(
