@@ -121,6 +121,74 @@ def audit_stage1() -> dict:
     }
 
 
+def resumable_or_empty_stage1_workspace(workspace: Path) -> bool:
+    """Allow generation fallback only when checkpoints are safe or truly gone.
+
+    One to five canonical valid PNGs can be resumed without modifying them.
+    Zero canonical PNGs can start fresh ONLY when no other raster candidate
+    remains in any output directory. Ambiguous or symlinked artifacts are
+    operator-attention items, never silently discarded.
+    """
+    if workspace.is_symlink():
+        return False
+    missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace)
+    if missing is None or not missing:
+        return False
+    if len(missing) < 6:
+        return True
+    for name in ("output", "generated", "results"):
+        directory = workspace / name
+        if directory.is_symlink():
+            return False
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            if path.is_symlink():
+                return False
+            if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+                return False
+    return True
+
+
+def requeue_missing_upload_artwork(
+    *, tenant_id: str, job_id: str, settings,
+) -> bool:
+    """Bounded copy-on-write restart after a permanent loss of local finals."""
+    with SessionLocal() as session:
+        job = session.scalar(
+            select(RrugcKeywordImageJobModel).where(
+                RrugcKeywordImageJobModel.id == job_id,
+                RrugcKeywordImageJobModel.tenant_id == tenant_id,
+                RrugcKeywordImageJobModel.status == "failed",
+                RrugcKeywordImageJobModel.last_error_code.in_(STAGE1_RETRYABLE_STORAGE_CODES),
+            ).with_for_update(skip_locked=True)
+        )
+        if job is None or int(job.retry_count or 0) >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS):
+            return False
+        old = session.get(ProcessingJobModel, job.processing_job_id) if job.processing_job_id else None
+        if old is not None and old.status not in {"failed", "completed"}:
+            return False
+        workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve() / "codex" / job.id)
+        if not resumable_or_empty_stage1_workspace(workspace):
+            return False
+        if not refresh_job_skill(session, job, settings):
+            return False
+        job.retry_count = int(job.retry_count or 0) + 1
+        job.status = "queued"
+        job.last_error_code = None
+        job.last_error_message = None
+        job.completed_at = None
+        # Publish a complete new six-file attempt before any previously
+        # uploaded Drive versions can be retired.
+        KeywordImageService(session, settings=settings)._enqueue(
+            job, replace_outputs=bool(job.output_remote_file_id)
+        )
+        session.commit()
+        LOGGER.warning("stage1_missing_upload_artwork_requeued job_id=%s retry=%d",
+                       job.id, job.retry_count)
+        return True
+
+
 def refresh_job_skill(session, job: RrugcKeywordImageJobModel, settings) -> bool:
     """Re-pin a failed job to the current *same* enabled six-design Skill.
 
@@ -199,6 +267,18 @@ def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
                         "stage1_upload_recovery_skipped job_id=%s code=%s",
                         job.id, exc.code,
                     )
+                    if exc.code == "keyword_image_saved_finals_missing":
+                        try:
+                            if requeue_missing_upload_artwork(
+                                tenant_id=job.tenant_id, job_id=job.id, settings=settings,
+                            ):
+                                result["skipped"] -= 1
+                                result["queued"] += 1
+                        except Exception as recovery_exc:
+                            LOGGER.warning(
+                                "stage1_missing_upload_artwork_requeue_failed job_id=%s error_type=%s",
+                                job.id, type(recovery_exc).__name__,
+                            )
                 except Exception as exc:
                     result["skipped"] += 1
                     session.rollback()

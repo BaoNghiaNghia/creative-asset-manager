@@ -249,6 +249,82 @@ def test_stage1_resume_failure_logs_safe_error_code_without_retrying_generation(
     assert db.get(RrugcKeywordImageJobModel, "upload-failed").status == "failed"
 
 
+def test_stage1_missing_upload_finals_restarts_only_when_no_other_artwork(db, tmp_path, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from types import SimpleNamespace
+    from PIL import Image
+    from app.operations import stage1_recovery
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageError
+
+    monkeypatch.setattr(stage1_recovery, "SessionLocal",
+                        sessionmaker(bind=db.bind, expire_on_commit=False))
+    monkeypatch.setattr(stage1_recovery, "get_settings",
+                        lambda: SimpleNamespace(IMAGE_GENERATION_STAGING_ROOT=str(tmp_path)))
+    monkeypatch.setattr(stage1_recovery, "refresh_job_skill", lambda *_args: True)
+    kw = keyword(db, "rebuild-failed-uploads", "tenant-a", picked=True)
+    old = ProcessingJobModel(
+        id="lost-before", tenant_id="tenant-a", job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="lost-image-job",
+        idempotency_key="lost-before", payload_json={"keyword_image_job_id": "lost-image-job"},
+        status="failed", max_attempts=1,
+    )
+    db.add_all([old, RrugcKeywordImageJobModel(
+        id="lost-image-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        output_remote_file_id="published-old-partial",
+        processing_job_id=old.id,
+        last_error_code="managed_storage_temporarily_unavailable",
+    )])
+    db.commit()
+
+    def missing(_self, *, tenant_id, keyword_id):
+        raise KeywordImageError("keyword_image_saved_finals_missing", "Missing original files")
+    monkeypatch.setattr(stage1_recovery.KeywordImageService, "resume_upload", missing)
+
+    # A stray image outside output/final may be a user's last surviving
+    # artwork. Never delete it just to repeat an imagegen call.
+    stray = tmp_path / "codex" / "lost-image-job" / "output" / "drafts"
+    stray.mkdir(parents=True)
+    Image.new("RGBA", (640, 640), (1, 2, 3)).save(stray / "possible_master.png")
+    blocked = stage1_recovery.recover_failed(limit=5)
+    assert blocked["queued"] == 0 and blocked["skipped"] == 1
+    assert (stray / "possible_master.png").is_file()
+
+    (stray / "possible_master.png").unlink()
+    result = stage1_recovery.recover_failed(limit=5)
+    assert result["queued"] == 1 and result["skipped"] == 0
+    db.expire_all()
+    new = db.get(RrugcKeywordImageJobModel, "lost-image-job")
+    assert new.status == "queued" and new.retry_count == 1
+    assert new.output_remote_file_id == "published-old-partial"
+    assert new.processing_job_id != old.id
+    assert db.get(ProcessingJobModel, old.id).status == "failed"
+    queued = db.get(ProcessingJobModel, new.processing_job_id)
+    assert queued.status == "pending"
+    assert queued.payload_json["replace_outputs"] is True
+
+
+def test_stage1_missing_artwork_safety_guard_preserves_partial_and_rejects_unsafe(tmp_path):
+    from PIL import Image
+    from app.operations.stage1_recovery import resumable_or_empty_stage1_workspace
+
+    workspace = tmp_path / "safe-job"
+    final = workspace / "output" / "final"
+    final.mkdir(parents=True)
+    assert resumable_or_empty_stage1_workspace(workspace)
+    Image.new("RGBA", (800, 800), (40, 80, 100)).save(final / "design_01.png")
+    assert resumable_or_empty_stage1_workspace(workspace)
+    Image.new("RGBA", (800, 800), (40, 80, 100)).save(final / "design_02.png")
+    assert not resumable_or_empty_stage1_workspace(workspace)  # duplicate/hash collision
+    (final / "design_02.png").unlink()
+    (final / "design_01.png").unlink()
+    external = tmp_path / "outside.png"
+    Image.new("RGBA", (800, 800), (50, 90, 110)).save(external)
+    (final / "design_01.png").symlink_to(external)
+    assert not resumable_or_empty_stage1_workspace(workspace)
+
+
 def test_stage1_zero_output_auto_recovery_is_bounded_durable_and_tenant_safe(db):
     from datetime import timedelta
     from types import SimpleNamespace
