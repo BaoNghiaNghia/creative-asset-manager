@@ -40,6 +40,49 @@ it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () 
   expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
 });
 
+it("enlarges only the cyan Front embroidery guide 10% upward and 10% per side in preview, lens and detail", () => {
+  const previewCss = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.css"), "utf8");
+  const detailCss = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintFrontDetailModal.css"), "utf8");
+  const lastRule = (css, selector) => {
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, name]) => name.trim() === selector);
+    expect(rules.length).toBeGreaterThan(0);
+    return Object.fromEntries(rules.at(-1)[2].split(";").map(part => part.trim())
+      .filter(Boolean).map(part => part.split(/:(.*)/s).slice(0, 2).map(value => value.trim())));
+  };
+
+  // Starting rectangle: x=21%, width=58%, y=33%, height=21%.
+  // +10% of existing width on EACH side -> x=15.2%, width=69.6%.
+  // +10% of existing height ABOVE only -> y=30.9%, height=23.1%; bottom remains 54%.
+  expect(lastRule(previewCss, ".rrugc-blueprint-front-scene")).toMatchObject({
+    "--rrugc-guide-left": "15.2%",
+    "--rrugc-guide-top": "30.9%",
+    "--rrugc-guide-width": "69.6%",
+    "--rrugc-guide-height": "23.1%",
+  });
+  expect(lastRule(previewCss, ".rrugc-blueprint-front-guide")).toMatchObject({
+    left: "var(--rrugc-guide-left)",
+    top: "var(--rrugc-guide-top)",
+    width: "var(--rrugc-guide-width)",
+    height: "var(--rrugc-guide-height)",
+  });
+  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-front-guide")).toMatchObject({
+    left: "var(--rrugc-guide-left)",
+    top: "var(--rrugc-guide-top)",
+    width: "var(--rrugc-guide-width)",
+    height: "var(--rrugc-guide-height)",
+  });
+
+  // Guide alone grows: do not enlarge/shift embroidery artwork or hat image.
+  expect(lastRule(previewCss, ".rrugc-blueprint-selected-design")).toMatchObject({
+    left: "21%", width: "58%",
+  });
+  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design")).toMatchObject({
+    top: "33%", left: "21%", width: "58%", height: "21%",
+  });
+});
+
 it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPEG files", () => {
   const colors = [
     "black","brown","camo-green","charcoal","forest-green","khaki",
