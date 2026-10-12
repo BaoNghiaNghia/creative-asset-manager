@@ -11,7 +11,13 @@ vi.mock("./api", () => ({
   },
 }));
 
-import { InventoryKnowledgePage } from "./InventoryKnowledgePage";
+import { InventoryKnowledgePage, isConflictingVerifiedObservation } from "./InventoryKnowledgePage";
+
+it("does not offer direct activation for inconsistent verified observations", () => {
+  expect(isConflictingVerifiedObservation({ structured_rule: { learner: "verified_daily_assessment_v2", consistent_conclusion: false } })).toBe(true);
+  expect(isConflictingVerifiedObservation({ structured_rule: { learner: "verified_daily_assessment_v2", consistent_conclusion: true } })).toBe(false);
+  expect(isConflictingVerifiedObservation({ structured_rule: { executable: false } })).toBe(false);
+});
 
 describe("InventoryKnowledgePage", () => {
   it("makes human approval explicit and separates Gemini proposals from active knowledge", () => {
@@ -23,6 +29,7 @@ describe("InventoryKnowledgePage", () => {
     expect(markup).toContain("Bản nháp");
     expect(markup).toContain("Ngày có đối soát xác minh");
     expect(markup).toContain("Lần học gần nhất");
+    expect(markup).toContain("Đề xuất mâu thuẫn");
     expect(markup).toContain("Lưu bản nháp");
   });
 });

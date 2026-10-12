@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from typing import Any
 from uuid import uuid4
 
@@ -282,6 +284,16 @@ class InventoryKnowledgeService:
                     raise LookupError("inventory_knowledge_not_found")
                 if row.status not in {"draft", "proposed", "active"}:
                     raise InventoryKnowledgeError("inventory_knowledge_not_activatable")
+                rule = dict(row.structured_rule_json or {})
+                if (
+                    rule.get("learner") == "verified_daily_assessment_v2"
+                    and rule.get("consistent_conclusion") is False
+                ):
+                    # Human review must produce a revised, evidence-backed rule;
+                    # approving the raw conflicting observation is not safe.
+                    raise InventoryKnowledgeError(
+                        "inventory_knowledge_conflicting_observations_not_activatable"
+                    )
                 archived_prior = False
                 for prior in session.scalars(
                     select(InventoryKnowledgeEntryModel).where(
@@ -434,7 +446,7 @@ class InventoryKnowledgeService:
             "version": sum(int(item["version"]) for item in entries),
         }
 
-    def learning_status(self, tenant_id: str) -> dict[str, Any]:
+    def learning_status(self, tenant_id: str, *, today: date | None = None) -> dict[str, Any]:
         """Read-only progress for continuous learning; never reads workbook data."""
         from app.modules.inventory.persistence_model import InventoryOperationAuditModel
 
@@ -461,6 +473,13 @@ class InventoryKnowledgeService:
                 )
                 .group_by(InventoryKnowledgeEntryModel.source)
             ).all())
+            observation_rules = list(session.scalars(
+                select(InventoryKnowledgeEntryModel.structured_rule_json).where(
+                    InventoryKnowledgeEntryModel.tenant_id == tenant_id,
+                    InventoryKnowledgeEntryModel.status == "proposed",
+                    InventoryKnowledgeEntryModel.source == "verified_daily_observation",
+                )
+            ))
         dates: set[str] = set()
         total_read = 0
         last_learning = None
@@ -482,7 +501,40 @@ class InventoryKnowledgeService:
                 if day not in dates:
                     total_read += int(summary.get("read_cells") or 0)
                     dates.add(day)
+        conflicting = sum(
+            1 for rule in observation_rules
+            if (rule or {}).get("learner") == "verified_daily_assessment_v2"
+            and (rule or {}).get("consistent_conclusion") is False
+        )
+        consistent = sum(
+            1 for rule in observation_rules
+            if (rule or {}).get("learner") == "verified_daily_assessment_v2"
+            and (rule or {}).get("consistent_conclusion") is True
+        )
+        today_local = today or datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+        latest_day = max(dates) if dates else None
+        age = (today_local - date.fromisoformat(latest_day)).days if latest_day else None
+        issues: list[str] = []
+        if last_learning and last_learning.get("status") == "failed":
+            issues.append("learning_failed")
+        if age is None or age >= 2:
+            issues.append("verified_data_stale")
+        if conflicting:
+            issues.append("conflicting_proposals")
+        health_status = (
+            "critical" if any(code in issues for code in ("learning_failed", "verified_data_stale"))
+            else "warning" if issues
+            else "watching" if last_learning is None
+            else "healthy"
+        )
         return {
+            "health": {
+                "status": health_status,
+                "issue_codes": issues,
+                "conflicting_proposals": conflicting,
+                "consistent_proposals": consistent,
+                "last_verified_age_days": age,
+            },
             "verified_days": len(dates),
             "read_cells_verified": total_read,
             "last_verified_day": max(dates) if dates else None,

@@ -240,6 +240,7 @@ export const inventoryLifecycleApi = {
   replayHistoricalGemini:(businessDate:string,mode:"fresh_copy"|"existing_copy"="fresh_copy",promote=true)=>request<InventoryHistoricalReplayResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/gemini/replay`,{method:"POST",body:JSON.stringify({mode,promote})}),
 };
 export type InventoryLearningStatus = {
+  health:{ status:"healthy"|"watching"|"warning"|"critical"; issue_codes:string[]; conflicting_proposals:number; consistent_proposals:number; last_verified_age_days:number|null };
   verified_days:number;
   read_cells_verified:number;
   last_verified_day:string|null;

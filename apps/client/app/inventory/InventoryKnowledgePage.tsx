@@ -52,6 +52,12 @@ function statusLabel(value: InventoryKnowledgeEntry["status"]) {
   }[value];
 }
 
+export function isConflictingVerifiedObservation(item: Pick<InventoryKnowledgeEntry, "structured_rule">): boolean {
+  const rule = item.structured_rule ?? {};
+  return rule.learner === "verified_daily_assessment_v2"
+    && rule.consistent_conclusion === false;
+}
+
 export function InventoryKnowledgePage() {
   const [items, setItems] = useState<InventoryKnowledgeEntry[]>([]);
   const [filter, setFilter] = useState("active,proposed,draft");
@@ -83,10 +89,23 @@ export function InventoryKnowledgePage() {
 
   useEffect(() => {
     let active = true;
-    void inventoryKnowledgeApi.learningStatus()
-      .then(result => { if (active) setLearning(result); })
-      .catch(() => { if (active) setLearningError(true); });
-    return () => { active = false; };
+    const refresh = () => {
+      void inventoryKnowledgeApi.learningStatus()
+        .then(result => {
+          if (active) {
+            setLearning(result);
+            setLearningError(false);
+          }
+        })
+        .catch(() => { if (active) setLearningError(true); });
+    };
+    refresh();
+    // Refresh this read-only health signal while the Knowledge page is open.
+    const timer = window.setInterval(refresh, 5 * 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const counts = useMemo(
@@ -190,7 +209,19 @@ export function InventoryKnowledgePage() {
         <article><span>Bản nháp</span><strong>{counts.draft}</strong><small>Chưa ảnh hưởng automation</small></article>
         <article><span>Ngày có đối soát xác minh</span><strong>{learning?.verified_days ?? "—"}</strong><small>{learning ? learning.read_cells_verified.toLocaleString("vi-VN") + " ô đã đọc và xác minh" : "Dữ liệu đang được tổng hợp"}</small></article>
         <article><span>Lần học gần nhất</span><strong>{learning?.last_learning?.business_date ?? "—"}</strong><small>{learningError ? "Không thể tải trạng thái học" : learning?.last_learning ? (learning.last_learning.status === "completed" ? "Đã kiểm tra kiến thức" : "Learning có lỗi cần kiểm tra") : "Chưa ghi nhận kết quả học"}</small></article>
+        <article><span>Đề xuất mâu thuẫn</span><strong>{learning?.health?.conflicting_proposals ?? "—"}</strong><small>{learning?.health?.consistent_proposals ?? "—"} đề xuất nhất quán chờ duyệt</small></article>
       </div>
+      {learning?.health && learning.health.issue_codes.length > 0 ? (
+        <div className="inventory-knowledge-health-alert" role="status">
+          <strong>Inventory Learning cần kiểm tra</strong>
+          {learning.health.issue_codes.includes("learning_failed") ? <p>Phát hiện lỗi trong lần chạy learning gần nhất. Kiểm tra audit và log trước khi retry.</p> : null}
+          {learning.health.issue_codes.includes("verified_data_stale") ? <p>Không có dữ liệu đối soát đã xác minh trong ít nhất 2 ngày. Kiểm tra Evening Reconcile và scheduler.</p> : null}
+          {learning.health.issue_codes.includes("conflicting_proposals") ? <p>{learning.health.conflicting_proposals} đề xuất có kết luận không nhất quán. Không thể kích hoạt trực tiếp; cần xem bằng chứng và tạo version đã hiệu chỉnh.</p> : null}
+        </div>
+      ) : null}
+      {learning?.health.status === "watching" ? (
+        <p className="inventory-knowledge-health-note" role="status">Đang chờ lượt học mới đầu tiên sau khi nâng cấp.</p>
+      ) : null}
 
       <ActionMessageToast message={message} />
 
@@ -228,6 +259,7 @@ export function InventoryKnowledgePage() {
                 <div className="inventory-knowledge-meta">
                   {item.confidence !== null ? <span>{"Độ tin cậy " + Math.round(item.confidence * 100) + "%"}</span> : null}
                   <span>{"Nguồn: " + item.source}</span>
+                  {isConflictingVerifiedObservation(item) ? <span className="inventory-knowledge-conflict">Kết luận mâu thuẫn · Chờ hiệu chỉnh</span> : null}
                   <span>{item.evidence.length + " evidence"}</span>
                   {item.source_run_id ? <span title={item.source_run_id}>{"Run " + item.source_run_id.slice(0, 8) + "…"}</span> : null}
                 </div>
@@ -244,7 +276,7 @@ export function InventoryKnowledgePage() {
                   </details>
                 ) : null}
                 <div className="inventory-knowledge-actions">
-                  {item.status === "proposed" || item.status === "draft" ? (
+                  {(item.status === "proposed" || item.status === "draft") && !isConflictingVerifiedObservation(item) ? (
                     <button disabled={busyId === item.id} onClick={() => void mutate(item, "activate")}>Kích hoạt</button>
                   ) : null}
                   <button className="secondary" disabled={busyId === item.id} onClick={() => startEdit(item)}>Tạo version mới</button>

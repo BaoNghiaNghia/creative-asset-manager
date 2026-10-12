@@ -39,6 +39,26 @@ Learning results and safe failure classes appear in each operation audit under
 day count, verified cells read, latest learning status and candidate counts,
 and knowledge statuses, without returning spreadsheet content.
 
+## Learning health, contradictions and approval safety
+
+The same endpoint also returns `health.status`, `health.issue_codes`,
+`health.conflicting_proposals`, `health.consistent_proposals`, and the age
+of the latest verified day. The Inventory Knowledge screen displays a warning
+when the last learning run failed, a verified reconciliation is stale by at
+least two local calendar days, or conflicting proposals remain unreviewed.
+If the first post-deploy learning cycle has not run, the page shows a
+`watching` state rather than claiming a successful learning run. These are
+read-only dashboard alerts; they are not push notifications and do not
+automatically retry or mutate Google Sheets.
+
+A raw `verified_daily_assessment_v2` proposal with
+`consistent_conclusion=false` cannot be directly activated (API returns
+`inventory_knowledge_conflicting_observations_not_activatable`). Instead,
+inspect the linked source evidence, write a corrected revision with a
+non-conflicting documented rule, and explicitly activate that version. This
+server-side guard also protects against accidental activation outside the UI.
+Older conflicting proposed rows remain in the review queue unchanged.
+
 Post-commit learning errors never roll back a verified reconciliation. If
 a learner fails, the audit receives `learning.status=failed` and the
 `cam.inventory.learning` logger emits a tenant-scoped warning without key

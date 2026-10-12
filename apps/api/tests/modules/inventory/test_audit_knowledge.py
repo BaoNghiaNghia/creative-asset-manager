@@ -34,6 +34,83 @@ def db():
     return temp, engine, sessions
 
 
+def test_conflicting_verified_observation_cannot_be_activated_until_revised():
+    temp, engine, sessions = db()
+    knowledge = InventoryKnowledgeService(sessions)
+    candidate = knowledge.create(
+        "tenant-a", kind="BUSINESS_NOTE", title="Conflicting column",
+        content="Verified observations disagree across days.",
+        scope_type="sheet", scope_key="Kho", status="proposed",
+        source="verified_daily_observation",
+        structured_rule={
+            "learner": "verified_daily_assessment_v2",
+            "consistent_conclusion": False,
+            "distinct_conclusions": 3,
+            "requires_human_review": True,
+            "executable": False,
+        },
+    )
+    with pytest.raises(
+        InventoryKnowledgeError, match="inventory_knowledge_conflicting_observations"
+    ):
+        knowledge.activate("tenant-a", candidate["id"], "user-a")
+    assert knowledge.list("tenant-a")[0]["status"] == "proposed"
+    revision = knowledge.revise(
+        "tenant-a", candidate["id"], actor_id="user-a",
+        content="Reviewed: column B holds the warehouse code.",
+        structured_rule={"reviewed_evidence": True, "executable": False},
+    )
+    assert knowledge.activate("tenant-a", revision["id"], "user-a")["status"] == "active"
+    engine.dispose(); temp.cleanup()
+
+
+def test_learning_health_reports_conflicts_and_stale_verified_days():
+    temp, engine, sessions = db()
+    service = InventoryKnowledgeService(sessions)
+    proposal = service.create(
+        "tenant-a", kind="BUSINESS_NOTE", title="Contradictory assessment",
+        content="Requires evidence review", status="proposed",
+        source="verified_daily_observation",
+        structured_rule={
+            "learner": "verified_daily_assessment_v2",
+            "consistent_conclusion": False,
+            "distinct_conclusions": 2,
+        },
+    )
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    with sessions.begin() as session:
+        session.add(InventoryOperationAuditModel(
+            tenant_id="tenant-a", business_date=date(2026, 10, 9),
+            stage="evening_reconcile", status="completed",
+            summary_json={"read_cells": 42, "verification_status": "verified",
+                          "learning": {"status": "failed", "assessment_error": "TimeoutError"}},
+        ))
+    health = service.learning_status("tenant-a", today=date(2026, 10, 12))["health"]
+    assert health["status"] == "critical"
+    assert health["conflicting_proposals"] == 1
+    assert "learning_failed" in health["issue_codes"]
+    assert "verified_data_stale" in health["issue_codes"]
+    assert health["last_verified_age_days"] == 3
+    assert service.list("tenant-a")[0]["id"] == proposal["id"]
+    engine.dispose(); temp.cleanup()
+
+
+def test_learning_health_waits_for_first_post_deploy_run_without_false_staleness():
+    temp, engine, sessions = db()
+    service = InventoryKnowledgeService(sessions)
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    with sessions.begin() as session:
+        session.add(InventoryOperationAuditModel(
+            tenant_id="tenant-a", business_date=date(2026, 10, 11),
+            stage="evening_reconcile", status="completed",
+            summary_json={"read_cells": 12, "verification_status": "verified"},
+        ))
+    health = service.learning_status("tenant-a", today=date(2026, 10, 12))["health"]
+    assert health["status"] == "watching"
+    assert health["issue_codes"] == []
+    engine.dispose(); temp.cleanup()
+
+
 def test_knowledge_is_versioned_and_only_active_entries_enter_snapshot():
     temp, engine, sessions = db()
     service = InventoryKnowledgeService(sessions)
