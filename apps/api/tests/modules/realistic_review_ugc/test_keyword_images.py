@@ -42,11 +42,62 @@ def keyword(db: Session, id: str, tenant: str, *, picked: bool):
 
 
 
+
+def test_stage1_recovery_repins_only_same_enabled_six_design_skill(db, monkeypatch):
+    """Old jobs can follow a same-Skill version update, never a different Skill."""
+    from types import SimpleNamespace
+    from app.operations import stage1_recovery
+    from app.modules.realistic_review_ugc.stage2_skills import Stage2SkillRegistryError
+
+    kw = keyword(db, "upgraded-skill", "tenant-a", picked=True)
+    job = RrugcKeywordImageJobModel(
+        id="upgraded-job", tenant_id=kw.tenant_id, keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        skill_version="1.1.0", skill_bundle_sha256="old-bundle",
+        prompt_text="six designs", status="failed", created_by_user_id="actor",
+    )
+    db.add(job)
+    db.commit()
+    settings = SimpleNamespace(CODEX_IMAGE_HOME="/fake/home")
+    resolved = SimpleNamespace(
+        source="local", skill_id=None, skill_name=DEFAULT_SKILL, skill_version="1.2.0"
+    )
+    events = []
+    monkeypatch.setattr(stage1_recovery, "resolve_stage2_skill", lambda **kwargs: resolved)
+    monkeypatch.setattr(stage1_recovery, "ensure_skill_registry", lambda *args, **kwargs: events.append("registry"))
+    monkeypatch.setattr(stage1_recovery, "assert_skill_enabled", lambda *args, **kwargs: events.append("enabled"))
+    monkeypatch.setattr(stage1_recovery, "load_codex_skill_manifest", lambda *args: SimpleNamespace(workflows=("keyword_six_designs",)))
+    monkeypatch.setattr(stage1_recovery, "installed_stage2_skill_sha256", lambda *args, **kwargs: "new-bundle")
+    assert stage1_recovery.refresh_job_skill(db, job, settings)
+    assert job.skill_name == DEFAULT_SKILL
+    assert job.skill_version == "1.2.0"
+    assert job.skill_bundle_sha256 == "new-bundle"
+    assert events == ["registry", "enabled"]
+
+    # Cannot substitute a different Skill or a disabled Skill in background.
+    old_version = job.skill_version
+    monkeypatch.setattr(
+        stage1_recovery, "resolve_stage2_skill",
+        lambda **kwargs: SimpleNamespace(
+            source="local", skill_id=None, skill_name="another-skill", skill_version="2.0.0"
+        )
+    )
+    assert stage1_recovery.refresh_job_skill(db, job, settings) is False
+    assert job.skill_version == old_version
+    monkeypatch.setattr(stage1_recovery, "resolve_stage2_skill", lambda **kwargs: resolved)
+    def disabled(*_args, **_kwargs):
+        raise Stage2SkillRegistryError("stage2_skill_disabled", "Disabled")
+    monkeypatch.setattr(stage1_recovery, "assert_skill_enabled", disabled)
+    assert stage1_recovery.refresh_job_skill(db, job, settings) is False
+    assert job.skill_version == old_version
+
+
 def test_stage1_scheduled_recovery_only_requeues_bounded_safe_failures(db, monkeypatch):
     from sqlalchemy.orm import sessionmaker
     from app.operations import stage1_recovery
     monkeypatch.setattr(stage1_recovery, "SessionLocal",
                         sessionmaker(bind=db.bind, expire_on_commit=False))
+    monkeypatch.setattr(stage1_recovery, "refresh_job_skill", lambda *_args: True)
     kw = keyword(db, "retry-old", "tenant-a", picked=True)
     kw2 = keyword(db, "do-not-retry", "tenant-a", picked=True)
     db.add_all([

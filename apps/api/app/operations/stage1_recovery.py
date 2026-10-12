@@ -24,9 +24,13 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.keyword_images import (
     KeywordImageGenerateHandler, KeywordImageService,
     STAGE1_AUTO_RETRY_DELAYS_SECONDS, STAGE1_SAFE_ZERO_OUTPUT_CODES,
-    STAGE1_PARTIAL_RECOVERY_CODES, STAGE1_RETRYABLE_STORAGE_CODES,
+    STAGE1_PARTIAL_RECOVERY_CODES, STAGE1_RETRYABLE_STORAGE_CODES, DEFAULT_SKILL,
 )
-from app.providers.ai.codex_image import CodexImageGenRunner
+from app.providers.ai.codex_image import CodexImageGenRunner, load_codex_skill_manifest
+from app.modules.realistic_review_ugc.stage2_skills import (
+    Stage2SkillRegistryError, resolve_stage2_skill, installed_stage2_skill_sha256,
+)
+from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.storage.provider_factory import build_managed_storage_provider
 
 LOGGER = logging.getLogger(__name__)
@@ -34,9 +38,51 @@ RECOVERABLE_CODES = (
     STAGE1_SAFE_ZERO_OUTPUT_CODES
     | STAGE1_PARTIAL_RECOVERY_CODES
     | STAGE1_RETRYABLE_STORAGE_CODES
-    | frozenset({"stage1_previous_images_delete_failed"})
+    | frozenset({
+        "stage1_previous_images_delete_failed",
+        "stage2_skill_runtime_version_mismatch",
+        "keyword_image_skill_changed",
+    })
 )
-REPLACE_CODES = frozenset({"stage1_previous_images_delete_failed"})
+REPLACE_CODES = frozenset({
+    "stage1_previous_images_delete_failed",
+    "stage2_skill_runtime_version_mismatch",
+    "keyword_image_skill_changed",
+})
+
+
+def refresh_job_skill(session, job: RrugcKeywordImageJobModel, settings) -> bool:
+    """Re-pin a failed job to the current *same* enabled six-design Skill.
+
+    Skill upgrades replace old versions. Never switch the job to a different
+    artwork Skill, a disabled version or a non-six-design pipeline.
+    """
+    try:
+        resolved = resolve_stage2_skill(
+            settings=settings, skill_source=job.skill_source, skill_id=job.skill_id,
+            skill_name=job.skill_name, skill_version=None,
+            fallback_skill_name=DEFAULT_SKILL,
+        )
+        if resolved.skill_name != job.skill_name:
+            return False
+        ensure_skill_registry(session, tenant_id=job.tenant_id)
+        assert_skill_enabled(
+            session, tenant_id=job.tenant_id, source=resolved.source,
+            skill_id=resolved.skill_id, skill_name=resolved.skill_name,
+        )
+        manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, resolved.skill_name)
+        if manifest is None or "keyword_six_designs" not in manifest.workflows:
+            return False
+        current_hash = installed_stage2_skill_sha256(resolved.skill_name, settings=settings)
+        if not current_hash:
+            return False
+        job.skill_source = resolved.source
+        job.skill_id = resolved.skill_id
+        job.skill_version = resolved.skill_version
+        job.skill_bundle_sha256 = current_hash
+        return True
+    except (Stage2SkillRegistryError, ValueError, OSError):
+        return False
 
 
 def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
@@ -81,6 +127,10 @@ def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
             if job.output_remote_file_id and code not in REPLACE_CODES:
                 result["skipped"] += 1
                 continue
+            if not refresh_job_skill(session, job, settings):
+                result["skipped"] += 1
+                session.rollback()
+                continue
             if code in STAGE1_PARTIAL_RECOVERY_CODES:
                 workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
                              / "codex" / job.id)
@@ -98,7 +148,9 @@ def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
             job.last_error_code = None
             job.last_error_message = None
             job.completed_at = None
-            service._enqueue(job, replace_outputs=code in REPLACE_CODES)
+            service._enqueue(
+                job, replace_outputs=code in REPLACE_CODES or bool(job.output_remote_file_id)
+            )
             session.commit()
             result["queued"] += 1
     return result
