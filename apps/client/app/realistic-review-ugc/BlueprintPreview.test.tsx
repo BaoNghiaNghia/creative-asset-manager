@@ -298,7 +298,11 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(sideSlider.value).toBe("100");
     expect(front.style.transform).toBe("");
     expect(side.style.transform).toBe("");
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-calibration-design")?.style.getPropertyValue("--side-design-scale")).toBe("1");
+    const sideEmbroidery = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image > img.rrugc-blueprint-side-calibration-design")!;
+    const lensEmbroidery = host.querySelector<HTMLImageElement>(".rrugc-blueprint-magnifier-side-surface > img.rrugc-blueprint-side-calibration-design")!;
+    expect(lensEmbroidery.getAttribute("src")).toBe(sideEmbroidery.getAttribute("src"));
+    expect(lensEmbroidery.style.getPropertyValue("--side-design-scale")).toBe(sideEmbroidery.style.getPropertyValue("--side-design-scale"));
+    expect(sideEmbroidery.style.getPropertyValue("--side-design-scale")).toBe("1");
     const change = async (slider: HTMLInputElement, number: number) => {
       await act(async () => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
