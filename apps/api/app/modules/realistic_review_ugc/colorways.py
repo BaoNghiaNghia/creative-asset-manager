@@ -38,6 +38,9 @@ from app.modules.realistic_review_ugc.stage2_skills import (
 )
 from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError
 
+# Distinct synthetic source namespace for explicitly selected Products Stage 1 PNGs.
+# Reviews Stage 2 uses real Drive source files and the embroidery_ prefix.
+PRODUCTS_STAGE1_SELECTED_ROOT = "cam-gatorhats-products-stage1-selected"
 JOB_TYPE = "rrugc_colorway_generate"
 STOCK_SKILL = "gatorhats-8869-image-studio"
 DEFAULT_COLORWAY_SKILL = "gatorhats-8869-scale-image"
@@ -164,9 +167,12 @@ class ColorwayService:
         row.processing_job_id = processing.id
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_ids: list[str],
+              workflow: str = "reviews",
               skill_source: str | None = None, skill_id: str | None = None,
               skill_name: str | None = None, skill_version: str | None = None) -> dict:
         ids = list(dict.fromkeys(source_plan_ids))
+        if workflow not in ("products", "reviews"):
+            raise ColorwayError("colorway_workflow_invalid", "Unknown GatorHats workflow.", 422)
         if not ids or len(ids) > 50:
             raise ColorwayError("colorway_batch_size", "Choose between 1 and 50 designs per request.", 422)
         if not all((
@@ -198,9 +204,15 @@ class ColorwayService:
             RrugcSourcePlanModel.tenant_id == tenant_id, RrugcSourcePlanModel.id.in_(ids),
         ).order_by(RrugcSourcePlanModel.id).with_for_update()))
         if len(plans) != len(ids) or any(
-            p.status == "missing" or p.root_folder_id != RRUGC_SOURCE_ROOT_FOLDER_ID
+            p.status == "missing"
+            or (workflow == "products" and p.root_folder_id != PRODUCTS_STAGE1_SELECTED_ROOT)
+            or (workflow == "reviews" and (
+                p.root_folder_id != RRUGC_SOURCE_ROOT_FOLDER_ID
+                or not p.source_name.casefold().startswith("embroidery_")
+            ))
             or p.source_mime_type.casefold() not in {"image/jpeg", "image/png"}
             or not p.source_name.casefold().endswith((".jpg", ".jpeg", ".png"))
+            or (workflow == "products" and not p.source_name.casefold().endswith(".png"))
             or p.source_name.casefold().startswith("output_") for p in plans
         ):
             raise ColorwayError("colorway_source_invalid",

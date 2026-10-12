@@ -1,4 +1,4 @@
-export type RrugcStageTab = "stage0" | "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
+export type RrugcStageTab = "stage0" | "stage1" | "stage2" | "reviews-stage2" | "stage3" | "stage4" | "stage5";
 export type RrugcWorkflowGroup = "products" | "reviews";
 
 export const RRUGC_STAGE_TABS: ReadonlyArray<{
@@ -9,7 +9,8 @@ export const RRUGC_STAGE_TABS: ReadonlyArray<{
 }> = [
   { id: "stage0", label: "Stage 0", description: "Analysis Keyword", marker: "0" },
   { id: "stage1", label: "Stage 1", description: "Keyword Image Generation", marker: "1" },
-  { id: "stage2", label: "Stage 2", description: "Embroidery → 13 Colors", marker: "2" },
+  { id: "stage2", label: "Stage 2", description: "Selected Stage 1 Designs → 13 Colors", marker: "2" },
+  { id: "reviews-stage2", label: "Stage 2", description: "embroidery_ Files → 13 Colors", marker: "2" },
   { id: "stage3", label: "Stage 3", description: "Pinterest References", marker: "3" },
   { id: "stage4", label: "Stage 4", description: "Image Generation", marker: "4" },
   { id: "stage5", label: "Stage 5", description: "UGC Review", marker: "5" },
@@ -17,7 +18,7 @@ export const RRUGC_STAGE_TABS: ReadonlyArray<{
 
 export const RRUGC_WORKFLOW_GROUPS = [
   { id: "products", title: "GatorHats Products", subtitle: "Stage 0–2", stages: ["stage0", "stage1", "stage2"] },
-  { id: "reviews", title: "GatorHats Reviews", subtitle: "Stage 3–5", stages: ["stage3", "stage4", "stage5"] },
+  { id: "reviews", title: "GatorHats Reviews", subtitle: "Stage 2–5", stages: ["reviews-stage2", "stage3", "stage4", "stage5"] },
 ] as const;
 
 export function workflowGroupForStage(stage: RrugcStageTab): RrugcWorkflowGroup {
@@ -26,12 +27,12 @@ export function workflowGroupForStage(stage: RrugcStageTab): RrugcWorkflowGroup 
 
 export function stagesForWorkflowGroup(group: RrugcWorkflowGroup) {
   const stages: readonly RrugcStageTab[] = group === "products"
-    ? ["stage0", "stage1", "stage2"] : ["stage3", "stage4", "stage5"];
+    ? ["stage0", "stage1", "stage2"] : ["reviews-stage2", "stage3", "stage4", "stage5"];
   return RRUGC_STAGE_TABS.filter(item => stages.includes(item.id));
 }
 
 export function defaultStageForGroup(group: RrugcWorkflowGroup): RrugcStageTab {
-  return group === "products" ? "stage0" : "stage3";
+  return group === "products" ? "stage0" : "reviews-stage2";
 }
 
 export function rrugcWorkflowHref(group: RrugcWorkflowGroup, stage: RrugcStageTab = defaultStageForGroup(group)): string {

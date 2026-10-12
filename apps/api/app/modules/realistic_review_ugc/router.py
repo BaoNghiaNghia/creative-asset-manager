@@ -3269,32 +3269,58 @@ def get_source_plans(
     stage2_only: bool = False,
     source_prefix: str | None = Query(default=None, max_length=80),
     colorway_sources: bool = False,
+    colorway_workflow: str = Query(default="reviews", pattern="^(products|reviews)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    all_plans = list(
-        session.scalars(
-            select(RrugcSourcePlanModel)
-            .where(RrugcSourcePlanModel.tenant_id == principal.active_tenant_id)
-            .order_by(
-                RrugcSourcePlanModel.source_relative_path.asc(),
-                RrugcSourcePlanModel.id.asc(),
-            )
-        )
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+    # Scope in SQL before pagination/stats, rather than materializing every
+    # tenant source and filtering later when there are tens of thousands.
+    plan_query = select(RrugcSourcePlanModel).where(
+        RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
     )
+    if colorway_sources and colorway_workflow == "products":
+        plan_query = plan_query.where(
+            RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+        )
+    elif colorway_sources:
+        plan_query = plan_query.where(
+            RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+            func.lower(RrugcSourcePlanModel.source_name).startswith("embroidery_", autoescape=True),
+        )
+    else:
+        plan_query = plan_query.where(
+            RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+        )
+    all_plans = list(session.scalars(plan_query.order_by(
+        RrugcSourcePlanModel.source_relative_path.asc(),
+        RrugcSourcePlanModel.id.asc(),
+    )))
 
     if colorway_sources:
-        # Stage 2 uses one independent design per JPG/PNG file, without
-        # waiting for Stage 3's Gemini/Pinterest context or campaign.
+        from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+        # Both Stage 2 views reuse the same generator, but NEVER share input
+        # namespaces. The filter runs before pagination and statistics.
         all_plans = [
             row for row in all_plans if (
-                row.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID
-                and row.status != "missing"
+                row.status != "missing"
                 and row.source_mime_type.casefold() in {"image/jpeg", "image/png"}
                 and row.source_name.casefold().endswith((".jpg", ".jpeg", ".png"))
                 and not row.source_name.casefold().startswith("output_")
+                and (
+                    (colorway_workflow == "products" and
+                     row.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT and
+                     row.source_mime_type.casefold() == "image/png")
+                    or (colorway_workflow == "reviews" and
+                        row.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID and
+                        row.source_name.casefold().startswith("embroidery_"))
+                )
             )
         ]
+    else:
+        # Stage 1 selections are synthetic source plans and must not leak into
+        # the Pinterest discovery/review pipeline.
+        all_plans = [row for row in all_plans if row.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID]
     prefix = source_prefix.strip().casefold() if isinstance(source_prefix, str) else ""
     if prefix and not colorway_sources:
         all_plans = [
@@ -4792,6 +4818,72 @@ def _stage1_replacement_pending(session: Session, job: RrugcKeywordImageJobModel
     return bool(processing and (processing.payload_json or {}).get("replace_outputs"))
 
 
+@router.post("/keyword-images/jobs/{job_id}/versions/{version}/products-stage2")
+def select_stage1_design_for_products_stage2(
+    job_id: str, version: int,
+    selected: bool = Query(...),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Opt Stage 1 final PNG in/out of Products Stage 2 as a durable source.
+
+    No file copies and no changes to previous colorway outputs. This synthetic
+    namespace never enters the recursive Google Drive reviews scanner.
+    """
+    from pathlib import PurePosixPath
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+
+    job = session.scalar(select(RrugcKeywordImageJobModel).where(
+        RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
+        RrugcKeywordImageJobModel.id == job_id,
+    ))
+    if job is None or job.status != "completed" or _stage1_replacement_pending(session, job):
+        raise HTTPException(status_code=409, detail={
+            "code": "products_stage1_not_completed",
+            "message": "Only completed Stage 1 designs can be selected.",
+        })
+    version_row = session.scalar(select(RrugcImageOutputVersionModel).where(
+        RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
+        RrugcImageOutputVersionModel.stage == "stage1",
+        RrugcImageOutputVersionModel.job_id == job_id,
+        RrugcImageOutputVersionModel.version == version,
+    ))
+    if version_row is None or not version_row.remote_file_id:
+        raise HTTPException(status_code=404, detail="Stage 1 design version not found")
+    filename = PurePosixPath((version_row.output_name or f"design_{version:02d}.png").replace("\\", "/")).name
+    if not filename.lower().endswith(".png") or (version_row.content_type or "image/png").lower() != "image/png":
+        raise HTTPException(status_code=422, detail={
+            "code": "products_stage1_design_requires_png",
+            "message": "Products Stage 2 accepts only final PNG designs.",
+        })
+    plan = session.scalar(select(RrugcSourcePlanModel).where(
+        RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+        RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+        RrugcSourcePlanModel.source_file_id == version_row.remote_file_id,
+    ).with_for_update())
+    if selected and plan is None:
+        plan = RrugcSourcePlanModel(
+            tenant_id=principal.active_tenant_id,
+            root_folder_id=PRODUCTS_STAGE1_SELECTED_ROOT,
+            source_file_id=version_row.remote_file_id,
+            source_parent_folder_id=None,
+            source_relative_path="Stage 1/" + job_id + "/" + filename,
+            source_name=filename,
+            source_mime_type="image/png",
+            source_size_bytes=version_row.size_bytes,
+            source_width=version_row.width,
+            source_height=version_row.height,
+            source_revision=version_row.id,
+            status="ready",
+            created_by_user_id=principal.user_id,
+        )
+        session.add(plan)
+    elif plan is not None:
+        plan.status = "ready" if selected else "missing"
+    session.commit()
+    return {"selected": bool(selected), "source_plan_id": plan.id if plan else None}
+
+
 @router.get("/generation-jobs/{stage}/{job_id}/outputs")
 def list_generation_output_versions(
     stage: str, job_id: str,
@@ -4811,6 +4903,14 @@ def list_generation_output_versions(
         raise HTTPException(status_code=404, detail="Generation job not found")
     rows = ([] if stage == "stage1" and _stage1_replacement_pending(session, job)
             else output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job))
+    selected_products_sources = set()
+    if stage == "stage1":
+        from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+        selected_products_sources = set(session.scalars(select(RrugcSourcePlanModel.source_file_id).where(
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+            RrugcSourcePlanModel.status != "missing",
+        )))
     output_roles: dict[int, str] = {}
     if stage == "stage1" and job.skill_name == "hanh-redesign-8869-ver-4":
         # Pair by the actual processing attempt so legacy single-image outputs
@@ -4833,6 +4933,7 @@ def list_generation_output_versions(
              else output_roles.get(row["version"]) if not row.get("output_name") else None
          ),
          "output_name": row.get("output_name"),
+         "selected_for_products_stage2": stage == "stage1" and row["remote_file_id"] in selected_products_sources,
          "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}
         for row in rows]}
 
@@ -5335,6 +5436,7 @@ def queue_colorways(
         return ColorwayService(session).queue(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
             source_plan_ids=request.source_plan_ids,
+            workflow=request.workflow,
             skill_source=request.skill_source, skill_id=request.skill_id,
             skill_name=request.skill_name, skill_version=request.skill_version,
         )

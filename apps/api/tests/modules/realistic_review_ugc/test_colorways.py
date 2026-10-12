@@ -279,18 +279,29 @@ def test_source_revision_change_blocks_retry(db):
     with pytest.raises(ColorwayError, match="Source design changed"):
         svc.retry(tenant_id=source.tenant_id, job_id=job.id)
 
-def test_stage2_accepts_non_prefixed_root_jpg_and_nested_png(db):
-    root_file = plan(db, name="ART DEPARTMENT.JPG", source_id="root-design")
-    root_file.source_parent_folder_id = RRUGC_SOURCE_ROOT_FOLDER_ID
-    root_file.source_relative_path = "ART DEPARTMENT.JPG"
-    nested_file = plan(db, name="design_02.png", source_id="nested-design")
-    nested_file.source_mime_type = "image/png"
+def test_reviews_stage2_filters_exact_embroidery_prefix_and_products_selected_namespace(db):
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+
+    other = plan(db, name="ART DEPARTMENT.JPG", source_id="other-design")
+    nested = plan(db, name="Embroidery_02.png", source_id="review-design")
+    products = plan(db, name="design_01.png", source_id="product-design")
+    products.root_folder_id = PRODUCTS_STAGE1_SELECTED_ROOT
     db.commit()
-    result = ColorwayService(db).queue(
-        tenant_id="tenant-a", user_id="actor",
-        source_plan_ids=[root_file.id, nested_file.id],
-    )
-    assert result["queued"] == 26
+    svc = ColorwayService(db)
+    with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
+        svc.queue(tenant_id="tenant-a", user_id="actor",
+                  source_plan_ids=[other.id], workflow="reviews")
+    with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
+        svc.queue(tenant_id="tenant-a", user_id="actor",
+                  source_plan_ids=[products.id], workflow="reviews")
+    with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
+        svc.queue(tenant_id="tenant-a", user_id="actor",
+                  source_plan_ids=[nested.id], workflow="products")
+
+    assert svc.queue(tenant_id="tenant-a", user_id="actor",
+                     source_plan_ids=[nested.id], workflow="reviews")["queued"] == 13
+    assert svc.queue(tenant_id="tenant-a", user_id="actor",
+                     source_plan_ids=[products.id], workflow="products")["queued"] == 13
     assert db.query(RrugcColorwayJobModel).count() == 26
 
 

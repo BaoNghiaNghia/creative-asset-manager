@@ -166,6 +166,12 @@ export function RealisticReviewUgcPage() {
   const [embroideryQuery, setEmbroideryQuery] = useState("");
   const [debouncedEmbroideryQuery, setDebouncedEmbroideryQuery] = useState("");
   const [embroideryLoading, setEmbroideryLoading] = useState(true);
+  const [reviewEmbroideryPage, setReviewEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
+  const [reviewEmbroideryLoading, setReviewEmbroideryLoading] = useState(true);
+  const [reviewEmbroideryPageNumber, setReviewEmbroideryPageNumber] = useState(1);
+  const [reviewEmbroideryPageSize, setReviewEmbroideryPageSize] = useState(20);
+  const [reviewEmbroideryQuery, setReviewEmbroideryQuery] = useState("");
+  const [debouncedReviewEmbroideryQuery, setDebouncedReviewEmbroideryQuery] = useState("");
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
   const [sourcePageSize, setSourcePageSize] = useState(10);
@@ -343,6 +349,7 @@ export function RealisticReviewUgcPage() {
         sortBy: "source",
         sortDirection: "asc",
         colorwaySources: true,
+        colorwayWorkflow: "products",
       },
       signal,
     );
@@ -352,6 +359,22 @@ export function RealisticReviewUgcPage() {
         ? current
         : result
     ));
+  }
+
+  async function refreshReviewEmbroideryDesigns(signal?: AbortSignal) {
+    const result = await listSourcePlans({
+      page: reviewEmbroideryPageNumber,
+      pageSize: reviewEmbroideryPageSize,
+      query: debouncedReviewEmbroideryQuery,
+      sortBy: "source",
+      sortDirection: "asc",
+      colorwaySources: true,
+      colorwayWorkflow: "reviews",
+    }, signal);
+    if (signal?.aborted) return;
+    const nextFingerprint = sourcePlanPageRenderFingerprint(result);
+    setReviewEmbroideryPage(current =>
+      sourcePlanPageRenderFingerprint(current) === nextFingerprint ? current : result);
   }
 
   async function refreshSourcePlans(signal?: AbortSignal) {
@@ -615,6 +638,7 @@ export function RealisticReviewUgcPage() {
       await Promise.all([
         refreshSourcePlans(),
         refreshEmbroideryDesigns(),
+        refreshReviewEmbroideryDesigns(),
       ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to scan the embroidery source folder.");
@@ -711,6 +735,14 @@ export function RealisticReviewUgcPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [stage3Query]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setReviewEmbroideryPageNumber(1);
+      setDebouncedReviewEmbroideryQuery(reviewEmbroideryQuery.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [reviewEmbroideryQuery]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -820,6 +852,26 @@ export function RealisticReviewUgcPage() {
       window.clearInterval(timer);
     };
   }, [activeStage, embroideryPageNumber, embroideryPageSize, debouncedEmbroideryQuery]);
+
+  useEffect(() => {
+    if (activeStage !== "reviews-stage2") return;
+    const controller = new AbortController();
+    let busy = true;
+    setReviewEmbroideryLoading(true);
+    void refreshReviewEmbroideryDesigns(controller.signal)
+      .catch(reason => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load Reviews embroidery sources.");
+      }).finally(() => {
+        busy = false;
+        if (!controller.signal.aborted) setReviewEmbroideryLoading(false);
+      });
+    const timer = window.setInterval(() => {
+      if (document.hidden || busy) return;
+      busy = true;
+      void refreshReviewEmbroideryDesigns(controller.signal).catch(() => undefined).finally(() => { busy = false; });
+    }, 10000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [activeStage, reviewEmbroideryPageNumber, reviewEmbroideryPageSize, debouncedReviewEmbroideryQuery]);
 
   useEffect(() => {
     if (!groupsStageActive) return;
@@ -1068,13 +1120,14 @@ export function RealisticReviewUgcPage() {
         >
           <EmbroideryColorwayStage
             active={activeStage === "stage2"}
+            workflow="products"
             skillCatalogRevision={skillCatalogRevision}
             data={embroideryPage}
             loading={embroideryLoading}
             syncing={syncingSourcePlans}
             query={embroideryQuery}
             message={sourcePlanMessage}
-            onSync={() => void syncDriveSourcePlans(true)}
+            onSync={() => void refreshEmbroideryDesigns()}
             onQueryChange={setEmbroideryQuery}
             onPageChange={value => {
               setEmbroideryLoading(true);
@@ -1084,6 +1137,37 @@ export function RealisticReviewUgcPage() {
               setEmbroideryLoading(true);
               setEmbroideryPageNumber(1);
               setEmbroideryPageSize(value);
+            }}
+          />
+        </section>
+
+        <section
+          id="rrugc-panel-reviews-stage2"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-reviews-stage2"
+          tabIndex={activeStage === "reviews-stage2" ? 0 : -1}
+          hidden={activeStage !== "reviews-stage2"}
+        >
+          <EmbroideryColorwayStage
+            active={activeStage === "reviews-stage2"}
+            workflow="reviews"
+            skillCatalogRevision={skillCatalogRevision}
+            data={reviewEmbroideryPage}
+            loading={reviewEmbroideryLoading}
+            syncing={syncingSourcePlans}
+            query={reviewEmbroideryQuery}
+            message={sourcePlanMessage}
+            onSync={() => void syncDriveSourcePlans(true)}
+            onQueryChange={setReviewEmbroideryQuery}
+            onPageChange={value => {
+              setReviewEmbroideryLoading(true);
+              setReviewEmbroideryPageNumber(value);
+            }}
+            onPageSizeChange={value => {
+              setReviewEmbroideryLoading(true);
+              setReviewEmbroideryPageNumber(1);
+              setReviewEmbroideryPageSize(value);
             }}
           />
         </section>

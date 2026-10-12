@@ -1,0 +1,9 @@
+
+.rrugc-stage1-products-selection{display:grid;gap:7px;padding:10px 13px;margin:7px 0;border:1px solid #cddded;border-radius:9px;background:#f8fbff;color:#304b72;font-size:11px}
+.rrugc-stage1-products-selection>strong{font-size:12px}
+.rrugc-stage1-products-selection>span{color:#627792}
+.rrugc-stage1-products-selection-items{display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow-y:auto}
+.rrugc-stage1-products-selection-items button{padding:6px 10px;border:1px solid #bfcee1;border-radius:7px;background:white;color:#335478;font:inherit;cursor:pointer}
+.rrugc-stage1-products-selection-items button.is-selected{border-color:#388d67;background:#e4f6eb;color:#27684a}
+.rrugc-stage1-products-selection-items button:disabled{opacity:.55;cursor:not-allowed}
+.rrugc-stage1-products-selection-items button:focus-visible{outline:2px solid #4c78bd;outline-offset:2px}

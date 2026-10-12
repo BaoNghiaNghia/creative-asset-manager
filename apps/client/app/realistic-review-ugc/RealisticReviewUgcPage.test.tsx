@@ -411,7 +411,20 @@ describe("Realistic Review UGC source-first workspace", () => {
       expect(markup).toContain(`<option value="${size}"`);
     }
     expect(markup).not.toContain('<option value="10"');
-    expect(markup).toContain("DRIVE IMAGES");
+    expect(markup).toContain("SELECTED STAGE 1 DESIGNS");
+    const reviewMarkup = renderToStaticMarkup(
+      <EmbroideryColorwayStage
+        workflow="reviews"
+        data={{ items: [plan], page: 1, page_size: 20, total: 1, overview: GLOBAL_OVERVIEW }}
+        loading={false} syncing={false} query=""
+        onSync={() => undefined} onQueryChange={() => undefined}
+        onPageChange={() => undefined} onPageSizeChange={() => undefined}
+      />,
+    );
+    expect(reviewMarkup).toContain("REVIEWS · STAGE 2 · embroidery_ FILES");
+    expect(reviewMarkup).toContain("Only JPG/PNG files");
+    expect(reviewMarkup).toContain('id="rrugc-reviews-stage2-search-input"');
+    expect(markup).toContain('id="rrugc-stage2-search-input"');
     expect(markup).toContain("Embroidery design → 13 colorways");
     expect(markup).toContain("JPG / PNG");
     expect(markup).toContain("bad day hotdog");
@@ -687,7 +700,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain('id="rrugc-tab-stage5"');
     expect(markup).not.toContain('id="rrugc-tab-settings"');
     expect(markup).toContain("Analysis Keyword");
-    expect(markup).toContain("Embroidery → 13 Colors");
+    expect(markup).toContain("Selected Stage 1 Designs");
     expect(markup).not.toContain('aria-label="GatorHats Reviews stages"');
     expect(markup).toContain("Manage skills");
     expect(markup).toContain("Settings");

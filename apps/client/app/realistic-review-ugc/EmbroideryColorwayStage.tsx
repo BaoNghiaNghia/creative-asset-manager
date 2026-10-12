@@ -74,6 +74,7 @@ export function EmbroideryColorwayStage({
   message,
   executionReady = true,
   active = true,
+  workflow = "products",
   skillCatalogRevision = 0,
   onSync,
   onQueryChange,
@@ -87,6 +88,7 @@ export function EmbroideryColorwayStage({
   message?: string;
   executionReady?: boolean;
   active?: boolean;
+  workflow?: "products" | "reviews";
   skillCatalogRevision?: number;
   onSync: () => void;
   onQueryChange: (value: string) => void;
@@ -234,7 +236,7 @@ export function EmbroideryColorwayStage({
       const ids = Array.from(selectedIds);
       let queued = 0;
       for (let start = 0; start < ids.length; start += 50) {
-        const result = await queueColorwayBatch(ids.slice(start, start + 50), skillInput);
+        const result = await queueColorwayBatch(ids.slice(start, start + 50), skillInput, workflow);
         queued += result.queued;
       }
       await refreshJobs();
@@ -298,14 +300,16 @@ export function EmbroideryColorwayStage({
   return <section className="rrugc-card rrugc-colorway-stage">
     <RrugcStageHeader
       className="rrugc-colorway-header"
-      kicker="STAGE 2 · DRIVE IMAGES → SKILL → 13 HAT COLORS"
+      kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
       title="Embroidery design → 13 colorways"
-      description={<>Scans JPG/PNG images in the configured Drive root and all subfolders, regardless of the filename prefix. Generated <code>output_</code> files are excluded. Each design can create 13 colorways independently of Pinterest.</>}
+      description={workflow === "products"
+        ? <>Uses only PNG designs explicitly selected in Products Stage 1 output modal. Each selection generates 13 official hat colorways; no unrelated Drive files are included.</>
+        : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
-        <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Drive · JPG/PNG · recursive</span>
+        <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
         <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}>
           <RrugcActionIcon name={syncing ? "refresh" : "scan"} />
-          {syncing ? "Scanning…" : "Scan source"}
+          {syncing ? "Refreshing…" : workflow === "products" ? "Refresh selections" : "Scan source"}
         </button>
       </div>}
     />
@@ -325,7 +329,7 @@ export function EmbroideryColorwayStage({
     <div className="rrugc-colorway-toolbar">
       <div className="rrugc-colorway-search">
         <RrugcSmartSearchInput
-          stageId="stage2"
+          stageId={workflow === "products" ? "stage2" : "reviews-stage2"}
           query={query}
           onQueryChange={onQueryChange}
           suggestions={searchSuggestions}

@@ -91,6 +91,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
+    RrugcKeywordImageJobModel,
+    RrugcImageOutputVersionModel,
     RrugcKeywordAgentOriginModel,
     RrugcResearchSignalModel,
     RrugcScoutFeedbackModel,
@@ -199,6 +201,8 @@ def database():
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
     RrugcKeywordVolumeModel.__table__.create(engine)
+    RrugcKeywordImageJobModel.__table__.create(engine)
+    RrugcImageOutputVersionModel.__table__.create(engine)
     RrugcKeywordAgentOriginModel.__table__.create(engine)
     RrugcResearchSignalModel.__table__.create(engine)
     RrugcScoutFeedbackModel.__table__.create(engine)
@@ -2449,6 +2453,84 @@ def test_stage3_analysis_worker_persists_ready_result(database):
         assert persisted.reject_reasons_json == []
 
 
+
+
+def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database):
+    from uuid import uuid4
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+    from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
+
+    keyword_id, job_id = str(uuid4()), str(uuid4())
+    remote_id = "drive-final-design-1"
+    with database() as session:
+        session.add(RrugcKeywordVolumeModel(
+            id=keyword_id, tenant_id="tenant-a", keyword="Design For Hats",
+            keyword_normalized="design for hats", picked=True, search_volume=100,
+            provider="test",
+        ))
+        session.flush()
+        session.add(RrugcKeywordImageJobModel(
+            id=job_id, tenant_id="tenant-a", keyword_id=keyword_id,
+            keyword_text="Design For Hats", skill_source="local", skill_name="test",
+            prompt_text="test", status="completed", output_remote_file_id=remote_id,
+            created_by_user_id="user-a",
+        ))
+        session.add(RrugcImageOutputVersionModel(
+            tenant_id="tenant-a", stage="stage1", job_id=job_id,
+            version=1, output_name="design_01.png", remote_file_id=remote_id,
+            content_type="image/png", width=1024, height=1024, size_bytes=1000,
+        ))
+        for filename in ("embroidery_good.png", "EMBROIDERY_second.JPG",
+                         "not_embroidery.png", "output_embroidery_bad.png"):
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="drive-" + filename,
+                source_parent_folder_id="nested-folder",
+                source_name=filename, source_relative_path="Nested/" + filename,
+                source_mime_type="image/jpeg" if filename.endswith(".JPG") else "image/png",
+                source_revision="rev-" + filename, status="ready",
+                created_by_user_id="user-a",
+            ))
+        session.commit()
+
+    base = "/api/v1/realistic-review-ugc"
+    reviews = api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=reviews")
+    assert reviews.status_code == 200
+    assert reviews.json()["total"] == 2
+    assert {item["source_name"] for item in reviews.json()["items"]} == {
+        "embroidery_good.png", "EMBROIDERY_second.JPG",
+    }
+    empty = api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=products")
+    assert empty.status_code == 200 and empty.json()["total"] == 0
+
+    chosen_url = base + f"/keyword-images/jobs/{job_id}/versions/1/products-stage2"
+    assert api.post(chosen_url + "?selected=true").status_code == 200
+    product = api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=products")
+    assert product.status_code == 200 and product.json()["total"] == 1
+    item = product.json()["items"][0]
+    assert item["source_file_id"] == remote_id
+    assert item["root_folder_id"] == PRODUCTS_STAGE1_SELECTED_ROOT
+    assert item["source_name"] == "design_01.png"
+    assert api.post(chosen_url + "?selected=true").status_code == 200
+    assert api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=products").json()["total"] == 1
+    versions = api.get(base + f"/generation-jobs/stage1/{job_id}/outputs")
+    assert versions.status_code == 200
+    assert versions.json()["versions"][0]["selected_for_products_stage2"] is True
+    assert api.get(base + "/source-plans").json()["total"] == 4
+
+    assert api.post(chosen_url + "?selected=false").status_code == 200
+    assert api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=products").json()["total"] == 0
+    assert api.get(base + f"/generation-jobs/stage1/{job_id}/outputs").json()["versions"][0]["selected_for_products_stage2"] is False
+    # No output/version was deleted when deselecting.
+    with database() as session:
+        assert session.scalar(select(RrugcImageOutputVersionModel).where(
+            RrugcImageOutputVersionModel.tenant_id == "tenant-a",
+            RrugcImageOutputVersionModel.stage == "stage1",
+            RrugcImageOutputVersionModel.job_id == job_id,
+        )) is not None
+        assert session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+        )).status == "missing"
 
 
 def test_stage4_completion_feed_bootstrap_catches_up_and_is_tenant_scoped(api, database):

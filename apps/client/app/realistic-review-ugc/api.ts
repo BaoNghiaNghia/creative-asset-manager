@@ -178,6 +178,7 @@ export const listSourcePlans = (
     stage2Only?: boolean;
     sourcePrefix?: string;
     colorwaySources?: boolean;
+    colorwayWorkflow?: "products" | "reviews";
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -190,7 +191,10 @@ export const listSourcePlans = (
   if (filters.query?.trim()) params.set("q", filters.query.trim());
   if (filters.stage2Only) params.set("stage2_only", "true");
   if (filters.sourcePrefix?.trim()) params.set("source_prefix", filters.sourcePrefix.trim());
-  if (filters.colorwaySources) params.set("colorway_sources", "true");
+  if (filters.colorwaySources) {
+    params.set("colorway_sources", "true");
+    params.set("colorway_workflow", filters.colorwayWorkflow || "reviews");
+  }
   return request<SourcePlanPage>(
     "/api/v1/realistic-review-ugc/source-plans?" + params.toString(),
     { signal },
@@ -560,10 +564,10 @@ export const listColorwayJobs = async (sourceIds: string[], signal?: AbortSignal
 };
 
 export const queueColorwayBatch = (
-  sourcePlanIds: string[], skill: Stage2SkillSelection,
+  sourcePlanIds: string[], skill: Stage2SkillSelection, workflow: "products" | "reviews" = "reviews",
 ) => request<{ queued: number; existing: number }>("/api/v1/realistic-review-ugc/colorways/batch", {
   method: "POST",
-  body: JSON.stringify({ source_plan_ids: sourcePlanIds, skill_source: skill.source, skill_id: skill.skill_id, skill_name: skill.skill_name, skill_version: skill.skill_version }),
+  body: JSON.stringify({ source_plan_ids: sourcePlanIds, workflow, skill_source: skill.source, skill_id: skill.skill_id, skill_name: skill.skill_name, skill_version: skill.skill_version }),
 });
 
 export const retryColorway = (jobId: string) =>
@@ -615,13 +619,20 @@ export const updateStageSkillDefault = (stage: "stage1" | "stage2" | "stage4", r
     { method: "PATCH", body: JSON.stringify({ registry_id: registryId }) },
   );
 
-export type GenerationOutputVersion = { version: number; created_at: string; width: number | null;
+export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; version: number; created_at: string; width: number | null;
   height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null };
 export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<{ job_id: string; stage: string; versions: GenerationOutputVersion[] }>(
     "/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs",
     { signal },
   );
+export const selectStage1ProductDesign = (jobId: string, version: number, selected: boolean) =>
+  request<{ selected: boolean; source_plan_id: string | null }>(
+    "/api/v1/realistic-review-ugc/keyword-images/jobs/" + encodeURIComponent(jobId)
+    + "/versions/" + version + "/products-stage2?selected=" + selected,
+    { method: "POST" },
+  );
+
 export const regenerateKeywordImage = (keywordId: string, skill?: Stage2SkillSelection | null) =>
   request<{ job_id: string; status: string }>(
     "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/regenerate",
