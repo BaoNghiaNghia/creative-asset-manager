@@ -20,8 +20,9 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.model import (
-    RrugcImageOutputVersionModel, RrugcKeywordImageJobModel,
+    RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcStage2JobModel,
 )
+from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
 from app.modules.realistic_review_ugc.keyword_images import (
     KeywordImageError, KeywordImageGenerateHandler, KeywordImageService,
     STAGE1_AUTO_RETRY_DELAYS_SECONDS, STAGE1_SAFE_ZERO_OUTPUT_CODES,
@@ -187,6 +188,88 @@ def requeue_missing_upload_artwork(
         LOGGER.warning("stage1_missing_upload_artwork_requeued job_id=%s retry=%d",
                        job.id, job.retry_count)
         return True
+
+
+def audit_stage4_queue(*, limit: int = 20) -> dict:
+    """Read-only reconciliation of Stage 4 display status vs queue state.
+
+    Never expose keyword, reference images, skill prompts, credentials, or
+    provider error messages. The IDs are operator-visible run identifiers.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    with SessionLocal() as session:
+        summary = {
+            str(status): int(total)
+            for status, total in session.execute(
+                select(RrugcStage2JobModel.status, func.count())
+                .group_by(RrugcStage2JobModel.status)
+            )
+        }
+        rows = list(session.scalars(
+            select(RrugcStage2JobModel)
+            .where(RrugcStage2JobModel.status.in_(("queued", "running")))
+            .order_by(RrugcStage2JobModel.created_at.desc())
+            .limit(max(1, min(limit, 50)))
+        ))
+        items = []
+        for row in rows:
+            processing = session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+            tenant = session.get(TenantProcessingPolicyModel, row.tenant_id)
+            provider = session.scalar(select(TenantProviderPolicyModel).where(
+                TenantProviderPolicyModel.tenant_id == row.tenant_id,
+                TenantProviderPolicyModel.provider_key == "codex",
+                TenantProviderPolicyModel.provider_scope == "ai",
+            ))
+            def iso(value):
+                if value is None:
+                    return None
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=timezone.utc)
+                return value.isoformat()
+            blocked = []
+            if processing is None:
+                blocked.append("processing_missing")
+            else:
+                if processing.status in ("failed", "completed"):
+                    blocked.append("processing_terminal")
+                if processing.cancellation_requested:
+                    blocked.append("cancel_requested")
+                if processing.status in ("pending", "retry") and processing.next_attempt_at > now:
+                    blocked.append("not_due")
+                if processing.attempt_count >= processing.max_attempts:
+                    blocked.append("attempt_budget_exhausted")
+            if tenant is None:
+                blocked.append("tenant_policy_missing")
+            else:
+                if not tenant.pipeline_enabled or tenant.processing_paused:
+                    blocked.append("tenant_paused")
+                if tenant.total_active_jobs >= tenant.total_active_jobs_limit:
+                    blocked.append("tenant_total_capacity")
+                if tenant.ai_active_jobs >= tenant.ai_active_jobs_limit:
+                    blocked.append("tenant_ai_capacity")
+            if provider is not None:
+                if not provider.processing_enabled or provider.processing_paused or provider.emergency_stop:
+                    blocked.append("provider_paused")
+                if provider.active_jobs >= provider.active_jobs_limit:
+                    blocked.append("provider_capacity")
+            queued_at = row.queued_at or row.created_at
+            if queued_at is not None and queued_at.tzinfo is None:
+                queued_at = queued_at.replace(tzinfo=timezone.utc)
+            items.append({
+                "stage4_job_id": row.id,
+                "stage4_status": row.status,
+                "queued_minutes": round(max(0, (now - queued_at).total_seconds()) / 60) if queued_at else None,
+                "processing_id": processing.id if processing else None,
+                "processing_status": processing.status if processing else None,
+                "attempts": processing.attempt_count if processing else None,
+                "max_attempts": processing.max_attempts if processing else None,
+                "next_attempt_at": iso(processing.next_attempt_at) if processing else None,
+                "lease_expires_at": iso(processing.lease_expires_at) if processing else None,
+                "processing_error_code": processing.last_error_code if processing else None,
+                "blocked": blocked,
+            })
+    return {"statuses": summary, "active": items}
 
 
 def refresh_job_skill(session, job: RrugcKeywordImageJobModel, settings) -> bool:
@@ -395,18 +478,18 @@ def main() -> int:
     if not 0 <= args.limit <= 20:
         parser.error("limit must be 0..20")
     if args.audit_only:
-        print(json.dumps({"mode": "audit", "stage1": audit_stage1()}))
+        print(json.dumps({"mode": "audit", "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
         return 0
     if args.limit == 0:
-        print(json.dumps({"mode": "no-op", "stage1": audit_stage1()}))
+        print(json.dumps({"mode": "no-op", "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
         return 0
     recovery = recover_failed(limit=args.limit, dry_run=args.dry_run)
     if args.dry_run:
-        print(json.dumps({"mode": "dry-run", "recovery": recovery, "stage1": audit_stage1()}))
+        print(json.dumps({"mode": "dry-run", "recovery": recovery, "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
         return 0
     storage = build_managed_storage_provider(get_settings())
     cleanup = asyncio.run(cleanup_published(storage=storage, limit=args.limit))
-    print(json.dumps({"mode": "apply", "recovery": recovery, "cleanup": cleanup, "stage1": audit_stage1()}))
+    print(json.dumps({"mode": "apply", "recovery": recovery, "cleanup": cleanup, "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
     return 0
 
 
