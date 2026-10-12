@@ -881,7 +881,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by High CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by Created date ascending"');
     expect(markup).toContain('>Agent</th>');
-    expect(markup).toContain('aria-label="Found by Agent-Reach Auto Discover, Keyword Scout Windows"');
+    expect(markup).toContain('aria-label="Found by CAM VPS · Agent-Reach Auto Discover, Keyword Scout Windows"');
     expect(markup).toContain('rrugc-stage0-agent-more');
     expect(markup).toContain('>+1</span>');
     expect(markup).toContain('Chưa có dữ liệu agent lịch sử');
@@ -895,8 +895,8 @@ describe("Realistic Review UGC source-first workspace", () => {
       markup.indexOf('class="rrugc-stage0-cpc"'),
     );
     expect(markup).toContain("Created date");
-    expect(markup).toContain('title="Pinterest source"');
-    expect(markup).toContain('title="No Pinterest source recorded"');
+    expect(markup).toContain('title="Open Pinterest evidence ↗"');
+    expect(markup).toContain('title="No verified source platform recorded"');
     expect(markup).toContain('title="Open keyword details"');
     expect(markup).toContain('aria-label="Open details and 12-month Google Ads trend for Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('role="tooltip"');
@@ -969,7 +969,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Provider account");
     expect(markup).toContain("Google Ads account");
     expect(markup).toContain("1234567890");
-    expect(markup).toContain("Open Pinterest source");
+    expect(markup).toContain("Pinterest");
   });
 
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {

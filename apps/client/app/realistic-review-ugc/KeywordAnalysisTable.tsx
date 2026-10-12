@@ -94,21 +94,57 @@ function formatTableDate(value: string | null | undefined): string {
 }
 
 function providerLabel(value: string): string {
-  return value === "aebrowse_google_ads" ? "Google Ads · AEBrowse" : value;
+  return value === "aebrowse_google_ads" ? "Google Ads · AEBrowse" : value === "pending" ? "AEBrowse pending" : value;
+}
+
+type AgentSource = NonNullable<NonNullable<KeywordVolume["source_agents"]>[number]["sources"]>[number];
+
+function agentSourceLinks(item: KeywordVolume): AgentSource[] {
+  const sources = item.source_agents?.flatMap(agent => agent.sources || []) || [];
+  const seen = new Set<string>();
+  return sources.filter(source => {
+    if (!source.url || !/^https:\/\//i.test(source.url) || seen.has(source.url)) return false;
+    seen.add(source.url);
+    return true;
+  });
+}
+
+function platformDisplay(platform: string): string {
+  return platform === "etsy" ? "Etsy" : platform === "amazon" ? "Amazon"
+    : platform === "pinterest" ? "Pinterest" : platform;
+}
+
+function Stage0SourcePlatforms({ item }: { item: KeywordVolume }) {
+  const sources = agentSourceLinks(item);
+  const platforms = Array.from(new Set(
+    sources.map(source => source.platform).concat(item.source_agents?.flatMap(agent => agent.platforms) || [])
+      .concat(item.source_pin_url ? ["pinterest"] : []),
+  )).filter(platform => platform && platform !== "unknown");
+  if (!platforms.length) return <span className="rrugc-stage0-platform-empty" title="No verified source platform recorded">—</span>;
+  return <div className="rrugc-stage0-platforms" aria-label={"Platforms: " + platforms.map(platformDisplay).join(", ")}>
+    {platforms.map(platform => {
+      const sourceUrl = sources.find(source => source.platform === platform)?.url
+        || (platform === "pinterest" ? item.source_pin_url : null);
+      const label = platformDisplay(platform);
+      return sourceUrl && /^https:\/\//i.test(sourceUrl)
+        ? <a key={platform} className={"rrugc-stage0-platform platform-" + platform} href={sourceUrl} target="_blank" rel="noreferrer" title={"Open " + label + " evidence ↗"}><span aria-hidden="true">{platform === "pinterest" ? "Ⓟ" : platform === "etsy" ? "Ⓔ" : platform === "amazon" ? "ⓐ" : "↗"}</span>{label}</a>
+        : <span key={platform} className={"rrugc-stage0-platform platform-" + platform}><span aria-hidden="true">◎</span>{label}</span>;
+    })}
+  </div>;
 }
 
 function Stage0AgentBadge({ agents }: { agents: KeywordVolume["source_agents"] }) {
   if (!agents?.length) return <span className="rrugc-stage0-agent-empty" title="Chưa có dữ liệu agent lịch sử; không suy đoán từ Pinterest hoặc Google Ads">—</span>;
   const first = agents[0];
-  const shortName = first.agent_name === "Agent-Reach Auto Discover" ? "Reach"
+  const shortName = first.agent_name === "Agent-Reach Auto Discover" ? "VPS Reach"
     : first.agent_name === "Research Inbox" ? "Manual"
     : first.agent_name.toLowerCase().includes("keyword scout") ? "Scout"
     : first.agent_name.length > 13 ? first.agent_name.slice(0, 12) + "…" : first.agent_name;
   const details = agents.map(agent =>
-    agent.agent_name + " · " + agent.platforms.join(", ") + " · " +
+    (agent.agent_name === "Agent-Reach Auto Discover" ? "CAM VPS · Agent-Reach Auto Discover" : agent.agent_name) + " · " + agent.platforms.join(", ") + " · " +
     agent.evidence_count + " source" + (agent.evidence_count === 1 ? "" : "s")
   ).join("\n");
-  return <span className="rrugc-stage0-agent-badge" title={details} aria-label={"Found by " + agents.map(a => a.agent_name).join(", ")}>
+  return <span className="rrugc-stage0-agent-badge" title={details} aria-label={"Found by " + agents.map(a => a.agent_name === "Agent-Reach Auto Discover" ? "CAM VPS · Agent-Reach Auto Discover" : a.agent_name).join(", ")}>
     <span className="rrugc-stage0-agent-symbol" aria-hidden="true">◎</span>
     <span className="rrugc-stage0-agent-label">{shortName}</span>
     {agents.length > 1 && <span className="rrugc-stage0-agent-more">+{agents.length - 1}</span>}
@@ -220,7 +256,7 @@ function makeChartGeometry(points: KeywordVolumeTrendPoint[], width: number, hei
   return { line, area, dots };
 }
 
-export function KeywordTrendChart({ item, onOpen }: { item: Pick<KeywordVolume, "keyword" | "search_volume" | "trend" | "three_month_change_pct" | "yoy_change_pct">; onOpen: () => void }) {
+export function KeywordTrendChart({ item, onOpen }: { item: Pick<KeywordVolume, "keyword" | "search_volume" | "trend" | "three_month_change_pct" | "yoy_change_pct"> & Partial<Pick<KeywordVolume, "provider">>; onOpen: () => void }) {
   const trend = item.trend ?? [];
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -238,7 +274,7 @@ export function KeywordTrendChart({ item, onOpen }: { item: Pick<KeywordVolume, 
       onKeyDown={handleKeyDown}
       aria-label={"Open details for " + item.keyword + ". Monthly trend unavailable."}
     >
-      <span>Trend unavailable</span>
+      <span>{item.provider === "pending" ? "Awaiting AEBrowse" : "Trend unavailable"}</span>
       <small>Open keyword details</small>
     </div>;
   }
@@ -291,10 +327,14 @@ export function KeywordTrendChart({ item, onOpen }: { item: Pick<KeywordVolume, 
 export function KeywordDetailModal({
   item,
   onClose,
+  onResolveMetrics,
 }: {
   item: KeywordVolume | null;
   onClose: () => void;
+  onResolveMetrics?: (keyword: string) => Promise<void>;
 }) {
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState("");
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
   const chartGradientId = useId();
 
@@ -360,7 +400,9 @@ export function KeywordDetailModal({
                     loading="lazy" rootMargin="280px 0px" referrerPolicy="no-referrer" />
                   <span>Open source ↗</span>
                 </a>
-              : <div className="rrugc-stage0-detail-source-empty"><Icon name="search" /><span>No source image</span></div>}
+              : agentSourceLinks(item)[0]?.url
+                ? <a className="rrugc-stage0-detail-source-link" href={agentSourceLinks(item)[0].url!} target="_blank" rel="noreferrer"><Icon name="search" /><span>Open source listing ↗</span></a>
+                : <div className="rrugc-stage0-detail-source-empty"><Icon name="search" /><span>No source image</span></div>}
           </div>
           <div className="rrugc-stage0-detail-summary">
             <div>
@@ -369,22 +411,43 @@ export function KeywordDetailModal({
               <span>Checked {formatDetailDate(item.fetched_at)}</span>
             </div>
             <div>
-              <small>Pinterest reference</small>
-              {item.source_pin_url
-                ? <a href={item.source_pin_url} target="_blank" rel="noreferrer">Open Pinterest source ↗</a>
-                : <strong>—</strong>}
-              <span>{item.request_count ? item.request_count.toLocaleString() + " provider requests" : "Provider request count unavailable"}</span>
+              <small>Marketplace / source references</small>
+              <Stage0SourcePlatforms item={item} />
+              <span>{item.request_count ? item.request_count.toLocaleString() + " provider requests" : "AEBrowse volume not queried yet"}</span>
             </div>
             <div>
               <small>Source agents</small>
-              <strong>{item.source_agents?.length ? item.source_agents.map(agent => agent.agent_name).join(", ") : "Unknown (legacy)"}</strong>
+              <strong>{item.source_agents?.length ? item.source_agents.map(agent => agent.agent_name === "Agent-Reach Auto Discover" ? "CAM VPS · Agent-Reach Auto Discover" : agent.agent_name).join(", ") : "Unknown (legacy)"}</strong>
               <span>{item.source_agents?.map(agent => `${agent.platforms.join(", ")} · ${agent.evidence_count} sources`).join(" | ") || "Agent ID not recorded for older keywords"}</span>
             </div>
           </div>
         </div>
 
+        {agentSourceLinks(item).length > 0 && <section className="rrugc-stage0-evidence" aria-label="Agent discovery evidence">
+          <h4>Agent-Reach references <small>Search listing evidence · text not image-verified</small></h4>
+          <div className="rrugc-stage0-evidence-list">{agentSourceLinks(item).map(source =>
+            <a key={source.url} href={source.url!} target="_blank" rel="noreferrer" className="rrugc-stage0-evidence-item">
+              <strong>{platformDisplay(source.platform)} ↗</strong>
+              <span>{source.title || source.url}</span>
+              {source.excerpt && <small>{source.excerpt}</small>}
+            </a>
+          )}</div>
+        </section>}
+
+        {item.provider === "pending" && <div className="rrugc-stage0-metrics-pending">
+          <span>AEBrowse volume, competition, Trend and trademark screening have not been requested.</span>
+          {onResolveMetrics && <button type="button" disabled={metricsLoading} onClick={() => {
+            setMetricsLoading(true);
+            setMetricsError("");
+            void onResolveMetrics(item.keyword).catch(reason => {
+              setMetricsError(reason instanceof Error ? reason.message : String(reason));
+            }).finally(() => setMetricsLoading(false));
+          }}>{metricsLoading ? "Checking AEBrowse…" : "Check metrics with AEBrowse"}</button>}
+          {metricsError && <small role="alert">{metricsError}</small>}
+        </div>}
+
         <section className="rrugc-stage0-detail-metrics" aria-label="Keyword metrics">
-          <article><small>Avg searches / mo</small><strong>{item.search_volume.toLocaleString()}</strong><span>Average monthly searches</span></article>
+          <article><small>Avg searches / mo</small><strong>{item.provider === "pending" ? "—" : item.search_volume.toLocaleString()}</strong><span>{item.provider === "pending" ? "Awaiting AEBrowse lookup" : "Average monthly searches"}</span></article>
           <article><small>3-month change</small><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong><span>vs 3 months ago</span></article>
           <article><small>YoY change</small><strong className={changeTone(item.yoy_change_pct)}>{formatChange(item.yoy_change_pct)}</strong><span>vs same month last year</span></article>
           <article><small>Competition</small><strong><span className={"rrugc-stage0-competition competition-" + competitionTone(item.competition)}>{item.competition || "—"}</span></strong><span>{typeof item.competition_index === "number" ? "Google Ads index " + item.competition_index : "Index unavailable"}</span></article>
@@ -581,6 +644,7 @@ export function KeywordAnalysisTable({
   favoritingIds,
   feedbackUpdatingIds,
   onFeedbackChange,
+  onResolveMetrics,
   onSortChange,
   onUsageFilterChange,
   onTailFilterChange,
@@ -607,6 +671,7 @@ export function KeywordAnalysisTable({
   favoritingIds: Set<string>;
   feedbackUpdatingIds: Set<string>;
   onFeedbackChange: (keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) => void;
+  onResolveMetrics?: (keyword: string) => Promise<void>;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
@@ -777,12 +842,12 @@ export function KeywordAnalysisTable({
             const hasFeedback = feedbackStatus !== "neutral";
             return <tr key={item.id} className={item.picked ? "is-picked" : ""}>
               <td className="rrugc-stage0-source-image">
-                {item.source_image_url ? <a href={item.source_pin_url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open source for " + item.keyword}><img src={item.source_image_url} alt="" loading="lazy" decoding="async" /></a> : <span className="rrugc-stage0-source-empty">No image</span>}
+                {item.source_image_url ? <a href={item.source_pin_url || agentSourceLinks(item)[0]?.url || item.source_image_url} target="_blank" rel="noreferrer" title={"Open source for " + item.keyword}><img src={item.source_image_url} alt="" loading="lazy" decoding="async" /></a> : agentSourceLinks(item)[0]?.url ? <a className="rrugc-stage0-source-evidence-link" href={agentSourceLinks(item)[0].url!} target="_blank" rel="noreferrer" title={"Open source listing for " + item.keyword}><span aria-hidden="true">↗</span><small>View source</small></a> : <span className="rrugc-stage0-source-empty">No image</span>}
               </td>
               <td className="rrugc-stage0-keyword-name">
                 <button type="button" className="rrugc-stage0-keyword-link" onClick={() => setDetailItem(item)} title="Open keyword details">
                   <strong>{item.keyword}</strong>
-                  <small>{providerLabel(item.provider)} · checked {new Date(item.fetched_at).toLocaleDateString()}</small>
+                  <small>{providerLabel(item.provider)} · {item.provider === "pending" ? "added" : "checked"} {new Date(item.provider === "pending" ? item.created_at || item.fetched_at : item.fetched_at).toLocaleDateString()}</small>
                 </button>
                 <div className="rrugc-scout-feedback-control">
                   {hasFeedback && <span className={"rrugc-scout-feedback-state is-" + feedbackStatus} aria-label={"Trạng thái Scout: " + (feedbackStatus === "suggested" ? "Đã đề xuất" : feedbackStatus === "blocked" ? "Đã bỏ đề xuất" : "Đã phản hồi")}>
@@ -816,9 +881,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-tm-cell"><TrademarkStatusBadge status={item.trademark_status} /></td>
               <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_low)}</strong><small>low bid</small></td>
               <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_high)}</strong><small>high bid</small></td>
-              <td className="rrugc-stage0-platform-cell">{item.source_pin_url
-                ? <span className="rrugc-stage0-platform" title="Pinterest source"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="#bd081c"/><path d="M12.6 5.5c-3.9 0-6.4 2.8-6.4 5.5 0 1.7.6 3 1.8 3.5.2-.5.4-1.2.5-1.6-.4-.5-.6-1.2-.6-2 0-2.6 2-4.5 4.6-4.5 2.2 0 3.8 1.4 3.8 3.5 0 2.5-1.2 4.4-2.8 4.4-.9 0-1.5-.8-1.3-1.7.2-1.1.7-2.3.7-3.2 0-.8-.4-1.3-1.1-1.3-1 0-1.8 1-1.8 2.4 0 .8.3 1.4.3 1.4l-1.3 5.4c-.3 1.4 0 2.7.1 3.1.1.2.2.2.3 0 .2-.3 1.2-1.7 1.5-3l.6-2.1c.3.6 1.2 1 2.3 1 3 0 5-2.7 5-6.2 0-3.2-2.7-5.8-6.1-5.8Z" fill="#fff"/></svg><span>Pinterest</span></span>
-                : <span className="rrugc-stage0-platform-empty" title="No Pinterest source recorded">—</span>}</td>
+              <td className="rrugc-stage0-platform-cell"><Stage0SourcePlatforms item={item} /></td>
               <td className="rrugc-stage0-agent-cell"><Stage0AgentBadge agents={item.source_agents} /></td>
               <td className="rrugc-stage0-created-date"><strong>{formatTableDate(item.created_at)}</strong></td>
               <td className="rrugc-stage0-pick-cell">
@@ -846,6 +909,6 @@ export function KeywordAnalysisTable({
       <label>Rows<select aria-label="Stage 0 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>
   </section>
-  <KeywordDetailModal item={detailItem} onClose={() => setDetailItem(null)} />
+  <KeywordDetailModal item={data.items.find(entry => entry.id === detailItem?.id) || detailItem} onClose={() => setDetailItem(null)} onResolveMetrics={onResolveMetrics} />
   </>;
 }

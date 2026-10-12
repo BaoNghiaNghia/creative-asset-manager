@@ -290,6 +290,12 @@ export const retryKeywordImage = (keywordId: string) =>
   );
 
 
+export const resolveStage0KeywordMetrics = (keyword: string) =>
+  request<{ requested: number; provider_requested: number; cached: number }>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/resolve",
+    { method: "POST", body: JSON.stringify({ keywords: [keyword], force: false }) },
+  );
+
 export const listKeywordAnalysis = (
   filters: {
     page?: number;

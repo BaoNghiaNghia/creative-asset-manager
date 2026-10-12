@@ -14,6 +14,7 @@ import {
   listSourcePlans,
   listStage2Jobs,
   listStage3ReviewGroups,
+  resolveStage0KeywordMetrics,
   markCandidateReferenceFeedback,
   setKeywordAnalysisPicked,
   setKeywordAnalysisFavorite,
@@ -229,6 +230,11 @@ export function RealisticReviewUgcPage() {
       signal,
     );
     setKeywordPage(result);
+  }
+
+  async function refreshKeywordMetrics(keyword: string) {
+    await resolveStage0KeywordMetrics(keyword);
+    await refreshKeywordAnalysis();
   }
 
   async function changeKeywordPicked(keywordId: string, picked: boolean) {
@@ -969,6 +975,7 @@ export function RealisticReviewUgcPage() {
             favoritingIds={keywordFavoritingIds}
             feedbackUpdatingIds={keywordFeedbackIds}
             onFeedbackChange={changeKeywordFeedback}
+            onResolveMetrics={refreshKeywordMetrics}
             onOpenSearchIntelligence={() => setSearchIntelligenceOpen(true)}
             onSortChange={changeKeywordSort}
             onUsageFilterChange={value => {

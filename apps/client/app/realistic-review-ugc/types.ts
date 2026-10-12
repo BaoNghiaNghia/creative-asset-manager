@@ -196,7 +196,7 @@ export type KeywordVolume = {
   trend?: KeywordVolumeTrendPoint[];
   source_image_url: string | null;
   source_pin_url: string | null;
-  source_agents?: Array<{ agent_key: string; agent_name: string; platforms: string[]; evidence_count: number }>;
+  source_agents?: Array<{ agent_key: string; agent_name: string; platforms: string[]; evidence_count: number; sources?: Array<{ platform: string; url: string | null; channel: string; title: string | null; excerpt: string | null }> }>;
   scout_keyword_feedback?: "suggested" | "blocked" | "neutral";
   scout_pin_feedback?: "suggested" | "blocked" | "neutral";
   picked: boolean;

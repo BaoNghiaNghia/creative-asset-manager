@@ -170,13 +170,17 @@ def test_research_approval_keeps_auto_discover_agent_with_cross_platform_evidenc
         review_signal(session, tenant_id="tenant-a", signal_id=row["id"],
                       user_id="reviewer-a", decision="approved", keyword="MADE TO WORSHIP")
     first = origins_for_keywords(session, tenant_id="tenant-a", keywords=["made to worship"])
-    assert first["made to worship"] == [{
-        "agent_key": "scout:agent-reach-id", "agent_name": "Agent-Reach Auto Discover",
-        "platforms": ["amazon", "etsy"], "evidence_count": 2,
-    }] or first["made to worship"] == [{
-        "agent_key": "scout:agent-reach-id", "agent_name": "Agent-Reach Auto Discover",
-        "platforms": ["etsy", "amazon"], "evidence_count": 2,
-    }]
+    assert len(first["made to worship"]) == 1
+    origin = first["made to worship"][0]
+    assert origin["agent_key"] == "scout:agent-reach-id"
+    assert origin["agent_name"] == "Agent-Reach Auto Discover"
+    assert set(origin["platforms"]) == {"amazon", "etsy"}
+    assert origin["evidence_count"] == 2
+    assert {source["url"] for source in origin["sources"]} == {
+        "https://www.etsy.com/listing/123456789",
+        "https://www.amazon.com/dp/B012345678",
+    }
+    assert all(source["title"] == "Embroidered hat" for source in origin["sources"])
     assert apply_approved_to_stage0(session, tenant_id="tenant-a")["existing"] == 2
     assert origins_for_keywords(session, tenant_id="tenant-a",
                                keywords=["made to worship"]) == first

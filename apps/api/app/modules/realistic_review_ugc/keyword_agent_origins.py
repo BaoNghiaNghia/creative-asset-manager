@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.model import RrugcKeywordAgentOriginModel
+from app.modules.realistic_review_ugc.model import RrugcKeywordAgentOriginModel, RrugcResearchSignalModel
 
 
 def record_keyword_agent(
@@ -65,6 +65,20 @@ def origins_for_keywords(
         RrugcKeywordAgentOriginModel.first_seen_at.asc(),
         RrugcKeywordAgentOriginModel.id.asc(),
     )).all()
+    source_urls = sorted({row.source_url for row in rows if row.source_url})
+    # One tenant-filtered metadata lookup for this Stage 0 page. Research Inbox
+    # is where Auto Discover stores listing titles/snippets; the origins table
+    # intentionally preserves just immutable URL/agent attribution.
+    signal_map: dict[tuple[str, str], RrugcResearchSignalModel] = {}
+    if source_urls:
+        signals = session.scalars(select(RrugcResearchSignalModel).where(
+            RrugcResearchSignalModel.tenant_id == tenant_id,
+            RrugcResearchSignalModel.status == "approved",
+            RrugcResearchSignalModel.url.in_(source_urls),
+        )).all()
+        for signal in signals:
+            if signal.keyword:
+                signal_map[(signal.url, signal.keyword.casefold())] = signal
     grouped: dict[str, dict[str, dict]] = defaultdict(dict)
     for row in rows:
         by_agent = grouped[row.keyword_normalized]
@@ -72,10 +86,19 @@ def origins_for_keywords(
         if item is None:
             item = {
                 "agent_key": row.agent_key, "agent_name": row.agent_name,
-                "platforms": [], "evidence_count": 0,
+                "platforms": [], "evidence_count": 0, "sources": [],
             }
             by_agent[row.agent_key] = item
         item["evidence_count"] += 1
         if row.source_platform not in item["platforms"]:
             item["platforms"].append(row.source_platform)
+        if len(item["sources"]) < 10:
+            signal = signal_map.get((row.source_url, row.keyword_normalized.casefold())) if row.source_url else None
+            item["sources"].append({
+                "platform": row.source_platform,
+                "url": row.source_url,
+                "channel": row.source_channel,
+                "title": signal.title if signal is not None else None,
+                "excerpt": signal.excerpt if signal is not None else None,
+            })
     return {keyword: list(agents.values()) for keyword, agents in grouped.items()}

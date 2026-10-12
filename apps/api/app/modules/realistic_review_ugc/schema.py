@@ -434,11 +434,20 @@ class KeywordVolumeTrendPointResponse(BaseModel):
     volume: int = 0
 
 
+class KeywordSourceEvidenceResponse(BaseModel):
+    platform: str
+    url: str | None = None
+    channel: str
+    title: str | None = None
+    excerpt: str | None = None
+
+
 class KeywordSourceAgentResponse(BaseModel):
     agent_key: str
     agent_name: str
     platforms: list[str] = Field(default_factory=list)
     evidence_count: int = 0
+    sources: list[KeywordSourceEvidenceResponse] = Field(default_factory=list)
 
 
 class KeywordVolumeResponse(BaseModel):

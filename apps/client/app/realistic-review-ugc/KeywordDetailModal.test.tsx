@@ -12,7 +12,7 @@ const keyword: KeywordVolume = {
   competition: "HIGH", cpc_low: 1.17, cpc_high: 5.16,
   provider: "aebrowse_google_ads", provider_account: null, fetched_at: "2026-10-10T02:00:00Z",
   source_image_url: "https://example.com/hat.jpg", source_pin_url: "https://pinterest.com/pin/123",
-  source_agents: [{ agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy"], evidence_count: 1 }],
+  source_agents: [{ agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy"], evidence_count: 1, sources: [{platform: "etsy", url: "https://www.etsy.com/listing/123456", channel: "auto-discover", title: "Custom Embroidery Hat", excerpt: "Unverified listing text"}] }],
   picked: true, picked_at: null, favorite: false, favorite_at: null,
   trend: [
     { period: "2026-01", volume: 18000 },
@@ -31,7 +31,7 @@ describe("Stage 0 platform source attribution", () => {
     const root = createRoot(host);
     const noop = () => undefined;
     const data = {
-      items: [keyword, { ...keyword, id: "keyword-no-pin", keyword: "Manual Word", source_pin_url: null, source_agents: [] }],
+      items: [{ ...keyword, source_image_url: null }, { ...keyword, id: "keyword-no-pin", keyword: "Manual Word", source_image_url: null, source_pin_url: null, source_agents: [] }],
       page: 1, page_size: 20, total: 2,
       overview: {
         total_keywords: 2, total_search_volume: 22200, high_competition: 0, zero_volume: 0,
@@ -55,9 +55,32 @@ describe("Stage 0 platform source attribution", () => {
     expect(host.querySelector(".rrugc-stage0-agent-badge")?.getAttribute("aria-label")).toContain("Agent-Reach Auto Discover");
     expect(host.querySelector(".rrugc-stage0-agent-empty")?.textContent).toBe("—");
     expect(host.querySelectorAll(".rrugc-stage0-keyword-table tbody tr")).toHaveLength(2);
-    expect(host.querySelector(".rrugc-stage0-platform")?.textContent).toBe("Pinterest");
-    expect(host.querySelector(".rrugc-stage0-platform svg")).not.toBeNull();
+    expect(host.querySelector(".rrugc-stage0-platform.platform-pinterest")?.textContent).toContain("Pinterest");
+    expect(host.querySelector(".rrugc-stage0-platform.platform-etsy")?.textContent).toContain("Etsy");
+    expect(host.querySelector(".rrugc-stage0-source-evidence-link")?.getAttribute("href")).toBe("https://www.etsy.com/listing/123456");
     expect(host.querySelector(".rrugc-stage0-platform-empty")?.textContent).toBe("—");
+    await act(async () => root.unmount());
+  });
+});
+
+
+describe("Agent-Reach pending data", () => {
+  it("keeps metrics unverified and allows an explicit AEBrowse check", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    let requested = "";
+    const pending = { ...keyword, id: "pending-vps", source_image_url: null, source_pin_url: null, provider: "pending", search_volume: 0, trend: [] };
+    await act(async () => root.render(<KeywordDetailModal item={pending} onClose={() => undefined}
+      onResolveMetrics={async value => { requested = value; }} />));
+    expect(host.querySelector(".rrugc-stage0-detail-source-link")?.getAttribute("href"))
+      .toBe("https://www.etsy.com/listing/123456");
+    expect(host.querySelector(".rrugc-stage0-evidence")?.textContent).toContain("Unverified listing text");
+    expect(host.querySelector(".rrugc-stage0-metrics-pending")?.textContent).toContain("not been requested");
+    const button = Array.from(host.querySelectorAll("button"))
+      .find(node => node.textContent === "Check metrics with AEBrowse")!;
+    await act(async () => button.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(requested).toBe("Custom Embroidery");
     await act(async () => root.unmount());
   });
 });
@@ -106,6 +129,9 @@ describe("Keyword detail trend chart", () => {
     expect(host.querySelector('[role="tooltip"]')?.textContent).toContain("Mar 2026");
     expect(host.querySelector(".rrugc-stage0-detail-guide")).not.toBeNull();
     expect(host.querySelector(".rrugc-stage0-detail-source img")).not.toBeNull();
+    expect(host.querySelector(".rrugc-stage0-evidence-item")?.getAttribute("href")).toBe("https://www.etsy.com/listing/123456");
+    expect(host.querySelector(".rrugc-stage0-evidence")?.textContent).toContain("Custom Embroidery Hat");
+    expect(host.querySelector(".rrugc-stage0-detail-summary")?.textContent).toContain("CAM VPS · Agent-Reach Auto Discover");
     await act(async () => root.unmount());
   });
 });
