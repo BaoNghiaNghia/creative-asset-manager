@@ -55,6 +55,15 @@ function statusLabel(item: Stage2SkillRegistryItem) {
   return "Not synced";
 }
 
+function displayUploadVersion(item: Stage2SkillRegistryItem, runtimeVersion: string | null | undefined) {
+  if (!runtimeVersion) return "—";
+  const recorded = item.versions.find(v => v.version === runtimeVersion)?.upload_version;
+  const fallback = runtimeVersion === item.synced_version ? item.synced_upload_version
+    : runtimeVersion === item.default_version ? item.default_upload_version
+    : runtimeVersion === item.latest_version ? item.latest_upload_version : null;
+  return (recorded || fallback || runtimeVersion);
+}
+
 function defaultSelectedVersion(item: Stage2SkillRegistryItem) {
   return item.synced_version || item.default_version || item.latest_version || item.versions[0]?.version || "";
 }
@@ -362,7 +371,7 @@ export function SkillManagerModal({
                   <strong title={item.display_name}>{item.display_name}</strong>
                   <span className={"rrugc-skill-status is-" + state.toLowerCase().replaceAll(" ", "-")}><span className="rrugc-skill-status-dot" />{state}</span>
                 </div>
-                <div className="rrugc-skill-compact-subtitle"><span title={item.skill_name}>{item.skill_name}</span><span className="rrugc-skill-compact-divider">·</span><span>{hosted ? "OpenAI" : "Local"}</span><span className="rrugc-skill-compact-divider">·</span><span>{item.synced_version ? "v" + item.synced_version : item.versions.length ? item.versions.length + " versions" : "Bundled"}</span></div>
+                <div className="rrugc-skill-compact-subtitle"><span title={item.skill_name}>{item.skill_name}</span><span className="rrugc-skill-compact-divider">·</span><span>{hosted ? "OpenAI" : "Local"}</span><span className="rrugc-skill-compact-divider">·</span><span title={item.synced_version ? "Runtime version: " + item.synced_version : undefined}>{item.synced_upload_version ? "v" + item.synced_upload_version : item.synced_version ? "v" + displayUploadVersion(item, item.synced_version) : item.versions.length ? item.versions.length + " versions" : "Bundled"}</span></div>
                 {stages.length > 0 && <div className="rrugc-skill-stage-chips">{stages.map(([,label]) => <span key={label}><SkillIcon name="check" size={11} />{label} default</span>)}</div>}
                 {item.last_error && <small className="rrugc-skill-inline-error"><SkillIcon name="alert" size={12} />{item.last_error}</small>}
               </div>
@@ -401,9 +410,9 @@ export function SkillManagerModal({
               <div className="rrugc-skill-details-right">
                 <div className="rrugc-skill-details-section-title"><SkillIcon name="layers" size={15} /><strong>Versions & runtime</strong></div>
                 <div className="rrugc-skill-meta">
-                  <span>Default: {item.default_version ? "v" + item.default_version : "—"}</span>
-                  <span>Synced: {item.synced_version ? "v" + item.synced_version : "—"}</span>
-                  <span>Latest: {item.latest_version ? "v" + item.latest_version : "—"}</span>
+                  <span title={item.default_version ? "Runtime version: " + item.default_version : undefined}>Default: {item.default_version ? "v" + displayUploadVersion(item, item.default_version) : "—"}</span>
+                  <span title={item.synced_version ? "Runtime version: " + item.synced_version : "First indexed in CAM"}>{item.synced_version ? "Synced: " : "Recorded: "}{item.synced_upload_version ? "v" + item.synced_upload_version : item.synced_version ? "v" + displayUploadVersion(item, item.synced_version) : "—"}</span>
+                  <span title={item.latest_version ? "Runtime version: " + item.latest_version : undefined}>Latest: {item.latest_version ? "v" + displayUploadVersion(item, item.latest_version) : "—"}</span>
                 </div>
                 <div className="rrugc-skill-version-panel">
                   <label>
@@ -412,7 +421,7 @@ export function SkillManagerModal({
                       onChange={event => setSelectedVersions(current => ({ ...current, [item.id]: event.target.value }))}>
                       {!item.versions.length && <option value="">Bundled Skill · No managed versions</option>}
                       {item.versions.map(version => <option key={version.id} value={version.version}>
-                        {"v" + version.version}{version.is_default ? " · default" : ""}{version.is_synced ? " · synced" : ""}
+                        {"v" + (version.upload_version || version.version)}{version.is_default ? " · default" : ""}{version.is_synced ? " · synced" : ""}
                       </option>)}
                     </select>
                   </label>

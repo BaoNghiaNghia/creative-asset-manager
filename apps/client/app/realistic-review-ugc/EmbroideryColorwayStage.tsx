@@ -347,7 +347,7 @@ export function EmbroideryColorwayStage({
           {catalog.items.length === 0 && <option value="">{catalogLoading ? "Loading skills…" : "No skill available"}</option>}
           {catalog.items.map(skill => (
             <option key={skillKey(skill)} value={skillKey(skill)}>
-              {skill.display_name}{skill.ready ? "" : " · needs sync"}
+              {skill.display_name}{skill.upload_version ? " · v" + skill.upload_version : ""}{skill.ready ? "" : " · needs sync"}
             </option>
           ))}
         </select>
@@ -434,7 +434,7 @@ export function EmbroideryColorwayStage({
               <td>
                 <div className="rrugc-colorway-skill-state">
                   <span className={ready ? "is-ready" : "is-warning"}><i aria-hidden="true" />{ready ? "Ready" : "Needs skill"}</span>
-                  <strong>{selectedSkill?.display_name || "Select skill"}</strong>
+                  <strong>{selectedSkill?.display_name || "Select skill"}{selectedSkill?.upload_version ? " · v" + selectedSkill.upload_version : ""}</strong>
                   <small>{completed} completed · {inProgress} active · {failed} failed</small>
                 </div>
               </td>

@@ -471,7 +471,7 @@ export function KeywordImageStage({
         <span>Generation Skill</span>
         <select value={selectedSkillKey} onChange={event => setSelectedSkillKey(event.target.value)} disabled={catalogLoading || !readySkills.length} aria-label="Keyword generation Skill">
           {!readySkills.length && <option value="">{catalogLoading ? "Loading Skills…" : "No ready Skills"}</option>}
-          {readySkills.map(skill => <option key={skillKey(skill)} value={skillKey(skill)}>{skill.display_name || skill.skill_name}{skill.synced_version ? " · " + skill.synced_version : ""}</option>)}
+          {readySkills.map(skill => <option key={skillKey(skill)} value={skillKey(skill)}>{skill.display_name || skill.skill_name}{skill.upload_version || skill.synced_version ? " · " + (skill.upload_version || skill.synced_version) : ""}</option>)}
         </select>
       </label>
       <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => { setLoading(true); void refresh().catch(reason => { setLoading(false); setError(String(reason)); }); }} aria-label="Refresh keyword jobs" title="Refresh jobs" disabled={loading}>

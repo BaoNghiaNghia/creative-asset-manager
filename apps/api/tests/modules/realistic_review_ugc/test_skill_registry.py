@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -48,6 +49,65 @@ def _catalog_item() -> stage2_skills.Stage2SkillItem:
         version_options=("1",),
     )
 
+
+
+def test_registry_uses_upload_time_version_without_changing_runtime_version():
+    from app.modules.realistic_review_ugc.skill_registry import upload_time_version
+    assert upload_time_version(datetime(2026, 10, 12, 11, 39, tzinfo=timezone.utc)) == "18_39_12_10_26"
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            row = RrugcStage2SkillRegistryModel(
+                tenant_id="tenant-a", source="local", skill_name="hat-studio",
+                display_name="Hat Studio", default_version="1.2.0",
+                latest_version="1.2.0", synced_version="1.2.0",
+            )
+            session.add(row)
+            session.flush()
+            session.add(RrugcStage2SkillVersionModel(
+                tenant_id="tenant-a", registry_id=row.id, version="1.2.0",
+                is_synced=True, is_default=True,
+                created_at=datetime(2026, 10, 12, 11, 39, tzinfo=timezone.utc),
+            ))
+            session.flush()
+            payload = skill_registry.registry_payload(session, row)
+            assert payload["synced_version"] == "1.2.0"
+            assert payload["synced_upload_version"] == "18_39_12_10_26"
+            assert payload["latest_upload_version"] == "18_39_12_10_26"
+            assert payload["versions"][0]["version"] == "1.2.0"
+            assert payload["versions"][0]["upload_version"] == "18_39_12_10_26"
+    finally:
+        engine.dispose()
+
+
+def test_changed_bundle_reupload_updates_timestamp_even_when_embedded_version_is_same():
+    from app.modules.realistic_review_ugc.skill_registry import upload_time_version
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            row = RrugcStage2SkillRegistryModel(
+                tenant_id="tenant-a", source="local", skill_name="hat-studio",
+                display_name="Hat Studio", synced_version="1.2.0", default_version="1.2.0",
+                latest_version="1.2.0", bundle_sha256="b" * 64,
+            )
+            session.add(row)
+            session.flush()
+            first_upload = datetime(2026, 10, 12, 10, 18, tzinfo=timezone.utc)
+            session.add(RrugcStage2SkillVersionModel(
+                tenant_id="tenant-a", registry_id=row.id, version="1.2.0",
+                bundle_sha256="a" * 64, created_at=first_upload,
+            ))
+            session.flush()
+            second_upload = datetime(2026, 10, 12, 11, 39, tzinfo=timezone.utc)
+            skill_registry._record_uploaded_bundle(session, row=row, uploaded_at=second_upload)
+            assert skill_registry.registry_payload(session, row)["synced_upload_version"] == "18_39_12_10_26"
+            skill_registry._sync_versions(session, row=row, versions=("1.2.0",))
+            current = skill_registry.registry_payload(session, row)
+            assert current["synced_upload_version"] == "18_39_12_10_26"
+            assert current["versions"][0]["bundle_sha256"] == "b" * 64
+            assert upload_time_version(first_upload) == "17_18_12_10_26"
+    finally:
+        engine.dispose()
 
 
 def test_hosted_zip_replaces_active_default_and_syncs_runtime(monkeypatch):

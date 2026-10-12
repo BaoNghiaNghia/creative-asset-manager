@@ -363,6 +363,8 @@ export type Stage2Skill = {
   keyword_artwork_ready: boolean;
   sync_state: "ready" | "not_synced" | "update_available" | "local_conflict";
   version_options: string[];
+  upload_version?: string | null;
+  version_labels?: Record<string, string>;
 };
 
 export type Stage2SkillCatalog = {
@@ -383,6 +385,7 @@ export type Stage2SkillSelection = {
 export type Stage2SkillRegistryVersion = {
   id: string;
   version: string;
+  upload_version?: string | null;
   is_default: boolean;
   is_synced: boolean;
   status: string;
@@ -403,6 +406,9 @@ export type Stage2SkillRegistryItem = {
   default_version: string | null;
   latest_version: string | null;
   synced_version: string | null;
+  synced_upload_version?: string | null;
+  default_upload_version?: string | null;
+  latest_upload_version?: string | null;
   sync_state: string;
   validation_status: string;
   bundle_sha256: string | null;

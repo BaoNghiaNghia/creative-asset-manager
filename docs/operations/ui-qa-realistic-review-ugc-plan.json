@@ -97,6 +97,11 @@
           "type": "no-horizontal-overflow",
           "selector": ".rrugc-keyword-gen-volume",
           "maxPx": 1
+        },
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-keyword-gen-skill select",
+          "value": "18_39_12_10_26"
         }
       ]
     },

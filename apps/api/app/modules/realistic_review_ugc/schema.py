@@ -834,6 +834,8 @@ class Stage2SkillResponse(BaseModel):
     keyword_artwork_ready: bool = False
     sync_state: Literal["ready", "not_synced", "update_available", "local_conflict"]
     version_options: list[str] = Field(default_factory=list)
+    upload_version: str | None = None
+    version_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class Stage2SkillCatalogResponse(BaseModel):
@@ -851,6 +853,7 @@ class Stage2SkillSyncRequest(BaseModel):
 class Stage2SkillRegistryVersionResponse(BaseModel):
     id: str
     version: str
+    upload_version: str | None = None
     is_default: bool
     is_synced: bool
     status: str
@@ -871,6 +874,9 @@ class Stage2SkillRegistryItemResponse(BaseModel):
     default_version: str | None = None
     latest_version: str | None = None
     synced_version: str | None = None
+    synced_upload_version: str | None = None
+    default_upload_version: str | None = None
+    latest_upload_version: str | None = None
     sync_state: str
     validation_status: str
     bundle_sha256: str | None = None

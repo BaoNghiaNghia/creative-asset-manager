@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import json
 from typing import Any
 from uuid import uuid4
@@ -36,6 +37,38 @@ from app.modules.realistic_review_ugc.stage2_skills import (
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def upload_time_version(value: datetime | None) -> str | None:
+    """Display the upload/first-indexed minute in Vietnam local time.
+
+    Runtime skill versions remain unchanged: OpenAI and local runners require
+    their original version IDs. The time-based label is presentation metadata.
+    """
+    if value is None:
+        return None
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).strftime("%H_%M_%d_%m_%y")
+
+
+def _record_uploaded_bundle(
+    session: Session, *, row: RrugcStage2SkillRegistryModel, uploaded_at: datetime,
+) -> None:
+    """Stamp the installed runtime version after an actual changed ZIP upload.
+
+    Provider refreshes must not change this timestamp. Re-uploading altered
+    content with the same embedded semantic version creates a new visible
+    time-based release without changing the worker's runtime version string.
+    """
+    if not row.synced_version:
+        return
+    version = _version_row(
+        session, tenant_id=row.tenant_id, registry_id=row.id,
+        version=row.synced_version,
+    )
+    if version is not None:
+        version.created_at = uploaded_at
+        version.bundle_sha256 = row.bundle_sha256
 
 
 def _audit(
@@ -286,6 +319,10 @@ def registry_payload(
         tenant_id=row.tenant_id,
         registry_id=row.id,
     )
+    labels = {v.version: upload_time_version(v.created_at) for v in versions}
+    # Bundled Skills imported before CAM tracked uploads have a first-indexed
+    # timestamp, not a verified original upload time.
+    fallback = upload_time_version(row.created_at)
     return {
         "id": row.id,
         "source": row.source,
@@ -299,6 +336,9 @@ def registry_payload(
         "default_version": row.default_version,
         "latest_version": row.latest_version,
         "synced_version": row.synced_version,
+        "synced_upload_version": labels.get(row.synced_version) or fallback,
+        "default_upload_version": labels.get(row.default_version) or fallback,
+        "latest_upload_version": labels.get(row.latest_version) or fallback,
         "sync_state": row.sync_state,
         "validation_status": row.validation_status,
         "bundle_sha256": row.bundle_sha256,
@@ -307,6 +347,7 @@ def registry_payload(
             {
                 "id": version.id,
                 "version": version.version,
+                "upload_version": labels[version.version],
                 "is_default": bool(version.is_default),
                 "is_synced": bool(version.is_synced),
                 "status": version.status,
@@ -431,6 +472,7 @@ def create_skill(
         existing.updated_by_user_id = actor_id
         existing.updated_at = utcnow()
         _sync_versions(session, row=existing, versions=item.version_options)
+        _record_uploaded_bundle(session, row=existing, uploaded_at=utcnow())
         _audit(
             session, tenant_id=tenant_id, actor_id=actor_id,
             action="stage2_skill.local_bundle_updated",
@@ -462,6 +504,7 @@ def create_skill(
         versions=item.version_options,
     )
     row.bundle_sha256 = bundle.bundle_sha256
+    _record_uploaded_bundle(session, row=row, uploaded_at=utcnow())
     row.created_by_user_id = actor_id
     row.updated_by_user_id = actor_id
     _audit(
@@ -570,6 +613,7 @@ def update_local_keyword_artwork_skill(
     row.updated_by_user_id = actor_id
     row.updated_at = utcnow()
     _sync_versions(session, row=row, versions=item.version_options)
+    _record_uploaded_bundle(session, row=row, uploaded_at=utcnow())
 
     default = session.get(RrugcStageSkillDefaultModel, (tenant_id, "stage1"))
     if default is None:
@@ -648,6 +692,7 @@ def create_skill_version(
     )
     if version_row is not None:
         version_row.bundle_sha256 = bundle.bundle_sha256
+        version_row.created_at = utcnow()
     _audit(
         session,
         tenant_id=tenant_id,

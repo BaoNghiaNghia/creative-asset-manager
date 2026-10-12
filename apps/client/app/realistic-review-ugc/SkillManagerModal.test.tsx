@@ -44,6 +44,44 @@ vi.mock("./api", async (importOriginal) => ({
 
 afterEach(() => { document.body.replaceChildren(); });
 
+describe("Upload-time Skill versions", () => {
+  it("shows hh_mm_dd_mm_yy as the release version but retains runtime IDs for controls", async () => {
+    vi.mocked(listStage2SkillRegistry).mockResolvedValueOnce({
+      can_manage: true,
+      stage_defaults: {},
+      items: [{
+        id: "time-based-skill", source: "local", skill_id: null,
+        skill_name: "gatorhats-stage1-six-designs",
+        display_name: "GatorHats Stage 1", description: "",
+        note: "", workflow: "image_studio", enabled: true,
+        default_version: "1.2.0", latest_version: "1.2.0", synced_version: "1.2.0",
+        default_upload_version: "18_39_12_10_26",
+        latest_upload_version: "18_39_12_10_26",
+        synced_upload_version: "18_39_12_10_26",
+        sync_state: "ready", validation_status: "valid",
+        bundle_sha256: null, last_error: null,
+        versions: [{id:"v1", version:"1.2.0", upload_version:"18_39_12_10_26",
+          status:"available", is_default:true, is_synced:true, bundle_sha256:null,
+          created_at:"2026-10-12T11:39:00Z"}],
+        created_at: "", updated_at: "",
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.querySelector(".rrugc-skill-compact-subtitle")?.textContent).toContain("v18_39_12_10_26");
+    const details = host.querySelector<HTMLButtonElement>(".rrugc-skill-details-toggle")!;
+    await act(async () => details.click());
+    const select = host.querySelector<HTMLSelectElement>(".rrugc-skill-version-panel select")!;
+    expect(select.options[0].textContent).toContain("v18_39_12_10_26");
+    expect(select.options[0].value).toBe("1.2.0");
+    expect(host.querySelector(".rrugc-skill-meta")?.textContent).toContain("18_39_12_10_26");
+    await act(async () => root.unmount());
+  });
+});
+
 describe("SkillManagerModal compact redesign", () => {
   it("shows compact cards, compatible Stage 1 defaults, expandable details and upload", async () => {
     const host = document.createElement("div");

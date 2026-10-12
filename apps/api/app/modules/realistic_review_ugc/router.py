@@ -4753,7 +4753,7 @@ def list_stage2_skills(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    ensure_skill_registry(
+    registry_rows = ensure_skill_registry(
         session,
         tenant_id=principal.active_tenant_id,
         actor_id=principal.user_id if refresh and _can_manage_stage2_skills(principal) else None,
@@ -4765,12 +4765,27 @@ def list_stage2_skills(
         tenant_id=principal.active_tenant_id,
         catalog_items=catalog.items,
     )
+    version_metadata = {
+        (row.source, row.skill_name): registry_payload(session, row)
+        for row in registry_rows
+    }
+    responses = []
+    for item in items:
+        metadata = version_metadata.get((item.source, item.skill_name), {})
+        responses.append(_stage2_skill(item).model_copy(update={
+            "upload_version": metadata.get("synced_upload_version"),
+            "version_labels": {
+                version["version"]: version["upload_version"]
+                for version in metadata.get("versions", [])
+                if version.get("upload_version")
+            },
+        }))
     return Stage2SkillCatalogResponse(
         stage_defaults=stage_skill_defaults(session, tenant_id=principal.active_tenant_id),
         openai_configured=catalog.openai_configured,
         openai_status=catalog.openai_status,
         error_code=catalog.error_code,
-        items=[_stage2_skill(item) for item in items],
+        items=responses,
     )
 
 

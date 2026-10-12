@@ -593,7 +593,7 @@ function versionLabel(skill: Stage2Skill, version: string) {
   if (version === skill.default_version) badges.push("default");
   if (version === skill.latest_version && version !== skill.default_version) badges.push("latest");
   if (version === skill.synced_version) badges.push("synced");
-  return "v" + version + (badges.length ? " · " + badges.join(" / ") : "");
+  return "v" + (skill.version_labels?.[version] || version) + (badges.length ? " · " + badges.join(" / ") : "");
 }
 
 function Stage2SkeletonRows({ count }: { count: number }) {
