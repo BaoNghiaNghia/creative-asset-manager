@@ -260,7 +260,7 @@ export function SkillManagerModal({
         <div className="rrugc-skill-modal-summary">
           <span className="rrugc-skill-summary-total"><SkillIcon name="layers" size={13} />{registry.items.length} skills</span>
           <span className="rrugc-skill-summary-active"><SkillIcon name="check" size={13} />{enabledCount} enabled</span>
-          <span className="rrugc-skill-summary-role">{registry.can_manage ? "Admin" : "Read only"}</span>
+          <span className="rrugc-skill-summary-role">{registry.can_manage ? "Manage access" : "Read only"}</span>
         </div>
         <button type="button" onClick={() => void reload(true)} disabled={loading || Boolean(busyKey)} className="rrugc-skill-refresh"><SkillIcon name="refresh" size={14} />{loading ? "Refreshing…" : "Refresh"}</button>
       </div>

@@ -52,6 +52,7 @@ describe("SkillManagerModal compact redesign", () => {
     await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
+    expect(host.querySelector(".rrugc-skill-summary-role")?.textContent).toBe("Manage access");
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-skill-delete-icon")).toHaveLength(2);
     expect(host.querySelector('button[aria-label="Delete skill GatorHats · Keyword Embroidery"]')).not.toBeNull();

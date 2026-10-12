@@ -352,9 +352,15 @@ RUN = require_permission("realistic_review_ugc.run")
 
 
 def _can_manage_stage2_skills(principal: CurrentPrincipal) -> bool:
+    """Skills belong to RRUGC, not to tenant-wide role administration.
+
+    Viewer/operator roles already receive realistic_review_ugc.configure in the
+    tenant RBAC seed. Honor this scoped capability consistently in both the
+    registry's can_manage response and all Skill mutation endpoints.
+    """
     return bool(
         principal.platform_admin
-        or "tenant_admin" in principal.effective_roles
+        or "realistic_review_ugc.configure" in principal.effective_permissions
     )
 
 
@@ -364,8 +370,9 @@ def _require_stage2_skill_admin(principal: CurrentPrincipal) -> None:
     raise HTTPException(
         status_code=403,
         detail={
-            "code": "stage2_skill_admin_required",
-            "message": "Tenant admin access is required to manage Stage 2 skills.",
+            "code": "rrugc_configure_permission_required",
+            "message": "Realistic Review UGC configure permission is required to manage workflow Skills.",
+            "required_permission": "realistic_review_ugc.configure",
         },
     )
 
