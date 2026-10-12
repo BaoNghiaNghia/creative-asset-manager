@@ -526,6 +526,46 @@ def refresh_material_candidate_evidence(
     return result
 
 
+class EquivalentCandidateApprovalRequest(BaseModel):
+    item_id: str = Field(min_length=1)
+    expected_count: int = Field(ge=2, le=100)
+
+
+@router.post("/materials/candidates/{candidate_id}/approve-equivalent")
+def approve_equivalent_material_candidates(
+    candidate_id: str,
+    body: EquivalentCandidateApprovalRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION)),
+):
+    """Explicitly approve only one exact-source name/category group."""
+    with SessionLocal() as session:
+        try:
+            outcome = MaterialRegistry(session).approve_equivalent(
+                principal.active_tenant_id, candidate_id=candidate_id,
+                item_id=body.item_id, actor_id=principal.actor_id,
+                expected_count=body.expected_count,
+            )
+            session.commit()
+            _REGISTRY_LOGGER.info(
+                "material_candidate_group_approved",
+                extra={
+                    "tenant_id":principal.active_tenant_id,
+                    "actor_id":principal.actor_id,
+                    "candidate_id":candidate_id,
+                    "material_id":body.item_id,
+                    "count":outcome["approved"],
+                },
+            )
+            return outcome
+        except LookupError as exc:
+            session.rollback()
+            raise HTTPException(404, detail={"code": str(exc)}) from exc
+        except (ValueError, IntegrityError) as exc:
+            session.rollback()
+            code = str(exc) if isinstance(exc, ValueError) else "material_group_conflict"
+            raise HTTPException(409, detail={"code": code}) from exc
+
+
 @router.post("/materials/candidates/{candidate_id}/approve")
 def approve_material_candidate(candidate_id: str, body: MaterialApprovalRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
     with SessionLocal() as session:

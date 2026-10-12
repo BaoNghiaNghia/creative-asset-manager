@@ -126,6 +126,70 @@ def test_create_warehouse_requires_explicit_name_and_code_and_is_tenant_scoped(s
         assert registry.readiness("tenant-a")["active_warehouses"] == 1
 
 
+def test_batch_equivalent_candidate_confirmation_requires_exact_name_category_and_source(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        milk = item(session, name="Milk Reference", sku="MILK")
+        other = item(session, name="Whipping cream", sku="CREAM")
+        pending = []
+        for key, name, category, source, tenant in (
+            ("31", "Sữa tươi", "Milk", "sheet-1", "tenant-a"),
+            ("32", "SUA TUOI", "Milk", "sheet-1", "tenant-a"),
+            ("33", "Sữa tươi", "Topping", "sheet-1", "tenant-a"),
+            ("34", "Sữa tươi", "Milk", "sheet-other", "tenant-a"),
+            ("35", "Sữa tươi", "Milk", "sheet-1", "tenant-b"),
+        ):
+            r = resolve(registry, name=name, key=key, tenant=tenant)
+            pending.append(registry.queue_candidate(
+                tenant, source_id=source, external_key=key, raw_name=name,
+                category=category, source_row=int(key), sheet="Daily",
+                resolution=r,
+            ))
+        session.flush()
+        groups = registry.readiness("tenant-a")["batch_groups"]
+        assert len(groups) == 1
+        assert groups[0]["count"] == 2
+        assert groups[0]["source_id"] == "sheet-1"
+        assert groups[0]["category"] == "Milk"
+        outcome = registry.approve_equivalent(
+            "tenant-a", candidate_id=pending[0].id, item_id=milk.id,
+            actor_id="admin", expected_count=2,
+        )
+        assert outcome == {"item_id": milk.id, "approved": 2}
+        session.flush()
+        assert [p.status for p in pending] == [
+            "approved", "approved", "new_material", "new_material", "new_material",
+        ]
+        assert registry.resolve("tenant-a", source_id="sheet-1", external_key="32",
+                                raw_name="SUA TUOI", category="Milk", source_row=32,
+                                sheet="Daily").material_id == milk.id
+        assert session.get(InventoryItemModel, other.id).active
+
+
+def test_batch_equivalent_candidate_confirmation_rejects_stale_count_and_foreign_item(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        foreign = item(session, tenant="tenant-b", name="Milk Reference", sku="MILK")
+        r = resolve(registry, name="Sữa tươi", key="31")
+        c = registry.queue_candidate(
+            "tenant-a", source_id="sheet-1", external_key="31",
+            raw_name="Sữa tươi", category="Milk", source_row=31,
+            sheet="Daily", resolution=r,
+        )
+        session.flush()
+        with pytest.raises(LookupError, match="material_not_found"):
+            registry.approve_equivalent(
+                "tenant-a", candidate_id=c.id, item_id=foreign.id,
+                actor_id="admin", expected_count=1,
+            )
+        with pytest.raises(ValueError, match="candidate_group_changed"):
+            registry.approve_equivalent(
+                "tenant-a", candidate_id=c.id, item_id="unused",
+                actor_id="admin", expected_count=2,
+            )
+        assert c.status == "new_material"
+
+
 def test_material_readiness_no_implicit_warehouse_or_material_creation(sessions):
     with sessions() as session:
         summary = MaterialRegistry(session).readiness("tenant-a")

@@ -47,6 +47,28 @@ class MaterialRegistry:
             group["count"]+=1
             group["statuses"].add(candidate.status)
         ranked=sorted(groups.values(),key=lambda row:(-row["count"],row["normalized_name"]))
+        # Actionable groups are narrower than diagnostic name counts: never
+        # batch-approve rows across workbook, category, sheet or tenant.
+        exact_groups:dict[tuple[str,str,str,str],list[Any]]={}
+        for candidate in candidates:
+            group_key=(
+                candidate.source_id,candidate.sheet,
+                normalize_material_text(candidate.category),
+                normalize_material_text(candidate.raw_name),
+            )
+            exact_groups.setdefault(group_key,[]).append(candidate)
+        batch_groups=[
+            {
+                "candidate_id":rows[0].id,
+                "source_id":source_id,"sheet":sheet,"category":rows[0].category,
+                "normalized_name":normalized,"sample_name":rows[0].raw_name,
+                "count":len(rows),
+            }
+            for (source_id,sheet,category,normalized),rows in exact_groups.items()
+            if len(rows)>1 and len(rows)<=100
+            and len({row.suggested_item_id for row in rows if row.suggested_item_id})<=1
+        ]
+        batch_groups.sort(key=lambda row:(-row["count"],row["normalized_name"],row["source_id"]))
         blockers=[]
         if not materials:blockers.append("missing_material_registry")
         if not active_locations:blockers.append("missing_warehouse_registry")
@@ -61,6 +83,7 @@ class MaterialRegistry:
                 "normalized_name":row["normalized_name"],"sample_name":row["sample_name"],
                 "count":row["count"],"statuses":sorted(row["statuses"]),
             } for row in ranked[:100]],
+            "batch_groups":batch_groups[:100],
             "warehouses":[{"id":row.id,"code":row.code,"name":row.name,"active":row.active}
                           for row in locations],
             "ready_for_carry_forward":not blockers,
@@ -127,6 +150,43 @@ class MaterialRegistry:
         elif context and row.status in {"new_material","possible_rename","ambiguous"}:
             row.context_json={**dict(row.context_json or {}),**dict(context)}
         return row
+    def approve_equivalent(
+        self, tenant_id: str, *, candidate_id: str, item_id: str,
+        actor_id: str | None, expected_count: int,
+    ) -> dict[str, Any]:
+        """Confirm pending rows with identical normalized name/category and source.
+
+        The count is an optimistic concurrency gate: never approve unseen rows.
+        Callers must explicitly select the destination material and commit.
+        """
+        seed = self.session.scalar(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id == tenant_id,
+            InventoryMaterialCandidateModel.id == candidate_id,
+        ).with_for_update())
+        if seed is None or seed.status not in {"new_material", "possible_rename", "ambiguous"}:
+            raise LookupError("material_candidate_not_pending")
+        candidates = list(self.session.scalars(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id == tenant_id,
+            InventoryMaterialCandidateModel.source_id == seed.source_id,
+            InventoryMaterialCandidateModel.sheet == seed.sheet,
+            InventoryMaterialCandidateModel.status.in_(("new_material", "possible_rename", "ambiguous")),
+        ).order_by(InventoryMaterialCandidateModel.id).with_for_update()))
+        group = [
+            c for c in candidates
+            if normalize_material_text(c.raw_name) == normalize_material_text(seed.raw_name)
+            and normalize_material_text(c.category) == normalize_material_text(seed.category)
+        ]
+        if not 1 <= expected_count <= 100 or len(group) != expected_count:
+            raise ValueError("candidate_group_changed")
+        material = self._item(tenant_id, item_id)
+        if material is None:
+            raise LookupError("material_not_found")
+        if any(c.suggested_item_id and c.suggested_item_id != item_id for c in group):
+            raise ValueError("candidate_conflicting_suggestion")
+        for candidate in group:
+            self.approve(tenant_id, candidate.id, actor_id=actor_id, item_id=item_id)
+        return {"item_id": material.id, "approved": len(group)}
+
     def approve(
         self,
         tenant_id: str,

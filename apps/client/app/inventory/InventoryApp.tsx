@@ -22,7 +22,7 @@ const INVENTORY_DIMENSION_DEFAULT_UNITS:Record<string,string>={mass:"g",volume:"
 export function inventoryMaterialDraftReady(draft:InventoryMaterialDraft|undefined){return Boolean(draft?.canonicalDimension&&draft.preferredUnit.trim())}
 export function MaterialsPage(){
   const [readiness,setReadiness]=useState<InventoryRegistryReadiness|null>(null),[warehouseCode,setWarehouseCode]=useState(""),[warehouseName,setWarehouseName]=useState("");
-  const [items,setItems]=useState<InventoryMaterial[]>([]),[candidates,setCandidates]=useState<InventoryMaterialCandidate[]>([]),[error,setError]=useState(""),[loading,setLoading]=useState(true),[busyId,setBusyId]=useState<string|null>(null),[query,setQuery]=useState(""),[candidateMappings,setCandidateMappings]=useState<Record<string,string>>({}),[candidateDefinitions,setCandidateDefinitions]=useState<Record<string,InventoryMaterialDraft>>({});
+  const [items,setItems]=useState<InventoryMaterial[]>([]),[candidates,setCandidates]=useState<InventoryMaterialCandidate[]>([]),[error,setError]=useState(""),[loading,setLoading]=useState(true),[busyId,setBusyId]=useState<string|null>(null),[query,setQuery]=useState(""),[candidateMappings,setCandidateMappings]=useState<Record<string,string>>({}),[batchMappings,setBatchMappings]=useState<Record<string,string>>({}),[candidateDefinitions,setCandidateDefinitions]=useState<Record<string,InventoryMaterialDraft>>({});
   const load=async()=>{setError("");try{const [materials,pending,registry]=await Promise.all([inventoryMaterialApi.list(),inventoryMaterialApi.candidates(),inventoryMaterialApi.readiness()]);setItems(materials.items);setCandidates(pending.items);setReadiness(registry)}catch(e){setError(e instanceof Error?e.message:"Không thể tải danh mục vật tư")}finally{setLoading(false)}};
   useEffect(()=>{void load()},[]);
   useEffect(()=>{setCandidateDefinitions(current=>{let changed=false;const next={...current};for(const candidate of candidates){const evidence=candidate.review_evidence;if(next[candidate.id]||!evidence?.suggested_preferred_unit||!evidence.suggested_canonical_dimension)continue;next[candidate.id]={canonicalDimension:evidence.suggested_canonical_dimension,preferredUnit:evidence.suggested_preferred_unit};changed=true}return changed?next:current})},[candidates]);
@@ -36,6 +36,16 @@ export function MaterialsPage(){
     });
   };
   const approve=(candidate:InventoryMaterialCandidate,itemId:string)=>perform(candidate.id,()=>inventoryMaterialApi.approve(candidate.id,{item_id:itemId}));
+  const approveBatch=(group:InventoryRegistryReadiness["batch_groups"][number])=>{
+    const materialId=batchMappings[group.candidate_id];
+    const material=items.find(item=>item.material_id===materialId&&item.active);
+    if(!material)return;
+    const confirmed=window.confirm(`Xác nhận ghép ${group.count} dòng "${group.sample_name}" trên Sheet ${group.sheet} (nhóm ${group.category||"—"}) với vật tư "${material.canonical_name}"? Không sửa số tồn trong Google Sheets.`);
+    if(!confirmed)return;
+    void perform("__batch__"+group.candidate_id,()=>inventoryMaterialApi.approveEquivalent(
+      group.candidate_id,{item_id:materialId,expected_count:group.count},
+    ));
+  };
   const updateCandidateDimension=(candidateId:string,canonicalDimension:string)=>setCandidateDefinitions(current=>{const previous=current[candidateId];return {...current,[candidateId]:{canonicalDimension,preferredUnit:previous?.preferredUnit||INVENTORY_DIMENSION_DEFAULT_UNITS[canonicalDimension]||""}}});
   const updateCandidateUnit=(candidateId:string,preferredUnit:string)=>setCandidateDefinitions(current=>({...current,[candidateId]:{canonicalDimension:current[candidateId]?.canonicalDimension||"",preferredUnit}}));
   const createMaterial=(candidate:InventoryMaterialCandidate,canonicalName?:string)=>{const definition=candidateDefinitions[candidate.id];if(!inventoryMaterialDraftReady(definition)){setError("Chọn quy cách và đơn vị chuẩn trước khi tạo vật tư mới.");return}void perform(candidate.id,()=>inventoryMaterialApi.approve(candidate.id,{canonical_name:canonicalName||candidate.suggested_canonical_name||candidate.raw_name,preferred_unit:definition.preferredUnit.trim(),canonical_dimension:definition.canonicalDimension}))};
@@ -80,6 +90,21 @@ export function MaterialsPage(){
         </div>
         <small>Không tự tạo kho từ AI. Danh mục này không tự ghi dữ liệu vào Sheet.</small>
       </div>
+      {readiness.batch_groups?.length>0?<details className="inventory-batch-approval">
+        <summary>Ghép các dòng trùng tên đã kiểm tra ({readiness.batch_groups.length} nhóm)</summary>
+        <p>Chỉ ghép cùng nguồn, Sheet, nhóm vật tư và tên chuẩn hóa. Phải chọn vật tư đích và xác nhận từng nhóm.</p>
+        <div className="inventory-batch-approval-list">
+          {readiness.batch_groups.map(group=><div key={group.candidate_id} className="inventory-batch-approval-row">
+            <div><strong>{group.sample_name}</strong><small>{group.sheet} · {group.category||"Chưa phân loại"} · {group.count} dòng</small></div>
+            <select aria-label={"Vật tư đích cho "+group.sample_name} value={batchMappings[group.candidate_id]||""} onChange={e=>setBatchMappings(current=>({...current,[group.candidate_id]:e.target.value}))}>
+              <option value="">Chọn vật tư đã xác nhận…</option>
+              {items.filter(item=>item.active).map(item=><option key={item.material_id} value={item.material_id}>{item.canonical_name}</option>)}
+            </select>
+            <button type="button" disabled={!batchMappings[group.candidate_id]||busyId==="__batch__"+group.candidate_id}
+              onClick={()=>approveBatch(group)}>Xác nhận ghép {group.count} dòng</button>
+          </div>)}
+        </div>
+      </details>:null}
       {readiness.candidate_groups.length>0?<details><summary>Nhóm tên vật tư chờ duyệt ({readiness.distinct_candidate_names})</summary>
         <ul>{readiness.candidate_groups.map(group=><li key={group.normalized_name}>{group.sample_name} · {group.count} dòng</li>)}</ul>
       </details>:null}

@@ -32,6 +32,22 @@ warehouse does **not** write or reset a Google Sheet, does not certify its physi
 identity, and cannot repair historical Morning Resets. Validate any entered
 warehouse code/name against the actual source workbook before approving mappings.
 
+Pending rows can now be approved in a strictly scoped group via
+`POST /api/inventory/materials/candidates/{candidate_id}/approve-equivalent`.
+The reviewer must choose an existing, active, same-tenant material and confirm
+the displayed count; the server locks/rechecks every matching candidate by
+tenant, source file, worksheet, normalized name and normalized category.
+Changes to the group count, foreign material IDs and conflicting suggestions
+fail closed. A successful action creates approved aliases/external identities
+only—**no Google Sheets mutations or quantity changes**. The Materials screen
+shows actionable groups separately from global name-duplicate statistics.
+
+The isolated V4 write/readback regression uses two independent in-memory
+workbooks. It verifies that a staged exact-copy edit changes only the test
+copy, and that mismatching readback fails instead of being reported as a
+verified write. It is **not** evidence of live Google Sheets write access;
+that still requires a separately authorized disposable workbook test.
+
 For live Agent V4 `apply_mode=auto`, an empty plan with only a generic
 metadata/structural observation is now `review_required` with an
 `no_actionable_assessment` issue rather than a misleading `completed`

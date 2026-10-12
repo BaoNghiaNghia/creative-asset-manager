@@ -124,6 +124,79 @@ class FakeGoogle:
         self.mutation_calls.append("clear")
 
 
+class IsolatedCopyGoogle(FakeGoogle):
+    """Two logical workbooks. Only the review copy can receive mutations."""
+    def __init__(self):
+        super().__init__()
+        self.workbooks = {
+            "source-master": deepcopy(self.values),
+            "review-copy": deepcopy(self.values),
+        }
+        self.mutated_files = []
+
+    def batch_get_values(self, file_id, ranges, *, value_render_option="UNFORMATTED_VALUE"):
+        self.batch_get_calls.append((tuple(ranges), value_render_option))
+        data = self.formulas if value_render_option == "FORMULA" else self.workbooks[file_id]
+        return [{"range": key, "values": deepcopy(data.get(key, []))} for key in ranges]
+
+    def batch_update_values(self, file_id, updates):
+        assert file_id == "review-copy", "source workbook must never receive writes"
+        self.mutated_files.append(file_id)
+        for update in updates:
+            self.workbooks[file_id][update["range"]] = deepcopy(update["values"])
+
+
+def test_verified_apply_to_isolated_copy_leaves_source_untouched():
+    tools = host()
+    tools.google = IsolatedCopyGoogle()
+    tools.spreadsheet_file_id = "review-copy"
+    target = tools.read_range({"sheet": "Arbitrary", "a1_range": "C7"})["cells"][0]
+    source = tools.read_range({"sheet": "Arbitrary", "a1_range": "D7"})["cells"][0]
+    submit_grounded_assessment(tools, target)
+    staged = tools.stage_edits({
+        "status": "ready",
+        "operations": [{
+            "operation_id": "exact-copy-on-review-copy",
+            "type": "set_cell",
+            "sheet": "Arbitrary",
+            "cell": "C7",
+            "value": "10",
+            "evidence": [reference(target), reference(source)],
+            "provenance": "exact_copy",
+            "copy_from": reference(source),
+        }],
+    })
+    assert staged["status"] == "ready"
+    assert not tools.google.mutated_files
+    outcome = tools.apply_staged()
+    assert outcome["status"] == "completed"
+    assert outcome["writes"] == 1
+    assert outcome["verification_status"] == "verified"
+    assert tools.google.workbooks["review-copy"]["'Arbitrary'!C7"] == [["10"]]
+    assert tools.google.workbooks["source-master"]["'Arbitrary'!C7"] == [["alpha"]]
+    assert tools.google.mutated_files == ["review-copy"]
+
+
+def test_copy_write_with_invalid_readback_is_not_counted_verified():
+    tools = host()
+    google = IsolatedCopyGoogle()
+    tools.google = google
+    tools.spreadsheet_file_id = "review-copy"
+    target = tools.read_range({"sheet": "Arbitrary", "a1_range": "C7"})["cells"][0]
+    source = tools.read_range({"sheet": "Arbitrary", "a1_range": "D7"})["cells"][0]
+    submit_grounded_assessment(tools, target)
+    tools.stage_edits({"status": "ready", "operations": [{
+        "operation_id": "exact-copy-readback-check",
+        "type": "set_cell", "sheet": "Arbitrary", "cell": "C7",
+        "value": "10", "evidence": [reference(target), reference(source)],
+        "provenance": "exact_copy", "copy_from": reference(source),
+    }]})
+    google.batch_update_values = lambda *_args: google.mutated_files.append("review-copy")
+    with pytest.raises(V4AgentSafetyError, match="set_readback_verification_failed"):
+        tools.apply_staged()
+    assert tools.google.workbooks["source-master"]["'Arbitrary'!C7"] == [["alpha"]]
+
+
 class FakeSession:
     def __init__(self, control=None, material_ids=()):
         self.control = control
