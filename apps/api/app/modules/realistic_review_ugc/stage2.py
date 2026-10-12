@@ -677,10 +677,8 @@ class RrugcStage2GenerateJobHandler:
                 context,
                 exc.code,
                 str(exc),
-                terminal=(not retryable or (
-                    exc.defer_seconds is None
-                    and context.job.attempt_count >= context.job.max_attempts
-                )),
+                terminal=not retryable,
+                deferred=exc.defer_seconds is not None,
             )
             if exc.defer_seconds is not None:
                 return DeferredJobOutcome(
@@ -697,20 +695,14 @@ class RrugcStage2GenerateJobHandler:
         except (RrugcGenerationHandlerError, StorageProviderError) as exc:
             code = getattr(exc, "code", "stage2_reference_unavailable")
             retryable = bool(getattr(exc, "retryable", True))
-            self._mark_failure(
-                context, code, str(exc),
-                terminal=(not retryable or context.job.attempt_count >= context.job.max_attempts),
-            )
+            self._mark_failure(context, code, str(exc), terminal=not retryable)
             return (
                 JobHandlerResult.retryable(code, str(exc))
                 if retryable
                 else JobHandlerResult.non_retryable(code, str(exc))
             )
         except Exception as exc:
-            self._mark_failure(
-                context, "stage2_generation_internal_error", str(exc),
-                terminal=context.job.attempt_count >= context.job.max_attempts,
-            )
+            self._mark_failure(context, "stage2_generation_internal_error", str(exc))
             context.logger.exception(
                 "rrugc_stage2_generation_failed",
                 extra={
@@ -1101,6 +1093,7 @@ class RrugcStage2GenerateJobHandler:
         message: str,
         *,
         terminal: bool = False,
+        deferred: bool = False,
     ) -> None:
         job_id = str(context.job.payload.get("stage2_job_id") or "")
         if not job_id:
@@ -1112,6 +1105,14 @@ class RrugcStage2GenerateJobHandler:
             )
             if row is None or row.status == "completed":
                 return
+            if not terminal and not deferred:
+                # ClaimedJob intentionally has no max_attempts attribute.
+                # Consult the authoritative durable processing row instead.
+                processing = session.get(ProcessingJobModel, context.job.id)
+                terminal = bool(
+                    processing is not None
+                    and processing.attempt_count >= processing.max_attempts
+                )
             row.status = "failed" if terminal else "queued"
             row.last_error_code = str(code)[:100]
             row.last_error_message = str(message)[:1000]

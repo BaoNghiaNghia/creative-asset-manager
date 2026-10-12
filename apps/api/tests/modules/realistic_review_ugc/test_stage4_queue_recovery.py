@@ -52,24 +52,34 @@ def seed(factory, *, stage_status="queued", processing_status="failed", error="c
     return job_id, processing_id
 
 
-@pytest.mark.parametrize("count,expected", [(1, False), (3, True)])
-def test_worker_marks_last_retryable_failure_terminal(monkeypatch, count, expected):
+@pytest.mark.parametrize("count,expected", [(1, "queued"), (3, "failed")])
+def test_worker_marks_last_retryable_failure_terminal(db, monkeypatch, count, expected):
+    from app.domain.processing.handlers import ClaimedJob
+
     async def missing(_self, _context):
         raise CodexImageProviderError("codex_image_output_missing", "No generated image", retryable=True)
 
-    seen = []
     monkeypatch.setattr(RrugcStage2GenerateJobHandler, "_execute", missing)
-    monkeypatch.setattr(
-        RrugcStage2GenerateJobHandler, "_mark_failure",
-        lambda _self, _context, _code, _message, **kwargs: seen.append(kwargs.get("terminal")),
-    )
+    job_id, processing_id = seed(db, stage_status="running", processing_status="processing")
+    with db() as session:
+        processing = session.get(ProcessingJobModel, processing_id)
+        processing.attempt_count = count
+        session.commit()
+    # A real ClaimedJob has NO max_attempts member. Regression-test the
+    # production envelope instead of adding a field to a fake context.
     context = SimpleNamespace(
-        job=SimpleNamespace(attempt_count=count, max_attempts=3, entity_id="row",
-                            tenant_id="test-tenant", payload={"stage2_job_id": "row"}),
+        job=ClaimedJob(
+            id=processing_id, attempt_count=count,
+            job_type="rrugc_stage2_generate", tenant_id="test-tenant",
+            entity_type="rrugc_stage2_job", entity_id=job_id,
+            payload={"stage2_job_id": job_id}, lease_owner="test-worker",
+        ),
+        dependencies=SimpleNamespace(session_factory=db),
         logger=logging.getLogger("stage4-test"),
     )
     RrugcStage2GenerateJobHandler()(context)
-    assert seen == [expected]
+    with db() as session:
+        assert session.get(RrugcStage2JobModel, job_id).status == expected
 
 
 def test_recovery_requeues_once_without_overwriting_completed_jobs(db, monkeypatch):
