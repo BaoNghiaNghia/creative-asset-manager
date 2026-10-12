@@ -15,7 +15,16 @@ import {
   stage2JobsRenderFingerprint,
   stage2ReferenceBatches,
 } from "./RealisticReviewUgcPage";
-import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal, latestCompletedStage4Outputs } from "./Stage2JobTable";
+import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal, latestCompletedStage4Outputs, orderStage4References } from "./Stage2JobTable";
+
+describe("Stage 4 reference ordering", () => {
+  it("keeps available references before completed ones in row and modal, stably", () => {
+    const refs = [{ id: "done-a" }, { id: "free-a" }, { id: "done-b" }, { id: "free-b" }];
+    expect(orderStage4References(refs, new Set(["done-a", "done-b"])).map(ref => ref.id))
+      .toEqual(["free-a", "free-b", "done-a", "done-b"]);
+    expect(refs.map(ref => ref.id)).toEqual(["done-a", "free-a", "done-b", "free-b"]);
+  });
+});
 import { Stage3ReviewGroups, Stage3ReviewModal } from "./Stage3ReviewGroups";
 import {
   ReferenceReviewModal,

@@ -180,6 +180,13 @@ function outputSummary(jobs: Stage2Job[]) {
   };
 }
 
+/** Preserve original order within each group, always moving completed refs last. */
+export function orderStage4References<T extends { id: string }>(
+  references: readonly T[], generated: ReadonlySet<string>,
+): T[] {
+  return [...references].sort((a, b) => Number(generated.has(a.id)) - Number(generated.has(b.id)));
+}
+
 const STAGE2_REF_CARD_PITCH = 70;
 const STAGE2_REF_WINDOW_OVERSCAN = 3;
 const STAGE2_REF_WINDOW_MIN = 14;
@@ -239,6 +246,7 @@ export function Stage2ReferenceReviewModal({
     };
   }, [onClose]);
 
+  const orderedReferences = useMemo(() => orderStage4References(references, generated), [references, generated]);
   return <div
     className="rrugc-source-review-backdrop"
     role="presentation"
@@ -266,7 +274,7 @@ export function Stage2ReferenceReviewModal({
         </div>
       </header>
       <StableMasonryGrid className="rrugc-source-review-masonry rrugc-stage2-reference-review-masonry"
-        items={references} getKey={reference => reference.id}
+        items={orderedReferences} getKey={reference => reference.id}
         getRatio={reference => stableMasonryRatio(reference.width, reference.height)}
         renderItem={(reference, index) => {
           const alreadyGenerated = generated.has(reference.id);
@@ -342,7 +350,7 @@ function Stage2ReferencePicker({
   const { dragging, dragHandlers } = useHorizontalDragScroll();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [windowRange, setWindowRange] = useState({ start: 0, end: STAGE2_REF_WINDOW_MIN });
-  const limited = references;
+  const limited = useMemo(() => orderStage4References(references, generated), [references, generated]);
 
   function updateWindow() {
     const track = trackRef.current;

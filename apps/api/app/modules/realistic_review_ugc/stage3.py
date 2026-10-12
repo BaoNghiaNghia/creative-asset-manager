@@ -341,6 +341,10 @@ class RrugcStage3Service:
             raise ValueError("Stage 2 output is not eligible for Stage 3 analysis.")
 
         row = self.get_analysis(tenant_id, stage2_job.id)
+        # Hidden review cards are a durable editorial rejection. Never
+        # re-create them during automatic Analyze all, including a forced run.
+        if row is not None and row.status == "hidden":
+            return row, False
         created = row is None
         now = datetime.now(timezone.utc)
         if row is None:

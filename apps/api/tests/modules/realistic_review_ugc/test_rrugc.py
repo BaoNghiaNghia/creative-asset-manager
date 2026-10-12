@@ -2449,6 +2449,111 @@ def test_stage3_analysis_worker_persists_ready_result(database):
         assert persisted.reject_reasons_json == []
 
 
+
+def test_stage5_review_hide_and_full_loox_export(api, database):
+    from zipfile import ZipFile
+    from xml.etree import ElementTree
+
+    from app.modules.realistic_review_ugc.loox_review_export import PREFIX
+
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Export test",
+            query="loox export", search_queries=["loox export"],
+            target_count=5, max_scroll_batches=1, auto_import=True, auto_scout=False,
+        )
+        plans = [
+            RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id="root", source_file_id="source-x-"+str(n),
+                source_relative_path=f"custom-hat-handle/Blue/image_{n}.png",
+                source_name=f"image_{n}.png", source_revision=str(n) * 64,
+                source_mime_type="image/png",
+                status="ready", campaign_id=campaign.id, created_by_user_id="user-a",
+            ) for n in range(2)
+        ]
+        session.add_all(plans)
+        session.flush()
+        jobs = [
+            RrugcStage2JobModel(
+                tenant_id="tenant-a", source_plan_id=p.id, campaign_id=campaign.id,
+                source_revision=p.source_revision, skill_name="stage4",
+                selected_candidate_ids_json=[], selected_reference_snapshot_json=[],
+                status="completed", idempotency_key=f"stage5-export-{i}",
+                output_remote_file_id=f"image-{i}", output_remote_folder_id="some-folder",
+                output_web_url=f"https://cdn.example.org/review-{i}.png",
+                created_by_user_id="user-a", completed_at=now,
+            ) for i, p in enumerate(plans)
+        ]
+        session.add_all(jobs)
+        session.flush()
+        analyses = [
+            RrugcStage3AnalysisModel(
+                tenant_id="tenant-a", stage2_job_id=job.id,
+                analysis_version="rrugc-stage3-ugc-v2",
+                status="ready", reviewer_name=f"Synthetic Tester {i}",
+                star_rating=5, review_text=f"Mock review for sample {i}",
+                review_generated_at=now,
+            ) for i, job in enumerate(jobs)
+        ]
+        session.add_all(analyses)
+        session.commit()
+        hidden_id = jobs[0].id
+        retained_id = jobs[1].id
+
+    pre_export = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox")
+    assert pre_export.status_code == 200
+    assert pre_export.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    with ZipFile(BytesIO(pre_export.content)) as book:
+        worksheet = ElementTree.fromstring(book.read("xl/worksheets/sheet1.xml"))
+        namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        assert len(worksheet.findall(".//x:sheetData/x:row", namespace)) == 3
+
+    hidden = api.delete(f"/api/v1/realistic-review-ugc/stage3/reviews/{hidden_id}")
+    assert hidden.status_code == 200 and hidden.json()["hidden"] is True
+    assert api.delete(f"/api/v1/realistic-review-ugc/stage3/reviews/{hidden_id}").status_code == 200
+    result = api.get("/api/v1/realistic-review-ugc/stage3/review-groups")
+    assert result.status_code == 200
+    assert result.json()["total_images"] == 1
+    assert result.json()["items"][0]["images"][0]["stage2_job_id"] == retained_id
+
+    # Deleted card cannot be requeued even with force; the Stage 4 output is preserved.
+    with database() as session:
+        hidden_job = session.get(RrugcStage2JobModel, hidden_id)
+        saved, created = RrugcStage3Service(session).ensure_analysis_for_job(
+            tenant_id="tenant-a", stage2_job=hidden_job, force=True,
+        )
+        assert not created and saved.status == "hidden"
+        assert hidden_job.output_remote_file_id == "image-0"
+
+    response = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox")
+    assert response.status_code == 200
+    with ZipFile(BytesIO(response.content)) as book:
+        root = ElementTree.fromstring(book.read("xl/worksheets/sheet1.xml"))
+        ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        rows = root.findall(".//x:sheetData/x:row", ns)
+        assert len(rows) == 2
+        def values(row):
+            return [(cell.findtext("x:is/x:t", default="", namespaces=ns)
+                     if cell.get("t") == "inlineStr"
+                     else cell.findtext("x:v", default="", namespaces=ns))
+                    for cell in row.findall("x:c", ns)]
+        assert values(rows[0]) == [
+            "product_handle", "rating", "author", "email", "body",
+            "created_at", "photo_url", "verified_purchase",
+        ]
+        record = values(rows[1])
+        assert record[0] == "custom-hat-handle"
+        assert record[1] == "5"
+        assert record[2] == "AI concept: Synthetic Tester 1"
+        assert record[3] == ""
+        assert record[4].startswith(PREFIX)
+        assert record[6] == "https://cdn.example.org/review-1.png"
+        assert record[7] == "0"
+
+
 def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
     now = datetime.now(timezone.utc)
     with database() as session:

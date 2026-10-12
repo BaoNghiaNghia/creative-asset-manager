@@ -1,4 +1,16 @@
 .rrugc-stage3{display:flex;width:100%;min-width:0;box-sizing:border-box;flex-direction:column;gap:14px}
+.rrugc-stage5-export{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 11px;border:1px solid #a7b8cf;border-radius:8px;background:#edf3ff;color:#254c86;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+.rrugc-stage5-export:hover:not(:disabled){background:#dce9ff}.rrugc-stage5-export:disabled{opacity:.55;cursor:not-allowed}
+.rrugc-stage5-delete-action{display:inline-flex;align-items:center;justify-content:center;gap:5px;align-self:flex-start;padding:5px 8px;min-height:28px;border:1px solid #ecd0d0;border-radius:7px;background:#fff8f8;color:#a34d4d;font-size:10px;font-weight:700;cursor:pointer}
+.rrugc-stage5-delete-action:hover{background:#ffebeb;border-color:#d69e9e}
+.rrugc-stage5-confirm-backdrop{position:fixed;inset:0;z-index:2500;display:flex;align-items:center;justify-content:center;background:rgba(15,26,45,.44);padding:16px}
+.rrugc-stage5-confirm{box-sizing:border-box;max-width:420px;width:100%;border:1px solid #d8e2ed;border-radius:12px;background:#fff;padding:20px;box-shadow:0 15px 52px rgba(17,34,56,.24)}
+.rrugc-stage5-confirm h3{margin:0;font-size:16px;color:#1c304e}.rrugc-stage5-confirm p{font-size:12px;line-height:1.5;color:#66758b}
+.rrugc-stage5-confirm-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:18px}
+.rrugc-stage5-confirm-buttons button{display:flex;align-items:center;gap:6px;min-height:34px;border:1px solid #bdcbdc;border-radius:7px;padding:7px 13px;background:#fff;color:#35506e;font-weight:700;cursor:pointer}
+.rrugc-stage5-confirm-buttons .rrugc-stage5-confirm-delete{background:#a63f40;color:white;border-color:#a63f40}
+@media(max-width:680px){.rrugc-stage3-header-actions{align-items:stretch}.rrugc-stage5-export{width:100%}}
+
 .rrugc-stage3-header{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding:20px 22px;border:1px solid #dfe5ee;border-radius:12px;background:#fff}
 .rrugc-stage3-header h2{margin:2px 0 4px;font-size:22px;line-height:1.15;color:#182943}
 .rrugc-stage3-header p{margin:0;max-width:760px;color:#66758b;font-size:13px;line-height:1.45}

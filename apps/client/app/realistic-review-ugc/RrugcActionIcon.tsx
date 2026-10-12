@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 export type RrugcActionIconName =
   | "scan" | "refresh" | "skills" | "sparkles" | "play"
   | "stop" | "select-all" | "deselect" | "chevron-left" | "chevron-right" | "chevrons-left" | "chevrons-right"
-  | "folder" | "sort" | "filter" | "check" | "logs";
+  | "folder" | "sort" | "filter" | "check" | "logs" | "trash" | "download";
 
 const paths: Record<RrugcActionIconName, ReactNode> = {
   scan: <><path d="M4 8V5a1 1 0 0 1 1-1h3m8 0h3a1 1 0 0 1 1 1v3M4 16v3a1 1 0 0 0 1 1h3m8 0h3a1 1 0 0 0 1-1v-3" /><circle cx="10.5" cy="10.5" r="4.5" /><path d="m14 14 4 4" /></>,
@@ -26,6 +26,8 @@ const paths: Record<RrugcActionIconName, ReactNode> = {
   filter: <><path d="M4 5h16l-6.5 7.5V20l-3-1.5v-6L4 5Z" /></>,
   check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></>,
   logs: <><path d="M7 3h10l3 3v15H4V3h3Z" /><path d="M8 10h8M8 14h8M8 18h5" /></>,
+  trash: <><path d="M4 7h16M10 4h4M7 7l1 13h8l1-13M10 11v5m4-5v5" /></>,
+  download: <><path d="M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3" /></>,
 };
 
 export function RrugcActionIcon({ name }: { name: RrugcActionIconName }) {

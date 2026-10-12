@@ -4,6 +4,8 @@ import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
   analyzeStage3ReviewGroups,
+  hideStage5Review,
+  downloadStage5LooxReviewConcepts,
   cancelStage2Jobs,
   createStage2Job,
   retryStage4Job,
@@ -399,6 +401,19 @@ export function RealisticReviewUgcPage() {
       stage3MoreInFlight.current = false;
       setStage3MoreLoading(false);
     }
+  }
+
+  async function removeStage5Review(stage2JobId: string) {
+    await hideStage5Review(stage2JobId);
+    setStage3Message("Review concept hidden from Stage 5 and excluded from export.");
+    // Drop accumulated pages so deleted records never reappear after polling.
+    stage3PaginationActive.current = false;
+    await refreshStage3Groups();
+  }
+
+  async function exportStage5Reviews() {
+    await downloadStage5LooxReviewConcepts();
+    setStage3Message("Exported all retained ready review concepts using the Loox column format.");
   }
 
   async function analyzeStage3(folderId?: string) {
@@ -1175,6 +1190,8 @@ export function RealisticReviewUgcPage() {
             onLoadMore={() => void loadMoreStage3Groups()}
             loadingMore={stage3MoreLoading}
             onRefresh={() => void refreshStage3Groups()}
+            onDeleteReview={removeStage5Review}
+            onExportReviews={exportStage5Reviews}
           />
         </section>
 

@@ -23,6 +23,8 @@ type Props = {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   onRefresh?: () => void;
+  onDeleteReview?: (stage2JobId: string) => Promise<void>;
+  onExportReviews?: () => Promise<void>;
 };
 
 export type Stage3ReviewModalEntry = {
@@ -36,6 +38,7 @@ type Stage3ReviewModalProps = {
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
+  onDelete?: () => void;
 };
 
 function completedLabel(value: string | null): string {
@@ -95,6 +98,7 @@ export function Stage3ReviewModal({
   index,
   onIndexChange,
   onClose,
+  onDelete,
 }: Stage3ReviewModalProps) {
   const entry = entries[index];
   const count = entries.length;
@@ -267,6 +271,8 @@ export function Stage3ReviewModal({
           <span><small>Review</small><strong>{percent(image.review_fit_score)}</strong></span>
         </div>
 
+        {onDelete && <button type="button" className="rrugc-stage5-delete-action rrugc-icon-action"
+          onClick={onDelete}><RrugcActionIcon name="trash" />Remove review card</button>}
         <div className="rrugc-stage3-review-modal-source">
           <strong>{image.source_name || "Generated output"}</strong>
           {image.output_width && image.output_height && (
@@ -290,8 +296,14 @@ export function Stage3ReviewGroups({
   onLoadMore = () => undefined,
   loadingMore = false,
   onRefresh = () => undefined,
+  onDeleteReview,
+  onExportReviews,
 }: Props) {
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<Stage3ReviewImage | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [actionError, setActionError] = useState("");
   const finished = data.ready_images + data.rejected_images;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleGroups = useMemo(() => {
@@ -334,6 +346,34 @@ export function Stage3ReviewGroups({
     ? reviewEntries.findIndex(entry => entry.image.stage2_job_id === selectedReviewId)
     : -1;
 
+  async function confirmRemoval() {
+    if (!pendingRemoval || !onDeleteReview || deletingId) return;
+    setDeletingId(pendingRemoval.stage2_job_id);
+    setActionError("");
+    try {
+      await onDeleteReview(pendingRemoval.stage2_job_id);
+      setPendingRemoval(null);
+      setSelectedReviewId(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to hide this review.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function exportAll() {
+    if (!onExportReviews || exporting) return;
+    setExporting(true);
+    setActionError("");
+    try {
+      await onExportReviews();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to export reviews.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return <section className="rrugc-stage3">
     <RrugcStageHeader
       className="rrugc-stage4-heading"
@@ -346,6 +386,13 @@ export function Stage3ReviewGroups({
           <span><strong>{data.total_images}</strong><small>Loaded images</small></span>
           <span><strong>{finished}/{data.total_images}</strong><small>Reviewed (loaded)</small></span>
         </div>
+        {onExportReviews && <button type="button"
+          className="rrugc-stage5-export rrugc-icon-action"
+          disabled={exporting}
+          title="Export all retained synthetic review concepts in the 8-column Loox XLSX format"
+          onClick={() => void exportAll()}>
+          <RrugcActionIcon name={exporting ? "refresh" : "download"} />{exporting ? "Exporting…" : "Export all · Loox XLSX"}
+        </button>}
         <button
           type="button"
           className="rrugc-stage3-analyze-all rrugc-icon-action"
@@ -358,6 +405,7 @@ export function Stage3ReviewGroups({
     />
 
     <ActionMessageToast message={message} />
+    <ActionMessageToast message={actionError} tone="error" />
 
     <div className="rrugc-stage-search-toolbar rrugc-stage4-search-toolbar">
       <RrugcSmartSearchInput
@@ -486,6 +534,14 @@ export function Stage3ReviewGroups({
                     ) : (
                       <p title={imageDetail(image)}>{imageDetail(image)}</p>
                     )}
+                    {onDeleteReview && ["ready", "rejected", "error"].includes(image.analysis_status) && (
+                      <button type="button" className="rrugc-stage5-delete-action rrugc-icon-action"
+                        aria-label={"Remove review card for " + (image.reviewer_name || image.source_name)}
+                        title="Hide this review from Stage 5 and export; keep the generated image"
+                        onClick={event => { event.stopPropagation(); setPendingRemoval(image); }}
+                        onKeyDown={event => event.stopPropagation()}
+                      ><RrugcActionIcon name="trash" />Remove</button>
+                    )}
                   </figcaption>
                 </figure>;
               })}
@@ -523,7 +579,21 @@ export function Stage3ReviewGroups({
           reviewEntries[nextIndex]?.image.stage2_job_id || null,
         )}
         onClose={() => setSelectedReviewId(null)}
+        onDelete={onDeleteReview ? () => setPendingRemoval(reviewEntries[selectedReviewIndex].image) : undefined}
       />
     )}
+
+    {pendingRemoval && <div className="rrugc-stage5-confirm-backdrop"
+      onMouseDown={event => { if (event.target === event.currentTarget && !deletingId) setPendingRemoval(null); }}>
+      <section className="rrugc-stage5-confirm" role="dialog" aria-modal="true" aria-labelledby="stage5-delete-confirm-title">
+        <h3 id="stage5-delete-confirm-title">Remove this review card?</h3>
+        <p>This hides the selected synthetic review from Stage 5 and all future exports. The original Stage 4 image is preserved.</p>
+        <div className="rrugc-stage5-confirm-buttons">
+          <button type="button" disabled={Boolean(deletingId)} onClick={() => setPendingRemoval(null)}>Cancel</button>
+          <button type="button" className="rrugc-stage5-confirm-delete" disabled={Boolean(deletingId)}
+            onClick={() => void confirmRemoval()}><RrugcActionIcon name="trash" />{deletingId ? "Removing…" : "Remove card"}</button>
+        </div>
+      </section>
+    </div>}
   </section>;
 }

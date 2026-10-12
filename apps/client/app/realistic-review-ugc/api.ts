@@ -477,6 +477,32 @@ export const listStage3ReviewGroups = (
     { signal },
   );
 
+export const hideStage5Review = (stage2JobId: string) =>
+  request<{ hidden: boolean; stage2_job_id: string }>(
+    "/api/v1/realistic-review-ugc/stage3/reviews/" + encodeURIComponent(stage2JobId),
+    { method: "DELETE" },
+  );
+
+export async function downloadStage5LooxReviewConcepts(): Promise<void> {
+  const response = await fetch("/api/v1/realistic-review-ugc/stage3/reviews/export-loox", {
+    credentials: "include",
+    headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+  });
+  if (!response.ok) throw new RrugcApiError(response.status, "Unable to export review concepts.");
+  const blob = await response.blob();
+  const fileUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = fileUrl;
+    link.download = "CAM_Stage5_Review_Concepts_Loox.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(fileUrl);
+  }
+}
+
 export const analyzeStage3ReviewGroups = (
   folderId?: string,
   force = false,

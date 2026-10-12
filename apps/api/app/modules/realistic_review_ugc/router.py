@@ -5749,6 +5749,15 @@ def list_stage3_review_groups(
             RrugcStage2JobModel.output_remote_file_id.is_not(None),
             RrugcStage2JobModel.output_remote_folder_id.is_not(None),
         )
+        .outerjoin(
+            RrugcStage3AnalysisModel,
+            (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
+            & (RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id),
+        )
+        .filter(or_(
+            RrugcStage3AnalysisModel.id.is_(None),
+            RrugcStage3AnalysisModel.status != "hidden",
+        ))
     )
     if cursor:
         anchor = query.filter(RrugcStage2JobModel.id == cursor).first()
@@ -5951,6 +5960,97 @@ def list_stage3_review_groups(
     )
 
 
+@router.delete("/stage3/reviews/{stage2_job_id}")
+def hide_stage5_review(
+    stage2_job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Hide a review concept; preserve the Stage 4 output and its history."""
+    import logging
+
+    review = session.scalar(select(RrugcStage3AnalysisModel).where(
+        RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id,
+        RrugcStage3AnalysisModel.stage2_job_id == stage2_job_id,
+    ).with_for_update())
+    if review is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "stage5_review_not_found", "message": "Review not found.",
+        })
+    if review.status not in {"ready", "rejected", "error", "hidden"}:
+        raise HTTPException(status_code=409, detail={
+            "code": "stage5_review_still_processing",
+            "message": "Wait until this review finishes analyzing before hiding it.",
+        })
+    if review.status != "hidden":
+        review.status = "hidden"
+        session.commit()
+        logging.getLogger(__name__).info("stage5_review_hidden", extra={
+            "stage2_job_id": stage2_job_id,
+            "tenant_id": principal.active_tenant_id,
+            "user_id": principal.user_id,
+        })
+    return {"hidden": True, "stage2_job_id": stage2_job_id}
+
+
+@router.get("/stage3/reviews/export-loox")
+def export_stage5_loox_review_concepts(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Export all eligible synthetic concepts, not just the loaded UI page."""
+    from urllib.parse import urlparse
+    from app.modules.realistic_review_ugc.loox_review_export import (
+        PREFIX, build_loox_xlsx,
+    )
+    joined = session.execute(
+        select(RrugcStage3AnalysisModel, RrugcStage2JobModel, RrugcSourcePlanModel)
+        .join(RrugcStage2JobModel, RrugcStage2JobModel.id == RrugcStage3AnalysisModel.stage2_job_id)
+        .join(RrugcSourcePlanModel, RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id)
+        .where(
+            RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id,
+            RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcStage3AnalysisModel.status == "ready",
+            RrugcStage2JobModel.status == "completed",
+            RrugcStage2JobModel.output_remote_file_id.is_not(None),
+            RrugcStage3AnalysisModel.review_text.is_not(None),
+            RrugcStage3AnalysisModel.reviewer_name.is_not(None),
+            RrugcStage3AnalysisModel.star_rating.between(1, 5),
+        )
+        .order_by(RrugcStage3AnalysisModel.created_at.asc(), RrugcStage3AnalysisModel.id.asc())
+    )
+    rows = []
+    for review, image, plan in joined:
+        raw_path = str(plan.source_relative_path or "")
+        product_handle = raw_path.replace("\\", "/").strip("/").split("/", 1)[0].strip()
+        # Authenticated CAM media endpoints and private Drive URLs cannot be
+        # used as Loox photo URLs. Do not leak them into a public importer.
+        candidate_photo = str(image.output_web_url or "").strip()
+        photo_url = ""
+        if candidate_photo.startswith("https://"):
+            host = (urlparse(candidate_photo).hostname or "").lower()
+            if host and not host.endswith(".google.com") and host != "google.com" and not host.endswith(".googleusercontent.com"):
+                photo_url = candidate_photo
+        created = review.review_generated_at or image.completed_at
+        rows.append((
+            product_handle,
+            int(review.star_rating),
+            "AI concept: " + str(review.reviewer_name),
+            "",  # Never invent a customer email address.
+            PREFIX + str(review.review_text),
+            created.strftime("%Y-%m-%d %H:%M:%S") if created else "",
+            photo_url,
+            False,  # Synthetic content is never a verified purchase.
+        ))
+    return Response(
+        content=build_loox_xlsx(rows),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="CAM_Stage5_Review_Concepts_Loox.xlsx"',
+                 "Cache-Control": "private, no-store"},
+    )
+
+
 @router.post(
     "/stage3/review-groups/analyze",
     response_model=Stage3AnalyzeResponse,
@@ -5972,6 +6072,10 @@ def analyze_stage3_review_groups(
         RrugcStage2JobModel.status == "completed",
         RrugcStage2JobModel.output_remote_file_id.is_not(None),
         RrugcStage2JobModel.output_remote_folder_id.is_not(None),
+        or_(
+            RrugcStage3AnalysisModel.id.is_(None),
+            RrugcStage3AnalysisModel.status != "hidden",
+        ),
     )
     if request.folder_id:
         query = query.filter(
