@@ -162,7 +162,7 @@ export const archiveProductReference = (productId: string, referenceId: string) 
 
 export type SourcePlanSortBy = "source" | "updated" | "analyzed" | "group_size" | "status";
 export type SourcePlanSortDirection = "asc" | "desc";
-export type KeywordAnalysisSortBy = "keyword" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
+export type KeywordAnalysisSortBy = "keyword" | "trend" | "platform" | "agent" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
 export type KeywordUsageFilter = "all" | "unused" | "used";
 export type KeywordTailFilter = "all" | "short" | "mid" | "long";

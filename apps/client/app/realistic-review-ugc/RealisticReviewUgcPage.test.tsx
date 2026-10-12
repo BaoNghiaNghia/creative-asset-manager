@@ -880,7 +880,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by Low CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by High CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by Created date ascending"');
-    expect(markup).toContain('>Agent</th>');
+    expect(markup).toContain('aria-label="Sort by Trend ascending"');
+    expect(markup).toContain('aria-label="Sort by Platform ascending"');
+    expect(markup).toContain('aria-label="Sort by Agent ascending"');
     expect(markup).toContain('aria-label="Found by CAM VPS · Agent-Reach Auto Discover, Keyword Scout Windows"');
     expect(markup).toContain('rrugc-stage0-agent-more');
     expect(markup).toContain('>+1</span>');

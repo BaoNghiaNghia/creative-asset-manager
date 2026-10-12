@@ -30,6 +30,7 @@ describe("Stage 0 platform source attribution", () => {
     document.body.appendChild(host);
     const root = createRoot(host);
     const noop = () => undefined;
+    const sorted: string[] = [];
     const data = {
       items: [{ ...keyword, source_image_url: null }, { ...keyword, id: "keyword-no-pin", keyword: "Manual Word", source_image_url: null, source_pin_url: null, source_agents: [] }],
       page: 1, page_size: 20, total: 2,
@@ -43,15 +44,22 @@ describe("Stage 0 platform source attribution", () => {
       data={data} query="" sortBy="keyword" sortDirection="asc"
       usageFilter="all" tailFilter="all" favoritesOnly={false} suggestedOnly={false}
       pickingIds={new Set()} favoritingIds={new Set()} feedbackUpdatingIds={new Set()}
-      onFeedbackChange={noop} onSortChange={noop} onUsageFilterChange={noop}
+      onFeedbackChange={noop} onSortChange={column => { sorted.push(column); }} onUsageFilterChange={noop}
       onTailFilterChange={noop} onFavoritesOnlyChange={noop}
       onSuggestedOnlyChange={noop} onResetAll={noop}
       onPickChange={noop} onFavoriteChange={noop}
       onPageChange={noop} onPageSizeChange={noop} onQueryChange={noop}
     />));
     const headers = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th")).map(header => header.textContent);
-    expect(headers.slice(0, 3)).toEqual(["Preview", "Keyword↑", "Trend"]);
-    expect(headers.indexOf("Agent")).toBe(headers.indexOf("Platform") + 1);
+    expect(headers.slice(0, 3)).toEqual(["Preview", "Keyword↑", "Trend↕"]);
+    expect(headers.indexOf("Agent↕")).toBe(headers.indexOf("Platform↕") + 1);
+    for (const column of ["Trend", "Platform", "Agent"]) {
+      const header = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th"))
+        .find(node => node.textContent === column + "↕")!;
+      expect(header?.getAttribute("aria-sort")).toBe("none");
+      await act(async () => header.querySelector("button")!.click());
+    }
+    expect(sorted).toEqual(["trend", "platform", "agent"]);
     expect(host.querySelector(".rrugc-stage0-agent-badge")?.getAttribute("aria-label")).toContain("Agent-Reach Auto Discover");
     expect(host.querySelector(".rrugc-stage0-agent-empty")?.textContent).toBe("—");
     expect(host.querySelectorAll(".rrugc-stage0-keyword-table tbody tr")).toHaveLength(2);

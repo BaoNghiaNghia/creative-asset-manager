@@ -620,20 +620,23 @@ function SortHeader({
   sortBy,
   sortDirection,
   onSortChange,
+  className,
 }: {
   column: KeywordAnalysisSortBy;
   label: string;
+  className?: string;
   sortBy: KeywordAnalysisSortBy;
   sortDirection: KeywordAnalysisSortDirection;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
 }) {
   const active = sortBy === column;
-  return <th aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
+  return <th className={className} aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
     <button
       type="button"
       className={"rrugc-stage0-sort" + (active ? " active" : "")}
       onClick={() => onSortChange(column)}
       aria-label={"Sort by " + label + " " + (active && sortDirection === "asc" ? "descending" : "ascending")}
+      title={column === "trend" ? "Sort by verified AEBrowse 3-month growth; missing data last" : undefined}
     >
       <span>{label}</span>
       <span aria-hidden="true">{active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}</span>
@@ -845,7 +848,7 @@ export function KeywordAnalysisTable({
         <thead><tr>
           <th>Preview</th>
           <SortHeader column="keyword" label="Keyword" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
-          <th>Trend</th>
+          <SortHeader column="trend" label="Trend" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="search_volume" label="Avg searches / mo" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="three_month_change" label="3-mo change" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="yoy_change" label="YoY change" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
@@ -853,8 +856,8 @@ export function KeywordAnalysisTable({
           <SortHeader column="trademark" label="Trademark (TM)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="cpc" label="Low CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="high_cpc" label="High CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
-          <th className="rrugc-stage0-platform-heading" scope="col">Platform</th>
-          <th className="rrugc-stage0-agent-heading" scope="col">Agent</th>
+          <SortHeader className="rrugc-stage0-platform-heading" column="platform" label="Platform" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader className="rrugc-stage0-agent-heading" column="agent" label="Agent" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="created_at" label="Created date" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <th>Action</th>
         </tr></thead>

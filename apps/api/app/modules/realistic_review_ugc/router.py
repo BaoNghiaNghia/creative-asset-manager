@@ -60,6 +60,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcCandidateModel,
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
+    RrugcKeywordAgentOriginModel,
     RrugcScoutFeedbackModel,
     RrugcScoutMetricCycleModel,
     RrugcStage2JobModel,
@@ -3654,7 +3655,7 @@ def list_keyword_analysis(
     suggested_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
-        pattern="^(keyword|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|trademark|created_at|fetched_at)$",
+        pattern="^(keyword|trend|platform|agent|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|trademark|created_at|fetched_at)$",
     ),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
@@ -3854,11 +3855,59 @@ def list_keyword_analysis(
     yoy_change = (
         RrugcKeywordVolumeModel.provider_raw_json["yoy_change_pct"].as_float()
     )
+    # Platform and Agent are many-to-one provenance. Correlated MIN keeps
+    # exactly one keyword per row, is tenant-scoped, and uses the existing
+    # (tenant_id, keyword_normalized) index without an extra pagination join.
+    # For multi-source keywords, choose the first alphabetical source/agent;
+    # missing attribution sorts last in both directions.
+    first_origin_platform = (
+        select(func.min(func.lower(RrugcKeywordAgentOriginModel.source_platform)))
+        .where(
+            RrugcKeywordAgentOriginModel.tenant_id == RrugcKeywordVolumeModel.tenant_id,
+            RrugcKeywordAgentOriginModel.keyword_normalized == RrugcKeywordVolumeModel.keyword_normalized,
+        )
+        .correlate(RrugcKeywordVolumeModel)
+        .scalar_subquery()
+    )
+    first_origin_agent = (
+        select(func.min(func.lower(RrugcKeywordAgentOriginModel.agent_name)))
+        .where(
+            RrugcKeywordAgentOriginModel.tenant_id == RrugcKeywordVolumeModel.tenant_id,
+            RrugcKeywordAgentOriginModel.keyword_normalized == RrugcKeywordVolumeModel.keyword_normalized,
+        )
+        .correlate(RrugcKeywordVolumeModel)
+        .scalar_subquery()
+    )
+    platform_key = func.coalesce(
+        first_origin_platform,
+        case(
+            (RrugcKeywordVolumeModel.source_pin_url.is_not(None), "pinterest"),
+            else_=None,
+        ),
+    )
+    # Trend uses the verified AEBrowse 3-month momentum signal for a
+    # consistent ascending/descending rank. Do not treat missing or pending
+    # observations as zero growth (which would distort discovery ordering).
+    trend_key = case(
+        (RrugcKeywordVolumeModel.provider == "pending", None),
+        else_=three_month_change,
+    )
     if sort_by == "keyword":
         primary_order = [
             RrugcKeywordVolumeModel.keyword.asc()
             if sort_dir == "asc"
             else RrugcKeywordVolumeModel.keyword.desc()
+        ]
+    elif sort_by in {"platform", "agent", "trend"}:
+        sort_key = {
+            "platform": platform_key,
+            "agent": first_origin_agent,
+            "trend": trend_key,
+        }[sort_by]
+        primary_order = [
+            sort_key.asc().nulls_last()
+            if sort_dir == "asc"
+            else sort_key.desc().nulls_last()
         ]
     elif sort_by == "three_month_change":
         primary_order = [

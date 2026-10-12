@@ -91,6 +91,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
+    RrugcKeywordAgentOriginModel,
+    RrugcResearchSignalModel,
     RrugcScoutFeedbackModel,
     RrugcStage2JobModel,
     RrugcStage3AnalysisModel,
@@ -197,6 +199,8 @@ def database():
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
     RrugcKeywordVolumeModel.__table__.create(engine)
+    RrugcKeywordAgentOriginModel.__table__.create(engine)
+    RrugcResearchSignalModel.__table__.create(engine)
     RrugcScoutFeedbackModel.__table__.create(engine)
     RrugcScoutAgentModel.__table__.create(engine)
     RrugcScoutRunModel.__table__.create(engine)
@@ -674,6 +678,70 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         )
         assert sorted_response.status_code == 200
         assert [row["keyword"] for row in sorted_response.json()["items"]] == expected
+
+
+
+def test_keyword_analysis_sort_by_platform_agent_and_trend_across_pages(api, database):
+    """Sort must use tenant-scoped provenance and global ranking, not current UI page."""
+    from app.modules.realistic_review_ugc.keyword_agent_origins import record_keyword_agent
+
+    now = datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc)
+    entries = [
+        ("alpha cap", "pending", 999.0, None),
+        ("beta cap", "aebrowse_google_ads", 5.0, None),
+        ("gamma cap", "aebrowse_google_ads", -10.0, "https://www.pinterest.com/pin/12345"),
+        ("delta cap", "aebrowse_google_ads", 40.0, "https://www.pinterest.com/pin/67890"),
+        ("omega cap", "aebrowse_google_ads", 80.0, None),
+    ]
+    with database() as session:
+        for keyword, provider, trend, pin in entries:
+            session.add(RrugcKeywordVolumeModel(
+                tenant_id="tenant-a",
+                keyword=keyword,
+                keyword_normalized=keyword,
+                provider=provider,
+                search_volume=100,
+                source_pin_url=pin,
+                provider_raw_json={"three_month_change_pct": trend},
+                fetched_at=now,
+                last_requested_at=now,
+                created_at=now,
+            ))
+        def origin(tenant, keyword, platform, name, path):
+            record_keyword_agent(
+                session, tenant_id=tenant, keyword_normalized=keyword,
+                agent_key="scout:" + name.lower().replace(" ", "-"),
+                agent_name=name, source_platform=platform,
+                source_channel="auto-discover", source_url=path,
+            )
+        origin("tenant-a", "beta cap", "etsy", "Zeta Reach", "https://www.etsy.com/listing/10001")
+        origin("tenant-a", "beta cap", "amazon", "Alpha Reach", "https://www.amazon.com/dp/B000000001")
+        origin("tenant-a", "gamma cap", "pinterest", "Beta Scout", "https://www.pinterest.com/pin/12345")
+        origin("tenant-a", "omega cap", "etsy", "Gamma Reach", "https://www.etsy.com/listing/10002")
+        # The tenant-b Amazon source must not cause an unattributed tenant-a
+        # keyword to rank first.
+        origin("tenant-b", "alpha cap", "amazon", "Another Tenant", "https://www.amazon.com/dp/B000000002")
+        session.commit()
+
+    expected = {
+        ("platform", "asc"): ["beta cap", "omega cap", "delta cap", "gamma cap", "alpha cap"],
+        ("platform", "desc"): ["delta cap", "gamma cap", "omega cap", "beta cap", "alpha cap"],
+        ("agent", "asc"): ["beta cap", "gamma cap", "omega cap", "alpha cap", "delta cap"],
+        ("agent", "desc"): ["omega cap", "gamma cap", "beta cap", "alpha cap", "delta cap"],
+        ("trend", "asc"): ["gamma cap", "beta cap", "delta cap", "omega cap", "alpha cap"],
+        ("trend", "desc"): ["omega cap", "delta cap", "beta cap", "gamma cap", "alpha cap"],
+    }
+    for (field, direction), order in expected.items():
+        result = []
+        for page in (1, 2, 3):
+            response = api.get(
+                "/api/v1/realistic-review-ugc/keyword-analysis",
+                params={"sort_by": field, "sort_dir": direction, "page": page, "page_size": 2},
+            )
+            assert response.status_code == 200
+            assert response.json()["total"] == 5
+            result.extend(item["keyword"] for item in response.json()["items"])
+        assert result == order, (field, direction, result)
 
 
 def test_keyword_analysis_tail_filters_and_favorites_are_persisted_and_tenant_scoped(api, database):

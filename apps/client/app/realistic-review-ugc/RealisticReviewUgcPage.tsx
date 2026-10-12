@@ -327,7 +327,7 @@ export function RealisticReviewUgcPage() {
     }
     setKeywordSortBy(next);
     setKeywordSortDirection(
-      next === "keyword" || next === "competition" ? "asc" : "desc",
+      next === "keyword" || next === "competition" || next === "platform" || next === "agent" ? "asc" : "desc",
     );
   }
 
