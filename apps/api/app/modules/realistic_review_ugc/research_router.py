@@ -82,10 +82,14 @@ def import_agent_research_signals(
     except RrugcError as exc:
         raise HTTPException(status_code=exc.status_code,
                             detail={"code": exc.code, "message": "Invalid scout agent credentials."}) from exc
+    is_vps_agent = agent.name == AGENT_NAME
+    if not is_vps_agent and any(signal.channel == "auto-discover" for signal in request.signals):
+        raise HTTPException(status_code=403, detail="Dedicated Auto Discover Scout required.")
     try:
         return import_signals(
             session, tenant_id=agent.tenant_id, user_id="scout-agent:" + agent.id,
             signals=[signal.model_dump() for signal in request.signals],
+            auto_promote=is_vps_agent,
         )
     except ResearchValidationError as exc:
         session.rollback()

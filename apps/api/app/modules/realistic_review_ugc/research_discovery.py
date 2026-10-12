@@ -49,6 +49,12 @@ def discovery_status(session: Session, tenant_id: str) -> dict:
         RrugcResearchSignalModel.channel == "auto-discover",
         RrugcResearchSignalModel.status == "pending",
     )) or 0
+    promoted = session.scalar(select(func.count()).select_from(RrugcResearchSignalModel).where(
+        RrugcResearchSignalModel.tenant_id == tenant_id,
+        RrugcResearchSignalModel.channel == "auto-discover",
+        RrugcResearchSignalModel.status == "approved",
+        RrugcResearchSignalModel.reviewed_by_user_id.like("auto:agent-reach:%"),
+    )) or 0
     return {
         "state": status, "connected": agent is not None,
         "server": "VPS", "source": "Agent-Reach / Web Search",
@@ -56,6 +62,7 @@ def discovery_status(session: Session, tenant_id: str) -> dict:
         "last_error_code": agent.last_error_code if agent else None,
         "total_evidence": sum(values.values()),
         "pending_review": int(pending),
+        "stage0_auto_keywords": int(promoted),
         "platforms": {name: int(values.get(name, 0)) for name in PLATFORMS},
     }
 

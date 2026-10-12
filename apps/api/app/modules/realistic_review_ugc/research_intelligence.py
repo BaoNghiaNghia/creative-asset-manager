@@ -12,7 +12,8 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel
+from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel, RrugcScoutAgentModel
+from app.modules.realistic_review_ugc.research_keyword_extraction import extract_listing_quote, VERSION as EXTRACTOR_VERSION
 from app.modules.realistic_review_ugc.keyword_volume import (
     KEYWORD_VOLUME_PENDING_PROVIDER, KeywordVolumeError,
     normalize_keyword as normalize_stage0_keyword,
@@ -96,11 +97,12 @@ def normalize_keyword(value: str) -> str:
 
 
 def import_signals(
-    session: Session, *, tenant_id: str, user_id: str, signals: list[dict]
+    session: Session, *, tenant_id: str, user_id: str, signals: list[dict],
+    auto_promote: bool = False,
 ) -> dict:
     if not 1 <= len(signals) <= MAX_BATCH:
         raise ResearchValidationError("Import supports 1–50 signals")
-    added = duplicates = 0
+    added = duplicates = auto_keywords = 0
     for signal in signals:
         source = signal["source"]
         if source not in ALLOWED_SOURCES:
@@ -132,8 +134,16 @@ def import_signals(
             added += 1
         else:
             duplicates += 1
+        if auto_promote and source in MARKETPLACE_HOSTS and signal.get("channel") == "auto-discover":
+            row = session.scalar(select(RrugcResearchSignalModel).where(
+                RrugcResearchSignalModel.tenant_id == tenant_id,
+                RrugcResearchSignalModel.fingerprint == fingerprint,
+            ))
+            if row is not None and row.status == "pending" and row.created_by_user_id == user_id:
+                if _promote_auto_discover_candidate(session, tenant_id, row):
+                    auto_keywords += 1
     session.commit()
-    return {"added": added, "duplicates": duplicates}
+    return {"added": added, "duplicates": duplicates, **({"auto_keywords": auto_keywords} if auto_promote else {})}
 
 
 def row_dict(row: RrugcResearchSignalModel) -> dict:
@@ -182,6 +192,7 @@ def _insert_stage0_pending_keyword(
             "research_source": row.source,
             "research_source_url": row.url,
             "research_unverified": True,
+            **({"research_auto_extracted": EXTRACTOR_VERSION} if (row.reviewed_by_user_id or "").startswith("auto:agent-reach") else {}),
         },
     )
     dialect = session.get_bind().dialect.name
@@ -208,6 +219,67 @@ def _insert_stage0_pending_keyword(
         source_platform=row.source, source_channel=row.channel, source_url=row.url,
     )
     return inserted.rowcount == 1
+
+
+def _promote_auto_discover_candidate(
+    session: Session, tenant_id: str, row: RrugcResearchSignalModel,
+) -> bool:
+    """Promote only an intact, high-confidence quote; preserve raw evidence.
+
+    Auto promotion does NOT assert an embroidery photo was verified or that the
+    design is trademark-safe. Search volume stays pending until the standard
+    keyword-volume pipeline handles it.
+    """
+    if row.status != "pending" or row.channel != "auto-discover":
+        return False
+    if not row.created_by_user_id.startswith("scout-agent:"):
+        return False
+    phrase = extract_listing_quote(row.title, row.source, row.channel)
+    if not phrase:
+        return False
+    row.keyword = normalize_keyword(phrase)
+    row.reviewed_by_user_id = "auto:agent-reach:" + EXTRACTOR_VERSION
+    row.reviewed_at = datetime.now(timezone.utc)
+    _insert_stage0_pending_keyword(session, tenant_id, row)
+    row.status = "approved"
+    return True
+
+
+def backfill_auto_discover_candidates(
+    session: Session, *, tenant_id: str, dry_run: bool = False,
+    limit: int = 2000,
+) -> dict[str, int]:
+    """Replay only pending results of the exact, paired VPS Agent-Reach Scout.
+
+    Safe across retries. Human-reviewed, rejected, unrelated and non-quote
+    signals remain untouched; tenant isolation is enforced on both tables.
+    """
+    from app.modules.realistic_review_ugc.research_discovery import AGENT_NAME
+    agents = session.scalars(select(RrugcScoutAgentModel).where(
+        RrugcScoutAgentModel.tenant_id == tenant_id,
+        RrugcScoutAgentModel.name == AGENT_NAME,
+    )).all()
+    ids = ["scout-agent:" + agent.id for agent in agents]
+    if not ids:
+        return {"checked": 0, "auto_promoted": 0, "needs_review": 0}
+    rows = session.scalars(select(RrugcResearchSignalModel).where(
+        RrugcResearchSignalModel.tenant_id == tenant_id,
+        RrugcResearchSignalModel.channel == "auto-discover",
+        RrugcResearchSignalModel.created_by_user_id.in_(ids),
+        RrugcResearchSignalModel.status == "pending",
+    ).order_by(RrugcResearchSignalModel.created_at.asc()).limit(limit)).all()
+    promoted = 0
+    for row in rows:
+        if dry_run:
+            promoted += int(extract_listing_quote(row.title, row.source, row.channel) is not None)
+        else:
+            promoted += int(_promote_auto_discover_candidate(session, tenant_id, row))
+    if not dry_run:
+        session.commit()
+    return {
+        "checked": len(rows), "auto_promoted": promoted,
+        "needs_review": len(rows) - promoted,
+    }
 
 
 def apply_approved_to_stage0(session: Session, *, tenant_id: str) -> dict:

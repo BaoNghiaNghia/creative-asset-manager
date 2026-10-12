@@ -9,7 +9,7 @@ export type ResearchSignal = {
 export type AutoDiscoverStatus = {
   state: "not_configured" | "paused" | "ready" | "busy" | "offline" | "error";
   connected: boolean; server: string; source: string; last_seen_at: string | null;
-  last_error_code: string | null; total_evidence: number; pending_review: number;
+  last_error_code: string | null; total_evidence: number; pending_review: number; stage0_auto_keywords?: number;
   platforms: { pinterest: number; amazon: number; etsy: number };
 };
 const DISCOVERY_LABELS: Record<AutoDiscoverStatus["state"], string> = {
@@ -235,7 +235,7 @@ export function ResearchInboxPanel({ onKeywordApproved }: { onKeywordApproved?: 
       <div>
         <span className="rrugc-research-eyebrow">Agent-Reach · Research Intelligence</span>
         <h3>Research Inbox <span aria-hidden="true">·</span> GatorHats Products</h3>
-        <p>Tín hiệu đa nguồn chờ duyệt · Duyệt keyword để thêm vào Stage 0; không tự gọi AEBrowse.</p>
+        <p>Keyword rõ ràng được tự thêm Stage 0 (chưa xác minh), nội dung chưa rõ vẫn chờ duyệt. Không tự gọi AEBrowse.</p>
         {autoDiscover?.state === "not_configured" && <p role="status">VPS chưa ghép Scout Agent: kết quả Tavily hiện chưa thể chuyển vào CAM và Stage 0.</p>}
         {autoDiscover?.state === "offline" && <p role="status">VPS chưa báo heartbeat: kiểm tra token Scout Agent để đồng bộ các kết quả đã tìm.</p>}
       </div>
@@ -258,7 +258,7 @@ export function ResearchInboxPanel({ onKeywordApproved }: { onKeywordApproved?: 
           <span className={"rrugc-discovery-state state-" + (autoDiscover?.state || "unknown")}>
             {autoDiscover ? DISCOVERY_LABELS[autoDiscover.state] : "Chưa xác định"}
           </span>
-          {autoDiscover && <small>{autoDiscover.total_evidence} nguồn · {autoDiscover.pending_review} chờ duyệt · Etsy {autoDiscover.platforms.etsy} / Amazon {autoDiscover.platforms.amazon} / Pinterest {autoDiscover.platforms.pinterest}</small>}
+          {autoDiscover && <small>{autoDiscover.total_evidence} nguồn · {autoDiscover.stage0_auto_keywords ?? 0} tín hiệu keyword tự đưa vào Stage 0 · {autoDiscover.pending_review} chờ duyệt · Etsy {autoDiscover.platforms.etsy} / Amazon {autoDiscover.platforms.amazon} / Pinterest {autoDiscover.platforms.pinterest}</small>}
           {discoveryErrorMessage(autoDiscover) && <small>{discoveryErrorMessage(autoDiscover)}</small>}
           {autoDiscover?.connected && <button type="button" disabled={discoveryBusy}
             onClick={() => void toggleDiscoveryPause()}>

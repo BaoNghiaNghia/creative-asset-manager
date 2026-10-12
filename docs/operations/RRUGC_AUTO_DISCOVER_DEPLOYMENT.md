@@ -49,4 +49,19 @@ systemctl stop cam-research-auto-discover.service
 
 Runbook recovery: if `429` or `tavily_rate_limited`, wait for Tavily's free allowance to return. Already configured keyed fallbacks may be used on later timer ticks. Do not circumvent provider quotas. If Research Inbox remains empty while local outbox has pending rows, check dedicated pairing/token and API sync receipt; **do not reuse Windows secret or discard outbox**. If status is offline, distinguish intentional pause from missing heartbeat. Windows shut down abruptly: expect up to TTL before its owned query lease can be reclaimed.
 
-**Not yet part of v1:** rich cross-platform quote clustering, marketplace API-level verification, automatic AEBrowse enrichment of *unreviewed* search snippets, or multi-source Stage 0 evidence schema. Those require additive model/worker work and validation before activation.
+**2026-10-12 follow-up — Conservative Stage 0 auto-keyword promotion.** Once the dedicated `Agent-Reach Auto Discover` Scout is paired, its canonical Etsy/Amazon/Pinterest signals are assessed at import time. A strictly recognizable multiword quote preceding a hat/cap product phrase can be promoted into Stage 0 with provider=`pending`, a `research_unverified` marker, a versioned auto-extraction marker, and a separate source-Agent evidence row. Existing search volume, trademark checks, picked state and other agents' records are never overwritten. This action makes an *unverified text candidate* visible; it does **not** assert that the text was read from stitches or trademark-cleared, and does **not** call AEBrowse. Ambiguous listings stay in Research Inbox for human review. Only the dedicated paired VPS Agent-Reach identity can trigger auto-promotion; manually imported research and Windows Scouts still require operator review.
+
+After deploying backend changes, replay the already synced outbox **inside CAM** without Tavily or AEBrowse calls using the root-owned production env launcher (dry-run first, then apply):
+
+```bash
+/opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  /opt/creative-asset-manager/current/deploy/tools/production_env.py run-redacted \
+  --env-file /etc/creative-asset-manager/production.env --expected-owner-uid 0 \
+  -- /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  /opt/creative-asset-manager/current/apps/api/scripts/promote_agent_reach_keywords.py
+# Once dry-run shows expected high-confidence count, add --apply to the final Python CLI above.
+```
+
+The backfill is tenant-scoped, idempotent and excludes rejected, human-approved and unrelated signals. It logs only aggregate counts. Provider cooldown has no effect on the replay.
+
+**Still not part of this release:** marketplace API-level visual quote verification, automatic AEBrowse enrichment of unverified text candidates, unrestricted title-based keyword creation, or automatic rights clearance.

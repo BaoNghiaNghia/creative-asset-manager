@@ -5,18 +5,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.core.database import Base
-from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel, RrugcKeywordAgentOriginModel
+from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel, RrugcKeywordAgentOriginModel, RrugcScoutAgentModel
 from app.modules.realistic_review_ugc.keyword_agent_origins import origins_for_keywords
 from app.modules.realistic_review_ugc.research_intelligence import (
     ResearchValidationError, import_signals, list_signals,
-    normalize_keyword, review_signal, stage0_export, apply_approved_to_stage0, validate_url,
+    normalize_keyword, review_signal, stage0_export, apply_approved_to_stage0,
+    backfill_auto_discover_candidates, validate_url,
 )
 
 
 @pytest.fixture()
 def session():
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[RrugcResearchSignalModel.__table__, RrugcKeywordVolumeModel.__table__, RrugcKeywordAgentOriginModel.__table__])
+    Base.metadata.create_all(engine, tables=[RrugcResearchSignalModel.__table__, RrugcKeywordVolumeModel.__table__, RrugcKeywordAgentOriginModel.__table__, RrugcScoutAgentModel.__table__])
     with Session(engine) as db:
         yield db
     engine.dispose()
@@ -179,6 +180,82 @@ def test_research_approval_keeps_auto_discover_agent_with_cross_platform_evidenc
     assert apply_approved_to_stage0(session, tenant_id="tenant-a")["existing"] == 2
     assert origins_for_keywords(session, tenant_id="tenant-a",
                                keywords=["made to worship"]) == first
+
+
+def test_auto_discover_import_promotes_clear_quotes_but_keeps_ambiguous_listings_pending(session):
+    from app.modules.realistic_review_ugc.research_keyword_extraction import VERSION
+    signals = [
+        {"source": "etsy", "channel": "auto-discover",
+         "title": "BAD DAY TO BE A BEER Embroidered Rope Hat",
+         "url": "https://www.etsy.com/listing/123456789"},
+        {"source": "amazon", "channel": "auto-discover",
+         "title": "Custom Toddler Baseball Hat Boys Girls Personalized",
+         "url": "https://www.amazon.com/dp/B012345678"},
+        {"source": "etsy", "channel": "auto-discover",
+         "title": "Created With a Purpose Embroidered Hat",
+         "url": "https://www.etsy.com/listing/123456790"},
+    ]
+    result = import_signals(
+        session, tenant_id="tenant-a", user_id="scout-agent:reach-id",
+        signals=signals, auto_promote=True,
+    )
+    assert result == {"added": 3, "duplicates": 0, "auto_keywords": 2}
+    assert {x["keyword"] for x in list_signals(session, tenant_id="tenant-a", status="approved")} == {
+        "BAD DAY TO BE A BEER", "CREATED WITH A PURPOSE",
+    }
+    assert len(list_signals(session, tenant_id="tenant-a", status="pending")) == 1
+    rows = session.query(RrugcKeywordVolumeModel).filter_by(tenant_id="tenant-a").all()
+    assert len(rows) == 2
+    assert all(row.provider == "pending" and row.request_count == 0
+               and row.provider_raw_json["research_unverified"]
+               and row.provider_raw_json["research_auto_extracted"] == VERSION
+               for row in rows)
+    origins = origins_for_keywords(session, tenant_id="tenant-a",
+                                   keywords=[row.keyword_normalized for row in rows])
+    assert all(agent[0]["agent_name"] == "Agent-Reach Auto Discover"
+               for agent in origins.values())
+    # The same batch may be resent on network retry, but no duplicate keyword
+    # or bogus new source records should be inserted.
+    again = import_signals(
+        session, tenant_id="tenant-a", user_id="scout-agent:reach-id",
+        signals=signals, auto_promote=True,
+    )
+    assert again == {"added": 0, "duplicates": 3, "auto_keywords": 0}
+    assert session.query(RrugcKeywordVolumeModel).count() == 2
+
+
+def test_backfill_requires_matching_dedicated_agent_and_never_changes_existing_approvals(session):
+    dedicated = RrugcScoutAgentModel(
+        id="reach-id", tenant_id="tenant-a", name="Agent-Reach Auto Discover",
+        token_hash="a" * 64, active=True, created_by_user_id="operator",
+    )
+    session.add(dedicated)
+    session.flush()
+    valid = {"source": "pinterest", "channel": "auto-discover",
+             "title": "Good Taste in Music Bad Taste in Men Trucker Hat",
+             "url": "https://www.pinterest.com/pin/123456789"}
+    import_signals(session, tenant_id="tenant-a", user_id="scout-agent:reach-id", signals=[valid])
+    import_signals(session, tenant_id="tenant-b", user_id="scout-agent:reach-id",
+                   signals=[valid])
+    import_signals(session, tenant_id="tenant-a", user_id="scout-agent:other-id",
+                   signals=[{"source":"etsy", "channel":"auto-discover",
+                             "title":"DON'T QUIT Embroidered Hat",
+                             "url":"https://www.etsy.com/listing/12345678"}])
+    assert backfill_auto_discover_candidates(session, tenant_id="tenant-a", dry_run=True) == {
+        "checked": 1, "auto_promoted": 1, "needs_review": 0
+    }
+    assert session.query(RrugcKeywordVolumeModel).count() == 0
+    assert backfill_auto_discover_candidates(session, tenant_id="tenant-a") == {
+        "checked": 1, "auto_promoted": 1, "needs_review": 0
+    }
+    assert backfill_auto_discover_candidates(session, tenant_id="tenant-a") == {
+        "checked": 0, "auto_promoted": 0, "needs_review": 0
+    }
+    assert session.query(RrugcKeywordVolumeModel).count() == 1
+    assert session.query(RrugcKeywordVolumeModel).one().keyword == "GOOD TASTE IN MUSIC BAD TASTE IN MEN"
+    assert len(list_signals(session, tenant_id="tenant-a", status="pending")) == 1
+    assert len(list_signals(session, tenant_id="tenant-b", status="pending")) == 1
+
 
 def test_invalid_url_and_keyword_fail_closed(session):
     for url in ("http://news.google.com/a", "https://localhost/admin",
