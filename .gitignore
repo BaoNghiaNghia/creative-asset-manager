@@ -59,3 +59,5 @@ apps/client/.ui-qa/
 
 # Local Pi / SoL-Pi workspace
 .pi/
+
+.codelocal/worktrees/
