@@ -207,7 +207,62 @@ def test_v4_configuration_enables_scheduler_only_for_auto_mode():
     assert response.status_code == 200
     assert row.daily_sheet_automation_enabled is True
     assert row.daily_sheet_config_json["version"] == 4
-    service.validate_configuration.assert_called_once_with("tenant-a")
+    service.validate_configuration.assert_called_once_with(
+        "tenant-a",
+        settings_override={
+            "daily_working_spreadsheet_file_id": "working",
+            "daily_archive_root_folder_id": None,
+            "daily_template_spreadsheet_file_id": None,
+            "daily_target_spreadsheet_file_id": None,
+            "daily_sheet_config_json": config,
+        },
+        timezone_override="Asia/Ho_Chi_Minh",
+    )
+
+def test_invalid_daily_sheet_update_does_not_disable_existing_automation():
+    row = SimpleNamespace(
+        external_source_id="source-a", enabled=True,
+        image_pipeline_enabled=True, daily_sheet_automation_enabled=True,
+        daily_working_spreadsheet_file_id="current-workbook",
+        daily_archive_root_folder_id="current-archive",
+        daily_template_spreadsheet_file_id=None,
+        daily_target_spreadsheet_file_id=None,
+        daily_snapshot_time_local="16:00",
+        daily_reconcile_time_local="17:00",
+        daily_carry_forward_time_local="05:00",
+        timezone="Asia/Ho_Chi_Minh",
+        daily_sheet_config_json={"version": 4, "mode": "gemini_tool_sheet_agent"},
+    )
+    session = MagicMock()
+    session.__enter__.return_value = session
+    session.scalar.return_value = row
+    service = Mock()
+    service.validate_configuration.return_value = {
+        "valid": False, "errors": [{"code": "configured_sheet_missing"}],
+    }
+    client = client_for(principal({"inventory.read", "inventory.finalize"}))
+    with (
+        patch("app.modules.inventory.daily_sheet.router.SessionLocal", return_value=session),
+        patch("app.modules.inventory.daily_sheet.router._service", return_value=service),
+    ):
+        response = client.put("/api/inventory/daily-sheet/configuration", json={
+            "daily_sheet_automation_enabled": True,
+            "working_spreadsheet_file_id": "wrong-workbook",
+            "carry_forward_time_local": "05:00",
+            "snapshot_time_local": "16:00",
+            "reconcile_time_local": "17:00",
+            "config": {
+                "version": 4, "mode": "gemini_tool_sheet_agent",
+                "source": {"allowed_sheets": ["Missing"]},
+                "agent": {"apply_mode": "auto"},
+            },
+        })
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "daily_sheet_validation_failed"
+    assert row.daily_sheet_automation_enabled is True
+    assert row.daily_working_spreadsheet_file_id == "current-workbook"
+    session.commit.assert_not_called()
+
 
 def test_lifecycle_history_requires_read_permission_and_forwards_pagination():
     denied = client_for(principal(set()))

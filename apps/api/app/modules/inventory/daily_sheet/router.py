@@ -157,11 +157,30 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         body.carry_forward_time_local <= body.snapshot_time_local <= body.reconcile_time_local
     ):
         raise HTTPException(422, detail={"code": "inventory_schedule_order_invalid"})
+    if body.daily_sheet_automation_enabled:
+        if isinstance(parsed_config, GeminiToolSheetAgentConfig) and parsed_config.agent.apply_mode != "auto":
+            raise HTTPException(422, detail={"code": "gemini_tool_sheet_agent_scheduler_requires_auto_mode"})
+        # Read-only external validation of the candidate configuration. Never
+        # disable an existing daily schedule or persist an invalid workbook.
+        candidate = {
+            "daily_working_spreadsheet_file_id": body.working_spreadsheet_file_id,
+            "daily_archive_root_folder_id": body.archive_root_folder_id,
+            "daily_template_spreadsheet_file_id": body.template_spreadsheet_file_id,
+            "daily_target_spreadsheet_file_id": body.target_spreadsheet_file_id,
+            "daily_sheet_config_json": body.config,
+        }
+        report = _service().validate_configuration(
+            principal.active_tenant_id,
+            settings_override=candidate,
+            timezone_override=body.timezone,
+        )
+        if not report["valid"]:
+            raise HTTPException(422, detail={"code": "daily_sheet_validation_failed", "report": report})
     with SessionLocal() as session:
         row = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == principal.active_tenant_id))
         if row is None: raise HTTPException(409, detail={"code": "inventory_settings_required"})
         row.image_pipeline_enabled = body.image_pipeline_enabled
-        row.daily_sheet_automation_enabled = False
+        row.daily_sheet_automation_enabled = body.daily_sheet_automation_enabled
         row.daily_working_spreadsheet_file_id = body.working_spreadsheet_file_id
         row.daily_archive_root_folder_id = body.archive_root_folder_id
         row.daily_template_spreadsheet_file_id = body.template_spreadsheet_file_id
@@ -172,16 +191,6 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         row.daily_sheet_config_json = body.config
         row.timezone = body.timezone
         session.commit()
-    if body.daily_sheet_automation_enabled:
-        if isinstance(parsed_config, GeminiToolSheetAgentConfig) and parsed_config.agent.apply_mode != "auto":
-            raise HTTPException(422, detail={"code": "gemini_tool_sheet_agent_scheduler_requires_auto_mode"})
-        report = _service().validate_configuration(principal.active_tenant_id)
-        if not report["valid"]:
-            raise HTTPException(422, detail={"code": "daily_sheet_validation_failed", "report": report})
-        with SessionLocal() as session:
-            row = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == principal.active_tenant_id))
-            row.daily_sheet_automation_enabled = True
-            session.commit()
     return get_configuration(principal)
 
 @router.get("/status")

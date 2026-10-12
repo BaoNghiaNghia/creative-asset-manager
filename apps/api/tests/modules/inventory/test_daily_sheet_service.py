@@ -153,6 +153,36 @@ def service(sessions, google, now=None):
     )
 
 
+def test_validation_previews_candidate_workbook_without_persisting_it(daily_sheet_db):
+    google = FakeGoogle()
+    service = InventoryDailySheetService(
+        daily_sheet_db, client_factory=lambda _token: google,
+        token_resolver=lambda _connection_id: "test-token",
+    )
+    candidate = {
+        "daily_working_spreadsheet_file_id": "proposed-workbook",
+        "daily_archive_root_folder_id": None,
+        "daily_target_spreadsheet_file_id": None,
+        "daily_sheet_config_json": {
+            "version": 4, "mode": "gemini_tool_sheet_agent",
+            "source": {"allowed_sheets": ["Daily"]},
+            "agent": {"apply_mode": "auto"},
+        },
+    }
+    report = service.validate_configuration(
+        "tenant-a", settings_override=candidate,
+        timezone_override="Asia/Ho_Chi_Minh",
+    )
+    assert report["valid"] is False
+    assert {error["code"] for error in report["errors"]} == {"configured_sheet_missing"}
+    with daily_sheet_db() as session:
+        current = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == "tenant-a"))
+        assert current is not None
+        assert current.daily_sheet_automation_enabled is True
+        assert current.daily_working_spreadsheet_file_id == "working"
+        assert current.daily_sheet_config_json == CONFIG
+
+
 def test_snapshot_is_verified_before_reset_and_repeated_run_is_idempotent(daily_sheet_db):
     google = FakeGoogle()
     worker = service(daily_sheet_db, google)

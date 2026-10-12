@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -89,6 +92,24 @@ class InventoryDailySchedulerTest(unittest.TestCase):
         self.assertEqual(4, scheduler.run_once(datetime(2030, 8, 9, 10, 10, tzinfo=timezone.utc)))
         self.assertEqual([("tenant-a", datetime(2030, 8, 9, 10, 10, tzinfo=timezone.utc).astimezone().date())], reports.calls)
 
+
+    def test_one_shot_cli_maps_snapshot_and_reconcile_to_actual_v4_slots(self) -> None:
+        root = Path(__file__).resolve().parents[5]
+        entrypoint = runpy.run_path(
+            str(root / "apps/inventory_scheduler/main.py"),
+            run_name="inventory_scheduler_test",
+        )
+        main = entrypoint["main"]
+        worker = Mock()
+        worker.execute_v4_slot.return_value = 1
+        with patch.dict(main.__globals__, {
+            "get_settings": lambda: SimpleNamespace(inventory_tenant_allowlist=frozenset()),
+            "InventoryDailyScheduler": lambda *args, **kwargs: worker,
+        }):
+            assert main(["--once", "--slot", "snapshot"]) == 0
+            worker.execute_v4_slot.assert_called_with("afternoon_snapshot")
+            assert main(["--once", "--slot", "reconcile"]) == 0
+            worker.execute_v4_slot.assert_called_with("evening_reconcile")
 
     def test_standalone_scheduler_entrypoint_registers_tenant_mapping(self) -> None:
         root = Path(__file__).resolve().parents[5]

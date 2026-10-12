@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio, logging, time
+from types import SimpleNamespace
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -186,9 +187,25 @@ class InventoryDailySheetService:
         if session.bind is not None and session.bind.dialect.name == "postgresql":
             session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
 
-    def _context(self, tenant_id: str, *, require_enabled: bool = True) -> SheetContext:
+    def _context(
+        self, tenant_id: str, *, require_enabled: bool = True,
+        settings_override: dict[str, Any] | None = None,
+    ) -> SheetContext:
         with self.session_factory() as session:
             settings = session.scalar(select(InventorySettingsModel).where(InventorySettingsModel.tenant_id == tenant_id, InventorySettingsModel.enabled.is_(True)))
+            if settings is not None and settings_override is not None:
+                # Preview the proposed workbook mapping without touching the
+                # persisted configuration or interrupting an active scheduler.
+                fields = (
+                    "external_source_id", "daily_sheet_automation_enabled",
+                    "daily_working_spreadsheet_file_id", "daily_archive_root_folder_id",
+                    "daily_template_spreadsheet_file_id", "daily_target_spreadsheet_file_id",
+                    "daily_sheet_config_json",
+                )
+                settings = SimpleNamespace(**{
+                    **{field: getattr(settings, field) for field in fields},
+                    **settings_override,
+                })
             if settings is None or (require_enabled and not settings.daily_sheet_automation_enabled):
                 raise DailySheetConfigurationError("Daily Google Sheet automation is disabled.")
             if not settings.daily_working_spreadsheet_file_id or not settings.daily_sheet_config_json:
@@ -250,12 +267,18 @@ class InventoryDailySheetService:
         value = self.token_resolver(connection_id)
         return asyncio.run(value) if hasattr(value, "__await__") else str(value)
 
-    def validate_configuration(self, tenant_id: str) -> dict[str, Any]:
+    def validate_configuration(
+        self, tenant_id: str, *,
+        settings_override: dict[str, Any] | None = None,
+        timezone_override: str | None = None,
+    ) -> dict[str, Any]:
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         checks: list[dict[str, Any]] = []
         try:
-            context = self._context(tenant_id, require_enabled=False)
+            context = self._context(
+                tenant_id, require_enabled=False, settings_override=settings_override,
+            )
             with self.client_factory(self._token(context.connection_id)) as google:
                 working = google.validate_native_spreadsheet(context.working_file_id)
                 checks.append({"code": "native_working_spreadsheet", "ok": True})
@@ -348,8 +371,9 @@ class InventoryDailySheetService:
                             if any(_overlaps(reset_range, identity_range) for reset_range in context.config.reset.ranges for identity_range in protected):
                                 errors.append({"code": "reset_overlaps_identity_columns"})
                     workbook_timezone = str((metadata.get("properties") or {}).get("timeZone") or "")
-                    if workbook_timezone and workbook_timezone != self._inventory_timezone(tenant_id):
-                        warnings.append({"code": "workbook_timezone_mismatch", "workbook_timezone": workbook_timezone, "inventory_timezone": self._inventory_timezone(tenant_id)})
+                    inventory_timezone = timezone_override or self._inventory_timezone(tenant_id)
+                    if workbook_timezone and workbook_timezone != inventory_timezone:
+                        warnings.append({"code": "workbook_timezone_mismatch", "workbook_timezone": workbook_timezone, "inventory_timezone": inventory_timezone})
                     if context.config.reconciliation.mode == "target_table":
                         google.validate_native_spreadsheet(context.target_file_id)
                         target_blocks = google.batch_get_values(context.target_file_id, [item.item_key_range for item in context.config.reconciliation.targets])

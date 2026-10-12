@@ -378,7 +378,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     if arguments.once:
         if arguments.slot:
-            count = scheduler.execute_v4_slot(arguments.slot)
+            # Systemd V4.1 timer CLI aliases are not the persisted V5J slot IDs.
+            slot_kind = {
+                "snapshot": "afternoon_snapshot",
+                "reconcile": "evening_reconcile",
+            }[arguments.slot]
+            count = scheduler.execute_v4_slot(slot_kind)
             print(f"INVENTORY_V41_ONESHOT slot={arguments.slot} executions={count}")
         else:
             count = scheduler.run_once()
