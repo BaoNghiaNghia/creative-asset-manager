@@ -629,7 +629,7 @@ export const uploadLocalKeywordSkillForStage1 = (registryId: string, file: File)
 export const createStage2SkillVersion = (
   registryId: string,
   file: File,
-  makeDefault = false,
+  makeDefault = true,
 ) => {
   const body = new FormData();
   body.set("file", file);

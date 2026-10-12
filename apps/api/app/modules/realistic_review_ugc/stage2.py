@@ -31,6 +31,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcStage2JobModel,
 )
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.skill_registry import (
     assert_skill_enabled,
@@ -137,6 +139,24 @@ def _stage2_source_group(
     return members or [plan]
 
 
+def _require_stage4_storage(settings: Settings) -> None:
+    """Never queue doomed jobs while Managed Drive credentials are absent.
+
+    Credential reconnect is an operator action. This preflight returns a clear
+    409 instead of letting the worker burn a generation attempt and report the
+    opaque storage_provider_error.
+    """
+    if settings.is_production and isinstance(
+        build_managed_storage_provider(settings), UnconfiguredAssetStorageProvider
+    ):
+        raise RrugcStage2Error(
+            "stage4_managed_drive_not_connected",
+            "Stage 4 needs a connected Managed Google Drive account. "
+            "Reconnect Managed Storage in Settings and verify its folder before generating or retrying.",
+            status_code=409,
+        )
+
+
 class RrugcStage2Service:
     def __init__(self, session: Session, settings: Settings | None = None):
         self.session = session
@@ -156,6 +176,7 @@ class RrugcStage2Service:
         skill_version: str | None = None,
         prompt: str | None = None,
     ) -> tuple[RrugcStage2JobModel, bool]:
+        _require_stage4_storage(self.settings)
         plan = self.session.get(RrugcSourcePlanModel, source_plan_id)
         if plan is None or plan.tenant_id != tenant_id:
             raise RrugcStage2Error(
@@ -406,15 +427,17 @@ class RrugcStage2Service:
     def regenerate_completed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
     ) -> RrugcStage2JobModel:
-        """Generate an immutable new version with the same pinned references and Skill."""
+        """Generate a new output using the latest installed version of the same Skill."""
         original = self.session.scalar(select(RrugcStage2JobModel).where(
             RrugcStage2JobModel.tenant_id == tenant_id,
             RrugcStage2JobModel.id == job_id,
         ).with_for_update())
         if original is None:
             raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
-        if original.created_by_user_id != user_id:
-            raise RrugcStage2Error("stage4_regenerate_forbidden", "Only the job owner can regenerate.", status_code=403)
+        # The router already requires RRUGC run permission and scopes the
+        # lookup to this tenant. Do not impose another creator-only gate:
+        # authorized viewers/editors need to retry shared generation work.
+        _require_stage4_storage(self.settings)
         if original.status != "completed" or not original.output_remote_file_id:
             raise RrugcStage2Error("stage4_version_unavailable", "Only completed outputs can be regenerated.")
         ensure_skill_registry(self.session, tenant_id=tenant_id)
@@ -424,14 +447,28 @@ class RrugcStage2Service:
                                  skill_name=original.skill_name)
         except Stage2SkillRegistryError as exc:
             raise RrugcStage2Error(exc.code, exc.message, status_code=exc.status_code) from exc
+        try:
+            current_skill = resolve_stage2_skill(
+                settings=self.settings,
+                skill_source=original.skill_source,
+                skill_id=original.skill_id,
+                skill_name=original.skill_name,
+                skill_version=None,  # An uploaded replacement wins over the old version.
+                fallback_skill_name=DEFAULT_STAGE2_SKILL,
+            )
+        except Stage2SkillRegistryError as exc:
+            raise RrugcStage2Error(exc.code, exc.message, status_code=exc.status_code) from exc
+        current_bundle_sha256 = installed_stage2_skill_sha256(
+            current_skill.skill_name, settings=self.settings
+        )
         now = datetime.now(timezone.utc)
         row = RrugcStage2JobModel(
             tenant_id=tenant_id, source_plan_id=original.source_plan_id,
             campaign_id=original.campaign_id, source_revision=original.source_revision,
             regenerated_from_job_id=original.regenerated_from_job_id or original.id,
-            skill_name=original.skill_name, skill_source=original.skill_source,
-            skill_id=original.skill_id, skill_version=original.skill_version,
-            skill_bundle_sha256=original.skill_bundle_sha256,
+            skill_name=current_skill.skill_name, skill_source=current_skill.source,
+            skill_id=current_skill.skill_id, skill_version=current_skill.skill_version,
+            skill_bundle_sha256=current_bundle_sha256,
             selected_candidate_ids_json=list(original.selected_candidate_ids_json or []),
             selected_reference_snapshot_json=list(original.selected_reference_snapshot_json or []),
             selected_source_snapshot_json=dict(original.selected_source_snapshot_json or {}),
@@ -457,15 +494,16 @@ class RrugcStage2Service:
     def retry_failed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
     ) -> RrugcStage2JobModel:
-        """Retain the pinned source/skill and completed outputs; queue a new attempt."""
+        """Retry saved references using the current installed Skill replacement."""
         row = self.session.scalar(select(RrugcStage2JobModel).where(
             RrugcStage2JobModel.tenant_id == tenant_id,
             RrugcStage2JobModel.id == job_id,
         ).with_for_update())
         if row is None:
             raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
-        if row.created_by_user_id != user_id:
-            raise RrugcStage2Error("stage4_retry_forbidden", "Only the job owner can retry.", status_code=403)
+        # RRUGC-run permission is enforced at the router. Same-tenant
+        # operators can retry failed jobs created by other team members.
+        _require_stage4_storage(self.settings)
         processing = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
         if row.status != "failed" and (processing is None or processing.status != "failed"):
             raise RrugcStage2Error("stage4_retry_not_failed", "Only failed jobs can be retried.")
@@ -476,6 +514,21 @@ class RrugcStage2Service:
         )) or 0)
         if previous >= 4:
             raise RrugcStage2Error("stage4_retry_limit", "Maximum of three manual retries reached.")
+        try:
+            latest = resolve_stage2_skill(
+                settings=self.settings, skill_source=row.skill_source,
+                skill_id=row.skill_id, skill_name=row.skill_name,
+                skill_version=None, fallback_skill_name=DEFAULT_STAGE2_SKILL,
+            )
+        except Stage2SkillRegistryError as exc:
+            raise RrugcStage2Error(exc.code, exc.message, status_code=exc.status_code) from exc
+        row.skill_name = latest.skill_name
+        row.skill_source = latest.source
+        row.skill_id = latest.skill_id
+        row.skill_version = latest.skill_version
+        row.skill_bundle_sha256 = installed_stage2_skill_sha256(
+            latest.skill_name, settings=self.settings
+        )
         queued_at = datetime.now(timezone.utc)
         next_processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=tenant_id, job_type=STAGE2_JOB_TYPE,
@@ -693,7 +746,12 @@ class RrugcStage2GenerateJobHandler:
             )
 
         storage = context.dependencies.storage_provider
-        if storage is None:
+        # OAuth may have been reconnected after the worker started. Avoid a
+        # worker restart if the credential is now available; never override
+        # an explicitly supplied test provider.
+        if settings.is_production and (storage is None or isinstance(storage, UnconfiguredAssetStorageProvider)):
+            storage = build_managed_storage_provider(settings)
+        if storage is None or isinstance(storage, UnconfiguredAssetStorageProvider):
             raise RrugcGenerationHandlerError(
                 "managed_storage_unavailable",
                 "Managed storage is unavailable.",

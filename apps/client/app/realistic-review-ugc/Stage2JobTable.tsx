@@ -25,7 +25,7 @@ import type {
   Stage2SkillSelection,
 } from "./types";
 
-const REFS_PER_RUN = 3;
+const REFS_PER_RUN = 1;
 const MAX_OUTPUT_SLOTS = 10;
 const STAGE2_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const FALLBACK_SKILL_NAME = "gatorhats-8869-image-studio";
@@ -103,6 +103,22 @@ function stage2JobsByPlan(plans: SourcePlan[], jobs: Stage2Job[]) {
   return result;
 }
 
+export function latestCompletedStage4Outputs(jobs: Stage2Job[]): Stage2Job[] {
+  // Each regen chain has one visible current image. Preserve historical
+  // versions in the Versions dialog and run history (no Drive deletions).
+  const latest = new Map<string, Stage2Job>();
+  for (const job of jobs) {
+    if (job.status !== "completed") continue;
+    const root = job.regenerated_from_job_id || job.id;
+    const current = latest.get(root);
+    if (!current || Date.parse(job.created_at) > Date.parse(current.created_at)
+      || (job.created_at === current.created_at && job.id > current.id)) {
+      latest.set(root, job);
+    }
+  }
+  return jobs.filter(job => latest.get(job.regenerated_from_job_id || job.id)?.id === job.id);
+}
+
 function completedCandidateIdsByPlan(
   plans: SourcePlan[],
   allJobsByPlan: Map<string, Stage2Job[]>,
@@ -129,6 +145,17 @@ function recentJobsByPlan(
     result.set(plan.id, [...newest].reverse());
   }
   return result;
+}
+
+function stage4JobErrorMessage(job: Stage2Job): string {
+  if (job.last_error_code === "storage_provider_error"
+    && (job.last_error_message || "").includes("managed asset storage is not configured")) {
+    return "Managed Google Drive disconnected · reconnect storage in Settings before Retry";
+  }
+  return job.last_error_code
+    ? job.last_error_code + (job.last_error_message && job.last_error_message !== job.last_error_code
+      ? " · " + job.last_error_message : "")
+    : job.last_error_message || "Generation failed";
 }
 
 function jobLabel(job: Stage2Job) {
@@ -433,11 +460,13 @@ function Stage4OutputActionIcon({ name }: { name: "logs" | "versions" | "new-ver
 export function Stage2OutputReviewModal({
   plan,
   jobs,
+  historyJobs = jobs,
   onClose,
   onRegenerateJob,
 }: {
   plan: SourcePlan;
   jobs: Stage2Job[];
+  historyJobs?: Stage2Job[];
   onClose: () => void;
   onRegenerateJob?: (job: Stage2Job) => void;
 }) {
@@ -495,7 +524,7 @@ export function Stage2OutputReviewModal({
                 alt={"Generated output " + (index + 1)}
                 rootMargin="320px 0px"
               />
-              <span className="rrugc-source-review-index">v{1 + jobs.filter(other => (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
+              <span className="rrugc-source-review-index">v{1 + historyJobs.filter(other => other.status === "completed" && (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
             </div>
             <footer className="rrugc-stage4-output-card-footer">
               <div className="rrugc-stage4-output-card-meta">
@@ -629,6 +658,7 @@ export function Stage2JobTable({
   const [outputReview, setOutputReview] = useState<{
     plan: SourcePlan;
     jobs: Stage2Job[];
+    historyJobs?: Stage2Job[];
   } | null>(null);
   const stage2Plans = plans;
   const allJobsByPlan = useMemo(
@@ -713,7 +743,9 @@ export function Stage2JobTable({
   }
 
   function selectedVersion(planId: string, skill: Stage2Skill) {
-    return skillVersionByPlan[planId] || defaultVersion(skill);
+    // An uploaded replacement is authoritative; never pin this plan to a
+    // superseded hosted version remembered in UI state.
+    return skill.synced_version || skillVersionByPlan[planId] || defaultVersion(skill);
   }
 
   function selectSkill(planId: string, nextKey: string) {
@@ -775,9 +807,9 @@ export function Stage2JobTable({
       className="rrugc-stage2-heading"
       kicker="STAGE 4 · EMBROIDERY GROUP → PINTEREST REFS → SKILL"
       title="Pinterest references → image generation"
-      description={<>Stage 3 grouping is preserved. Select any number of Drive-ready references; generation automatically runs them in groups of up to {REFS_PER_RUN} refs plus 1 random hat input until the selection is queued.</>}
+      description={<>Stage 3 grouping is preserved. Select any number of Drive-ready references; generation queues a separate job for each selected reference plus 1 random hat input until the selection is queued.</>}
       actions={<div className="rrugc-stage2-registry-actions">
-        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} refs + 1 random hat / run</span>
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} ref + 1 random hat / job</span>
         <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
           <i aria-hidden="true" />
           {catalog.openai_status === "connected"
@@ -835,7 +867,7 @@ export function Stage2JobTable({
             const selected = selectedByPlan[plan.id] || [];
             const allPlanJobs = allJobsByPlan.get(plan.id) || [];
             const planJobs = recentJobs.get(plan.id) || [];
-            const completedJobs = allPlanJobs.filter(job => job.status === "completed");
+            const completedJobs = latestCompletedStage4Outputs(allPlanJobs);
             const generated = completedCandidates.get(plan.id) || new Set<string>();
             const pickableAvailable = available.filter(reference => !generated.has(reference.id)).length;
             const runs = outputSummary(planJobs);
@@ -868,9 +900,7 @@ export function Stage2JobTable({
                 : skill.source === "openai" && version !== skill.synced_version
                   ? "Selected version is not synced"
                   : "";
-            const versionOptions = skill.version_options.length
-              ? skill.version_options
-              : version ? [version] : [];
+            const versionOptions = version ? [version] : [];
             return <tr key={plan.id}>
               <td className="rrugc-source-cell">
                 <div className="rrugc-source-file rrugc-source-file-grouped rrugc-stage2-source-group">
@@ -1009,6 +1039,7 @@ export function Stage2JobTable({
                     onClick={() => setOutputReview({
                       plan,
                       jobs: completedJobs,
+                      historyJobs: allPlanJobs,
                     })}
                   >
                     <DeferredImage
@@ -1016,7 +1047,7 @@ export function Stage2JobTable({
                       alt={"Generated output " + (index + 1)}
                       rootMargin="180px"
                     />
-                    <span>v{1 + completedJobs.filter(other => (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
+                    <span>v{1 + allPlanJobs.filter(other => other.status === "completed" && (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
                   </button>)}
                 </div> : <div className={"rrugc-stage2-results-empty" + (runs.active > 0 ? " is-generating" : "")}>
                   {runs.active > 0
@@ -1033,7 +1064,7 @@ export function Stage2JobTable({
                     {[...planJobs].reverse().map((run, index) => <div key={run.id} className={"rrugc-stage4-run-history-item is-" + run.status}>
                       <span className="rrugc-stage4-run-history-index">#{planJobs.length - index}</span>
                       <span className="rrugc-stage4-run-history-state">{jobLabel(run)}</span>
-                      {run.status === "failed" && <span className="rrugc-stage4-run-history-error" title={run.last_error_message || run.last_error_code || "Generation failed"}>{run.last_error_code ? run.last_error_code + (run.last_error_message && run.last_error_message !== run.last_error_code ? " · " + run.last_error_message : "") : run.last_error_message || "Generation failed"}</span>}
+                      {run.status === "failed" && <span className="rrugc-stage4-run-history-error" title={run.last_error_message || run.last_error_code || "Generation failed"}>{stage4JobErrorMessage(run)}</span>}
                       {run.status === "failed" && <div className="rrugc-stage4-run-history-actions">
                         <button type="button" className="rrugc-icon-action" onClick={() => onRetryJob(run)}><RrugcActionIcon name="refresh" />Retry</button>
                         <button type="button" className="rrugc-icon-action" onClick={() => setTableLogJobId(run.id)}><RrugcActionIcon name="logs" />Logs</button>
@@ -1076,6 +1107,7 @@ export function Stage2JobTable({
     {outputReview && <Stage2OutputReviewModal
       plan={outputReview.plan}
       jobs={outputReview.jobs}
+      historyJobs={outputReview.historyJobs}
       onRegenerateJob={onRegenerateJob}
       onClose={() => setOutputReview(null)}
     />}

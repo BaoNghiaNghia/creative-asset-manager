@@ -76,7 +76,6 @@ export function SkillManagerModal({
   const [createFile, setCreateFile] = useState<File | null>(null);
   const [versionFiles, setVersionFiles] = useState<Record<string, File | null>>({});
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
-  const [makeDefault, setMakeDefault] = useState<Record<string, boolean>>({});
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [skillSearch, setSkillSearch] = useState("");
@@ -202,8 +201,8 @@ export function SkillManagerModal({
     }
     await mutate(
       "version:" + item.id,
-      () => createStage2SkillVersion(item.id, file, Boolean(makeDefault[item.id])),
-      "New skill version created.",
+      () => createStage2SkillVersion(item.id, file, true),
+      "New Skill version installed as default and synced. Previous outputs remain in history.",
     );
     setVersionFiles(current => ({ ...current, [item.id]: null }));
   }
@@ -449,10 +448,9 @@ export function SkillManagerModal({
                     <input type="file" accept=".zip,application/zip" disabled={Boolean(busyKey)}
                       onChange={event => setVersionFiles(current => ({ ...current, [item.id]: event.target.files?.[0] || null }))} />
                   </label>
-                  <label className="rrugc-skill-default-check"><input type="checkbox" checked={Boolean(makeDefault[item.id])} disabled={Boolean(busyKey)}
-                    onChange={event => setMakeDefault(current => ({ ...current, [item.id]: event.target.checked }))} />Make default</label>
+                  <small>Replaces current active version; previous outputs remain in history. Wait for running jobs to finish.</small>
                   <button type="button" disabled={!versionFiles[item.id] || Boolean(busyKey)} onClick={() => void addVersion(item)}>
-                    {busyKey === "version:" + item.id ? "Uploading…" : "Add version"}
+                    {busyKey === "version:" + item.id ? "Replacing…" : "Replace with ZIP"}
                   </button>
                 </div>}
               </div>

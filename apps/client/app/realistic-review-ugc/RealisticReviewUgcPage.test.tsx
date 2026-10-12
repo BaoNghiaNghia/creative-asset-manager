@@ -15,7 +15,7 @@ import {
   stage2JobsRenderFingerprint,
   stage2ReferenceBatches,
 } from "./RealisticReviewUgcPage";
-import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal } from "./Stage2JobTable";
+import { Stage2JobTable, Stage2OutputReviewModal, Stage2ReferenceReviewModal, latestCompletedStage4Outputs } from "./Stage2JobTable";
 import { Stage3ReviewGroups, Stage3ReviewModal } from "./Stage3ReviewGroups";
 import {
   ReferenceReviewModal,
@@ -165,6 +165,15 @@ function makeStage2Job(
     ...overrides,
   };
 }
+
+it("shows only the latest completed output of a regeneration chain without deleting its history", () => {
+  const old = makeStage2Job("job-old", "completed", { created_at: "2026-10-01T00:00:00Z" });
+  const latest = makeStage2Job("job-new", "completed", { regenerated_from_job_id: "job-old", created_at: "2026-10-02T00:00:00Z" });
+  const other = makeStage2Job("other-ref", "completed", { created_at: "2026-10-01T12:00:00Z" });
+  const pending = makeStage2Job("job-pending", "queued", { regenerated_from_job_id: "job-old", created_at: "2026-10-03T00:00:00Z" });
+  expect(latestCompletedStage4Outputs([old, latest, other, pending]).map(job => job.id)).toEqual(["job-new", "other-ref"]);
+  expect(latestCompletedStage4Outputs([old, other]).map(job => job.id)).toEqual(["job-old", "other-ref"]);
+});
 
 function makeStage3ReviewImage(
   id: string,
@@ -389,15 +398,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("0 completed · 0 active · 0 failed");
   });
 
-  it("splits unlimited Stage 2 selections into continuous groups of three refs", () => {
+  it("queues one independent Stage 4 generation job per selected reference", () => {
     expect(stage2ReferenceBatches(["a", "b", "c", "d", "e", "f", "g"])).toEqual([
-      ["a", "b", "c"],
-      ["d", "e", "f"],
-      ["g"],
+      ["a"], ["b"], ["c"], ["d"], ["e"], ["f"], ["g"],
     ]);
   });
 
-  it("renders Stage 2 with unlimited selection and three refs per generation run", () => {
+  it("renders Stage 4 with unlimited selection and one reference per generation job", () => {
     const markup = renderToStaticMarkup(
       <Stage2JobTable
         plans={[makePlan(12)]}
@@ -409,7 +416,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain("EMBROIDERY GROUP");
     expect(markup).toContain("Pinterest references → image generation");
-    expect(markup).toContain("3 refs + 1 random hat / run");
+    expect(markup).toContain("1 ref + 1 random hat / job");
     expect(markup).toContain("References · unlimited selection");
     expect(markup).not.toContain("Run status · latest 10");
     expect(markup).toContain("Output · runs &amp; results");

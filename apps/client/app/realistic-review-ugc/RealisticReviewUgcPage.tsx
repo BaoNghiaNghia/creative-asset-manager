@@ -66,7 +66,7 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   },
 };
 
-export const STAGE2_REFERENCES_PER_RUN = 3;
+export const STAGE2_REFERENCES_PER_RUN = 1;
 
 export function stage2ReferenceBatches(candidateIds: string[]) {
   const batches: string[][] = [];
@@ -442,7 +442,7 @@ export function RealisticReviewUgcPage() {
     setError("");
     try {
       const version = await regenerateStage4Job(job.id);
-      setStage2Message("New Stage 4 output version queued with original references and Skill. Earlier versions remain available.");
+      setStage2Message("New Stage 4 output queued with original references and current Skill. Older versions remain in history.");
       setStage2Jobs(current => current.some(item => item.id === version.id) ? current : [version, ...current]);
       await refreshStage2Jobs();
     } catch (reason) {
@@ -454,7 +454,7 @@ export function RealisticReviewUgcPage() {
     setError("");
     try {
       await retryStage4Job(job.id);
-      setStage2Message("Retry queued using the original pinned Skill and references. Previous completed outputs are unchanged.");
+      setStage2Message("Retry queued with the current installed Skill and original references. Previous completed outputs are unchanged.");
       await refreshStage2Jobs();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Failed to retry Stage 4 job.");
@@ -472,7 +472,7 @@ export function RealisticReviewUgcPage() {
     setError("");
     try {
       const batches = stage2ReferenceBatches(candidateIds);
-      // Submit one 3-reference batch at a time: avoid bursts of hundreds of
+      // Submit one reference per job at a time: avoid bursts of hundreds of
       // simultaneous HTTP requests and preserve each returned durable job ID.
       const results: PromiseSettledResult<Awaited<ReturnType<typeof createStage2Job>>>[] = [];
       stage4CancelRequestedPlans.current.delete(plan.id);
@@ -517,7 +517,7 @@ export function RealisticReviewUgcPage() {
         + (createdCount === 1 ? "" : "es")
         + " queued from " + candidateIds.length + " selected Pinterest ref"
         + (candidateIds.length === 1 ? "" : "s")
-        + " · up to " + STAGE2_REFERENCES_PER_RUN + " refs + 1 random hat per run"
+        + " · 1 selected reference + 1 random hat per job"
         + (existingCount ? "; " + existingCount + " already existed" : "")
         + ". You can cancel this batch for 10 seconds before generation starts.",
       );

@@ -49,6 +49,39 @@ def _catalog_item() -> stage2_skills.Stage2SkillItem:
     )
 
 
+
+def test_hosted_zip_replaces_active_default_and_syncs_runtime(monkeypatch):
+    """New hosted ZIP must not leave the worker executing its previous version."""
+    from types import SimpleNamespace
+    row = SimpleNamespace(
+        id="registry-1", skill_id="skill-1", skill_name="new-hats",
+        source="openai", tenant_id="tenant-a",
+    )
+    class FakeSession:
+        def scalar(self, _query): return 0
+        def commit(self): pass
+    session = FakeSession()
+    bundle = SimpleNamespace(skill_name="new-hats", bundle_sha256="b" * 64)
+    recorded = {}
+    monkeypatch.setattr(skill_registry, "get_registry_row", lambda *args, **kwargs: row)
+    monkeypatch.setattr(skill_registry, "inspect_uploaded_stage2_skill_bundle", lambda data: bundle)
+    monkeypatch.setattr(skill_registry, "create_openai_stage2_skill_version",
+                        lambda skill_id, bundle, make_default: (
+                            recorded.update(default=make_default, skill_id=skill_id) or "v3"
+                        ))
+    monkeypatch.setattr(skill_registry, "reconcile_skill_registry", lambda *a, **kw: None)
+    monkeypatch.setattr(skill_registry, "_version_row", lambda *a, **kw: None)
+    monkeypatch.setattr(skill_registry, "_audit", lambda *a, **kw: None)
+    def sync(*args, **kwargs):
+        recorded.update(sync_version=kwargs["version"])
+        return row
+    monkeypatch.setattr(skill_registry, "sync_skill", sync)
+    assert skill_registry.create_skill_version(
+        session, tenant_id="tenant-a", actor_id="admin",
+        registry_id="registry-1", bundle_bytes=b"zip", make_default=False,
+    ) is row
+    assert recorded == {"default": True, "skill_id": "skill-1", "sync_version": "v3"}
+
 def test_registry_reconcile_and_disable_filters_stage2_catalog(monkeypatch):
     engine = _engine()
     try:

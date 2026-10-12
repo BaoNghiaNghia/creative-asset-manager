@@ -606,6 +606,21 @@ def create_skill_version(
             "New versions can only be created for OpenAI-hosted skills.",
             status_code=409,
         )
+    active = sum(
+        int(session.scalar(select(func.count()).select_from(model).where(
+            model.tenant_id == tenant_id,
+            model.skill_source == "openai",
+            model.skill_id == row.skill_id,
+            model.status.in_(("queued", "running")),
+        )) or 0)
+        for model in (RrugcStage2JobModel, RrugcKeywordImageJobModel, RrugcColorwayJobModel)
+    )
+    if active:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_replace_active_jobs",
+            "Wait for active Stage 4 jobs to finish before replacing this Skill version.",
+            status_code=409,
+        )
     bundle = inspect_uploaded_stage2_skill_bundle(bundle_bytes)
     if bundle.skill_name != row.skill_name:
         raise Stage2SkillRegistryError(
@@ -616,7 +631,7 @@ def create_skill_version(
     version = create_openai_stage2_skill_version(
         row.skill_id,
         bundle,
-        make_default=make_default,
+        make_default=True,  # Replacement is the default, not parallel execution.
     )
     reconcile_skill_registry(
         session,
@@ -648,7 +663,12 @@ def create_skill_version(
         },
     )
     session.commit()
-    return row
+    # Activate the new version in the running Codex workspace now, rather
+    # than leaving the old synced version as the worker default.
+    return sync_skill(
+        session, tenant_id=tenant_id, actor_id=actor_id,
+        registry_id=registry_id, version=version,
+    )
 
 
 def get_registry_row_by_skill_id(
