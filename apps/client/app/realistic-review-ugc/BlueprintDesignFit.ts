@@ -67,8 +67,11 @@ export function blueprintFitArtwork(
   const contentHeight = Math.max(1, b.height * info.height);
   const base = Math.min(frameWidth * .95 / contentWidth, frameHeight * .92 / contentHeight);
   const zoom = Math.max(.4, Math.min(2, percent / 100));
-  const heightCap = limits.maxHeight / (contentHeight * base);
-  const widthCap = limits.maxWidth / (contentWidth * base);
+  // User zoom can enlarge the design only while its painted pixels remain
+  // within the dashed front embroidery frame. The older horizontal blue
+  // height limits are wider and must not permit overflow past this field.
+  const heightCap = Math.min(limits.maxHeight, frameHeight * .98) / (contentHeight * base);
+  const widthCap = Math.min(limits.maxWidth, frameWidth * .98) / (contentWidth * base);
   const actual = Math.min(zoom, heightCap, widthCap);
   const renderedWidth = Math.max(1, info.width * base * actual);
   const renderedHeight = Math.max(1, info.height * base * actual);
@@ -109,9 +112,9 @@ export function useBlueprintArtworkFit(source: string, percent: number) {
   const fitted = ready
     ? blueprintFitArtwork(
       image, frame.width, frame.height, percent,
-      // Keep visible stitches inside the wider cyan field and between the
-      // 19%-63% height lines even when Design size is increased to 200%.
-      { maxWidth: frame.width * .98, maxHeight: frame.height * (.37 / .21) },
+      // Size is relative to the expanded cyan field, never the full hat.
+      // The fit function also hard-caps user zoom to this frame.
+      { maxWidth: frame.width * .98, maxHeight: frame.height * .98 },
     ) : null;
   return { frameRef, onLoad, style: fitted?.style, ready, fitted };
 }

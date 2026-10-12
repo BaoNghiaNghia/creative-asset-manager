@@ -12,7 +12,7 @@
 .rrugc-blueprint-detail-image{position:relative;max-width:100%;max-height:100%;width:auto;height:100%;aspect-ratio:4/5;overflow:visible;isolation:isolate}
 .rrugc-blueprint-detail-image>.rrugc-blueprint-front-scene{position:absolute;inset:0;width:100%;height:100%;transform:scale(1.23);transform-origin:center center;pointer-events:none}
 .rrugc-blueprint-detail-image .rrugc-blueprint-hat-original{display:block;width:100%;height:100%;object-fit:contain}
-.rrugc-blueprint-detail-image .rrugc-blueprint-selected-design{position:absolute;top:33%;left:21%;width:58%;height:21%;overflow:visible}
+.rrugc-blueprint-detail-image .rrugc-blueprint-selected-design{position:absolute;top:var(--rrugc-guide-top);left:var(--rrugc-guide-left);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height);overflow:visible}
 .rrugc-blueprint-detail-image .rrugc-blueprint-selected-design img{position:absolute;object-fit:fill;max-width:none;max-height:none;filter:none;mix-blend-mode:normal;box-shadow:none}
 .rrugc-blueprint-detail-image .rrugc-blueprint-front-guide{position:absolute;left:var(--rrugc-guide-left);top:var(--rrugc-guide-top);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height)}
 .rrugc-blueprint-detail-footer{border-top:1px solid #dce5ef;flex-wrap:wrap}

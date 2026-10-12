@@ -77,7 +77,7 @@
 .rrugc-blueprint-selected-card:active{cursor:grabbing}
 .rrugc-blueprint-selected-hat{position:relative;box-sizing:border-box;height:min(540px,calc(100% - 74px));width:auto;aspect-ratio:4/5;max-width:calc(100% - 24px);min-height:0;background:#fff;isolation:isolate;overflow:hidden}
 .rrugc-blueprint-hat-original{display:block;width:100%;height:100%;object-fit:contain;object-position:center;user-select:none;pointer-events:none}
-.rrugc-blueprint-selected-design{position:absolute;top:33%;left:26.5%;width:47%;height:21%;display:grid;place-items:center;overflow:visible;isolation:isolate}
+.rrugc-blueprint-selected-design{position:absolute;top:var(--rrugc-guide-top);left:var(--rrugc-guide-left);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height);display:grid;place-items:center;overflow:visible;isolation:isolate}
 .rrugc-blueprint-selected-design.is-guided{outline:1.5px dashed #1bb6b0;outline-offset:2px;background:rgba(15,202,183,.03)}
 .rrugc-blueprint-selected-design img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;mix-blend-mode:normal;pointer-events:none;opacity:1;transform-origin:center;overflow:hidden}
 .rrugc-blueprint-selected-info{position:absolute;bottom:23px;left:10px;right:10px;display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;text-align:center}
@@ -358,10 +358,10 @@
   .rrugc-blueprint-view-zoom-slider{width:62px}
   .rrugc-blueprint-view-zoom-caption{display:none}
 }
-/* WACE placement: wider horizontal design boundary; height limit on the front
-   moves above the crown embroidery and finishes at the brim seam. */
+/* Fit the painted artwork into the entire expanded dashed field at 100%.
+   Keep this frame identical in preview, magnifier and enlarged detail. */
 .rrugc-blueprint-front-guide{left:var(--rrugc-guide-left);top:var(--rrugc-guide-top);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height)}
-.rrugc-blueprint-selected-design{left:21%;width:58%}
+.rrugc-blueprint-selected-design{left:var(--rrugc-guide-left);top:var(--rrugc-guide-top);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height)}
 .rrugc-blueprint-height-line.is-upper{top:19%}
 .rrugc-blueprint-height-line.is-lower{top:63%}
 /* Side design and cyan rectangle are aligned in the same 700×430

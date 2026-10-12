@@ -49,6 +49,34 @@ describe("Blueprint front artwork auto-fit", () => {
     expect(out.heightLimited).toBe(true);
     expect(out.effectivePercent).toBeLessThan(200);
   });
+  it("keeps wide and tall painted artwork inside the expanded embroidery field even at 200% zoom", () => {
+    // A 700×500 front scene: 69.6% × 23.1% is the cyan placement field.
+    const width = 700 * .696;
+    const height = 500 * .231;
+    const candidates = [
+      { width: 512, height: 512, bounds: { x: .08, y: .43, width: .84, height: .14 } },
+      { width: 512, height: 512, bounds: { x: .36, y: .12, width: .28, height: .76 } },
+    ];
+    for (const d of candidates) for (const zoom of [100, 150, 200]) {
+      const fitted = blueprintFitArtwork(
+        d, width, height, zoom,
+        // Legacy upper/lower blue lines allow more height than the cyan box.
+        // The fitted artwork must still stay within its actual dashed frame.
+        { maxWidth: width * .98, maxHeight: height * (.37 / .21) },
+      );
+      const visibleLeft = Number(fitted.style.left) + Number(fitted.style.width) * d.bounds.x;
+      const visibleRight = visibleLeft + Number(fitted.style.width) * d.bounds.width;
+      const visibleTop = Number(fitted.style.top) + Number(fitted.style.height) * d.bounds.y;
+      const visibleBottom = visibleTop + Number(fitted.style.height) * d.bounds.height;
+      expect(visibleLeft).toBeGreaterThanOrEqual(0);
+      expect(visibleTop).toBeGreaterThanOrEqual(0);
+      expect(visibleRight).toBeLessThanOrEqual(width);
+      expect(visibleBottom).toBeLessThanOrEqual(height);
+      // No nonuniform scaling or cropping of the actual embroidery.
+      expect(Number(fitted.style.width) / Number(fitted.style.height)).toBeCloseTo(1, 8);
+    }
+  });
+
   it("falls back to a contain fit for empty or unreadable image data", () => {
     expect(blueprintPixelBounds(new Uint8ClampedArray(), 100, 100)).toEqual({ x: 0, y: 0, width: 1, height: 1 });
     expect(blueprintFitArtwork({ width: 900, height: 400, bounds: { x: 0, y: 0, width: 1, height: 1 } },

@@ -74,13 +74,16 @@ it("enlarges only the cyan Front embroidery guide 10% upward and 10% per side in
     height: "var(--rrugc-guide-height)",
   });
 
-  // Guide alone grows: do not enlarge/shift embroidery artwork or hat image.
-  expect(lastRule(previewCss, ".rrugc-blueprint-selected-design")).toMatchObject({
-    left: "21%", width: "58%",
-  });
-  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design")).toMatchObject({
-    top: "33%", left: "21%", width: "58%", height: "21%",
-  });
+  // The content-fitting frame must use exactly the same box as the cyan guide.
+  // Fitted painted PNG pixels (not transparent margins) should occupy it at 100%.
+  const guideFrame = {
+    left: "var(--rrugc-guide-left)",
+    top: "var(--rrugc-guide-top)",
+    width: "var(--rrugc-guide-width)",
+    height: "var(--rrugc-guide-height)",
+  };
+  expect(lastRule(previewCss, ".rrugc-blueprint-selected-design")).toMatchObject(guideFrame);
+  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design")).toMatchObject(guideFrame);
 });
 
 it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPEG files", () => {
