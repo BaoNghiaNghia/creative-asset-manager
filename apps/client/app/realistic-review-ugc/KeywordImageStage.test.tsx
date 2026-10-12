@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { formatKeywordJobDuration, isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
+import { formatKeywordJobDuration, formatKeywordJobFinishedAt, isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
 import type { KeywordImageRow, Stage2Skill } from "./types";
 
 const keyword = {
@@ -20,6 +20,32 @@ describe("Stage 1 job elapsed time", () => {
     expect(formatKeywordJobDuration("2026-10-10T01:00:00Z", null, Date.parse("2026-10-10T01:00:07Z"))).toBe("7s");
     expect(formatKeywordJobDuration(null, null)).toBe("—");
     expect(formatKeywordJobDuration("invalid", null)).toBe("—");
+  });
+});
+
+describe("Stage 1 Finished at relative time", () => {
+  const now = Date.parse("2026-10-12T16:00:00Z");
+  const ago = (milliseconds: number) => new Date(now - milliseconds).toISOString();
+
+  it("shows minutes under an hour and hours under 24 hours", () => {
+    expect(formatKeywordJobFinishedAt(ago(30_000), now)).toBe("Vừa xong");
+    expect(formatKeywordJobFinishedAt(ago(60_000), now)).toBe("1 phút trước");
+    expect(formatKeywordJobFinishedAt(ago(24 * 60_000), now)).toBe("24 phút trước");
+    expect(formatKeywordJobFinishedAt(ago(59 * 60_000 + 59_000), now)).toBe("59 phút trước");
+    expect(formatKeywordJobFinishedAt(ago(60 * 60_000), now)).toBe("1h trước");
+    expect(formatKeywordJobFinishedAt(ago(12 * 60 * 60_000), now)).toBe("12h trước");
+    expect(formatKeywordJobFinishedAt(ago(23 * 60 * 60_000 + 59 * 60_000), now)).toBe("23h trước");
+  });
+
+  it("keeps full timestamps for 24 hours or older, future, invalid and missing values", () => {
+    const absolute = (date: string) => new Date(date).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    expect(formatKeywordJobFinishedAt(ago(24 * 60 * 60_000), now)).toBe(absolute(ago(24 * 60 * 60_000)));
+    expect(formatKeywordJobFinishedAt(ago(25 * 60 * 60_000), now)).toBe(absolute(ago(25 * 60 * 60_000)));
+    expect(formatKeywordJobFinishedAt(new Date(now + 1000).toISOString(), now)).toBe(absolute(new Date(now + 1000).toISOString()));
+    expect(formatKeywordJobFinishedAt("not-a-date", now)).toBe("—");
+    expect(formatKeywordJobFinishedAt(null, now)).toBe("—");
   });
 });
 

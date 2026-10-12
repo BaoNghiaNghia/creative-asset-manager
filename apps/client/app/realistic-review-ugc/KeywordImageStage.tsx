@@ -43,12 +43,27 @@ export function formatKeywordJobDuration(startedAt: string | null | undefined, f
   return hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m ${rest}s` : `${rest}s`;
 }
 
-function formatKeywordJobFinishedAt(value: string | null | undefined): string {
+function formatKeywordJobFinishedAtAbsolute(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(undefined, {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
+}
+
+export function formatKeywordJobFinishedAt(value: string | null | undefined, now = Date.now()): string {
+  if (!value) return "—";
+  const finishedAt = Date.parse(value);
+  if (!Number.isFinite(finishedAt)) return "—";
+  const elapsed = now - finishedAt;
+  // Future timestamps or jobs finished >=24h ago retain the complete date.
+  if (elapsed < 0 || elapsed >= 24 * 60 * 60 * 1000) {
+    return formatKeywordJobFinishedAtAbsolute(value);
+  }
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes === 0) return "Vừa xong";
+  if (minutes < 60) return `${minutes} phút trước`;
+  return `${Math.floor(minutes / 60)}h trước`;
 }
 const STATUS_LABEL: Record<KeywordImageStatus, string> = {
   not_run: "Not run", queued: "Queued", running: "Running", completed: "Completed", failed: "Failed",
@@ -533,7 +548,7 @@ export function KeywordImageStage({
                 <td className="rrugc-keyword-gen-duration" title={row.started_at || "Job has not started"}>{row.started_at
                   ? formatKeywordJobDuration(row.started_at, row.finished_at) : "—"}{row.started_at && !row.finished_at && row.status === "running" && <small>Running</small>}</td>
                 <td className="rrugc-keyword-gen-finished">{row.finished_at
-                  ? <time dateTime={row.finished_at}>{formatKeywordJobFinishedAt(row.finished_at)}</time>
+                  ? <time dateTime={row.finished_at} title={formatKeywordJobFinishedAtAbsolute(row.finished_at)}>{formatKeywordJobFinishedAt(row.finished_at)}</time>
                   : <span className="rrugc-keyword-gen-muted">{row.status === "running" ? "In progress" : row.status === "queued" ? "In queue" : "—"}</span>}</td>
                 <td className="rrugc-keyword-gen-output-column"><KeywordImageOutputSlider row={row}
                   onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>

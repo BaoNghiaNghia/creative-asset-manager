@@ -159,6 +159,41 @@ describe("Stage 1 manual keyword generation", () => {
     await act(async () => root.unmount());
   });
 
+  it("renders recent Finished at as Vietnamese time ago with full date on hover and preserves absolute dates older than 24 hours", async () => {
+    const recent = new Date(Date.now() - 24 * 60_000 - 15_000).toISOString();
+    const older = new Date(Date.now() - 26 * 60 * 60_000).toISOString();
+    const completed = (id: string, finished_at: string) => ({
+      keyword_id: id, keyword: id, search_volume: 100,
+      source_image_url: null, status: "completed" as const, job_id: "job-" + id,
+      skill_name: "redesign-8869-v3", skill_version: null, retry_count: 0,
+      saved_output_count: 0, attempt_count: 1, max_attempts: 1,
+      error_code: null, error_message: null, output_url: null, updated_at: null,
+      finished_at,
+    });
+    vi.mocked(listKeywordImages).mockResolvedValueOnce({
+      page: 1, page_size: 20, total: 2,
+      overview: { not_run: 0, queued: 0, running: 0, completed: 2, failed: 0 },
+      items: [completed("RECENT", recent), completed("OLDER", older)],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const times = Array.from(host.querySelectorAll<HTMLTimeElement>(".rrugc-keyword-gen-finished time"));
+    expect(times).toHaveLength(2);
+    expect(times[0].textContent).toBe("24 phút trước");
+    expect(times[0].dateTime).toBe(recent);
+    expect(times[0].title).toBe(new Date(recent).toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    }));
+    expect(times[1].textContent).toBe(times[1].title);
+    expect(times[1].textContent).not.toContain("trước");
+    await act(async () => root.unmount());
+  });
+
   it("renders Output slider and Actions as independent table columns", async () => {
     vi.mocked(listKeywordImages).mockResolvedValueOnce({
       page: 1, page_size: 20, total: 1,
