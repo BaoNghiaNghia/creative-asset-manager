@@ -407,7 +407,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
     </div>
     {frontDetailOpen && <BlueprintFrontDetailModal
       hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesign.url} compositedSrc={tintedFrontSrc}
-      colorId={activeColor.id} colorLabel={activeColor.label}
+      threadMode={threadMode} colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
       guides={guides}
       onClose={() => setFrontDetailOpen(false)}

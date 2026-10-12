@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { createPortal } from "react-dom";
 import { BlueprintSmoothImage } from "./BlueprintSmoothImage";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
+import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
+import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 
 import "./BlueprintFrontDetailModal.css";
 
@@ -9,6 +11,7 @@ type FrontDetailProps = {
   hatSrc: string;
   designSrc: string;
   compositedSrc: string;
+  threadMode?: ThreadMode;
   colorId: string;
   colorLabel: string;
   designLabel: string;
@@ -19,7 +22,7 @@ type FrontDetailProps = {
 
 /** Inspect the actual cap + fitted embroidery, rather than enlarging a 512px thumbnail. */
 export function BlueprintFrontDetailModal({
-  hatSrc, designSrc, compositedSrc, colorId, colorLabel, designLabel, designSize, guides, onClose,
+  hatSrc, designSrc, compositedSrc, threadMode = "auto", colorId, colorLabel, designLabel, designSize, guides, onClose,
 }: FrontDetailProps) {
   const [zoom, setZoom] = useState(100);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -28,6 +31,11 @@ export function BlueprintFrontDetailModal({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const fit = useBlueprintArtworkFit(designSrc, designSize);
+  // Start with the ready preview to avoid flicker. Upgrade only the open modal
+  // to a denser composite from the original PNG, never a stretched thumbnail.
+  const detailedEmbroiderySrc = useBlueprintEmbroideryComposite(
+    designSrc, hatSrc, colorId, threadMode, 0, "front", "detail", compositedSrc,
+  );
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -111,7 +119,7 @@ export function BlueprintFrontDetailModal({
                 <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={hatSrc}
                   alt={"Original Valucap 8869 hat, " + colorLabel} draggable={false}/>
                 <div ref={fit.frameRef} className="rrugc-blueprint-selected-design">
-                  <BlueprintSmoothImage src={compositedSrc} key={designSrc + colorId}
+                  <BlueprintSmoothImage src={detailedEmbroiderySrc} key={designSrc + colorId}
                     onLoad={fit.onLoad} style={fit.style ?? { opacity: 0 }}
                     alt={designLabel + " embroidery mounted on the front"} draggable={false}/>
                 </div>

@@ -215,6 +215,38 @@ export function renderEmbroideryMaterial(
   return output;
 }
 
+/**
+ * Restore a little of the original one-pixel thread-groove contrast for zoom
+ * inspection. Operates only inside fully opaque stitches whose 4 neighbors
+ * are also opaque, keeping edges, thread outline, alpha and hat unchanged.
+ * This is not synthetic upscaling: a low-resolution master stays limited by
+ * its own captured stitch detail.
+ */
+export function enhanceStitchDetail(
+  rgba: Uint8ClampedArray, width: number, height: number,
+): Uint8ClampedArray {
+  const output = new Uint8ClampedArray(rgba);
+  if (width < 3 || height < 3 || rgba.length < width * height * 4) return output;
+  const pitch = width * 4;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const p = (y * width + x) * 4;
+      if (rgba[p + 3] < 245 ||
+          rgba[p - 4 + 3] < 245 || rgba[p + 4 + 3] < 245 ||
+          rgba[p - pitch + 3] < 245 || rgba[p + pitch + 3] < 245) continue;
+      for (let channel = 0; channel < 3; channel++) {
+        const average = (
+          rgba[p - 4 + channel] + rgba[p + 4 + channel] +
+          rgba[p - pitch + channel] + rgba[p + pitch + channel]
+        ) * .25;
+        const localDetail = limit(rgba[p + channel] - average, -32, 32);
+        output[p + channel] = Math.round(limit(rgba[p + channel] + localDetail * .38, 0, 255));
+      }
+    }
+  }
+  return output;
+}
+
 export function materialCacheKey(src: string, hatSrc: string, colorId: string, mode: ThreadMode, ordinal = 0, surface = "front") {
   return [EMBROIDERY_MATERIAL_VERSION, src, hatSrc, colorId, mode, ordinal, surface].join("##");
 }

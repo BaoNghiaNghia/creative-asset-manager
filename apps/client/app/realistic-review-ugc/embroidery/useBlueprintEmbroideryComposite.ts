@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  materialCacheKey, prepareHatLighting, renderEmbroideryMaterial,
+  enhanceStitchDetail, materialCacheKey, prepareHatLighting, renderEmbroideryMaterial,
   type ThreadMode, type EmbroideryImage, type HatLighting,
 } from "./EmbroideryMaterialCompositor";
+import { chooseEmbroideryRasterSize, type EmbroideryRasterQuality } from "./EmbroideryRasterQuality";
 
-const MAX_DIMENSION = 1800;
 const MAX_ENTRIES = 16;
 const images = new Map<string, Promise<HTMLImageElement>>();
 const results = new Map<string, string>();
@@ -32,10 +32,8 @@ function decodedImage(src: string): Promise<HTMLImageElement> {
   while (images.size > 18) images.delete(images.keys().next().value!);
   return task;
 }
-function readPixels(image: HTMLImageElement): EmbroideryImage {
-  const scale = Math.min(1, MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight));
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+function readPixels(image: HTMLImageElement, quality: EmbroideryRasterQuality): EmbroideryImage {
+  const { width, height } = chooseEmbroideryRasterSize(image.naturalWidth, image.naturalHeight, quality);
   const canvas = makeCanvas(width, height);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas 2D not supported");
@@ -52,17 +50,18 @@ function readCrownLighting(hat: HTMLImageElement): HatLighting | undefined {
   const data = ctx.getImageData(0, 0, 32, 24);
   return prepareHatLighting({ data: data.data, width: 32, height: 24 });
 }
-async function composite(src: string, hatSrc: string, colorId: string, mode: ThreadMode, ordinal: number, surface: "front" | "side") {
+async function composite(src: string, hatSrc: string, colorId: string, mode: ThreadMode, ordinal: number, surface: "front" | "side", quality: EmbroideryRasterQuality) {
   const design = await decodedImage(src);
   // A missing/tainted hat image must not block artwork preview. It merely
   // disables ambient lighting; other material effects still apply.
   const cap = hatSrc ? await decodedImage(hatSrc).catch(() => null) : null;
-  const artwork = readPixels(design);
+  const artwork = readPixels(design, quality);
   let lighting: HatLighting | undefined;
   if (cap) {
     try { lighting = readCrownLighting(cap); } catch { /* CORS/tainted hat: neutral lighting */ }
   }
-  const rgba = renderEmbroideryMaterial(artwork, colorId, mode, ordinal, lighting, surface);
+  const material = renderEmbroideryMaterial(artwork, colorId, mode, ordinal, lighting, surface);
+  const rgba = quality === "detail" ? enhanceStitchDetail(material, artwork.width, artwork.height) : material;
   const output = makeCanvas(artwork.width, artwork.height);
   const ctx = output.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D not supported");
@@ -76,6 +75,15 @@ async function composite(src: string, hatSrc: string, colorId: string, mode: Thr
 }
 function remember(key: string, src: string) {
   results.delete(key); results.set(key, src);
+  // The dense detail bitmaps can be several megabytes each; retain at most
+  // two while the user browses designs, without evicting the lighter previews.
+  const details = [...results.keys()].filter(item => item.endsWith("##detail"));
+  while (details.length > 2) {
+    const oldest = details.shift()!;
+    const url = results.get(oldest)!;
+    results.delete(oldest);
+    URL.revokeObjectURL(url);
+  }
   while (results.size > MAX_ENTRIES) {
     const oldest = results.keys().next().value!;
     const url = results.get(oldest)!;
@@ -91,8 +99,9 @@ function remember(key: string, src: string) {
 export function useBlueprintEmbroideryComposite(
   src: string, hatSrc: string, colorId: string,
   mode: ThreadMode = "auto", ordinal = 0, surface: "front" | "side" = "front",
+  quality: EmbroideryRasterQuality = "preview", fallbackSrc?: string,
 ) {
-  const key = materialCacheKey(src, hatSrc, colorId, mode, ordinal, surface);
+  const key = materialCacheKey(src, hatSrc, colorId, mode, ordinal, surface) + "##" + quality;
   const [loaded, setLoaded] = useState<{ key: string; src: string } | null>(null);
   useEffect(() => {
     if (!src || typeof document === "undefined") return;
@@ -104,18 +113,18 @@ export function useBlueprintEmbroideryComposite(
     }
     let task = inFlight.get(key);
     if (!task) {
-      task = composite(src, hatSrc, colorId, mode, ordinal, surface);
+      task = composite(src, hatSrc, colorId, mode, ordinal, surface, quality);
       inFlight.set(key, task);
     }
     task.then(result => {
       remember(key, result);
       if (!cancelled) setLoaded({ key, src: result });
     }).catch(() => {
-      if (!cancelled) setLoaded({ key, src }); // preserve approved artwork if CORS, image or canvas fails
+      if (!cancelled) setLoaded({ key, src: fallbackSrc || src }); // preserve current material preview on HQ failure
     }).finally(() => {
       if (inFlight.get(key) === task) inFlight.delete(key);
     });
     return () => { cancelled = true; };
-  }, [key, src, hatSrc, colorId, mode, ordinal, surface]);
-  return loaded?.key === key ? loaded.src : results.get(key) || src;
+  }, [key, src, hatSrc, colorId, mode, ordinal, surface, quality, fallbackSrc]);
+  return loaded?.key === key ? loaded.src : results.get(key) || fallbackSrc || src;
 }

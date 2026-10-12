@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BLUEPRINT_HAT_COLORS } from "../BlueprintPreview";
-import { analyzeThreadRegions, materialCacheKey, prepareHatLighting, renderEmbroideryMaterial, type EmbroideryImage } from "./EmbroideryMaterialCompositor";
+import { analyzeThreadRegions, enhanceStitchDetail, materialCacheKey, prepareHatLighting, renderEmbroideryMaterial, type EmbroideryImage } from "./EmbroideryMaterialCompositor";
 
 const create = (): EmbroideryImage => {
   const width = 40, height = 25, data = new Uint8ClampedArray(width * height * 4);
@@ -63,6 +63,26 @@ describe("8869 embroidery color and material compositor", () => {
     const after = renderEmbroideryMaterial(src, "red", "auto", 0, lighting);
     expect([...pixels]).toEqual(saved);
     expect(at(before, src.width, 11, 12)).not.toEqual(at(after, src.width, 11, 12));
+  });
+
+  it("sharpens existing thread microgrooves in the zoom detail without halos or changed transparency", () => {
+    const width = 9, height = 9;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 1; y <= 7; y++) for (let x = 1; x <= 7; x++) {
+      const i = (y * width + x) * 4;
+      const shade = x === 4 ? 95 : 158;
+      data.set([shade, shade, shade, 255], i);
+    }
+    const enhanced = enhanceStitchDetail(data, width, height);
+    expect(enhanced[(4 * width + 4) * 4]).toBeLessThan(data[(4 * width + 4) * 4]);
+    expect(enhanced[(4 * width + 3) * 4]).toBeGreaterThan(data[(4 * width + 3) * 4]);
+    for (let i = 3; i < data.length; i += 4) {
+      expect(enhanced[i]).toBe(data[i]); // original stitch silhouette unchanged
+    }
+    // No sharpening on transparent borders, edge stitches or fabric background.
+    expect(at(enhanced, width, 0, 4)).toEqual(at(data, width, 0, 4));
+    expect(at(enhanced, width, 1, 4)).toEqual(at(data, width, 1, 4));
+    expect(at(data, width, 4, 4)).toEqual([95, 95, 95, 255]); // never mutate source
   });
 
   it("keeps source and cap color in the cache key, including mode and design identity", () => {
