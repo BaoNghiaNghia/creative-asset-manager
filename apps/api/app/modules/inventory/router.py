@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -37,6 +37,7 @@ from app.modules.inventory.material_evidence import (
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 _CREDENTIAL_LOGGER = logging.getLogger("cam.inventory.credentials_api")
+_REGISTRY_LOGGER = logging.getLogger("cam.inventory.registry")
 
 
 class GeminiCredentialRequest(BaseModel):
@@ -467,6 +468,42 @@ def list_materials(principal: CurrentPrincipal = Depends(require_permission(INVE
     with SessionLocal() as session:
         registry = MaterialRegistry(session)
         return {"items": registry.describe_materials(principal.active_tenant_id)}
+
+
+class WarehouseCreationRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+
+
+@router.get("/materials/readiness")
+def material_registry_readiness(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    with SessionLocal() as session:
+        return MaterialRegistry(session).readiness(principal.active_tenant_id)
+
+
+@router.post("/materials/warehouses", status_code=201)
+def create_inventory_warehouse(
+    body: WarehouseCreationRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION)),
+):
+    # An explicitly named and reviewed location, never AI-inferred.
+    with SessionLocal() as session:
+        try:
+            row = MaterialRegistry(session).create_warehouse(
+                principal.active_tenant_id, code=body.code, name=body.name,
+            )
+            data = {"id": row.id, "code": row.code, "name": row.name, "active": row.active}
+            session.commit()
+            _REGISTRY_LOGGER.info("warehouse_registered",extra={"tenant_id":principal.active_tenant_id,"actor_id":principal.actor_id,"warehouse_code":data["code"]})
+            return data
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(409,detail={"code":"warehouse_code_already_exists"}) from exc
+        except ValueError as exc:
+            raise HTTPException(409 if str(exc) == "warehouse_code_already_exists" else 422,
+                                detail={"code": str(exc)}) from exc
 
 
 @router.get("/materials/candidates")

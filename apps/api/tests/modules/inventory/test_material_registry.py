@@ -20,6 +20,7 @@ from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.persistence_model import (
     InventoryItemAliasModel,
     InventoryItemModel,
+    InventoryLocationModel,
     InventoryMaterialPackageConversionModel,
 )
 
@@ -35,7 +36,7 @@ def sessions():
         "tenants", "inventory_items", "inventory_item_aliases",
         "inventory_material_external_identities",
         "inventory_material_package_conversions",
-        "inventory_material_candidates",
+        "inventory_material_candidates", "inventory_locations",
     }
     for table in Base.metadata.sorted_tables:
         if table.name in names:
@@ -68,6 +69,69 @@ def resolve(registry, *, name, key="27", tenant="tenant-a", matcher=None):
         semantic_matcher=matcher,
         context={"source_cells": ["H7"], "nearby_rows": ["26", "28"]},
     )
+
+
+def test_material_readiness_groups_duplicate_names_and_blocks_missing_warehouses(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        item(session)
+        for key, name in (("31", "Sữa tươi"), ("32", "SUA TUOI"), ("33", "Whipping cream")):
+            resolution = resolve(registry, name=name, key=key)
+            registry.queue_candidate(
+                "tenant-a", source_id="source-1", external_key=key,
+                raw_name=name, category="Milk", source_row=int(key),
+                sheet="Daily", resolution=resolution,
+            )
+        other = resolve(registry, name="Only other tenant", key="41", tenant="tenant-b")
+        registry.queue_candidate(
+            "tenant-b", source_id="source-1", external_key="41",
+            raw_name="Only other tenant", category="Milk", source_row=41,
+            sheet="Daily", resolution=other,
+        )
+        session.flush()
+        summary = registry.readiness("tenant-a")
+        assert summary["active_materials"] == 1
+        assert summary["active_warehouses"] == 0
+        assert summary["pending_candidates"] == 3
+        assert summary["distinct_candidate_names"] == 2
+        assert summary["duplicate_candidate_rows"] == 1
+        assert summary["ready_for_carry_forward"] is False
+        assert "missing_warehouse_registry" in summary["blockers"]
+        assert "unresolved_material_candidates" in summary["blockers"]
+        assert not summary["warehouses"]
+        assert not any("other tenant" in str(group) for group in summary["candidate_groups"])
+        session.add(InventoryLocationModel(tenant_id="tenant-a", code="KHO-HN", name="Kho Hà Nội", active=True))
+        session.flush()
+        summary = registry.readiness("tenant-a")
+        assert summary["active_warehouses"] == 1
+        assert "missing_warehouse_registry" not in summary["blockers"]
+        assert summary["ready_for_carry_forward"] is False
+
+
+def test_create_warehouse_requires_explicit_name_and_code_and_is_tenant_scoped(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        with pytest.raises(ValueError, match="warehouse_code_invalid"):
+            registry.create_warehouse("tenant-a", code="../wrong", name="Kho")
+        with pytest.raises(ValueError, match="warehouse_name_required"):
+            registry.create_warehouse("tenant-a", code="HN", name=" ")
+        row = registry.create_warehouse("tenant-a", code="hn", name=" Kho Hà Nội ")
+        assert row.code == "HN" and row.name == "Kho Hà Nội"
+        session.flush()
+        with pytest.raises(ValueError, match="warehouse_code_already_exists"):
+            registry.create_warehouse("tenant-a", code="HN", name="Another")
+        other = registry.create_warehouse("tenant-b", code="HN", name="Tenant B")
+        session.flush()
+        assert other.id != row.id
+        assert registry.readiness("tenant-a")["active_warehouses"] == 1
+
+
+def test_material_readiness_no_implicit_warehouse_or_material_creation(sessions):
+    with sessions() as session:
+        summary = MaterialRegistry(session).readiness("tenant-a")
+        assert summary["ready_for_carry_forward"] is False
+        assert summary["blockers"] == ["missing_material_registry", "missing_warehouse_registry"]
+        assert not list(session.query(InventoryLocationModel))
 
 
 def test_approved_alias_resolves_without_gemini_and_new_key_is_observed(sessions):

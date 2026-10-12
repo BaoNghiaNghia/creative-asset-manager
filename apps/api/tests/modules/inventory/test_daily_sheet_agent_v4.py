@@ -1114,6 +1114,49 @@ def test_v41_stage_before_assessment_is_rejected():
         )
 
 
+def test_auto_mode_metadata_only_noop_is_review_required_not_a_verified_success():
+    tools = host()
+    tools.require_actionable_noop = True
+    evidence = tools.read_range({"sheet": "Arbitrary", "a1_range": "D7"})["cells"][0]
+    tools.submit_workbook_assessment({
+        "summary": "Read only the workbook headers and metadata.",
+        "observations": [{
+            "code": "METADATA_AND_STRUCTURE_VERIFIED",
+            "conclusion": "Metadata was read but row-level corrections were not inspected.",
+            "evidence": [reference(evidence)],
+            "confidence": .98,
+        }],
+        "uncertainties": [], "additional_reads_needed": False,
+    })
+    result = tools.stage_edits({
+        "status": "ready", "summary": "No edits.",
+        "operations": [], "issues": [], "material_actions": [],
+    })
+    assert result["status"] == "review_required"
+    assert tools.staged.issues[0].code == "no_actionable_assessment"
+    assert tools.staged.issues[0].evidence
+    assert tools.apply_staged()["writes"] == 0
+    assert tools.google.mutation_calls == []
+
+
+def test_auto_mode_explicit_row_level_no_changes_remains_valid():
+    tools = host()
+    tools.require_actionable_noop = True
+    evidence = tools.read_range({"sheet": "Arbitrary", "a1_range": "D7"})["cells"][0]
+    tools.submit_workbook_assessment({
+        "summary": "Compared cell with verified source. No mismatch.",
+        "observations": [{
+            "code": "NO_CHANGES_VERIFIED",
+            "conclusion": "D7 already matches its documented numeric source and requires no correction.",
+            "evidence": [reference(evidence)],
+            "confidence": .99,
+        }], "uncertainties": [], "additional_reads_needed": False,
+    })
+    result = tools.stage_edits({"status": "ready", "operations": [], "issues": [], "material_actions": []})
+    assert result["status"] == "ready"
+    assert tools.apply_staged()["writes"] == 0
+
+
 def test_v41_grounded_assessment_allows_ready_noop():
     tools = host()
     evidence = tools.read_range(

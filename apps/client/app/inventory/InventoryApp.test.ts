@@ -27,13 +27,18 @@ describe("Inventory routes and API boundary", () => {
     vi.stubGlobal("fetch", fetchMock);
     await inventoryMaterialApi.list();
     await inventoryMaterialApi.candidates();
+    await inventoryMaterialApi.readiness();
+    await inventoryMaterialApi.createWarehouse({ code: "HN", name: "Kho Hà Nội" });
     await inventoryMaterialApi.refreshEvidence();
     expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
       "/api/inventory/materials",
       "/api/inventory/materials/candidates",
+      "/api/inventory/materials/readiness",
+      "/api/inventory/materials/warehouses",
       "/api/inventory/materials/candidates/refresh-evidence",
     ]);
-    expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[3][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[4][1]?.method).toBe("POST");
     vi.unstubAllGlobals();
   });
   it("presents the Materials workspace in Vietnamese with compact guidance", () => {

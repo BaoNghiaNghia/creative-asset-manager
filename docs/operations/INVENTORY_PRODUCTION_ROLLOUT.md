@@ -20,6 +20,33 @@ Each Inventory request is limited to six credential attempts. HTTP 429, transpor
 
 Do not automatically replay an old Morning Reset into an active workbook outside the daily safe window. Check verified closing/opening state and use the explicit recovery workflow.
 
+## Material and warehouse readiness (no automatic Sheet mutations)
+
+`GET /api/inventory/materials/readiness` is a tenant-scoped, read-only diagnostic
+returning the active material and warehouse counts, pending material candidates,
+duplicate normalized candidate names and stable blocker codes. Pending material
+candidates are grouped for triage, not automatically approved or inferred as new
+SKUs. In the Materials UI, a user with Inventory review permission can explicitly
+create a named warehouse (`POST /api/inventory/materials/warehouses`). Creating a
+warehouse does **not** write or reset a Google Sheet, does not certify its physical
+identity, and cannot repair historical Morning Resets. Validate any entered
+warehouse code/name against the actual source workbook before approving mappings.
+
+For live Agent V4 `apply_mode=auto`, an empty plan with only a generic
+metadata/structural observation is now `review_required` with an
+`no_actionable_assessment` issue rather than a misleading `completed`
+reconciliation. A legitimate zero-write cycle must include explicit, evidence-
+backed `NO_CHANGES_VERIFIED` row-level observations. The rule does not bypass
+existing evidence readback, formula, protected cell or identity guards.
+Historical completed zero-write audits remain unchanged.
+
+No part of this rollout automatically turns existing material candidates into
+approved registry rows, invents locations, runs old Morning Resets, or modifies
+the Shared Sheet. The path to first verified write is: approve material and
+warehouse mappings, generate an evidence-backed action plan, test against a
+disposable workbook copy and verify readback, then enable controlled live writes
+for a current operational day only.
+
 ## Continuous Inventory Learning V2
 
 Completed, verified evening reconciliations now trigger two independent review-only

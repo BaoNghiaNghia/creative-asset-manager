@@ -18,6 +18,7 @@ from .contracts import (
     EvidenceReference,
     KnowledgeProposal,
     StagedEdits,
+    StagedIssue,
     WorkbookAssessment,
 )
 
@@ -132,6 +133,7 @@ class V4WorkbookToolHost:
         max_read_cells: int,
         max_edit_operations: int,
         allow_auto_transforms: bool = False,
+        require_actionable_noop: bool = False,
     ) -> None:
         self.tenant_id = tenant_id
         self.spreadsheet_file_id = spreadsheet_file_id
@@ -142,6 +144,7 @@ class V4WorkbookToolHost:
         self.max_read_cells = max_read_cells
         self.max_edit_operations = max_edit_operations
         self.allow_auto_transforms = allow_auto_transforms
+        self.require_actionable_noop = require_actionable_noop
         self.read_calls = 0
         self.read_cell_count = 0
         self.ledger: dict[tuple[str, str], CellEvidence] = {}
@@ -598,6 +601,31 @@ class V4WorkbookToolHost:
             and not self.assessment.observations
         ):
             raise V4AgentSafetyError("grounded_assessment_required")
+        if (
+            self.require_actionable_noop
+            and staged.status == "ready"
+            and not staged.operations
+            and not staged.issues
+            and not staged.material_actions
+            and not any(
+                observation.code.strip().upper() == "NO_CHANGES_VERIFIED"
+                for observation in self.assessment.observations
+            )
+        ):
+            # Reading a sheet is not the same as checking actual rows for
+            # corrections. Preserve evidence and require review of this no-op.
+            staged.status = "review_required"
+            staged.requires_review = True
+            staged.issues.append(StagedIssue(
+                code="no_actionable_assessment",
+                message=(
+                    "No row-level correction or explicit NO_CHANGES_VERIFIED "
+                    "observation was provided. Workbook metadata alone cannot "
+                    "justify successful reconciliation."
+                ),
+                evidence=list(self.assessment_references),
+                requires_review=True,
+            ))
         if len(staged.operations) > self.max_edit_operations:
             raise V4AgentLimitExceeded("edit_operation_limit_exceeded")
         targets: set[tuple[str, str]] = set()

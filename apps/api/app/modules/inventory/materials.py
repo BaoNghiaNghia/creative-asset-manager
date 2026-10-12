@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 from typing import Any, Callable, Mapping
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.modules.inventory.persistence_model import InventoryItemAliasModel, InventoryItemModel, InventoryMaterialCandidateModel, InventoryMaterialExternalIdentityModel, InventoryMaterialPackageConversionModel, inventory_utcnow
+from app.modules.inventory.persistence_model import InventoryItemAliasModel, InventoryItemModel, InventoryMaterialCandidateModel, InventoryMaterialExternalIdentityModel, InventoryMaterialPackageConversionModel, InventoryLocationModel, inventory_utcnow
 
 def normalize_material_text(value: object) -> str:
     text=unicodedata.normalize("NFKC",str(value or "")).strip().casefold()
@@ -29,6 +29,60 @@ class MaterialRegistry:
         return list(self.session.scalars(select(InventoryItemModel).where(InventoryItemModel.tenant_id==tenant_id).order_by(InventoryItemModel.name,InventoryItemModel.id)))
     def list_candidates(self,tenant_id:str):
         return list(self.session.scalars(select(InventoryMaterialCandidateModel).where(InventoryMaterialCandidateModel.tenant_id==tenant_id,InventoryMaterialCandidateModel.status.in_(("new_material","possible_rename","ambiguous"))).order_by(InventoryMaterialCandidateModel.created_at,InventoryMaterialCandidateModel.id)))
+    def readiness(self,tenant_id:str)->dict[str,Any]:
+        """Read-only Inventory registry readiness; never infer a warehouse or approve materials."""
+        materials=[item for item in self.list_materials(tenant_id) if item.active]
+        candidates=self.list_candidates(tenant_id)
+        locations=list(self.session.scalars(select(InventoryLocationModel).where(
+            InventoryLocationModel.tenant_id==tenant_id,
+        ).order_by(InventoryLocationModel.code)))
+        active_locations=[item for item in locations if item.active]
+        groups:dict[str,dict[str,Any]]={}
+        for candidate in candidates:
+            normalized=normalize_material_text(candidate.raw_name) or candidate.raw_name.strip().casefold()
+            group=groups.setdefault(normalized,{
+                "normalized_name":normalized,"sample_name":candidate.raw_name,
+                "count":0,"statuses":set(),
+            })
+            group["count"]+=1
+            group["statuses"].add(candidate.status)
+        ranked=sorted(groups.values(),key=lambda row:(-row["count"],row["normalized_name"]))
+        blockers=[]
+        if not materials:blockers.append("missing_material_registry")
+        if not active_locations:blockers.append("missing_warehouse_registry")
+        if candidates:blockers.append("unresolved_material_candidates")
+        return {
+            "active_materials":len(materials),
+            "active_warehouses":len(active_locations),
+            "pending_candidates":len(candidates),
+            "distinct_candidate_names":len(groups),
+            "duplicate_candidate_rows":len(candidates)-len(groups),
+            "candidate_groups":[{
+                "normalized_name":row["normalized_name"],"sample_name":row["sample_name"],
+                "count":row["count"],"statuses":sorted(row["statuses"]),
+            } for row in ranked[:100]],
+            "warehouses":[{"id":row.id,"code":row.code,"name":row.name,"active":row.active}
+                          for row in locations],
+            "ready_for_carry_forward":not blockers,
+            "blockers":blockers,
+        }
+    def create_warehouse(self,tenant_id:str,*,code:str,name:str)->InventoryLocationModel:
+        """Explicit human-reviewed registry change, never inferred from AI."""
+        code=str(code or "").strip().upper()
+        name=str(name or "").strip()
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{1,63}",code):
+            raise ValueError("warehouse_code_invalid")
+        if not name or len(name)>255:
+            raise ValueError("warehouse_name_required")
+        existing=self.session.scalar(select(InventoryLocationModel.id).where(
+            InventoryLocationModel.tenant_id==tenant_id,InventoryLocationModel.code==code,
+        ))
+        if existing:raise ValueError("warehouse_code_already_exists")
+        row=InventoryLocationModel(tenant_id=tenant_id,code=code,name=name,active=True)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
     def resolve(self,tenant_id:str,*,source_id:str,external_key:str,raw_name:str,category:str|None,source_row:int,sheet:str,semantic_matcher:SemanticMatcher|None=None,context:Mapping[str,Any]|None=None)->MaterialResolution:
         normalized=normalize_material_text(raw_name)
         identity=self.session.scalar(select(InventoryMaterialExternalIdentityModel).where(InventoryMaterialExternalIdentityModel.tenant_id==tenant_id,InventoryMaterialExternalIdentityModel.source_type=="google_sheet",InventoryMaterialExternalIdentityModel.source_id==source_id,InventoryMaterialExternalIdentityModel.external_key==external_key))
