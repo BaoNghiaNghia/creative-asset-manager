@@ -1391,6 +1391,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(galleryMarkup).toContain('role="button"');
     expect(galleryMarkup).toContain("Open review details for Casey F.");
+    expect(galleryMarkup).not.toContain("rrugc-stage3-score-row");
+    expect(galleryMarkup).not.toContain("AI-generated review concept · Not a real customer testimonial");
 
     const modalMarkup = renderToStaticMarkup(
       <Stage3ReviewModal

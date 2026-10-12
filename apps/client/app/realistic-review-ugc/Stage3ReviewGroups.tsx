@@ -509,14 +509,6 @@ export function Stage3ReviewGroups({
                       <strong>{image.source_name}</strong>
                       <span>{image.scene_type || image.framing_type || ""}</span>
                     </div>
-                    {(image.analysis_status === "ready" || image.analysis_status === "rejected") && (
-                      <div className="rrugc-stage3-score-row">
-                        <span>UGC <b>{percent(image.mobile_ugc_score)}</b></span>
-                        <span>Photo <b>{percent(image.photorealism_score)}</b></span>
-                        <span>Product <b>{percent(image.product_visibility_score)}</b></span>
-                        <span>Review <b>{percent(image.review_fit_score)}</b></span>
-                      </div>
-                    )}
                     {reviewReady ? (
                       <div className="rrugc-stage3-review-copy">
                         <div>
@@ -529,7 +521,6 @@ export function Stage3ReviewGroups({
                           </span>
                         </div>
                         <blockquote title={image.review_text || ""}>{image.review_text}</blockquote>
-                        <small className="rrugc-stage3-synthetic-notice">AI-generated review concept · Not a real customer testimonial</small>
                       </div>
                     ) : (
                       <p title={imageDetail(image)}>{imageDetail(image)}</p>

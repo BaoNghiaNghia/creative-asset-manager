@@ -2455,6 +2455,38 @@ def test_stage3_analysis_worker_persists_ready_result(database):
 
 
 
+def test_stage5_review_copy_refresh_preserves_editorial_and_image_metadata(database):
+    from app.operations.stage5_review_copy_refresh import refresh_existing_review_copy
+
+    rows = []
+    with database() as session:
+        for n, status in enumerate(("ready", "rejected", "hidden", "error")):
+            row = RrugcStage3AnalysisModel(
+                tenant_id="tenant-a", stage2_job_id=f"review-source-{n}",
+                analysis_version="rrugc-stage3-ugc-v2",
+                status=status, reviewer_name="Alex C.", star_rating=4,
+                mobile_ugc_score=0.85, review_fit_score=0.9,
+                embroidery_visible=n == 0, review_text=f"Old placeholder {n}.",
+            )
+            session.add(row)
+            session.flush()
+            rows.append(row.id)
+        session.commit()
+        dry = refresh_existing_review_copy(session)
+        assert dry["scanned"] == 2
+        assert dry["rewritten"] == 2 and dry["applied"] is False
+        assert session.get(RrugcStage3AnalysisModel, rows[0]).review_text == "Old placeholder 0."
+        result = refresh_existing_review_copy(session, apply=True)
+        assert result["rewritten"] == 2 and result["applied"] is True
+        assert session.get(RrugcStage3AnalysisModel, rows[0]).review_text != "Old placeholder 0."
+        assert session.get(RrugcStage3AnalysisModel, rows[0]).mobile_ugc_score == 0.85
+        assert session.get(RrugcStage3AnalysisModel, rows[0]).reviewer_name == "Alex C."
+        assert session.get(RrugcStage3AnalysisModel, rows[1]).star_rating == 4
+        assert session.get(RrugcStage3AnalysisModel, rows[2]).review_text == "Old placeholder 2."
+        assert session.get(RrugcStage3AnalysisModel, rows[3]).review_text == "Old placeholder 3."
+        assert refresh_existing_review_copy(session, apply=True)["rewritten"] == 0
+
+
 def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database):
     from uuid import uuid4
     from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
