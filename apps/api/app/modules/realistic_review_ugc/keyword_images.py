@@ -46,6 +46,12 @@ STAGE1_AUTO_RETRY_DELAYS_SECONDS = (60, 300, 900)
 STAGE1_SAFE_ZERO_OUTPUT_CODES = frozenset({
     "stage1_imagegen_not_invoked", "stage1_imagegen_limited",
 })
+# Partial output jobs may resume only after verifying 1–5 unique valid PNG
+# checkpoints. An arbitrary provider failure with no checkpoint is terminal.
+STAGE1_PARTIAL_RECOVERY_CODES = frozenset({
+    "stage1_six_outputs_invalid", "codex_image_timeout", "codex_image_usage_limited",
+    "codex_image_provider_error", "stage1_codex_turn_failed",
+})
 # Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
 STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
@@ -348,8 +354,32 @@ class KeywordImageService:
             job.skill_version = skill.skill_version
             job.skill_bundle_sha256 = installed_stage2_skill_sha256(skill.skill_name, settings=self.settings)
             job.prompt_text = keyword_prompt(job.keyword_text, skill_name=skill.skill_name)
-        # A new processing run must remove every prior output before running
-        # imagegen; do not remove files in the API transaction.
+        # Ensure legacy pointer-only images remain represented in Output
+        # History until the replacement has been generated AND published.
+        if job.output_remote_file_id:
+            linked = self.session.scalar(select(RrugcImageOutputVersionModel.id).where(
+                RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                RrugcImageOutputVersionModel.stage == "stage1",
+                RrugcImageOutputVersionModel.job_id == job.id,
+                RrugcImageOutputVersionModel.remote_file_id == job.output_remote_file_id,
+            ).limit(1))
+            if linked is None:
+                next_version = int(self.session.scalar(select(func.coalesce(func.max(
+                    RrugcImageOutputVersionModel.version), 0)).where(
+                        RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                        RrugcImageOutputVersionModel.stage == "stage1",
+                        RrugcImageOutputVersionModel.job_id == job.id,
+                    )) or 0) + 1
+                self.session.add(RrugcImageOutputVersionModel(
+                    id=str(uuid4()), tenant_id=tenant_id, stage="stage1",
+                    job_id=job.id, version=next_version,
+                    remote_file_id=job.output_remote_file_id,
+                    content_type=job.output_content_type,
+                    size_bytes=job.output_size_bytes,
+                    width=job.output_width, height=job.output_height,
+                ))
+        # Prepare a new version. Do NOT remove prior Drive files here;
+        # cleanup only occurs after full success.
         job.skill_bundle_sha256 = installed_stage2_skill_sha256(job.skill_name, settings=self.settings)
         job.status = "queued"
         job.retry_count = 0
@@ -472,6 +502,13 @@ class KeywordImageService:
         items = []
         for keyword, job, processing in rows:
             state = effective_status(job, processing) if job else "not_run"
+            checkpoint_count = 0
+            if (job and state in ("queued", "running", "failed")
+                    and int(job.retry_count or 0) > 0):
+                workspace = (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                             / "codex" / job.id)
+                missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace)
+                checkpoint_count = 6 - len(missing) if missing is not None else 0
             replacing = bool(job and state in ("queued", "running")
                              and processing and (processing.payload_json or {}).get("replace_outputs"))
             items.append({
@@ -484,6 +521,11 @@ class KeywordImageService:
                 "skill_name": job.skill_name if job else None,
                 "skill_version": job.skill_version if job else None,
                 "retry_count": job.retry_count if job else 0,
+                "auto_retry_max": len(STAGE1_AUTO_RETRY_DELAYS_SECONDS),
+                "checkpoint_count": checkpoint_count,
+                "next_retry_at": (processing.next_attempt_at.isoformat()
+                                  if processing and processing.status in ("pending", "retry")
+                                  and job and int(job.retry_count or 0) > 0 else None),
                 "saved_output_count": int(saved_counts.get(job.id, 0)) if job and not replacing else 0,
                 "attempt_count": processing.attempt_count if processing else 0,
                 "max_attempts": processing.max_attempts if processing else STAGE1_MAX_ATTEMPTS,
@@ -541,8 +583,17 @@ class KeywordImageGenerateHandler:
         Uses the existing durable processing defer queue rather than creating a
         new job or requiring the user to keep the Stage 1 page open.
         """
-        if error.code not in STAGE1_SAFE_ZERO_OUTPUT_CODES or context.is_cancelled:
+        if context.is_cancelled:
             return None
+        if error.code not in STAGE1_SAFE_ZERO_OUTPUT_CODES:
+            if error.code not in STAGE1_PARTIAL_RECOVERY_CODES:
+                return None
+            settings = self.settings or get_settings()
+            workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                         / "codex" / context.job.entity_id)
+            missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace)
+            if missing is None or not (0 < len(missing) < 6):
+                return None
         with context.dependencies.session_factory() as session:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
                 RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
@@ -572,7 +623,7 @@ class KeywordImageGenerateHandler:
         })
         return DeferredJobOutcome(
             reason_code=error.code,
-            reason_message=f"Stage 1 waiting for image-generation capacity; retry in {delay}s.",
+            reason_message=f"Stage 1 auto-recovery scheduled in {delay}s.",
             retry_at=datetime.now(timezone.utc) + timedelta(seconds=delay),
         )
 
@@ -587,6 +638,90 @@ class KeywordImageGenerateHandler:
                 job.last_error_code = code[:100]
                 job.last_error_message = message[:1000]
                 session.commit()
+
+    async def _cleanup_replaced_stage1_outputs(
+        self, context: JobHandlerContext, storage, *,
+        active_processing_id: str,
+    ) -> int:
+        """Delete obsolete versions only AFTER a complete 6-PNG publish.
+
+        Work one old version at a time. Drive delete is idempotent and the
+        database checkpoint is committed after every confirmed deletion.
+        A separate cleanup timer can safely resume failures.
+        """
+        tenant_id, job_id = context.job.tenant_id, context.job.entity_id
+        deleted = 0
+        with context.dependencies.session_factory() as session:
+            job = session.scalar(select(RrugcKeywordImageJobModel).where(
+                RrugcKeywordImageJobModel.tenant_id == tenant_id,
+                RrugcKeywordImageJobModel.id == job_id,
+            ))
+            if job is None or job.status != "completed" or not job.output_remote_file_id:
+                return 0
+            active = list(session.scalars(select(RrugcImageOutputVersionModel).where(
+                RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                RrugcImageOutputVersionModel.stage == "stage1",
+                RrugcImageOutputVersionModel.job_id == job_id,
+                RrugcImageOutputVersionModel.processing_job_id == active_processing_id,
+            )))
+            if (len(active) != 6
+                    or job.output_remote_file_id not in {row.remote_file_id for row in active}
+                    or len({row.output_name for row in active}) != 6):
+                return 0
+            previous = [(row.id, row.remote_file_id) for row in session.scalars(
+                select(RrugcImageOutputVersionModel).where(
+                    RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                    RrugcImageOutputVersionModel.stage == "stage1",
+                    RrugcImageOutputVersionModel.job_id == job_id,
+                    RrugcImageOutputVersionModel.processing_job_id != active_processing_id,
+                ).order_by(RrugcImageOutputVersionModel.version.asc())
+            )]
+            # SQL != excludes NULL legacy processing IDs; fetch those too.
+            previous.extend((row.id, row.remote_file_id) for row in session.scalars(
+                select(RrugcImageOutputVersionModel).where(
+                    RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                    RrugcImageOutputVersionModel.stage == "stage1",
+                    RrugcImageOutputVersionModel.job_id == job_id,
+                    RrugcImageOutputVersionModel.processing_job_id.is_(None),
+                ).order_by(RrugcImageOutputVersionModel.version.asc())
+            ))
+        for version_id, remote_file_id in previous:
+            # Do not delete a shared or accidentally repeated Drive asset that
+            # is still referenced by an active version.
+            if remote_file_id in {row.remote_file_id for row in active}:
+                continue
+            try:
+                await storage.delete_asset(DeleteStoredAssetInput(
+                    tenant_id=tenant_id,
+                    asset_id="rrugc-keyword-image:" + job_id + ":old-version:" + version_id,
+                    remote_file_id=remote_file_id,
+                ))
+            except StorageProviderError as exc:
+                if exc.code != "managed_storage_object_missing" and exc.status_code != 404:
+                    raise
+            with context.dependencies.session_factory() as session:
+                job = session.scalar(select(RrugcKeywordImageJobModel).where(
+                    RrugcKeywordImageJobModel.tenant_id == tenant_id,
+                    RrugcKeywordImageJobModel.id == job_id,
+                ).with_for_update())
+                latest = session.scalar(select(RrugcImageOutputVersionModel).where(
+                    RrugcImageOutputVersionModel.id == version_id,
+                    RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                    RrugcImageOutputVersionModel.stage == "stage1",
+                    RrugcImageOutputVersionModel.job_id == job_id,
+                ))
+                if (job is None or job.status != "completed"
+                        or job.output_remote_file_id not in {row.remote_file_id for row in active}):
+                    return deleted
+                if latest is not None:
+                    session.delete(latest)
+                    session.commit()
+                    deleted += 1
+        if deleted:
+            context.logger.info("stage1_post_publish_cleanup_completed", extra={
+                "tenant_id": tenant_id, "job_id": job_id, "deleted": deleted,
+            })
+        return deleted
 
     async def _delete_previous_stage1_outputs(self, context: JobHandlerContext, storage) -> None:
         """Erase only this tenant's Stage 1 version files before regenerating.
@@ -748,17 +883,30 @@ class KeywordImageGenerateHandler:
         ))
         preserve_finals = False
         upload_only = bool(context.job.payload.get("upload_only"))
+        workspace = (Path(runner.config.staging_root).resolve()
+                     / "codex" / context.job.entity_id)
+        # The first run (or explicit manual Regenerate) starts from scratch.
+        # A deferred attempt or recovered worker claim instead continues from
+        # validated, existing per-design PNG checkpoints.
+        resume_missing: tuple[int, ...] | None = None
+        if not upload_only and (int(job.retry_count or 0) > 0 or context.job.attempt_count > 1):
+            missing = runner.stage1_missing_final_numbers(workspace)
+            if missing is not None and len(missing) < 6:
+                resume_missing = missing
         try:
-            if context.job.payload.get("replace_outputs") and not upload_only:
-                await self._delete_previous_stage1_outputs(context, storage)
-                # The old workspace can contain preserved final files from an
-                # interrupted Drive upload. The new generation must start clean.
-                runner.cleanup_attempt(context.job.entity_id)
+            # Regeneration is copy-on-write: never delete published Drive
+            # assets before the new six finals pass validation and upload.
+            # A fresh runner clears only its disposable local workspace.
             if upload_only:
                 # No Skill call on recovery. Verify the existing six final files.
-                workspace = (Path(runner.config.staging_root).resolve()
-                             / "codex" / context.job.entity_id)
                 final_files = CodexImageGenRunner._collect_six_final_designs(workspace)
+                generated = GeneratedImageResult(
+                    provider="codex", model=None, image_bytes=b"",
+                    mime_type="image/png", output_files=final_files,
+                )
+            elif resume_missing == ():
+                # Crash recovery: six valid finals were already generated.
+                final_files = runner._collect_six_final_designs(workspace)
                 generated = GeneratedImageResult(
                     provider="codex", model=None, image_bytes=b"",
                     mime_type="image/png", output_files=final_files,
@@ -766,18 +914,37 @@ class KeywordImageGenerateHandler:
             else:
                 generated = await runner.generate_from_references(
                     attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
+                    resume_missing_numbers=resume_missing,
                 )
             original_attempt = (
                 str(context.job.payload.get("generation_processing_id") or context.job.id)
                 if upload_only else context.job.id
             )
-            return await self._save_skill_outputs(
+            result = await self._save_skill_outputs(
                 context, storage, generated, generation_processing_id=original_attempt,
             )
+            if (result.outcome.value == "completed"
+                    and context.job.payload.get("replace_outputs")):
+                try:
+                    await self._cleanup_replaced_stage1_outputs(
+                        context, storage, active_processing_id=original_attempt,
+                    )
+                except Exception:
+                    # A failed Google Drive delete must never fail an already
+                    # published full six-image set. The scheduler retries later.
+                    context.logger.exception("stage1_post_publish_cleanup_deferred")
+            return result
         except StorageProviderError:
             # Disk-backed finals are the durable recovery source after Drive
             # outages. Never destroy a six-image generation on an upload fault.
             preserve_finals = True
+            raise
+        except CodexImageProviderError:
+            # A valid 1–5 checkpoint is never deleted on generation failure.
+            # Even failed CLI turns or timeouts can be resumed without
+            # repeating the already-created numbered PNGs.
+            missing = runner.stage1_missing_final_numbers(workspace)
+            preserve_finals = missing is not None and len(missing) < 6
             raise
         finally:
             if not preserve_finals and not upload_only:

@@ -153,6 +153,10 @@ export function KeywordImageRowControls({
         <span className="rrugc-keyword-pending-dot" />
         {row.status === "queued" ? "In queue" : "Processing"}
       </span>}
+      {row.retry_count > 0 && row.status !== "completed" && <span className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry " + new Date(row.next_retry_at).toLocaleString() : "Automatic recovery budget"}>
+        {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
+        {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/6 checkpoint" : ""}
+      </span>}
     </div>
     {confirmRegenerate && regenerate && createPortal(
       <div className="rrugc-keyword-regenerate-backdrop" onMouseDown={event => {
@@ -163,9 +167,9 @@ export function KeywordImageRowControls({
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
           <h2 id="rrugc-regenerate-title">Replace Stage 1 images?</h2>
           <p id="rrugc-regenerate-description">
-            Retry <strong>{row.keyword}</strong>? Every previous Stage 1 image and saved output version for this job
-            will be permanently deleted from Google Drive before generating six new designs.
-            Previous Skill logs remain available. If deletion fails, generation will not start.
+            Retry <strong>{row.keyword}</strong>? The system will generate and validate six new designs first.
+            Your previous Stage 1 images remain protected until the new set is fully uploaded.
+            Old files are cleaned up afterwards; a Drive cleanup outage will not block the new result.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
             <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
@@ -480,7 +484,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>6 final images per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Skill generation runs once; temporary Drive errors are retried automatically and saved finals may be resumed without regenerating.</span>
+        <span>6 final images per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Partial designs are preserved, retried within a bounded budget, and Drive cleanup runs after safe publish.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>
@@ -518,7 +522,12 @@ export function KeywordImageStage({
                 <td><div className="rrugc-keyword-gen-status-cell">
                   <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{STATUS_LABEL[row.status]}</span>
                   {row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}
-                  {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Attempt " + Math.max(1, row.attempt_count) + " of " + row.max_attempts}</small> : null}
+                  {row.retry_count > 0 && <small className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry: " + new Date(row.next_retry_at).toLocaleString() : "Durable Stage 1 recovery"}>
+                    {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
+                    {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/6 checkpoint" : ""}
+                    {row.next_retry_at && row.status === "queued" ? " · Next " + new Date(row.next_retry_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                  </small>}
+                  {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Running image-generation Skill"}</small> : null}
                   {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
                 </div></td>
                 <td className="rrugc-keyword-gen-duration" title={row.started_at || "Job has not started"}>{row.started_at

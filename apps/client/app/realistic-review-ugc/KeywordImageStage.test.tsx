@@ -126,7 +126,7 @@ describe("Stage 1 compact output and action controls", () => {
     expect(retry?.title).toContain("Replace existing images");
     await act(async () => retry?.click());
     expect(run).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("permanently deleted");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected until the new set is fully uploaded");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledTimes(2);
     await act(async () => render({ ...outputRow, status: "queued", output_url: null, saved_output_count: 0 }, true, true));
@@ -156,7 +156,7 @@ describe("Stage 1 zero-output recovery", () => {
     expect(action).not.toBeNull();
     await act(async () => action?.click());
     expect(run).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("permanently deleted");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected until the new set is fully uploaded");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());

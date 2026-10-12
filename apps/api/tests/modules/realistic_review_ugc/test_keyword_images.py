@@ -41,6 +41,42 @@ def keyword(db: Session, id: str, tenant: str, *, picked: bool):
 
 
 
+
+def test_stage1_scheduled_recovery_only_requeues_bounded_safe_failures(db, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from app.operations import stage1_recovery
+    monkeypatch.setattr(stage1_recovery, "SessionLocal",
+                        sessionmaker(bind=db.bind, expire_on_commit=False))
+    kw = keyword(db, "retry-old", "tenant-a", picked=True)
+    kw2 = keyword(db, "do-not-retry", "tenant-a", picked=True)
+    db.add_all([
+        RrugcKeywordImageJobModel(
+            id="safe-failure", tenant_id="tenant-a", keyword_id=kw.id,
+            keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="failed", created_by_user_id="actor",
+            last_error_code="stage1_imagegen_not_invoked",
+        ),
+        RrugcKeywordImageJobModel(
+            id="skill-error", tenant_id="tenant-a", keyword_id=kw2.id,
+            keyword_text=kw2.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="failed", created_by_user_id="actor",
+            last_error_code="stage1_imagegen_unavailable",
+        ),
+    ])
+    db.commit()
+    dry = stage1_recovery.recover_failed(limit=5, dry_run=True)
+    assert dry == {"eligible": 1, "queued": 0, "upload_resumed": 0, "skipped": 0}
+    result = stage1_recovery.recover_failed(limit=5)
+    assert result["queued"] == 1
+    db.expire_all()
+    recovered = db.get(RrugcKeywordImageJobModel, "safe-failure")
+    assert recovered.status == "queued"
+    assert recovered.retry_count == 1
+    assert db.get(ProcessingJobModel, recovered.processing_job_id).status == "pending"
+    assert db.get(RrugcKeywordImageJobModel, "skill-error").status == "failed"
+    assert stage1_recovery.recover_failed(limit=5)["queued"] == 0
+
+
 def test_stage1_zero_output_auto_recovery_is_bounded_durable_and_tenant_safe(db):
     from datetime import timedelta
     from types import SimpleNamespace
@@ -560,6 +596,72 @@ def test_partial_outputs_and_drive_failure_can_be_replaced_only_by_new_run(db):
     replacement = service.retry(tenant_id="tenant-a", keyword_id=row.id)
     assert replacement.processing_job_id != current.id
     assert db.get(ProcessingJobModel, replacement.processing_job_id).payload_json["replace_outputs"]
+
+
+def test_safe_publish_cleanup_only_removes_old_versions_after_complete_set(db):
+    import asyncio
+    from types import SimpleNamespace
+    from sqlalchemy.orm import Session
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+    from app.domain.providers.contracts import StorageProviderError
+
+    kw = keyword(db, "atomic-publish", "tenant-a", picked=True)
+    db.add(RrugcKeywordImageJobModel(
+        id="published-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="running", created_by_user_id="actor",
+        output_remote_file_id="old-file-0",
+    ))
+    db.add_all([
+        RrugcImageOutputVersionModel(
+            id=f"old-{i}", tenant_id="tenant-a", stage="stage1", job_id="published-job",
+            version=i, remote_file_id=f"old-file-{i}", output_name=f"output/final/design_{i:02}.png",
+        ) for i in (1, 2)
+    ])
+    db.add_all([
+        RrugcImageOutputVersionModel(
+            id=f"new-{i}", tenant_id="tenant-a", stage="stage1", job_id="published-job",
+            version=2+i, remote_file_id=f"new-file-{i}", processing_job_id="new-process",
+            output_name=f"output/final/design_{i:02}.png",
+        ) for i in range(1, 7)
+    ])
+    db.commit()
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id="published-job", tenant_id="tenant-a"),
+        dependencies=SimpleNamespace(session_factory=lambda: Session(db.bind)),
+        logger=SimpleNamespace(info=lambda *a, **kw: None),
+    )
+    deleted = []
+    class Storage:
+        fail = False
+        async def delete_asset(self, entry):
+            if self.fail:
+                raise StorageProviderError("Drive offline", code="managed_storage_network_error", retryable=True)
+            deleted.append(entry.remote_file_id)
+    storage = Storage()
+    handler = KeywordImageGenerateHandler()
+    # Attempted deletion before final publish is prohibited.
+    assert asyncio.run(handler._cleanup_replaced_stage1_outputs(
+        context, storage, active_processing_id="new-process")) == 0
+    assert deleted == []
+    db.get(RrugcKeywordImageJobModel, "published-job").status = "completed"
+    db.get(RrugcKeywordImageJobModel, "published-job").output_remote_file_id = "new-file-1"
+    db.commit()
+    storage.fail = True
+    with pytest.raises(StorageProviderError):
+        asyncio.run(handler._cleanup_replaced_stage1_outputs(
+            context, storage, active_processing_id="new-process"))
+    assert db.get(RrugcImageOutputVersionModel, "old-1") is not None
+    assert db.get(RrugcImageOutputVersionModel, "new-1") is not None
+    storage.fail = False
+    assert asyncio.run(handler._cleanup_replaced_stage1_outputs(
+        context, storage, active_processing_id="new-process")) == 2
+    assert deleted == ["old-file-1", "old-file-2"]
+    assert db.get(RrugcImageOutputVersionModel, "old-1") is None
+    assert db.get(RrugcImageOutputVersionModel, "new-6") is not None
+    assert asyncio.run(handler._cleanup_replaced_stage1_outputs(
+        context, storage, active_processing_id="new-process")) == 0
+
 
 def test_retry_removes_only_own_stage1_versions_from_drive_before_new_generation(db):
     import asyncio

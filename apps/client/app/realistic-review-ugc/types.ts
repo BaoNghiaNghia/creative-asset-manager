@@ -244,6 +244,9 @@ export type KeywordImageRow = {
   skill_name: string | null;
   skill_version: string | null;
   retry_count: number;
+  auto_retry_max?: number;
+  next_retry_at?: string | null;
+  checkpoint_count?: number;
   saved_output_count: number;
   upload_recovery_available?: boolean;
   attempt_count: number;

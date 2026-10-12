@@ -389,6 +389,39 @@ class CodexImageGenRunner:
             return f"Codex skill ${self.config.skill_name} is not installed."
         return None
 
+    @staticmethod
+    def stage1_missing_final_numbers(workspace: Path) -> tuple[int, ...] | None:
+        """Inspect checkpoint candidates without trusting partial/unknown PNG sets.
+
+        None denotes an unsafe workspace, six numbers denotes no usable
+        checkpoint, () denotes all six complete.
+        """
+        root = workspace.resolve()
+        finals = workspace / "output" / "final"
+        if finals.is_symlink() or not finals.is_dir():
+            return tuple(range(1, 7))
+        expected = {f"design_{number:02}.png": number for number in range(1, 7)}
+        digests: set[str] = set()
+        found: set[int] = set()
+        for path in finals.iterdir():
+            if not path.is_file() or path.suffix.lower() != ".png":
+                continue
+            if path.is_symlink() or path.name not in expected or not path.resolve().is_relative_to(root):
+                return None
+            try:
+                with Image.open(path) as image:
+                    image.verify()
+                    if image.format != "PNG" or min(image.size) < 512:
+                        return None
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                if digest in digests:
+                    return None
+                digests.add(digest)
+            except (OSError, ValueError, Image.DecompressionBombError):
+                return None
+            found.add(expected[path.name])
+        return tuple(sorted(set(range(1, 7)) - found))
+
     async def generate_from_references(
         self,
         *,
@@ -396,6 +429,7 @@ class CodexImageGenRunner:
         person: PreparedImage | None,
         references: list[ReferenceImageInput],
         prompt: str,
+        resume_missing_numbers: tuple[int, ...] | None = None,
     ) -> GeneratedImageResult:
         if not _SAFE_SKILL_RE.fullmatch(self.config.skill_name):
             raise CodexImageProviderError(
@@ -419,9 +453,30 @@ class CodexImageGenRunner:
         root = Path(self.config.staging_root).resolve() / "codex"
         workspace = root / attempt_id
         output_dir = workspace / "output"
-        if workspace.exists():
-            shutil.rmtree(workspace)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if resume_missing_numbers is None:
+            if workspace.exists():
+                shutil.rmtree(workspace)
+            output_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            if (workspace.is_symlink() or not output_dir.is_dir()
+                    or self.config.output_contract != "stage1_six_final_designs"
+                    or not resume_missing_numbers
+                    or self.stage1_missing_final_numbers(workspace) != tuple(sorted(resume_missing_numbers))):
+                raise CodexImageProviderError(
+                    "stage1_resume_checkpoint_invalid",
+                    "Stage 1 recovery checkpoint is missing or has changed; original PNGs were not overwritten.",
+                )
+        checkpoint_dir = workspace / ".stage1-preserved-finals"
+        checkpoint_hashes: dict[int, str] = {}
+        if resume_missing_numbers is not None:
+            if checkpoint_dir.exists():
+                shutil.rmtree(checkpoint_dir)
+            checkpoint_dir.mkdir()
+            for number in sorted(set(range(1, 7)) - set(resume_missing_numbers)):
+                filename = f"design_{number:02}.png"
+                current = output_dir / "final" / filename
+                checkpoint_hashes[number] = hashlib.sha256(current.read_bytes()).hexdigest()
+                shutil.copy2(current, checkpoint_dir / filename)
 
         person_name = "person" + _extension(person.mime_type) if person is not None else None
         if person_name and person is not None:
@@ -441,11 +496,30 @@ class CodexImageGenRunner:
             (workspace / name).write_bytes(item.image.image_bytes)
             reference_names.append((item.role, name))
 
-        instruction = self._prompt(
-            person_name=person_name,
-            references=reference_names,
-            user_prompt=prompt,
-        )
+        if resume_missing_numbers is None:
+            instruction = self._prompt(
+                person_name=person_name,
+                references=reference_names,
+                user_prompt=prompt,
+            )
+        else:
+            missing_text = ", ".join(f"design_{n:02}.png" for n in resume_missing_numbers)
+            existing_text = ", ".join(f"design_{n:02}.png" for n in sorted(checkpoint_hashes))
+            instruction = (
+                f"Use ${self.config.skill_name} and $imagegen.\n"
+                "Stage 1 CONTINUATION of an existing six-design job, NOT a fresh six-design run.\n"
+                "Exactly six distinct artworks are required ACROSS ALL ATTEMPTS; "
+                "some already exist as valid final PNGs. Do not regenerate, rename, "
+                "delete, rewrite or recolor any preserved final.\n"
+                f"Existing complete finals (read-only): {existing_text}.\n"
+                f"Generate ONLY the {len(resume_missing_numbers)} missing designs: {missing_text}. "
+                "Make ONE imagegen call for each missing design only. "
+                "Keep the existing designs distinct from these new concepts. "
+                "Save only those exact missing filenames under output/final/.\n"
+                f"Original Stage 1 artwork request (quote is literal input): {prompt}\n"
+                f"FINAL INSTRUCTION: continue with ONLY {missing_text}. "
+                "Do not repeat all six, do not output an image sheet, and do not use an API-key fallback."
+            )
         argv = [
             binary,
             "exec",
@@ -519,6 +593,32 @@ class CodexImageGenRunner:
                 "Codex CLI could not be started on this worker.",
                 retryable=True,
             ) from exc
+        if checkpoint_hashes:
+            preserved_changed = False
+            for number, digest in checkpoint_hashes.items():
+                filename = f"design_{number:02}.png"
+                target = output_dir / "final" / filename
+                checkpoint = checkpoint_dir / filename
+                try:
+                    current_hash = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else None
+                    if current_hash != digest:
+                        if not checkpoint.is_file() or hashlib.sha256(checkpoint.read_bytes()).hexdigest() != digest:
+                            raise CodexImageProviderError(
+                                "stage1_resume_checkpoint_corrupt",
+                                "A preserved design checkpoint was corrupted; automatic recovery stopped.",
+                            )
+                        shutil.copy2(checkpoint, target)
+                        preserved_changed = True
+                except (OSError, ValueError) as exc:
+                    raise CodexImageProviderError(
+                        "stage1_resume_checkpoint_invalid",
+                        "Could not verify preserved Stage 1 PNGs.",
+                    ) from exc
+            if preserved_changed:
+                raise CodexImageProviderError(
+                    "stage1_resume_modified_existing",
+                    "The Skill tried to modify an existing design; the saved checkpoint was restored.",
+                )
         if process.returncode != 0:
             raise _classify_failure(stderr, stdout)
 

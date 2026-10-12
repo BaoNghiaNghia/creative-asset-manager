@@ -1,0 +1,13 @@
+[Unit]
+Description=CAM Stage 1 stalled job recovery and safe publish cleanup
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=30min
+RandomizedDelaySec=90s
+AccuracySec=1min
+Persistent=true
+Unit=creative-asset-manager-stage1-recovery.service
+
+[Install]
+WantedBy=timers.target

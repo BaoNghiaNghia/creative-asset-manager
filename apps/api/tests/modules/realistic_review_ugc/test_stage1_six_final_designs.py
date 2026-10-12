@@ -22,6 +22,74 @@ def outputs(tmp_path: Path):
     return final
 
 
+
+def test_stage1_checkpoint_inspection_handles_missing_and_corrupt_files(tmp_path):
+    final = outputs(tmp_path)
+    assert runner().stage1_missing_final_numbers(tmp_path) == ()
+    for number in (3, 4, 5, 6):
+        (final / f"design_{number:02}.png").unlink()
+    assert runner().stage1_missing_final_numbers(tmp_path) == (3, 4, 5, 6)
+    (final / "design_02.png").write_bytes((final / "design_01.png").read_bytes())
+    assert runner().stage1_missing_final_numbers(tmp_path) is None
+
+
+@pytest.mark.parametrize("modify_original", [False, True])
+def test_stage1_continuation_only_generates_missing_artwork(tmp_path, monkeypatch, modify_original):
+    import asyncio
+    from types import SimpleNamespace
+    from app.providers.ai import codex_image
+    root = tmp_path / "staging"
+    workspace = root / "codex" / "job-123"
+    final = outputs(workspace)
+    for number in (3, 4, 5, 6):
+        (final / f"design_{number:02}.png").unlink()
+    original = (final / "design_01.png").read_bytes()
+    skill_folder = tmp_path / "codex-home" / "skills" / "gatorhats-stage1-six-designs"
+    skill_folder.mkdir(parents=True)
+    (skill_folder / "SKILL.md").write_text("Stage1 independent embroidery")
+    seen = []
+
+    async def fake_exec(*argv, **_kwargs):
+        instruction = argv[-1]
+        seen.append(instruction)
+        assert "ONLY the 4 missing designs" in instruction
+        for number in (3, 4, 5, 6):
+            Image.new("RGBA", (800, 800), (number * 32, 90, 40, 255)).save(
+                final / f"design_{number:02}.png"
+            )
+        if modify_original:
+            Image.new("RGBA", (800, 800), (255, 33, 77, 255)).save(final / "design_01.png")
+        return SimpleNamespace(returncode=0)
+
+    async def fake_stream(_process, **_kwargs):
+        return '{"type":"turn.completed"}', ""
+
+    monkeypatch.setattr(codex_image.shutil, "which", lambda _: "/usr/bin/codex")
+    monkeypatch.setattr(codex_image.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(codex_image, "stream_codex_process", fake_stream)
+    test_runner = CodexImageGenRunner(CodexImageRunnerConfig(
+        skill_name="gatorhats-stage1-six-designs", output_contract="stage1_six_final_designs",
+        codex_home=str(tmp_path / "codex-home"), staging_root=str(root),
+    ))
+
+    async def work():
+        return await test_runner.generate_from_references(
+            attempt_id="job-123", person=None, references=[],
+            prompt="BORN BROKE DIE RICH", resume_missing_numbers=(3, 4, 5, 6),
+        )
+
+    if modify_original:
+        with pytest.raises(CodexImageProviderError, match="checkpoint was restored"):
+            asyncio.run(work())
+    else:
+        result = asyncio.run(work())
+        assert len(result.output_files) == 6
+        assert all(Path(item.path).is_file() for item in result.output_files)
+    assert (final / "design_01.png").read_bytes() == original
+    assert len(seen) == 1
+    assert "Do not repeat all six" in seen[0]
+
+
 def test_six_individual_pngs_selected_while_intermediates_ignored(tmp_path):
     final = outputs(tmp_path)
     drafts = tmp_path / "working" / "previews"
