@@ -12,7 +12,7 @@ const keyword: KeywordVolume = {
   competition: "HIGH", cpc_low: 1.17, cpc_high: 5.16,
   provider: "aebrowse_google_ads", provider_account: null, fetched_at: "2026-10-10T02:00:00Z",
   source_image_url: "https://example.com/hat.jpg", source_pin_url: "https://pinterest.com/pin/123",
-  source_agents: [{ agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy"], evidence_count: 1, sources: [{platform: "etsy", url: "https://www.etsy.com/listing/123456", channel: "auto-discover", title: "Custom Embroidery Hat", excerpt: "Unverified listing text"}] }],
+  source_agents: [{ agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy", "amazon"], evidence_count: 2, sources: [{platform: "etsy", url: "https://www.etsy.com/listing/123456", channel: "auto-discover", title: "Custom Embroidery Hat", excerpt: "Unverified listing text"}, {platform: "amazon", url: "https://www.amazon.com/dp/B012345678", channel: "auto-discover", title: "Amazon Trucker Hat", excerpt: "Detected on Amazon"}] }],
   picked: true, picked_at: null, favorite: false, favorite_at: null,
   trend: [
     { period: "2026-01", volume: 18000 },
@@ -55,8 +55,20 @@ describe("Stage 0 platform source attribution", () => {
     expect(host.querySelector(".rrugc-stage0-agent-badge")?.getAttribute("aria-label")).toContain("Agent-Reach Auto Discover");
     expect(host.querySelector(".rrugc-stage0-agent-empty")?.textContent).toBe("—");
     expect(host.querySelectorAll(".rrugc-stage0-keyword-table tbody tr")).toHaveLength(2);
-    expect(host.querySelector(".rrugc-stage0-platform.platform-pinterest")?.textContent).toContain("Pinterest");
-    expect(host.querySelector(".rrugc-stage0-platform.platform-etsy")?.textContent).toContain("Etsy");
+    const pinterest = host.querySelector<HTMLAnchorElement>(".rrugc-stage0-platform.platform-pinterest");
+    const etsy = host.querySelector<HTMLAnchorElement>(".rrugc-stage0-platform.platform-etsy");
+    const amazon = host.querySelector<HTMLAnchorElement>(".rrugc-stage0-platform.platform-amazon");
+    expect(pinterest?.textContent).toBe("Pinterest");
+    expect(pinterest?.querySelector("img")?.getAttribute("src")).toBe("/rrugc/platforms/pinterest.png");
+    expect(pinterest?.getAttribute("href")).toBe("https://pinterest.com/pin/123");
+    expect(etsy?.textContent).toBe("");
+    expect(etsy?.getAttribute("aria-label")).toBe("Open Etsy source");
+    expect(etsy?.querySelector("img")?.getAttribute("src")).toBe("/rrugc/platforms/etsy.png");
+    expect(etsy?.getAttribute("href")).toBe("https://www.etsy.com/listing/123456");
+    expect(amazon?.textContent).toBe("");
+    expect(amazon?.getAttribute("aria-label")).toBe("Open Amazon source");
+    expect(amazon?.querySelector("img")?.getAttribute("src")).toBe("/rrugc/platforms/amazon.png");
+    expect(amazon?.getAttribute("href")).toBe("https://www.amazon.com/dp/B012345678");
     expect(host.querySelector(".rrugc-stage0-source-evidence-link")?.getAttribute("href")).toBe("https://www.etsy.com/listing/123456");
     expect(host.querySelector(".rrugc-stage0-platform-empty")?.textContent).toBe("—");
     await act(async () => root.unmount());

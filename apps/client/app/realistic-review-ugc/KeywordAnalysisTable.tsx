@@ -114,6 +114,23 @@ function platformDisplay(platform: string): string {
     : platform === "pinterest" ? "Pinterest" : platform;
 }
 
+const STAGE0_PLATFORM_LOGOS: Record<string, string> = {
+  etsy: "/rrugc/platforms/etsy.png",
+  amazon: "/rrugc/platforms/amazon.png",
+  pinterest: "/rrugc/platforms/pinterest.png",
+};
+
+function Stage0PlatformMark({ platform }: { platform: string }) {
+  const logo = STAGE0_PLATFORM_LOGOS[platform];
+  return logo
+    ? <>
+        <img className={"rrugc-stage0-platform-logo platform-logo-" + platform}
+          src={logo} alt="" aria-hidden="true" loading="lazy" decoding="async" />
+        {platform === "pinterest" && <span>Pinterest</span>}
+      </>
+    : <span>{platformDisplay(platform)}</span>;
+}
+
 function Stage0SourcePlatforms({ item }: { item: KeywordVolume }) {
   const sources = agentSourceLinks(item);
   const platforms = Array.from(new Set(
@@ -126,9 +143,15 @@ function Stage0SourcePlatforms({ item }: { item: KeywordVolume }) {
       const sourceUrl = sources.find(source => source.platform === platform)?.url
         || (platform === "pinterest" ? item.source_pin_url : null);
       const label = platformDisplay(platform);
+      const cls = "rrugc-stage0-platform platform-" + platform;
       return sourceUrl && /^https:\/\//i.test(sourceUrl)
-        ? <a key={platform} className={"rrugc-stage0-platform platform-" + platform} href={sourceUrl} target="_blank" rel="noreferrer" title={"Open " + label + " evidence ↗"}><span aria-hidden="true">{platform === "pinterest" ? "Ⓟ" : platform === "etsy" ? "Ⓔ" : platform === "amazon" ? "ⓐ" : "↗"}</span>{label}</a>
-        : <span key={platform} className={"rrugc-stage0-platform platform-" + platform}><span aria-hidden="true">◎</span>{label}</span>;
+        ? <a key={platform} className={cls} href={sourceUrl} target="_blank" rel="noopener noreferrer"
+            aria-label={"Open " + label + " source"} title={"Open " + label + " evidence ↗"}>
+            <Stage0PlatformMark platform={platform} />
+          </a>
+        : <span key={platform} className={cls} aria-label={label} title={label}>
+            <Stage0PlatformMark platform={platform} />
+          </span>;
     })}
   </div>;
 }

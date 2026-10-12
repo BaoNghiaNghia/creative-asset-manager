@@ -9,11 +9,16 @@ table.rrugc-stage0-keyword-table td.rrugc-stage0-agent-cell { vertical-align: mi
 .rrugc-stage0-agent-empty { color: #9ba8b9; }
 
 /* Genuine source-listing evidence from the paired VPS Agent-Reach Scout. */
-.rrugc-stage0-platforms{display:flex;align-items:center;gap:5px;flex-wrap:wrap;max-width:190px}
-.rrugc-stage0-platforms .rrugc-stage0-platform{font-size:9px;gap:3px;border:1px solid #dce5f0;border-radius:5px;padding:2px 5px;text-decoration:none;background:#f5f8fc}
-.rrugc-stage0-platform.platform-etsy{color:#ba4c1f}
-.rrugc-stage0-platform.platform-amazon{color:#74510e}
-.rrugc-stage0-platform.platform-pinterest{color:#bd081c}
+.rrugc-stage0-platforms{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;max-width:190px}
+.rrugc-stage0-platforms .rrugc-stage0-platform{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:26px;padding:2px 4px;border:1px solid transparent;border-radius:5px;background:transparent;color:#35435d;text-decoration:none;font-size:10px;font-weight:700;white-space:nowrap;line-height:1}
+.rrugc-stage0-platforms a.rrugc-stage0-platform:hover{border-color:#d9e4f3;background:#f4f7fc}
+.rrugc-stage0-platforms a.rrugc-stage0-platform:focus-visible{outline:2px solid #6992d5;outline-offset:1px}
+.rrugc-stage0-platform-logo{display:block;flex:none;object-fit:contain}
+.rrugc-stage0-platform-logo.platform-logo-etsy{width:46px;height:24px}
+.rrugc-stage0-platform-logo.platform-logo-amazon{width:66px;height:22px}
+.rrugc-stage0-platform-logo.platform-logo-pinterest{width:17px;height:17px}
+.rrugc-stage0-platforms .platform-pinterest{color:#bd081c}
+@media(max-width:767px){.rrugc-stage0-platforms{gap:3px}.rrugc-stage0-platforms .rrugc-stage0-platform{padding:2px}}
 .rrugc-stage0-source-evidence-link{display:flex;flex-direction:column;gap:2px;align-items:center;justify-content:center;min-height:39px;text-align:center;text-decoration:none;color:#46678e;font-weight:750;font-size:14px}
 .rrugc-stage0-source-evidence-link small{font-size:8px;line-height:1.2}
 .rrugc-stage0-detail-source-link{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:#456488;text-decoration:none;font-weight:700}
