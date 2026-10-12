@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.domain.providers.contracts import DeleteStoredAssetInput
-from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
+from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import StoreAssetInput, StorageProviderError
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -39,7 +39,14 @@ from app.providers.ai.codex_image import (
 
 JOB_TYPE = "rrugc_keyword_image_generate"
 STAGE1_MAX_ATTEMPTS = 1
-# Skill generation is once; only Drive I/O can retry.
+# A zero-PNG, no-generation-attempt failure can be deferred without consuming
+# another ProcessingJob attempt. Retry budget lives on the Stage 1 job row so
+# a process restart cannot reset it; partial/unknown image runs are excluded.
+STAGE1_AUTO_RETRY_DELAYS_SECONDS = (60, 300, 900)
+STAGE1_SAFE_ZERO_OUTPUT_CODES = frozenset({
+    "stage1_imagegen_not_invoked", "stage1_imagegen_limited",
+})
+# Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
 STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
     "managed_storage_temporarily_unavailable", "managed_storage_network_error",
@@ -508,10 +515,13 @@ class KeywordImageGenerateHandler:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings
 
-    def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
+    def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
         try:
             return asyncio.run(self._execute(context))
         except CodexImageProviderError as exc:
+            recovery = self._defer_safe_zero_output(context, exc)
+            if recovery is not None:
+                return recovery
             self._fail(context, exc.code, str(exc))
             return JobHandlerResult.non_retryable(exc.code, str(exc))
         except StorageProviderError as exc:
@@ -522,6 +532,49 @@ class KeywordImageGenerateHandler:
                                      extra={"job_id": context.job.entity_id, "tenant_id": context.job.tenant_id})
             self._fail(context, "keyword_image_internal_error", "Keyword generation failed.")
             return JobHandlerResult.non_retryable("keyword_image_internal_error", "Keyword generation failed.")
+
+    def _defer_safe_zero_output(
+        self, context: JobHandlerContext, error: CodexImageProviderError,
+    ) -> DeferredJobOutcome | None:
+        """Retry only proven no-image runs. No duplicate imagegen calls on partial outputs.
+
+        Uses the existing durable processing defer queue rather than creating a
+        new job or requiring the user to keep the Stage 1 page open.
+        """
+        if error.code not in STAGE1_SAFE_ZERO_OUTPUT_CODES or context.is_cancelled:
+            return None
+        with context.dependencies.session_factory() as session:
+            job = session.scalar(select(RrugcKeywordImageJobModel).where(
+                RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
+                RrugcKeywordImageJobModel.id == context.job.entity_id,
+            ).with_for_update())
+            if job is None or job.status == "completed":
+                return None
+            recovery_count = max(0, int(job.retry_count or 0))
+            if recovery_count >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS):
+                return None
+            # Do not retry behind a successful/published image pointer.
+            if job.output_remote_file_id:
+                return None
+            delay = STAGE1_AUTO_RETRY_DELAYS_SECONDS[recovery_count]
+            job.retry_count = recovery_count + 1
+            job.status = "queued"
+            job.last_error_code = error.code[:100]
+            job.last_error_message = (
+                f"Auto-recovery {job.retry_count}/{len(STAGE1_AUTO_RETRY_DELAYS_SECONDS)}: "
+                f"{str(error)}; retry scheduled in {delay}s"
+            )[:1000]
+            session.commit()
+        context.logger.warning("rrugc_stage1_auto_recovery_deferred", extra={
+            "tenant_id": context.job.tenant_id, "job_id": context.job.entity_id,
+            "error_code": error.code, "retry_count": recovery_count + 1,
+            "delay_seconds": delay,
+        })
+        return DeferredJobOutcome(
+            reason_code=error.code,
+            reason_message=f"Stage 1 waiting for image-generation capacity; retry in {delay}s.",
+            retry_at=datetime.now(timezone.utc) + timedelta(seconds=delay),
+        )
 
     def _fail(self, context: JobHandlerContext, code: str, message: str, *, terminal: bool = True) -> None:
         with context.dependencies.session_factory() as session:

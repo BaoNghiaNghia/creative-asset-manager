@@ -40,6 +40,98 @@ def keyword(db: Session, id: str, tenant: str, *, picked: bool):
     return row
 
 
+
+def test_stage1_zero_output_auto_recovery_is_bounded_durable_and_tenant_safe(db):
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from sqlalchemy.orm import Session
+    from app.modules.realistic_review_ugc.keyword_images import (
+        KeywordImageGenerateHandler, STAGE1_AUTO_RETRY_DELAYS_SECONDS,
+    )
+    from app.providers.ai.codex_image import CodexImageProviderError
+
+    key = keyword(db, "recov-key", "tenant-a", picked=True)
+    row = RrugcKeywordImageJobModel(
+        id="stage1-recov", tenant_id="tenant-a", keyword_id=key.id,
+        keyword_text=key.keyword, skill_source="local", skill_name="gatorhats-stage1-six-designs",
+        prompt_text="prompt", status="running", created_by_user_id="actor",
+    )
+    db.add(row)
+    db.commit()
+    messages = []
+    def factory():
+        return Session(db.bind)
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id=row.id, tenant_id=row.tenant_id),
+        dependencies=SimpleNamespace(session_factory=factory), is_cancelled=False,
+        logger=SimpleNamespace(warning=lambda message, **kw: messages.append(message)),
+    )
+    handler = KeywordImageGenerateHandler()
+    for index, delay in enumerate(STAGE1_AUTO_RETRY_DELAYS_SECONDS, 1):
+        before = datetime.now(timezone.utc)
+        outcome = handler._defer_safe_zero_output(
+            context, CodexImageProviderError("stage1_imagegen_not_invoked", "No tool call")
+        )
+        assert outcome is not None and outcome.reason_code == "stage1_imagegen_not_invoked"
+        assert before + timedelta(seconds=delay - 1) <= outcome.retry_at <= datetime.now(timezone.utc) + timedelta(seconds=delay + 1)
+        db.expire_all()
+        updated = db.get(RrugcKeywordImageJobModel, row.id)
+        assert updated.retry_count == index
+        assert updated.status == "queued"
+        assert updated.last_error_code == "stage1_imagegen_not_invoked"
+        assert "Auto-recovery" in updated.last_error_message
+    assert handler._defer_safe_zero_output(
+        context, CodexImageProviderError("stage1_imagegen_not_invoked", "No tool call")
+    ) is None
+    db.expire_all()
+    assert db.get(RrugcKeywordImageJobModel, row.id).retry_count == 3
+    assert len(messages) == 3
+
+    # Failed imagegen invocation, incomplete 2/6 output and config errors
+    # must not be blindly retried while Stage 1 lacks per-design checkpoints.
+    for code in ("stage1_imagegen_no_output", "stage1_six_outputs_invalid",
+                 "stage1_imagegen_unavailable", "codex_image_timeout"):
+        assert handler._defer_safe_zero_output(context, CodexImageProviderError(code, "Failure")) is None
+
+    # A different tenant cannot schedule retries for this row.
+    other_context = SimpleNamespace(
+        job=SimpleNamespace(entity_id=row.id, tenant_id="tenant-b"),
+        dependencies=context.dependencies, is_cancelled=False, logger=context.logger,
+    )
+    assert handler._defer_safe_zero_output(
+        other_context, CodexImageProviderError("stage1_imagegen_limited", "Quota")
+    ) is None
+
+
+def test_stage1_auto_recovery_skips_existing_outputs_and_cancellation(db):
+    from types import SimpleNamespace
+    from sqlalchemy.orm import Session
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+    from app.providers.ai.codex_image import CodexImageProviderError
+    kw = keyword(db, "has-out", "tenant-a", picked=True)
+    row = RrugcKeywordImageJobModel(
+        id="stage1-preserved", tenant_id="tenant-a", keyword_id=kw.id, keyword_text=kw.keyword,
+        skill_source="local", skill_name="gatorhats-stage1-six-designs", prompt_text="",
+        status="running", output_remote_file_id="keep-this-drive-image", created_by_user_id="actor",
+    )
+    db.add(row)
+    db.commit()
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id=row.id, tenant_id=row.tenant_id),
+        dependencies=SimpleNamespace(session_factory=lambda: Session(db.bind)),
+        is_cancelled=False, logger=SimpleNamespace(warning=lambda *args, **kw: None),
+    )
+    handler = KeywordImageGenerateHandler()
+    error = CodexImageProviderError("stage1_imagegen_not_invoked", "No tool")
+    assert handler._defer_safe_zero_output(context, error) is None
+    row.output_remote_file_id = None
+    db.commit()
+    context.is_cancelled = True
+    assert handler._defer_safe_zero_output(context, error) is None
+    db.expire_all()
+    assert db.get(RrugcKeywordImageJobModel, row.id).retry_count == 0
+
+
 def test_stage1_only_lists_used_keyword_and_is_tenant_scoped(db):
     first = keyword(db, "used-a", "tenant-a", picked=True)
     keyword(db, "unused-a", "tenant-a", picked=False)

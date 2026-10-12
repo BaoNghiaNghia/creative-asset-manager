@@ -329,7 +329,7 @@ def _classify_stage1_no_images(stdout: str, stderr: str) -> CodexImageProviderEr
         return CodexImageProviderError(
             "stage1_imagegen_limited",
             "Image-generation capacity was limited. No PNGs were created. "
-            "Wait for capacity to recover before manually generating again.",
+            "When no image was created, Stage 1 can retry this error automatically within its recovery budget.",
         )
     if failed_turn:
         return CodexImageProviderError(
@@ -342,7 +342,7 @@ def _classify_stage1_no_images(stdout: str, stderr: str) -> CodexImageProviderEr
             "stage1_imagegen_not_invoked",
             "Codex finished without running a generation tool and produced no PNGs. "
             "Check Skill execution and image-generation tool access. "
-            "A new run requires manual confirmation.",
+            "Stage 1 can retry this zero-image result automatically within its recovery budget.",
         )
     if image_calls:
         return CodexImageProviderError(
