@@ -677,7 +677,10 @@ class RrugcStage2GenerateJobHandler:
                 context,
                 exc.code,
                 str(exc),
-                terminal=not retryable,
+                terminal=(not retryable or (
+                    exc.defer_seconds is None
+                    and context.job.attempt_count >= context.job.max_attempts
+                )),
             )
             if exc.defer_seconds is not None:
                 return DeferredJobOutcome(
@@ -694,14 +697,20 @@ class RrugcStage2GenerateJobHandler:
         except (RrugcGenerationHandlerError, StorageProviderError) as exc:
             code = getattr(exc, "code", "stage2_reference_unavailable")
             retryable = bool(getattr(exc, "retryable", True))
-            self._mark_failure(context, code, str(exc), terminal=not retryable)
+            self._mark_failure(
+                context, code, str(exc),
+                terminal=(not retryable or context.job.attempt_count >= context.job.max_attempts),
+            )
             return (
                 JobHandlerResult.retryable(code, str(exc))
                 if retryable
                 else JobHandlerResult.non_retryable(code, str(exc))
             )
         except Exception as exc:
-            self._mark_failure(context, "stage2_generation_internal_error", str(exc))
+            self._mark_failure(
+                context, "stage2_generation_internal_error", str(exc),
+                terminal=context.job.attempt_count >= context.job.max_attempts,
+            )
             context.logger.exception(
                 "rrugc_stage2_generation_failed",
                 extra={

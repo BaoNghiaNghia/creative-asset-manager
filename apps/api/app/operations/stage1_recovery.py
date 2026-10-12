@@ -34,6 +34,7 @@ from app.modules.realistic_review_ugc.stage2_skills import (
 )
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.operations.stage4_queue_recovery import reconcile_stage4_terminal
 
 LOGGER = logging.getLogger(__name__)
 RECOVERABLE_CODES = (
@@ -485,11 +486,15 @@ def main() -> int:
         return 0
     recovery = recover_failed(limit=args.limit, dry_run=args.dry_run)
     if args.dry_run:
-        print(json.dumps({"mode": "dry-run", "recovery": recovery, "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
+        print(json.dumps({"mode": "dry-run", "recovery": recovery, "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue(),
+                          "stage4_reconciliation": reconcile_stage4_terminal(limit=args.limit, dry_run=True)}))
         return 0
+    stage4_reconciliation = reconcile_stage4_terminal(limit=args.limit)
     storage = build_managed_storage_provider(get_settings())
     cleanup = asyncio.run(cleanup_published(storage=storage, limit=args.limit))
-    print(json.dumps({"mode": "apply", "recovery": recovery, "cleanup": cleanup, "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
+    print(json.dumps({"mode": "apply", "recovery": recovery, "cleanup": cleanup,
+                      "stage4_reconciliation": stage4_reconciliation,
+                      "stage1": audit_stage1(), "stage4_queue": audit_stage4_queue()}))
     return 0
 
 
