@@ -1,0 +1,13 @@
+[Unit]
+Description=Bounded Stage 0 product preview and AEBrowse pending enrichment
+
+[Timer]
+OnBootSec=12min
+OnUnitInactiveSec=30min
+RandomizedDelaySec=2min
+AccuracySec=1min
+Persistent=true
+Unit=creative-asset-manager-stage0-enrichment.service
+
+[Install]
+WantedBy=timers.target

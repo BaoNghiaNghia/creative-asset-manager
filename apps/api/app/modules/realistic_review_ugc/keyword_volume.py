@@ -243,7 +243,7 @@ def _with_observed_volume_history(
     # The hat-based volume refresh must never overwrite TM-only evidence.
     raw = {key: value for key, value in provider_item.items() if key != "trademark"}
     existing = previous or {}
-    for key in ("trademark", "_trademark_screened_keyword"):
+    for key in ("trademark", "_trademark_screened_keyword", "_reach_product_image_attempt_at", "_reach_product_image_status", "_reach_metrics_attempt_at", "research_signal_id", "research_source", "research_source_url", "research_unverified", "research_auto_extracted"):
         if key in existing:
             raw[key] = existing[key]
     history = existing.get("_observed_volume_history")

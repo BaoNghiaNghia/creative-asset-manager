@@ -473,6 +473,7 @@ class KeywordVolumeResponse(BaseModel):
     yoy_change_pct: float | None = None
     trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
     source_image_url: str | None = None
+    source_image_status: str | None = None
     source_pin_url: str | None = None
     source_agents: list[KeywordSourceAgentResponse] = Field(default_factory=list)
     scout_keyword_feedback: Literal["suggested", "blocked", "neutral"] = "neutral"

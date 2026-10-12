@@ -1997,6 +1997,8 @@ for unit in \
   creative-asset-manager-error-logger.timer \
   creative-asset-manager-stage1-temp-retention.service \
   creative-asset-manager-stage1-temp-retention.timer \
+  creative-asset-manager-stage0-enrichment.service \
+  creative-asset-manager-stage0-enrichment.timer \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
@@ -2085,6 +2087,7 @@ systemctl enable \
   creative-asset-manager-api.service \
   creative-asset-manager-error-logger.timer \
   creative-asset-manager-stage1-temp-retention.timer \
+  creative-asset-manager-stage0-enrichment.timer \
   creative-asset-manager-image-worker.service \
   creative-asset-manager-image-worker-2.service \
   creative-asset-manager-image-worker-3.service \
@@ -2173,7 +2176,8 @@ systemctl start \
   creative-asset-manager-error-logger.timer
 
 systemctl start \
-  creative-asset-manager-stage1-temp-retention.timer
+  creative-asset-manager-stage1-temp-retention.timer \
+  creative-asset-manager-stage0-enrichment.timer
 
 systemctl start \
   creative-asset-manager-error-logger.service

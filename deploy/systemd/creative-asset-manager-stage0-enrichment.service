@@ -1,0 +1,22 @@
+[Unit]
+Description=CAM Stage 0 Agent-Reach public product previews and pending AEBrowse metrics
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=creative-assets
+Group=creative-assets
+WorkingDirectory=/opt/creative-asset-manager/current/apps/api
+EnvironmentFile=/etc/creative-asset-manager/production.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m app.operations.stage0_reach_enrich --images 4 --metrics 6
+TimeoutStartSec=8min
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0027

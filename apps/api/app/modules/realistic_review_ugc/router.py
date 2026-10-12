@@ -3040,6 +3040,7 @@ def _keyword_volume_response(
         ),
         trend=_keyword_volume_trend(row),
         source_image_url=row.source_image_url,
+        source_image_status=raw.get("_reach_product_image_status"),
         source_pin_url=row.source_pin_url,
         source_agents=source_agents or [],
         scout_keyword_feedback=feedback.get(("keyword", row.keyword_normalized), "neutral"),
