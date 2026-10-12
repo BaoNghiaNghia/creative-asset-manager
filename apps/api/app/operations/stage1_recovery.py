@@ -23,7 +23,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcImageOutputVersionModel, RrugcKeywordImageJobModel,
 )
 from app.modules.realistic_review_ugc.keyword_images import (
-    KeywordImageGenerateHandler, KeywordImageService,
+    KeywordImageError, KeywordImageGenerateHandler, KeywordImageService,
     STAGE1_AUTO_RETRY_DELAYS_SECONDS, STAGE1_SAFE_ZERO_OUTPUT_CODES,
     STAGE1_PARTIAL_RECOVERY_CODES, STAGE1_RETRYABLE_STORAGE_CODES, DEFAULT_SKILL,
 )
@@ -190,9 +190,22 @@ def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
                     job.retry_count = int(job.retry_count or 0) + 1
                     session.commit()
                     result["upload_resumed"] += 1
-                except Exception:
+                except KeywordImageError as exc:
                     result["skipped"] += 1
                     session.rollback()
+                    # Only report a stable code. Do not log untrusted provider
+                    # text, quote text or secrets from the underlying exception.
+                    LOGGER.warning(
+                        "stage1_upload_recovery_skipped job_id=%s code=%s",
+                        job.id, exc.code,
+                    )
+                except Exception as exc:
+                    result["skipped"] += 1
+                    session.rollback()
+                    LOGGER.warning(
+                        "stage1_upload_recovery_unexpected job_id=%s error_type=%s",
+                        job.id, type(exc).__name__,
+                    )
                 continue
             if job.output_remote_file_id and code not in REPLACE_CODES:
                 result["skipped"] += 1

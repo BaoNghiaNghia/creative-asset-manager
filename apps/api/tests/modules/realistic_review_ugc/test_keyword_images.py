@@ -214,6 +214,41 @@ def test_stage1_invalid_six_png_set_is_not_requeued_without_validation(db, tmp_p
     assert all((workspace / f"design_{i:02}.png").is_file() for i in range(1, 8))
 
 
+def test_stage1_resume_failure_logs_safe_error_code_without_retrying_generation(db, monkeypatch, caplog):
+    from sqlalchemy.orm import sessionmaker
+    from app.operations import stage1_recovery
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageError
+
+    monkeypatch.setattr(stage1_recovery, "SessionLocal",
+                        sessionmaker(bind=db.bind, expire_on_commit=False))
+    kw = keyword(db, "missing-checkpoint", "tenant-a", picked=True)
+    processing = ProcessingJobModel(
+        id="upload-before", tenant_id="tenant-a", job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="upload-failed",
+        idempotency_key="upload-before", payload_json={"keyword_image_job_id": "upload-failed"},
+        status="failed", max_attempts=1,
+    )
+    db.add_all([processing, RrugcKeywordImageJobModel(
+        id="upload-failed", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        processing_job_id=processing.id,
+        last_error_code="managed_storage_temporarily_unavailable",
+    )])
+    db.commit()
+
+    def unavailable(_self, *, tenant_id, keyword_id):
+        assert tenant_id == "tenant-a" and keyword_id == kw.id
+        raise KeywordImageError("keyword_image_saved_finals_missing", "secret provider response")
+
+    monkeypatch.setattr(stage1_recovery.KeywordImageService, "resume_upload", unavailable)
+    result = stage1_recovery.recover_failed(limit=5)
+    assert result == {"eligible": 1, "queued": 0, "upload_resumed": 0, "skipped": 1}
+    assert "code=keyword_image_saved_finals_missing" in caplog.text
+    assert "secret provider response" not in caplog.text
+    assert db.get(RrugcKeywordImageJobModel, "upload-failed").status == "failed"
+
+
 def test_stage1_zero_output_auto_recovery_is_bounded_durable_and_tenant_safe(db):
     from datetime import timedelta
     from types import SimpleNamespace
