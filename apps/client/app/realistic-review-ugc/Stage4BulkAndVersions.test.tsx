@@ -80,12 +80,17 @@ describe("Version history comparison", () => {
       .find(button => button.textContent?.includes("Masonry"))!;
     await act(async () => masonryButton.click());
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
+    expect(host.querySelectorAll(".rrugc-version-download")).toHaveLength(37);
+    expect(host.querySelector<HTMLAnchorElement>(".rrugc-version-download")?.getAttribute("href")).toContain("?download=true");
+    expect(host.querySelector<HTMLAnchorElement>(".rrugc-version-download-all")?.getAttribute("href")).toBe("/api/v1/realistic-review-ugc/generation-jobs/stage1/stage1-job/outputs/archive");
+    expect(host.querySelector(".rrugc-version-download-all")?.textContent).toContain("(37)");
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     expect(host.querySelector('[aria-label="Masonry gallery of saved images"]')).not.toBeNull();
     const compareButton = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
       .find(button => button.textContent?.includes("Compare"))!;
     await act(async () => compareButton.click());
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).toBeNull();
+    expect(host.querySelectorAll(".rrugc-version-download")).toHaveLength(37);
     await act(async () => masonryButton.click());
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);

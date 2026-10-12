@@ -329,6 +329,9 @@ from app.modules.realistic_review_ugc.stage_skill_settings import (
     stage_skill_defaults, set_stage_skill_default, keyword_skill_compatible,
 )
 from app.modules.realistic_review_ugc.output_versions import output_versions
+from app.modules.realistic_review_ugc.output_downloads import (
+    OutputArchiveError, archive_filename, build_output_archive, output_download_name,
+)
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
@@ -4785,10 +4788,56 @@ def list_generation_output_versions(
         for row in rows]}
 
 
+@router.get("/generation-jobs/{stage}/{job_id}/outputs/archive")
+async def download_generation_outputs_archive(
+    stage: str, job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    models = {"stage1": RrugcKeywordImageJobModel, "stage2": RrugcColorwayJobModel,
+              "stage4": RrugcStage2JobModel}
+    model = models.get(stage)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Unknown generation stage")
+    job = session.scalar(select(model).where(
+        model.tenant_id == principal.active_tenant_id, model.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Generation job not found")
+    if stage == "stage1" and _stage1_replacement_pending(session, job):
+        raise HTTPException(status_code=409, detail="Previous images are being replaced")
+    rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
+    title = getattr(job, "keyword_text", None) or getattr(job, "title", None) or "outputs"
+    filename = archive_filename(stage, title)
+    session.close()  # Do not hold DB connections while reading Drive files.
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    try:
+        archive = await build_output_archive(
+            storage, tenant_id=principal.active_tenant_id,
+            stage=stage, job_id=job_id, rows=rows,
+        )
+    except OutputArchiveError as exc:
+        raise HTTPException(status_code=413 if rows else 404, detail=str(exc)) from exc
+    except StorageProviderError as exc:
+        raise HTTPException(status_code=503 if exc.retryable else 502,
+                            detail={"code": exc.code, "message": "Unable to download every original image"}) from exc
+
+    def chunks():
+        while (chunk := archive.read(256 * 1024)):
+            yield chunk
+    return StreamingResponse(chunks(), media_type="application/zip",
+                             background=BackgroundTask(archive.close),
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                                      "Cache-Control": "private, no-store",
+                                      "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/generation-jobs/{stage}/{job_id}/outputs/{version}")
 async def get_generation_output_version(
     stage: str, job_id: str, version: int,
     thumbnail: bool = Query(default=False),
+    download: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
@@ -4815,7 +4864,7 @@ async def get_generation_output_version(
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(status_code=503, detail="Managed storage unavailable")
-    if thumbnail:
+    if thumbnail and not download:
         compact = await _managed_drive_thumbnail_response(
             storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
             size_pixels=size, cache_control="private, max-age=3600",
@@ -4832,7 +4881,9 @@ async def get_generation_output_version(
                             detail={"code": exc.code, "message": "Output version unavailable"}) from exc
     return StreamingResponse(stream.body, media_type=content_type or stream.content_type,
                              background=BackgroundTask(stream.close),
-                             headers={"Cache-Control": "private, max-age=300"})
+                             headers={"Cache-Control": "private, no-store" if download else "private, max-age=300",
+                                      **({"Content-Disposition": f'attachment; filename="{output_download_name(match, stage)}"',
+                                          "X-Content-Type-Options": "nosniff"} if download else {})})
 
 
 @router.patch(

@@ -88,7 +88,12 @@ export function GenerationOutputVersionsDialog({
         {version.width && version.height && <small>{version.width}×{version.height}</small>}
         {version.output_name && <small title={version.output_name}>v{version.version} · {version.output_name}</small>}
       </div>
-      <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>
+      <div className="rrugc-version-download-actions">
+        <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>
+        <a className="rrugc-version-download" href={version.url + "?download=true"} download aria-label={"Download " + (version.output_name?.split("/").pop() || "version " + version.version)} title="Download original image">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3" /></svg>Download
+        </a>
+      </div>
     </article>;
   }
 
@@ -125,6 +130,10 @@ export function GenerationOutputVersionsDialog({
             disabled={loading || compared.length === 0}
             onClick={() => setSelectedVersions(new Set())}><SelectionIcon mode="none" /></button>
         </div>}
+        {!loading && !error && versions.length > 0 && <a className="rrugc-version-download-all" href={"/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs/archive"} download title={"Download all " + versions.length + " original images as date-organized ZIP"} aria-label={"Download all " + versions.length + " images as ZIP"}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3" /><rect x="3" y="19" width="18" height="3" rx="1" /></svg>
+          Download All <span>({versions.length})</span>
+        </a>}
         {onRegenerate && <button type="button" className="rrugc-version-create" onClick={onRegenerate}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14m-7-7h14" /></svg>
           New version

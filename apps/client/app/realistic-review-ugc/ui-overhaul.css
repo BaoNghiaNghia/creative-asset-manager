@@ -2131,6 +2131,16 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-output-version-dialog .rrugc-version-card-meta small{font-size:8.5px;color:#7889a0}
 .rrugc-output-version-dialog .rrugc-version-full-link{font-size:9px;font-weight:800;color:#496baf;text-decoration:none}
 .rrugc-output-version-dialog .rrugc-version-full-link:hover{text-decoration:underline}
+.rrugc-output-version-dialog .rrugc-version-download-actions{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.rrugc-output-version-dialog .rrugc-version-download,.rrugc-output-version-dialog .rrugc-version-download-all{display:inline-flex;gap:5px;align-items:center;justify-content:center;text-decoration:none;font-size:10px;font-weight:800;white-space:nowrap;border-radius:7px;border:1px solid #bfd1eb;background:#eff5ff;color:#345e99;min-height:28px;padding:5px 8px;box-sizing:border-box}
+.rrugc-output-version-dialog .rrugc-version-download svg,.rrugc-output-version-dialog .rrugc-version-download-all svg{height:14px;width:14px;flex:none}
+.rrugc-output-version-dialog .rrugc-version-download:hover,.rrugc-output-version-dialog .rrugc-version-download-all:hover{background:#ddeafd;border-color:#8eaed6}
+.rrugc-output-version-dialog .rrugc-version-download:focus-visible,.rrugc-output-version-dialog .rrugc-version-download-all:focus-visible{outline:2px solid #6489cc;outline-offset:2px}
+.rrugc-output-version-dialog .rrugc-version-download-all{margin-left:auto;background:#e8f7ef;color:#23704a;border-color:#acd8c0;min-height:30px;padding:6px 10px}
+.rrugc-output-version-dialog .rrugc-version-download-all:hover{background:#d8f0e1;border-color:#79bf96}
+.rrugc-output-version-dialog .rrugc-version-download-all span{font-variant-numeric:tabular-nums}
+@media(max-width:600px){.rrugc-output-version-dialog .rrugc-version-download-all{margin-left:0}.rrugc-output-version-dialog .rrugc-version-download-actions{gap:6px}}
+
 .rrugc-version-message,.rrugc-version-empty{margin:12px 0;padding:16px;color:#74859d;font-size:11px}
 .rrugc-output-version-dialog .rrugc-version-grid>.rrugc-version-empty{min-width:240px}
 @media(max-width:600px){

@@ -203,6 +203,10 @@ export function BlueprintPreview({ versions, initialVersion }: {
         <span>Slide the design row sideways and the hat colors vertically; the selected mockup stays centered.</span>
       </div>
       <div className="rrugc-blueprint-options">
+        <a className="rrugc-version-download" href={activeDesign.url + "?download=true"} download
+          aria-label={"Download original " + designName(activeDesign)} title="Download selected original embroidery image">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3" /></svg>Download design
+        </a>
         <label className="rrugc-blueprint-guides"><input type="checkbox" checked={guides}
           onChange={event => setGuides(event.target.checked)} /> Show guides</label>
         <label className="rrugc-blueprint-thread-mode-label">Thread color
