@@ -93,6 +93,44 @@ describe("Stage 1 manual keyword generation", () => {
   });
 
 
+  it("displays the upload-time label but pins Stage 1 jobs to the real runtime version ID", async () => {
+    vi.mocked(listStage2Skills).mockResolvedValueOnce({
+      stage_defaults: { stage1: "local:gatorhats-stage1-six-designs" },
+      items: [{
+        source: "local", skill_id: null, skill_name: "gatorhats-stage1-six-designs",
+        display_name: "GatorHats Stage 1", ready: true, keyword_artwork_ready: true,
+        default_version: "4.0.0", synced_version: "4.0.0", local_version: "4.0.0",
+        upload_version: "18_39_12_10_26",
+        version_labels: { "4.0.0": "18_39_12_10_26" },
+        version_options: ["4.0.0"], sync_state: "ready",
+      }],
+    } as never);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Keyword generation Skill"]')!;
+    expect(select.options[select.selectedIndex].textContent).toContain("18_39_12_10_26");
+    const input = host.querySelector<HTMLInputElement>("#rrugc-stage1-manual-keyword")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "BEACH PLEASE");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      host.querySelector<HTMLFormElement>("form.rrugc-keyword-manual")!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(createManualKeywordImage).toHaveBeenLastCalledWith("BEACH PLEASE", expect.objectContaining({
+      skill_name: "gatorhats-stage1-six-designs",
+      skill_version: "4.0.0",
+    }));
+    await act(async () => root.unmount());
+  });
+
   it("queues typed keywords using Redesign V3 and shows the final saved image", async () => {
     const host = document.createElement("div");
     document.body.append(host);

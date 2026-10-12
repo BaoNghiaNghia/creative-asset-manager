@@ -224,6 +224,22 @@
               "selector": "#rrugc-panel-stage2 .rrugc-colorway-stage"
             }
           ]
+        },
+        {
+          "name": "skill-manager-upload-versions",
+          "click": "button.rrugc-global-management-button:has-text(\"Manage skills\")",
+          "waitFor": ".rrugc-skill-modal[role=\"dialog\"]",
+          "assertions": [
+            {
+              "type": "skill-upload-versions",
+              "selector": ".rrugc-skill-compact-subtitle span[title^='Runtime version: ']",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
         }
       ]
     },

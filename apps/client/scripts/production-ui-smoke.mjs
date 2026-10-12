@@ -116,6 +116,22 @@ export async function runAssertion(page, assertion, timeoutMs) {
     return;
   }
 
+  if (type === "skill-upload-versions") {
+    // Only read the visible release labels. Runtime IDs remain stored in the
+    // title attributes and must never be substituted into worker requests.
+    const elements = page.locator(selector);
+    await elements.first().waitFor({
+      state: "visible",
+      timeout: assertion.timeoutMs || timeoutMs,
+    });
+    const labels = (await elements.allTextContents()).map(value => value.trim());
+    const valid = /^v\d{2}_\d{2}_\d{2}_\d{2}_\d{2}$/;
+    if (!labels.length || labels.some(label => !valid.test(label))) {
+      throw new Error("Skill upload-time version labels are missing or invalid (expected vhh_mm_dd_mm_yy).");
+    }
+    return;
+  }
+
   if (type === "width-ratio") {
     const relativeTo = String(assertion.relativeTo || "");
     const min = Number(assertion.min ?? 0.98);

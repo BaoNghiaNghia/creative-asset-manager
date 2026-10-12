@@ -8,6 +8,7 @@ const SUPPORTED_ASSERTIONS = new Set([
   "width-ratio",
   "no-horizontal-overflow",
   "no-viewport-overflow",
+  "skill-upload-versions",
 ]);
 
 export function validateProductionUiPlan(plan) {

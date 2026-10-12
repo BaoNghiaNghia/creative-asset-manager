@@ -3,12 +3,15 @@ import test from "node:test";
 
 import { runAssertion, runState } from "./production-ui-smoke.mjs";
 
-function fakePage({ ratio = 1, overflow = 0 } = {}) {
+function fakePage({ ratio = 1, overflow = 0, skillVersionLabels = [] } = {}) {
   const calls = { clicks: [], waits: [], screenshots: [] };
   return {
     calls,
     locator(selector) {
       return {
+        async allTextContents() {
+          return skillVersionLabels;
+        },
         first() {
           return {
             async count() {
@@ -103,6 +106,22 @@ test("Production smoke records a failed width assertion as a state issue", async
   assert.equal(issues.length, 1);
   assert.equal(issues[0].kind, "state");
   assert.match(issues[0].message, /width-ratio failed/);
+});
+
+test("Production smoke checks actual Skill upload-time labels without mutating the registry", async () => {
+  const valid = fakePage({ skillVersionLabels: ["v18_39_12_10_26", "v19_07_12_10_26"] });
+  await runAssertion(valid, {
+    type: "skill-upload-versions",
+    selector: ".rrugc-skill-compact-subtitle span[title^='Runtime version: ']",
+  }, 5_000);
+  assert.deepEqual(valid.calls.clicks, []);
+
+  for (const labels of [["v1.2.0"], ["v18_39_12_10_26", "v4.0.0"], []]) {
+    await assert.rejects(runAssertion(fakePage({ skillVersionLabels: labels }), {
+      type: "skill-upload-versions",
+      selector: ".rrugc-skill-compact-subtitle span[title^='Runtime version: ']",
+    }, 5_000), /upload-time version/);
+  }
 });
 
 test("Production smoke rejects horizontal overflow beyond tolerance", async () => {
