@@ -21,7 +21,10 @@ Environment=MALLOC_TRIM_THRESHOLD_=131072
 Environment=DATABASE_POOL_SIZE=5
 Environment=DATABASE_MAX_OVERFLOW=3
 ExecStartPre=/usr/bin/test -r /etc/creative-asset-manager/production.env
-ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+# Entrypoint overrides production.env's legacy 3/2 database pool for the API only.
+# Dedicated workers keep their small 2/0 pools. These 8+4 connections absorb
+# bursts from authenticated grids without exhausting all DB sessions.
+ExecStart=/usr/bin/env DATABASE_POOL_SIZE=8 DATABASE_MAX_OVERFLOW=4 /opt/creative-asset-manager/current/apps/api/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=60s

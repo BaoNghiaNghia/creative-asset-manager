@@ -1102,16 +1102,28 @@ export function useDriveExplorer(imageSearchEnabled = true) {
       }
     }
     async function readIdentity(): Promise<{ user_id: string; roles: string[]; permissions: string[]; application_auth_provider?: "google" | "microsoft" | null; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null }> {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 10_000);
-      try {
-        const response = await fetch("/api/v1/auth/identity", { signal: controller.signal });
-        if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
-        if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
-        return await response.json();
-      } finally {
-        window.clearTimeout(timeout);
+      // A transient database connection pool timeout must not strand the UI on
+      // the session error screen. Only retry transient errors; 401 still logs
+      // out immediately and no stored auth/cookie state is ever replaced.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 10_000);
+        try {
+          const response = await fetch("/api/v1/auth/identity", { signal: controller.signal });
+          if (response.status === 401) throw Object.assign(new Error("unauthenticated"), { status: 401 });
+          if (!response.ok) throw Object.assign(new Error("Unable to verify workspace access"), { status: response.status });
+          return await response.json();
+        } catch (reason) {
+          const status = typeof reason === "object" && reason !== null && "status" in reason
+            ? Number((reason as { status?: number }).status)
+            : 0;
+          if (status === 401 || (status > 0 && status < 500) || attempt === 2) throw reason;
+          await new Promise<void>(resolve => window.setTimeout(resolve, (attempt + 1) * 500));
+        } finally {
+          window.clearTimeout(timeout);
+        }
       }
+      throw new Error("Session verification unavailable");
     }
     async function initialize() {
       let identity: { user_id: string; roles: string[]; permissions: string[]; application_auth_provider?: "google" | "microsoft" | null; is_processing_admin: boolean; display_name?: string | null; email?: string | null; avatar_url?: string | null };

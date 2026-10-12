@@ -15,6 +15,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.config import Settings, get_settings
+from app.core.scout_log_ingress import ScoutTelemetryLimiter, scout_log_agent_from_path
 from app.core.database import dispose_database, init_database
 from app.core.health import readiness_report
 from app.modules.ai_governance.router import router as ai_governance_router
@@ -159,6 +160,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     api.state.settings = settings
     api.state.jev_client = build_jev_client(settings)
+    scout_log_limiter = ScoutTelemetryLimiter(rate=2.0, burst=8)
+    @api.middleware("http")
+    async def scout_log_admission(request: Request, call_next):
+        agent_id = scout_log_agent_from_path(request.method, request.url.path)
+        if agent_id and not scout_log_limiter.admit(agent_id):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": {"code": "scout_logs_backpressure", "message": "Retry Scout log upload shortly."}},
+                headers={"Retry-After": "2", "Cache-Control": "no-store"},
+            )
+        return await call_next(request)
+
     @api.middleware("http")
     async def operations_timing(request: Request, call_next):
         path = request.url.path
