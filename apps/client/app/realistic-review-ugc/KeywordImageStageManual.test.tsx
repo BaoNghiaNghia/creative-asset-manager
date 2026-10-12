@@ -161,8 +161,10 @@ describe("Stage 1 manual keyword generation", () => {
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(0);
     expect(host.querySelector(".rrugc-version-filter")).toBeNull();
     expect(host.querySelector('[aria-label="Select output versions"]')).toBeNull();
-    expect(host.querySelector<HTMLAnchorElement>(".rrugc-blueprint-original")?.getAttribute("href"))
-      .toBe("/api/v1/image/4");
+    // The full-resolution design is still loaded, but the redundant footer
+    // with its raw-image link is gone to maximize cap-preview space.
+    expect(host.querySelector(".rrugc-blueprint-original")).toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-selected-design img")).not.toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close output versions"]')?.click());
     expect(host.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
     expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();

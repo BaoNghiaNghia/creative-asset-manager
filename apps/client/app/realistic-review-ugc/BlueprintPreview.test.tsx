@@ -66,7 +66,10 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).not.toContain("rrugc-blueprint-selected-badge");
     expect(html).toContain('aria-label="Front design zoom"');
     expect(html).toContain('Auto-match thread');
-    expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
+    expect(html).not.toContain("rrugc-blueprint-panel-footer");
+    expect(html).not.toContain("View original design");
+    expect(html).not.toContain("Roberts sizing reference · Right-side placement approximate");
+    expect(html).toContain("rrugc-blueprint-selection-a11y");
     expect((html.match(/class="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail"/g) || []).length).toBe(1);
     expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
     expect((html.match(/rrugc-blueprint-design-choice/g) || []).length).toBeLessThanOrEqual(7);
@@ -322,7 +325,8 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelectorAll(".rrugc-blueprint-side-probe")).toHaveLength(1);
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-probe")?.src).toBe(probe.src);
     expect(host.querySelectorAll(".rrugc-blueprint-panel-header")).toHaveLength(2);
-    expect(host.querySelectorAll(".rrugc-blueprint-panel-footer")).toHaveLength(2);
+    expect(host.querySelectorAll(".rrugc-blueprint-panel-footer")).toHaveLength(0);
+    expect(host.querySelectorAll(".rrugc-blueprint-panel-visual")).toHaveLength(2);
     await act(async () => root.unmount());
   });
 

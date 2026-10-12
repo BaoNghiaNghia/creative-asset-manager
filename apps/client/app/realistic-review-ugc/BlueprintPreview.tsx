@@ -271,6 +271,10 @@ export function BlueprintPreview({ versions, initialVersion }: {
         <article className="rrugc-blueprint-selected-card" onPointerDown={event => onPointerDown(event,"both")}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onPointerCancel={() => { dragOrigin.current = null; }}>
+          <div className="rrugc-blueprint-selected-info rrugc-blueprint-selection-a11y" role="status" aria-live="polite">
+            <strong>{designName(activeDesign)}</strong>
+            <span>{activeColor.label}</span>
+          </div>
           <header className="rrugc-blueprint-panel-header">
             <div className="rrugc-blueprint-panel-heading">
               <strong>FRONT</strong>
@@ -331,13 +335,6 @@ export function BlueprintPreview({ versions, initialVersion }: {
               </div>
             </div>
           </div>
-          <footer className="rrugc-blueprint-panel-footer">
-            <div className="rrugc-blueprint-selected-info" role="status" aria-live="polite">
-              <strong title={designName(activeDesign)}>{designName(activeDesign)}</strong>
-              <span>{activeColor.label}</span>
-            </div>
-            <a className="rrugc-blueprint-original" href={activeDesign.url} target="_blank" rel="noreferrer">View original design ↗</a>
-          </footer>
         </article>
         <article className="rrugc-blueprint-side-card" aria-label={"Right-facing side preview of " + activeColor.label}
           onPointerDown={event => onPointerDown(event,"both")}
@@ -387,10 +384,6 @@ export function BlueprintPreview({ versions, initialVersion }: {
                   </div>
                 </div>}
           </div>
-          <footer className="rrugc-blueprint-panel-footer">
-            <span className="rrugc-blueprint-side-note">{activeColor.label}</span>
-            <small>Roberts sizing reference · Right-side placement approximate</small>
-          </footer>
         </article>
         <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>
       </div>
