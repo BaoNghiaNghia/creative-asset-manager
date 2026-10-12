@@ -214,23 +214,24 @@
   .rrugc-blueprint-magnifier-scene>.rrugc-blueprint-front-scene{transform:scale(1.12)}
 }
 
-/* Side reference follows the original brim-left image; guide geometry uses
-   the same 700×430 canvas in the preview and in the circular magnifier. */
+/* Side guide projection is calibrated from the real cap-clamp SVG.
+   Both SVG overlays use the same 700×430 tile frame, including the lens. */
 .rrugc-blueprint-side-guides{
   position:absolute;inset:0;display:block;width:100%;height:100%;
   z-index:2;pointer-events:none;overflow:visible;
 }
-.rrugc-blueprint-side-guides path{
+.rrugc-blueprint-side-guides path,
+.rrugc-blueprint-side-guides rect{
   fill:none;stroke-linecap:round;stroke-linejoin:round;
   vector-effect:non-scaling-stroke;
 }
-.rrugc-blueprint-side-hoop{stroke:#446eff;stroke-width:2.3}
-.rrugc-blueprint-side-sew-field{stroke:#f04460;stroke-width:2;stroke-dasharray:5 4}
-.rrugc-blueprint-side-design-field{stroke:#0baed5;stroke-width:2;stroke-dasharray:3 3}
+.rrugc-blueprint-side-hoop{stroke:#446eff;stroke-width:1.6}
+.rrugc-blueprint-side-sew-field{stroke:#f04460;stroke-width:1.2;stroke-dasharray:3 2}
+.rrugc-blueprint-side-design-field{stroke:#0baed5;stroke-width:1;stroke-dasharray:2 2}
 
-/* Right-facing side view: mirror the native brim-left photograph AND its
-   embroidery guide geometry as one scene. The hit-area, header/footer and
-   magnifier remain in standard screen coordinates. Do not mirror them. */
+/* Right-facing side view: mirror only the native brim-left photo.
+   The hoop, sew-field and embroidery are projected separately into right-side
+   photo coordinates, so they must NEVER inherit this CSS reflection. */
 .rrugc-blueprint-side-image.is-ready{background-image:none}
 .rrugc-blueprint-magnifier-side-surface{background-image:none}
 .rrugc-blueprint-side-content{
@@ -248,15 +249,15 @@
   position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
 }
 
-/* Right-facing guides and Roberts embroidery are anchored in RIGHT-SIDE
-   image coordinates; only the photographic atlas is horizontally mirrored. */
+/* Reference hoop/sew/design boundaries share one mirrored coordinate
+   projection in the SVG. Only the photographic atlas is CSS-mirrored. */
 .rrugc-blueprint-side-image>.rrugc-blueprint-side-guides,
 .rrugc-blueprint-magnifier-side-surface>.rrugc-blueprint-side-guides{
   position:absolute;inset:0;width:100%;height:100%;z-index:4;
   transform:none;pointer-events:none;
 }
 .rrugc-blueprint-side-calibration-design{
-  display:block;position:absolute;left:20.7%;top:65%;width:24.8%;height:auto;
+  display:block;position:absolute;left:25.3%;top:61.2%;width:19.2%;height:auto;
   z-index:3;opacity:.91;pointer-events:none;transform-origin:center center;
   transform:rotate(-8deg) scale(var(--side-design-scale, 1));
   transition:transform 120ms ease-out;
@@ -265,10 +266,10 @@
   .rrugc-blueprint-side-calibration-design{transition:none}
 }
 /* Override legacy .rrugc-blueprint-side-image img {width:100%;height:100%}.
-   The Roberts sample is calibrated against the cyan safe-area, never stretched. */
+   The Roberts sample follows the reference cyan design-safe rectangle. */
 .rrugc-blueprint-side-image>img.rrugc-blueprint-side-calibration-design{
-  width:24.8%;height:auto;max-width:none;max-height:none;
-  object-fit:contain;left:20.7%;top:65%;
+  width:19.2%;height:auto;max-width:none;max-height:none;
+  object-fit:contain;left:25.3%;top:61.2%;
 }
 
 /* Front embroidery must use the visible PNG artwork, not a padded 512px image
@@ -333,11 +334,8 @@
 .rrugc-blueprint-selected-design{left:21%;width:58%}
 .rrugc-blueprint-height-line.is-upper{top:19%}
 .rrugc-blueprint-height-line.is-lower{top:63%}
-/* Roberts safe sample and matching cyan rectangle are smaller on Right Side. */
-.rrugc-blueprint-side-calibration-design{left:25%;top:66%;width:20%}
-.rrugc-blueprint-side-image>img.rrugc-blueprint-side-calibration-design{
-  left:25%;top:66%;width:20%;
-}
+/* Side design and cyan rectangle are aligned in the same 700×430
+   frame; no late percentage override may undo the calibrated placement. */
 @media(prefers-reduced-motion:reduce){
   .rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat,
   .rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{transition:none}

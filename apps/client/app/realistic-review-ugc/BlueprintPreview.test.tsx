@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { BlueprintPreview, BLUEPRINT_HAT_COLORS, BLUEPRINT_SIDE_ATLAS, BLUEPRINT_SIDE_CALIBRATION_DESIGN, blueprintNavigate, blueprintWindow, blueprintSidePosition } from "./BlueprintPreview";
 import type { GenerationOutputVersion } from "./api";
+import { RIGHT_SIDE_GUIDE } from "./BlueprintSideGuides";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -191,19 +192,74 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")).not.toBeNull();
     expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")).not.toBeNull();
     expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")).not.toBeNull();
-    expect(sideGuides.querySelectorAll("path")).toHaveLength(3);
+    expect(sideGuides.querySelectorAll("path")).toHaveLength(1);
+    expect(sideGuides.querySelectorAll("rect")).toHaveLength(2);
+    expect(sideGuides.querySelector("g")?.getAttribute("transform")).toBe(
+      "translate(568 -18) scale(-1.06 0.845) rotate(9 303.86012554478054 362.66312948411974)"
+    );
     expect(sideGuides.parentElement?.classList.contains("rrugc-blueprint-side-image")).toBe(true);
-    expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")?.getAttribute("d")).toContain("L 164 402");
-    expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")?.getAttribute("d")).toContain("M 57 267");
-    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")?.getAttribute("d")).toContain("M 171 283");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-hoop")?.getAttribute("d")).toContain("208.53503011589822 423.61823217225503");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-sew-field")?.getAttribute("width")).toBe("239.88383736723736");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")?.getAttribute("width")).toBe("122.33387246706563");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-design-field")?.getAttribute("height")).toBe("41.83712521600946");
     const calibration = host.querySelector<HTMLImageElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-calibration-design")!;
     expect(calibration.src).toContain("/rrugc/blueprint/roberts-reference.png");
     expect(calibration.style.getPropertyValue("--side-design-scale")).toBe("1");
+    expect(sideGuides.querySelector(".rrugc-blueprint-side-guides")).toBeNull();
+    expect(host.querySelectorAll(".rrugc-blueprint-side-guides g[transform]")).toHaveLength(2);
+    expect(host.querySelector(".rrugc-blueprint-magnifier-side-surface .rrugc-blueprint-side-guides g")
+      ?.getAttribute("transform")).toBe(sideGuides.querySelector("g")?.getAttribute("transform"));
     expect(host.querySelectorAll(".rrugc-blueprint-side-calibration-design")).toHaveLength(2);
     expect(host.querySelector(".rrugc-blueprint-magnifier-side-surface > .rrugc-blueprint-side-guides")).not.toBeNull();
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image")?.getAttribute("aria-label")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLElement>(".rrugc-blueprint-side-image > .rrugc-blueprint-side-content")?.style.backgroundPosition).toBe("50% 0%");
     await act(async () => root.unmount());
+  });
+
+  it("projects reference hoop, safe sew field and embroidery inside the 8869 right-side fabric", () => {
+    const pivotX = 303.86012554478054;
+    const pivotY = 362.66312948411974;
+    const radians = 9 * Math.PI / 180;
+    const project = ([x, y]: [number, number]): [number, number] => {
+      const rotatedX = pivotX + (x - pivotX) * Math.cos(radians) - (y - pivotY) * Math.sin(radians);
+      const rotatedY = pivotY + (x - pivotX) * Math.sin(radians) + (y - pivotY) * Math.cos(radians);
+      return [568 - 1.06 * rotatedX, -18 + 0.845 * rotatedY];
+    };
+    const corners = (rect: { x: number; y: number; width: number; height: number }): [number, number][] => [
+      [rect.x, rect.y], [rect.x + rect.width, rect.y],
+      [rect.x + rect.width, rect.y + rect.height], [rect.x, rect.y + rect.height],
+    ];
+    const hoopNumbers = (RIGHT_SIDE_GUIDE.hoop.match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+    const hoopPoints: [number, number][] = [];
+    for (let i = 0; i < hoopNumbers.length; i += 2) hoopPoints.push([hoopNumbers[i], hoopNumbers[i + 1]]);
+    const bounds = (points: [number, number][]) => {
+      const converted = points.map(project);
+      return {
+        minX: Math.min(...converted.map(point => point[0])),
+        maxX: Math.max(...converted.map(point => point[0])),
+        minY: Math.min(...converted.map(point => point[1])),
+        maxY: Math.max(...converted.map(point => point[1])),
+      };
+    };
+    const hoop = bounds(hoopPoints);
+    const sewing = bounds(corners(RIGHT_SIDE_GUIDE.sewField));
+    const embroidery = bounds(corners(RIGHT_SIDE_GUIDE.designField));
+    expect(RIGHT_SIDE_GUIDE.viewBox).toBe("0 0 700 430");
+    expect(RIGHT_SIDE_GUIDE.transform).toContain("rotate(9 ");
+    expect(hoop.minX).toBeGreaterThan(60);
+    expect(hoop.maxX).toBeLessThan(430);
+    expect(hoop.minY).toBeGreaterThan(190);
+    expect(hoop.maxY).toBeLessThan(355); // never cross the bottom seam/brim
+    for (const inner of [sewing, embroidery]) {
+      expect(inner.minX).toBeGreaterThan(hoop.minX);
+      expect(inner.maxX).toBeLessThan(hoop.maxX);
+      expect(inner.minY).toBeGreaterThan(hoop.minY);
+      expect(inner.maxY).toBeLessThan(hoop.maxY);
+    }
+    expect(embroidery.minX).toBeGreaterThan(sewing.minX);
+    expect(embroidery.maxX).toBeLessThan(sewing.maxX);
+    expect(embroidery.minY).toBeGreaterThan(sewing.minY);
+    expect(embroidery.maxY).toBeLessThan(sewing.maxY);
   });
 
   it("keeps an unprocessed source fallback while the compositor is loading", async () => {
