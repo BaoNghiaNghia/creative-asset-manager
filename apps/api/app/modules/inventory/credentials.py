@@ -142,3 +142,66 @@ class InventoryGeminiCredentialResolver:
         if fallback:
             return fallback
         raise InventoryCredentialError("inventory_gemini_credential_unavailable")
+
+    def resolve_candidates(self, tenant_id: str) -> tuple[str, ...]:
+        """Primary Inventory key, then same-tenant Image and Video fallbacks.
+
+        Returns secret values only to the server-side Gemini gateway. Creative
+        ciphertext is never copied into Inventory tables or exposed in APIs.
+        """
+        selected: list[str] = []
+        try:
+            selected.append(self.resolve(tenant_id))
+        except InventoryCredentialError as exc:
+            # A missing Inventory key may use the shared pool; a corrupt
+            # Inventory ciphertext must still fail closed.
+            if str(exc) != "inventory_gemini_credential_unavailable":
+                raise
+            if not self.settings.INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED:
+                raise
+        if not self.settings.INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED:
+            return tuple(selected)
+
+        from app.modules.ai_operations.credentials import (
+            CreativeAiCredentialRepository, CreativeCredentialError,
+            creative_credential_cipher,
+        )
+
+        # Keep each shared domain represented even when many backups exist.
+        # The gateway additionally bounds the number of provider attempts.
+        with self.session_factory() as session:
+            repository = CreativeAiCredentialRepository(session, None)
+            image = repository.get_metadata(tenant_id, "gemini")
+            video = repository.get_metadata(tenant_id, "gemini_video")
+            image_providers = (
+                (["gemini"] if image and image.status == "active" else [])
+                + list(repository.list_active_backup_providers(tenant_id)[:2])
+            )
+            video_providers = (
+                (["gemini_video"] if video and video.status == "active" else [])
+                + list(repository.list_active_video_backup_providers(tenant_id)[:2])
+            )
+        # Decrypt only candidate keys for this tenant, never unscoped keys.
+        if image_providers or video_providers:
+            try:
+                cipher = creative_credential_cipher(self.settings)
+            except CreativeCredentialError as exc:
+                if selected:
+                    # A missing Creative cipher must not interrupt a usable
+                    # dedicated Inventory key.
+                    return tuple(selected)
+                raise InventoryCredentialError("inventory_shared_credential_unavailable") from exc
+            with self.session_factory() as session:
+                repository = CreativeAiCredentialRepository(session, cipher)
+                for provider in (image_providers + video_providers):
+                    try:
+                        credential = repository.get_active_secret(tenant_id, provider=provider)
+                    except CreativeCredentialError:
+                        # An unusable shared candidate cannot break healthy
+                        # Inventory keys or hide another usable shared key.
+                        continue
+                    if credential and credential.secret not in selected:
+                        selected.append(credential.secret)
+        if not selected:
+            raise InventoryCredentialError("inventory_gemini_credential_unavailable")
+        return tuple(selected)

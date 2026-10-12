@@ -284,6 +284,9 @@ class Settings(BaseSettings):
     INVENTORY_AI_GEMINI_API_KEY: str | None = None
     # Canonical runtime fallback; legacy INVENTORY_AI_GEMINI_API_KEY remains supported.
     INVENTORY_GEMINI_API_KEY: str | None = None
+    # Within the same tenant, Inventory can borrow Image/Video Gemini keys only
+    # when its own selected key is missing or rejected (401/403). Never borrow on 429.
+    INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED: bool = True
     # Dedicated AES-256-GCM master key for tenant-configured Inventory AI secrets.
     INVENTORY_CREDENTIAL_ENCRYPTION_KEY: str = ""
     INVENTORY_AI_PROJECT_QUOTA_SCOPE: str = "inventory"

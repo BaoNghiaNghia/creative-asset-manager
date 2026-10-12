@@ -206,6 +206,90 @@ def test_structured_http_errors_are_safe_and_classified(
     assert "test-secret" not in str(captured.value)
 
 
+def test_shared_fallback_retries_only_auth_failures_for_structured_text_and_tools(monkeypatch):
+    class SharedResolver(Resolver):
+        def resolve_candidates(self, tenant_id: str) -> tuple[str, ...]:
+            self.calls.append(tenant_id)
+            return ("broken-inventory", "image-key", "video-key")
+
+    attempted: list[str] = []
+    def post(_url, **kwargs):
+        key = kwargs["headers"]["x-goog-api-key"]
+        attempted.append(key)
+        if key == "broken-inventory":
+            return Response(403, {"error": {"message": "private credential info"}})
+        return successful_response({"ok": True})
+
+    monkeypatch.setattr("app.modules.inventory.ai.gateway.httpx.post", post)
+    gateway = RuntimeInventoryGeminiGateway(SharedResolver())
+    result = gateway.analyze_structured_text(
+        tenant_id="tenant-a", prompt="p", schema={"type": "object"},
+        provider="gemini", model="gemini-test",
+    )
+    assert result.extracted_json == {"ok": True}
+    assert attempted == ["broken-inventory", "image-key"]
+
+    attempted.clear()
+    def tool_post(_url, **kwargs):
+        key = kwargs["headers"]["x-goog-api-key"]
+        attempted.append(key)
+        if key != "video-key":
+            return Response(401, {"error": {"message": "private"}})
+        return Response(200, {"candidates": [{"content": {"parts": [
+            {"functionCall": {"name": "check_stock", "args": {"count": 2}}}
+        ]}}]})
+    monkeypatch.setattr("app.modules.inventory.ai.gateway.httpx.post", tool_post)
+    turn = gateway.generate_tool_turn(
+        tenant_id="tenant-a", contents=[{"role": "user", "parts": [{"text": "check"}]}],
+        function_declarations=[{"name": "check_stock"}], provider="gemini",
+        model="gemini-test",
+    )
+    assert turn.calls[0].name == "check_stock"
+    assert attempted == ["broken-inventory", "image-key", "video-key"]
+
+
+def test_image_analysis_retries_other_tenant_key_on_unauthorized():
+    class SharedResolver(Resolver):
+        def resolve_candidates(self, tenant_id):
+            return ("invalid-inventory", "image-key")
+
+    attempted = []
+    def request(secret, *_args):
+        attempted.append(secret)
+        if secret == "invalid-inventory":
+            raise InventoryAiGatewayError(
+                "inventory_gemini_auth_or_permission_error",
+                retryable=False, provider_status=401,
+            )
+        return {"extracted_json": {"document_type": "stock_count"}}
+    gateway = RuntimeInventoryGeminiGateway(SharedResolver(), request=request)
+    result = gateway.analyze(
+        tenant_id="tenant-a", image_bytes=b"image", image_mime_type="image/jpeg",
+        prompt="p", schema={}, provider="gemini", model="gemini-test",
+    )
+    assert result.extracted_json["document_type"] == "stock_count"
+    assert attempted == ["invalid-inventory", "image-key"]
+
+
+def test_shared_fallback_does_not_consume_image_video_quota_on_rate_limit(monkeypatch):
+    class SharedResolver(Resolver):
+        def resolve_candidates(self, tenant_id):
+            return ("inventory-key", "image-key", "video-key")
+
+    attempted = []
+    def post(_url, **kwargs):
+        attempted.append(kwargs["headers"]["x-goog-api-key"])
+        return Response(429, {"error": {"message": "private"}})
+    monkeypatch.setattr("app.modules.inventory.ai.gateway.httpx.post", post)
+    gateway = RuntimeInventoryGeminiGateway(SharedResolver())
+    with pytest.raises(InventoryAiGatewayError) as captured:
+        gateway.analyze_structured_text(
+            tenant_id="tenant-a", prompt="p", schema={}, provider="gemini", model="gemini-test",
+        )
+    assert captured.value.code == "inventory_gemini_rate_limited"
+    assert attempted == ["inventory-key"]
+
+
 def test_rate_limit_retry_delay_prefers_provider_hint(monkeypatch):
     resolver = Resolver()
     gateway = RuntimeInventoryGeminiGateway(resolver)

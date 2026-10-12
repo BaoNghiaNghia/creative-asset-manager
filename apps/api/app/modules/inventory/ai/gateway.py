@@ -6,10 +6,13 @@ from typing import Any, Mapping, Protocol, Callable
 
 import base64
 import json
+import logging
 
 import httpx
 
 from app.modules.inventory.credentials import InventoryCredentialError, InventoryGeminiCredentialResolver
+
+logger = logging.getLogger(__name__)
 
 
 class InventoryAiGatewayError(RuntimeError):
@@ -67,15 +70,42 @@ class RuntimeInventoryGeminiGateway:
         self._request = request or self._request_gemini
         self._text_request = text_request or self._request_gemini_text
 
+    def _with_credential_fallback(self, tenant_id: str, call: Callable[[str], Any]) -> Any:
+        try:
+            # Look up the declared method on the class. Mock resolvers can
+            # invent arbitrary attributes, including an unusable candidates().
+            candidates = getattr(type(self.resolver), "resolve_candidates", None)
+            secrets = (
+                candidates(self.resolver, tenant_id) if callable(candidates)
+                else (self.resolver.resolve(tenant_id),)
+            )
+        except InventoryCredentialError as exc:
+            raise InventoryAiGatewayError(str(exc), retryable=False) from exc
+        # One selected Inventory key and at most five shared Image/Video keys.
+        # Never use another domain's quota on 429, model errors or bad payloads.
+        attempts = secrets[:6]
+        for index, secret in enumerate(attempts):
+            try:
+                return call(secret)
+            except InventoryAiGatewayError as exc:
+                if exc.code != "inventory_gemini_auth_or_permission_error" or index == len(attempts) - 1:
+                    raise
+                logger.warning(
+                    "inventory_gemini_credential_fallback tenant_id=%s attempt=%d",
+                    tenant_id, index + 1,
+                )
+        raise InventoryAiGatewayError("inventory_gemini_credential_unavailable", retryable=False)
+
     def analyze(self, *, tenant_id: str, image_bytes: bytes, image_mime_type: str, prompt: str, schema: Mapping[str, Any], provider: str, model: str) -> InventoryAiGatewayResult:
         if provider != "gemini":
             raise InventoryAiGatewayError("inventory_ai_provider_unsupported", retryable=False)
         try:
-            secret = self.resolver.resolve(tenant_id)
-        except InventoryCredentialError as exc:
-            raise InventoryAiGatewayError(str(exc), retryable=False) from exc
-        try:
-            payload = self._request(secret, image_bytes, image_mime_type, prompt, schema, model)
+            payload = self._with_credential_fallback(
+                tenant_id,
+                lambda secret: self._request(
+                    secret, image_bytes, image_mime_type, prompt, schema, model
+                ),
+            )
         except httpx.TimeoutException as exc:
             raise InventoryAiGatewayError("inventory_gemini_transport_error", retryable=True) from exc
         except httpx.HTTPError as exc:
@@ -89,10 +119,10 @@ class RuntimeInventoryGeminiGateway:
         if provider != "gemini":
             raise InventoryAiGatewayError("inventory_ai_provider_unsupported", retryable=False)
         try:
-            secret = self.resolver.resolve(tenant_id)
-            payload = self._text_request(secret, prompt, schema, model)
-        except InventoryCredentialError as exc:
-            raise InventoryAiGatewayError(str(exc), retryable=False) from exc
+            payload = self._with_credential_fallback(
+                tenant_id,
+                lambda secret: self._text_request(secret, prompt, schema, model),
+            )
         except httpx.TimeoutException as exc:
             raise InventoryAiGatewayError("inventory_gemini_transport_error", retryable=True) from exc
         except httpx.HTTPError as exc:
@@ -115,30 +145,29 @@ class RuntimeInventoryGeminiGateway:
         if provider != "gemini":
             raise InventoryAiGatewayError("inventory_ai_provider_unsupported", retryable=False)
         try:
-            secret = self.resolver.resolve(tenant_id)
-            response = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers={"x-goog-api-key": secret},
-                json={
-                    "contents": deepcopy(contents),
-                    "tools": [{"functionDeclarations": deepcopy(function_declarations)}],
-                    "toolConfig": {
-                        "functionCallingConfig": (
-                            {
-                                "mode": "ANY",
-                                "allowedFunctionNames": [force_function_name],
-                            }
-                            if force_function_name
-                            else {"mode": "AUTO"}
-                        )
+            def send(secret: str) -> httpx.Response:
+                response = httpx.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    headers={"x-goog-api-key": secret},
+                    json={
+                        "contents": deepcopy(contents),
+                        "tools": [{"functionDeclarations": deepcopy(function_declarations)}],
+                        "toolConfig": {
+                            "functionCallingConfig": (
+                                {"mode": "ANY", "allowedFunctionNames": [force_function_name]}
+                                if force_function_name else {"mode": "AUTO"}
+                            )
+                        },
                     },
-                },
-                timeout=self.timeout_seconds,
-            )
-            self._raise_provider_status(
-                response.status_code,
-                retry_after_seconds=self._provider_retry_after_seconds(response),
-            )
+                    timeout=self.timeout_seconds,
+                )
+                self._raise_provider_status(
+                    response.status_code,
+                    retry_after_seconds=self._provider_retry_after_seconds(response),
+                )
+                return response
+
+            response = self._with_credential_fallback(tenant_id, send)
             raw = response.json()
             content = raw["candidates"][0]["content"]
             parts = content.get("parts") or []

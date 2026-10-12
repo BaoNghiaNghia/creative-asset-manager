@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.ai_metadata.model import AssetAiAnalysisModel
+from app.modules.ai_operations import credential_model as _creative_credential_model  # noqa: F401
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import OAuthConnectionModel, TenantModel
 from app.modules.inventory.ai.gateway import RuntimeInventoryGeminiGateway
@@ -106,6 +107,40 @@ class InventoryAiCredentialRepositoryTest(unittest.TestCase):
         missing = InventoryGeminiCredentialResolver(self.sessions, Settings(GEMINI_API_KEY="creative-key", INVENTORY_CREDENTIAL_ENCRYPTION_KEY=KEY))
         with self.assertRaisesRegex(InventoryCredentialError, "credential_unavailable"):
             missing.resolve("tenant-b")
+
+    def test_shared_image_video_keys_are_tenant_scoped_fallback_without_copying_secrets(self):
+        from app.modules.ai_operations.credentials import (
+            CreativeAiCredentialRepository, creative_credential_cipher,
+        )
+        settings = Settings(
+            INVENTORY_CREDENTIAL_ENCRYPTION_KEY=KEY,
+            CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=KEY,
+            INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED=True,
+        )
+        with self.sessions.begin() as session:
+            creative = CreativeAiCredentialRepository(session, creative_credential_cipher(settings))
+            creative.replace("tenant-a", provider="gemini", secret="image-key")
+            creative.replace("tenant-a", provider="gemini_backup_1", secret="image-backup")
+            creative.replace("tenant-a", provider="gemini_video", secret="video-key")
+            creative.replace("tenant-a", provider="gemini_video_backup_1", secret="video-backup")
+            creative.replace("tenant-b", provider="gemini", secret="other-tenant-key")
+        resolver = InventoryGeminiCredentialResolver(self.sessions, settings)
+        self.assertEqual(
+            resolver.resolve_candidates("tenant-a"),
+            ("image-key", "image-backup", "video-key", "video-backup"),
+        )
+        self.assertEqual(resolver.resolve_candidates("tenant-b"), ("other-tenant-key",))
+        with self.sessions() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(InventoryAiCredentialModel)), 0)
+        disabled = InventoryGeminiCredentialResolver(
+            self.sessions, Settings(
+                INVENTORY_CREDENTIAL_ENCRYPTION_KEY=KEY,
+                CREATIVE_AI_CREDENTIAL_ENCRYPTION_KEY=KEY,
+                INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED=False,
+            ),
+        )
+        with self.assertRaisesRegex(InventoryCredentialError, "credential_unavailable"):
+            disabled.resolve_candidates("tenant-a")
 
     def test_dynamic_backup_pool_rotates_primary_and_slots_above_ten(self):
         backup_1 = "AIzaSyInventoryBackupOne000000000000000000000"
