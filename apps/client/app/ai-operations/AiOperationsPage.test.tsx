@@ -188,7 +188,7 @@ const data: AiOpsDashboardData = {
   },
 };
 
-function render(tab: "overview" | "processing" | "inventory" | "cost" = "overview", overrides = {}) {
+function render(tab: "overview" | "processing" | "cost" = "overview", overrides = {}) {
   return renderToStaticMarkup(<AiOperationsContent
     data={data}
     filters={filters}
@@ -230,7 +230,7 @@ describe("AI Operations tab-scoped loading", () => {
   });
 
   it("does not request dashboard aggregates for independently loaded tabs", () => {
-    for (const tab of ["visual-search", "creative-pipeline", "inventory", "configuration"] as const) {
+    for (const tab of ["visual-search", "creative-pipeline", "configuration"] as const) {
       expect(dashboardPlan(tab, "image")).toEqual({ primary: [], secondary: [] });
     }
     expect(dashboardPlan("processing", "image")).toEqual({ primary: ["jobs"], secondary: ["failures", "usage"] });
@@ -450,12 +450,11 @@ describe("AI Operations media tab placement", () => {
 });
 
 describe("Inventory Daily tab", () => {
-  it("places Inventory in the Operations tabs and removes unrelated AI filters", () => {
-    const markup = render("inventory");
-    expect(markup).toContain("Inventory Daily");
-    expect(markup).toContain("Đang tải dữ liệu Inventory hằng ngày");
-    expect(markup).not.toContain("Last 1 month");
-    expect(markup).not.toContain("Export data");
+  it("moves Inventory to its own workspace and omits it from AI Operations tab navigation", () => {
+    const markup = render("overview");
+    expect(markup).not.toContain('data-ops-tab="inventory"');
+    expect(markup).not.toContain('id="ops-panel-inventory"');
+    expect(routeForPath("/inventory")).toBe("inventory");
   });
 
   it("renders daily status, scheduler, snapshot and reconciliation data", () => {

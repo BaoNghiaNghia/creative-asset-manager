@@ -102,12 +102,6 @@
       "waitMs": 300
     },
     {
-      "name": "tab-inventory",
-      "click": "[data-ops-tab=\"inventory\"]",
-      "waitFor": "#ops-panel-inventory",
-      "waitMs": 300
-    },
-    {
       "name": "tab-cost",
       "click": "[data-ops-tab=\"cost\"]",
       "waitFor": "#ops-panel-cost",

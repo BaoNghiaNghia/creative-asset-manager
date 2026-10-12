@@ -107,7 +107,6 @@ describe("AI Operations live tab requests", () => {
     ["cost", ["usage", "summary"]],
     ["visual-search", []],
     ["creative-pipeline", []],
-    ["inventory", []],
     ["configuration", []],
   ])("loads only %s tab aggregates", async (tab, expected) => {
     const urls: string[] = [];

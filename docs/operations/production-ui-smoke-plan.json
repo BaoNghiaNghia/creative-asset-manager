@@ -90,6 +90,32 @@
       ]
     },
     {
+      "name": "inventory",
+      "path": "/inventory",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.inventory-workspace",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        {
+          "name": "daily-overview",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".inventory-workspace-content"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "ai-operations",
       "path": "/ai-operations",
       "public": false,
@@ -143,17 +169,6 @@
             {
               "type": "visible",
               "selector": "#ops-panel-creative-pipeline"
-            }
-          ]
-        },
-        {
-          "name": "tab-inventory",
-          "click": "[data-ops-tab='inventory']",
-          "waitFor": "#ops-panel-inventory",
-          "assertions": [
-            {
-              "type": "visible",
-              "selector": "#ops-panel-inventory"
             }
           ]
         }

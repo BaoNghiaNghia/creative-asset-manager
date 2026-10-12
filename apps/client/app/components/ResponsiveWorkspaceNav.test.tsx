@@ -8,6 +8,8 @@ describe("responsive mobile workspace navigation", () => {
     expect(viewer.map(item => item.id)).toEqual(["assets", "generation"]);
     expect(availableMobileDestinations(["public_review.read"]).map(item => item.id))
       .toEqual(["assets", "review-board", "generation"]);
+    expect(availableMobileDestinations(["inventory.read"]).map(item => item.id))
+      .toEqual(["assets", "inventory", "generation"]);
     const admin = availableMobileDestinations([
       "ai_operations.read", "realistic_review_ugc.read",
       "public_review.read", "tenant_members.read",

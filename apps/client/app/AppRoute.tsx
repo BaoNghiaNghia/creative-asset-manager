@@ -10,6 +10,7 @@ const AccessManagementPage = lazy(() => import("./access-management/AccessManage
 const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").then(module => ({ default: module.AiOperationsPage })));
 const JobQueuePage = lazy(() => import("./job-queue/JobQueuePage").then(module => ({ default: module.JobQueuePage })));
 const InventoryApp = lazy(() => import("./inventory/InventoryApp").then(module => ({ default: module.InventoryApp })));
+const InventoryOverviewPage = lazy(() => import("./inventory/InventoryOverviewPage").then(module => ({ default: module.InventoryOverviewPage })));
 const PrivacyPolicyPage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.TermsOfServicePage })));
 const PublicReviewRoute = lazy(() => import("./public-review/PublicReviewRoute").then(module => ({ default: module.PublicReviewRoute })));
@@ -34,7 +35,8 @@ export function routeForPath(pathname: string): ApplicationRoute {
 
 export function workspaceRouteForApplicationRoute(route: ApplicationRoute): WorkspaceRoute | null {
   if (route === "public-review" || route === "privacy" || route === "terms") return null;
-  if (route === "ai-operations" || route === "inventory") return "operations";
+  if (route === "inventory") return "inventory";
+  if (route === "ai-operations") return "operations";
   if (route === "job-queue") return "queue";
   if (route === "video-generation") return "generation";
   if (route === "realistic-review-ugc") return "realistic-review-ugc";
@@ -45,14 +47,20 @@ export function workspaceRouteForApplicationRoute(route: ApplicationRoute): Work
 
 export function requiredPermissionForApplicationRoute(route: ApplicationRoute): string | null {
   if (route === "ai-operations" || route === "job-queue") return "ai_operations.read";
+  if (route === "inventory") return "inventory.read";
   if (route === "realistic-review-ugc") return "realistic_review_ugc.read";
   if (route === "access-management") return "tenant_members.read";
   return null;
 }
 
 export function AppRoute() {
-  const route = routeForPath(window.location.pathname);
+  const legacyInventoryTab = window.location.pathname === "/ai-operations"
+    && new URLSearchParams(window.location.search).get("tab") === "inventory";
+  const route = routeForPath(legacyInventoryTab ? "/inventory" : window.location.pathname);
   const requiredPermission = requiredPermissionForApplicationRoute(route);
+  useEffect(() => {
+    if (legacyInventoryTab) window.history.replaceState(window.history.state, "", "/inventory");
+  }, [legacyInventoryTab]);
   const [routePermissions, setRoutePermissions] = useState<readonly string[] | null>(
     requiredPermission ? null : [],
   );
@@ -83,7 +91,8 @@ export function AppRoute() {
       : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />
-    : route === "inventory" ? <InventoryApp />
+    : route === "inventory" ? (legacyInventoryTab || window.location.pathname.replace(/\/$/, "") === "/inventory"
+      ? <InventoryOverviewPage /> : <InventoryApp />)
     : route === "privacy" ? <PrivacyPolicyPage />
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchAccessIdentity } from "../../features/access_management";
 import accessManagementIcon from "../../assets/navigation/access-management.svg";
 import aiOperationsIcon from "../../assets/navigation/ai-operations.svg";
+import inventoryIcon from "../../assets/navigation/inventory-daily.svg";
 import assetExplorerIcon from "../../assets/navigation/asset-explorer.svg";
 import jobQueueIcon from "../../assets/navigation/job-queue.svg";
 import reviewBoardIcon from "../../assets/navigation/review-board.svg";
@@ -14,7 +15,7 @@ import {
   type AiOpsTab,
 } from "../ai-operations/navigation";
 
-export type WorkspaceRoute = "assets" | "operations" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
+export type WorkspaceRoute = "assets" | "inventory" | "operations" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
 
 export const mayViewReviewBoard = (permissions: readonly string[]) =>
   permissions.includes("public_review.read")
@@ -22,6 +23,7 @@ export const mayViewReviewBoard = (permissions: readonly string[]) =>
 
 const navigationIconSources: Record<WorkspaceRoute, string> = {
   assets: assetExplorerIcon,
+  inventory: inventoryIcon,
   operations: aiOperationsIcon,
   queue: jobQueueIcon,
   generation: videoGenerationIcon,
@@ -76,11 +78,15 @@ export function WorkspaceNavigation({
   const permissionAware = permissions !== undefined;
   const canViewOperations = showOperations
     && (!permissionAware || permissions.includes("ai_operations.read"));
+  const canViewInventory = !permissionAware || permissions.includes("inventory.read");
   const canViewRrugc = !permissionAware || permissions.includes("realistic_review_ugc.read");
   const canViewAccess = !permissionAware || permissions.includes("tenant_members.read");
 
   const items: Array<{ id: WorkspaceRoute; href: string; label: string }> = [
     { id: "assets", href: "/", label: "Asset Explorer" },
+    ...(canViewInventory ? [
+      { id: "inventory" as const, href: "/inventory", label: "Inventory" },
+    ] : []),
     ...(canViewOperations ? [
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
     ] : []),

@@ -30,7 +30,7 @@ describe("Stage 2 colorway request contract", () => {
     expect(url).toBe("/api/v1/realistic-review-ugc/colorways/batch");
     const payload = JSON.parse(init.body);
     expect(payload).toEqual({
-      source_plan_ids: ["embroidery-a"], skill_source: "local",
+      source_plan_ids: ["embroidery-a"], workflow: "reviews", skill_source: "local",
       skill_id: null, skill_name: "gatorhats-8869-image-studio", skill_version: "1",
     });
     expect(payload).not.toHaveProperty("source");

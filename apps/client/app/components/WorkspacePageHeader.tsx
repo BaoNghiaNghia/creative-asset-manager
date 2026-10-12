@@ -18,6 +18,11 @@ export const WORKSPACE_PAGE_HEADERS: Record<WorkspaceRoute, WorkspacePageHeaderD
     title: "Asset Explorer",
     description: "Browse, search, and manage creative assets across connected sources.",
   },
+  inventory: {
+    eyebrow: "Inventory",
+    title: "Inventory",
+    description: "Daily inventory status, scheduled processing, reconciliation and material management.",
+  },
   operations: {
     eyebrow: "Operations",
     title: "AI Operations",

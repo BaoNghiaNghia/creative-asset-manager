@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../features/access_management", () => ({
   fetchAccessIdentity: vi.fn().mockResolvedValue({
-    permissions: ["ai_operations.read", "realistic_review_ugc.read", "public_review.read", "tenant_members.read"],
+    permissions: ["inventory.read", "ai_operations.read", "realistic_review_ugc.read", "public_review.read", "tenant_members.read"],
   }),
 }));
 
@@ -56,7 +56,7 @@ describe("mobile workspace overflow interactions", () => {
     const dialog = host.querySelector('#mobile-rrugc-workflow-dialog');
     expect(dialog).not.toBeNull();
     expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=products&stage=stage0"]')).not.toBeNull();
-    expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=reviews&stage=stage3"]')).not.toBeNull();
+    expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=reviews&stage=reviews-stage2"]')).not.toBeNull();
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

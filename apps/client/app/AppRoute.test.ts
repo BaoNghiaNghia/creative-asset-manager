@@ -5,7 +5,7 @@ describe("responsive workspace routing", () => {
   it("maps internal application routes to the shared workspace navigation", () => {
     expect(workspaceRouteForApplicationRoute("explorer")).toBe("assets");
     expect(workspaceRouteForApplicationRoute("ai-operations")).toBe("operations");
-    expect(workspaceRouteForApplicationRoute("inventory")).toBe("operations");
+    expect(workspaceRouteForApplicationRoute("inventory")).toBe("inventory");
     expect(workspaceRouteForApplicationRoute("job-queue")).toBe("queue");
     expect(workspaceRouteForApplicationRoute("video-generation")).toBe("generation");
     expect(workspaceRouteForApplicationRoute("realistic-review-ugc")).toBe("realistic-review-ugc");
@@ -27,6 +27,7 @@ describe("responsive workspace routing", () => {
 
   it("gates privileged workspaces before their page can issue protected API calls", () => {
     expect(requiredPermissionForApplicationRoute("ai-operations")).toBe("ai_operations.read");
+    expect(requiredPermissionForApplicationRoute("inventory")).toBe("inventory.read");
     expect(requiredPermissionForApplicationRoute("job-queue")).toBe("ai_operations.read");
     expect(requiredPermissionForApplicationRoute("realistic-review-ugc")).toBe("realistic_review_ugc.read");
     expect(requiredPermissionForApplicationRoute("access-management")).toBe("tenant_members.read");

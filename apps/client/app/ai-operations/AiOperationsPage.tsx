@@ -16,7 +16,6 @@ import {
 import { AccessibleChart } from "./AccessibleChart";
 import { fetchAccessIdentity, type AccessIdentity } from "../../features/access_management";
 import { ConfigurationTab, ProvidersTab } from "./ProvidersConfiguration";
-import { InventoryDailyTab } from "./InventoryDailyTab";
 import { CreativePipelineTab } from "./CreativePipelineTab";
 import { VisualSearchOperationsTab } from "./VisualSearchOperationsTab";
 import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
@@ -355,7 +354,7 @@ export function AiOperationsContent({
   visualDiagnostics = null, visualDiagnosticsLoading = false, visualDiagnosticsError = null,
   onLoadVisualDiagnostics = () => undefined,
 }: ContentProps) {
-  const independentTabs = ["inventory", "creative-pipeline", "visual-search", "providers", "configuration"] as const;
+  const independentTabs = ["creative-pipeline", "visual-search", "providers", "configuration"] as const;
   const [visitedTabs, setVisitedTabs] = useState<AiOpsTab[]>([tab]);
   useEffect(() => {
     if (!visitedTabs.includes(tab)) setVisitedTabs(current => [...current, tab]);
@@ -502,7 +501,7 @@ export function AiOperationsContent({
         <OpsControlIcon name="right" />
       </button>
     </div>
-    {tab !== "inventory" && tab !== "visual-search" && tab !== "creative-pipeline" && <div className="ops-query-bar">
+    {tab !== "visual-search" && tab !== "creative-pipeline" && <div className="ops-query-bar">
       {hasMediaTabs && <MediaTypeTabs media={media} onMedia={onMedia} label={tab === "pipeline" ? "Pipeline media type" : tab === "processing" ? "Processing media type" : "AI analysis media type"} />}
       <AiOperationsFilters filters={filters} models={models} profiles={profiles} onChange={onFilters} />
       <details className="ops-export-menu">
@@ -512,7 +511,7 @@ export function AiOperationsContent({
         </nav>
       </details>
     </div>}
-    {tab !== "inventory" && tab !== "visual-search" && tab !== "creative-pipeline" && errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
+    {tab !== "visual-search" && tab !== "creative-pipeline" && errors.length > 0 && <div className="ops-partial-error" role="alert" aria-live="assertive">
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}><OpsControlIcon name="retry" />Retry</button>
     </div>}
@@ -523,8 +522,7 @@ export function AiOperationsContent({
         : <CostUsage data={data} filters={filters} onFilters={onFilters} />}
     </section>}
     {independentTabs.map(value => visitedTabs.includes(value) ? <section key={value} id={`ops-panel-${value}`} role="tabpanel" aria-labelledby={`ops-tab-${value}`} tabIndex={tab === value ? 0 : -1} hidden={tab !== value}>
-      {value === "inventory" ? <InventoryDailyTab />
-        : value === "creative-pipeline" ? <CreativePipelineTab canManage={permissions.includes("assets.generate")} />
+      {value === "creative-pipeline" ? <CreativePipelineTab canManage={permissions.includes("assets.generate")} />
         : value === "visual-search" ? <VisualSearchOperationsTab
           coverage={visualCoverage} sources={visualSources} loading={visualLoading} error={visualError} onRetry={onRetry}
           diagnostics={visualDiagnostics} diagnosticsLoading={visualDiagnosticsLoading}

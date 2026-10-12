@@ -8,6 +8,7 @@ type MobileDestination = { id: WorkspaceRoute; href: string; title: string; shor
 
 const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
   { id: "assets", href: "/", title: "Asset Explorer", shortTitle: "Assets" },
+  { id: "inventory", href: "/inventory", title: "Inventory", shortTitle: "Inventory" },
   { id: "operations", href: "/ai-operations", title: "AI Operations", shortTitle: "AI Ops" },
   { id: "realistic-review-ugc", href: "/realistic-review-ugc", title: "Realistic Review UGC", shortTitle: "UGC" },
   { id: "review-board", href: "/review-board", title: "Review Board", shortTitle: "Reviews" },
@@ -20,6 +21,7 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
 export function availableMobileDestinations(permissions: readonly string[]): readonly MobileDestination[] {
   return ALL_MOBILE_DESTINATIONS.filter(item => {
     if (item.id === "operations" || item.id === "queue") return permissions.includes("ai_operations.read");
+    if (item.id === "inventory") return permissions.includes("inventory.read");
     if (item.id === "realistic-review-ugc") return permissions.includes("realistic_review_ugc.read");
     if (item.id === "review-board") return mayViewReviewBoard(permissions);
     if (item.id === "access") return permissions.includes("tenant_members.read");

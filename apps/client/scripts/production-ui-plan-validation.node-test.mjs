@@ -57,10 +57,16 @@ test("current production smoke stage bindings are valid", async () => {
   const ai = plan.routes.find((route) => route.name === "ai-operations");
   assert.ok(ai?.requiresAuth, "authenticated AI Operations route must be present");
   assert.equal(ai.path, "/ai-operations");
-  for (const tab of ["pipeline", "visual-search", "creative-pipeline", "inventory"]) {
+  for (const tab of ["pipeline", "visual-search", "creative-pipeline"]) {
     assert.ok(ai.states.some((state) => state.click === `[data-ops-tab='${tab}']`),
       `production smoke must exercise AI Operations ${tab} tab`);
   }
+  assert.ok(!ai.states.some((state) => state.click === "[data-ops-tab='inventory']"),
+    "Inventory must not remain in AI Operations");
+  const inventory = plan.routes.find((route) => route.name === "inventory");
+  assert.ok(inventory?.requiresAuth, "Inventory must be checked as an authenticated workspace");
+  assert.equal(inventory.path, "/inventory");
+  assert.equal(inventory.ready, "main.inventory-workspace");
   assert.ok(ai.states[0].assertions.some((assertion) => assertion.type === "no-viewport-overflow"),
     "AI Operations production smoke must check responsive viewport overflow");
   const ugc = plan.routes.find((route) => route.name === "realistic-review-ugc");

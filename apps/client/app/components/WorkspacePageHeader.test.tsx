@@ -12,6 +12,7 @@ describe("WorkspacePageHeader", () => {
   it("defines a shared title contract for every workspace navigation route", () => {
     const routes: WorkspaceRoute[] = [
       "assets",
+      "inventory",
       "operations",
       "realistic-review-ugc",
       "queue",
