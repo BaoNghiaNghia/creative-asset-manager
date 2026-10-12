@@ -58,6 +58,54 @@ describe("Stage 4 bulk reference selection", () => {
 });
 
 describe("Version history comparison", () => {
+  it("places Blueprint guides and thread controls beside Download All without a duplicate Blueprint heading", async () => {
+    vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
+      job_id: "toolbar-job", stage: "stage1",
+      versions: [1, 2].map(version => ({
+        version, output_name: `design_${version}.png`,
+        url: "/api/v1/outputs/" + version,
+        created_at: "2026-10-09T05:00:00Z", width: 1000, height: 700,
+      })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<GenerationOutputVersionsDialog
+      stage="stage1" jobId="toolbar-job" title="Designs" onClose={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    const toolbar = host.querySelector(".rrugc-version-compare-toolbar")!;
+    const actionGroup = toolbar.querySelector(".rrugc-version-blueprint-actions")!;
+    const guides = actionGroup.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const thread = actionGroup.querySelector<HTMLSelectElement>('select[aria-label="Thread color mode"]')!;
+    expect(actionGroup.querySelector(".rrugc-version-download-all")).not.toBeNull();
+    expect(actionGroup.querySelector(".rrugc-blueprint-options")).not.toBeNull();
+    expect(guides.checked).toBe(false);
+    expect(thread.value).toBe("auto");
+    expect(host.querySelector(".rrugc-blueprint-description")).toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-controls")).toBeNull();
+    expect(host.textContent).not.toContain("Star designs to add them to Products Stage 2");
+
+    await act(async () => guides.click());
+    expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      setter.call(thread, "original");
+      thread.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Original threads");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('.rrugc-version-layout-toggle button[title^="Display all"]')!.click();
+    });
+    expect(host.querySelector(".rrugc-blueprint-options")).toBeNull();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('.rrugc-version-layout-toggle button[title^="Preview each"]')!.click();
+    });
+    expect(host.querySelector<HTMLInputElement>('.rrugc-version-blueprint-actions input[type="checkbox"]')?.checked).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('.rrugc-version-blueprint-actions select')?.value).toBe("original");
+    await act(async () => root.unmount());
+  });
+
   it("persists Stage 1 star selection from its design card without interrupting Blueprint", async () => {
     vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
       job_id: "stage1-star-job", stage: "stage1",

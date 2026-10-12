@@ -5,16 +5,24 @@
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-cross img.rrugc-deferred-img:not(.is-loaded):not(.is-failed){animation:none}}
 .rrugc-output-version-dialog.rrugc-job-log-dialog:has(.rrugc-blueprint-cross){width:min(1330px,calc(100vw - 24px));height:min(900px,calc(100dvh - 20px));max-height:calc(100dvh - 20px)}
 .rrugc-blueprint-cross{--blueprint-rail-width:158px;display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;gap:9px;padding:0 14px 11px;background:#f6f9fc;overflow:hidden}
-.rrugc-blueprint-controls{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:10px 3px 0}
-.rrugc-blueprint-description{display:grid;gap:4px;min-width:0}
-.rrugc-blueprint-description>strong{display:flex;align-items:center;flex-wrap:wrap;gap:7px;color:#324e6f;font-size:13px;font-weight:850}
-.rrugc-blueprint-count{padding:3px 8px;border:1px solid #cbe1f0;border-radius:99px;background:#edf7ff;color:#347baf;font-size:9px}
-.rrugc-blueprint-description>span{color:#7186a0;font-size:10px;line-height:1.4}
+/* Blueprint display controls live beside Download All in the modal toolbar. */
+.rrugc-version-toolbar-actions{display:flex;align-items:center;gap:12px;min-width:0;margin-left:auto}
+.rrugc-version-toolbar-actions>.rrugc-version-download-all{margin-left:0}
+.rrugc-version-blueprint-actions .rrugc-blueprint-options{flex-wrap:nowrap;gap:12px}
+@media(max-width:1060px){
+  .rrugc-output-version-dialog .rrugc-version-compare-toolbar:has(.rrugc-version-blueprint-actions){flex-wrap:wrap}
+  .rrugc-version-blueprint-actions{flex:1 1 100%;margin-left:0;justify-content:flex-end}
+}
+@media(max-width:600px){
+  .rrugc-version-blueprint-actions{flex-wrap:wrap;justify-content:space-between;row-gap:8px}
+  .rrugc-version-blueprint-actions .rrugc-blueprint-options{flex:1 1 auto;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:9px}
+  .rrugc-version-blueprint-actions .rrugc-version-download-all{margin-left:auto}
+}
 .rrugc-blueprint-options{display:flex;flex:none;align-items:center;gap:13px;flex-wrap:wrap;justify-content:flex-end}
 .rrugc-blueprint-thread-mode-label{display:inline-flex;align-items:center;gap:7px;color:#607891;font-size:10px;font-weight:750;white-space:nowrap}
 .rrugc-blueprint-thread-mode-label select{min-width:125px;min-height:29px;max-width:175px;background:#fff;border:1px solid #cbdde9;border-radius:7px;padding:4px 7px;color:#375b78;font:inherit;font-size:11px;cursor:pointer}
 .rrugc-blueprint-thread-mode-label select:focus-visible{outline:2px solid #1599ce;outline-offset:2px}
-@media(max-width:680px){.rrugc-blueprint-controls{align-items:flex-start;flex-wrap:wrap}.rrugc-blueprint-options{width:100%;justify-content:flex-start}.rrugc-blueprint-thread-mode-label select{min-width:115px}}
+@media(max-width:680px){.rrugc-blueprint-thread-mode-label select{min-width:115px}}
 .rrugc-blueprint-guides,.rrugc-blueprint-scale{display:inline-flex;align-items:center;gap:6px;color:#607891;font-size:10px;font-weight:750;white-space:nowrap}
 .rrugc-blueprint-guides input{accent-color:#089acb;cursor:pointer}
 .rrugc-blueprint-scale input{width:85px;height:4px;accent-color:#089acb;cursor:pointer}
@@ -83,8 +91,6 @@
 .rrugc-blueprint-empty{padding:28px;color:#8095af;text-align:center}
 @media(max-width:800px){
  .rrugc-blueprint-cross{--blueprint-rail-width:115px;padding:0 7px 8px}
- .rrugc-blueprint-controls{align-items:flex-start;flex-direction:column}
- .rrugc-blueprint-options{width:100%;justify-content:space-between}
  .rrugc-blueprint-cross-layout{grid-template-rows:148px minmax(0,1fr);gap:5px}
  .rrugc-blueprint-cross-corner span{font-size:8px}
  .rrugc-blueprint-color-choice{width:99px;height:76px;gap:4px;padding:4px}

@@ -3,6 +3,7 @@ import { listGenerationOutputVersions, selectStage1ProductDesign, type Generatio
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { BlueprintPreview } from "./BlueprintPreview";
+import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import "./Stage1ProductDesignSelection.css";
 
 function SelectionIcon({ mode }: { mode: "all" | "none" }) {
@@ -29,9 +30,13 @@ export function GenerationOutputVersionsDialog({
   const [savingSelectionVersion, setSavingSelectionVersion] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">(stage === "stage1" ? "blueprint" : "auto");
+  const [blueprintGuides, setBlueprintGuides] = useState(false);
+  const [blueprintThreadMode, setBlueprintThreadMode] = useState<ThreadMode>("auto");
 
   useEffect(() => {
     setGalleryMode(stage === "stage1" ? "blueprint" : "auto");
+    setBlueprintGuides(false);
+    setBlueprintThreadMode("auto");
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -161,10 +166,22 @@ export function GenerationOutputVersionsDialog({
             disabled={loading || compared.length === 0}
             onClick={() => setSelectedVersions(new Set())}><SelectionIcon mode="none" /></button>
         </div>}
-        {!loading && !error && versions.length > 0 && <a className="rrugc-version-download-all" href={"/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs/archive"} download title={"Download all " + versions.length + " original images as date-organized ZIP"} aria-label={"Download all " + versions.length + " images as ZIP"}>
+        <div className={"rrugc-version-toolbar-actions" + (blueprint ? " rrugc-version-blueprint-actions" : "")}>
+          {blueprint && !loading && !error && versions.length > 0 && <div className="rrugc-blueprint-options" role="group" aria-label="Blueprint display options">
+            <label className="rrugc-blueprint-guides"><input type="checkbox" checked={blueprintGuides}
+              onChange={event => setBlueprintGuides(event.target.checked)} /> Show guides</label>
+            <label className="rrugc-blueprint-thread-mode-label">Thread color
+              <select aria-label="Thread color mode" value={blueprintThreadMode}
+                onChange={event => setBlueprintThreadMode(event.target.value as ThreadMode)}>
+                <option value="auto">Auto match hat</option><option value="original">Original pigment</option>
+              </select>
+            </label>
+          </div>}
+          {!loading && !error && versions.length > 0 && <a className="rrugc-version-download-all" href={"/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs/archive"} download title={"Download all " + versions.length + " original images as date-organized ZIP"} aria-label={"Download all " + versions.length + " images as ZIP"}>
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3" /><rect x="3" y="19" width="18" height="3" rx="1" /></svg>
           Download All <span>({versions.length})</span>
-        </a>}
+          </a>}
+        </div>
         {onRegenerate && <button type="button" className="rrugc-version-create" onClick={onRegenerate}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14m-7-7h14" /></svg>
           New version
@@ -191,6 +208,7 @@ export function GenerationOutputVersionsDialog({
       {error && <p role="alert" className="rrugc-source-error">{error}</p>}
       {!loading && !error && (blueprint
         ? <BlueprintPreview versions={compared} initialVersion={initialVersion}
+            guides={blueprintGuides} threadMode={blueprintThreadMode}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
             savingSelectionVersion={savingSelectionVersion} />
         : masonry

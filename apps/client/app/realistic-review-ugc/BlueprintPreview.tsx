@@ -78,19 +78,19 @@ type DragAxis = "horizontal" | "vertical" | "both";
 type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
-export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion }: {
+export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto" }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
   onToggleStage2Selection?: (version: GenerationOutputVersion) => void;
   savingSelectionVersion?: number | null;
+  guides?: boolean;
+  threadMode?: ThreadMode;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
   const [colorIndex, setColorIndex] = useState(0);
   const [frontDesignSize, setFrontDesignSize] = useState(100);
   const [sideDesignSize, setSideDesignSize] = useState(100);
-  const [guides, setGuides] = useState(false);
-  const [threadMode, setThreadMode] = useState<ThreadMode>("auto");
   const [frontDetailOpen, setFrontDetailOpen] = useState(false);
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
@@ -199,21 +199,6 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   if (!activeDesign) return <div className="rrugc-blueprint-empty">No designs available to preview.</div>;
 
   return <section className="rrugc-blueprint rrugc-blueprint-cross" aria-label="Blueprint cross puzzle · design and hat color navigator">
-    <div className="rrugc-blueprint-controls">
-      <div className="rrugc-blueprint-description">
-        <strong>Blueprint <span className="rrugc-blueprint-count">{versions.length} designs × 13 hat colors</span></strong>
-        <span>{onToggleStage2Selection ? "Star designs to add them to Products Stage 2. Drag to browse; selections are saved." : "Slide the design row sideways and the hat colors vertically; the selected mockup stays centered."}</span>
-      </div>
-      <div className="rrugc-blueprint-options">
-        <label className="rrugc-blueprint-guides"><input type="checkbox" checked={guides}
-          onChange={event => setGuides(event.target.checked)} /> Show guides</label>
-        <label className="rrugc-blueprint-thread-mode-label">Thread color
-          <select aria-label="Thread color mode" value={threadMode} onChange={event => setThreadMode(event.target.value as ThreadMode)}>
-            <option value="auto">Auto match hat</option><option value="original">Original pigment</option>
-          </select>
-        </label>
-      </div>
-    </div>
     <div className="rrugc-blueprint-cross-layout">
       <div className="rrugc-blueprint-cross-corner">
         <span>8869 TWILL CAP</span><strong>13 colorways</strong><small>↑ ↓ Hat colors</small>

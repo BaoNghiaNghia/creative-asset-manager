@@ -55,7 +55,9 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
   it("renders ONE horizontal design carousel, ONE vertical color carousel, ONE fixed preview, not a table", () => {
     expect(BLUEPRINT_HAT_COLORS).toHaveLength(13);
     const html = renderToStaticMarkup(<BlueprintPreview versions={versions} />);
-    expect(html).toContain("9 designs × 13 hat colors");
+    expect(html).not.toContain("9 designs × 13 hat colors");
+    expect(html).not.toContain("rrugc-blueprint-description");
+    expect(html).not.toContain("rrugc-blueprint-controls");
     expect(html).toContain("Low-relief material composite · Thread color by hat");
     expect(html).not.toContain("rrugc-blueprint-matrix");
     expect(html).not.toContain("rrugc-blueprint-cell");
@@ -166,7 +168,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(chosen(host)).toContain("Natural / Brown");
     expect(host.querySelectorAll(".rrugc-blueprint-thread-source")).toHaveLength(2);
     expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Auto-match thread");
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Thread color mode"]')?.value).toBe("auto");
+    expect(host.querySelector('select[aria-label="Thread color mode"]')).toBeNull();
     expect(host.querySelectorAll('button[aria-label*="embroidery palette"]')).toHaveLength(0);
     expect(host.querySelector(".rrugc-blueprint-design-item.is-active")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
@@ -178,7 +180,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
     expect(host.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-color-hat").length).toBeGreaterThanOrEqual(5);
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Right side design zoom"]')?.max).toBe("200");
-    await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
+    await act(async () => root.render(<BlueprintPreview versions={versions} guides />));
     expect(host.querySelector(".rrugc-blueprint-selected-design")).not.toBeNull();
     expect(host.querySelector(".rrugc-blueprint-front-guide")).not.toBeNull();
     expect(host.querySelectorAll(".rrugc-blueprint-view-zoom")).toHaveLength(2);
