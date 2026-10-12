@@ -6,6 +6,7 @@ they cannot be mistaken for final Stage 1 versions.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -13,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from app.domain.providers.contracts import StoreAssetInput
+from app.domain.providers.contracts import StorageProviderError, StoreAssetInput
 from app.modules.realistic_review_ugc.generation_handler import _bytes_body
 from app.providers.google.storage import GoogleDriveAssetStorage
 
@@ -22,6 +23,8 @@ PREVIEW_MAX_EDGE = 640
 PREVIEW_WEBP_QUALITY = 65
 PREVIEW_TTL_HOURS = 48
 PREVIEW_SOURCE_FOLDER = "working/previews"
+# Drive read timeouts are retryable; keep previews best-effort and final PNGs untouched.
+PREVIEW_UPLOAD_RETRY_DELAYS_SECONDS = (1, 3)
 logger = logging.getLogger(__name__)
 
 
@@ -65,17 +68,31 @@ async def upload_temp_previews(
     for index, path in enumerate(preview_paths(workspace)):
         try:
             blob = compact_preview(path)
-            await storage.store_asset(StoreAssetInput(
-                tenant_id=tenant_id,
-                content_hash=hashlib.sha256(blob).hexdigest(),
-                body=_bytes_body(blob),
-                asset_id=f"rrugc-stage1-draft:{job_id}:{processing_job_id}:{index}",
-                content_type="image/webp",
-                size_bytes=len(blob),
-                filename=f"stage1_draft_{job_id}_{processing_job_id}_{index:04}.webp",
-                destination_folder_id=TEMP_FOLDER_ID,
-            ))
-            count += 1
+            # Stable asset_id makes retries idempotent even when Drive accepted
+            # an upload but its response timed out. Recreate the consumed body.
+            for attempt in range(len(PREVIEW_UPLOAD_RETRY_DELAYS_SECONDS) + 1):
+                try:
+                    await storage.store_asset(StoreAssetInput(
+                        tenant_id=tenant_id,
+                        content_hash=hashlib.sha256(blob).hexdigest(),
+                        body=_bytes_body(blob),
+                        asset_id=f"rrugc-stage1-draft:{job_id}:{processing_job_id}:{index}",
+                        content_type="image/webp",
+                        size_bytes=len(blob),
+                        filename=f"stage1_draft_{job_id}_{processing_job_id}_{index:04}.webp",
+                        destination_folder_id=TEMP_FOLDER_ID,
+                    ))
+                    count += 1
+                    break
+                except StorageProviderError as exc:
+                    if not exc.retryable or attempt >= len(PREVIEW_UPLOAD_RETRY_DELAYS_SECONDS):
+                        raise
+                    delay = PREVIEW_UPLOAD_RETRY_DELAYS_SECONDS[attempt]
+                    logger.warning(
+                        "stage1_temp_preview_upload_retry job=%s index=%d retry=%d delay=%d code=%s",
+                        job_id, index, attempt + 1, delay, exc.code,
+                    )
+                    await asyncio.sleep(delay)
         except Exception:
             # Saving draft previews must not invalidate 6 already-persisted
             # final images; independent Drive maintenance will clean uploaded

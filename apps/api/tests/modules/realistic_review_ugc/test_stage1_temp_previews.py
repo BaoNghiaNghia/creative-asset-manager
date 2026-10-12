@@ -124,6 +124,63 @@ def test_preview_uploader_uses_only_temp_folder_and_ownership_metadata(tmp_path)
     assert payload.size_bytes == len(data)
 
 
+def test_preview_uploader_retries_transient_drive_timeout_with_fresh_body(tmp_path, monkeypatch):
+    source = tmp_path / "working" / "previews"
+    source.mkdir(parents=True)
+    Image.new("RGB", (400, 300), (55, 75, 85)).save(source / "draft.png")
+    attempts, payloads, delays = [], [], []
+
+    class FlakyDrive(GoogleDriveAssetStorage):
+        def __init__(self):
+            super().__init__(storage_access_token="test", root_folder_id="final-root")
+
+        async def store_asset(self, payload):
+            attempts.append(payload.asset_id)
+            payloads.append(b"".join([part async for part in payload.body]))
+            if len(attempts) < 3:
+                raise StorageProviderError("temporary Google Drive read timeout", retryable=True, code="managed_storage_network_error")
+            return SimpleNamespace(remote_file_id="temporary-file")
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr("app.modules.realistic_review_ugc.stage1_temp_previews.asyncio.sleep", fake_sleep)
+    count = asyncio.run(upload_temp_previews(
+        FlakyDrive(), workspace=tmp_path, tenant_id="t1", job_id="j", processing_job_id="p",
+    ))
+    assert count == 1
+    assert len(attempts) == 3
+    assert len(set(attempts)) == 1
+    assert payloads[0] == payloads[1] == payloads[2]
+    assert delays == [1, 3]
+
+
+def test_preview_uploader_does_not_retry_nonretryable_drive_error(tmp_path, monkeypatch):
+    source = tmp_path / "working" / "previews"
+    source.mkdir(parents=True)
+    Image.new("RGB", (200, 200)).save(source / "draft.png")
+    calls, delays = [], []
+
+    class RejectedDrive(GoogleDriveAssetStorage):
+        def __init__(self):
+            super().__init__(storage_access_token="test", root_folder_id="final-root")
+
+        async def store_asset(self, payload):
+            calls.append(payload.asset_id)
+            raise StorageProviderError("credential rejected", retryable=False, code="managed_storage_permission_denied")
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr("app.modules.realistic_review_ugc.stage1_temp_previews.asyncio.sleep", fake_sleep)
+    count = asyncio.run(upload_temp_previews(
+        RejectedDrive(), workspace=tmp_path, tenant_id="t1", job_id="j", processing_job_id="p",
+    ))
+    assert count == 0
+    assert len(calls) == 1
+    assert delays == []
+
+
 def _record(name, *, now, hours_old, owned=True, folder=TEMP_FOLDER_ID):
     return {
         "id": name,
