@@ -194,6 +194,19 @@ def _insert_stage0_pending_keyword(
     inserted = session.execute(statement.values(**values).on_conflict_do_nothing(
         index_elements=["tenant_id", "keyword_normalized"]
     ))
+    # Preserve this agent even when the same quote already exists from another
+    # Scout or another marketplace. Do not reset volume/trademark metrics.
+    from app.modules.realistic_review_ugc.keyword_agent_origins import record_keyword_agent
+    if row.channel == "auto-discover" and row.created_by_user_id.startswith("scout-agent:"):
+        agent_key = "scout:" + row.created_by_user_id.split(":", 1)[1]
+        agent_name = "Agent-Reach Auto Discover"
+    else:
+        agent_key, agent_name = "research:manual", "Research Inbox"
+    record_keyword_agent(
+        session, tenant_id=tenant_id, keyword_normalized=normalized,
+        agent_key=agent_key, agent_name=agent_name,
+        source_platform=row.source, source_channel=row.channel, source_url=row.url,
+    )
     return inserted.rowcount == 1
 
 

@@ -3,6 +3,7 @@ import { KeywordSearchInput } from "./KeywordSearchInput";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import "./KeywordAnalysisPlatform.css";
+import "./KeywordAgentColumn.css";
 import type {
   KeywordAnalysisSortBy,
   KeywordAnalysisSortDirection,
@@ -94,6 +95,24 @@ function formatTableDate(value: string | null | undefined): string {
 
 function providerLabel(value: string): string {
   return value === "aebrowse_google_ads" ? "Google Ads · AEBrowse" : value;
+}
+
+function Stage0AgentBadge({ agents }: { agents: KeywordVolume["source_agents"] }) {
+  if (!agents?.length) return <span className="rrugc-stage0-agent-empty" title="Chưa có dữ liệu agent lịch sử; không suy đoán từ Pinterest hoặc Google Ads">—</span>;
+  const first = agents[0];
+  const shortName = first.agent_name === "Agent-Reach Auto Discover" ? "Reach"
+    : first.agent_name === "Research Inbox" ? "Manual"
+    : first.agent_name.toLowerCase().includes("keyword scout") ? "Scout"
+    : first.agent_name.length > 13 ? first.agent_name.slice(0, 12) + "…" : first.agent_name;
+  const details = agents.map(agent =>
+    agent.agent_name + " · " + agent.platforms.join(", ") + " · " +
+    agent.evidence_count + " source" + (agent.evidence_count === 1 ? "" : "s")
+  ).join("\n");
+  return <span className="rrugc-stage0-agent-badge" title={details} aria-label={"Found by " + agents.map(a => a.agent_name).join(", ")}>
+    <span className="rrugc-stage0-agent-symbol" aria-hidden="true">◎</span>
+    <span className="rrugc-stage0-agent-label">{shortName}</span>
+    {agents.length > 1 && <span className="rrugc-stage0-agent-more">+{agents.length - 1}</span>}
+  </span>;
 }
 
 function formatTrendPeriod(value: string): string {
@@ -355,6 +374,11 @@ export function KeywordDetailModal({
                 ? <a href={item.source_pin_url} target="_blank" rel="noreferrer">Open Pinterest source ↗</a>
                 : <strong>—</strong>}
               <span>{item.request_count ? item.request_count.toLocaleString() + " provider requests" : "Provider request count unavailable"}</span>
+            </div>
+            <div>
+              <small>Source agents</small>
+              <strong>{item.source_agents?.length ? item.source_agents.map(agent => agent.agent_name).join(", ") : "Unknown (legacy)"}</strong>
+              <span>{item.source_agents?.map(agent => `${agent.platforms.join(", ")} · ${agent.evidence_count} sources`).join(" | ") || "Agent ID not recorded for older keywords"}</span>
             </div>
           </div>
         </div>
@@ -742,11 +766,12 @@ export function KeywordAnalysisTable({
           <SortHeader column="cpc" label="Low CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="high_cpc" label="High CPC ($)" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <th className="rrugc-stage0-platform-heading" scope="col">Platform</th>
+          <th className="rrugc-stage0-agent-heading" scope="col">Agent</th>
           <SortHeader column="created_at" label="Created date" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={13}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={14}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
             const feedbackScope: ScoutFeedbackScope = item.source_pin_url ? "both" : "keyword";
             const feedbackStatus = scoutFeedbackForScope(item, feedbackScope);
             const hasFeedback = feedbackStatus !== "neutral";
@@ -794,6 +819,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-platform-cell">{item.source_pin_url
                 ? <span className="rrugc-stage0-platform" title="Pinterest source"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="#bd081c"/><path d="M12.6 5.5c-3.9 0-6.4 2.8-6.4 5.5 0 1.7.6 3 1.8 3.5.2-.5.4-1.2.5-1.6-.4-.5-.6-1.2-.6-2 0-2.6 2-4.5 4.6-4.5 2.2 0 3.8 1.4 3.8 3.5 0 2.5-1.2 4.4-2.8 4.4-.9 0-1.5-.8-1.3-1.7.2-1.1.7-2.3.7-3.2 0-.8-.4-1.3-1.1-1.3-1 0-1.8 1-1.8 2.4 0 .8.3 1.4.3 1.4l-1.3 5.4c-.3 1.4 0 2.7.1 3.1.1.2.2.2.3 0 .2-.3 1.2-1.7 1.5-3l.6-2.1c.3.6 1.2 1 2.3 1 3 0 5-2.7 5-6.2 0-3.2-2.7-5.8-6.1-5.8Z" fill="#fff"/></svg><span>Pinterest</span></span>
                 : <span className="rrugc-stage0-platform-empty" title="No Pinterest source recorded">—</span>}</td>
+              <td className="rrugc-stage0-agent-cell"><Stage0AgentBadge agents={item.source_agents} /></td>
               <td className="rrugc-stage0-created-date"><strong>{formatTableDate(item.created_at)}</strong></td>
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
@@ -803,7 +829,7 @@ export function KeywordAnalysisTable({
               </td>
             </tr>;
           })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={13} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={14} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
         </tbody>
       </table>
     </div>

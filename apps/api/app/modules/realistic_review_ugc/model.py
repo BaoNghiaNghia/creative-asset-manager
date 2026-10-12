@@ -163,6 +163,36 @@ class RrugcSourcePlanModel(Base):
     )
 
 
+class RrugcKeywordAgentOriginModel(Base):
+    """Immutable provenance of a discovered Stage 0 keyword.
+
+    Multiple agents and distinct source URLs can refer to the same keyword;
+    the evidence fingerprint makes retries and re-approvals idempotent.
+    """
+
+    __tablename__ = "rrugc_keyword_agent_origins"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "keyword_normalized", "agent_key", "evidence_hash",
+            name="uq_rrugc_keyword_agent_evidence",
+        ),
+        Index("ix_rrugc_keyword_agent_origin_lookup", "tenant_id", "keyword_normalized"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    keyword_normalized: Mapped[str] = mapped_column(String(500), nullable=False)
+    agent_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_channel: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
 class RrugcKeywordVolumeModel(Base):
     __tablename__ = "rrugc_keyword_volumes"
     __table_args__ = (

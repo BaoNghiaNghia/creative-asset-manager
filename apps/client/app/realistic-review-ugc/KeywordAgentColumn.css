@@ -1,0 +1,9 @@
+
+/* Agent is attribution, not the keyword-volume provider or marketplace.
+   Keep narrow on desktop and inside the horizontally scrolling table on mobile. */
+table.rrugc-stage0-keyword-table td.rrugc-stage0-agent-cell { vertical-align: middle !important; max-width: 125px; }
+.rrugc-stage0-agent-badge { display: inline-flex; align-items: center; gap: 4px; max-width: 120px; padding: 3px 5px; background: #f1f5fa; border: 1px solid #dae5f1; border-radius: 6px; font-size: 9px; font-weight: 750; color: #3a5874; white-space: nowrap; cursor: help; }
+.rrugc-stage0-agent-symbol { flex: none; font-size: 12px; color: #47789a; line-height: 1; }
+.rrugc-stage0-agent-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 76px; }
+.rrugc-stage0-agent-more { flex: none; color: #376b9b; font-variant-numeric: tabular-nums; }
+.rrugc-stage0-agent-empty { color: #9ba8b9; }

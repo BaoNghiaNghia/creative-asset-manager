@@ -5,7 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.core.database import Base
-from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel
+from app.modules.realistic_review_ugc.model import RrugcResearchSignalModel, RrugcKeywordVolumeModel, RrugcKeywordAgentOriginModel
+from app.modules.realistic_review_ugc.keyword_agent_origins import origins_for_keywords
 from app.modules.realistic_review_ugc.research_intelligence import (
     ResearchValidationError, import_signals, list_signals,
     normalize_keyword, review_signal, stage0_export, apply_approved_to_stage0, validate_url,
@@ -15,7 +16,7 @@ from app.modules.realistic_review_ugc.research_intelligence import (
 @pytest.fixture()
 def session():
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[RrugcResearchSignalModel.__table__, RrugcKeywordVolumeModel.__table__])
+    Base.metadata.create_all(engine, tables=[RrugcResearchSignalModel.__table__, RrugcKeywordVolumeModel.__table__, RrugcKeywordAgentOriginModel.__table__])
     with Session(engine) as db:
         yield db
     engine.dispose()
@@ -153,6 +154,31 @@ def test_stage0_apply_repairs_old_approvals_without_overwriting_existing_volume(
     assert volume.search_volume == 412 and volume.picked is True
     assert volume.provider == "aebrowse_google_ads"
 
+
+
+def test_research_approval_keeps_auto_discover_agent_with_cross_platform_evidence(session):
+    signals = [
+        {"source": "etsy", "channel": "auto-discover", "title": "Embroidered hat",
+         "url": "https://www.etsy.com/listing/123456789", "excerpt": "unverified"},
+        {"source": "amazon", "channel": "auto-discover", "title": "Embroidered hat",
+         "url": "https://www.amazon.com/dp/B012345678", "excerpt": "unverified"},
+    ]
+    assert import_signals(session, tenant_id="tenant-a",
+                          user_id="scout-agent:agent-reach-id", signals=signals)["added"] == 2
+    for row in list_signals(session, tenant_id="tenant-a"):
+        review_signal(session, tenant_id="tenant-a", signal_id=row["id"],
+                      user_id="reviewer-a", decision="approved", keyword="MADE TO WORSHIP")
+    first = origins_for_keywords(session, tenant_id="tenant-a", keywords=["made to worship"])
+    assert first["made to worship"] == [{
+        "agent_key": "scout:agent-reach-id", "agent_name": "Agent-Reach Auto Discover",
+        "platforms": ["amazon", "etsy"], "evidence_count": 2,
+    }] or first["made to worship"] == [{
+        "agent_key": "scout:agent-reach-id", "agent_name": "Agent-Reach Auto Discover",
+        "platforms": ["etsy", "amazon"], "evidence_count": 2,
+    }]
+    assert apply_approved_to_stage0(session, tenant_id="tenant-a")["existing"] == 2
+    assert origins_for_keywords(session, tenant_id="tenant-a",
+                               keywords=["made to worship"]) == first
 
 def test_invalid_url_and_keyword_fail_closed(session):
     for url in ("http://news.google.com/a", "https://localhost/admin",

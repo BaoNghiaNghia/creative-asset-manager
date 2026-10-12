@@ -296,6 +296,9 @@ class RrugcKeywordVolumeService:
         force: bool = False,
         source_image_url: str | None = None,
         source_pin_url: str | None = None,
+        source_agent_id: str | None = None,
+        source_agent_name: str | None = None,
+        source_channel: str = "keyword-scout",
         now: datetime | None = None,
     ) -> KeywordVolumeResolveResult:
         requested = normalize_keywords(keywords)
@@ -342,6 +345,14 @@ class RrugcKeywordVolumeService:
                 row.source_pin_url = source_pin_url
             row.last_requested_at = current_time
             row.request_count = int(row.request_count or 0) + 1
+            if source_agent_name and source_agent_id:
+                from app.modules.realistic_review_ugc.keyword_agent_origins import record_keyword_agent
+                record_keyword_agent(
+                    self.session, tenant_id=tenant_id, keyword_normalized=normalized,
+                    agent_key="scout:" + source_agent_id, agent_name=source_agent_name,
+                    source_platform="pinterest" if source_pin_url else "unknown",
+                    source_channel=source_channel, source_url=source_pin_url,
+                )
         self.session.commit()
 
         provider_keywords: list[str] = []

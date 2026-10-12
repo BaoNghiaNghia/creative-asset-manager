@@ -434,6 +434,13 @@ class KeywordVolumeTrendPointResponse(BaseModel):
     volume: int = 0
 
 
+class KeywordSourceAgentResponse(BaseModel):
+    agent_key: str
+    agent_name: str
+    platforms: list[str] = Field(default_factory=list)
+    evidence_count: int = 0
+
+
 class KeywordVolumeResponse(BaseModel):
     id: str
     keyword: str
@@ -458,6 +465,7 @@ class KeywordVolumeResponse(BaseModel):
     trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
     source_image_url: str | None = None
     source_pin_url: str | None = None
+    source_agents: list[KeywordSourceAgentResponse] = Field(default_factory=list)
     scout_keyword_feedback: Literal["suggested", "blocked", "neutral"] = "neutral"
     scout_pin_feedback: Literal["suggested", "blocked", "neutral"] = "neutral"
     picked: bool = False

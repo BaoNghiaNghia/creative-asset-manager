@@ -3001,6 +3001,7 @@ def _keyword_metric_int(value: object) -> int | None:
 
 def _keyword_volume_response(
     row: RrugcKeywordVolumeModel, feedback: dict | None = None,
+    source_agents: list[dict] | None = None,
 ) -> KeywordVolumeResponse:
     feedback = feedback or {}
     keys = list(feedback_targets(row, "both"))
@@ -3040,6 +3041,7 @@ def _keyword_volume_response(
         trend=_keyword_volume_trend(row),
         source_image_url=row.source_image_url,
         source_pin_url=row.source_pin_url,
+        source_agents=source_agents or [],
         scout_keyword_feedback=feedback.get(("keyword", row.keyword_normalized), "neutral"),
         scout_pin_feedback=next((feedback.get((kind, key), "neutral") for kind, key, _ in keys if kind == "pin"), "neutral"),
         picked=bool(row.picked),
@@ -3936,8 +3938,11 @@ def list_keyword_analysis(
         )
     )
     feedback = statuses_for_rows(session, principal.active_tenant_id, rows)
+    from app.modules.realistic_review_ugc.keyword_agent_origins import origins_for_keywords
+    origins = origins_for_keywords(session, tenant_id=principal.active_tenant_id,
+                                  keywords=[row.keyword_normalized for row in rows])
     return KeywordVolumePageResponse(
-        items=[_keyword_volume_response(row, feedback) for row in rows],
+        items=[_keyword_volume_response(row, feedback, origins.get(row.keyword_normalized)) for row in rows],
         page=page,
         page_size=page_size,
         total=total,
@@ -4445,6 +4450,9 @@ async def quote_scout_resolve_keyword_analysis(
             tenant_id=agent.tenant_id,
             keywords=request.keywords,
             force=request.force,
+            source_agent_id=agent.id,
+            source_agent_name=agent.name,
+            source_channel="keyword-scout",
             source_image_url=(
                 validate_image_url(request.source_image_url)
                 if request.source_image_url

@@ -17,8 +17,10 @@ table.rrugc-stage0-keyword-table td.rrugc-stage0-platform-cell {
   width: 1%;
   white-space: nowrap;
 }
-table.rrugc-stage0-keyword-table th:nth-child(12) { width: 7%; }
-table.rrugc-stage0-keyword-table th:nth-child(13) { width: 6%; }
+table.rrugc-stage0-keyword-table th:nth-child(12),
+table.rrugc-stage0-keyword-table td.rrugc-stage0-agent-cell { width: 1%; white-space: nowrap; }
+table.rrugc-stage0-keyword-table th:nth-child(13) { width: 7%; }
+table.rrugc-stage0-keyword-table th:nth-child(14) { width: 6%; }
 table.rrugc-stage0-keyword-table td.rrugc-stage0-platform-cell {
   vertical-align: middle !important;
 }

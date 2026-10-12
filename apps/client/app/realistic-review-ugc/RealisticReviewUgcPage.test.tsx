@@ -704,6 +704,10 @@ describe("Realistic Review UGC source-first workspace", () => {
               ],
               source_image_url: "https://i.pinimg.com/736x/aa/bb/hotdog.jpg",
               source_pin_url: "https://www.pinterest.com/pin/123456789/",
+              source_agents: [
+                { agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy", "amazon"], evidence_count: 2 },
+                { agent_key: "scout:pinterest", agent_name: "Keyword Scout Windows", platforms: ["pinterest"], evidence_count: 1 },
+              ],
               scout_keyword_feedback: "suggested",
               scout_pin_feedback: "suggested",
               picked: true,
@@ -869,7 +873,15 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by Low CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by High CPC ($) ascending"');
     expect(markup).toContain('aria-label="Sort by Created date ascending"');
+    expect(markup).toContain('>Agent</th>');
+    expect(markup).toContain('aria-label="Found by Agent-Reach Auto Discover, Keyword Scout Windows"');
+    expect(markup).toContain('rrugc-stage0-agent-more');
+    expect(markup).toContain('>+1</span>');
+    expect(markup).toContain('Chưa có dữ liệu agent lịch sử');
+    const agentHeader = markup.indexOf('class="rrugc-stage0-agent-heading"');
     const platformHeader = markup.indexOf('class="rrugc-stage0-platform-heading"');
+    expect(agentHeader).toBeGreaterThan(platformHeader);
+    expect(agentHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date ascending"'));
     expect(platformHeader).toBeGreaterThan(markup.indexOf('aria-label="Sort by High CPC ($) ascending"'));
     expect(platformHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date ascending"'));
     expect(markup.indexOf('class="rrugc-stage0-platform-cell"')).toBeGreaterThan(

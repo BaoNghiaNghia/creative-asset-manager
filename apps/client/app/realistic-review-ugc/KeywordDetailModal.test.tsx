@@ -12,6 +12,7 @@ const keyword: KeywordVolume = {
   competition: "HIGH", cpc_low: 1.17, cpc_high: 5.16,
   provider: "aebrowse_google_ads", provider_account: null, fetched_at: "2026-10-10T02:00:00Z",
   source_image_url: "https://example.com/hat.jpg", source_pin_url: "https://pinterest.com/pin/123",
+  source_agents: [{ agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy"], evidence_count: 1 }],
   picked: true, picked_at: null, favorite: false, favorite_at: null,
   trend: [
     { period: "2026-01", volume: 18000 },
@@ -30,7 +31,7 @@ describe("Stage 0 platform source attribution", () => {
     const root = createRoot(host);
     const noop = () => undefined;
     const data = {
-      items: [keyword, { ...keyword, id: "keyword-no-pin", keyword: "Manual Word", source_pin_url: null }],
+      items: [keyword, { ...keyword, id: "keyword-no-pin", keyword: "Manual Word", source_pin_url: null, source_agents: [] }],
       page: 1, page_size: 20, total: 2,
       overview: {
         total_keywords: 2, total_search_volume: 22200, high_competition: 0, zero_volume: 0,
@@ -49,7 +50,10 @@ describe("Stage 0 platform source attribution", () => {
       onPageChange={noop} onPageSizeChange={noop} onQueryChange={noop}
     />));
     const headers = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th")).map(header => header.textContent);
-    expect(headers.slice(0, 3)).toEqual(["Preview", "Platform", "Keyword↑"]);
+    expect(headers.slice(0, 3)).toEqual(["Preview", "Keyword↑", "Trend"]);
+    expect(headers.indexOf("Agent")).toBe(headers.indexOf("Platform") + 1);
+    expect(host.querySelector(".rrugc-stage0-agent-badge")?.getAttribute("aria-label")).toContain("Agent-Reach Auto Discover");
+    expect(host.querySelector(".rrugc-stage0-agent-empty")?.textContent).toBe("—");
     expect(host.querySelectorAll(".rrugc-stage0-keyword-table tbody tr")).toHaveLength(2);
     expect(host.querySelector(".rrugc-stage0-platform")?.textContent).toBe("Pinterest");
     expect(host.querySelector(".rrugc-stage0-platform svg")).not.toBeNull();
