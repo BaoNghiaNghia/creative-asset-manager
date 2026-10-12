@@ -6173,13 +6173,14 @@ def hide_stage5_review(
 
 @router.get("/stage3/reviews/export-loox")
 def export_stage5_loox_review_concepts(
+    format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     """Export all eligible synthetic concepts, not just the loaded UI page."""
-    from urllib.parse import urlparse
     from app.modules.realistic_review_ugc.loox_review_export import (
-        PREFIX, build_loox_xlsx,
+        PREFIX, build_loox_xlsx, build_loox_csv,
+        shopify_handle_from_folder, loox_public_photo_url,
     )
     joined = session.execute(
         select(RrugcStage3AnalysisModel, RrugcStage2JobModel, RrugcSourcePlanModel)
@@ -6199,33 +6200,45 @@ def export_stage5_loox_review_concepts(
         .order_by(RrugcStage3AnalysisModel.created_at.asc(), RrugcStage3AnalysisModel.id.asc())
     )
     rows = []
+    missing_photos = 0
+    normalized_handles = 0
     for review, image, plan in joined:
         raw_path = str(plan.source_relative_path or "")
-        product_handle = raw_path.replace("\\", "/").strip("/").split("/", 1)[0].strip()
-        # Authenticated CAM media endpoints and private Drive URLs cannot be
-        # used as Loox photo URLs. Do not leak them into a public importer.
-        candidate_photo = str(image.output_web_url or "").strip()
-        photo_url = ""
-        if candidate_photo.startswith("https://"):
-            host = (urlparse(candidate_photo).hostname or "").lower()
-            if host and not host.endswith(".google.com") and host != "google.com" and not host.endswith(".googleusercontent.com"):
-                photo_url = candidate_photo
+        folder = raw_path.replace("\\", "/").strip("/").split("/", 1)[0].strip()
+        product_handle = shopify_handle_from_folder(folder)
+        if product_handle != folder:
+            normalized_handles += 1
+        # Do not invent a Shopify mapping: a sanitized slug is a *candidate*
+        # handle and the merchant must match it to the actual Shopify URL.
+        # Never leak private CAM/Drive URLs to a storefront importer.
+        photo_url = loox_public_photo_url(image.output_web_url)
+        if not photo_url:
+            missing_photos += 1
         created = review.review_generated_at or image.completed_at
         rows.append((
             product_handle,
             int(review.star_rating),
             "AI concept: " + str(review.reviewer_name),
-            "",  # Never invent a customer email address.
+            "",  # No fabricated customer identities or email addresses.
             PREFIX + str(review.review_text),
-            created.strftime("%Y-%m-%d %H:%M:%S") if created else "",
+            created.strftime("%Y-%m-%d") if created else "",
             photo_url,
-            False,  # Synthetic content is never a verified purchase.
+            "",  # Never assert a synthetic concept is a verified purchase.
         ))
+    is_csv = format == "csv"
     return Response(
-        content=build_loox_xlsx(rows),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="CAM_Stage5_Review_Concepts_Loox.xlsx"',
-                 "Cache-Control": "private, no-store"},
+        content=build_loox_csv(rows) if is_csv else build_loox_xlsx(rows),
+        media_type=("text/csv; charset=utf-8" if is_csv else
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        headers={
+            "Content-Disposition": ('attachment; filename="CAM_Stage5_Loox_Import.csv"' if is_csv else
+                                    'attachment; filename="CAM_Stage5_Loox_Preview.xlsx"'),
+            "Cache-Control": "private, no-store",
+            "X-CAM-Export-Rows": str(len(rows)),
+            "X-CAM-Export-Missing-Photos": str(missing_photos),
+            "X-CAM-Export-Normalized-Handles": str(normalized_handles),
+            "Access-Control-Expose-Headers": "X-CAM-Export-Rows, X-CAM-Export-Missing-Photos, X-CAM-Export-Normalized-Handles",
+        },
     )
 
 

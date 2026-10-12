@@ -1393,6 +1393,17 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(galleryMarkup).toContain("Open review details for Casey F.");
     expect(galleryMarkup).not.toContain("rrugc-stage3-score-row");
     expect(galleryMarkup).not.toContain("AI-generated review concept · Not a real customer testimonial");
+    const exportMarkup = renderToStaticMarkup(
+      <Stage3ReviewGroups data={data} loading={false} analyzing={false}
+        message="" onAnalyze={() => undefined}
+        onExportReviews={async () => undefined} />,
+    );
+    expect(exportMarkup).toContain("rrugc-stage5-toolbar");
+    expect(exportMarkup).toContain("Loox CSV");
+    expect(exportMarkup).toContain("Excel");
+    expect(exportMarkup).toContain("Analyze all");
+    expect(exportMarkup).toContain("Refresh");
+    expect(exportMarkup).not.toContain("Export all · Loox XLSX");
 
     const modalMarkup = renderToStaticMarkup(
       <Stage3ReviewModal

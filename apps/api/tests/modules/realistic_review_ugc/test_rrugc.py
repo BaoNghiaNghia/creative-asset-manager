@@ -2635,6 +2635,37 @@ def test_stage4_completion_feed_bootstrap_catches_up_and_is_tenant_scoped(api, d
     assert already.json()["items"] == []
     assert already.json()["cursor"] == next_page.json()["cursor"]
 
+
+def test_loox_file_safety_and_shopify_slug_normalization():
+    from app.modules.realistic_review_ugc.loox_review_export import (
+        shopify_handle_from_folder, loox_public_photo_url, build_loox_csv,
+    )
+    import csv
+    from io import StringIO
+    assert shopify_handle_from_folder("Chew Quieter Hat") == "chew-quieter-hat"
+    assert shopify_handle_from_folder("SIDELINE Social Club hat") == "sideline-social-club-hat"
+    assert shopify_handle_from_folder("custom-hat-handle") == "custom-hat-handle"
+    assert loox_public_photo_url("https://cdn.example.org/review.png") == "https://cdn.example.org/review.png"
+    for invalid in (
+        "https://creative-assets.ddns.net/api/v1/realistic-review-ugc/output/1.png",
+        "https://drive.google.com/uc/123.png",
+        "https://cdn.example.org/review.jpg?token=SECRET",
+        "https://cdn.example.org/review.webp",
+        "http://cdn.example.org/review.png",
+        "https://127.0.0.1/review.png",
+        "https://cdn.example.org/review.png#token",
+    ):
+        assert loox_public_photo_url(invalid) == ""
+    payload = build_loox_csv([
+        ("hat-name", 5, "AI concept: Test", "", "Concept with comma, quote \"and\" newline\\nOK", "2026-10-12", "", "")
+    ])
+    data = list(csv.reader(StringIO(payload.decode("utf-8-sig"))))
+    assert len(data) == 2
+    assert len(data[1]) == 8
+    assert "Concept with comma" in data[1][4]
+    assert data[1][7] == ""
+
+
 def test_stage5_review_hide_and_full_loox_export(api, database):
     from zipfile import ZipFile
     from xml.etree import ElementTree
@@ -2686,7 +2717,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database):
         hidden_id = jobs[0].id
         retained_id = jobs[1].id
 
-    pre_export = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox")
+    pre_export = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=xlsx")
     assert pre_export.status_code == 200
     assert pre_export.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -2713,9 +2744,33 @@ def test_stage5_review_hide_and_full_loox_export(api, database):
         assert not created and saved.status == "hidden"
         assert hidden_job.output_remote_file_id == "image-0"
 
+    import csv
+    import io
     response = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox")
     assert response.status_code == 200
-    with ZipFile(BytesIO(response.content)) as book:
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.content.startswith(bytes((239, 187, 191)))
+    assert response.headers["X-CAM-Export-Rows"] == "1"
+    assert response.headers["X-CAM-Export-Missing-Photos"] == "0"
+    reader = csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))
+    records = list(reader)
+    assert len(records) == 1
+    csv_record = records[0]
+    assert list(csv_record) == [
+        "product_handle", "rating", "author", "email", "body",
+        "created_at", "photo_url", "verified_purchase",
+    ]
+    assert csv_record["product_handle"] == "custom-hat-handle"
+    assert csv_record["rating"] == "5"
+    assert csv_record["body"].startswith(PREFIX)
+    assert csv_record["created_at"] == now.date().isoformat()
+    assert csv_record["photo_url"] == "https://cdn.example.org/review-1.png"
+    assert csv_record["verified_purchase"] == ""
+    assert api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=doc").status_code == 422
+
+    preview = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=xlsx")
+    assert preview.status_code == 200
+    with ZipFile(BytesIO(preview.content)) as book:
         root = ElementTree.fromstring(book.read("xl/worksheets/sheet1.xml"))
         ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
         rows = root.findall(".//x:sheetData/x:row", ns)
@@ -2735,8 +2790,9 @@ def test_stage5_review_hide_and_full_loox_export(api, database):
         assert record[2] == "AI concept: Synthetic Tester 1"
         assert record[3] == ""
         assert record[4].startswith(PREFIX)
+        assert record[5] == now.date().isoformat()
         assert record[6] == "https://cdn.example.org/review-1.png"
-        assert record[7] == "0"
+        assert record[7] == ""
 
 
 def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):

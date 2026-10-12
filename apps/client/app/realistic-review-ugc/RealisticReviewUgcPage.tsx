@@ -435,9 +435,17 @@ export function RealisticReviewUgcPage() {
     await refreshStage3Groups();
   }
 
-  async function exportStage5Reviews() {
-    await downloadStage5LooxReviewConcepts();
-    setStage3Message("Exported all retained ready review concepts using the Loox column format.");
+  async function exportStage5Reviews(format: "csv" | "xlsx") {
+    const result = await downloadStage5LooxReviewConcepts(format);
+    const warnings = [
+      result.missingPhotos ? result.missingPhotos + " image URLs are not publicly importable" : "",
+      result.normalizedHandles ? "Verify " + result.normalizedHandles + " candidate Shopify handles" : "",
+    ].filter(Boolean).join("; ");
+    setStage3Message(
+      "Exported " + result.rows + " AI review concepts as " +
+      (format === "csv" ? "Loox CSV UTF-8" : "Excel preview") +
+      (warnings ? ". Before importing: " + warnings + "." : "."),
+    );
   }
 
   async function analyzeStage3(folderId?: string) {

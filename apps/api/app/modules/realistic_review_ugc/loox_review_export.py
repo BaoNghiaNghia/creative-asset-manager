@@ -6,7 +6,12 @@ from actual customers.
 """
 from __future__ import annotations
 
-from io import BytesIO
+import csv
+import re
+import unicodedata
+from io import BytesIO, StringIO
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 from zipfile import ZipFile, ZIP_DEFLATED
 from xml.sax.saxutils import escape
 
@@ -15,6 +20,58 @@ HEADERS = (
     "photo_url", "verified_purchase",
 )
 PREFIX = "AI-generated review concept — not a real customer testimonial. "
+
+
+def shopify_handle_from_folder(folder: str) -> str:
+    """Best-effort slug, NOT verified against the actual Shopify catalog."""
+    text = unicodedata.normalize("NFKD", str(folder or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.casefold())).strip("-")
+
+
+def loox_public_photo_url(candidate: str | None) -> str:
+    """Do not export authenticated, signed, private, or non-image media links.
+
+    The Loox custom-file importer requires a directly accessible public JPG
+    or PNG URL ending in that extension, without a trailing query string.
+    """
+    if not candidate:
+        return ""
+    try:
+        parts = urlsplit(candidate.strip())
+        host = (parts.hostname or "").lower()
+        if parts.scheme != "https" or not host or parts.username or parts.password or parts.port not in (None, 443):
+            return ""
+        if parts.query or parts.fragment or not parts.path.lower().endswith((".jpg", ".jpeg", ".png")):
+            return ""
+        if host in {"localhost", "creative-assets.ddns.net"} or host.endswith(
+            (".localhost", ".local", ".internal", ".google.com", ".googleusercontent.com")
+        ):
+            return ""
+        try:
+            ip = ip_address(host)
+            if not ip.is_global:
+                return ""
+        except ValueError:
+            pass
+        return candidate.strip()
+    except ValueError:
+        return ""
+
+
+def build_loox_csv(rows: list[tuple]) -> bytes:
+    """Loox Custom File accepts CSV UTF-8, not an XLSX upload."""
+    if len(rows) > 100_000:
+        raise ValueError("Loox custom import supports at most 100,000 rows")
+    out = StringIO(newline="")
+    writer = csv.writer(out, dialect="excel", lineterminator="\r\n")
+    writer.writerow(HEADERS)
+    for row in rows:
+        if len(row) != len(HEADERS):
+            raise ValueError("Invalid Loox export column count")
+        # Optional verified_purchase must be blank for non-verified concepts.
+        writer.writerow(tuple("" if item is None or item is False else item for item in row))
+    return out.getvalue().encode("utf-8-sig")
 
 
 def _cell(value: object, reference: str) -> str:

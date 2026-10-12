@@ -11,6 +11,7 @@ import type {
   Stage3ReviewImage,
 } from "./types";
 import "./Stage3ReviewGroups.css";
+import "./Stage5Toolbar.css";
 
 type Props = {
   data: Stage3ReviewGroupList;
@@ -24,7 +25,7 @@ type Props = {
   loadingMore?: boolean;
   onRefresh?: () => void;
   onDeleteReview?: (stage2JobId: string) => Promise<void>;
-  onExportReviews?: () => Promise<void>;
+  onExportReviews?: (format: "csv" | "xlsx") => Promise<void>;
 };
 
 export type Stage3ReviewModalEntry = {
@@ -302,7 +303,7 @@ export function Stage3ReviewGroups({
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<Stage3ReviewImage | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [actionError, setActionError] = useState("");
   const finished = data.ready_images + data.rejected_images;
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -361,16 +362,16 @@ export function Stage3ReviewGroups({
     }
   }
 
-  async function exportAll() {
+  async function exportAll(format: "csv" | "xlsx") {
     if (!onExportReviews || exporting) return;
-    setExporting(true);
+    setExporting(format);
     setActionError("");
     try {
-      await onExportReviews();
+      await onExportReviews(format);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to export reviews.");
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
 
@@ -379,47 +380,55 @@ export function Stage3ReviewGroups({
       className="rrugc-stage4-heading"
       kicker="STAGE 5 · FOLDER GROUPS → UGC REVIEW"
       title="UGC Review"
-      description="Stage 4 outputs stay grouped by destination folder. Each image is analyzed once for visible person/product, UGC feel, photorealism and review-card suitability."
-      actions={<div className="rrugc-stage3-header-actions">
-        <div className="rrugc-stage3-stats" aria-label="Stage 5 summary">
-          <span><strong>{data.total_groups}</strong><small>Loaded folders</small></span>
-          <span><strong>{data.total_images}</strong><small>Loaded images</small></span>
-          <span><strong>{finished}/{data.total_images}</strong><small>Reviewed (loaded)</small></span>
-        </div>
-        {onExportReviews && <button type="button"
-          className="rrugc-stage5-export rrugc-icon-action"
-          disabled={exporting}
-          title="Export all retained synthetic review concepts in the 8-column Loox XLSX format"
-          onClick={() => void exportAll()}>
-          <RrugcActionIcon name={exporting ? "refresh" : "download"} />{exporting ? "Exporting…" : "Export all · Loox XLSX"}
-        </button>}
-        <button
-          type="button"
-          className="rrugc-stage3-analyze-all rrugc-icon-action"
-          onClick={() => onAnalyze()}
-          disabled={analyzing || data.total_images === 0}
-        >
-          <RrugcActionIcon name={analyzing ? "refresh" : "sparkles"} />{analyzing ? "Queueing…" : "Analyze all"}
-        </button>
+      description="Review Stage 4 outputs by folder. Analyze new images, manage cards and export retained review concepts."
+      actions={<div className="rrugc-stage3-stats" aria-label="Stage 5 summary">
+        <span><strong>{data.total_groups}</strong><small>Folders</small></span>
+        <span><strong>{data.total_images}</strong><small>Images</small></span>
+        <span><strong>{finished}/{data.total_images}</strong><small>Reviewed</small></span>
       </div>}
     />
 
     <ActionMessageToast message={message} />
     <ActionMessageToast message={actionError} tone="error" />
 
-    <div className="rrugc-stage-search-toolbar rrugc-stage4-search-toolbar">
-      <RrugcSmartSearchInput
-        stageId="stage5"
-        query={query}
-        onQueryChange={onQueryChange}
-        suggestions={searchSuggestions}
-        placeholder="Search folder, image, reviewer, or scene…"
-        label="Search Stage 5 UGC reviews"
-      />
-      <span>{normalizedQuery ? visibleGroups.length + " matching loaded folders" : data.total_groups + " loaded folders"}</span>
-      <button type="button" className="rrugc-stage3-refresh rrugc-icon-action" onClick={onRefresh} disabled={loading || loadingMore}>
-        <RrugcActionIcon name="refresh" />Refresh
-      </button>
+    <div className="rrugc-stage5-toolbar">
+      <div className="rrugc-stage5-search-group">
+        <RrugcSmartSearchInput
+          stageId="stage5"
+          query={query}
+          onQueryChange={onQueryChange}
+          suggestions={searchSuggestions}
+          placeholder="Search folder, image, reviewer, or scene…"
+          label="Search Stage 5 UGC reviews"
+        />
+        <span className="rrugc-stage5-loaded-count">
+          {normalizedQuery ? visibleGroups.length + " matching folders" : data.total_groups + " folders loaded"}
+        </span>
+      </div>
+      <div className="rrugc-stage5-toolbar-actions">
+        <button type="button" className="rrugc-stage3-refresh rrugc-icon-action"
+          onClick={onRefresh} disabled={loading || loadingMore}>
+          <RrugcActionIcon name="refresh" />Refresh
+        </button>
+        <button type="button" className="rrugc-stage3-analyze-all rrugc-icon-action"
+          onClick={() => onAnalyze()} disabled={analyzing || data.total_images === 0}>
+          <RrugcActionIcon name={analyzing ? "refresh" : "sparkles"} />
+          {analyzing ? "Queueing…" : "Analyze all"}
+        </button>
+        {onExportReviews && <>
+          <button type="button" className="rrugc-stage5-export rrugc-icon-action"
+            disabled={Boolean(exporting)} title="Loox Custom File: CSV UTF-8, 8 template columns, all retained ready review concepts"
+            onClick={() => void exportAll("csv")}>
+            <RrugcActionIcon name={exporting ? "refresh" : "download"} />
+            {exporting === "csv" ? "Exporting…" : "Loox CSV"}
+          </button>
+          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action"
+            disabled={Boolean(exporting)} title="Excel preview only; upload the CSV file to Loox"
+            onClick={() => void exportAll("xlsx")}>
+            <RrugcActionIcon name="file" />Excel
+          </button>
+        </>}
+      </div>
     </div>
 
     {loading ? (

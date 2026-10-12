@@ -495,24 +495,44 @@ export const hideStage5Review = (stage2JobId: string) =>
     { method: "DELETE" },
   );
 
-export async function downloadStage5LooxReviewConcepts(): Promise<void> {
-  const response = await fetch("/api/v1/realistic-review-ugc/stage3/reviews/export-loox", {
-    credentials: "include",
-    headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-  });
+export type Stage5LooxExportResult = {
+  rows: number;
+  missingPhotos: number;
+  normalizedHandles: number;
+  format: "csv" | "xlsx";
+};
+
+export async function downloadStage5LooxReviewConcepts(
+  format: "csv" | "xlsx" = "csv",
+): Promise<Stage5LooxExportResult> {
+  const response = await fetch(
+    "/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=" + format,
+    {
+      credentials: "include",
+      headers: {
+        Accept: format === "csv" ? "text/csv" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      },
+    },
+  );
   if (!response.ok) throw new RrugcApiError(response.status, "Unable to export review concepts.");
   const blob = await response.blob();
   const fileUrl = URL.createObjectURL(blob);
   try {
     const link = document.createElement("a");
     link.href = fileUrl;
-    link.download = "CAM_Stage5_Review_Concepts_Loox.xlsx";
+    link.download = format === "csv" ? "CAM_Stage5_Loox_Import.csv" : "CAM_Stage5_Loox_Preview.xlsx";
     document.body.appendChild(link);
     link.click();
     link.remove();
   } finally {
     URL.revokeObjectURL(fileUrl);
   }
+  return {
+    rows: Number(response.headers.get("X-CAM-Export-Rows") || 0),
+    missingPhotos: Number(response.headers.get("X-CAM-Export-Missing-Photos") || 0),
+    normalizedHandles: Number(response.headers.get("X-CAM-Export-Normalized-Handles") || 0),
+    format,
+  };
 }
 
 export const analyzeStage3ReviewGroups = (
