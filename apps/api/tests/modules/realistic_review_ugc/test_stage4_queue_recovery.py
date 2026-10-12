@@ -126,6 +126,66 @@ def test_recovery_requeues_once_without_overwriting_completed_jobs(db, monkeypat
         assert session.query(ProcessingJobModel).filter_by(entity_id=orphan).count() == 2
 
 
+
+
+def test_only_proven_legacy_attribute_failure_is_replayed_once(db, monkeypatch):
+    from datetime import timedelta
+
+    job_id, original_id = seed(db)
+    with db() as session:
+        row = session.get(RrugcStage2JobModel, job_id)
+        first = session.get(ProcessingJobModel, original_id)
+        first.created_at = datetime(2026, 10, 12, 7, tzinfo=timezone.utc)
+        second = ProcessingJobModel(
+            tenant_id="test-tenant", job_type="rrugc_stage2_generate",
+            entity_type="rrugc_stage2_job", entity_id=job_id,
+            idempotency_key="legacy-attribute:"+job_id,
+            payload_json={"stage2_job_id": job_id}, status="failed",
+            attempt_count=3, max_attempts=3, next_attempt_at=datetime.now(timezone.utc),
+            last_error_code="AttributeError",
+            created_at=datetime(2026, 10, 12, 8, tzinfo=timezone.utc),
+        )
+        session.add(second)
+        session.flush()
+        row.processing_job_id = second.id
+        row.status = "failed"
+        row.last_error_code = "AttributeError"
+        session.commit()
+
+    replayed = []
+    def retry(self, *, tenant_id, user_id, job_id):
+        replayed.append(job_id)
+        self.session.add(ProcessingJobModel(
+            tenant_id=tenant_id, job_type="rrugc_stage2_generate",
+            entity_type="rrugc_stage2_job", entity_id=job_id,
+            idempotency_key="third-and-last:"+job_id,
+            payload_json={"stage2_job_id": job_id}, status="pending",
+            next_attempt_at=datetime.now(timezone.utc),
+        ))
+        row = self.session.get(RrugcStage2JobModel, job_id)
+        row.status = "queued"
+        self.session.commit()
+
+    monkeypatch.setattr(stage4_queue_recovery.RrugcStage2Service, "retry_failed_job", retry)
+    dry = stage4_queue_recovery.replay_legacy_attribute_error(dry_run=True)
+    assert dry["eligible"] == 1 and dry["requeued"] == 0 and not replayed
+    value = stage4_queue_recovery.replay_legacy_attribute_error()
+    assert value == {"eligible": 1, "requeued": 1, "blocked": 0}
+    assert replayed == [job_id]
+    assert stage4_queue_recovery.replay_legacy_attribute_error()["requeued"] == 0
+
+
+def test_legacy_regression_replay_rejects_non_matching_error_chain(db, monkeypatch):
+    job_id, old = seed(db, error="stage2_source_changed")
+    with db() as session:
+        row = session.get(RrugcStage2JobModel, job_id)
+        row.last_error_code = "AttributeError"
+        row.status = "failed"
+        session.commit()
+    monkeypatch.setattr(stage4_queue_recovery.RrugcStage2Service, "retry_failed_job",
+                        lambda *_a, **_kw: pytest.fail("Unproven history must not replay"))
+    assert stage4_queue_recovery.replay_legacy_attribute_error()["eligible"] == 0
+
 def test_recovery_dry_run_and_unrelated_error_never_requeue(db, monkeypatch):
     orphan, old = seed(db, error="stage2_source_changed")
     monkeypatch.setattr(

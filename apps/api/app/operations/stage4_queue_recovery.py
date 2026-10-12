@@ -20,6 +20,73 @@ LOGGER = logging.getLogger(__name__)
 AUTO_REPLAY_ERRORS = frozenset({"codex_image_output_missing"})
 
 
+
+def replay_legacy_attribute_error(*, limit: int = 2, dry_run: bool = False) -> dict[str, int]:
+    """One-time replay for two-step chains spoiled by a past ClaimedJob regression.
+
+    Qualifies only if the ORIGINAL processing run exhausted on
+    codex_image_output_missing, its ONE automatic replay exhausted on the
+    AttributeError produced by the previous runtime, and no output exists.
+    This will never requeue a third time or modify published versions.
+    """
+    result = {"eligible": 0, "requeued": 0, "blocked": 0}
+    with SessionLocal() as session:
+        candidates = list(session.execute(
+            select(RrugcStage2JobModel.id, RrugcStage2JobModel.tenant_id)
+            .where(
+                RrugcStage2JobModel.status == "failed",
+                RrugcStage2JobModel.last_error_code == "AttributeError",
+                RrugcStage2JobModel.output_remote_file_id.is_(None),
+            )
+            .order_by(RrugcStage2JobModel.updated_at.asc())
+            .limit(max(1, min(limit * 6, 100)))
+        ))
+    for job_id, tenant_id in candidates:
+        if result["eligible"] >= limit:
+            break
+        with SessionLocal() as session:
+            row = session.scalar(select(RrugcStage2JobModel).where(
+                RrugcStage2JobModel.id == job_id,
+                RrugcStage2JobModel.tenant_id == tenant_id,
+                RrugcStage2JobModel.status == "failed",
+                RrugcStage2JobModel.last_error_code == "AttributeError",
+                RrugcStage2JobModel.output_remote_file_id.is_(None),
+            ).with_for_update(skip_locked=True))
+            if row is None:
+                continue
+            history = list(session.scalars(select(ProcessingJobModel).where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.job_type == "rrugc_stage2_generate",
+                ProcessingJobModel.entity_type == "rrugc_stage2_job",
+                ProcessingJobModel.entity_id == job_id,
+            ).order_by(ProcessingJobModel.created_at.asc())))
+            if (
+                len(history) != 2
+                or history[0].last_error_code != "codex_image_output_missing"
+                or history[1].last_error_code != "AttributeError"
+                or history[1].status != "failed"
+                or history[1].id != row.processing_job_id
+                or history[1].attempt_count < history[1].max_attempts
+            ):
+                continue
+            result["eligible"] += 1
+            if dry_run:
+                continue
+            try:
+                RrugcStage2Service(session).retry_failed_job(
+                    tenant_id=tenant_id, user_id=row.created_by_user_id, job_id=job_id,
+                )
+                result["requeued"] += 1
+                LOGGER.warning("stage4_runtime_regression_replayed_once job_id=%s", job_id)
+            except Exception as exc:
+                session.rollback()
+                result["blocked"] += 1
+                LOGGER.warning(
+                    "stage4_runtime_regression_replay_blocked job_id=%s error_type=%s",
+                    job_id, type(exc).__name__,
+                )
+    return result
+
 def reconcile_stage4_terminal(*, limit: int = 12, dry_run: bool = False) -> dict[str, int]:
     report = {"eligible": 0, "failed_synced": 0, "auto_requeued": 0, "skipped": 0}
     with SessionLocal() as session:
