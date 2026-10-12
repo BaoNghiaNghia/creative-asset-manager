@@ -736,7 +736,7 @@ def test_stage1_ships_dedicated_zero_reference_keyword_skill():
     assert manifest["required_reference_roles"] == []
     assert "keyword_six_designs" in manifest["workflows"]
     assert "design_06.png" in instructions
-    assert "640" in instructions
+    assert "Do **not** create or persist preview" in instructions
 
 
 def test_codex_keyword_prompt_does_not_require_an_input_image():

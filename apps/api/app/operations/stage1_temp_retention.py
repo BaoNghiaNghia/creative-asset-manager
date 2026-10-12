@@ -1,8 +1,9 @@
-"""Remove only Stage 1 owned Google Drive previews older than 48 hours.
+"""Delete only legacy CAM-owned Stage 1 previews in the dedicated Drive folder.
 
-Dry-run default. Scopes to explicitly named temp folder and appProperties
-written by CAM Stage 1 uploader; checks metadata again just before deletion.
-Never deletes final images, unrelated user files, or files moved out of temp.
+The Stage 1 uploader is permanently disabled. Scheduled cleanup uses
+--purge-all-owned to remove existing owned drafts immediately. The conservative
+48-hour mode remains available for manual audits. Files are revalidated before
+deletion; final images, unowned files and moved files are never deleted.
 """
 from __future__ import annotations
 
@@ -47,7 +48,7 @@ async def access_token_with_retry(storage: GoogleDriveAssetStorage) -> str:
     raise AssertionError("Unreachable token retry state")
 
 
-def eligible(metadata: dict, *, now: datetime) -> bool:
+def eligible(metadata: dict, *, now: datetime, purge_all_owned: bool = False) -> bool:
     """Fail closed unless metadata proves parent, type, ownership and age."""
     props = metadata.get("appProperties") or {}
     asset_id = str(props.get("cam_asset_id") or "")
@@ -69,11 +70,11 @@ def eligible(metadata: dict, *, now: datetime) -> bool:
     except (ValueError, KeyError, TypeError):
         return False
     # Exact 48 hours from creation, not midnight on the second calendar day.
-    return created <= now - timedelta(hours=PREVIEW_TTL_HOURS)
+    return purge_all_owned or created <= now - timedelta(hours=PREVIEW_TTL_HOURS)
 
 
 async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
-                now: datetime | None = None) -> dict:
+                now: datetime | None = None, purge_all_owned: bool = False) -> dict:
     now = now or datetime.now(timezone.utc)
     token = await access_token_with_retry(storage)
     summary = {"scanned": 0, "eligible": 0, "deleted": 0, "skipped": 0,
@@ -112,7 +113,7 @@ async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
             body = response.json()
             for record in body.get("files") or []:
                 summary["scanned"] += 1
-                if eligible(record, now=now):
+                if eligible(record, now=now, purge_all_owned=purge_all_owned):
                     summary["eligible"] += 1
                     targets.append(record)
                 else:
@@ -138,7 +139,8 @@ async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
                         continue
                     storage._raise_for_status(response)
                     refreshed = response.json()
-                    if not eligible(refreshed, now=now) or refreshed.get("appProperties") != record.get("appProperties"):
+                    if (not eligible(refreshed, now=now, purge_all_owned=purge_all_owned)
+                            or refreshed.get("appProperties") != record.get("appProperties")):
                         summary["skipped"] += 1
                         continue
                     removal = await client.delete(
@@ -163,11 +165,14 @@ def main() -> None:
     import json
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--purge-all-owned", action="store_true",
+                        help="Remove all verified CAM-owned legacy previews, regardless of age.")
     args = parser.parse_args()
     storage = build_managed_storage_provider(get_settings())
     if not isinstance(storage, GoogleDriveAssetStorage):
         raise RuntimeError("Stage 1 preview retention requires Google Drive managed storage")
-    result = asyncio.run(purge(storage, apply=args.apply))
+    result = asyncio.run(purge(storage, apply=args.apply,
+                               purge_all_owned=args.purge_all_owned))
     print(json.dumps(result, sort_keys=True))
     if result["errors"]:
         raise SystemExit(1)

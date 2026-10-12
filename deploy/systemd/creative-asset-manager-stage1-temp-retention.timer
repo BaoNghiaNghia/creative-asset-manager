@@ -1,5 +1,5 @@
 [Unit]
-Description=Hourly removal of expired Stage 1 temp draft previews
+Description=Hourly cleanup of CAM-owned legacy Stage 1 preview files
 
 [Timer]
 OnCalendar=hourly

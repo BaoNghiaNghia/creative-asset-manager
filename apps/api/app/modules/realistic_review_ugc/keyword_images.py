@@ -27,7 +27,6 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
-from app.modules.realistic_review_ugc.stage1_temp_previews import upload_temp_previews
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -127,8 +126,8 @@ def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str |
             "Six separate straight-on RGBA masters with genuine transparency, "
             "no hat or background. Output only output/final/design_01.png through "
             "design_06.png. No board, colorways, extra image-generation calls, "
-            "or full-resolution intermediates. If needed, procedural previews only "
-            "640px WebP quality 65 outside output/final/. "
+            "or full-resolution intermediates. Do not generate, save, upload or "
+            "retain any preview/draft images, including working/previews/. "
             + ((custom or "").strip() if custom else "")
         ).strip()
     if skill_name == "hanh-redesign-8869-ver-4":
@@ -947,18 +946,9 @@ class KeywordImageGenerateHandler:
             preserve_finals = missing is not None and len(missing) < 6
             raise
         finally:
-            if not preserve_finals and not upload_only:
-                try:
-                    workspace = (Path(runner.config.staging_root).resolve()
-                                 / "codex" / context.job.entity_id)
-                    await upload_temp_previews(
-                        storage, workspace=workspace,
-                        tenant_id=context.job.tenant_id,
-                        job_id=context.job.entity_id,
-                        processing_job_id=context.job.id,
-                    )
-                except Exception:
-                    context.logger.exception("stage1_temp_preview_save_failed")
+            # Preview files are NEVER persisted, including after partial/failed
+            # generations whose six numbered PNG checkpoints must survive.
+            runner.cleanup_previews(context.job.entity_id)
             if not preserve_finals:
                 runner.cleanup_attempt(context.job.entity_id)
 

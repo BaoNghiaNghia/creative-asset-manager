@@ -515,7 +515,8 @@ class CodexImageGenRunner:
                 f"Generate ONLY the {len(resume_missing_numbers)} missing designs: {missing_text}. "
                 "Make ONE imagegen call for each missing design only. "
                 "Keep the existing designs distinct from these new concepts. "
-                "Save only those exact missing filenames under output/final/.\n"
+                "Save only those exact missing filenames under output/final/. "
+                "Do not create or retain preview, draft or QA image files.\n"
                 f"Original Stage 1 artwork request (quote is literal input): {prompt}\n"
                 f"FINAL INSTRUCTION: continue with ONLY {missing_text}. "
                 "Do not repeat all six, do not output an image sheet, and do not use an API-key fallback."
@@ -951,6 +952,27 @@ class CodexImageGenRunner:
                 retryable=False,
             ) from exc
 
+    def cleanup_previews(self, attempt_id: str) -> None:
+        """Remove only the Stage 1 ephemeral preview subtree.
+
+        Preserve output/final checkpoints even if image generation or Drive
+        upload failed. Never traverse symlinked workspaces or parent folders.
+        """
+        if not attempt_id or attempt_id in (".", "..") or "/" in attempt_id or "\\" in attempt_id:
+            return
+        workspace = Path(self.config.staging_root).resolve() / "codex" / attempt_id
+        working = workspace / "working"
+        if workspace.is_symlink() or working.is_symlink():
+            return
+        previews = working / "previews"
+        try:
+            if previews.is_symlink():
+                previews.unlink()
+            elif previews.is_dir():
+                shutil.rmtree(previews)
+        except OSError:
+            pass
+
     def cleanup_attempt(self, attempt_id: str) -> None:
         workspace = Path(self.config.staging_root).resolve() / "codex" / attempt_id
         try:
@@ -988,8 +1010,8 @@ class CodexImageGenRunner:
                 "image generations, 10-concept boards, Hero selection, 13 hats, mockups or colorways.\n"
                 "Keep the quote's exact text and make each concept truly distinct.\n"
                 "Save exactly six PNG files: output/final/design_01.png through design_06.png.\n"
-                "Keep intermediates out of output/final; if needed, save compressed WebP "
-                "previews to working/previews, max 640px longest edge, quality ~65.\n"
+                "Do not generate, write, upload, or retain any preview/draft files, "
+                "including working/previews/. Persist only the six numbered final PNGs.\n"
                 "Do not use an API-key-backed image generation fallback.\n"
                 "Invoke the actual $imagegen image-generation tool once for EACH "
                 "design, then ensure the corresponding numbered PNG exists and "

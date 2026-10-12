@@ -90,6 +90,36 @@ def test_stage1_continuation_only_generates_missing_artwork(tmp_path, monkeypatc
     assert "Do not repeat all six" in seen[0]
 
 
+def test_stage1_preview_cleanup_preserves_final_png_checkpoints(tmp_path):
+    final = outputs(tmp_path / "codex" / "stage1-job")
+    original = (final / "design_01.png").read_bytes()
+    preview = tmp_path / "codex" / "stage1-job" / "working" / "previews"
+    preview.mkdir(parents=True)
+    (preview / "qa.png").write_bytes(b"discarded preview")
+    other = tmp_path / "codex" / "stage1-job" / "working" / "notes.txt"
+    other.write_text("important log", encoding="utf-8")
+    custom = CodexImageGenRunner(CodexImageRunnerConfig(staging_root=str(tmp_path)))
+    custom.cleanup_previews("stage1-job")
+    assert not preview.exists()
+    assert (final / "design_01.png").read_bytes() == original
+    assert other.read_text(encoding="utf-8") == "important log"
+
+
+def test_stage1_preview_cleanup_does_not_follow_external_symlink(tmp_path):
+    folder = tmp_path / "codex" / "stage1-job" / "working"
+    folder.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.png").write_bytes(b"important")
+    (folder / "previews").symlink_to(outside, target_is_directory=True)
+    custom = CodexImageGenRunner(CodexImageRunnerConfig(staging_root=str(tmp_path)))
+    custom.cleanup_previews("stage1-job")
+    assert not (folder / "previews").exists()
+    assert (outside / "keep.png").read_bytes() == b"important"
+    custom.cleanup_previews("../outside")
+    assert (outside / "keep.png").read_bytes() == b"important"
+
+
 def test_six_individual_pngs_selected_while_intermediates_ignored(tmp_path):
     final = outputs(tmp_path)
     drafts = tmp_path / "working" / "previews"
@@ -164,7 +194,8 @@ def test_stage1_prompt_does_not_request_v4_ten_concepts_or_colorways():
     value = runner()._prompt(person_name=None, references=[], user_prompt="BEACH LIFE")
     assert "exactly six" in value
     assert "design_06.png" in value
-    assert "max 640px" in value
+    assert "Do not generate, write, upload, or retain any preview/draft files" in value
+    assert "Persist only the six numbered final PNGs" in value
     assert "BEACH LIFE" in value
     assert "TEN separate" not in value
     assert "13 ORIGINAL Valucap" not in value
@@ -234,7 +265,8 @@ def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_c
     files = {name: content for name, content, _content_type in bundle.files}
     skill = files["SKILL.md"].decode("utf-8")
     manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 1.2.0" in skill
+    assert "version: 1.2.1" in skill
+    assert "Do **not** create or persist preview" in skill
     assert "embroidered-satin-natural" in skill
     for forbidden_effect in ("NOT bulky puff", "no hat", "flat printed graphic"):
         assert forbidden_effect.lower() in skill.lower()
@@ -252,3 +284,4 @@ def test_stage1_keyword_prompt_requires_creative_distinct_stitches_and_thread_pi
     assert "directional contrast" in value
     assert "output/final/design_01.png through design_06.png" in value
     assert "WELL READ" in value
+    assert "Do not generate, save, upload or" in value

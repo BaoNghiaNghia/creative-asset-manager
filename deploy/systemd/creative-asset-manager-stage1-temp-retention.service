@@ -1,5 +1,5 @@
 [Unit]
-Description=CAM Stage 1 temporary preview retention (48 hours)
+Description=CAM legacy Stage 1 preview purge (owned files only)
 Wants=network-online.target
 After=network-online.target postgresql.service
 
@@ -11,7 +11,7 @@ WorkingDirectory=/opt/creative-asset-manager/current/apps/api
 EnvironmentFile=/etc/creative-asset-manager/production.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m app.operations.stage1_temp_retention --apply
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python -m app.operations.stage1_temp_retention --apply --purge-all-owned
 TimeoutStartSec=25min
 UMask=0027
 NoNewPrivileges=true

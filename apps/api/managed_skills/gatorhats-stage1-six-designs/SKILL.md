@@ -1,7 +1,7 @@
 ---
 name: gatorhats-stage1-six-designs
 description: Stage 1 keyword-to-artwork: exactly six thin, fabric-adherent embroidery designs, one independent transparent final PNG each. Visible thread direction and fine satin/fill detail, never puffy 3D or printed fills.
-version: 1.2.0
+version: 1.2.1
 ---
 
 # Stage 1 · Six separate embroidery designs
@@ -49,10 +49,10 @@ The master is a genuine-looking low-relief **thread artwork**, NOT a flat printe
 - Do not create `output/final.png`, combined boards, duplicate final images, additional images under output/final/, or additional "versions". If an image fails QA, replace that same design file; do not create new numbered finals or run batch regeneration.
 - Ensure exactly six completed files exist before reporting success. If any is missing, report failure instead of inventing six.
 
-## Intermediate previews and disk budget
-- Avoid image-generation drafts entirely. If procedural previews or inspection thumbnails are truly needed, put ONLY reduced WebP/JPEG files in `working/previews/`, maximum longest edge 640 pixels and WebP quality about 65; never duplicate final-resolution images in this folder.
-- Put any draft/QA image in `working/previews/` (do not store drafts anywhere else). The application converts them into WebP at most 640px / quality 65, uploads them to a dedicated temp Google Drive folder, and automatically deletes only these owned draft files after 48 hours. The application still imports only six final PNGs into Stage 1 Output. Do not send previews as final deliverables.
-- Do not save previews, QA crops, attempts, mockups, or reference assets in `output/final/`. The application removes the local temporary workspace after upload.
+## No previews or intermediate image files
+- Do **not** create or persist preview, draft, QA crop, reference, inspection-thumbnail, mockup or alternative raster files in any folder, including `working/previews/`, `generated/`, `results/` and `output/`. No uploads to the temp Google Drive folder.
+- Inspect the six final PNGs directly for QA. You may plan six distinct concepts in text before calling image generation; no intermediary image generation calls.
+- Only the six numbered files under `output/final/` are saved and uploaded. Successful attempts remove their temporary local workspace; failed attempts may retain numbered final PNGs as recovery checkpoints.
 - Never change any source Skill or production stock assets. Do not reveal job internals, credentials or execution environment.
 
 ## Completion
