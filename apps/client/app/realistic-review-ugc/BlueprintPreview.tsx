@@ -78,9 +78,11 @@ type DragAxis = "horizontal" | "vertical" | "both";
 type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
-export function BlueprintPreview({ versions, initialVersion }: {
+export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
+  onToggleStage2Selection?: (version: GenerationOutputVersion) => void;
+  savingSelectionVersion?: number | null;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
@@ -158,7 +160,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
 
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>, axis: DragAxis) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    if ((event.target as HTMLElement).closest("a,input")) return;
+    if ((event.target as HTMLElement).closest("a,input,[data-blueprint-design-action]")) return;
     dragOrigin.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis };
     suppressNextClick.current = false;
   };
@@ -200,13 +202,9 @@ export function BlueprintPreview({ versions, initialVersion }: {
     <div className="rrugc-blueprint-controls">
       <div className="rrugc-blueprint-description">
         <strong>Blueprint <span className="rrugc-blueprint-count">{versions.length} designs × 13 hat colors</span></strong>
-        <span>Slide the design row sideways and the hat colors vertically; the selected mockup stays centered.</span>
+        <span>{onToggleStage2Selection ? "Star designs to add them to Products Stage 2. Drag to browse; selections are saved." : "Slide the design row sideways and the hat colors vertically; the selected mockup stays centered."}</span>
       </div>
       <div className="rrugc-blueprint-options">
-        <a className="rrugc-version-download" href={activeDesign.url + "?download=true"} download
-          aria-label={"Download original " + designName(activeDesign)} title="Download selected original embroidery image">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3" /></svg>Download design
-        </a>
         <label className="rrugc-blueprint-guides"><input type="checkbox" checked={guides}
           onChange={event => setGuides(event.target.checked)} /> Show guides</label>
         <label className="rrugc-blueprint-thread-mode-label">Thread color
@@ -231,15 +229,41 @@ export function BlueprintPreview({ versions, initialVersion }: {
             const index = selectedDesign + delta;
             const design = versions[index];
             if (!design) return null;
-            return <button type="button" key={design.version}
-              className={"rrugc-blueprint-design-choice" + (delta === 0 ? " is-selected" : "")}
-              style={{ transform: "translateX(calc(-50% + " + (delta * 174) + "px))" }}
-              aria-pressed={delta === 0} aria-label={"Select design " + designName(design)}
-              onClick={() => setDesignIndex(index)}>
-              <span className="rrugc-blueprint-design-caption">DESIGN {index + 1}{delta === 0 ? " · SELECTED" : ""}</span>
-              <DeferredImage src={thumbnailUrl(design.url, 240)} rootMargin="180px" alt="" draggable={false} loading="lazy" decoding="async"/>
-              <strong title={designName(design)}>{designName(design)}</strong>
-            </button>;
+            const starred = Boolean(design.selected_for_products_stage2);
+            const validPng = (!design.output_name || design.output_name.toLowerCase().endsWith(".png"));
+            return <div key={design.version}
+              className={"rrugc-blueprint-design-item" + (delta === 0 ? " is-active" : "") + (starred ? " is-starred" : "")}
+              style={{ transform: "translateX(calc(-50% + " + (delta * 174) + "px))" }}>
+              <button type="button"
+                className={"rrugc-blueprint-design-choice" + (delta === 0 ? " is-selected" : "")}
+                aria-pressed={delta === 0} aria-label={"Select design " + designName(design)}
+                onClick={() => setDesignIndex(index)}>
+                <span className="rrugc-blueprint-design-caption">DESIGN {index + 1}{delta === 0 ? " · ACTIVE" : ""}</span>
+                <DeferredImage src={thumbnailUrl(design.url, 240)} rootMargin="180px" alt="" draggable={false} loading="lazy" decoding="async"/>
+                <strong title={designName(design)}>{designName(design)}</strong>
+              </button>
+              {onToggleStage2Selection && <button type="button"
+                data-blueprint-design-action="star"
+                className={"rrugc-blueprint-design-star" + (starred ? " is-starred" : "")}
+                aria-label={(starred ? "Remove design from Products Stage 2: " : "Star design for Products Stage 2: ") + designName(design)}
+                title={starred ? "Remove from Products Stage 2" : "Select for Products Stage 2"}
+                aria-pressed={starred}
+                disabled={!validPng || savingSelectionVersion != null}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => { event.stopPropagation(); onToggleStage2Selection(design); }}>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+                  <path d="m12 2.5 2.95 6 6.6.96-4.77 4.65 1.13 6.57L12 17.57l-5.91 3.11 1.13-6.57-4.77-4.65 6.6-.96Z" />
+                </svg>
+              </button>}
+              <a data-blueprint-design-action="download" className="rrugc-blueprint-design-download"
+                href={design.url + (design.url.includes("?") ? "&" : "?") + "download=true"}
+                download aria-label={"Download design " + designName(design)} title="Download original design"
+                onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3"/>
+                </svg>
+              </a>
+            </div>;
           })}
         </div>
         <button type="button" className="rrugc-blueprint-design-control is-next"

@@ -4,14 +4,18 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Stage2ReferenceReviewModal } from "./Stage2JobTable";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
-import { listGenerationOutputVersions } from "./api";
+import { listGenerationOutputVersions, selectStage1ProductDesign } from "./api";
 import type { SourcePlanReferencePreview } from "./types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("./api", async importOriginal => {
   const actual = await importOriginal<typeof import("./api")>();
-  return { ...actual, listGenerationOutputVersions: vi.fn(async () => ({
+  return { ...actual,
+    selectStage1ProductDesign: vi.fn(async (_jobId: string, _version: number, selected: boolean) => ({
+      selected, source_plan_id: selected ? "source-plan-1" : null,
+    })),
+    listGenerationOutputVersions: vi.fn(async () => ({
     versions: [1, 2, 3].map(version => ({
       version, url: "https://example.test/output-" + version + ".png",
       created_at: "2026-10-09T05:00:00Z", width: 1024, height: 1024,
@@ -42,7 +46,7 @@ describe("Stage 4 bulk reference selection", () => {
     expect(all.disabled).toBe(false);
     expect(none.disabled).toBe(false);
     expect(document.querySelectorAll('[data-ref-action="select-all"]')).toHaveLength(1);
-    expect(document.querySelector('button[aria-label="Reference 2 already generated"]')?.hasAttribute("disabled")).toBe(true);
+    expect(document.querySelector('button[aria-label$="already generated"]')?.hasAttribute("disabled")).toBe(true);
     await act(async () => all.click());
     expect(onBulkSelection).toHaveBeenLastCalledWith("plan-1", refs, new Set(["2"]), "all");
     await act(async () => none.click());
@@ -54,6 +58,38 @@ describe("Stage 4 bulk reference selection", () => {
 });
 
 describe("Version history comparison", () => {
+  it("persists Stage 1 star selection from its design card without interrupting Blueprint", async () => {
+    vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
+      job_id: "stage1-star-job", stage: "stage1",
+      versions: [6, 5, 4].map(version => ({
+        version, output_name: "design_0" + version + ".png",
+        url: "/api/v1/outputs/" + version, created_at: "2026-10-09T05:00:00Z",
+        width: 1000, height: 700, selected_for_products_stage2: version === 6,
+      })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<GenerationOutputVersionsDialog
+      stage="stage1" jobId="stage1-star-job" title="Artwork" onClose={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.querySelector(".rrugc-stage1-products-selection")).toBeNull();
+    expect(host.querySelectorAll(".rrugc-blueprint-design-item.is-starred")).toHaveLength(1);
+    const active = host.querySelector(".rrugc-blueprint-design-item.is-active")!;
+    expect(active.querySelector<HTMLAnchorElement>(".rrugc-blueprint-design-download")?.getAttribute("href"))
+      .toBe("/api/v1/outputs/6?download=true");
+    const star = active.querySelector<HTMLButtonElement>(".rrugc-blueprint-design-star")!;
+    expect(star.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => star.click());
+    expect(selectStage1ProductDesign).toHaveBeenCalledWith("stage1-star-job", 6, false);
+    expect(host.querySelectorAll(".rrugc-blueprint-design-item.is-starred")).toHaveLength(0);
+    expect(host.querySelector(".rrugc-blueprint-selected-info")?.textContent).toContain("design_06.png");
+    await act(async () => star.click());
+    expect(selectStage1ProductDesign).toHaveBeenLastCalledWith("stage1-star-job", 6, true);
+    expect(host.querySelectorAll(".rrugc-blueprint-design-item.is-starred")).toHaveLength(1);
+    await act(async () => root.unmount());
+  });
+
   it("displays all 37 Stage 1 Skill files with their original names", async () => {
     vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
       job_id: "stage1-job", stage: "stage1",

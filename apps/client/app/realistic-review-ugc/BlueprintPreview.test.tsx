@@ -168,7 +168,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Auto-match thread");
     expect(host.querySelector<HTMLSelectElement>('select[aria-label="Thread color mode"]')?.value).toBe("auto");
     expect(host.querySelectorAll('button[aria-label*="embroidery palette"]')).toHaveLength(0);
-    expect(host.querySelector(".rrugc-blueprint-design-choice.is-selected")?.getAttribute("style")).toContain("0px");
+    expect(host.querySelector(".rrugc-blueprint-design-item.is-active")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.max).toBe("200");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.value).toBe("100");

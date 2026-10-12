@@ -1,9 +1,27 @@
-
-.rrugc-stage1-products-selection{display:grid;gap:7px;padding:10px 13px;margin:7px 0;border:1px solid #cddded;border-radius:9px;background:#f8fbff;color:#304b72;font-size:11px}
-.rrugc-stage1-products-selection>strong{font-size:12px}
-.rrugc-stage1-products-selection>span{color:#627792}
-.rrugc-stage1-products-selection-items{display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow-y:auto}
-.rrugc-stage1-products-selection-items button{padding:6px 10px;border:1px solid #bfcee1;border-radius:7px;background:white;color:#335478;font:inherit;cursor:pointer}
-.rrugc-stage1-products-selection-items button.is-selected{border-color:#388d67;background:#e4f6eb;color:#27684a}
-.rrugc-stage1-products-selection-items button:disabled{opacity:.55;cursor:not-allowed}
-.rrugc-stage1-products-selection-items button:focus-visible{outline:2px solid #4c78bd;outline-offset:2px}
+/* Stage 1 source selection lives on the design cards, not in a second picker. */
+.rrugc-output-version-dialog .rrugc-version-grid article.rrugc-version-compare-card.is-stage2-starred{
+  border:2px solid #e1aa28;
+  background:#fffbed;
+  box-shadow:0 0 0 2px rgba(231,173,40,.16);
+}
+.rrugc-output-version-dialog .rrugc-version-stage2-star{
+  display:grid;place-items:center;flex:none;width:30px;height:30px;
+  border:1px solid #d6e0ec;border-radius:7px;background:#fff;color:#72849b;
+  cursor:pointer;
+}
+.rrugc-output-version-dialog .rrugc-version-stage2-star svg{width:18px;height:18px}
+.rrugc-output-version-dialog .rrugc-version-stage2-star.is-starred{
+  border-color:#e6b64d;background:#fff0b8;color:#b77c0e;
+}
+.rrugc-output-version-dialog .rrugc-version-stage2-star:hover:not(:disabled){
+  border-color:#d6a231;background:#fff7dd;
+}
+.rrugc-output-version-dialog .rrugc-version-stage2-star:disabled{opacity:.5;cursor:wait}
+.rrugc-output-version-dialog .rrugc-version-stage2-star:focus-visible{outline:2px solid #3b82c4;outline-offset:2px}
+.rrugc-output-version-dialog .rrugc-version-grid article.rrugc-version-compare-card .rrugc-version-download-actions .rrugc-version-download{
+  margin-left:auto;
+}
+.rrugc-stage2-selection-error{
+  margin:5px 13px;padding:9px 12px;border:1px solid #f5b0b0;border-radius:7px;
+  background:#fff5f5;color:#9a2626;font-size:11px;font-weight:600;
+}

@@ -25,6 +25,7 @@ export function GenerationOutputVersionsDialog({
   const [versions, setVersions] = useState<GenerationOutputVersion[]>([]);
   const [selectedVersions, setSelectedVersions] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
+  const [selectionError, setSelectionError] = useState("");
   const [savingSelectionVersion, setSavingSelectionVersion] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">(stage === "stage1" ? "blueprint" : "auto");
@@ -34,6 +35,7 @@ export function GenerationOutputVersionsDialog({
     const controller = new AbortController();
     setLoading(true);
     setError("");
+    setSelectionError("");
     setVersions([]);
     setSelectedVersions(new Set());
     void listGenerationOutputVersions(stage, jobId, controller.signal)
@@ -70,29 +72,41 @@ export function GenerationOutputVersionsDialog({
   async function toggleProductStage2Selection(version: GenerationOutputVersion) {
     if (stage !== "stage1" || savingSelectionVersion !== null) return;
     setSavingSelectionVersion(version.version);
-    setError("");
+    setSelectionError("");
     try {
       const result = await selectStage1ProductDesign(jobId, version.version, !version.selected_for_products_stage2);
       setVersions(current => current.map(item => item.version === version.version
         ? { ...item, selected_for_products_stage2: result.selected } : item));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save Stage 1 design selection.");
+      setSelectionError(cause instanceof Error ? cause.message : "Unable to save Stage 1 design selection.");
     } finally {
       setSavingSelectionVersion(null);
     }
   }
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
+  const starredCount = versions.filter(version => version.selected_for_products_stage2).length;
   const blueprint = stage === "stage1" && galleryMode === "blueprint";
   const masonry = !blueprint && (galleryMode === "masonry" || (galleryMode === "auto" && compared.length > 6));
 
   function renderVersion(version: GenerationOutputVersion) {
     return <article key={version.version}
       ref={version.version === initialVersion ? openedVersionRef : undefined}
-      className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "")}>
+      className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "") + (stage === "stage1" && version.selected_for_products_stage2 ? " is-stage2-starred" : "")}>
       <div className="rrugc-version-card-heading">
         <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
-        {version.version === versions[0]?.version && <span>Latest</span>}
+        {stage === "stage1" ? <button type="button"
+          className={"rrugc-version-stage2-star" + (version.selected_for_products_stage2 ? " is-starred" : "")}
+          aria-label={(version.selected_for_products_stage2 ? "Remove design from Products Stage 2: " : "Star design for Products Stage 2: ") + (version.output_name?.split("/").pop() || "Design " + version.version)}
+          title={version.selected_for_products_stage2 ? "Remove from Products Stage 2" : "Select for Products Stage 2"}
+          aria-pressed={Boolean(version.selected_for_products_stage2)}
+          disabled={savingSelectionVersion !== null || Boolean(version.output_name && !version.output_name.toLowerCase().endsWith(".png"))}
+          onClick={() => void toggleProductStage2Selection(version)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill={version.selected_for_products_stage2 ? "currentColor" : "none"}
+            stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+            <path d="m12 2.5 2.95 6 6.6.96-4.77 4.65 1.13 6.57L12 17.57l-5.91 3.11 1.13-6.57-4.77-4.65 6.6-.96Z"/>
+          </svg>
+        </button> : version.version === versions[0]?.version && <span>Latest</span>}
       </div>
       <a className="rrugc-version-image-link"
         style={masonry ? { aspectRatio: stableMasonryRatio(version.width, version.height, 1) } : undefined}
@@ -129,7 +143,7 @@ export function GenerationOutputVersionsDialog({
 
       <div className="rrugc-version-compare-toolbar">
         <span className="rrugc-version-compare-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5" /><rect x="14" y="4" width="7" height="16" rx="1.5" /></svg>
-          {blueprint ? "Blueprint · 12 colorways" : masonry ? "Masonry gallery" : "Compare versions"} <strong>{compared.length}/{versions.length}</strong>
+          {blueprint ? "Blueprint · 13 colorways" : masonry ? "Masonry gallery" : "Compare versions"} <strong>{stage === "stage1" ? starredCount + " starred" : compared.length + "/" + versions.length}</strong>
         </span>
         <div className="rrugc-version-layout-toggle" role="group" aria-label="Image gallery layout">
           {stage === "stage1" && <button type="button" aria-pressed={blueprint} onClick={() => setGalleryMode("blueprint")}
@@ -157,19 +171,7 @@ export function GenerationOutputVersionsDialog({
         </button>}
       </div>
 
-      {stage === "stage1" && !loading && versions.length > 0 && <div className="rrugc-stage1-products-selection" role="group" aria-label="Select Stage 1 designs for Products Stage 2">
-        <strong>GatorHats Products · Stage 2 sources</strong>
-        <span>Select the PNG designs you want to apply on 13 hat colors. Selections are saved.</span>
-        <div className="rrugc-stage1-products-selection-items">
-          {versions.map(item => <button type="button" key={item.version}
-            aria-pressed={Boolean(item.selected_for_products_stage2)}
-            className={item.selected_for_products_stage2 ? "is-selected" : ""}
-            disabled={savingSelectionVersion !== null || (item.output_name != null && !item.output_name.toLowerCase().endsWith(".png"))}
-            onClick={() => void toggleProductStage2Selection(item)}>
-            {item.selected_for_products_stage2 ? "✓" : "+"} {item.output_name?.split("/").pop() || "Design " + item.version}
-          </button>)}
-        </div>
-      </div>}
+      {selectionError && <p role="alert" className="rrugc-stage2-selection-error">{selectionError}</p>}
       {stage !== "stage1" && !loading && !error && versions.length > 1 && versions.length <= 24 && <div className="rrugc-version-filter" role="group" aria-label="Versions to compare">
         {versions.map((version, index) => <button type="button" key={version.version}
           aria-label={"Compare version " + version.version} aria-pressed={selectedVersions.has(version.version)}
@@ -188,7 +190,9 @@ export function GenerationOutputVersionsDialog({
       {loading && <p role="status" className="rrugc-version-message">Loading saved output versions…</p>}
       {error && <p role="alert" className="rrugc-source-error">{error}</p>}
       {!loading && !error && (blueprint
-        ? <BlueprintPreview versions={compared} initialVersion={initialVersion} />
+        ? <BlueprintPreview versions={compared} initialVersion={initialVersion}
+            onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
+            savingSelectionVersion={savingSelectionVersion} />
         : masonry
         ? <StableMasonryGrid className="rrugc-version-grid is-masonry"
             ariaLabel="Masonry gallery of saved images"
