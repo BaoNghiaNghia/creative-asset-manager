@@ -16,6 +16,7 @@ import { cleanupRuns } from "./ui-qa-cleanup.mjs";
 import { assertUiStep } from "./ui-qa-assertions.mjs";
 import { assertQualityBudgets } from "./ui-qa-quality.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
+import { isExpectedQaRequestAbort } from "./ui-qa-request-classification.mjs";
 import {
   parseCsvList,
   selectExecutionSteps,
@@ -544,10 +545,7 @@ try {
         url: request.url(),
         error: request.failure()?.errorText || "request_failed",
       };
-      if (
-        ["repair", "baseline-proposal", "baseline-accept"].includes(qaMode) &&
-        failure.error === "net::ERR_ABORTED"
-      ) {
+      if (isExpectedQaRequestAbort(failure, qaMode, url)) {
         issues.ignoredRequestFailures.push(failure);
         return;
       }

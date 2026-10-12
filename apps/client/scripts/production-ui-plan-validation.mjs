@@ -19,6 +19,19 @@ export function validateProductionUiPlan(plan) {
           issues.push(`${route.name}/${state.name}: unsupported Production UI assertion ${assertion.type}`);
         }
       }
+      // Products and Reviews live in separate tablists, despite sharing one URL.
+      // A selector can be valid and still be unreachable in the current workflow.
+      if (String(route.path || "").startsWith("/realistic-review-ugc")) {
+        const query = new URL(String(route.path), "https://cam-qa.invalid").searchParams;
+        const workflow = query.get("workflow") === "reviews" ? "reviews" : "products";
+        const allowed = workflow === "reviews"
+          ? new Set(["reviews-stage2", "stage3", "stage4", "stage5"])
+          : new Set(["stage0", "stage1", "stage2"]);
+        const targetTab = String(state.click || "").match(/^#rrugc-tab-(reviews-stage2|stage[0-5])$/)?.[1];
+        if (targetTab && !allowed.has(targetTab)) {
+          issues.push(`${route.name}/${state.name}: ${targetTab} is not visible in ${workflow} workflow`);
+        }
+      }
       const selectedStage = String(state.click || "").match(/^#rrugc-tab-stage(\d+)$/)?.[1];
       if (selectedStage) {
         for (const assertion of state.assertions || []) {

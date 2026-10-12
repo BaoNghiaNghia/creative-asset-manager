@@ -70,6 +70,14 @@
       "waitFor": "#rrugc-tab-stage3"
     },
     {
+      "name": "reviews-stage2-actions",
+      "click": "#rrugc-tab-reviews-stage2",
+      "waitFor": "#rrugc-panel-reviews-stage2 .rrugc-colorway-stage",
+      "requireIcons": [
+        "#rrugc-panel-reviews-stage2 .rrugc-colorway-header-actions button"
+      ]
+    },
+    {
       "name": "stage4-actions",
       "click": "#rrugc-tab-stage4",
       "waitFor": "#rrugc-panel-stage4 .rrugc-stage2",
@@ -83,8 +91,7 @@
       "click": "#rrugc-tab-stage5",
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage3",
       "requireIcons": [
-        "#rrugc-panel-stage5 .rrugc-stage3-header-actions > button",
-        "#rrugc-panel-stage5 .rrugc-stage4-search-toolbar > button"
+        "#rrugc-panel-stage5 .rrugc-stage5-toolbar-actions > button"
       ]
     }
   ]

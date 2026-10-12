@@ -1,9 +1,21 @@
 {
   "schemaVersion": 1,
   "viewports": [
-    { "name": "desktop", "width": 1440, "height": 900 },
-    { "name": "tabletPortrait", "width": 768, "height": 1024 },
-    { "name": "mobile", "width": 390, "height": 844 }
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
   ],
   "routes": [
     {
@@ -12,7 +24,11 @@
       "public": true,
       "requiresAuth": false,
       "ready": "main",
-      "states": [{ "name": "default" }]
+      "states": [
+        {
+          "name": "default"
+        }
+      ]
     },
     {
       "name": "terms",
@@ -20,7 +36,11 @@
       "public": true,
       "requiresAuth": false,
       "ready": "main",
-      "states": [{ "name": "default" }]
+      "states": [
+        {
+          "name": "default"
+        }
+      ]
     },
     {
       "name": "asset-explorer",
@@ -33,7 +53,9 @@
         "Sign in required"
       ],
       "states": [
-        { "name": "default" },
+        {
+          "name": "default"
+        },
         {
           "name": "search-focus",
           "focus": "input[aria-label='Search images and videos']",
@@ -57,7 +79,9 @@
         "Sign in required"
       ],
       "states": [
-        { "name": "default" },
+        {
+          "name": "default"
+        },
         {
           "name": "first-issue-hover",
           "hover": ".review-board-row:first-child",
@@ -79,8 +103,14 @@
         {
           "name": "default",
           "assertions": [
-            { "type": "visible", "selector": ".ops-tabs-carousel" },
-            { "type": "no-viewport-overflow", "selector": "body" }
+            {
+              "type": "visible",
+              "selector": ".ops-tabs-carousel"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
           ]
         },
         {
@@ -88,7 +118,10 @@
           "click": "[data-ops-tab='pipeline']",
           "waitFor": "#ops-panel-pipeline",
           "assertions": [
-            { "type": "visible", "selector": "#ops-panel-pipeline" }
+            {
+              "type": "visible",
+              "selector": "#ops-panel-pipeline"
+            }
           ]
         },
         {
@@ -96,7 +129,10 @@
           "click": "[data-ops-tab='visual-search']",
           "waitFor": "#ops-panel-visual-search",
           "assertions": [
-            { "type": "visible", "selector": "#ops-panel-visual-search" }
+            {
+              "type": "visible",
+              "selector": "#ops-panel-visual-search"
+            }
           ]
         },
         {
@@ -104,7 +140,10 @@
           "click": "[data-ops-tab='creative-pipeline']",
           "waitFor": "#ops-panel-creative-pipeline",
           "assertions": [
-            { "type": "visible", "selector": "#ops-panel-creative-pipeline" }
+            {
+              "type": "visible",
+              "selector": "#ops-panel-creative-pipeline"
+            }
           ]
         },
         {
@@ -112,7 +151,10 @@
           "click": "[data-ops-tab='inventory']",
           "waitFor": "#ops-panel-inventory",
           "assertions": [
-            { "type": "visible", "selector": "#ops-panel-inventory" }
+            {
+              "type": "visible",
+              "selector": "#ops-panel-inventory"
+            }
           ]
         }
       ]
@@ -128,14 +170,22 @@
         "Sign in required"
       ],
       "states": [
-        { "name": "default" },
+        {
+          "name": "default"
+        },
         {
           "name": "stage0-keyword-scout",
           "click": "#rrugc-tab-stage0",
           "waitFor": "#rrugc-panel-stage0",
           "assertions": [
-            { "type": "visible", "selector": "#rrugc-panel-stage0" },
-            { "type": "no-horizontal-overflow", "selector": "#rrugc-panel-stage0" }
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage0"
+            },
+            {
+              "type": "no-horizontal-overflow",
+              "selector": "#rrugc-panel-stage0"
+            }
           ]
         },
         {
@@ -143,7 +193,10 @@
           "click": "#rrugc-tab-stage1",
           "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen",
           "assertions": [
-            { "type": "visible", "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen" }
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen"
+            }
           ]
         },
         {
@@ -151,7 +204,47 @@
           "click": "#rrugc-tab-stage2",
           "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage",
           "assertions": [
-            { "type": "visible", "selector": "#rrugc-panel-stage2 .rrugc-colorway-stage" }
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage2 .rrugc-colorway-stage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "realistic-review-ugc-reviews",
+      "path": "/realistic-review-ugc?workflow=reviews&stage=reviews-stage2",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.rrugc-shell",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        {
+          "name": "default",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-reviews-stage2 .rrugc-colorway-stage"
+            }
+          ]
+        },
+        {
+          "name": "stage2-reviews-embroidery",
+          "click": "#rrugc-tab-reviews-stage2",
+          "waitFor": "#rrugc-panel-reviews-stage2 .rrugc-colorway-stage",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-reviews-stage2 .rrugc-colorway-stage"
+            },
+            {
+              "type": "no-horizontal-overflow",
+              "selector": "#rrugc-panel-reviews-stage2"
+            }
           ]
         },
         {
@@ -159,7 +252,10 @@
           "click": "#rrugc-tab-stage3",
           "waitFor": "#rrugc-panel-stage3 #rrugc-source-plans",
           "assertions": [
-            { "type": "visible", "selector": "#rrugc-panel-stage3 #rrugc-source-plans" }
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage3 #rrugc-source-plans"
+            }
           ]
         },
         {
@@ -167,7 +263,10 @@
           "click": "#rrugc-tab-stage4",
           "waitFor": "#rrugc-panel-stage4 .rrugc-stage2",
           "assertions": [
-            { "type": "visible", "selector": "#rrugc-panel-stage4 .rrugc-stage2" }
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage4 .rrugc-stage2"
+            }
           ]
         },
         {
@@ -176,7 +275,7 @@
           "optional": true
         },
         {
-          "name": "stage3-review",
+          "name": "stage5-ugc-review",
           "click": "#rrugc-tab-stage5",
           "waitFor": ".rrugc-stage3",
           "assertions": [
