@@ -123,6 +123,22 @@
       "name": "configuration-return",
       "click": "[data-ops-tab=\"configuration\"]",
       "waitMs": 180
+    },
+    {
+      "name": "inventory-workspace",
+      "goto": "/inventory",
+      "waitFor": "main.inventory-workspace .ops-inventory-daily",
+      "waitMs": 180,
+      "requireIcons": [
+        ".inventory-workspace .ops-inventory-quick-actions button"
+      ],
+      "mobileAssertions": [
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
     }
   ]
 }

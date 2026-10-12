@@ -31,7 +31,7 @@ function QuickActionIcon({ name }: { name: QuickActionIconName }) {
     settings: <><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3M5.9 5.9 8 8M16 16l2.1 2.1M18.1 5.9 16 8M8 16l-2.1 2.1" /><circle cx="12" cy="12" r="3.2" /></>,
     refresh: <><path d="M19 8.5V4.5m0 0h-4m4 0-3 3A7 7 0 1 0 19 12" /></>,
   };
-  return <svg className="ops-inventory-action-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+  return <svg data-ui-icon className="ops-inventory-action-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
 const dateTime = (value: string | null | undefined) => value
