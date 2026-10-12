@@ -1,7 +1,7 @@
 ---
 name: gatorhats-stage1-six-designs
-description: Stage 1 keyword-to-artwork: exactly six thin, fabric-adherent embroidery designs, one independent transparent final PNG each. No puffy 3D, heavy outlines, hat colorways or concept sheets.
-version: 1.1.0
+description: Stage 1 keyword-to-artwork: exactly six thin, fabric-adherent embroidery designs, one independent transparent final PNG each. Visible thread direction and fine satin/fill detail, never puffy 3D or printed fills.
+version: 1.2.0
 ---
 
 # Stage 1 · Six separate embroidery designs
@@ -16,21 +16,26 @@ Use this Skill ONLY for Stage 1 keyword/quote → artwork. Input is text (the ke
 - Design must be feasible for real thread embroidery (clean stitch edges, readable lettering, restrained stroke complexity, legible at cap-front size). Avoid printed flat fills and fake fabric textures.
 - Design only, not hat product photography. Prefer transparent background; maintain sharp opaque stitch/artwork pixels, no baked-on cap photo.
 
-## Mandatory rendering preset · `embroidered-flat-thin` (v1.1.0)
+## Creative Director · meaning-first concept diversity (v1.2)
+Before calling image generation, understand the exact quote as **data**: mood, intended audience, imagery, tone and text length. Select six DIFFERENT embroidery-feasible art directions informed by those semantics. Do not render six font swaps, rigid pre-filled templates, or six variants of a rectangle/badge.
+- Candidate design languages include collegiate lettering, vintage Western, expressive but legible script, retro patchless crest, illustrated micro-motif, restrained modern typographic hierarchy, outdoors heritage, folk stitch or faith-inspired motifs. Choose only those that meaningfully fit the phrase; these are **examples, not mandatory fixed slots**.
+- For each design, plan a distinct silhouette, lettering hierarchy, line breaks, lettering stroke, motif choice, thread palette and stitch direction. Two concepts with essentially the same silhouette and line breaks are not distinct even if fonts differ.
+- Compose for a five-panel Valucap 8869 front embroidery region. Text must remain readable at small cap size. If the phrase is long, alter line hierarchy and tracking instead of shrinking every character.
+- Render exactly one PNG for each of SIX independent approved concept briefs, sequentially, with no concept sheet, extra generation calls or 13-color mockups.
 
-This is the highest priority visual constraint for **ALL SIX** final PNGs. Target **thin, low-profile cap embroidery stitched directly into twill**, not an appliqué, rubber patch, sticker, print or 3D foam:
-- **Thread relief**: flat-to-low satin/fill stitches, closely tensioned to the fabric; only a barely visible thread ridge. No puffy foam, trapunto, chenille, thick rope, chenille tuft, piled embroidery, extruded letters, bevel blocks or chunky 3D lettering.
-- **Outline**: none unless the design absolutely needs an outline for legibility. Never generate a decorative thick external stroke, black contour, double/triple border, raised edge ring, stroke expansion, offset keyline, inner emboss border or cartoon-style silhouette around the letters. When a border is semantically required, use ONE hairline stitch, visually no wider than a normal satin stitch; never outline every glyph by default.
-- **Shadows**: NO baked drop shadow, cast shadow, ambient-occlusion ring, underlay patch, glow, inflated edge or faux embossed bevel in the master PNG. Contact shading belongs to the final hat compositor, not to the raw artwork.
-- **Thread detail**: tight and fine individual stitch direction, restrained stitch contrast, short realistic satin stitches for narrower glyphs and low-density smooth fill for broad glyphs. Keep decorative script thin, clean and continuous; preserve readable strokes at actual cap-front size. Avoid artificially boldening text.
-- **Geometry**: precise legible text, stable lettering and realistic embroidery-friendly joins; no overly wide minimum stroke just to make the letters appear 3D. Preserve transparent negative spaces and holes in letters (A, O, R, B).
-- **Output composition**: an isolated, flat, front-on embroidery artwork **with true transparent alpha (RGBA)**, sharp but softly anti-aliased thread edges, no cap photo, white/grey rectangular matte, checkerboard, fabric swatch, colored plate or underlay. Don't bake cap curvature, lighting direction, warp or perspective into the master; Blueprint will apply it to the stock cap photo.
-- **Palette**: colors may vary between six independent designs, but avoid pitch-black or overly saturated pseudo-shadow rims. Let Blueprint's colorway palette remap primary/secondary thread shades. The original design remains readable when recolored.
-- **Consistency**: all 6 concepts use this same thin stitch thickness range while remaining genuinely different layouts. Prefer natural stitching over dramatic 3D. Avoid describing the artwork as "raised embroidery" when prompting the image model.
+## Mandatory material preset · `embroidered-satin-natural` (v1.2.0)
+The master is a genuine-looking low-relief **thread artwork**, NOT a flat printed graphic and NOT inflated 3D foam:
+- **Fiber direction:** expose fine individual satin stitches across narrow lettering, deliberate Tatami/fill stitch direction on broad regions, and running stitches for tiny outlines. Adjacent forms can have different stitch angles. Short rhythmic thread ridges and troughs must remain visible at 1:1 resolution; NEVER blur them into flat polygon fills, photorealistic ink, plastic or fabric-colored pixels.
+- **Low profile:** closely tensioned embroidery sitting directly on fabric, subtle specular fibers and restrained groove shadow. NOT bulky puff, chenille, rope, applique, stickers, rubber, embroidery patch or iron-on decal.
+- **Edge behavior:** fine stitch termination with slight irregular fiber micro-variation. Do not build wide dark outer borders, artificial halos, thick cartoon keylines, black bevel rings or drop shadows. A *single* narrow stitched border is permitted if semantically needed; never outline every letter as a default.
+- **Colors:** select thread pigments for each design based on its own concept. Warm/cool/highlight colors are intentional pigment regions, not brightness thresholds. Keep the same pigments inside a single master; never bake in any of the 13 cap/brim colors and do not recolor for each cap. Color grading MUST NOT erase the stitch directional highlights and small dark grooves.
+- **Geometry:** accurate readable characters, stable spacing/kerning, realistic stitchable stroke widths, transparent holes/counters in letters (A, O, R, B). Embroidery must remain thin but each strand visibly has texture. If a stroke would be too thin to stitch, simplify its join rather than adding a thick outline.
+- **RGBA artifact:** one sharp straight-on full-resolution transparent PNG per concept. No hat, cap texture, checkerboard, matte rectangle, backplate, white fabric, cast shadow, fake perspective or camera lighting baked into the alpha master.
+- **Stitch QA:** inspect at close-up AND at expected cap-front viewing size. Reject a result that looks like screen printing, flat painted fill, fuzzy threads, over-thick patch border, blurry faux texture or a six-design near-duplicate. Corrections to an existing numbered file may use local tools; stay within six image-generation calls at most.
 
-**Self-check before delivering each numbered PNG:** the design must look like *flat embroidery lying on cotton twill*, not a removable badge. If the edges look thick, puffy, bevelled, double-outlined, sticker-like or drop-shadowed, correct the same file before continuing. Correct with **local compositing/editing only** where possible; do not add extra image-generation calls.
+**Preserve real material information for downstream Blueprint:** PNG RGB and alpha must contain the original per-thread pigment, visible ridge highlights and groove shadows. Downstream mockups should preserve these values rather than remapping pixels by luminance/hue to arbitrary dark palettes.
 
-**Cost and safety:** still exactly six image generation calls at most, exactly six final PNG files, no extra mockup colorways, intermediate originals or hidden paid retries. Do not claim that transparent alpha or stitch thinness is verified without inspecting the PNG. Follow the existing strict six-final contract even if quality verification cannot run.
+**Cost and safety:** exactly six image-generation calls at most and six final PNGs. No extra hidden attempts or intermediate full-resolution images; procedural checks only when inexpensive. Do not claim stitch quality or transparency was checked unless the actual PNG was inspected.
 
 ## File contract (strict; application verifies it)
 - Write six **independent full-resolution PNG** files, and ONLY these final files:

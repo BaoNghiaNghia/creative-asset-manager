@@ -26,7 +26,7 @@ describe("Blueprint dark multi-thread palettes", () => {
   });
 
   it("provides 3–5 dark combinations for every supplied colorway", () => {
-    expect(Object.keys(BLUEPRINT_DARK_PALETTES)).toHaveLength(12);
+    expect(Object.keys(BLUEPRINT_DARK_PALETTES)).toHaveLength(13);
     for (const options of Object.values(BLUEPRINT_DARK_PALETTES)) {
       expect(options.length).toBeGreaterThanOrEqual(3);
       expect(options.length).toBeLessThanOrEqual(5);
@@ -81,6 +81,21 @@ describe("Blueprint dark multi-thread palettes", () => {
     expect(rgb(out, 2)).not.toEqual(rgb(out, 3));
     expect(out[3]).toBe(0);
     expect(out[19]).toBe(115);
+  });
+  it("preserves transparent master RGB, subtle highlights and alpha regardless of chosen hat palette", () => {
+    const original = sample([
+      {rgb:[17,35,78],alpha:0},
+      {rgb:[210,34,40],alpha:255},
+      {rgb:[235,55,55],alpha:220},
+      {rgb:[34,69,212],alpha:255},
+      {rgb:[39,74,226],alpha:120},
+    ]);
+    const a = remapBlueprintPixels(original, 5, 1, selectBlueprintThreadPalette("black", 0));
+    const b = remapBlueprintPixels(original, 5, 1, selectBlueprintThreadPalette("khaki-maroon", 2));
+    expect(Array.from(a)).toEqual(Array.from(original));
+    expect(Array.from(b)).toEqual(Array.from(original));
+    expect(rgb(a, 1)).not.toEqual(rgb(a, 2));
+    expect(rgb(a, 3)).not.toEqual(rgb(a, 4));
   });
   it("strips opaque white margins instead of creating a colored rectangle", () => {
     const input = sample([

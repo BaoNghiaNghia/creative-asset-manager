@@ -52,10 +52,10 @@ function drag(track: Element, x: number, y: number, endX: number, endY: number) 
 
 describe("Stage 1 Blueprint Cross Puzzle", () => {
   it("renders ONE horizontal design carousel, ONE vertical color carousel, ONE fixed preview, not a table", () => {
-    expect(BLUEPRINT_HAT_COLORS).toHaveLength(12);
+    expect(BLUEPRINT_HAT_COLORS).toHaveLength(13);
     const html = renderToStaticMarkup(<BlueprintPreview versions={versions} />);
-    expect(html).toContain("9 designs × 12 hat colors");
-    expect(html).toContain("No AI generation required");
+    expect(html).toContain("9 designs × 13 hat colors");
+    expect(html).toContain("Original thread colors preserved");
     expect(html).not.toContain("rrugc-blueprint-matrix");
     expect(html).not.toContain("rrugc-blueprint-cell");
     expect(html).toContain("rrugc-blueprint-design-carousel");
@@ -65,7 +65,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).not.toContain("rrugc-blueprint-selected-top");
     expect(html).not.toContain("rrugc-blueprint-selected-badge");
     expect(html).toContain('aria-label="Front design zoom"');
-    expect(html).toContain('aria-label="Next Front embroidery palette for Black"');
+    expect(html).toContain('Original threads');
     expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
     expect((html.match(/class="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail"/g) || []).length).toBe(1);
     expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
@@ -121,8 +121,8 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(chosen(host)).toContain("Natural / Black");
     await sendKey("ArrowUp");
     expect(chosen(host)).toContain("Natural / Black");
-    for (let i = 0; i < 11; i++) await sendKey("ArrowDown");
-    expect(chosen(host)).toContain("Natural / Royal");
+    for (let i = 0; i < 12; i++) await sendKey("ArrowDown");
+    expect(chosen(host)).toContain("Khaki / Maroon");
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="Next hat color"]')?.disabled).toBe(true);
     const preview = host.querySelector(".rrugc-blueprint-selected-card")!;
     expect(preview).not.toBeNull();
@@ -160,11 +160,9 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(chosen(host)).toContain("design_7.png");
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(chosen(host)).toContain("Natural / Brown");
-    expect(host.querySelectorAll('button[aria-label$="embroidery palette for Brown"]')).toHaveLength(2);
-    const paletteSwatch = host.querySelector<HTMLButtonElement>('button[aria-label="Next Front embroidery palette for Brown"]');
-    expect(paletteSwatch?.style.backgroundImage).toContain("linear-gradient");
-    expect(paletteSwatch?.title).toContain("Palette:");
-    expect(paletteSwatch?.style.backgroundImage).toContain("#");
+    expect(host.querySelectorAll(".rrugc-blueprint-thread-source")).toHaveLength(2);
+    expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Original threads");
+    expect(host.querySelectorAll('button[aria-label*="embroidery palette"]')).toHaveLength(0);
     expect(host.querySelector(".rrugc-blueprint-design-choice.is-selected")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.max).toBe("200");
@@ -204,30 +202,19 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => root.unmount());
   });
 
-  it("cycles and remembers alternative multi-thread palettes for one design and colorway", async () => {
+  it("never changes thread pigment on hat navigation or across design selection", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     await act(async () => root.render(<BlueprintPreview versions={versions} />));
-    const front = () => host.querySelector<HTMLButtonElement>('button[aria-label="Next Front embroidery palette for Black"]')!;
-    const side = () => host.querySelector<HTMLButtonElement>('button[aria-label="Next Right side embroidery palette for Black"]')!;
-    const initial = front().title;
-    expect(initial).toContain("Graphite");
-    expect(front().style.backgroundImage).toBe(side().style.backgroundImage);
-    await act(async () => front().click());
-    expect(front().title).toContain("Midnight Navy");
-    expect(front().style.backgroundImage).toBe(side().style.backgroundImage);
-    expect(front().title).not.toBe(initial);
+    const source = () => host.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")?.getAttribute("src");
+    expect(source()).toBe(versions[0].url);
+    await act(async () => click(host, "Select hat color Natural / Brown"));
+    expect(source()).toBe(versions[0].url);
     await act(async () => click(host, "Next design columns"));
-    await act(async () => click(host, "Next design columns"));
-    expect(front().title).toContain("Espresso");
-    await act(async () => click(host, "Previous design columns"));
-    await act(async () => click(host, "Previous design columns"));
-    expect(front().title).toContain("Midnight Navy");
-    await act(async () => side().click());
-    expect(front().title).toContain("Espresso");
+    expect(source()).toBe(versions[1].url);
+    expect(host.querySelectorAll(".rrugc-blueprint-thread-source")).toHaveLength(2);
     await act(async () => root.unmount());
-    host.remove();
   });
 
   it("scales only embroidery artwork with independent header sliders (not cap photos)", async () => {
@@ -375,8 +362,9 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(blueprintSidePosition(1).backgroundPosition).toBe("50% 0%");
     expect(blueprintSidePosition(3).backgroundPosition).toBe("0% 33.333333333333336%");
     expect(blueprintSidePosition(11).backgroundPosition).toBe("100% 100%");
+    expect(blueprintSidePosition(12).backgroundImage).toContain("khaki-maroon.jpg");
     expect(blueprintNavigate(0, 0, "left", 9)).toEqual({ design: 0, color: 0 });
-    expect(blueprintNavigate(8, 11, "down", 9)).toEqual({ design: 8, color: 11 });
+    expect(blueprintNavigate(8, 12, "down", 9)).toEqual({ design: 8, color: 12 });
     expect(renderToStaticMarkup(<BlueprintPreview versions={[]} />)).toContain("No designs available");
   });
 });

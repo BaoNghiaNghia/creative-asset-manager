@@ -7,7 +7,6 @@ import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
 import { useBlueprintEmbroideryTint } from "./BlueprintEmbroideryTint";
-import { BLUEPRINT_DARK_PALETTES, selectBlueprintThreadPalette } from "./BlueprintThreadPalettes";
 import { BlueprintFrontDetailModal } from "./BlueprintFrontDetailModal";
 import "./BlueprintPreview.css";
 
@@ -24,6 +23,7 @@ export const BLUEPRINT_HAT_COLORS = [
   { id: "realtree-all-purpose", label: "Natural / Realtree", short: "Realtree" },
   { id: "red", label: "Natural / Red", short: "Red" },
   { id: "royal", label: "Natural / Royal", short: "Royal" },
+  { id: "khaki-maroon", label: "Khaki / Maroon", short: "Khaki/Maroon" },
 ] as const;
 
 export const BLUEPRINT_WINDOW_SIZE = 5;
@@ -56,6 +56,10 @@ export const BLUEPRINT_SIDE_CALIBRATION_DESIGN = "/rrugc/blueprint/roberts-refer
 // The trimmed 3 × 4 atlas contains entire side caps; display one full cell
 // without zooming or cropping any part of the brim or crown.
 export function blueprintSidePosition(colorIndex: number) {
+  if (colorIndex === 12) return {
+    backgroundImage: 'url("/rrugc/blueprint/sides/khaki-maroon.jpg")',
+    backgroundSize: "contain", backgroundRepeat: "no-repeat", backgroundPosition: "center",
+  };
   const col = colorIndex % 3;
   const row = Math.floor(colorIndex / 3);
   return { backgroundPosition: `${col * 50}% ${(row * 100) / 3}%` };
@@ -82,7 +86,6 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [colorIndex, setColorIndex] = useState(0);
   const [frontDesignSize, setFrontDesignSize] = useState(100);
   const [sideDesignSize, setSideDesignSize] = useState(100);
-  const [paletteOverrides, setPaletteOverrides] = useState<Record<string, number>>({});
   const [guides, setGuides] = useState(false);
   const [frontDetailOpen, setFrontDetailOpen] = useState(false);
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
@@ -94,15 +97,10 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const selectedDesign = clamp(designIndex, versions.length);
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
-  const activeDesignSrc = activeDesign?.url ? thumbnailUrl(activeDesign.url, 512) : "";
-  const paletteKey = activeColor.id + ":" + (activeDesign?.version ?? "none");
-  const activePaletteOrdinal = paletteOverrides[paletteKey] ?? selectedDesign;
-  const activePalette = selectBlueprintThreadPalette(activeColor.id, activePaletteOrdinal);
-  const paletteCount = (BLUEPRINT_DARK_PALETTES[activeColor.id] ?? BLUEPRINT_DARK_PALETTES.black).length;
-  const cyclePalette = () => setPaletteOverrides(current => ({ ...current, [paletteKey]: (activePaletteOrdinal + 1) % paletteCount }));
-  const tintedFrontSrc = useBlueprintEmbroideryTint(activeDesignSrc, activeColor.id, activePaletteOrdinal);
-  const tintedSideSrc = useBlueprintEmbroideryTint(BLUEPRINT_SIDE_CALIBRATION_DESIGN, activeColor.id, activePaletteOrdinal);
-  const paletteSwatch = "linear-gradient(90deg, " + activePalette.primary + " 0 52%, " + activePalette.secondary + " 52% 80%, " + activePalette.accent + " 80% 100%)";
+  const activeDesignSrc = activeDesign?.url ?? ""; // Render actual stitch detail, not a 512px downsample.
+  // Thread pigments are part of the approved master, not a function of hat color.
+  const tintedFrontSrc = useBlueprintEmbroideryTint(activeDesignSrc, activeColor.id);
+  const tintedSideSrc = useBlueprintEmbroideryTint(BLUEPRINT_SIDE_CALIBRATION_DESIGN, activeColor.id);
   const frontFit = useBlueprintArtworkFit(activeDesignSrc, frontDesignSize);
 
   useEffect(() => {
@@ -198,7 +196,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
   return <section className="rrugc-blueprint rrugc-blueprint-cross" aria-label="Blueprint cross puzzle · design and hat color navigator">
     <div className="rrugc-blueprint-controls">
       <div className="rrugc-blueprint-description">
-        <strong>Blueprint <span className="rrugc-blueprint-count">{versions.length} designs × 12 hat colors</span></strong>
+        <strong>Blueprint <span className="rrugc-blueprint-count">{versions.length} designs × 13 hat colors</span></strong>
         <span>Slide the design row sideways and the hat colors vertically; the selected mockup stays centered.</span>
       </div>
       <div className="rrugc-blueprint-options">
@@ -208,7 +206,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
     </div>
     <div className="rrugc-blueprint-cross-layout">
       <div className="rrugc-blueprint-cross-corner">
-        <span>8869 TWILL CAP</span><strong>12 colorways</strong><small>↑ ↓ Hat colors</small>
+        <span>8869 TWILL CAP</span><strong>13 colorways</strong><small>↑ ↓ Hat colors</small>
       </div>
       <div className="rrugc-blueprint-design-carousel" aria-label="Designs carousel">
         <button type="button" className="rrugc-blueprint-design-control is-prev"
@@ -271,12 +269,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
               <small>Hoop Red WACE · Placement preview</small>
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
-              <button type="button" className="rrugc-blueprint-thread-swatch"
-                title={"Palette: " + activePalette.name + " (" + ((activePaletteOrdinal % paletteCount) + 1) + "/" + paletteCount + ") · Click to try the next dark combination"}
-                aria-label={"Next Front embroidery palette for " + activeColor.short}
-                onClick={event => { event.stopPropagation(); cyclePalette(); }}
-                onPointerDown={event => event.stopPropagation()}
-                style={{ backgroundImage: paletteSwatch }}><span aria-hidden="true">↻</span></button>
+              <span className="rrugc-blueprint-thread-source" title="Keep original thread pigment and stitch highlights on every cap color">Original threads</span>
               <BlueprintViewZoom label="Front" value={frontDesignSize} onChange={setFrontDesignSize}/>
             </div>
           </header>
@@ -349,12 +342,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
               <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
-              <button type="button" className="rrugc-blueprint-thread-swatch"
-                title={"Palette: " + activePalette.name + " (" + ((activePaletteOrdinal % paletteCount) + 1) + "/" + paletteCount + ") · Click to try the next dark combination"}
-                aria-label={"Next Right side embroidery palette for " + activeColor.short}
-                onClick={event => { event.stopPropagation(); cyclePalette(); }}
-                onPointerDown={event => event.stopPropagation()}
-                style={{ backgroundImage: paletteSwatch }}><span aria-hidden="true">↻</span></button>
+              <span className="rrugc-blueprint-thread-source" title="Keep original thread pigment and stitch highlights on every cap color">Original threads</span>
               <BlueprintViewZoom label="Right side" value={sideDesignSize} onChange={setSideDesignSize}/>
             </div>
           </header>
@@ -401,13 +389,13 @@ export function BlueprintPreview({ versions, initialVersion }: {
     </div>
     <div className="rrugc-blueprint-footnote">
       <span>Placement is approximate; verify embroidery proof before production.</span>
-      <span>12 supplied 8869 references · No AI generation required</span>
+      <span>13 official 8869 colorways · Original thread colors preserved</span>
     </div>
     {frontDetailOpen && <BlueprintFrontDetailModal
       hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesign.url}
       colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
-      paletteOrdinal={activePaletteOrdinal} guides={guides}
+      paletteOrdinal={0} guides={guides}
       onClose={() => setFrontDetailOpen(false)}
     />}
   </section>;

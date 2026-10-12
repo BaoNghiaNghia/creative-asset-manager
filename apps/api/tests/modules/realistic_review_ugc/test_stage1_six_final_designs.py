@@ -160,27 +160,27 @@ def test_stage1_prompt_uses_selected_six_design_skill_instead_of_hardcoded_name(
     assert "Use $approved-stage1-six-designs and $imagegen." in prompt
     assert "Use $gatorhats-stage1-six-designs" not in prompt
 
-def test_managed_stage1_thin_stitch_skill_bundle_preserves_strict_six_final_contract():
+def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_contract():
     from app.operations.install_stage1_six_skill import skill_bundle
     bundle = skill_bundle()
     files = {name: content for name, content, _content_type in bundle.files}
     skill = files["SKILL.md"].decode("utf-8")
     manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 1.1.0" in skill
-    assert "embroidered-flat-thin" in skill
-    for forbidden_effect in ("No puffy foam", "NO baked drop shadow", "No cap photo"):
+    assert "version: 1.2.0" in skill
+    assert "embroidered-satin-natural" in skill
+    for forbidden_effect in ("NOT bulky puff", "no hat", "flat printed graphic"):
         assert forbidden_effect.lower() in skill.lower()
     for index in range(1, 7):
         assert f"output/final/design_{index:02}.png" in skill
     assert "keyword_six_designs" in manifest
-    assert "thin, low-relief embroidery" in manifest
+    assert "visible satin/fill stitch direction" in manifest
 
 
-def test_stage1_keyword_prompt_requires_thin_no_outline_no_puff_embedding():
+def test_stage1_keyword_prompt_requires_creative_distinct_stitches_and_thread_pigment():
     from app.modules.realistic_review_ugc.keyword_images import keyword_prompt
     value = keyword_prompt("WELL READ", skill_name="gatorhats-stage1-six-designs")
-    assert "embroidered-flat-thin" in value
-    assert "NO thick external outlines" in value
-    assert "no sticker/patch appearance" in value
+    assert "embroidered-satin-natural" in value
+    assert "Not six font swaps" in value
+    assert "directional contrast" in value
     assert "output/final/design_01.png through design_06.png" in value
     assert "WELL READ" in value

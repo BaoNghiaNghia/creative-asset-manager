@@ -1,4 +1,4 @@
-/** Dark thread combinations inspired by the supplied Valucap 8869 brim colors.
+/** Legacy optional thread combinations kept for compatibility; NEVER auto-tint master embroidery based on brim color.
  * Swatches are preview approximations, NOT physical thread/SKU specifications.
  * Stable design-to-palette rotation makes adjacent designs visibly different.
  */
@@ -85,6 +85,10 @@ export const BLUEPRINT_DARK_PALETTES: Readonly<Record<string, readonly Blueprint
     palette("Slate", "#344A63", "#62839F", "#E2D4B8", "#1C3045"),
     palette("Graphite", "#363D46", "#6C7480", "#D3C9BA", "#232A33"),
     palette("Wine", "#592F46", "#8D5C70", "#D8C8B5", "#301E29"),
+  ],  "khaki-maroon": [
+    palette("Burgundy Contrast", "#713145", "#B4747A", "#E1C7AA", "#422330"),
+    palette("Cocoa", "#4F352D", "#98735B", "#E2CCAD", "#302019"),
+    palette("Deep Navy", "#2A364A", "#738397", "#E6D5C0", "#1A2534"),
   ],
 };
 

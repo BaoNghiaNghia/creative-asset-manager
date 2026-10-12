@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { blueprintPaletteRgb, selectBlueprintThreadPalette, type BlueprintThreadPalette } from "./BlueprintThreadPalettes";
+import { type BlueprintThreadPalette } from "./BlueprintThreadPalettes";
 
 /** The thread colors match the dominant brim colors in the 12 supplied 8869 photos. */
 export const BLUEPRINT_THREAD_COLORS: Record<string, string> = {
@@ -20,8 +20,7 @@ export const BLUEPRINT_THREAD_COLORS: Record<string, string> = {
 const MAX_CACHE = 36;
 const tintCache = new Map<string, string>();
 const pending = new Map<string, Promise<string | null>>();
-const keyFor = (src: string, colorId: string, designOrdinal: number) =>
-  src + "##palette=" + colorId + ":" + designOrdinal;
+const keyFor = (src: string) => src + "##original-stitches-v2";
 
 function getPaletteColor(colorId: string) {
   return BLUEPRINT_THREAD_COLORS[colorId] ?? BLUEPRINT_THREAD_COLORS.black;
@@ -100,112 +99,69 @@ export function thinEmbroideryEdgeColor(
     Math.round(primary[i] * .82 + outline[i] * .18)) as [number, number, number];
 }
 
+/**
+ * Prepare a Stage 1 embroidery master for compositing without recoloring its
+ * thread material. Preserve every RGB value and alpha pixel in RGBA originals:
+ * luminosity variation is actual stitch direction / specular information.
+ *
+ * Legacy opaque white-matte artwork is handled conservatively: remove only
+ * background-colored pixels connected to the image border. In particular,
+ * NEVER classify inner light stitches as background or infer new thread colors
+ * from pixel brightness/hue (which previously made designs look printed).
+ */
 export function remapBlueprintPixels(
   data: Uint8ClampedArray, width: number, height: number,
-  palette: BlueprintThreadPalette,
+  _palette?: BlueprintThreadPalette,
 ): Uint8ClampedArray {
   const result = new Uint8ClampedArray(data);
-  if (width <= 0 || height <= 0 || result.length < width * height * 4) return result;
-  const corners = [0, (width - 1) * 4, (height - 1) * width * 4, (width * height - 1) * 4];
-  let hasAlpha = false;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] < 245) { hasAlpha = true; break; }
-  }
-  const background = [0, 1, 2].map(c =>
-    Math.round(corners.reduce((sum, i) => sum + data[i + c], 0) / corners.length));
   const count = width * height;
-  const opacity = new Float32Array(count);
-  const histogram = new Float32Array(18);
-  let sumLight = 0, total = 0, saturated = 0;
-  for (let pixel = 0; pixel < count; pixel++) {
-    const i = pixel * 4;
-    const visibility = hasAlpha ? data[i + 3] / 255 : Math.min(1, Math.max(0,
-      (Math.max(
-        Math.abs(data[i] - background[0]),
-        Math.abs(data[i + 1] - background[1]),
-        Math.abs(data[i + 2] - background[2]),
-      ) - 7) / 72));
-    opacity[pixel] = visibility;
-    if (visibility <= .015) continue;
-    const luma = data[i] * .2126 + data[i + 1] * .7152 + data[i + 2] * .0722;
-    sumLight += luma * visibility;
-    total += visibility;
-    const chroma = Math.max(data[i], data[i + 1], data[i + 2]) -
-      Math.min(data[i], data[i + 1], data[i + 2]);
-    const saturation = chroma / Math.max(1, Math.max(data[i], data[i + 1], data[i + 2]));
-    if (chroma > 35 && saturation > .23) {
-      const bin = hueBucket(data[i], data[i + 1], data[i + 2]);
-      histogram[bin] += visibility;
-      saturated += visibility;
-    }
+  if (width <= 0 || height <= 0 || result.length < count * 4) return result;
+  // Genuine transparent embroidery artwork is an identity transform.
+  for (let i = 3; i < result.length; i += 4) {
+    if (result[i] < 250) return result;
   }
-  const mean = total > 0 ? sumLight / total : 85;
-  const primaryBin = histogram.indexOf(Math.max(...histogram));
-  const circularDistance = (a: number, b: number) => Math.min(Math.abs(a - b), 18 - Math.abs(a - b));
-  let secondaryBin = -1, secondWeight = 0;
-  for (let bin = 0; bin < histogram.length; bin++) {
-    if (circularDistance(bin, primaryBin) >= 3 && histogram[bin] > secondWeight) {
-      secondaryBin = bin; secondWeight = histogram[bin];
-    }
-  }
-  const hasSeparateHue = secondWeight > saturated * .13 && secondWeight > 2;
-  const hasChromaticArtwork = saturated > total * .12;
-  const threads = {
-    primary: blueprintPaletteRgb(palette.primary),
-    secondary: blueprintPaletteRgb(palette.secondary),
-    accent: blueprintPaletteRgb(palette.accent),
-    outline: blueprintPaletteRgb(palette.outline),
+  const corners = [0, width - 1, (height - 1) * width, count - 1];
+  const background = [0, 1, 2].map(channel =>
+    Math.round(corners.reduce((sum, pixel) => sum + data[pixel * 4 + channel], 0) / 4));
+  const diff = (pixel: number) => Math.max(
+    Math.abs(data[pixel * 4] - background[0]),
+    Math.abs(data[pixel * 4 + 1] - background[1]),
+    Math.abs(data[pixel * 4 + 2] - background[2]),
+  );
+  // An opaque photographic / patterned master is NOT safe to key.
+  if (Math.min(...background) < 235 || corners.some(pixel => diff(pixel) > 14)) return result;
+  const visited = new Uint8Array(count);
+  const queue = new Int32Array(count);
+  let head = 0, tail = 0;
+  const add = (pixel: number) => {
+    if (visited[pixel]) return;
+    visited[pixel] = 1;
+    if (diff(pixel) <= 20) queue[tail++] = pixel;
   };
-  const thinOutline = thinEmbroideryEdgeColor(threads.primary, threads.outline);
-  for (let pixel = 0; pixel < count; pixel++) {
-    const i = pixel * 4;
-    const alpha = opacity[pixel];
-    if (alpha <= .015) {
-      result[i] = result[i + 1] = result[i + 2] = result[i + 3] = 0;
-      continue;
-    }
-    const r = data[i], g = data[i + 1], b = data[i + 2];
-    const light = r * .2126 + g * .7152 + b * .0722;
-    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    const chroma = max - min;
-    const strongColor = chroma > 35 && chroma / Math.max(1, max) > .23;
-    const secondaryHue = strongColor && hasSeparateHue
-      && circularDistance(hueBucket(r, g, b), secondaryBin)
-        < circularDistance(hueBucket(r, g, b), primaryBin);
-    let role: keyof typeof threads = "primary";
-    if (secondaryHue) {
-      role = "secondary";
-    } else if (!strongColor && light > Math.max(160, mean + 43) && hasChromaticArtwork) {
-      role = "accent";
-    } else if ((!strongColor && light > mean + 30) || (strongColor && light > mean + 55)) {
-      role = "secondary";
-    }
-    if (light < mean - 36 && role === "primary") role = "outline";
-    // A low-relief satin/fill stitch has restrained edge shading, not
-    // a black beveled ring around each glyph.
-    const rgb = role === "outline" ? thinOutline : threads[role];
-    const brightness = Math.max(.84, Math.min(1.16, 1 + (light - mean) / 270));
-    result[i] = Math.min(255, Math.round(rgb[0] * brightness));
-    result[i + 1] = Math.min(255, Math.round(rgb[1] * brightness));
-    result[i + 2] = Math.min(255, Math.round(rgb[2] * brightness));
-    result[i + 3] = Math.round(alpha * 255);
+  for (let x = 0; x < width; x++) {
+    add(x);
+    add((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y++) {
+    add(y * width);
+    add(y * width + width - 1);
+  }
+  while (head < tail) {
+    const pixel = queue[head++];
+    result[pixel * 4] = 0;
+    result[pixel * 4 + 1] = 0;
+    result[pixel * 4 + 2] = 0;
+    result[pixel * 4 + 3] = 0;
+    const x = pixel % width;
+    if (x > 0) add(pixel - 1);
+    if (x + 1 < width) add(pixel + 1);
+    if (pixel >= width) add(pixel - width);
+    if (pixel + width < count) add(pixel + width);
   }
   return result;
 }
 
-function hueBucket(red: number, green: number, blue: number): number {
-  const r = red / 255, g = green / 255, b = blue / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const diff = max - min;
-  if (diff < .001) return 0;
-  let hue = max === r ? ((g - b) / diff) % 6
-    : max === g ? (b - r) / diff + 2
-    : (r - g) / diff + 4;
-  hue = (hue * 60 + 360) % 360;
-  return Math.min(17, Math.floor(hue / 20));
-}
-
-async function tintSource(src: string, colorId: string, designOrdinal: number): Promise<string | null> {
+async function tintSource(src: string): Promise<string | null> {
   if (typeof document === "undefined" || typeof Image === "undefined") return null;
   const image = new Image();
   image.crossOrigin = "anonymous";
@@ -221,8 +177,7 @@ async function tintSource(src: string, colorId: string, designOrdinal: number): 
     if (!ctx) return null;
     ctx.drawImage(image, 0, 0);
     const pixels = ctx.getImageData(0, 0, width, height);
-    pixels.data.set(remapBlueprintPixels(pixels.data, width, height,
-      selectBlueprintThreadPalette(colorId, designOrdinal)));
+    pixels.data.set(remapBlueprintPixels(pixels.data, width, height));
     ctx.putImageData(pixels, 0, 0);
     return canvas.toDataURL("image/png");
   } catch {
@@ -240,8 +195,8 @@ function remember(key: string, result: string) {
   while (tintCache.size > MAX_CACHE) tintCache.delete(tintCache.keys().next().value!);
 }
 
-export function useBlueprintEmbroideryTint(src: string, colorId: string, designOrdinal = 0) {
-  const key = keyFor(src, colorId, designOrdinal);
+export function useBlueprintEmbroideryTint(src: string, _colorId: string, _designOrdinal = 0) {
+  const key = keyFor(src);
   const [loaded, setLoaded] = useState<{ key: string; src: string } | null>(null);
   useEffect(() => {
     if (!src) return;
@@ -253,7 +208,7 @@ export function useBlueprintEmbroideryTint(src: string, colorId: string, designO
     }
     let request = pending.get(key);
     if (!request) {
-      request = tintSource(src, colorId, designOrdinal);
+      request = tintSource(src);
       pending.set(key, request);
     }
     request.then(result => {
@@ -263,6 +218,6 @@ export function useBlueprintEmbroideryTint(src: string, colorId: string, designO
       if (pending.get(key) === request) pending.delete(key);
     });
     return () => { cancelled = true; };
-  }, [src, colorId, designOrdinal, key]);
+  }, [src, key]);
   return loaded?.key === key ? loaded.src : tintCache.get(key) || src;
 }

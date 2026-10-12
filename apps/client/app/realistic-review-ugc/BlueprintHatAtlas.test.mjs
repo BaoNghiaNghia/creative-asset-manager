@@ -51,6 +51,14 @@ it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPE
   }
 });
 
+it("ships the thirteenth Khaki/Maroon source front and side without corrupting the original 12-photo atlas", () => {
+  for (const path of ["fronts/khaki-maroon.jpg", "sides/khaki-maroon.jpg"]) {
+    const raw = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/" + path));
+    expect(raw.subarray(0, 3).toString("hex")).toBe("ffd8ff");
+    expect(raw.length).toBeGreaterThan(10000);
+  }
+});
+
 it("bundles the 12 uploaded full-cap side photos as safe binary WebP", () => {
   const webp = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/sides-atlas-fit.webp"));
   expect(webp.toString("ascii", 0, 4)).toBe("RIFF");
