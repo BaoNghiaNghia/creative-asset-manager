@@ -2,24 +2,24 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { createPortal } from "react-dom";
 import { BlueprintSmoothImage } from "./BlueprintSmoothImage";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
-import { useBlueprintEmbroideryTint } from "./BlueprintEmbroideryTint";
+
 import "./BlueprintFrontDetailModal.css";
 
 type FrontDetailProps = {
   hatSrc: string;
   designSrc: string;
+  compositedSrc: string;
   colorId: string;
   colorLabel: string;
   designLabel: string;
   designSize: number;
-  paletteOrdinal: number;
   guides: boolean;
   onClose: () => void;
 };
 
 /** Inspect the actual cap + fitted embroidery, rather than enlarging a 512px thumbnail. */
 export function BlueprintFrontDetailModal({
-  hatSrc, designSrc, colorId, colorLabel, designLabel, designSize, paletteOrdinal, guides, onClose,
+  hatSrc, designSrc, compositedSrc, colorId, colorLabel, designLabel, designSize, guides, onClose,
 }: FrontDetailProps) {
   const [zoom, setZoom] = useState(100);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -27,7 +27,6 @@ export function BlueprintFrontDetailModal({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const fullQualityEmbroidery = useBlueprintEmbroideryTint(designSrc, colorId, paletteOrdinal);
   const fit = useBlueprintArtworkFit(designSrc, designSize);
 
   useEffect(() => {
@@ -112,7 +111,7 @@ export function BlueprintFrontDetailModal({
                 <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={hatSrc}
                   alt={"Original Valucap 8869 hat, " + colorLabel} draggable={false}/>
                 <div ref={fit.frameRef} className="rrugc-blueprint-selected-design">
-                  <BlueprintSmoothImage src={fullQualityEmbroidery} key={designSrc + colorId + paletteOrdinal}
+                  <BlueprintSmoothImage src={compositedSrc} key={designSrc + colorId}
                     onLoad={fit.onLoad} style={fit.style ?? { opacity: 0 }}
                     alt={designLabel + " embroidery mounted on the front"} draggable={false}/>
                 </div>

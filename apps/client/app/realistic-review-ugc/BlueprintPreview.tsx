@@ -6,7 +6,8 @@ import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
-import { useBlueprintEmbroideryTint } from "./BlueprintEmbroideryTint";
+import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
+import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import { BlueprintFrontDetailModal } from "./BlueprintFrontDetailModal";
 import "./BlueprintPreview.css";
 
@@ -87,6 +88,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const [frontDesignSize, setFrontDesignSize] = useState(100);
   const [sideDesignSize, setSideDesignSize] = useState(100);
   const [guides, setGuides] = useState(false);
+  const [threadMode, setThreadMode] = useState<ThreadMode>("auto");
   const [frontDetailOpen, setFrontDetailOpen] = useState(false);
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
@@ -98,9 +100,10 @@ export function BlueprintPreview({ versions, initialVersion }: {
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
   const activeDesignSrc = activeDesign?.url ?? ""; // Render actual stitch detail, not a 512px downsample.
-  // Thread pigments are part of the approved master, not a function of hat color.
-  const tintedFrontSrc = useBlueprintEmbroideryTint(activeDesignSrc, activeColor.id);
-  const tintedSideSrc = useBlueprintEmbroideryTint(BLUEPRINT_SIDE_CALIBRATION_DESIGN, activeColor.id);
+  // Recolor each design by hat color while preserving stitch luminance and applying
+  // the same low-profile material simulation in preview, lens and detail modal.
+  const tintedFrontSrc = useBlueprintEmbroideryComposite(activeDesignSrc, blueprintHatPhoto(activeColor.id), activeColor.id, threadMode);
+  const tintedSideSrc = useBlueprintEmbroideryComposite(BLUEPRINT_SIDE_CALIBRATION_DESIGN, "", activeColor.id, threadMode, 0, "side");
   const frontFit = useBlueprintArtworkFit(activeDesignSrc, frontDesignSize);
 
   useEffect(() => {
@@ -202,6 +205,11 @@ export function BlueprintPreview({ versions, initialVersion }: {
       <div className="rrugc-blueprint-options">
         <label className="rrugc-blueprint-guides"><input type="checkbox" checked={guides}
           onChange={event => setGuides(event.target.checked)} /> Show guides</label>
+        <label className="rrugc-blueprint-thread-mode-label">Thread color
+          <select aria-label="Thread color mode" value={threadMode} onChange={event => setThreadMode(event.target.value as ThreadMode)}>
+            <option value="auto">Auto match hat</option><option value="original">Original pigment</option>
+          </select>
+        </label>
       </div>
     </div>
     <div className="rrugc-blueprint-cross-layout">
@@ -269,7 +277,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
               <small>Hoop Red WACE · Placement preview</small>
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
-              <span className="rrugc-blueprint-thread-source" title="Keep original thread pigment and stitch highlights on every cap color">Original threads</span>
+              <span className="rrugc-blueprint-thread-source" title="Thread material is rendered on cap with preserved stitch highlights">{threadMode === "auto" ? "Auto-match thread" : "Original threads"}</span>
               <BlueprintViewZoom label="Front" value={frontDesignSize} onChange={setFrontDesignSize}/>
             </div>
           </header>
@@ -342,7 +350,7 @@ export function BlueprintPreview({ versions, initialVersion }: {
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
               <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
-              <span className="rrugc-blueprint-thread-source" title="Keep original thread pigment and stitch highlights on every cap color">Original threads</span>
+              <span className="rrugc-blueprint-thread-source" title="Thread material is rendered on cap with preserved stitch highlights">{threadMode === "auto" ? "Auto-match thread" : "Original threads"}</span>
               <BlueprintViewZoom label="Right side" value={sideDesignSize} onChange={setSideDesignSize}/>
             </div>
           </header>
@@ -389,13 +397,13 @@ export function BlueprintPreview({ versions, initialVersion }: {
     </div>
     <div className="rrugc-blueprint-footnote">
       <span>Placement is approximate; verify embroidery proof before production.</span>
-      <span>13 official 8869 colorways · Original thread colors preserved</span>
+      <span>13 official 8869 colorways · Low-relief material composite · Thread color by hat</span>
     </div>
     {frontDetailOpen && <BlueprintFrontDetailModal
-      hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesign.url}
+      hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesign.url} compositedSrc={tintedFrontSrc}
       colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
-      paletteOrdinal={0} guides={guides}
+      guides={guides}
       onClose={() => setFrontDetailOpen(false)}
     />}
   </section>;

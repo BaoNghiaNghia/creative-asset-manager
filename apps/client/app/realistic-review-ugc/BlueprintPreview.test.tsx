@@ -55,7 +55,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(BLUEPRINT_HAT_COLORS).toHaveLength(13);
     const html = renderToStaticMarkup(<BlueprintPreview versions={versions} />);
     expect(html).toContain("9 designs × 13 hat colors");
-    expect(html).toContain("Original thread colors preserved");
+    expect(html).toContain("Low-relief material composite · Thread color by hat");
     expect(html).not.toContain("rrugc-blueprint-matrix");
     expect(html).not.toContain("rrugc-blueprint-cell");
     expect(html).toContain("rrugc-blueprint-design-carousel");
@@ -65,7 +65,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).not.toContain("rrugc-blueprint-selected-top");
     expect(html).not.toContain("rrugc-blueprint-selected-badge");
     expect(html).toContain('aria-label="Front design zoom"');
-    expect(html).toContain('Original threads');
+    expect(html).toContain('Auto-match thread');
     expect((html.match(/rrugc-blueprint-panel-footer/g) || []).length).toBe(2);
     expect((html.match(/class="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail"/g) || []).length).toBe(1);
     expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
@@ -161,7 +161,8 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(chosen(host)).toContain("Natural / Brown");
     expect(host.querySelectorAll(".rrugc-blueprint-thread-source")).toHaveLength(2);
-    expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Original threads");
+    expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Auto-match thread");
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Thread color mode"]')?.value).toBe("auto");
     expect(host.querySelectorAll('button[aria-label*="embroidery palette"]')).toHaveLength(0);
     expect(host.querySelector(".rrugc-blueprint-design-choice.is-selected")?.getAttribute("style")).toContain("0px");
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
@@ -202,7 +203,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => root.unmount());
   });
 
-  it("never changes thread pigment on hat navigation or across design selection", async () => {
+  it("keeps an unprocessed source fallback while the compositor is loading", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);

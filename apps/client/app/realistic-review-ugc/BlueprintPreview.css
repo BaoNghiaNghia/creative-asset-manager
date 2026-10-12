@@ -10,7 +10,11 @@
 .rrugc-blueprint-description>strong{display:flex;align-items:center;flex-wrap:wrap;gap:7px;color:#324e6f;font-size:13px;font-weight:850}
 .rrugc-blueprint-count{padding:3px 8px;border:1px solid #cbe1f0;border-radius:99px;background:#edf7ff;color:#347baf;font-size:9px}
 .rrugc-blueprint-description>span{color:#7186a0;font-size:10px;line-height:1.4}
-.rrugc-blueprint-options{display:flex;flex:none;align-items:center;gap:13px}
+.rrugc-blueprint-options{display:flex;flex:none;align-items:center;gap:13px;flex-wrap:wrap;justify-content:flex-end}
+.rrugc-blueprint-thread-mode-label{display:inline-flex;align-items:center;gap:7px;color:#607891;font-size:10px;font-weight:750;white-space:nowrap}
+.rrugc-blueprint-thread-mode-label select{min-width:125px;min-height:29px;max-width:175px;background:#fff;border:1px solid #cbdde9;border-radius:7px;padding:4px 7px;color:#375b78;font:inherit;font-size:11px;cursor:pointer}
+.rrugc-blueprint-thread-mode-label select:focus-visible{outline:2px solid #1599ce;outline-offset:2px}
+@media(max-width:680px){.rrugc-blueprint-controls{align-items:flex-start;flex-wrap:wrap}.rrugc-blueprint-options{width:100%;justify-content:flex-start}.rrugc-blueprint-thread-mode-label select{min-width:115px}}
 .rrugc-blueprint-guides,.rrugc-blueprint-scale{display:inline-flex;align-items:center;gap:6px;color:#607891;font-size:10px;font-weight:750;white-space:nowrap}
 .rrugc-blueprint-guides input{accent-color:#089acb;cursor:pointer}
 .rrugc-blueprint-scale input{width:85px;height:4px;accent-color:#089acb;cursor:pointer}
@@ -135,7 +139,7 @@
 .rrugc-blueprint-selected-hat img.rrugc-blueprint-hat-original{width:100%;height:100%;object-fit:contain}
 .rrugc-blueprint-selected-design{z-index:1}
 .rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img:not(.is-loaded){opacity:0}
-.rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img.is-loaded{opacity:.91}
+.rrugc-blueprint-selected-design img.rrugc-blueprint-smooth-img.is-loaded{opacity:1}
 .rrugc-blueprint-side-image{background-size:300% 400%;background-repeat:no-repeat;background-color:#f6f9fc}
 .rrugc-blueprint-side-image:not(.is-ready){background-image:linear-gradient(105deg,#eef3f8,#fff,#eef3f8);background-size:200% 100%;animation:rrugc-blueprint-skeleton 1.3s ease-in-out infinite}
 .rrugc-blueprint-side-image.is-ready{background-image:url("/rrugc/blueprint/sides-atlas-fit.webp")}
