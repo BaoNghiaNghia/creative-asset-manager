@@ -2450,6 +2450,77 @@ def test_stage3_analysis_worker_persists_ready_result(database):
 
 
 
+
+def test_stage4_completion_feed_bootstrap_catches_up_and_is_tenant_scoped(api, database):
+    from urllib.parse import quote
+    from uuid import uuid4
+
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Stage 4 notices",
+            query="stage4 notification", search_queries=["stage4 notification"],
+            target_count=5, max_scroll_batches=1, auto_import=True, auto_scout=False,
+        )
+        plan = RrugcSourcePlanModel(
+            tenant_id="tenant-a", root_folder_id="root", source_file_id="stage4-notice-source",
+            source_relative_path="product/front.png", source_name="front.png",
+            source_mime_type="image/png", source_revision="a" * 64,
+            status="ready", campaign_id=campaign.id, created_by_user_id="user-a",
+        )
+        session.add(plan)
+        session.flush()
+        def add_job(status, completed_at, remote):
+            job = RrugcStage2JobModel(
+                id=str(uuid4()), tenant_id="tenant-a", source_plan_id=plan.id,
+                campaign_id=campaign.id, source_revision=plan.source_revision,
+                skill_name="skill", selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[], status=status,
+                idempotency_key=str(uuid4()), output_remote_file_id=remote,
+                completed_at=completed_at, created_by_user_id="user-a",
+            )
+            session.add(job)
+            return job
+        ignored = add_job("failed", now, None)
+        session.commit()
+
+    root = "/api/v1/realistic-review-ugc/stage4/completions"
+    bootstrap = api.get(root)
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["bootstrap"] is True
+    assert bootstrap.json()["cursor"] == "start"
+    assert bootstrap.json()["items"] == []
+
+    with database() as session:
+        plan = session.get(RrugcSourcePlanModel, plan.id)
+        for index in range(3):
+            job = RrugcStage2JobModel(
+                id=str(uuid4()), tenant_id="tenant-a", source_plan_id=plan.id,
+                campaign_id=plan.campaign_id, source_revision=plan.source_revision,
+                skill_name="skill", selected_candidate_ids_json=[],
+                selected_reference_snapshot_json=[], status="completed",
+                idempotency_key=str(uuid4()), output_remote_file_id="output-"+str(index),
+                completed_at=now, created_by_user_id="user-a",
+            )
+            session.add(job)
+        session.commit()
+
+    first = api.get(root + "?cursor=start&limit=2")
+    assert first.status_code == 200
+    assert first.json()["has_more"] is True
+    assert len(first.json()["items"]) == 2
+    assert all(item["source_name"] == "front.png" for item in first.json()["items"])
+    next_page = api.get(root + "?cursor=" + quote(first.json()["cursor"], safe=""))
+    assert next_page.status_code == 200
+    assert len(next_page.json()["items"]) == 1
+    assert next_page.json()["has_more"] is False
+    final = api.get(root + "?cursor=" + quote(next_page.json()["cursor"], safe=""))
+    assert final.status_code == 200 and final.json()["items"] == []
+    assert api.get(root + "?cursor=bad-cursor").status_code == 422
+    already = api.get(root)
+    assert already.json()["items"] == []
+    assert already.json()["cursor"] == next_page.json()["cursor"]
+
 def test_stage5_review_hide_and_full_loox_export(api, database):
     from zipfile import ZipFile
     from xml.etree import ElementTree

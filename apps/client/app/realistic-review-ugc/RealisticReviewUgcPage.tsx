@@ -40,6 +40,7 @@ import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
+import { Stage4CompletionNotifications } from "./Stage4CompletionNotifications";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
 import { mergeStage5Pages } from "./stage5Pagination";
 import { RrugcWorkflowNavigation, type RrugcStageTab } from "./RrugcWorkflowNavigation";
@@ -938,6 +939,7 @@ export function RealisticReviewUgcPage() {
         description="Analyze keyword demand, generate artwork for used quotes, prepare 13 cap colorways, discover Pinterest references, generate UGC images, and publish review-ready outputs."
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}
         actions={<div className="rrugc-global-management-actions">
+          <Stage4CompletionNotifications onViewStage4={() => selectStage("stage4")} />
           <button
             type="button"
             className="rrugc-global-management-button"

@@ -46,6 +46,7 @@ import type {
   SourcePlanSyncResult,
   Stage2Job,
   Stage2JobCreated,
+  Stage4CompletionFeed,
   Stage3AnalyzeResult,
   Stage3ReviewGroupList,
   Stage2Skill,
@@ -451,6 +452,13 @@ export const archiveScoutAgent = (agentId: string) =>
   request<ScoutAgent>(
     "/api/v1/realistic-review-ugc/scout-agents/" + encodeURIComponent(agentId),
     { method: "DELETE" },
+  );
+
+export const listStage4Completions = (cursor?: string, signal?: AbortSignal) =>
+  request<Stage4CompletionFeed>(
+    "/api/v1/realistic-review-ugc/stage4/completions"
+    + (cursor !== undefined ? "?cursor=" + encodeURIComponent(cursor) : ""),
+    { signal },
   );
 
 export const listStage2Jobs = (

@@ -26,6 +26,20 @@ describe("Stage 4 reference ordering", () => {
   });
 });
 import { Stage3ReviewGroups, Stage3ReviewModal } from "./Stage3ReviewGroups";
+import { Stage4CompletionNotifications, stage4CompletionMessage } from "./Stage4CompletionNotifications";
+
+describe("Stage 4 completion alerts", () => {
+  it("groups a completion batch into one notice", () => {
+    const complete = { id: "1", source_plan_id: "plan-a", source_name: "front.png", completed_at: "2026-10-12T10:00:00" };
+    expect(stage4CompletionMessage([complete])).toContain("front.png");
+    expect(stage4CompletionMessage([complete, { ...complete, id: "2" }])).toBe("2 Stage 4 images completed.");
+  });
+  it("exposes a notification preferences control", () => {
+    const markup = renderToStaticMarkup(<Stage4CompletionNotifications onViewStage4={() => undefined} />);
+    expect(markup).toContain("Stage 4 alerts");
+    expect(markup).toContain("Stage 4 completion notifications");
+  });
+});
 import {
   ReferenceReviewModal,
   SourceImageReviewModal,

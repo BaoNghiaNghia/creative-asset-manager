@@ -5692,6 +5692,82 @@ async def keyword_image_output(
     )
 
 
+@router.get("/stage4/completions")
+def list_stage4_completions(
+    cursor: str | None = Query(default=None, max_length=110),
+    limit: int = Query(default=100, ge=1, le=200),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Durable tenant-scoped completion feed across *all* Stage 4 plan pages.
+
+    No cursor bootstraps the current high-water mark without emitting old
+    notifications. 'start' is a sentinel for an empty initial history.
+    """
+    from uuid import UUID
+
+    filters = (
+        RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+        RrugcStage2JobModel.status == "completed",
+        RrugcStage2JobModel.output_remote_file_id.is_not(None),
+        RrugcStage2JobModel.completed_at.is_not(None),
+    )
+
+    def token(completed_at, job_id: str) -> str:
+        return completed_at.isoformat() + "|" + job_id
+
+    scope = principal.active_tenant_id + ":" + principal.user_id
+    if cursor is None:
+        latest = session.execute(
+            select(RrugcStage2JobModel.completed_at, RrugcStage2JobModel.id)
+            .where(*filters)
+            .order_by(RrugcStage2JobModel.completed_at.desc(), RrugcStage2JobModel.id.desc())
+            .limit(1)
+        ).first()
+        return {"scope": scope, "items": [], "cursor": (
+            token(latest[0], latest[1]) if latest else "start"
+        ), "has_more": False, "bootstrap": True}
+
+    query = (
+        select(RrugcStage2JobModel, RrugcSourcePlanModel.source_name)
+        .join(RrugcSourcePlanModel, RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id)
+        .where(*filters, RrugcSourcePlanModel.tenant_id == principal.active_tenant_id)
+    )
+    if cursor != "start":
+        try:
+            iso, job_id = cursor.rsplit("|", 1)
+            UUID(job_id)
+            at = datetime.fromisoformat(iso)
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail={
+                "code": "stage4_notification_cursor_invalid",
+                "message": "Invalid Stage 4 notification cursor.",
+            }) from exc
+        query = query.where(or_(
+            RrugcStage2JobModel.completed_at > at,
+            and_(RrugcStage2JobModel.completed_at == at, RrugcStage2JobModel.id > job_id),
+        ))
+    results = session.execute(query.order_by(
+        RrugcStage2JobModel.completed_at.asc(),
+        RrugcStage2JobModel.id.asc(),
+    ).limit(limit + 1)).all()
+    page = results[:limit]
+    return {
+        "scope": scope,
+        "items": [{
+            "id": job.id,
+            "source_plan_id": job.source_plan_id,
+            "source_name": name,
+            "completed_at": job.completed_at.isoformat(),
+        } for job, name in page],
+        "cursor": token(page[-1][0].completed_at, page[-1][0].id) if page else cursor,
+        "has_more": len(results) > limit,
+        "bootstrap": False,
+    }
+
+
 @router.get("/stage2-jobs", response_model=list[Stage2JobResponse])
 def list_stage2_jobs(
     source_plan_id: list[str] | None = Query(default=None),

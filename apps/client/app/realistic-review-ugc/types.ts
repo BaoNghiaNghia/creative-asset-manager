@@ -419,6 +419,21 @@ export type Stage2SkillRegistry = {
   archived_items?: Stage2SkillRegistryItem[];
 };
 
+export type Stage4CompletionEvent = {
+  id: string;
+  source_plan_id: string;
+  source_name: string;
+  completed_at: string;
+};
+
+export type Stage4CompletionFeed = {
+  scope: string;
+  items: Stage4CompletionEvent[];
+  cursor: string;
+  has_more: boolean;
+  bootstrap: boolean;
+};
+
 export type Stage2Job = {
   id: string;
   source_plan_id: string;

@@ -63,6 +63,13 @@
   cursor: pointer;
 }
 .cam-action-toast button:hover { color: #26374f; background: #eff3f7; }
+.cam-action-toast button.cam-action-toast-action {
+  flex: 0 0 auto; width: auto; height: auto; max-width: 115px;
+  border: 1px solid #c5d6ee; background: #eef5ff; color: #234e8a;
+  border-radius: 6px; font-size: 10px; font-weight: 750; line-height: 1.4;
+  padding: 4px 7px; white-space: nowrap;
+}
+.cam-action-toast button.cam-action-toast-action:hover { background:#dceafe; }
 @keyframes cam-action-toast-enter {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
