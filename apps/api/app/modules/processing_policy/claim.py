@@ -63,6 +63,13 @@ _RRUGC_GEMINI_LANE_UNAVAILABLE = object()
 # priority while bounding the wait for backlog.
 STARVATION_PREVENTION_AGE = timedelta(minutes=15)
 STARVATION_PREVENTION_PRIORITY = 50
+# Stage 5 review analysis is an interactive, user-visible completion step.
+# Its normal priority (15) loses to hundreds of older candidate jobs after
+# generic aging boosts those jobs to 50. Raise only *waiting* Stage 5 work
+# above that background backlog after five minutes, preserving the single
+# shared Gemini rate-limit and concurrency gates.
+STAGE5_QUEUED_PRIORITY_BOOST_AGE = timedelta(minutes=5)
+STAGE5_QUEUED_PRIORITY = 60
 # Source-plan context analysis is prerequisite/background enrichment. It shares
 # the same paced RRUGC Gemini lane as candidate analysis, so letting a large
 # source-plan refresh backlog receive the global starvation boost can freeze
@@ -228,7 +235,21 @@ class TenantAwareJobClaimer:
         if preferred_job_types:
             conditions.append(ProcessingJobModel.job_type.in_(preferred_job_types))
         starvation_cutoff = now - STARVATION_PREVENTION_AGE
+        stage5_cutoff = now - STAGE5_QUEUED_PRIORITY_BOOST_AGE
         effective_priority = case(
+            (
+                and_(
+                    ProcessingJobModel.job_type == "rrugc_stage3_analyze",
+                    ProcessingJobModel.next_attempt_at <= stage5_cutoff,
+                ),
+                case(
+                    (
+                        ProcessingJobModel.priority < STAGE5_QUEUED_PRIORITY,
+                        STAGE5_QUEUED_PRIORITY,
+                    ),
+                    else_=ProcessingJobModel.priority,
+                ),
+            ),
             (
                 and_(
                     ProcessingJobModel.next_attempt_at <= starvation_cutoff,

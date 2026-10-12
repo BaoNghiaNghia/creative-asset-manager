@@ -19,6 +19,7 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.service import ProcessingJobService
 from app.modules.processing.worker_roles import IMAGE_WORKER_JOB_TYPES, VIDEO_WORKER_JOB_TYPES
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel, TenantProcessingPolicyModel, TenantProviderPolicyModel
+from app.modules.processing_policy.claim import TenantAwareJobClaimer
 from app.modules.processing_policy.repository import ProcessingPolicyRepository
 from app.modules.processing_policy.service import ProcessingPolicyService, TenantPolicyCache
 from app.modules.storage.model import AssetStorageObjectModel
@@ -163,6 +164,52 @@ class ProcessingPolicyTest(unittest.TestCase):
 
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, visual)
+
+    def test_stage5_pending_five_minutes_beats_old_candidate_backlog(self):
+        self.policy("tenant", total=4, ai=4)
+        candidate = self.job(
+            "tenant", "old-candidate", kind="rrugc_candidate_analyze",
+            provider="gemini", scope="ai",
+        )
+        stage5 = self.job(
+            "tenant", "stage5-review", kind="rrugc_stage3_analyze",
+            provider="gemini", scope="ai",
+        )
+        with self.sessions.begin() as session:
+            old = session.get(ProcessingJobModel, candidate)
+            old.priority = 0
+            old.next_attempt_at = NOW - timedelta(hours=2)
+            row = session.get(ProcessingJobModel, stage5)
+            row.priority = 15
+            row.next_attempt_at = NOW - timedelta(minutes=6)
+        with self.sessions() as session:
+            pick = TenantAwareJobClaimer(session)._next_candidate(
+                ProcessingJobModel.status == "pending", now=NOW,
+            )
+            self.assertEqual(pick.id, stage5)
+
+    def test_new_stage5_does_not_jump_older_backlog_until_wait_threshold(self):
+        self.policy("tenant", total=4, ai=4)
+        candidate = self.job(
+            "tenant", "old-candidate", kind="rrugc_candidate_analyze",
+            provider="gemini", scope="ai",
+        )
+        stage5 = self.job(
+            "tenant", "fresh-stage5", kind="rrugc_stage3_analyze",
+            provider="gemini", scope="ai",
+        )
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, candidate).next_attempt_at = (
+                NOW - timedelta(minutes=20)
+            )
+            stage5_job = session.get(ProcessingJobModel, stage5)
+            stage5_job.priority = 15
+            stage5_job.next_attempt_at = NOW - timedelta(minutes=2)
+        with self.sessions() as session:
+            pick = TenantAwareJobClaimer(session)._next_candidate(
+                ProcessingJobModel.status == "pending", now=NOW,
+            )
+            self.assertEqual(pick.id, candidate)
 
     def test_disabled_and_paused_tenants_are_skipped_without_starvation(self):
         self.policy("disabled", enabled=False); self.policy("paused", paused=True); self.policy("enabled")
