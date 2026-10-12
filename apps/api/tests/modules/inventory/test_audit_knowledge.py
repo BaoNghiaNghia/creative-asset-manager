@@ -126,6 +126,38 @@ def test_active_knowledge_snapshot_filters_to_relevant_workbook_and_sheet_scopes
     engine.dispose(); temp.cleanup()
 
 
+
+def test_learning_failures_are_audited_without_reverting_verified_operations(monkeypatch, caplog):
+    temp, engine, sessions = db()
+    def offline(*_args, **_kwargs):
+        raise RuntimeError("downstream learner unavailable")
+    monkeypatch.setattr(InventoryKnowledgeService, "learn_from_verified_history", offline)
+    monkeypatch.setattr(InventoryKnowledgeService, "learn_from_verified_assessments", offline)
+    result = SimpleNamespace(
+        run_id="c"*64, status="completed", tool_rounds=1, read_calls=1,
+        read_cells=12, writes=0, plan_hash="p"*64,
+        staged=SimpleNamespace(operations=[], issues=[], material_actions=[], summary="verified no-op"),
+        assessment={"observations": []}, tool_trace=[], ranges_read=[],
+        business_prompt_source="default", business_prompt_version="v1",
+        business_prompt_hash="h"*64, knowledge_hash="k"*64, knowledge_version=0,
+        model="gemini-test", execution={"verification_status": "verified"},
+        knowledge_proposals=[], change_audit=[],
+    )
+    with caplog.at_level("WARNING", logger="cam.inventory.learning"):
+        audit = InventoryOperationAuditService(sessions).persist_v4_result(
+            "tenant-a", date(2026, 10, 11),
+            stage="evening_reconcile", result=result,
+        )
+    assert audit["status"] == "completed"
+    assert audit["summary"]["learning"]["status"] == "failed"
+    assert audit["summary"]["learning"]["history_error"] == "RuntimeError"
+    assert audit["summary"]["learning"]["assessment_error"] == "RuntimeError"
+    assert sum("inventory_learning_failed" in entry.message for entry in caplog.records) == 2
+    again = InventoryOperationAuditService(sessions).get_by_id("tenant-a", audit["id"])
+    assert again["summary"]["learning"]["status"] == "failed"
+    engine.dispose(); temp.cleanup()
+
+
 def test_gemini_proposals_are_deduplicated_and_never_auto_activated():
     temp, engine, sessions = db()
     service = InventoryKnowledgeService(sessions)
@@ -144,6 +176,147 @@ def test_gemini_proposals_are_deduplicated_and_never_auto_activated():
     assert first[0]["id"] == second[0]["id"]
     assert first[0]["status"] == "proposed"
     assert service.active_snapshot("tenant-a")["count"] == 0
+    engine.dispose(); temp.cleanup()
+
+
+
+def test_verified_daily_assessments_generate_reviewable_knowledge_without_cell_writes():
+    temp, engine, sessions = db()
+    audit_service = InventoryOperationAuditService(sessions)
+    knowledge = InventoryKnowledgeService(sessions)
+
+    def observation_result(run_id, business_date):
+        return SimpleNamespace(
+            run_id=run_id, status="completed", tool_rounds=2, read_calls=3,
+            read_cells=24, writes=0, plan_hash="p"*64,
+            staged=SimpleNamespace(operations=[], issues=[], material_actions=[], summary="no edits required"),
+            assessment={
+                "summary": "Workbook structure inspected",
+                "observations": [{
+                    "code": "WAREHOUSE_COLUMN_LABEL",
+                    "conclusion": "Warehouse code is stored in column B",
+                    "confidence": 0.94,
+                    "evidence": [{
+                        "sheet": "Kho", "cell": "B2",
+                        "evidence_hash": "a"*64,
+                    }],
+                }],
+                "uncertainties": [], "additional_reads_needed": False,
+            },
+            tool_trace=[], ranges_read=["'Kho'!A1:C8"],
+            business_prompt_source="default", business_prompt_version="v1",
+            business_prompt_hash="h"*64, knowledge_hash="k"*64,
+            knowledge_version=0, model="gemini-test",
+            execution={"verification_status": "verified"},
+            knowledge_proposals=[], change_audit=[],
+        )
+
+    audit_service.persist_v4_result(
+        "tenant-a", date(2026, 10, 10), stage="evening_reconcile",
+        result=observation_result("a"*64, "2026-10-10"),
+    )
+    audit_service.persist_v4_result(
+        "tenant-a", date(2026, 10, 11), stage="evening_reconcile",
+        result=observation_result("b"*64, "2026-10-11"),
+    )
+    entries = [
+        item for item in knowledge.list("tenant-a")
+        if item["source"] == "verified_daily_observation"
+    ]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["status"] == "proposed"
+    assert entry["kind"] == "BUSINESS_NOTE"
+    assert entry["structured_rule"]["distinct_business_dates"] == 2
+    assert entry["structured_rule"]["executable"] is False
+    assert entry["structured_rule"]["mode"] == "shadow"
+    assert len(entry["evidence"]) == 2
+    assert knowledge.active_snapshot("tenant-a")["count"] == 0
+
+    # A scheduler replay must not duplicate a previously learned candidate.
+    knowledge.learn_from_verified_assessments("tenant-a")
+    assert len([
+        item for item in knowledge.list("tenant-a")
+        if item["source"] == "verified_daily_observation"
+    ]) == 1
+
+    engine.dispose(); temp.cleanup()
+
+
+
+def test_divergent_daily_assessments_generate_non_executable_review_note():
+    temp, engine, sessions = db()
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    with sessions.begin() as session:
+        for day, conclusion in ((10, "Warehouse code is in B"), (11, "Warehouse code is in C")):
+            session.add(InventoryOperationAuditModel(
+                tenant_id="tenant-a", business_date=date(2026, 10, day),
+                stage="evening_reconcile", status="completed", writes=0,
+                summary_json={"verification_status": "verified", "read_cells": 14},
+                assessment_json={
+                    "observations": [{
+                        "code": "WAREHOUSE_COLUMN",
+                        "conclusion": conclusion, "confidence": 0.9,
+                        "evidence": [{"sheet": "Kho", "cell": "B2",
+                                      "evidence_hash": "b"*64}],
+                    }],
+                },
+            ))
+    rows = InventoryKnowledgeService(sessions).learn_from_verified_assessments("tenant-a")
+    assert len(rows) == 1
+    assert rows[0]["status"] == "proposed"
+    assert rows[0]["structured_rule"]["distinct_conclusions"] == 2
+    assert rows[0]["structured_rule"]["executable"] is False
+    assert "review" in rows[0]["content"].lower()
+    engine.dispose(); temp.cleanup()
+
+
+def test_assessment_learning_skips_failed_unverified_and_ungrounded_observations():
+    temp, engine, sessions = db()
+    knowledge = InventoryKnowledgeService(sessions)
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    with sessions.begin() as session:
+        for status, verification, evidence, business_day in (
+            ("failed", "failed", [{"sheet": "Kho", "cell": "B2", "evidence_hash": "b"*64}], 1),
+            ("completed", "unknown", [{"sheet": "Kho", "cell": "B2", "evidence_hash": "b"*64}], 2),
+            ("completed", "verified", [], 3),
+        ):
+            session.add(InventoryOperationAuditModel(
+                tenant_id="tenant-a", business_date=date(2026, 10, business_day),
+                stage="evening_reconcile", status=status, writes=0,
+                summary_json={"verification_status": verification, "read_cells": 20},
+                assessment_json={
+                    "observations": [{
+                        "code": "UNSAFE", "conclusion": "Unverified structural claim",
+                        "confidence": 0.99, "evidence": evidence,
+                    }]
+                },
+            ))
+    assert knowledge.learn_from_verified_assessments("tenant-a") == []
+    engine.dispose(); temp.cleanup()
+
+
+def test_learning_status_reports_verified_reads_and_last_learning_result():
+    temp, engine, sessions = db()
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    with sessions.begin() as session:
+        session.add(InventoryOperationAuditModel(
+            tenant_id="tenant-a", business_date=date(2026, 10, 11),
+            stage="evening_reconcile", status="completed",
+            summary_json={
+                "read_cells": 865, "verification_status": "verified",
+                "learning": {"status": "completed", "history_candidates": 0,
+                             "assessment_candidates": 1},
+            },
+            assessment_json={"observations": [{"code": "LABEL"}]},
+        ))
+    data = InventoryKnowledgeService(sessions).learning_status("tenant-a")
+    assert data["verified_days"] == 1
+    assert data["read_cells_verified"] == 865
+    assert data["last_verified_day"] == "2026-10-11"
+    assert data["last_learning"]["status"] == "completed"
+    assert data["last_learning"]["assessment_candidates"] == 1
+    assert data["knowledge"]["active"] == 0
     engine.dispose(); temp.cleanup()
 
 

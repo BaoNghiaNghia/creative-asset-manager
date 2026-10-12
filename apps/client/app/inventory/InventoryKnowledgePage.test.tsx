@@ -21,6 +21,8 @@ describe("InventoryKnowledgePage", () => {
     expect(markup).toContain("Đang áp dụng");
     expect(markup).toContain("Gemini đề xuất");
     expect(markup).toContain("Bản nháp");
+    expect(markup).toContain("Ngày có đối soát xác minh");
+    expect(markup).toContain("Lần học gần nhất");
     expect(markup).toContain("Lưu bản nháp");
   });
 });

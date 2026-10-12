@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 from typing import Any
@@ -14,6 +15,8 @@ from app.modules.inventory.persistence_model import (
     InventoryOperationChangeModel,
     inventory_utcnow,
 )
+
+logger = logging.getLogger("cam.inventory.learning")
 
 _STAGE_NAMES = {
     "morning_reset": "Reset đầu ngày",
@@ -214,22 +217,60 @@ class InventoryOperationAuditService:
             session.commit()
             audit_id = row.id
         persisted = self.get_by_id(tenant_id, audit_id)
-        if status == "completed" and any(
-            str(item.get("verification_status") or verification_default) == "verified"
-            for item in change_audit
+        if status == "completed" and (
+            verification_default == "verified"
+            or any(str(item.get("verification_status") or verification_default) == "verified"
+                   for item in change_audit)
         ):
-            # Learning is an advisory post-commit side effect. It must never
-            # turn a successfully verified business run into a failure.
-            try:
-                from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
+            # Learning is a separate post-commit activity: failures are reported
+            # and persisted, but never roll back a verified workbook run.
+            from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
 
-                InventoryKnowledgeService(self.session_factory).learn_from_verified_history(
-                    tenant_id,
-                    limit=1000,
-                    minimum_support=2,
+            learning = {"status": "completed", "history_candidates": 0,
+                        "assessment_candidates": 0}
+            service = InventoryKnowledgeService(self.session_factory)
+            for task_name, task in (
+                ("history", lambda: service.learn_from_verified_history(
+                    tenant_id, limit=1000, minimum_support=2,
+                )),
+                ("assessment", lambda: service.learn_from_verified_assessments(
+                    tenant_id, limit=500, minimum_distinct_days=2,
+                )),
+            ):
+                try:
+                    proposals = task()
+                    learning[f"{task_name}_candidates"] = len(proposals)
+                except Exception as exc:
+                    learning["status"] = "failed"
+                    learning[f"{task_name}_error"] = type(exc).__name__
+                    logger.warning(
+                        "inventory_learning_failed tenant_id=%s business_date=%s stage=%s task=%s error_class=%s",
+                        tenant_id, business_date.isoformat(), stage, task_name,
+                        type(exc).__name__,
+                    )
+            try:
+                with self.session_factory() as session:
+                    audit_row = session.scalar(select(InventoryOperationAuditModel).where(
+                        InventoryOperationAuditModel.tenant_id == tenant_id,
+                        InventoryOperationAuditModel.id == audit_id,
+                    ))
+                    if audit_row is not None:
+                        audit_row.summary_json = {
+                            **dict(audit_row.summary_json or {}),
+                            "learning": learning,
+                        }
+                        session.commit()
+                persisted["summary"]["learning"] = learning
+                logger.info(
+                    "inventory_learning_checked tenant_id=%s business_date=%s stage=%s status=%s history=%d assessments=%d",
+                    tenant_id, business_date.isoformat(), stage, learning["status"],
+                    learning["history_candidates"], learning["assessment_candidates"],
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "inventory_learning_status_persist_failed tenant_id=%s business_date=%s error_class=%s",
+                    tenant_id, business_date.isoformat(), type(exc).__name__,
+                )
         return persisted
 
     def persist_failure(

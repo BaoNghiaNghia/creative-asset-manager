@@ -217,6 +217,13 @@ def get_lifecycle_stage_detail(
     except ValueError as exc:
         raise HTTPException(422, detail={"code": str(exc)}) from exc
 
+@router.get("/knowledge/learning-status")
+def get_inventory_learning_status(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    return _knowledge().learning_status(principal.active_tenant_id)
+
+
 @router.get("/knowledge")
 def get_inventory_knowledge(
     status: str | None = None,

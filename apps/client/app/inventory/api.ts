@@ -239,7 +239,16 @@ export const inventoryLifecycleApi = {
   applyMorningResetRecovery:(businessDate:string,planHash:string)=>request<InventoryMorningResetRecoveryApplyResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/morning-reset/recovery/apply`,{method:"POST",body:JSON.stringify({plan_hash:planHash})}),
   replayHistoricalGemini:(businessDate:string,mode:"fresh_copy"|"existing_copy"="fresh_copy",promote=true)=>request<InventoryHistoricalReplayResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/gemini/replay`,{method:"POST",body:JSON.stringify({mode,promote})}),
 };
+export type InventoryLearningStatus = {
+  verified_days:number;
+  read_cells_verified:number;
+  last_verified_day:string|null;
+  last_learning:({ business_date:string; status:string; history_candidates?:number; assessment_candidates?:number; history_error?:string; assessment_error?:string })|null;
+  knowledge:Record<string,number>;
+  proposals_by_source:Record<string,number>;
+};
 export const inventoryKnowledgeApi = {
+  learningStatus:()=>request<InventoryLearningStatus>("/daily-sheet/knowledge/learning-status"),
   list:(status?:string)=>request<{items:InventoryKnowledgeEntry[]}>(`/daily-sheet/knowledge${status?`?status=${encodeURIComponent(status)}`:""}`),
   create:(body:InventoryKnowledgeDraft)=>request<InventoryKnowledgeEntry>("/daily-sheet/knowledge",{method:"POST",body:JSON.stringify(body)}),
   revise:(id:string,body:Partial<InventoryKnowledgeDraft>)=>request<InventoryKnowledgeEntry>(`/daily-sheet/knowledge/${encodeURIComponent(id)}/revisions`,{method:"POST",body:JSON.stringify(body)}),

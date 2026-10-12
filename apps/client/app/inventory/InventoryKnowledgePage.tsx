@@ -5,6 +5,7 @@ import {
   type InventoryKnowledgeDraft,
   type InventoryKnowledgeEntry,
   type InventoryKnowledgeKind,
+  type InventoryLearningStatus,
 } from "./api";
 
 const kinds: Array<{ value: InventoryKnowledgeKind; label: string }> = [
@@ -57,6 +58,8 @@ export function InventoryKnowledgePage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [learning, setLearning] = useState<InventoryLearningStatus | null>(null);
+  const [learningError, setLearningError] = useState(false);
   const [editing, setEditing] = useState<InventoryKnowledgeEntry | null>(null);
   const [draft, setDraft] = useState<InventoryKnowledgeDraft>(emptyDraft());
   const [ruleText, setRuleText] = useState("{}");
@@ -77,6 +80,14 @@ export function InventoryKnowledgePage() {
   useEffect(() => {
     void load();
   }, [filter]);
+
+  useEffect(() => {
+    let active = true;
+    void inventoryKnowledgeApi.learningStatus()
+      .then(result => { if (active) setLearning(result); })
+      .catch(() => { if (active) setLearningError(true); });
+    return () => { active = false; };
+  }, []);
 
   const counts = useMemo(
     () => ({
@@ -177,6 +188,8 @@ export function InventoryKnowledgePage() {
         <article><span>Đang áp dụng</span><strong>{counts.active}</strong><small>Được inject vào Reset và Gemini</small></article>
         <article><span>Gemini đề xuất</span><strong>{counts.proposed}</strong><small>Chờ người dùng xác nhận</small></article>
         <article><span>Bản nháp</span><strong>{counts.draft}</strong><small>Chưa ảnh hưởng automation</small></article>
+        <article><span>Ngày có đối soát xác minh</span><strong>{learning?.verified_days ?? "—"}</strong><small>{learning ? learning.read_cells_verified.toLocaleString("vi-VN") + " ô đã đọc và xác minh" : "Dữ liệu đang được tổng hợp"}</small></article>
+        <article><span>Lần học gần nhất</span><strong>{learning?.last_learning?.business_date ?? "—"}</strong><small>{learningError ? "Không thể tải trạng thái học" : learning?.last_learning ? (learning.last_learning.status === "completed" ? "Đã kiểm tra kiến thức" : "Learning có lỗi cần kiểm tra") : "Chưa ghi nhận kết quả học"}</small></article>
       </div>
 
       <ActionMessageToast message={message} />

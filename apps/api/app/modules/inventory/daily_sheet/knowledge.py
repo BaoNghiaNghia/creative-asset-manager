@@ -434,6 +434,208 @@ class InventoryKnowledgeService:
             "version": sum(int(item["version"]) for item in entries),
         }
 
+    def learning_status(self, tenant_id: str) -> dict[str, Any]:
+        """Read-only progress for continuous learning; never reads workbook data."""
+        from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+
+        with self.session_factory() as session:
+            audits = list(session.scalars(
+                select(InventoryOperationAuditModel).where(
+                    InventoryOperationAuditModel.tenant_id == tenant_id,
+                    InventoryOperationAuditModel.stage == "evening_reconcile",
+                ).order_by(
+                    InventoryOperationAuditModel.business_date.desc(),
+                    InventoryOperationAuditModel.created_at.desc(),
+                ).limit(1000)
+            ))
+            statuses = dict(session.execute(
+                select(InventoryKnowledgeEntryModel.status, func.count())
+                .where(InventoryKnowledgeEntryModel.tenant_id == tenant_id)
+                .group_by(InventoryKnowledgeEntryModel.status)
+            ).all())
+            sources = dict(session.execute(
+                select(InventoryKnowledgeEntryModel.source, func.count())
+                .where(
+                    InventoryKnowledgeEntryModel.tenant_id == tenant_id,
+                    InventoryKnowledgeEntryModel.status == "proposed",
+                )
+                .group_by(InventoryKnowledgeEntryModel.source)
+            ).all())
+        dates: set[str] = set()
+        total_read = 0
+        last_learning = None
+        for audit in audits:
+            summary = dict(audit.summary_json or {})
+            if last_learning is None and isinstance(summary.get("learning"), dict):
+                last_learning = {
+                    "business_date": audit.business_date.isoformat(),
+                    **{
+                        key: summary["learning"].get(key)
+                        for key in ("status", "history_candidates", "assessment_candidates",
+                                    "history_error", "assessment_error")
+                        if key in summary["learning"]
+                    },
+                }
+            if (audit.status == "completed"
+                    and summary.get("verification_status") == "verified"):
+                day = audit.business_date.isoformat()
+                if day not in dates:
+                    total_read += int(summary.get("read_cells") or 0)
+                    dates.add(day)
+        return {
+            "verified_days": len(dates),
+            "read_cells_verified": total_read,
+            "last_verified_day": max(dates) if dates else None,
+            "last_learning": last_learning,
+            "knowledge": {status: int(statuses.get(status, 0))
+                          for status in ("active", "proposed", "draft", "archived", "rejected")},
+            "proposals_by_source": sources,
+        }
+
+    def learn_from_verified_assessments(
+        self, tenant_id: str, *, limit: int = 500,
+        minimum_distinct_days: int = 2,
+    ) -> list[dict[str, Any]]:
+        """Produce review-only notes from repeated, grounded no-write assessments.
+
+        This intentionally does not infer executable rules from arbitrary text.
+        Only matching conclusions observed on independent verified business days
+        qualify. All provenance is linked to stored audit IDs and cell evidence.
+        """
+        import re
+        from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+
+        with self.session_factory() as session:
+            audits = list(session.scalars(
+                select(InventoryOperationAuditModel).where(
+                    InventoryOperationAuditModel.tenant_id == tenant_id,
+                    InventoryOperationAuditModel.stage == "evening_reconcile",
+                    InventoryOperationAuditModel.status == "completed",
+                ).order_by(
+                    InventoryOperationAuditModel.business_date.desc(),
+                    InventoryOperationAuditModel.created_at.desc(),
+                ).limit(max(1, min(int(limit), 5000)))
+            ))
+
+        groups: dict[tuple[str, str], dict[Any, tuple[Any, dict, dict]]] = {}
+        for audit in audits:
+            summary = dict(audit.summary_json or {})
+            if summary.get("verification_status") != "verified" or int(summary.get("read_cells") or 0) <= 0:
+                continue
+            assessment = dict(audit.assessment_json or {})
+            if assessment.get("additional_reads_needed") is True:
+                continue
+            for observation in (assessment.get("observations") or [])[:40]:
+                if not isinstance(observation, dict):
+                    continue
+                code = str(observation.get("code") or "").strip()
+                conclusion = " ".join(str(observation.get("conclusion") or "").split())
+                confidence = observation.get("confidence")
+                evidence = observation.get("evidence") or []
+                if (
+                    not code or len(code) > 128 or not conclusion or len(conclusion) > 1024
+                    or not isinstance(confidence, (int, float)) or not 0.8 <= confidence <= 1
+                    or not isinstance(evidence, list) or not evidence
+                ):
+                    continue
+                for ref in evidence[:12]:
+                    if not isinstance(ref, dict):
+                        continue
+                    sheet = ref.get("sheet")
+                    cell = ref.get("cell")
+                    fingerprint = ref.get("evidence_hash")
+                    if (
+                        not isinstance(sheet, str) or not 0 < len(sheet) <= 255
+                        or not isinstance(cell, str) or not re.fullmatch(r"[A-Z]+[1-9][0-9]*", cell)
+                        or not isinstance(fingerprint, str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+                    ):
+                        continue
+                    key = (sheet, code)
+                    # One observation from each business date; multiple references
+                    # from one run are not independent learning support.
+                    groups.setdefault(key, {}).setdefault(
+                        audit.business_date, (audit, observation, ref),
+                    )
+
+        created: list[dict[str, Any]] = []
+        for (sheet, code), day_observations in sorted(groups.items()):
+            if len(day_observations) < max(2, minimum_distinct_days):
+                continue
+            dates = sorted(day_observations, reverse=True)[:20]
+            sample = [day_observations[day] for day in dates]
+            distinct_conclusions = {str(observation["conclusion"]).strip() for _, observation, _ in sample}
+            consistent = len(distinct_conclusions) == 1
+            evidence = [
+                {
+                    "business_date": audit.business_date.isoformat(),
+                    "audit_id": audit.id,
+                    "sheet": ref["sheet"],
+                    "cell": ref["cell"],
+                    "evidence_hash": ref["evidence_hash"],
+                    "verification_status": "verified",
+                    "conclusion": observation["conclusion"],
+                }
+                for audit, observation, ref in sample
+            ]
+            fingerprint = _canonical_hash({
+                "sheet": sheet, "code": code,
+            })
+            knowledge_key = f"verified-observation:{fingerprint[:48]}"
+            # Keep a single review item per observed conclusion. Rejecting a
+            # candidate must prevent automated recreation on the next run.
+            with self.session_factory() as session:
+                existing = session.scalar(
+                    select(InventoryKnowledgeEntryModel).where(
+                        InventoryKnowledgeEntryModel.tenant_id == tenant_id,
+                        InventoryKnowledgeEntryModel.knowledge_key == knowledge_key,
+                    ).order_by(InventoryKnowledgeEntryModel.version.desc()).limit(1)
+                )
+            if existing is not None:
+                created.append(_view(existing))
+                continue
+            structured_rule = {
+                "learner": "verified_daily_assessment_v2",
+                "mode": "shadow",
+                "executable": False,
+                "eligible_for_activation": False,
+                "requires_human_review": True,
+                "observation_code": code,
+                "support": len(day_observations),
+                "distinct_business_dates": len(day_observations),
+                "distinct_conclusions": len(distinct_conclusions),
+                "consistent_conclusion": consistent,
+            }
+            try:
+                created.append(self.create(
+                    tenant_id,
+                    kind="BUSINESS_NOTE",
+                    title=f"Observed workbook pattern: {code}"[:255],
+                    content=(next(iter(distinct_conclusions)) if consistent else
+                             "Verified workbook observations disagree across days; review linked evidence before defining a business rule."),
+                    scope_type="sheet", scope_key=sheet,
+                    structured_rule=structured_rule, evidence=evidence,
+                    confidence=min(
+                        min(float(observation["confidence"]) for _, observation, _ in sample),
+                        0.95 if consistent else 0.5,
+                    ),
+                    status="proposed", source="verified_daily_observation",
+                    source_content_hash=fingerprint,
+                    knowledge_key=knowledge_key,
+                ))
+            except IntegrityError:
+                # Concurrent workers may mine the same confirmed pattern. The
+                # tenant/key version uniqueness constraint is authoritative.
+                with self.session_factory() as session:
+                    existing = session.scalar(select(InventoryKnowledgeEntryModel).where(
+                        InventoryKnowledgeEntryModel.tenant_id == tenant_id,
+                        InventoryKnowledgeEntryModel.knowledge_key == knowledge_key,
+                    ))
+                if existing is None:
+                    raise
+                created.append(_view(existing))
+        return created
+
     def learn_from_verified_history(
         self,
         tenant_id: str,

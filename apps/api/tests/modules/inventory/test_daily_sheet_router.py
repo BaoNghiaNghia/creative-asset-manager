@@ -395,6 +395,26 @@ def test_historical_replay_errors_expose_retry_metadata():
     }
 
 
+def test_learning_status_is_read_only_and_requires_inventory_read_permission():
+    reader = client_for(principal({"inventory.read"}))
+    denied = client_for(principal({"inventory.control"}))
+    service = Mock()
+    service.learning_status.return_value = {
+        "verified_days": 2,
+        "read_cells_verified": 120,
+        "last_verified_day": "2026-10-11",
+        "last_learning": {"status": "completed"},
+        "knowledge": {"active": 3, "proposed": 1},
+        "proposals_by_source": {"verified_daily_observation": 1},
+    }
+    with patch("app.modules.inventory.daily_sheet.router._knowledge", return_value=service):
+        response = reader.get("/api/inventory/daily-sheet/knowledge/learning-status")
+    assert response.status_code == 200
+    assert response.json()["verified_days"] == 2
+    service.learning_status.assert_called_once_with("tenant-a")
+    assert denied.get("/api/inventory/daily-sheet/knowledge/learning-status").status_code == 403
+
+
 def test_knowledge_routes_separate_read_from_control_permission():
     denied = client_for(principal({"inventory.read"}))
     assert denied.post(
