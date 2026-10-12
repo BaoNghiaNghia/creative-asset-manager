@@ -247,7 +247,7 @@ def _promote_auto_discover_candidate(
 
 def backfill_auto_discover_candidates(
     session: Session, *, tenant_id: str, dry_run: bool = False,
-    limit: int = 2000,
+    limit: int = 2000, commit: bool = True,
 ) -> dict[str, int]:
     """Replay only pending results of the exact, paired VPS Agent-Reach Scout.
 
@@ -275,7 +275,11 @@ def backfill_auto_discover_candidates(
         else:
             promoted += int(_promote_auto_discover_candidate(session, tenant_id, row))
     if not dry_run:
-        session.commit()
+        if commit:
+            session.commit()
+        else:
+            # Alembic owns the transaction; avoid committing its connection.
+            session.flush()
     return {
         "checked": len(rows), "auto_promoted": promoted,
         "needs_review": len(rows) - promoted,
