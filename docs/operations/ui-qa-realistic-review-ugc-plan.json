@@ -1,8 +1,18 @@
 {
-  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
   "qualityBudgets": {
-    "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
+    "desktop": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
     "mobile": {
       "maxViewportOverflowPx": 0,
       "maxUnnamedControls": 0,
@@ -11,7 +21,11 @@
     }
   },
   "mobileAssertions": [
-    { "type": "no-viewport-overflow", "selector": "html", "maxPx": 0 }
+    {
+      "type": "no-viewport-overflow",
+      "selector": "html",
+      "maxPx": 0
+    }
   ],
   "steps": [
     {
@@ -25,22 +39,36 @@
       "waitFor": "#rrugc-source-plans",
       "waitMs": 300,
       "mobileAssertions": [
-        { "type": "min-control-size", "selector": ".rrugc-source-ref-arrow", "minPx": 24 }
+        {
+          "type": "min-control-size",
+          "selector": ".rrugc-source-ref-arrow",
+          "minPx": 24
+        }
       ],
       "requireIcons": [
         "#rrugc-panel-stage3 .rrugc-source-plan-heading-actions button",
         "#rrugc-panel-stage3 .rrugc-source-plan-sort-direction"
       ]
     },
-    { "name": "campaign-hover", "hover": ".rrugc-source-plan-table tbody tr" },
+    {
+      "name": "campaign-hover",
+      "hover": ".rrugc-source-plan-table tbody tr"
+    },
     {
       "name": "candidate-hover",
       "hover": ".rrugc-source-ref-card",
       "mobileAssertions": [
-        { "type": "min-control-size", "selector": ".rrugc-source-ref-card:hover .rrugc-source-ref-vote", "minPx": 24 }
+        {
+          "type": "min-control-size",
+          "selector": ".rrugc-source-ref-card:hover .rrugc-source-ref-vote",
+          "minPx": 24
+        }
       ]
     },
-    { "name": "candidate-filter-focus", "focus": "#rrugc-stage3-search-input" },
+    {
+      "name": "candidate-filter-focus",
+      "focus": "#rrugc-stage3-search-input"
+    },
     {
       "name": "products-workflow",
       "goto": "/realistic-review-ugc?workflow=products&stage=stage0",
@@ -49,10 +77,27 @@
     {
       "name": "stage1-actions",
       "click": "#rrugc-tab-stage1",
-      "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen",
+      "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen-trend .rrugc-stage0-sparkline",
       "requireIcons": [
         "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button",
         "#rrugc-panel-stage1 .rrugc-keyword-manual-controls button"
+      ],
+      "assertions": [
+        {
+          "type": "no-horizontal-overflow",
+          "selector": ".rrugc-keyword-gen-trend .rrugc-stage0-trend",
+          "maxPx": 1
+        },
+        {
+          "type": "no-horizontal-overflow",
+          "selector": ".rrugc-keyword-gen-trend",
+          "maxPx": 1
+        },
+        {
+          "type": "no-horizontal-overflow",
+          "selector": ".rrugc-keyword-gen-volume",
+          "maxPx": 1
+        }
       ]
     },
     {
@@ -82,9 +127,15 @@
       "click": "#rrugc-tab-stage4",
       "waitFor": "#rrugc-panel-stage4 .rrugc-stage2",
       "mobileAssertions": [
-        { "type": "min-control-size", "selector": ".rrugc-stage2-ref-toggle", "minPx": 24 }
+        {
+          "type": "min-control-size",
+          "selector": ".rrugc-stage2-ref-toggle",
+          "minPx": 24
+        }
       ],
-      "requireIcons": ["#rrugc-panel-stage4 .rrugc-stage2-registry-actions button"]
+      "requireIcons": [
+        "#rrugc-panel-stage4 .rrugc-stage2-registry-actions button"
+      ]
     },
     {
       "name": "stage5-actions",
