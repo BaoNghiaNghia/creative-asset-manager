@@ -13,7 +13,8 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
+from sqlalchemy.orm import aliased
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -26,7 +27,7 @@ from app.modules.realistic_review_ugc.keyword_images import (
     STAGE1_AUTO_RETRY_DELAYS_SECONDS, STAGE1_SAFE_ZERO_OUTPUT_CODES,
     STAGE1_PARTIAL_RECOVERY_CODES, STAGE1_RETRYABLE_STORAGE_CODES, DEFAULT_SKILL,
 )
-from app.providers.ai.codex_image import CodexImageGenRunner, load_codex_skill_manifest
+from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageProviderError, load_codex_skill_manifest
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill, installed_stage2_skill_sha256,
 )
@@ -49,6 +50,75 @@ REPLACE_CODES = frozenset({
     "stage2_skill_runtime_version_mismatch",
     "keyword_image_skill_changed",
 })
+EXPECTED_FINAL_NAMES = frozenset(
+    f"output/final/design_{n:02}.png" for n in range(1, 7)
+)
+
+
+def audit_stage1() -> dict:
+    """Read-only, aggregate production health; never expose tenant or quote text.
+
+    Only the six numbered PNG versions matching the *published first file* and
+    its generation attempt count as a verified set. Historic versions are
+    never used to inflate the active generation's output count.
+    """
+    with SessionLocal() as session:
+        status_counts = {
+            str(status): int(total)
+            for status, total in session.execute(
+                select(RrugcKeywordImageJobModel.status, func.count())
+                .group_by(RrugcKeywordImageJobModel.status)
+            )
+        }
+        failed_codes = {
+            str(code or "unknown"): int(total)
+            for code, total in session.execute(
+                select(RrugcKeywordImageJobModel.last_error_code, func.count())
+                .where(RrugcKeywordImageJobModel.status == "failed")
+                .group_by(RrugcKeywordImageJobModel.last_error_code)
+            )
+        }
+        active = aliased(RrugcImageOutputVersionModel)
+        sibling = aliased(RrugcImageOutputVersionModel)
+        verified = int(session.scalar(
+            select(func.count()).select_from(
+                select(RrugcKeywordImageJobModel.id)
+                .join(active, and_(
+                    active.tenant_id == RrugcKeywordImageJobModel.tenant_id,
+                    active.stage == "stage1",
+                    active.job_id == RrugcKeywordImageJobModel.id,
+                    active.remote_file_id == RrugcKeywordImageJobModel.output_remote_file_id,
+                    active.processing_job_id.is_not(None),
+                ))
+                .join(sibling, and_(
+                    sibling.tenant_id == active.tenant_id,
+                    sibling.stage == "stage1",
+                    sibling.job_id == active.job_id,
+                    sibling.processing_job_id == active.processing_job_id,
+                    sibling.output_name.in_(EXPECTED_FINAL_NAMES),
+                    sibling.content_type == "image/png",
+                ))
+                .where(RrugcKeywordImageJobModel.status == "completed")
+                .group_by(RrugcKeywordImageJobModel.id)
+                .having(func.count(func.distinct(sibling.output_name)) == 6)
+                .subquery()
+            )
+        ) or 0)
+        completed = status_counts.get("completed", 0)
+        exhausted = int(session.scalar(
+            select(func.count()).select_from(RrugcKeywordImageJobModel)
+            .where(
+                RrugcKeywordImageJobModel.status == "failed",
+                RrugcKeywordImageJobModel.retry_count >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS),
+            )
+        ) or 0)
+    return {
+        "statuses": status_counts,
+        "completed_verified_six": verified,
+        "completed_unverified": max(0, completed - verified),
+        "failed_codes": failed_codes,
+        "failed_retry_budget_exhausted": exhausted,
+    }
 
 
 def refresh_job_skill(session, job: RrugcKeywordImageJobModel, settings) -> bool:
@@ -138,6 +208,15 @@ def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
                 if missing is None:
                     result["skipped"] += 1
                     continue
+                if code == "stage1_six_outputs_invalid" and not missing:
+                    # Six numbered files can coexist with an unexpected
+                    # additional final PNG. Do not queue a repeat that cannot
+                    # fix the structure; only a verifiable set may upload.
+                    try:
+                        CodexImageGenRunner._collect_six_final_designs(workspace)
+                    except CodexImageProviderError:
+                        result["skipped"] += 1
+                        continue
                 # Historical jobs may have lost their old 2/6 files under the
                 # previous cleanup policy. They can only regenerate from zero.
             result["eligible"] += 1
@@ -217,20 +296,24 @@ async def cleanup_published(*, storage, limit: int) -> dict[str, int]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--limit", type=int, default=5)
     args = parser.parse_args()
     if not 0 <= args.limit <= 20:
         parser.error("limit must be 0..20")
+    if args.audit_only:
+        print(json.dumps({"mode": "audit", "stage1": audit_stage1()}))
+        return 0
     if args.limit == 0:
-        print(json.dumps({"eligible": 0, "queued": 0, "upload_resumed": 0}))
+        print(json.dumps({"mode": "no-op", "stage1": audit_stage1()}))
         return 0
     recovery = recover_failed(limit=args.limit, dry_run=args.dry_run)
     if args.dry_run:
-        print(json.dumps({"mode": "dry-run", "recovery": recovery}))
+        print(json.dumps({"mode": "dry-run", "recovery": recovery, "stage1": audit_stage1()}))
         return 0
     storage = build_managed_storage_provider(get_settings())
     cleanup = asyncio.run(cleanup_published(storage=storage, limit=args.limit))
-    print(json.dumps({"mode": "apply", "recovery": recovery, "cleanup": cleanup}))
+    print(json.dumps({"mode": "apply", "recovery": recovery, "cleanup": cleanup, "stage1": audit_stage1()}))
     return 0
 
 

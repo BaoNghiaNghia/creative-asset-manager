@@ -128,6 +128,92 @@ def test_stage1_scheduled_recovery_only_requeues_bounded_safe_failures(db, monke
     assert stage1_recovery.recover_failed(limit=5)["queued"] == 0
 
 
+def test_stage1_audit_counts_only_active_six_png_generation(db, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from app.operations import stage1_recovery
+
+    monkeypatch.setattr(stage1_recovery, "SessionLocal",
+                        sessionmaker(bind=db.bind, expire_on_commit=False))
+    full = keyword(db, "audit-full", "tenant-a", picked=True)
+    old = keyword(db, "audit-old", "tenant-a", picked=True)
+    failed = keyword(db, "audit-failed", "tenant-a", picked=True)
+    db.add_all([
+        RrugcKeywordImageJobModel(
+            id="audit-full-job", tenant_id="tenant-a", keyword_id=full.id,
+            keyword_text=full.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="completed", created_by_user_id="actor",
+            output_remote_file_id="full-1",
+        ),
+        RrugcKeywordImageJobModel(
+            id="audit-old-job", tenant_id="tenant-a", keyword_id=old.id,
+            keyword_text=old.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="completed", created_by_user_id="actor",
+            output_remote_file_id="new-1",
+        ),
+        RrugcKeywordImageJobModel(
+            id="audit-failed-job", tenant_id="tenant-a", keyword_id=failed.id,
+            keyword_text=failed.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+            prompt_text="prompt", status="failed", retry_count=3,
+            last_error_code="stage1_six_outputs_invalid", created_by_user_id="actor",
+        ),
+    ])
+    versions = []
+    for job_id, processing_id, prefix, first_version, size in [
+        ("audit-full-job", "p1", "full", 1, 6),
+        ("audit-old-job", "previous", "previous", 1, 6),
+        ("audit-old-job", "current", "new", 7, 5),
+    ]:
+        for index in range(1, size + 1):
+            versions.append(RrugcImageOutputVersionModel(
+                id=f"{job_id}-{processing_id}-{index}", tenant_id="tenant-a",
+                stage="stage1", job_id=job_id, version=first_version + index - 1,
+                remote_file_id=f"{prefix}-{index}",
+                processing_job_id=processing_id,
+                output_name=f"output/final/design_{index:02}.png",
+                content_type="image/png",
+            ))
+    db.add_all(versions)
+    db.commit()
+
+    snapshot = stage1_recovery.audit_stage1()
+    assert snapshot["statuses"] == {"completed": 2, "failed": 1}
+    assert snapshot["completed_verified_six"] == 1
+    assert snapshot["completed_unverified"] == 1
+    assert snapshot["failed_codes"] == {"stage1_six_outputs_invalid": 1}
+    assert snapshot["failed_retry_budget_exhausted"] == 1
+
+
+def test_stage1_invalid_six_png_set_is_not_requeued_without_validation(db, tmp_path, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from app.operations import stage1_recovery
+    from types import SimpleNamespace
+    from PIL import Image
+
+    monkeypatch.setattr(stage1_recovery, "SessionLocal",
+                        sessionmaker(bind=db.bind, expire_on_commit=False))
+    monkeypatch.setattr(stage1_recovery, "refresh_job_skill", lambda *_args: True)
+    kw = keyword(db, "audit-extra", "tenant-a", picked=True)
+    db.add(RrugcKeywordImageJobModel(
+        id="extra-final-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name=DEFAULT_SKILL,
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        last_error_code="stage1_six_outputs_invalid",
+    ))
+    db.commit()
+    workspace = tmp_path / "codex" / "extra-final-job" / "output" / "final"
+    workspace.mkdir(parents=True)
+    for i in range(1, 8):
+        Image.new("RGBA", (800, 800), (i * 25, 40, 70)).save(
+            workspace / f"design_{i:02}.png"
+        )
+    monkeypatch.setattr(stage1_recovery, "get_settings",
+                        lambda: SimpleNamespace(IMAGE_GENERATION_STAGING_ROOT=str(tmp_path)))
+    result = stage1_recovery.recover_failed(limit=5)
+    assert result["queued"] == 0 and result["skipped"] == 1
+    assert db.get(RrugcKeywordImageJobModel, "extra-final-job").status == "failed"
+    assert all((workspace / f"design_{i:02}.png").is_file() for i in range(1, 8))
+
+
 def test_stage1_zero_output_auto_recovery_is_bounded_durable_and_tenant_safe(db):
     from datetime import timedelta
     from types import SimpleNamespace
