@@ -784,6 +784,73 @@ class ScriptedGateway:
         )
 
 
+class GeminiCopyCorrectionGateway(ScriptedGateway):
+    """Gemini selects the target and value; executor only validates it."""
+
+    def generate_tool_turn(self, **kwargs):
+        self.calls += 1
+        self.requests.append(kwargs)
+        if self.calls == 1:
+            return self._turn("get_workbook_metadata", {})
+        if self.calls == 2:
+            return self._turn("read_range", {"sheet": "Arbitrary", "a1_range": "C7:D8"})
+        if self.calls == 3:
+            cells = kwargs["contents"][-1]["parts"][0]["functionResponse"]["response"]["cells"]
+            self.target = reference(next(c for c in cells if c["cell"] == "C7"))
+            self.source = reference(next(c for c in cells if c["cell"] == "D7"))
+            self.source_value = next(c for c in cells if c["cell"] == "D7")["raw_value"]
+            return self._turn("submit_workbook_assessment", {
+                "summary": "Current row-level discrepancy: C7 should copy the verified D7 stock value.",
+                "observations": [{
+                    "code": "CURRENT_VALUE_MISMATCH",
+                    "conclusion": "C7 differs from the verified source D7",
+                    "evidence": [self.target, self.source], "confidence": 0.99,
+                }],
+                "uncertainties": [], "additional_reads_needed": False,
+            })
+        return self._turn("stage_edits", {
+            "status": "ready",
+            "summary": "Gemini decided to copy the source stock to the destination cell.",
+            "operations": [{
+                "operation_id": "gemini-selected-correction",
+                "type": "set_cell", "sheet": "Arbitrary", "cell": "C7",
+                "value": self.source_value, "evidence": [self.target, self.source],
+                "provenance": "exact_copy", "copy_from": self.source,
+            }],
+        })
+
+
+def test_gemini_decides_cell_correction_and_executor_updates_only_writable_copy():
+    control = SimpleNamespace(
+        enabled=True, emergency_stop=False, provider="gemini",
+        allowed_models_json=["gemini-test"],
+    )
+    config = parse_daily_sheet_config({
+        "version": 4, "mode": "gemini_tool_sheet_agent",
+        "source": {"allowed_sheets": ["Arbitrary"]},
+        "agent": {"apply_mode": "auto"},
+    })
+    google = IsolatedCopyGoogle()
+    gateway = GeminiCopyCorrectionGateway()
+    service = InventoryDailySheetV4Service(
+        session_factory=SessionFactory(control=control), gateway=gateway,
+        context_provider=lambda _tenant: SimpleNamespace(
+            config=config, configured_source_file_id="source-master",
+            runtime_target_file_id="review-copy", connection_id="connection-1",
+        ),
+        client_factory=lambda _token: google,
+        token_resolver=lambda _connection: "oauth-token", enabled=True,
+    )
+    result = service.run_shadow("tenant-a", date(2030, 8, 9), apply_mode="auto")
+    assert result.status == "completed"
+    assert result.writes == 1
+    assert result.execution["verification_status"] == "verified"
+    assert result.staged.operations[0].operation_id == "gemini-selected-correction"
+    assert google.workbooks["review-copy"]["'Arbitrary'!C7"] == [[gateway.source_value]]
+    assert google.workbooks["source-master"]["'Arbitrary'!C7"] == [["alpha"]]
+    assert "GEMINI HISTORICAL LEARNING" in gateway.requests[0]["contents"][0]["parts"][0]["text"]
+
+
 class RetryableFailoverGateway(ScriptedGateway):
     def __init__(self):
         super().__init__()
@@ -861,6 +928,10 @@ def test_real_v4_service_tool_loop_is_shadow_and_does_not_call_legacy_parsers():
     initial_prompt = service.gateway.requests[0]["contents"][0]["parts"][0]["text"]
     assert '"spreadsheet_file_id": "gemini-copy"' in initial_prompt
     assert "Do not ask the operator for another workbook URL or file ID." in initial_prompt
+    assert "=== GEMINI HISTORICAL LEARNING" in initial_prompt
+    assert "You are the decision-maker" in initial_prompt
+    assert result.learning_memory_hash is not None
+    assert len(result.learning_memory_hash) == 64
 
 
 def _v4_service_for_models(*, models, deployment_models=(), gateway=None):
@@ -1203,6 +1274,14 @@ def test_auto_mode_metadata_only_noop_is_review_required_not_a_verified_success(
     })
     result = tools.stage_edits({
         "status": "ready", "summary": "No edits.",
+        "operations": [], "issues": [], "material_actions": [],
+    })
+    assert result["status"] == "needs_more_evidence"
+    assert tools.staged is None
+    assert "inspect" in result["guidance"].lower()
+    # The second non-actionable attempt is review-only, not an endless retry.
+    result = tools.stage_edits({
+        "status": "ready", "summary": "Still metadata-only",
         "operations": [], "issues": [], "material_actions": [],
     })
     assert result["status"] == "review_required"

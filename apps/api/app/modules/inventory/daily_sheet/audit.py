@@ -115,6 +115,8 @@ class InventoryOperationAuditService:
             "issue_count": len(getattr(staged, "issues", []) or []),
             "material_action_count": len(getattr(staged, "material_actions", []) or []),
             "knowledge_proposal_count": len(getattr(result, "knowledge_proposals", []) or []),
+            "learning_memory_hash": getattr(result, "learning_memory_hash", None),
+            "learning_memory_observation_count": int(getattr(result, "learning_memory_observation_count", 0) or 0),
             "writes": int(getattr(result, "writes", 0) or 0),
             "verification_status": execution.get("verification_status"),
             "plan_hash": getattr(result, "plan_hash", None),

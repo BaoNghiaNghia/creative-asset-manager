@@ -446,6 +446,112 @@ class InventoryKnowledgeService:
             "version": sum(int(item["version"]) for item in entries),
         }
 
+    def gemini_learning_context(
+        self, tenant_id: str, *, sheet_keys: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Bounded historical evidence for Gemini, never an executable rule set.
+
+        Only verified observations enter this advisory memory. Disputed patterns
+        are exposed as investigation topics, not as business conclusions.
+        Active knowledge is provided separately by active_snapshot().
+        """
+        from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+
+        allowed = set(sheet_keys)
+        with self.session_factory() as session:
+            proposals = list(session.scalars(
+                select(InventoryKnowledgeEntryModel).where(
+                    InventoryKnowledgeEntryModel.tenant_id == tenant_id,
+                    InventoryKnowledgeEntryModel.status == "proposed",
+                    InventoryKnowledgeEntryModel.source == "verified_daily_observation",
+                ).order_by(InventoryKnowledgeEntryModel.created_at.desc()).limit(80)
+            ))
+            audits = list(session.scalars(
+                select(InventoryOperationAuditModel).where(
+                    InventoryOperationAuditModel.tenant_id == tenant_id,
+                    InventoryOperationAuditModel.stage == "evening_reconcile",
+                    InventoryOperationAuditModel.status == "completed",
+                ).order_by(
+                    InventoryOperationAuditModel.business_date.desc(),
+                    InventoryOperationAuditModel.created_at.desc(),
+                ).limit(35)
+            ))
+        consistent = []
+        conflicts = []
+        for entry in proposals:
+            if not isinstance(entry, InventoryKnowledgeEntryModel):
+                continue
+            if entry.scope_type != "sheet" or (allowed and entry.scope_key not in allowed):
+                continue
+            rule = dict(entry.structured_rule_json or {})
+            if rule.get("learner") != "verified_daily_assessment_v2":
+                continue
+            if rule.get("consistent_conclusion") is True and len(consistent) < 12:
+                consistent.append({
+                    "sheet": entry.scope_key,
+                    "title": entry.title[:160],
+                    "observed_conclusion": entry.content[:320],
+                    "support_days": int(rule.get("distinct_business_dates") or rule.get("support") or 0),
+                    "verified_today": False,
+                    "approved": False,
+                })
+            elif rule.get("consistent_conclusion") is False and len(conflicts) < 20:
+                # Do not ship a contradictory conclusion into the agent's
+                # executable instruction context.
+                conflicts.append(entry.title[:160])
+        observations = []
+        included_days = set()
+        for audit in audits:
+            if not isinstance(audit, InventoryOperationAuditModel):
+                continue
+            summary = dict(audit.summary_json or {})
+            if summary.get("verification_status") != "verified" or int(summary.get("read_cells") or 0) <= 0:
+                continue
+            assessment = dict(audit.assessment_json or {})
+            if assessment.get("additional_reads_needed"):
+                continue
+            for finding in (assessment.get("observations") or [])[:24]:
+                if not isinstance(finding, dict):
+                    continue
+                code = str(finding.get("code") or "").strip()
+                if (not code or code.upper().startswith(("METADATA", "STRUCTURE", "WORKBOOK_REVIEWED"))
+                    or float(finding.get("confidence") or 0) < 0.8):
+                    continue
+                for reference in (finding.get("evidence") or [])[:5]:
+                    if not isinstance(reference, dict):
+                        continue
+                    sheet = str(reference.get("sheet") or "")
+                    cell = str(reference.get("cell") or "")
+                    fingerprint = str(reference.get("evidence_hash") or "")
+                    if (not sheet or (allowed and sheet not in allowed)
+                        or not cell or len(fingerprint) != 64):
+                        continue
+                    observations.append({
+                        "business_date": audit.business_date.isoformat(),
+                        "sheet": sheet,
+                        "cell": cell,
+                        "code": code[:128],
+                        "observation": str(finding.get("conclusion") or "")[:320],
+                        "evidence_hash": fingerprint,
+                    })
+                    included_days.add(audit.business_date.isoformat())
+                    break
+                if len(observations) >= 12:
+                    break
+            if len(observations) >= 12:
+                break
+        result = {
+            "kind": "historical_advisory_not_authority",
+            "approved_rules_only": False,
+            "current_cells_revalidation_required": True,
+            "verified_business_days_included": len(included_days),
+            "consistent_patterns": consistent,
+            "conflicting_topics": sorted(set(conflicts)),
+            "verified_observations": observations,
+        }
+        result["hash"] = _canonical_hash(result)
+        return result
+
     def learning_status(self, tenant_id: str, *, today: date | None = None) -> dict[str, Any]:
         """Read-only progress for continuous learning; never reads workbook data."""
         from app.modules.inventory.persistence_model import InventoryOperationAuditModel

@@ -136,5 +136,7 @@ class V4AgentRunResult(V4Contract):
     change_audit: list[dict[str, Any]] = Field(default_factory=list)
     knowledge_hash: str | None = None
     knowledge_version: int = 0
+    learning_memory_hash: str | None = None
+    learning_memory_observation_count: int = 0
     knowledge_proposals: list[KnowledgeProposal] = Field(default_factory=list)
     model: str | None = None

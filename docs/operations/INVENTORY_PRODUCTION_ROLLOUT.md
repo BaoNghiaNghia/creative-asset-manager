@@ -20,6 +20,25 @@ Each Inventory request is limited to six credential attempts. HTTP 429, transpor
 
 Do not automatically replay an old Morning Reset into an active workbook outside the daily safe window. Check verified closing/opening state and use the explicit recovery workflow.
 
+## Gemini-led Inventory Daily reconciliation
+
+Inventory Daily keeps **Gemini as the sole agent selecting operational cells and
+new values**. Approved knowledge from the tenant/workbook/sheet is included as
+business guidance. The agent now also receives a bounded, read-only historical
+learning context: consistent-but-unapproved patterns as hypotheses, conflicting
+observation topics without disputed conclusions, and historical row-level
+observations from independently verified audits. Old evidence must be checked
+against the current workbook before a correction can be proposed. A no-op based
+only on metadata gets one controlled opportunity to investigate more row-level
+evidence (provided the tool-round budget allows it); another unsupported
+metadata-only no-op is review-required, not a verified correction. The host
+continues to enforce permitted writable Gemini-copy identity, evidence hashes,
+protected/formula/merged cell exclusions, review-only semantic decisions and
+readback verification. Audits record the learning-memory hash and observation
+count. These changes **do not** approve contradictory learning proposals,
+override carry-forward registry gates, retroactively run a reset or authorize
+writes to the Shared Sheet.
+
 ## Material and warehouse readiness (no automatic Sheet mutations)
 
 `GET /api/inventory/materials/readiness` is a tenant-scoped, read-only diagnostic

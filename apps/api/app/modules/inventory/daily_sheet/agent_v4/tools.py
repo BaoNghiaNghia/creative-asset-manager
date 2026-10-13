@@ -145,6 +145,8 @@ class V4WorkbookToolHost:
         self.max_edit_operations = max_edit_operations
         self.allow_auto_transforms = allow_auto_transforms
         self.require_actionable_noop = require_actionable_noop
+        self.allow_noop_replan = True
+        self.noop_replan_count = 0
         self.read_calls = 0
         self.read_cell_count = 0
         self.ledger: dict[tuple[str, str], CellEvidence] = {}
@@ -612,6 +614,22 @@ class V4WorkbookToolHost:
                 for observation in self.assessment.observations
             )
         ):
+            # One chance for Gemini to inspect the actual operational rows
+            # before accepting a no-op as a review-required outcome.
+            if self.allow_noop_replan and self.noop_replan_count == 0:
+                self.noop_replan_count += 1
+                return {
+                    "accepted": False,
+                    "status": "needs_more_evidence",
+                    "operation_count": 0,
+                    "guidance": (
+                        "Inspect current operational rows and source/target values, "
+                        "using the approved and historical knowledge as hypotheses. "
+                        "Then resubmit a complete grounded assessment and stage "
+                        "specific corrections, or document row-level NO_CHANGES_VERIFIED. "
+                        "Metadata-only evidence cannot complete this reconciliation."
+                    ),
+                }
             # Reading a sheet is not the same as checking actual rows for
             # corrections. Preserve evidence and require review of this no-op.
             staged.status = "review_required"

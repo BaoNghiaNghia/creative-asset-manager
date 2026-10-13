@@ -34,6 +34,57 @@ def db():
     return temp, engine, sessions
 
 
+def test_gemini_learning_context_includes_verified_patterns_and_conflict_warnings_only():
+    temp, engine, sessions = db()
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    knowledge = InventoryKnowledgeService(sessions)
+    knowledge.create(
+        "tenant-a", kind="BUSINESS_NOTE", title="Conflicting observations",
+        content="Treat X as correct", scope_type="sheet", scope_key="Kho",
+        status="proposed", source="verified_daily_observation",
+        structured_rule={"learner": "verified_daily_assessment_v2",
+                         "consistent_conclusion": False, "distinct_conclusions": 3},
+    )
+    knowledge.create(
+        "tenant-a", kind="BUSINESS_NOTE", title="Consistent observed pattern",
+        content="Look for a duplicate intake row", scope_type="sheet", scope_key="Kho",
+        status="proposed", source="verified_daily_observation",
+        structured_rule={"learner": "verified_daily_assessment_v2",
+                         "consistent_conclusion": True, "support": 3},
+    )
+    with sessions.begin() as session:
+        session.add(InventoryOperationAuditModel(
+            tenant_id="tenant-a", business_date=date(2026, 10, 11),
+            stage="evening_reconcile", status="completed",
+            summary_json={"read_cells": 420, "verification_status": "verified"},
+            assessment_json={"observations": [{
+                "code": "ROW_VALUE_MISMATCH",
+                "conclusion": "Closing balance differs from source reference",
+                "evidence": [{"sheet": "Kho", "cell": "D7", "evidence_hash": "a"*64}],
+                "confidence": 0.99,
+            }, {
+                "code": "METADATA_AND_STRUCTURE_VERIFIED",
+                "conclusion": "Only inspected headers",
+                "evidence": [{"sheet": "Kho", "cell": "A1", "evidence_hash": "b"*64}],
+                "confidence": 0.95,
+            }]},
+        ))
+    memory = knowledge.gemini_learning_context("tenant-a", sheet_keys=("Kho",))
+    assert memory["kind"] == "historical_advisory_not_authority"
+    assert memory["conflicting_topics"] == ["Conflicting observations"]
+    assert len(memory["consistent_patterns"]) == 1
+    assert len(memory["verified_observations"]) == 1
+    assert memory["verified_observations"][0]["code"] == "ROW_VALUE_MISMATCH"
+    assert memory["verified_observations"][0]["business_date"] == "2026-10-11"
+    assert memory["verified_observations"][0]["sheet"] == "Kho"
+    assert memory["verified_observations"][0]["cell"] == "D7"
+    assert "Treat X as correct" not in str(memory)  # conflicting conclusion never taught as rule
+    assert len(memory["hash"]) == 64
+    assert memory["approved_rules_only"] is False
+    assert knowledge.gemini_learning_context("tenant-a", sheet_keys=("Elsewhere",))["verified_observations"] == []
+    engine.dispose();temp.cleanup()
+
+
 def test_conflicting_verified_observation_cannot_be_activated_until_revised():
     temp, engine, sessions = db()
     knowledge = InventoryKnowledgeService(sessions)
