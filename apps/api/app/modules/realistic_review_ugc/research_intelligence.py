@@ -29,7 +29,7 @@ MARKETPLACE_HOSTS = {
 MARKETPLACE_ITEM_PATHS = {
     "pinterest": re.compile(r"^/pin/(\d+)(?:/|$)", re.I),
     "etsy": re.compile(r"^/listing/(\d+)(?:/|$)", re.I),
-    "amazon": re.compile(r"^/(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)", re.I),
+    "amazon": re.compile(r"^/(?:[a-z0-9][a-z0-9_-]{0,159}/)?(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)", re.I),
 }
 VALID_STATUSES = frozenset({"pending", "approved", "rejected"})
 MAX_BATCH = 50
