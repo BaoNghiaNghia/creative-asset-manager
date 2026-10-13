@@ -417,7 +417,7 @@ export function Stage3ReviewGroups({
         </button>
         {onExportReviews && <>
           <button type="button" className="rrugc-stage5-export rrugc-icon-action"
-            disabled={Boolean(exporting)} title="AI-generated concepts for internal review. CSV uses the 8-column Loox format but is NOT genuine customer feedback; verify customer identity and purchase before publishing."
+            disabled={Boolean(exporting)} title="Internal AI concepts only. Export creates unique non-deliverable @example.invalid test emails; verified_purchase stays blank until a real order is verified. Do not publish as genuine customer reviews."
             onClick={() => void exportAll("csv")}>
             <RrugcActionIcon name={exporting ? "refresh" : "download"} />
             {exporting === "csv" ? "Exporting…" : "AI Concepts CSV"}

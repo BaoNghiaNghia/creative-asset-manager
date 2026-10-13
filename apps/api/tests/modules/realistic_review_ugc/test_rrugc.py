@@ -2643,7 +2643,7 @@ def test_stage4_completion_feed_bootstrap_catches_up_and_is_tenant_scoped(api, d
 def test_loox_file_safety_and_shopify_slug_normalization():
     from app.modules.realistic_review_ugc.loox_review_export import (
         shopify_handle_from_folder, loox_public_photo_url, loox_original_photo_url,
-        clean_concept_copy, build_loox_csv,
+        clean_concept_copy, stage5_sample_email, build_loox_csv,
     )
     import csv
     from io import StringIO
@@ -2657,6 +2657,11 @@ def test_loox_file_safety_and_shopify_slug_normalization():
     assert loox_public_photo_url(photo_url) == photo_url
     assert loox_original_photo_url(uuid_sample, "image/jpeg").endswith(".jpg")
     assert loox_original_photo_url("invalid", "image/png") == ""
+    email = stage5_sample_email(uuid_sample)
+    assert email == f"cam-stage5-{uuid_sample}@example.invalid"
+    assert stage5_sample_email(uuid_sample) == email  # Deterministic on retry/export.
+    assert stage5_sample_email("20000000-0000-4000-8000-000000000002") != email
+    assert stage5_sample_email("not-a-uuid") == ""
     assert clean_concept_copy("AI concept: Rachel M.", author=True) == "Rachel M."
     assert clean_concept_copy("AI-generated review concept — not a real customer testimonial. Lovely") == "Lovely"
     for invalid in (
@@ -2778,7 +2783,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     # Loox import must identify synthetic concepts, never impersonate customers.
     assert csv_record["author"] == "Synthetic Tester 1"
     assert csv_record["body"].startswith(PREFIX)
-    assert csv_record["email"] == ""  # No actual customer record exists.
+    assert csv_record["email"] == f"cam-stage5-{retained_id}@example.invalid"
     assert csv_record["created_at"] == now.date().isoformat()
     assert csv_record["photo_url"].startswith(
         "https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/"
@@ -2786,6 +2791,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     assert csv_record["photo_url"].endswith(".png")
     assert csv_record["verified_purchase"] == ""
     assert response.headers["X-CAM-Review-Origin"] == "AI-generated-concepts-not-customer-testimonials"
+    assert response.headers["X-CAM-Export-Sample-Emails"] == "1"
 
     # No authentication/Drive public permissions are necessary for the stable
     # public export link. Only ready Stage 5 concepts are reachable, and bytes
@@ -2842,7 +2848,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
         assert record[0] == "custom-hat-handle"
         assert record[1] == "5"
         assert record[2] == "Synthetic Tester 1"
-        assert record[3] == ""
+        assert record[3] == f"cam-stage5-{retained_id}@example.invalid"
         assert record[4] == "Mock review for sample 1"
         assert record[5] == now.date().isoformat()
         assert record[6].startswith("https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/")

@@ -6310,6 +6310,7 @@ def export_stage5_loox_review_concepts(
     from app.modules.realistic_review_ugc.loox_review_export import (
         PREFIX, build_loox_xlsx, build_loox_csv,
         clean_concept_copy, loox_original_photo_url, shopify_handle_from_folder, loox_public_photo_url,
+        stage5_sample_email,
     )
     joined = session.execute(
         select(RrugcStage3AnalysisModel, RrugcStage2JobModel, RrugcSourcePlanModel)
@@ -6350,7 +6351,7 @@ def export_stage5_loox_review_concepts(
             product_handle,
             int(review.star_rating),
             clean_concept_copy(review.reviewer_name, author=True),
-            "",  # Only real customer-provided addresses may populate email.
+            stage5_sample_email(image.id),  # Reserved non-deliverable test address, NOT a customer email.
             clean_concept_copy(review.review_text),
             created.strftime("%Y-%m-%d") if created else "",
             photo_url,
@@ -6369,10 +6370,11 @@ def export_stage5_loox_review_concepts(
                                     'attachment; filename="CAM_Stage5_AI_Concepts_Preview.xlsx"'),
             "Cache-Control": "private, no-store",
             "X-CAM-Review-Origin": "AI-generated-concepts-not-customer-testimonials",
+            "X-CAM-Export-Sample-Emails": str(sum(1 for row in rows if row[3])),
             "X-CAM-Export-Rows": str(len(rows)),
             "X-CAM-Export-Missing-Photos": str(missing_photos),
             "X-CAM-Export-Normalized-Handles": str(normalized_handles),
-            "Access-Control-Expose-Headers": "X-CAM-Export-Rows, X-CAM-Export-Missing-Photos, X-CAM-Export-Normalized-Handles, X-CAM-Review-Origin",
+            "Access-Control-Expose-Headers": "X-CAM-Export-Rows, X-CAM-Export-Missing-Photos, X-CAM-Export-Normalized-Handles, X-CAM-Review-Origin, X-CAM-Export-Sample-Emails",
         },
     )
 

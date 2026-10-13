@@ -43,6 +43,20 @@ def loox_original_photo_url(job_id: str, mime_type: str | None) -> str:
     return f"{PUBLIC_PHOTO_ORIGIN}{PUBLIC_PHOTO_PATH}{token}.{extension}"
 
 
+def stage5_sample_email(stage2_job_id: str) -> str:
+    """Stable synthetic-only placeholder email, explicitly not a real inbox.
+
+    Reserved .invalid TLD guarantees no mail can be delivered, and a UUID
+    suffix makes the value unique and reproducible per Stage 4 output.
+    Never use these placeholders as actual customers in a live storefront.
+    """
+    try:
+        stable_id = str(UUID(str(stage2_job_id)))
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    return f"cam-stage5-{stable_id}@example.invalid"
+
+
 def clean_concept_copy(value: str | None, *, author: bool = False) -> str:
     """Remove historical UI/export labels from internal draft text only."""
     text = str(value or "").strip()
@@ -139,7 +153,8 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
     provenance = (
         "AI-GENERATED CONCEPTS ONLY — not real customer reviews or verified purchases.",
         "Review author names and copy are synthetic drafts, not customer testimonials.",
-        "Customer emails and verified_purchase are blank until actual order proof exists.",
+        "The email field contains sample addresses @example.invalid, never real customer inboxes.",
+        "verified_purchase remains blank until actual customer order proof exists.",
         "Only publish confirmed customer submissions with documented consent.",
         "Public photo links expose original AI-generated images while concepts are ready.",
     )
