@@ -9,6 +9,18 @@ describe("WorkspaceNavigation permissions", () => {
     expect(requiredPermissionForApplicationRoute("inventory")).toBe("inventory.read");
   });
 
+  it("expands Inventory navigation to its sections and highlights the current section", () => {
+    const markup = renderToStaticMarkup(<WorkspaceNavigation active="inventory" permissions={["inventory.read"]} showOperations={false} showReviewBoard={false} />);
+    expect(markup).toContain('id="workspace-inventory-submenu"');
+    expect(markup).toContain('aria-label="Collapse Inventory navigation"');
+    for (const path of ["pipeline", "knowledge", "materials", "prompts", "settings"]) {
+      expect(markup).toContain(`href="/inventory/${path}"`);
+    }
+    expect(markup).toContain('aria-controls="workspace-inventory-submenu"');
+    const denied = renderToStaticMarkup(<WorkspaceNavigation active="assets" permissions={[]} showOperations={false} showReviewBoard={false} />);
+    expect(denied).not.toContain('workspace-inventory-submenu');
+  });
+
   it("shows Viewer review workflows while hiding admin destinations", () => {
     const markup = renderToStaticMarkup(
       <WorkspaceNavigation

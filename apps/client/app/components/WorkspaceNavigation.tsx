@@ -15,6 +15,8 @@ import {
   type AiOpsTab,
 } from "../ai-operations/navigation";
 
+const INVENTORY_SECTIONS = [{ href: "/inventory/pipeline", label: "Tiến trình" }, { href: "/inventory/knowledge", label: "Kiến thức" }, { href: "/inventory/materials", label: "Nguyên vật liệu" }, { href: "/inventory/prompts", label: "Gemini Prompts" }, { href: "/inventory/settings", label: "Cấu hình" }] as const;
+
 export type WorkspaceRoute = "assets" | "inventory" | "operations" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
 
 export const mayViewReviewBoard = (permissions: readonly string[]) =>
@@ -54,6 +56,7 @@ export function WorkspaceNavigation({
   rrugcStage?: RrugcStageTab;
 }) {
   const [visible, setVisible] = useState(showReviewBoard ?? false);
+  const [inventoryOpen, setInventoryOpen] = useState(active === "inventory");
   const [operationsOpen, setOperationsOpen] = useState(active === "operations");
   const [rrugcOpen, setRrugcOpen] = useState(active === "realistic-review-ugc");
   const selectedRrugcGroup = workflowGroupForStage(rrugcStage ?? currentRrugcStage());
@@ -71,6 +74,7 @@ export function WorkspaceNavigation({
   }, [showReviewBoard]);
 
   useEffect(() => {
+    if (active === "inventory") setInventoryOpen(true);
     if (active === "operations") setOperationsOpen(true);
     if (active === "realistic-review-ugc") setRrugcOpen(true);
   }, [active]);
@@ -104,7 +108,28 @@ export function WorkspaceNavigation({
   ];
 
   return <nav className="workspace-navigation" aria-label="Workspace navigation">
-    {items.map(item => item.id === "operations" ? <div key={item.id} className={"workspace-nav-group" + (active === "operations" ? " active" : "")}>
+    {items.map(item => item.id === "inventory" ? <div key={item.id} className={"workspace-nav-group" + (active === "inventory" ? " active" : "")}>
+      <div className="workspace-nav-group-row">
+        <a href={item.href} className={active === item.id ? "active" : undefined} aria-current={active === item.id ? "page" : undefined}>
+          <WorkspaceNavigationIcon name={item.id} /><span>{item.label}</span>
+        </a>
+        <button type="button" className="workspace-nav-expander"
+          aria-label={(inventoryOpen ? "Collapse" : "Expand") + " Inventory navigation"}
+          aria-expanded={inventoryOpen} aria-controls="workspace-inventory-submenu"
+          onClick={() => setInventoryOpen(value => !value)}>
+          <svg className="workspace-nav-expander-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 7.5 4.5 4.5 4.5-4.5" /></svg>
+        </button>
+      </div>
+      {inventoryOpen ? <div id="workspace-inventory-submenu" className="workspace-nav-submenu" aria-label="Inventory sections">
+        {INVENTORY_SECTIONS.map(section => {
+          const selected = active === "inventory" && typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === section.href;
+          return <a key={section.href} href={section.href} className={selected ? "active" : undefined} aria-current={selected ? "location" : undefined}>
+            <svg className="workspace-nav-submenu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <span>{section.label}</span>
+          </a>;
+        })}
+      </div> : null}
+    </div> : item.id === "operations" ? <div key={item.id} className={"workspace-nav-group" + (active === "operations" ? " active" : "")}>
       <div className="workspace-nav-group-row">
         <a href={item.href} className={active === item.id ? "active" : undefined} aria-current={active === item.id ? "page" : undefined}>
           <WorkspaceNavigationIcon name={item.id} />
