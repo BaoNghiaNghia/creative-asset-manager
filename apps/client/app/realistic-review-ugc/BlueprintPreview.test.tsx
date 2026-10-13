@@ -62,6 +62,10 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).not.toContain("rrugc-blueprint-matrix");
     expect(html).not.toContain("rrugc-blueprint-cell");
     expect(html).toContain("rrugc-blueprint-design-carousel");
+    expect(html).not.toContain("rrugc-blueprint-cross-corner");
+    expect(html).not.toContain("13 colorways");
+    expect(html).not.toContain("translateX(calc(-50%");
+    expect((html.match(/rrugc-blueprint-design-item/g) || []).length).toBe(versions.length);
     expect(html).toContain("rrugc-blueprint-color-carousel");
     expect(html).toContain("Front and right-facing side previews for selected hat");
     expect((html.match(/class="rrugc-blueprint-panel-header"/g) || []).length).toBe(2);
@@ -75,7 +79,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(html).toContain("rrugc-blueprint-selection-a11y");
     expect((html.match(/class="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail"/g) || []).length).toBe(1);
     expect((html.match(/class="rrugc-blueprint-front-scene"/g) || []).length).toBe(2);
-    expect((html.match(/rrugc-blueprint-design-choice/g) || []).length).toBeLessThanOrEqual(7);
+    expect((html.match(/rrugc-blueprint-design-choice/g) || []).length).toBe(versions.length);
     expect((html.match(/rrugc-blueprint-color-choice/g) || []).length).toBeLessThanOrEqual(7);
     expect(html).toContain("design_9.png");
     expect(html).toContain("Natural / Black");
@@ -157,7 +161,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => root.unmount());
   });
 
-  it("supports click navigation, keeps active cards anchored at the center, and updates mockup immediately", async () => {
+  it("supports click navigation and active cards in a left-aligned, non-centered strip", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -170,7 +174,8 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-thread-source")?.textContent).toBe("Auto-match thread");
     expect(host.querySelector('select[aria-label="Thread color mode"]')).toBeNull();
     expect(host.querySelectorAll('button[aria-label*="embroidery palette"]')).toHaveLength(0);
-    expect(host.querySelector(".rrugc-blueprint-design-item.is-active")?.getAttribute("style")).toContain("0px");
+    expect(host.querySelector(".rrugc-blueprint-design-item.is-active")?.hasAttribute("style")).toBe(false);
+    expect(host.querySelectorAll(".rrugc-blueprint-design-item")).toHaveLength(versions.length);
     expect(host.querySelector(".rrugc-blueprint-color-choice.is-selected")?.getAttribute("style")).toContain("translate(-50%, calc(-50% + 0px))");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.max).toBe("200");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')?.value).toBe("100");
@@ -405,19 +410,19 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     await act(async () => root.unmount());
   });
 
-  it("starts at an explicitly selected version, keeps only nearby thumbnails mounted, and clamps the boundaries", async () => {
+  it("starts at an explicitly selected version, keeps the full left-aligned strip mounted, and clamps the boundaries", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     await act(async () => root.render(<BlueprintPreview versions={versions} initialVersion={5} />));
     expect(chosen(host)).toContain("design_5.png");
-    expect(host.querySelectorAll(".rrugc-blueprint-design-choice")).toHaveLength(7);
+    expect(host.querySelectorAll(".rrugc-blueprint-design-choice")).toHaveLength(versions.length);
     await act(async () => click(host, "Next design columns"));
     expect(chosen(host)).toContain("design_4.png");
     for (let i=0; i<9; i++) await sendKey("ArrowRight");
     expect(chosen(host)).toContain("design_1.png");
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="Next design columns"]')?.disabled).toBe(true);
-    expect(host.querySelectorAll(".rrugc-blueprint-design-choice").length).toBeLessThanOrEqual(7);
+    expect(host.querySelectorAll(".rrugc-blueprint-design-choice")).toHaveLength(versions.length);
     await act(async () => root.unmount());
   });
 

@@ -28,14 +28,10 @@
 .rrugc-blueprint-scale input{width:85px;height:4px;accent-color:#089acb;cursor:pointer}
 .rrugc-blueprint-scale b{min-width:31px;text-align:right;font-size:10px;font-variant-numeric:tabular-nums}
 .rrugc-blueprint-cross-layout{display:grid;grid-template-columns:var(--blueprint-rail-width) minmax(0,1fr);grid-template-rows:152px minmax(0,1fr);flex:1;min-height:0;gap:8px;overflow:hidden}
-.rrugc-blueprint-cross-corner{display:grid;align-content:center;justify-items:center;gap:6px;border:1px solid #d6e5f1;border-radius:10px;background:#eef6fd}
-.rrugc-blueprint-cross-corner span{color:#6486a4;letter-spacing:.06em;font-size:9px;font-weight:850}
-.rrugc-blueprint-cross-corner strong{color:#375372;font-size:11px;font-weight:800}
-.rrugc-blueprint-cross-corner small{color:#7790a6;font-size:9px}
-.rrugc-blueprint-design-carousel{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr) 34px;align-items:center;gap:5px;min-width:0;border:1px solid #dbe6f0;border-radius:10px;background:#fff;padding:6px}
-.rrugc-blueprint-design-track{position:relative;height:138px;overflow:hidden;touch-action:pan-y;cursor:grab;user-select:none}
+.rrugc-blueprint-design-carousel{position:relative;display:grid;grid-column:1/-1;grid-template-columns:34px minmax(0,1fr) 34px;align-items:center;gap:5px;min-width:0;border:1px solid #dbe6f0;border-radius:10px;background:#fff;padding:6px}
+.rrugc-blueprint-design-track{position:relative;display:flex;align-items:center;justify-content:flex-start;gap:10px;box-sizing:border-box;min-width:0;height:138px;padding:0 3px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#b6c7d7 transparent;touch-action:pan-x;cursor:grab;user-select:none}
 .rrugc-blueprint-design-track:active{cursor:grabbing}
-.rrugc-blueprint-design-item{position:absolute;top:5px;left:50%;width:164px;height:128px;box-sizing:border-box;transition:transform .23s cubic-bezier(.2,.75,.25,1);will-change:transform;z-index:1}
+.rrugc-blueprint-design-item{position:relative;flex:0 0 164px;width:164px;height:128px;box-sizing:border-box;z-index:1}
 .rrugc-blueprint-design-item.is-active{z-index:3}
 .rrugc-blueprint-design-choice{position:relative;display:grid;grid-template-rows:auto 83px auto;align-items:center;gap:3px;box-sizing:border-box;width:100%;height:100%;padding:6px;border:1px solid #dce5ef;border-radius:8px;background:#f7f9fc;text-align:left;cursor:pointer;transition:border-color .2s,background-color .2s}
 .rrugc-blueprint-design-choice.is-selected{border:2px solid #06a9e7;background:#ebf9ff;box-shadow:0 0 0 2px rgba(0,174,227,.14)}
@@ -92,7 +88,6 @@
 @media(max-width:800px){
  .rrugc-blueprint-cross{--blueprint-rail-width:115px;padding:0 7px 8px}
  .rrugc-blueprint-cross-layout{grid-template-rows:148px minmax(0,1fr);gap:5px}
- .rrugc-blueprint-cross-corner span{font-size:8px}
  .rrugc-blueprint-color-choice{width:99px;height:76px;gap:4px;padding:4px}
  .rrugc-blueprint-color-hat{width:38px;height:48px}
  .rrugc-blueprint-color-name{font-size:9px}
@@ -104,13 +99,10 @@
  .rrugc-output-version-dialog:has(.rrugc-blueprint-cross){width:calc(100vw - 10px);max-height:calc(100dvh - 10px)}
  .rrugc-blueprint-cross{--blueprint-rail-width:96px}
  .rrugc-blueprint-cross-layout{grid-template-rows:135px minmax(0,1fr)}
- .rrugc-blueprint-cross-corner{padding:4px}
- .rrugc-blueprint-cross-corner strong{font-size:9px}
- .rrugc-blueprint-cross-corner small{font-size:8px}
  .rrugc-blueprint-design-carousel{grid-template-columns:22px minmax(0,1fr) 22px;gap:2px;padding:3px}
  .rrugc-blueprint-design-control{width:21px;height:39px;font-size:19px}
  .rrugc-blueprint-design-track{height:125px}
- .rrugc-blueprint-design-item{width:145px;height:119px}
+ .rrugc-blueprint-design-item{flex-basis:145px;width:145px;height:119px}
  .rrugc-blueprint-design-choice{grid-template-rows:auto 73px auto}
  .rrugc-blueprint-design-star,.rrugc-blueprint-design-download{width:27px;height:27px}
  .rrugc-blueprint-design-choice>img{height:73px}

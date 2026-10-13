@@ -95,6 +95,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
   const dragOrigin = useRef<DragOrigin | null>(null);
+  const designTrackRef = useRef<HTMLDivElement>(null);
   const suppressNextClick = useRef(false);
   const frontLens = useRef<HTMLDivElement>(null);
   const sideLens = useRef<HTMLDivElement>(null);
@@ -194,36 +195,44 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
     }
   };
 
-  // Index-based strips shift around fixed center anchors, with only seven nodes per axis.
+  // Keep the complete design list left-aligned. Selecting an offscreen item
+  // moves the strip only enough to reveal it, never centers the active card.
+  useEffect(() => {
+    const track = designTrackRef.current;
+    const card = track?.querySelector<HTMLElement>('[data-design-index="' + selectedDesign + '"]');
+    if (!track || !card || !track.clientWidth) return;
+    const left = card.offsetLeft;
+    const right = left + card.offsetWidth;
+    if (left < track.scrollLeft) track.scrollLeft = left;
+    else if (right > track.scrollLeft + track.clientWidth) {
+      track.scrollLeft = right - track.clientWidth;
+    }
+  }, [selectedDesign, versions]);
+
   const neighbors = [-3, -2, -1, 0, 1, 2, 3];
   if (!activeDesign) return <div className="rrugc-blueprint-empty">No designs available to preview.</div>;
 
   return <section className="rrugc-blueprint rrugc-blueprint-cross" aria-label="Blueprint cross puzzle · design and hat color navigator">
     <div className="rrugc-blueprint-cross-layout">
-      <div className="rrugc-blueprint-cross-corner">
-        <span>8869 TWILL CAP</span><strong>13 colorways</strong><small>↑ ↓ Hat colors</small>
-      </div>
       <div className="rrugc-blueprint-design-carousel" aria-label="Designs carousel">
         <button type="button" className="rrugc-blueprint-design-control is-prev"
           aria-label="Previous design columns" disabled={selectedDesign === 0} onClick={() => move("left")}>‹</button>
-        <div className="rrugc-blueprint-design-track" role="group"
+        <div ref={designTrackRef} className="rrugc-blueprint-design-track" role="group"
           aria-label="Drag horizontally to select designs" onPointerDown={event => onPointerDown(event,"horizontal")}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onPointerCancel={() => { dragOrigin.current = null; }} onClickCapture={clickCapture}>
-          {neighbors.map(delta => {
-            const index = selectedDesign + delta;
-            const design = versions[index];
-            if (!design) return null;
+          {versions.map((design, index) => {
+            const isActive = index === selectedDesign;
             const starred = Boolean(design.selected_for_products_stage2);
             const validPng = (!design.output_name || design.output_name.toLowerCase().endsWith(".png"));
             return <div key={design.version}
-              className={"rrugc-blueprint-design-item" + (delta === 0 ? " is-active" : "") + (starred ? " is-starred" : "")}
-              style={{ transform: "translateX(calc(-50% + " + (delta * 174) + "px))" }}>
+              data-design-index={index}
+              className={"rrugc-blueprint-design-item" + (isActive ? " is-active" : "") + (starred ? " is-starred" : "")}>
               <button type="button"
-                className={"rrugc-blueprint-design-choice" + (delta === 0 ? " is-selected" : "")}
-                aria-pressed={delta === 0} aria-label={"Select design " + designName(design)}
+                className={"rrugc-blueprint-design-choice" + (isActive ? " is-selected" : "")}
+                aria-pressed={isActive} aria-label={"Select design " + designName(design)}
                 onClick={() => setDesignIndex(index)}>
-                <span className="rrugc-blueprint-design-caption">DESIGN {index + 1}{delta === 0 ? " · ACTIVE" : ""}</span>
+                <span className="rrugc-blueprint-design-caption">DESIGN {index + 1}{isActive ? " · ACTIVE" : ""}</span>
                 <DeferredImage src={thumbnailUrl(design.url, 240)} rootMargin="180px" alt="" draggable={false} loading="lazy" decoding="async"/>
                 <strong title={designName(design)}>{designName(design)}</strong>
               </button>
