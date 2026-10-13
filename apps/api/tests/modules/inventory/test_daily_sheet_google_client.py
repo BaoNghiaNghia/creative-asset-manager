@@ -54,6 +54,40 @@ def test_disposable_google_writeback_only_mutates_and_trashes_a_new_copy():
     assert not any("/source/values" in str(req.url) for req in writes)
 
 
+def test_disposable_writeback_without_archive_uses_source_parent_and_never_source():
+    import json
+    copied_to = []
+    def handler(request):
+        path = request.url.path
+        if path.endswith("/source") and request.method == "GET":
+            return httpx.Response(200, json={
+                "id": "source", "mimeType": "application/vnd.google-apps.spreadsheet",
+                "parents": ["same-parent"],
+            })
+        if path.endswith("/source/copy"):
+            copied_to.extend(json.loads(request.content)["parents"])
+            return httpx.Response(200, json={"id": "qa-copy"})
+        if path.endswith("/qa-copy:batchUpdate"):
+            return httpx.Response(200, json={})
+        if path.endswith("values:batchUpdate"):
+            import json as _json
+            handler.marker = _json.loads(request.content)["data"][0]["values"][0][0]
+            return httpx.Response(200, json={})
+        if path.endswith("values:batchGet"):
+            return httpx.Response(200, json={
+                "valueRanges": [{"values": [[handler.marker]]}],
+            })
+        if path.endswith("/qa-copy") and request.method == "PATCH":
+            return httpx.Response(200, json={})
+        return httpx.Response(500)
+    client = GoogleSheetsInventoryClient(
+        "token", client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    result = client.verify_disposable_writeback("source", folder_id=None, tenant_id="tenant-a")
+    assert result["verified"] and result["disposable_copy_trashed"]
+    assert copied_to == ["same-parent"]
+
+
 def test_disposable_google_writeback_trashes_copy_when_readback_fails():
     import json
     trashed = []

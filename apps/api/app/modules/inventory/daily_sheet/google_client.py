@@ -193,7 +193,7 @@ class GoogleSheetsInventoryClient:
         })
 
     def verify_disposable_writeback(
-        self, source_id: str, *, folder_id: str, tenant_id: str,
+        self, source_id: str, *, folder_id: str | None, tenant_id: str,
     ) -> dict[str, Any]:
         """Prove Sheets write/readback on a disposable copy; never write the source.
 
@@ -201,9 +201,12 @@ class GoogleSheetsInventoryClient:
         reconcile scheduler. The copied file is trashed even when verification
         fails. Only a fresh hidden QA tab is mutated.
         """
-        if not source_id or not folder_id or not tenant_id:
+        if not source_id or not tenant_id:
             raise ValueError("disposable_writeback_missing_identity")
-        self.validate_native_spreadsheet(source_id)
+        source_metadata = self.validate_native_spreadsheet(source_id)
+        destination_folder = folder_id or next(iter(source_metadata.get("parents") or []), None)
+        if not destination_folder:
+            raise ValueError("disposable_writeback_copy_folder_unavailable")
         nonce = uuid4().hex
         copy_id: str | None = None
         verified = False
@@ -213,7 +216,7 @@ class GoogleSheetsInventoryClient:
                 params={"fields": "id,mimeType,appProperties", "supportsAllDrives": "true"},
                 json={
                     "name": f"CAM-Inventory-QA-{nonce[:12]}",
-                    "parents": [folder_id],
+                    "parents": [destination_folder],
                     "appProperties": {
                         "cam_inventory_qa_disposable": "true",
                         "cam_inventory_tenant_id": tenant_id,

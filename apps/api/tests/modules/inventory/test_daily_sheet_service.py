@@ -56,15 +56,23 @@ def test_disposable_writeback_service_uses_saved_source_not_runtime_copy(monkeyp
     assert observed == [("source-master", {"folder_id": "archive", "tenant_id": "tenant-a"})]
 
 
-def test_disposable_writeback_requires_configured_archive_without_mutating(monkeypatch):
+def test_disposable_writeback_allows_missing_archive_for_source_parent_fallback(monkeypatch):
+    from contextlib import nullcontext
+    targets = []
+    class Google:
+        def verify_disposable_writeback(self, source_id, **kwargs):
+            targets.append((source_id, kwargs))
+            return {"verified": True, "disposable_copy_trashed": True}
     service = InventoryDailySheetService(
-        session_factory=lambda: None, client_factory=lambda *_: pytest.fail("no Google mutation"),
+        session_factory=lambda: None, client_factory=lambda *_: nullcontext(Google()),
+        token_resolver=lambda connection: "test-token",
     )
     monkeypatch.setattr(service, "_context", lambda tenant, require_enabled: SimpleNamespace(
-        configured_source_file_id="source-master", archive_root_id="",
+        connection_id="oauth-1", configured_source_file_id="source-master",
+        archive_root_id="",
     ))
-    with pytest.raises(DailySheetConfigurationError, match="inventory_writeback_qa_folder_missing"):
-        service.verify_disposable_writeback("tenant-a")
+    assert service.verify_disposable_writeback("tenant-a")["verified"] is True
+    assert targets == [("source-master", {"folder_id": None, "tenant_id": "tenant-a"})]
 
 
 CONFIG = {

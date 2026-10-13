@@ -135,12 +135,10 @@ class InventoryDailySheetService:
         archive folder are only used as copy source and temporary destination.
         """
         context = self._context(tenant_id, require_enabled=False)
-        if not context.archive_root_id:
-            raise DailySheetConfigurationError("inventory_writeback_qa_folder_missing")
         with self.client_factory(self._token(context.connection_id)) as google:
             result = google.verify_disposable_writeback(
                 context.configured_source_file_id,
-                folder_id=context.archive_root_id,
+                folder_id=context.archive_root_id or None,
                 tenant_id=tenant_id,
             )
         logger.info(
