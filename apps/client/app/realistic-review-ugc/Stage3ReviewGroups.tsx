@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DeferredImage } from "./DeferredImage";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -282,6 +282,92 @@ export function Stage3ReviewModal({
         </div>
       </div>
 
+    </section>
+  </div>;
+}
+
+type Stage5RemoveConfirmModalProps = {
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+};
+
+/** Stage 5 hides only its review record; Stage 4 images remain untouched. */
+export function Stage5RemoveConfirmModal({
+  busy, onCancel, onConfirm,
+}: Stage5RemoveConfirmModalProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const busyRef = useRef(busy);
+  const cancelCallback = useRef(onCancel);
+  busyRef.current = busy;
+  cancelCallback.current = onCancel;
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    cancelRef.current?.focus();
+
+    // Use capture to ensure that a review-details modal below cannot also
+    // consume Escape and accidentally close its own layer.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!busyRef.current) cancelCallback.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const first = cancelRef.current;
+      const last = confirmRef.current;
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, []);
+
+  return <div className="rrugc-stage5-confirm-backdrop" role="presentation"
+    onMouseDown={event => {
+      if (event.target === event.currentTarget && !busy) onCancel();
+    }}>
+    <section className="rrugc-stage5-confirm" role="dialog" aria-modal="true"
+      aria-labelledby="stage5-delete-confirm-title" aria-describedby="stage5-delete-confirm-description">
+      <div className="rrugc-stage5-confirm-header">
+        <span className="rrugc-stage5-confirm-icon" aria-hidden="true">
+          <RrugcActionIcon name="trash" />
+        </span>
+        <div className="rrugc-stage5-confirm-copy">
+          <h3 id="stage5-delete-confirm-title">Remove this review card?</h3>
+          <p id="stage5-delete-confirm-description">
+            This review will be hidden from Stage 5 and all future exports.
+          </p>
+        </div>
+      </div>
+      <div className="rrugc-stage5-confirm-preserved">
+        <RrugcActionIcon name="check" />
+        <span>The original Stage 4 image will be preserved.</span>
+      </div>
+      <footer className="rrugc-stage5-confirm-buttons">
+        <button ref={cancelRef} type="button" className="rrugc-stage5-confirm-cancel"
+          disabled={busy} onClick={onCancel}>Cancel</button>
+        <button ref={confirmRef} type="button" className="rrugc-stage5-confirm-delete"
+          disabled={busy} onClick={onConfirm}>
+          <RrugcActionIcon name="trash" />
+          <span>{busy ? "Removing…" : "Remove review"}</span>
+        </button>
+      </footer>
     </section>
   </div>;
 }
@@ -583,17 +669,10 @@ export function Stage3ReviewGroups({
       />
     )}
 
-    {pendingRemoval && <div className="rrugc-stage5-confirm-backdrop"
-      onMouseDown={event => { if (event.target === event.currentTarget && !deletingId) setPendingRemoval(null); }}>
-      <section className="rrugc-stage5-confirm" role="dialog" aria-modal="true" aria-labelledby="stage5-delete-confirm-title">
-        <h3 id="stage5-delete-confirm-title">Remove this review card?</h3>
-        <p>This hides the selected synthetic review from Stage 5 and all future exports. The original Stage 4 image is preserved.</p>
-        <div className="rrugc-stage5-confirm-buttons">
-          <button type="button" disabled={Boolean(deletingId)} onClick={() => setPendingRemoval(null)}>Cancel</button>
-          <button type="button" className="rrugc-stage5-confirm-delete" disabled={Boolean(deletingId)}
-            onClick={() => void confirmRemoval()}><RrugcActionIcon name="trash" />{deletingId ? "Removing…" : "Remove card"}</button>
-        </div>
-      </section>
-    </div>}
+    {pendingRemoval && <Stage5RemoveConfirmModal
+      busy={Boolean(deletingId)}
+      onCancel={() => setPendingRemoval(null)}
+      onConfirm={() => void confirmRemoval()}
+    />}
   </section>;
 }
