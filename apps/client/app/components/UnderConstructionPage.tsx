@@ -18,14 +18,14 @@ export function UnderConstructionPage() {
             loop
             playsInline
             preload="metadata"
-            poster="/under-construction/poster.jpg"
+            poster="/construction-media/poster.jpg"
             aria-label="Animated construction crane assembling a website"
           >
-            <source src="/under-construction/animation.mp4" type="video/mp4" />
+            <source src="/construction-media/animation.mp4" type="video/mp4" />
           </video>
           <img
             className="cam-under-still"
-            src="/under-construction/poster.jpg"
+            src="/construction-media/poster.jpg"
             alt="Construction crane building a website"
             width="960"
             height="658"

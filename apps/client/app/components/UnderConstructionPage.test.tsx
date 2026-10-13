@@ -4,10 +4,17 @@ import { describe, expect, it } from "vitest";
 import { UnderConstructionPage } from "./UnderConstructionPage";
 
 describe("UnderConstructionPage", () => {
+  it("uses media URLs distinct from the /under-construction page route", () => {
+    const html = renderToStaticMarkup(createElement(UnderConstructionPage));
+    expect(html).toContain('src="/construction-media/animation.mp4"');
+    expect(html).toContain('poster="/construction-media/poster.jpg"');
+    expect(html).not.toContain('src="/under-construction/');
+  });
+
   it("uses the supplied construction video and a no-motion fallback", () => {
     const html = renderToStaticMarkup(createElement(UnderConstructionPage));
-    expect(html).toContain('src="/under-construction/animation.mp4"');
-    expect(html).toContain('poster="/under-construction/poster.jpg"');
+    expect(html).toContain('src="/construction-media/animation.mp4"');
+    expect(html).toContain('poster="/construction-media/poster.jpg"');
     expect(html).toContain('autoplay=""');
     expect(html).toContain('muted=""');
     expect(html).toContain('loop=""');
