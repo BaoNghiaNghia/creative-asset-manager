@@ -59,7 +59,7 @@ describe("Research Intelligence modal", () => {
     expect(dialog.textContent).toContain("Tạm dừng VPS");
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Close Research Intelligence");
-    expect(requested.some(path => path.endsWith("/signals?status=pending&limit=25"))).toBe(true);
+    expect(requested.some(path => path.endsWith("/signals?status=pending&limit=100"))).toBe(true);
 
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledTimes(1);

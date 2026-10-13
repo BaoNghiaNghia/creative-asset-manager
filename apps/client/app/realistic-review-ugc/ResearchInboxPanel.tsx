@@ -35,14 +35,14 @@ export type ResearchSignal = {
 };
 
 export type AutoDiscoverStatus = {
-  state: "not_configured" | "paused" | "ready" | "busy" | "offline" | "error";
+  state: "not_configured" | "paused" | "ready" | "busy" | "waiting" | "offline" | "error";
   connected: boolean; server: string; source: string; last_seen_at: string | null;
   last_error_code: string | null; total_evidence: number; pending_review: number; stage0_auto_keywords?: number;
   platforms: { pinterest: number; amazon: number; etsy: number };
 };
 const DISCOVERY_LABELS: Record<AutoDiscoverStatus["state"], string> = {
   not_configured: "Chưa kết nối", paused: "Đã tạm dừng",
-  ready: "Sẵn sàng", busy: "Đang tìm kiếm", offline: "Mất kết nối", error: "Có lỗi",
+  ready: "Sẵn sàng", busy: "Đang tìm kiếm", waiting: "Chờ lượt quét kế tiếp", offline: "Không có heartbeat", error: "Có lỗi",
 };
 
 export function discoveryErrorMessage(status: AutoDiscoverStatus | null): string {
@@ -155,12 +155,13 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
   const [unavailable, setUnavailable] = useState(false);
   const [autoDiscover, setAutoDiscover] = useState<AutoDiscoverStatus | null>(null);
   const [discoveryBusy, setDiscoveryBusy] = useState(false);
+  const [autoApproveBusy, setAutoApproveBusy] = useState(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     try {
-      const result = await researchRequest<{ items: ResearchSignal[] }>("/signals?status=pending&limit=25",
+      const result = await researchRequest<{ items: ResearchSignal[] }>("/signals?status=pending&limit=100",
         signal ? { signal } : undefined);
       if (signal?.aborted) return;
       setItems(result.items);
@@ -218,6 +219,17 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
     return () => controller.abort();
   }, [open, refresh]);
 
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void researchRequest<AutoDiscoverStatus>("/auto-discover/status")
+        .then(status => { if (active) setAutoDiscover(status); })
+        .catch(() => undefined);
+    }, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [open]);
+
   async function toggleDiscoveryPause() {
     if (!autoDiscover?.connected || discoveryBusy) return;
     setDiscoveryBusy(true);
@@ -233,6 +245,24 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không thay đổi được trạng thái Auto Discover.");
     } finally { setDiscoveryBusy(false); }
+  }
+
+  async function autoApproveClearKeywords() {
+    if (autoApproveBusy || busyId) return;
+    setAutoApproveBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await researchRequest<{ checked: number; auto_promoted: number; needs_review: number }>(
+        "/auto-discover/auto-approve", { method: "POST" },
+      );
+      setNotice("Tự duyệt " + result.auto_promoted + " quote rõ ràng. " +
+        result.needs_review + " tín hiệu mơ hồ vẫn chờ duyệt. Không gọi AEBrowse.");
+      if (result.auto_promoted) onKeywordApproved?.();
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không chạy được tự duyệt keyword.");
+    } finally { setAutoApproveBusy(false); }
   }
 
   async function importBatch() {
@@ -339,7 +369,8 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
             {autoDiscover?.last_seen_at && <small>Heartbeat: {new Date(autoDiscover.last_seen_at).toLocaleString()}</small>}
           </div>
           {discoveryErrorMessage(autoDiscover) && <p className="rrugc-discovery-warning" role="status"><ResearchGlyph name="warning"/>{discoveryErrorMessage(autoDiscover)}</p>}
-          {autoDiscover?.state === "offline" && <p className="rrugc-discovery-warning" role="status"><ResearchGlyph name="warning"/>VPS chưa báo heartbeat: kiểm tra token Scout Agent.</p>}
+          {autoDiscover?.state === "offline" && <p className="rrugc-discovery-warning" role="status"><ResearchGlyph name="warning"/>VPS quá 3 giờ chưa báo heartbeat; kiểm tra timer và kết nối Scout Agent.</p>}
+          {autoDiscover?.state === "waiting" && <p className="rrugc-discovery-note" role="status">Heartbeat còn hiệu lực. VPS đang chờ lượt quét tiếp theo, không phải mất kết nối.</p>}
           {autoDiscover?.connected && <button type="button" className="rrugc-research-vps-button" disabled={discoveryBusy}
             onClick={() => void toggleDiscoveryPause()}>
             <ResearchGlyph name={autoDiscover.state === "paused" ? "play" : "pause"}/>
@@ -348,6 +379,9 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
         </section>
         {autoDiscover?.state === "not_configured" && <p className="rrugc-research-setup-note">VPS có thể thu thập công khai vào outbox riêng. Để đồng bộ vào CAM và bật điều khiển Pause/Resume, ghép một Scout Agent tên <strong>Agent-Reach Auto Discover</strong> và cấu hình token riêng trên VPS. Không dùng token Windows.</p>}
         <div className="rrugc-research-actions">
+          <button type="button" disabled={autoApproveBusy || busyId !== null} onClick={() => void autoApproveClearKeywords()} className="rrugc-research-action-primary">
+            <ResearchGlyph name="check"/> {autoApproveBusy ? "Đang kiểm tra…" : "Tự duyệt keyword rõ ràng"}
+          </button>
           <button type="button" className="rrugc-research-action-primary" onClick={() => setImportOpen(v => !v)}
             aria-expanded={importOpen}><ResearchGlyph name="upload"/>Nhập research JSON</button>
           <button type="button" disabled={busyId !== null} onClick={() => void applyApprovedToStage0()}>
@@ -375,7 +409,7 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
           <textarea id="rrugc-research-export-text" readOnly rows={4} value={exportJson} />
         </div>}
         <div className="rrugc-research-section-heading">
-          <div><ResearchGlyph name="list" size={18}/><strong>Tín hiệu chờ duyệt</strong><span>{loading ? "…" : items.length}</span></div>
+          <div><ResearchGlyph name="list" size={18}/><strong>Tín hiệu chờ duyệt</strong><span>{autoDiscover?.pending_review ?? (loading ? "…" : items.length)}</span></div>
           <small>Các nguồn chưa xác minh · Chỉ duyệt keyword phù hợp</small>
         </div>
         {loading && <div role="status" className="rrugc-research-loading"><ResearchGlyph name="refresh"/>Đang tải tín hiệu...</div>}

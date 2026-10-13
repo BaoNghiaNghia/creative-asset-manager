@@ -5,6 +5,10 @@ from app.modules.realistic_review_ugc.research_keyword_extraction import extract
 
 @pytest.mark.parametrize("title,expected", [
     ("Good Taste in Music Bad Taste in Men Trucker Hat", "GOOD TASTE IN MUSIC BAD TASTE IN MEN"),
+    ("Baseball Hat, Chocolate Mode, Funny Saying, Vacation Hat", "CHOCOLATE MODE"),
+    ("Baseball Hat, Funny Saying, Vacation Hat", None),
+    ("Baseball Hat, Adjustable Cotton, Funny Saying, Vacation Hat", None),
+    ("Baseball Hat, Kids Gifts, Funny Saying", None),
     ("Embroidered Rope Hat: Bad Day to Be A Beer Snapback ...", "BAD DAY TO BE A BEER"),
     ("Created With a Purpose Embroidered Hat, Christian Faith ...", "CREATED WITH A PURPOSE"),
     ("Touchdown Season Hat Funny Saying (Embroidered Trucker Cap) Black", "TOUCHDOWN SEASON"),

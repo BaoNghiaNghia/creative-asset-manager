@@ -17,7 +17,8 @@
 .rrugc-discovery-state{display:inline-flex;align-items:center;gap:7px;flex:none;padding:7px 10px;border-radius:100px;background:#eef2f8;color:#596c86;font-size:10px;font-weight:800;white-space:nowrap}
 .rrugc-research-state-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:currentColor}
 .rrugc-discovery-state.state-ready,.rrugc-discovery-state.state-busy{background:#e6f7ed;color:#238454}
-.rrugc-discovery-state.state-paused{background:#fff4df;color:#996b1e}
+.rrugc-discovery-state.state-paused,.rrugc-discovery-state.state-waiting{background:#fff4df;color:#996b1e}
+.rrugc-discovery-note{margin:0;padding:9px 12px;border-radius:8px;background:#edf5ff;color:#496f9b;font-size:11px;line-height:1.6}
 .rrugc-discovery-state.state-error,.rrugc-discovery-state.state-offline{background:#fff0ed;color:#c84b3f}
 .rrugc-research-inbox-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px 25px 26px}
 .rrugc-research-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin-bottom:16px}

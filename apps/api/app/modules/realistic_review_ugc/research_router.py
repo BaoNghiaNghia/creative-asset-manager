@@ -22,6 +22,7 @@ from app.modules.realistic_review_ugc.research_discovery import (
 from app.modules.realistic_review_ugc.research_intelligence import (
     ResearchValidationError, import_signals, list_signals,
     review_signal, stage0_export, apply_approved_to_stage0,
+    backfill_auto_discover_candidates,
 )
 
 router = APIRouter(prefix="/api/v1/realistic-review-ugc/research",
@@ -94,6 +95,21 @@ def import_agent_research_signals(
     except ResearchValidationError as exc:
         session.rollback()
         raise invalid(exc) from exc
+
+
+@router.post("/auto-discover/auto-approve")
+def approve_clear_research_keywords(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Process only high-confidence exact quotes from the paired VPS agent.
+
+    Ambiguous titles remain pending; no AEBrowse, LLM or arbitrary approvals.
+    """
+    enabled()
+    return backfill_auto_discover_candidates(
+        session, tenant_id=principal.active_tenant_id, limit=2000,
+    )
 
 
 @router.get("/auto-discover/status")

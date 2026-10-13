@@ -73,6 +73,18 @@ def extract_listing_quote(title: str, source: str, channel: str) -> str | None:
         exact = _valid(match.group(1))
         if exact:
             return exact
+    # Title style: "Baseball Hat, CHOCOLATE MODE, Funny Saying".
+    # Only accept the exact phrase between product and saying labels.
+    labelled = re.search(
+        r"^(?:baseball|trucker|dad|rope)\s+(?:hats?|caps?)\s*[,;:]\s*"
+        r"([^,;:|]{7,76})\s*[,;:]\s*"
+        r"(?:funny\s+(?:saying|quote)|embroidered\s+(?:saying|quote))\b",
+        title, re.I,
+    )
+    if labelled:
+        exact = _valid(labelled.group(1))
+        if exact:
+            return exact
     # Search snippets with truncation may still start with a complete phrase
     # before the first product noun. Never infer words after ellipses.
     title = re.split(r"\s*(?:\.{3}|…|\s+at\s+Amazon\b|\s+[-–]\s+Etsy\b)", title, maxsplit=1, flags=re.I)[0]

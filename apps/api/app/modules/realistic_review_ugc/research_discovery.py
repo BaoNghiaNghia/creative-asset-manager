@@ -35,9 +35,13 @@ def discovery_status(session: Session, tenant_id: str) -> dict:
         if seen.tzinfo is None:
             seen = seen.replace(tzinfo=timezone.utc)
         online = seen >= now - timedelta(hours=3)
+    # Resume sets stored status=offline until the next scheduled scan. A recent
+    # heartbeat still proves the worker is paired and was reachable: report
+    # standby/waiting instead of incorrectly claiming that credentials died.
     status = ("not_configured" if agent is None else
               "paused" if agent.status == "paused" else
-              agent.status if online and agent.status in ("ready", "busy", "error") else "offline")
+              agent.status if online and agent.status in ("ready", "busy", "error") else
+              "waiting" if online else "offline")
     values = dict(session.execute(
         select(RrugcResearchSignalModel.source, func.count()).where(
             RrugcResearchSignalModel.tenant_id == tenant_id,
@@ -60,6 +64,7 @@ def discovery_status(session: Session, tenant_id: str) -> dict:
         "server": "VPS", "source": "Agent-Reach / Web Search",
         "last_seen_at": agent.last_seen_at.isoformat() if agent and agent.last_seen_at else None,
         "last_error_code": agent.last_error_code if agent else None,
+        "heartbeat_age_seconds": max(0, int((now - seen).total_seconds())) if agent is not None and agent.last_seen_at is not None else None,
         "total_evidence": sum(values.values()),
         "pending_review": int(pending),
         "stage0_auto_keywords": int(promoted),

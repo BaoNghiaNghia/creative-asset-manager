@@ -267,7 +267,7 @@ def backfill_auto_discover_candidates(
         RrugcResearchSignalModel.channel == "auto-discover",
         RrugcResearchSignalModel.created_by_user_id.in_(ids),
         RrugcResearchSignalModel.status == "pending",
-    ).order_by(RrugcResearchSignalModel.created_at.asc()).limit(limit)).all()
+    ).order_by(RrugcResearchSignalModel.created_at.asc()).limit(limit).with_for_update(skip_locked=True)).all()
     promoted = 0
     for row in rows:
         if dry_run:

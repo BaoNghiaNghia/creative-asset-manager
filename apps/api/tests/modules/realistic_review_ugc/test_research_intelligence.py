@@ -28,6 +28,23 @@ def _signal(url="https://news.google.com/rss/articles/example"):
             "url": url, "excerpt": "Hats for the weekend"}
 
 
+def test_auto_approve_route_preserves_ambiguous_candidates(session):
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc.research_router import approve_clear_research_keywords
+    agent_id = "00000000-0000-4000-8000-000000000099"
+    session.add(RrugcScoutAgentModel(id=agent_id, tenant_id="tenant-a",
+        name="Agent-Reach Auto Discover", token_hash="z"*64,
+        status="ready", active=True, created_by_user_id="u"))
+    session.commit()
+    import_signals(session, tenant_id="tenant-a", user_id="scout-agent:" + agent_id, signals=[
+        {"source": "etsy", "channel": "auto-discover", "title": "Made to Worship Embroidered Trucker Hat", "url": "https://www.etsy.com/listing/123456789"},
+        {"source": "etsy", "channel": "auto-discover", "title": "Baseball Hat, Custom Gift For Everyone", "url": "https://www.etsy.com/listing/123456790"},
+    ])
+    result = approve_clear_research_keywords(session=session, principal=SimpleNamespace(active_tenant_id="tenant-a"))
+    assert result == {"checked": 2, "auto_promoted": 1, "needs_review": 1}
+    assert session.query(RrugcKeywordVolumeModel).filter_by(tenant_id="tenant-a").count() == 1
+
+
 def test_research_signals_are_tenant_scoped_and_require_review(session):
     item = _signal()
     assert import_signals(session, tenant_id="tenant-a", user_id="user-a", signals=[item]) == {

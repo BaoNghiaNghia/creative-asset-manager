@@ -41,7 +41,8 @@ def test_server_discovery_is_tenant_scoped_and_defaults_to_unconfigured():
         assert other["total_evidence"] == other["pending_review"] == 0
         assert set_discovery_pause(session, "tenant-a", True)["state"] == "paused"
         assert discovery_status(session, "tenant-b")["state"] == "not_configured"
-        assert set_discovery_pause(session, "tenant-a", False)["state"] == "offline"
+        assert set_discovery_pause(session, "tenant-a", False)["state"] == "waiting"
+        assert discovery_status(session, "tenant-a")["connected"] is True
         assert session.get(RrugcScoutAgentModel,
                            "00000000-0000-0000-0000-000000000099").status == "offline"
         try:
@@ -67,5 +68,6 @@ def test_stale_server_heartbeat_never_reports_running():
         ))
         session.commit()
         assert discovery_status(session, "tenant")["state"] == "offline"
+        assert discovery_status(session, "tenant")["heartbeat_age_seconds"] > 3 * 3600
         assert set_discovery_pause(session, "tenant", True)["state"] == "paused"
     engine.dispose()
