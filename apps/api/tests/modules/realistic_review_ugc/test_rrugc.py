@@ -2548,7 +2548,11 @@ def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database
     versions = api.get(base + f"/generation-jobs/stage1/{job_id}/outputs")
     assert versions.status_code == 200
     assert versions.json()["versions"][0]["selected_for_products_stage2"] is True
-    assert api.get(base + "/source-plans").json()["total"] == 4
+    pinterest_sources = api.get(base + "/source-plans").json()
+    assert pinterest_sources["total"] == 2
+    assert {row["source_name"] for row in pinterest_sources["items"]} == {
+        "not_embroidery.png", "output_embroidery_bad.png",
+    }
 
     assert api.post(chosen_url + "?selected=false").status_code == 200
     assert api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=products").json()["total"] == 0

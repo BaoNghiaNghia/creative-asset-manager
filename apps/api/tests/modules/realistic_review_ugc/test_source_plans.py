@@ -921,21 +921,55 @@ def test_source_plan_list_filters_embroidery_prefix_before_grouping_and_paginati
         ])
         session.commit()
 
+        principal = SimpleNamespace(active_tenant_id="tenant-a")
         page = get_source_plans(
+            page=1,
+            page_size=1,
+            q=None,
+            session=session,
+            principal=principal,
+        )
+
+        # Stage 3 Pinterest references excludes embroidery-only inputs
+        # before grouping, counting and pagination, even if previously synced.
+        assert page.total == 1
+        assert page.overview.embroidery_groups == 1
+        assert page.overview.source_images == 1
+        assert [item.source_name for item in page.items] == ["front_hotdog.png"]
+
+        for query in ("embroidery_", "hotdog"):
+            filtered = get_source_plans(
+                page=1,
+                page_size=20,
+                q=query,
+                session=session,
+                principal=principal,
+            )
+            assert all(not item.source_name.casefold().startswith("embroidery_") for item in filtered.items)
+
+        # An explicit prefix cannot reintroduce the excluded Stage 3 sources.
+        prefixed = get_source_plans(
             page=1,
             page_size=20,
             q=None,
             source_prefix="embroidery_",
             session=session,
-            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+            principal=principal,
         )
+        assert prefixed.total == 0
+        assert prefixed.overview.source_images == 0
 
-        assert page.total == 1
-        assert page.overview.embroidery_groups == 1
-        assert page.overview.source_images == 1
-        assert [item.source_name for item in page.items] == [
-            "embroidery_hotdog.png"
-        ]
+        # Stage 2 Reviews needs these same embroidery assets for colorways.
+        colorways = get_source_plans(
+            page=1,
+            page_size=20,
+            q=None,
+            colorway_sources=True,
+            colorway_workflow="reviews",
+            session=session,
+            principal=principal,
+        )
+        assert [item.source_name for item in colorways.items] == ["embroidery_hotdog.png"]
 
 
 
@@ -1476,7 +1510,7 @@ def test_changed_source_image_gets_new_analysis_revision_and_job():
         assert len(jobs) == 2
 
 
-def test_stage1_embroidery_page_size_supports_500_rows_without_losing_groups():
+def test_reviews_stage2_embroidery_page_size_supports_500_rows_without_losing_groups():
     from inspect import signature
 
     pagination_field = signature(get_source_plans).parameters["page_size"].default
@@ -1525,7 +1559,8 @@ def test_stage1_embroidery_page_size_supports_500_rows_without_losing_groups():
                 page=page_number,
                 page_size=size,
                 q=None,
-                source_prefix="embroidery_",
+                colorway_sources=True,
+                colorway_workflow="reviews",
                 sort_by="source",
                 sort_dir="asc",
                 session=session,
@@ -1541,7 +1576,7 @@ def test_stage1_embroidery_page_size_supports_500_rows_without_losing_groups():
         assert len(list_page(1, 100).items) == 100
         assert len(list_page(2, 100).items) == 30
 
-def test_stage2_scan_indexes_root_and_nested_jpg_png_without_gemini_jobs():
+def test_source_scan_indexes_root_and_nested_jpg_png_without_gemini_jobs():
     """Stage 2 scan should show files even without embroidery_ prefix or Scout analysis."""
     factory = make_database()
     with factory() as session:
@@ -1559,8 +1594,13 @@ def test_stage2_scan_indexes_root_and_nested_jpg_png_without_gemini_jobs():
             colorway_sources=True, session=session,
             principal=SimpleNamespace(active_tenant_id="tenant-a"),
         )
-        assert page.total == 4
-        assert {item.source_name for item in page.items} == {
+        assert page.total == 0  # Non-embroidery images are not Reviews Stage 2 designs.
+        pinterest_page = get_source_plans(
+            page=1, page_size=20, q=None, session=session,
+            principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+        assert pinterest_page.total == 4
+        assert {item.source_name for item in pinterest_page.items} == {
             "ignore.jpg", "dog-cap.jpg", "camping-cap.jpg", "teacher-cap.png",
         }
         second = asyncio.run(sync_source_plans(
@@ -1573,12 +1613,12 @@ def test_stage2_scan_indexes_root_and_nested_jpg_png_without_gemini_jobs():
         assert session.scalar(select(func.count(RrugcSourcePlanModel.id))) == 4
 
 
-def test_stage2_only_uses_eligible_image_files_not_prefix_or_scout_campaign():
+def test_reviews_stage2_only_uses_prefixed_image_files_not_scout_campaign():
     factory = make_database()
     with factory() as session:
         names = [
-            ("root-jpg", "PRINT DESIGN.JPG", "image/jpeg", RRUGC_SOURCE_ROOT_FOLDER_ID),
-            ("nested-png", "ART.png", "image/png", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("root-jpg", "embroidery_PRINT DESIGN.JPG", "image/jpeg", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("nested-png", "Embroidery_ART.png", "image/png", RRUGC_SOURCE_ROOT_FOLDER_ID),
             ("generated", "output_old.png", "image/png", RRUGC_SOURCE_ROOT_FOLDER_ID),
             ("doc", "notes.txt", "text/plain", RRUGC_SOURCE_ROOT_FOLDER_ID),
             ("other-root", "another.jpg", "image/jpeg", "unrelated-root"),
@@ -1594,8 +1634,8 @@ def test_stage2_only_uses_eligible_image_files_not_prefix_or_scout_campaign():
         session.commit()
         page = get_source_plans(
             page=1, page_size=20, q=None, sort_by="source", sort_dir="asc",
-            colorway_sources=True, session=session,
+            colorway_sources=True, colorway_workflow="reviews", session=session,
             principal=SimpleNamespace(active_tenant_id="tenant-a"),
         )
         assert page.total == 2
-        assert {item.source_name for item in page.items} == {"PRINT DESIGN.JPG", "ART.png"}
+        assert {item.source_name for item in page.items} == {"embroidery_PRINT DESIGN.JPG", "Embroidery_ART.png"}

@@ -3289,8 +3289,15 @@ def get_source_plans(
             func.lower(RrugcSourcePlanModel.source_name).startswith("embroidery_", autoescape=True),
         )
     else:
+        # Stage 3 Pinterest discovery uses the finished source photos, not
+        # embroidery-only designs. Keep those designs persisted and available
+        # via colorway_sources=true for Reviews Stage 2 (13 colorways).
+        # SQL filtering happens before grouping, KPI totals and pagination.
         plan_query = plan_query.where(
             RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+            ~func.lower(RrugcSourcePlanModel.source_name).startswith(
+                "embroidery_", autoescape=True,
+            ),
         )
     all_plans = list(session.scalars(plan_query.order_by(
         RrugcSourcePlanModel.source_relative_path.asc(),
