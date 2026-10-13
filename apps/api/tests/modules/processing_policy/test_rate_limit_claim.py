@@ -662,8 +662,11 @@ class RateLimitedClaimTest(unittest.TestCase):
             candidate.next_attempt_at = NOW
             candidate.created_at = NOW
 
+        # Off the rotating source-plan fairness turn, user-facing Pinterest
+        # candidates retain the normal claim priority.
         claimed = self._claim(
             "rrugc-fairness-worker",
+            now=NOW + timedelta(minutes=1),
             allowed_job_types=(
                 "rrugc_source_plan_analyze",
                 "rrugc_candidate_analyze",

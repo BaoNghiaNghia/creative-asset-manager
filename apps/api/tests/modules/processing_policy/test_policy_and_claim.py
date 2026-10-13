@@ -165,6 +165,67 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, visual)
 
+    def test_source_plan_gets_one_reserved_turn_without_starving_pinterest_candidates(self):
+        # Both backlog streams use the same Gemini RRUGC model slot. After
+        # five minutes, reserve only the rotating 1/4-time context turns.
+        from app.modules.processing_policy.claim import source_plan_fairness_turn
+        self.policy("tenant", total=4, ai=4)
+        candidate = self.job("tenant", "old-pin", kind="rrugc_candidate_analyze",
+                             provider="gemini", scope="ai")
+        source = self.job("tenant", "old-source", kind="rrugc_source_plan_analyze",
+                         provider="gemini", scope="ai")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, candidate).created_at = NOW - timedelta(hours=1)
+            session.get(ProcessingJobModel, candidate).next_attempt_at = NOW - timedelta(hours=1)
+            session.get(ProcessingJobModel, source).created_at = NOW - timedelta(hours=2)
+            session.get(ProcessingJobModel, source).next_attempt_at = NOW - timedelta(hours=2)
+        reserved = next(NOW + timedelta(seconds=15*n) for n in range(8)
+                        if source_plan_fairness_turn(NOW + timedelta(seconds=15*n)))
+        other = next(NOW + timedelta(seconds=15*n) for n in range(8)
+                     if not source_plan_fairness_turn(NOW + timedelta(seconds=15*n)))
+        with self.sessions() as session:
+            claimer = TenantAwareJobClaimer(session)
+            self.assertEqual(claimer._next_candidate(
+                ProcessingJobModel.status == "pending", now=reserved).id, source)
+            self.assertEqual(claimer._next_candidate(
+                ProcessingJobModel.status == "pending", now=other).id, candidate)
+
+    def test_stage5_always_preempts_reserved_source_context_turn(self):
+        from app.modules.processing_policy.claim import source_plan_fairness_turn
+        self.policy("tenant", total=4, ai=4)
+        context = self.job("tenant", "context", kind="rrugc_source_plan_analyze",
+                           provider="gemini", scope="ai")
+        review = self.job("tenant", "review", kind="rrugc_stage3_analyze",
+                          provider="gemini", scope="ai")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, context).created_at = NOW - timedelta(hours=3)
+            session.get(ProcessingJobModel, context).next_attempt_at = NOW - timedelta(hours=3)
+            session.get(ProcessingJobModel, review).created_at = NOW - timedelta(minutes=9)
+            session.get(ProcessingJobModel, review).next_attempt_at = NOW - timedelta(minutes=9)
+        window = next(NOW + timedelta(seconds=15*n) for n in range(8)
+                      if source_plan_fairness_turn(NOW + timedelta(seconds=15*n)))
+        with self.sessions() as session:
+            self.assertEqual(TenantAwareJobClaimer(session)._next_candidate(
+                ProcessingJobModel.status == "pending", now=window).id, review)
+
+    def test_fresh_source_plan_waits_until_the_fairness_age_threshold(self):
+        from app.modules.processing_policy.claim import source_plan_fairness_turn
+        self.policy("tenant", total=4, ai=4)
+        candidate = self.job("tenant", "candidate", kind="rrugc_candidate_analyze",
+                             provider="gemini", scope="ai")
+        source = self.job("tenant", "fresh-source", kind="rrugc_source_plan_analyze",
+                          provider="gemini", scope="ai")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, candidate).created_at = NOW - timedelta(minutes=20)
+            session.get(ProcessingJobModel, candidate).next_attempt_at = NOW - timedelta(minutes=20)
+            session.get(ProcessingJobModel, source).created_at = NOW - timedelta(minutes=2)
+            session.get(ProcessingJobModel, source).next_attempt_at = NOW - timedelta(minutes=2)
+        window = next(NOW + timedelta(seconds=15*n) for n in range(8)
+                      if source_plan_fairness_turn(NOW + timedelta(seconds=15*n)))
+        with self.sessions() as session:
+            self.assertEqual(TenantAwareJobClaimer(session)._next_candidate(
+                ProcessingJobModel.status == "pending", now=window).id, candidate)
+
     def test_stage5_pending_five_minutes_beats_old_candidate_backlog(self):
         self.policy("tenant", total=4, ai=4)
         candidate = self.job(

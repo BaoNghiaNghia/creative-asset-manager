@@ -70,6 +70,18 @@ STARVATION_PREVENTION_PRIORITY = 50
 # shared Gemini rate-limit and concurrency gates.
 STAGE5_QUEUED_PRIORITY_BOOST_AGE = timedelta(minutes=5)
 STAGE5_QUEUED_PRIORITY = 60
+# Guarantee a bounded slice of the shared Gemini lane to existing Drive source
+# context plans. Without a turn, source plans cannot ever beat candidate jobs
+# older than 15m and the user-facing Stage 3 gets stuck in Queued for hours.
+# Rotate the preferred 15-second quarter every minute so a 60-second Gemini
+# start cadence doesn't repeatedly miss the same quarter.
+SOURCE_PLAN_FAIRNESS_AGE = timedelta(minutes=5)
+SOURCE_PLAN_FAIRNESS_PRIORITY = 51
+
+
+def source_plan_fairness_turn(now: datetime) -> bool:
+    return (now.minute + now.second // 15) % 4 == 0
+
 # Source-plan context analysis is prerequisite/background enrichment. It shares
 # the same paced RRUGC Gemini lane as candidate analysis, so letting a large
 # source-plan refresh backlog receive the global starvation boost can freeze
@@ -236,7 +248,17 @@ class TenantAwareJobClaimer:
             conditions.append(ProcessingJobModel.job_type.in_(preferred_job_types))
         starvation_cutoff = now - STARVATION_PREVENTION_AGE
         stage5_cutoff = now - STAGE5_QUEUED_PRIORITY_BOOST_AGE
+        source_cutoff = now - SOURCE_PLAN_FAIRNESS_AGE
+        source_fairness_window = source_plan_fairness_turn(now)
         effective_priority = case(
+            (
+                and_(
+                    ProcessingJobModel.job_type == "rrugc_source_plan_analyze",
+                    ProcessingJobModel.created_at <= source_cutoff,
+                    source_fairness_window,
+                ),
+                SOURCE_PLAN_FAIRNESS_PRIORITY,
+            ),
             (
                 and_(
                     ProcessingJobModel.job_type == "rrugc_stage3_analyze",
