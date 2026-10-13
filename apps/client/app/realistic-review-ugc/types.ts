@@ -457,6 +457,7 @@ export type Stage2Job = {
   can_cancel: boolean;
   cancel_available_until: string | null;
   processing_job_id: string | null;
+  next_attempt_at?: string | null;
   provider_request_id: string | null;
   output_content_type: string | null;
   output_size_bytes: number | null;

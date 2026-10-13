@@ -158,7 +158,19 @@ function stage4JobErrorMessage(job: Stage2Job): string {
     : job.last_error_message || "Generation failed";
 }
 
+function stage4QuotaPaused(job: Stage2Job): boolean {
+  return job.status === "queued" && job.last_error_code === "codex_image_usage_limited";
+}
+
+function stage4RetryMessage(job: Stage2Job): string {
+  const retryMs = Date.parse(job.next_attempt_at || "");
+  return Number.isFinite(retryMs)
+    ? "Automatic retry " + new Date(retryMs).toLocaleString()
+    : "Automatic retry is scheduled; waiting for provider capacity.";
+}
+
 function jobLabel(job: Stage2Job) {
+  if (stage4QuotaPaused(job)) return "Provider limit";
   if (job.status === "queued") return "Queued";
   if (job.status === "running") return "Generating";
   if (job.status === "completed") return "Completed";
@@ -837,6 +849,11 @@ export function Stage2JobTable({
       </div>}
     />
 
+    {jobs.some(stage4QuotaPaused) && <div className="rrugc-stage4-quota-notice" role="status">
+      <strong>Codex image generation quota reached</strong>
+      <span>{jobs.filter(stage4QuotaPaused).length} Stage 4 jobs are paused by the provider usage limit. They will retry automatically when their cooldown ends; no need to requeue or delete outputs.</span>
+    </div>}
+
     <ActionMessageToast message={message} />
     <ActionMessageToast message={skillMessage} tone="info" />
 
@@ -1022,9 +1039,12 @@ export function Stage2JobTable({
                 </div>
                 <div className="rrugc-stage4-output-status-summary" aria-label={"Generation summary for " + plan.source_name}>
                   <span className="is-done">{runs.completed} done</span>
-                  {runs.active > 0 && <span className="is-active">
+                  {planJobs.some(stage4QuotaPaused) && <span className="is-paused">
+                    {planJobs.filter(stage4QuotaPaused).length} quota paused
+                  </span>}
+                  {planJobs.some(run => (run.status === "running" || run.status === "queued") && !stage4QuotaPaused(run)) && <span className="is-active">
                     <OutputActivityLoader compact status={planJobs.some(run => run.status === "running") ? "running" : "queued"} />
-                    {runs.active} active
+                    {planJobs.filter(run => (run.status === "running" || run.status === "queued") && !stage4QuotaPaused(run)).length} active
                   </span>}
                   {runs.failed > 0 && <span className="is-failed">{runs.failed} failed</span>}
                   {runs.cancelled > 0 && <span className="is-cancelled">{runs.cancelled} cancelled</span>}
@@ -1057,8 +1077,10 @@ export function Stage2JobTable({
                     />
                     <span>v{1 + allPlanJobs.filter(other => other.status === "completed" && (other.regenerated_from_job_id || other.id) === (run.regenerated_from_job_id || run.id) && Date.parse(other.created_at) < Date.parse(run.created_at)).length}</span>
                   </button>)}
-                </div> : <div className={"rrugc-stage2-results-empty" + (runs.active > 0 ? " is-generating" : "")}>
-                  {runs.active > 0
+                </div> : <div className={"rrugc-stage2-results-empty" + (runs.active > 0 && !planJobs.some(stage4QuotaPaused) ? " is-generating" : "")}>
+                  {planJobs.some(stage4QuotaPaused) && !planJobs.some(run => run.status === "running")
+                    ? <small>Image generation paused: provider usage limit. Automatic retry is scheduled.</small>
+                    : runs.active > 0
                     ? <OutputActivityLoader status={planJobs.some(run => run.status === "running") ? "running" : "queued"} />
                     : <>
                         <strong>No results yet</strong>
@@ -1072,6 +1094,7 @@ export function Stage2JobTable({
                     {[...planJobs].reverse().map((run, index) => <div key={run.id} className={"rrugc-stage4-run-history-item is-" + run.status}>
                       <span className="rrugc-stage4-run-history-index">#{planJobs.length - index}</span>
                       <span className="rrugc-stage4-run-history-state">{jobLabel(run)}</span>
+                      {stage4QuotaPaused(run) && <span className="rrugc-stage4-queue-retry">{stage4RetryMessage(run)}</span>}
                       {run.status === "failed" && <span className="rrugc-stage4-run-history-error" title={run.last_error_message || run.last_error_code || "Generation failed"}>{stage4JobErrorMessage(run)}</span>}
                       {run.status === "failed" && <div className="rrugc-stage4-run-history-actions">
                         <button type="button" className="rrugc-icon-action" onClick={() => onRetryJob(run)}><RrugcActionIcon name="refresh" />Retry</button>

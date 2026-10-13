@@ -523,6 +523,26 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain(">Generate selected<");
   });
 
+  it("shows Stage 4 Codex quota pauses and scheduled retry instead of indefinite Queued", () => {
+    const retryAt = "2026-10-14T11:20:00Z";
+    const markup = renderToStaticMarkup(<Stage2JobTable
+      plans={[makePlan(4)]}
+      overview={GLOBAL_OVERVIEW}
+      jobs={[makeStage2Job("codex-cooldown", "queued", {
+        last_error_code: "codex_image_usage_limited",
+        last_error_message: "Codex image generation usage is temporarily limited.",
+        next_attempt_at: retryAt,
+      })]}
+      creatingPlanIds={new Set()}
+      onCreateJob={() => undefined}
+    />);
+    expect(markup).toContain("Provider limit");
+    expect(markup).toContain("Codex image generation quota reached");
+    expect(markup).toContain("Automatic retry");
+    expect(markup).not.toContain(">Queued</span>");
+    expect(markup).not.toContain('aria-label="Generating output"');
+  });
+
   it("shows the shared orbit loader in Stage 4 while outputs are queued or generating", () => {
     const queued = renderToStaticMarkup(<Stage2JobTable
       plans={[makePlan(4)]}

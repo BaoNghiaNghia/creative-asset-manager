@@ -3206,6 +3206,74 @@ def test_stage5_analyze_all_drains_older_outputs_beyond_initial_500(api, databas
         ).count() == 502
 
 
+def test_stage4_queue_response_exposes_retry_schedule_only_for_queued_job():
+    from app.modules.realistic_review_ugc.router import _stage2_job
+    now = datetime.now(timezone.utc)
+    stage4 = RrugcStage2JobModel(
+        id="00000000-0000-4000-8000-000000000001",
+        tenant_id="tenant-a",
+        source_plan_id="plan-a",
+        campaign_id="campaign-a",
+        source_revision="revision-a",
+        selected_candidate_ids_json=["reference-1"],
+        selected_reference_snapshot_json=[],
+        skill_name="gatorhats-8869-image-studio",
+        status="queued",
+        idempotency_key="stage4-queue-status-test",
+        created_by_user_id="user-a",
+        created_at=now,
+        updated_at=now,
+        queued_at=now - timedelta(minutes=90),
+        last_error_code="codex_image_usage_limited",
+    )
+    retry = now + timedelta(minutes=42)
+    result = _stage2_job(stage4, next_attempt_at=retry)
+    assert result.status == "queued"
+    assert result.next_attempt_at == retry
+    assert result.last_error_code == "codex_image_usage_limited"
+    stage4.status = "completed"
+    assert _stage2_job(stage4, next_attempt_at=retry).next_attempt_at is None
+
+
+def test_stage4_list_joins_processing_retry_schedule_by_tenant(database, monkeypatch):
+    from app.modules.realistic_review_ugc.router import list_stage2_jobs
+    from app.modules.realistic_review_ugc.repository import RrugcRepository
+
+    now = datetime.now(timezone.utc)
+    stage4 = RrugcStage2JobModel(
+        id="00000000-0000-4000-8000-000000000002",
+        tenant_id="tenant-a", source_plan_id="plan-a", campaign_id="campaign-a",
+        source_revision="revision-a", selected_candidate_ids_json=["ref"],
+        selected_reference_snapshot_json=[], skill_name="image-studio",
+        status="queued", idempotency_key="queued", created_by_user_id="user-a",
+        created_at=now, updated_at=now,
+        processing_job_id="00000000-0000-4000-8000-000000000003",
+        last_error_code="codex_image_usage_limited",
+    )
+    monkeypatch.setattr(
+        RrugcRepository, "list_stage2_jobs",
+        lambda self, tenant_id, source_plan_ids=None, limit=1000: [stage4],
+    )
+    with database() as session:
+        session.add(ProcessingJobModel(
+            id=stage4.processing_job_id, tenant_id="tenant-a",
+            job_type="rrugc_stage2_generate", entity_type="rrugc_stage2_job",
+            entity_id=stage4.id, idempotency_key="processing-stage4-queue",
+            payload_json={}, status="pending",
+            next_attempt_at=now + timedelta(minutes=40),
+        ))
+        session.commit()
+        def fetch(tenant: str):
+            return list_stage2_jobs(
+                source_plan_id=[], limit=100,
+                session=session, principal=SimpleNamespace(
+                    active_tenant_id=tenant, user_id="user-a",
+                ),
+            )[0]
+        assert fetch("tenant-a").next_attempt_at == now + timedelta(minutes=40)
+        assert fetch("tenant-b").next_attempt_at is None
+
+
 def test_stage2_job_uses_up_to_three_drive_ready_pinterest_refs(database, monkeypatch):
     codex_home = (Path(__file__).resolve().parents[5] / "deploy" / "codex").resolve()
     settings = Settings(

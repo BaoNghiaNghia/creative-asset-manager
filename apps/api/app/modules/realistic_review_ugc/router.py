@@ -1018,6 +1018,7 @@ def _stage2_job(
     row: RrugcStage2JobModel,
     *,
     current_user_id: str | None = None,
+    next_attempt_at: datetime | None = None,
 ) -> Stage2JobResponse:
     selected_ids = [
         str(value)
@@ -1056,6 +1057,10 @@ def _stage2_job(
         can_cancel=can_cancel,
         cancel_available_until=cancel_available_until,
         processing_job_id=row.processing_job_id,
+        next_attempt_at=(
+            (next_attempt_at.replace(tzinfo=timezone.utc) if next_attempt_at.tzinfo is None else next_attempt_at)
+            if row.status == "queued" and next_attempt_at is not None else None
+        ),
         provider_request_id=row.provider_request_id,
         output_content_type=row.output_content_type,
         output_size_bytes=row.output_size_bytes,
@@ -5912,13 +5917,34 @@ def list_stage2_jobs(
                 "message": "Stage 2 job filtering accepts at most 250 source plan IDs.",
             },
         )
-    return [
-        _stage2_job(row, current_user_id=principal.user_id)
-        for row in RrugcRepository(session).list_stage2_jobs(
-            principal.active_tenant_id,
-            source_plan_ids=source_plan_ids,
-            limit=limit,
+    stage4_rows = RrugcRepository(session).list_stage2_jobs(
+        principal.active_tenant_id,
+        source_plan_ids=source_plan_ids,
+        limit=limit,
+    )
+    from app.modules.processing.model import ProcessingJobModel
+
+    # Read retry schedule in one tenant-scoped query; the Stage 4 UI must
+    # distinguish a provider-quota hold from an ordinary runnable queue.
+    processing_ids = [
+        row.processing_job_id
+        for row in stage4_rows
+        if row.status == "queued" and row.processing_job_id
+    ]
+    retry_schedule = dict(session.execute(
+        select(ProcessingJobModel.id, ProcessingJobModel.next_attempt_at).where(
+            ProcessingJobModel.tenant_id == principal.active_tenant_id,
+            ProcessingJobModel.id.in_(processing_ids),
+            ProcessingJobModel.status.in_(("pending", "retry")),
         )
+    ).all()) if processing_ids else {}
+    return [
+        _stage2_job(
+            row,
+            current_user_id=principal.user_id,
+            next_attempt_at=retry_schedule.get(row.processing_job_id),
+        )
+        for row in stage4_rows
     ]
 
 

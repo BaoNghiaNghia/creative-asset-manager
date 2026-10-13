@@ -1018,6 +1018,7 @@ class Stage2JobResponse(BaseModel):
     can_cancel: bool = False
     cancel_available_until: datetime | None = None
     processing_job_id: str | None = None
+    next_attempt_at: datetime | None = None
     provider_request_id: str | None = None
     output_content_type: str | None = None
     output_size_bytes: int | None = None
