@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import "./Stage3ReviewGroups.css";
 import "./Stage5Toolbar.css";
+import "./StageSortControls.css";
 
 type Props = {
   data: Stage3ReviewGroupList;
@@ -28,6 +29,57 @@ type Props = {
   onDeleteReview?: (stage2JobId: string) => Promise<void>;
   onExportReviews?: (format: "csv" | "xlsx") => Promise<void>;
 };
+
+export type Stage5SortBy = "newest" | "oldest" | "folder" | "image_count" | "score" | "status";
+const stage5StatusOrder: Record<string, number> = {
+  error: 0, rejected: 1, pending: 2, analyzing: 3, queued: 4, partial: 5, ready: 6,
+};
+function scoreOrNull(group: Stage3ReviewGroup): number | null {
+  const values = group.images.map(image => image.final_score).filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value),
+  );
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+export function sortStage5LoadedGroups(
+  rows: Stage3ReviewGroup[], by: Stage5SortBy,
+): Stage3ReviewGroup[] {
+  const desc = by !== "oldest" && by !== "folder" && by !== "status";
+  const compareNumbers = (a: number | null, b: number | null): number => {
+    if (a === null) return b === null ? 0 : 1;
+    if (b === null) return -1;
+    return desc ? b - a : a - b;
+  };
+  const imageCompare = (a: Stage3ReviewImage, b: Stage3ReviewImage): number => {
+    if (by === "score") {
+      const ranked = compareNumbers(a.final_score, b.final_score);
+      if (ranked) return ranked;
+    }
+    if (by === "status") {
+      const ranked = (stage5StatusOrder[a.analysis_status] ?? 100) -
+        (stage5StatusOrder[b.analysis_status] ?? 100);
+      if (ranked) return ranked;
+    }
+    const first = Date.parse(a.completed_at || "") || 0;
+    const second = Date.parse(b.completed_at || "") || 0;
+    return (by === "oldest" ? first - second : second - first) ||
+      a.stage2_job_id.localeCompare(b.stage2_job_id);
+  };
+  return rows.map(group => ({ ...group, images: [...group.images].sort(imageCompare) }))
+    .sort((a, b) => {
+      let ranked = 0;
+      if (by === "folder") ranked = a.folder_name.localeCompare(b.folder_name);
+      else if (by === "image_count") ranked = b.image_count - a.image_count;
+      else if (by === "score") ranked = compareNumbers(scoreOrNull(a), scoreOrNull(b));
+      else if (by === "status") ranked = (stage5StatusOrder[a.status] ?? 100) -
+        (stage5StatusOrder[b.status] ?? 100);
+      else ranked = compareNumbers(
+        Date.parse(a.latest_completed_at || "") || null,
+        Date.parse(b.latest_completed_at || "") || null,
+      );
+      return ranked || a.folder_path.localeCompare(b.folder_path) ||
+        a.folder_id.localeCompare(b.folder_id);
+    });
+}
 
 export type Stage3ReviewModalEntry = {
   image: Stage3ReviewImage;
@@ -395,11 +447,12 @@ export function Stage3ReviewGroups({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [actionError, setActionError] = useState("");
+  const [sortBy, setSortBy] = useState<Stage5SortBy>("newest");
   const finished = data.ready_images + data.rejected_images;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleGroups = useMemo(() => {
-    if (!normalizedQuery) return data.items;
-    return data.items.filter(group => {
+    if (!normalizedQuery) return sortStage5LoadedGroups(data.items, sortBy);
+    return sortStage5LoadedGroups(data.items.filter(group => {
       const searchable = [
         group.folder_name,
         group.folder_path,
@@ -414,8 +467,8 @@ export function Stage3ReviewGroups({
         ]),
       ].join(" ").toLocaleLowerCase();
       return searchable.includes(normalizedQuery);
-    });
-  }, [data.items, normalizedQuery]);
+    }), sortBy);
+  }, [data.items, normalizedQuery, sortBy]);
   const searchSuggestions = useMemo(() => data.items.flatMap(group => [
     { value: group.folder_name, meta: group.folder_path || "Review folder", badge: "Folder" },
     ...group.images.slice(0, 4).flatMap(image => [
@@ -519,6 +572,21 @@ export function Stage3ReviewGroups({
           </button>
         </>}
       </div>
+    </div>
+
+    <div className="rrugc-stage5-sort-bar" role="group" aria-label="Sort Stage 5 loaded reviews">
+      <label className="rrugc-stage5-sort-label">Sort loaded reviews
+        <select aria-label="Sort Stage 5 loaded reviews" value={sortBy}
+          onChange={event => setSortBy(event.target.value as Stage5SortBy)}>
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="folder">Folder A → Z</option>
+          <option value="image_count">Most images</option>
+          <option value="score">Highest UGC score</option>
+          <option value="status">Review status · needs attention first</option>
+        </select>
+      </label>
+      <small>Sort applies to loaded results. Use “Load older images” to include more.</small>
     </div>
 
     {loading ? (

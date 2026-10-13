@@ -8,6 +8,8 @@ import { OutputActivityLoader } from "./OutputActivityLoader";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
+import { StageSortControls } from "./StageSortControls";
+import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 
 const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-camo-green", "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon", "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose", "natural-red", "natural-royal"] as const;
@@ -68,6 +70,9 @@ function DesignSource({ plan }: { plan: SourcePlan }) {
 
 export function EmbroideryColorwayStage({
   data,
+  sortBy = "source",
+  sortDirection = "asc",
+  onSortChange = () => undefined,
   loading,
   syncing,
   query,
@@ -82,6 +87,9 @@ export function EmbroideryColorwayStage({
   onPageSizeChange,
 }: {
   data: SourcePlanPage;
+  sortBy?: SourcePlanSortBy;
+  sortDirection?: SourcePlanSortDirection;
+  onSortChange?: (key: SourcePlanSortBy, direction: SourcePlanSortDirection) => void;
   loading: boolean;
   syncing: boolean;
   query: string;
@@ -337,6 +345,8 @@ export function EmbroideryColorwayStage({
           label="Search Stage 2 embroidery designs"
         />
       </div>
+      <StageSortControls stage="Stage 2 designs" sortBy={sortBy} direction={sortDirection}
+        onChange={onSortChange} options={["source", "updated", "status"]} />
       <label className="rrugc-colorway-skill">
         <span>Generation skill</span>
         <select

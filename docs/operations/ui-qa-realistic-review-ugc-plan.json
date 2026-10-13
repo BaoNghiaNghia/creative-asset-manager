@@ -51,6 +51,10 @@
       ]
     },
     {
+      "name": "stage3-sort-controls",
+      "waitFor": "#rrugc-panel-stage3 .rrugc-source-plan-sort select"
+    },
+    {
       "name": "campaign-hover",
       "hover": ".rrugc-source-plan-table tbody tr"
     },
@@ -115,6 +119,11 @@
       ]
     },
     {
+      "name": "stage2-sort-controls",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-stage-sort select",
+      "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage2 .rrugc-stage-sort select","value":"Last updated"}]
+    },
+    {
       "name": "reviews-workflow-return",
       "goto": "/realistic-review-ugc?workflow=reviews&stage=stage3",
       "waitFor": "#rrugc-tab-stage3"
@@ -141,6 +150,11 @@
       "requireIcons": [
         "#rrugc-panel-stage4 .rrugc-stage2-registry-actions button"
       ]
+    },
+    {
+      "name": "stage4-sort-controls",
+      "waitFor": "#rrugc-panel-stage4 .rrugc-stage-sort select",
+      "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage4 .rrugc-stage-sort select","value":"Active jobs"}]
     },
     {
       "name": "stage4-regenerate-preview",
@@ -173,6 +187,11 @@
       "requireIcons": [
         "#rrugc-panel-stage5 .rrugc-stage5-toolbar-actions > button"
       ]
+    },
+    {
+      "name": "stage5-sort-controls",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-sort-label select",
+      "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-sort-label select","value":"Highest UGC score"}]
     },
     {
       "name": "stage5-before-after-modal",

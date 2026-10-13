@@ -3201,7 +3201,7 @@ def get_source_plans(
     q: str | None = Query(default=None, max_length=200),
     sort_by: str = Query(
         default="source",
-        pattern="^(source|updated|analyzed|group_size|status)$",
+        pattern="^(source|updated|analyzed|group_size|status|progress|refs|active_jobs|outputs)$",
     ),
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     stage2_only: bool = False,
@@ -3326,6 +3326,43 @@ def get_source_plans(
     if stage2_only:
         groups = [members for members in groups if stage2_eligible(members)]
 
+    # Compute sort metrics over all groups BEFORE pagination. Never sort only
+    # the visible page: it makes group positions jump as users change pages.
+    metric_counts = {}
+    metric_auto_import: dict[str, bool] = {}
+    if sort_by in {"progress", "refs"}:
+        metric_campaign_ids = sorted({
+            str(member.campaign_id)
+            for members in groups for member in members if member.campaign_id
+        })
+        metric_counts = RrugcRepository(session).campaign_usable_counts_many(
+            principal.active_tenant_id, metric_campaign_ids,
+        ) if metric_campaign_ids else {}
+        if sort_by == "progress" and metric_campaign_ids:
+            metric_auto_import = {
+                row.id: bool(row.auto_import)
+                for row in session.scalars(select(RrugcCampaignModel).where(
+                    RrugcCampaignModel.tenant_id == principal.active_tenant_id,
+                    RrugcCampaignModel.id.in_(metric_campaign_ids),
+                ))
+            }
+    metric_jobs: dict[str, Counter] = {}
+    if sort_by in {"active_jobs", "outputs"}:
+        all_source_ids = [member.id for members in groups for member in members]
+        if all_source_ids:
+            for source_id, status, count in session.execute(
+                select(
+                    RrugcStage2JobModel.source_plan_id,
+                    RrugcStage2JobModel.status,
+                    func.count(RrugcStage2JobModel.id),
+                ).where(
+                    RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+                    RrugcStage2JobModel.source_plan_id.in_(all_source_ids),
+                    RrugcStage2JobModel.status.in_(("queued", "running", "completed")),
+                ).group_by(RrugcStage2JobModel.source_plan_id, RrugcStage2JobModel.status)
+            ):
+                metric_jobs.setdefault(str(source_id), Counter())[str(status)] = int(count)
+
     def group_sort_key(
         members: list[RrugcSourcePlanModel],
     ) -> tuple[object, str, str]:
@@ -3345,6 +3382,24 @@ def get_source_plans(
             primary = len(members)
         elif sort_by == "status":
             primary = representative.status.lower()
+        elif sort_by in {"progress", "refs"}:
+            campaign = str(representative.campaign_id or "")
+            counts = metric_counts.get(campaign, Counter())
+            if sort_by == "refs":
+                primary = counts.get("drive_ready", 0)
+            else:
+                primary = (
+                    counts.get("drive_ready", 0)
+                    if metric_auto_import.get(campaign, False)
+                    else sum(counts.get(state, 0) for state in SOURCE_PLAN_REFERENCE_STATUSES)
+                )
+        elif sort_by in {"active_jobs", "outputs"}:
+            statuses = [metric_jobs.get(member.id, Counter()) for member in members]
+            primary = sum(
+                counts.get(state, 0)
+                for counts in statuses
+                for state in (("queued", "running") if sort_by == "active_jobs" else ("completed",))
+            )
         else:
             primary = stable_path
         return primary, stable_path, stable_id

@@ -168,6 +168,8 @@ export function RealisticReviewUgcPage() {
   const [embroideryPageSize, setEmbroideryPageSize] = useState(20);
   const [embroideryQuery, setEmbroideryQuery] = useState("");
   const [debouncedEmbroideryQuery, setDebouncedEmbroideryQuery] = useState("");
+  const [embroiderySortBy, setEmbroiderySortBy] = useState<SourcePlanSortBy>("source");
+  const [embroiderySortDirection, setEmbroiderySortDirection] = useState<SourcePlanSortDirection>("asc");
   const [embroideryLoading, setEmbroideryLoading] = useState(true);
   const [reviewEmbroideryPage, setReviewEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [reviewEmbroideryLoading, setReviewEmbroideryLoading] = useState(true);
@@ -175,6 +177,8 @@ export function RealisticReviewUgcPage() {
   const [reviewEmbroideryPageSize, setReviewEmbroideryPageSize] = useState(20);
   const [reviewEmbroideryQuery, setReviewEmbroideryQuery] = useState("");
   const [debouncedReviewEmbroideryQuery, setDebouncedReviewEmbroideryQuery] = useState("");
+  const [reviewEmbroiderySortBy, setReviewEmbroiderySortBy] = useState<SourcePlanSortBy>("source");
+  const [reviewEmbroiderySortDirection, setReviewEmbroiderySortDirection] = useState<SourcePlanSortDirection>("asc");
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
   const [sourcePageSize, setSourcePageSize] = useState(10);
@@ -185,6 +189,8 @@ export function RealisticReviewUgcPage() {
   const [stage4Query, setStage4Query] = useState("");
   const [sourceSortBy, setSourceSortBy] = useState<SourcePlanSortBy>("source");
   const [sourceSortDirection, setSourceSortDirection] = useState<SourcePlanSortDirection>("asc");
+  const [stage4SortBy, setStage4SortBy] = useState<SourcePlanSortBy>("source");
+  const [stage4SortDirection, setStage4SortDirection] = useState<SourcePlanSortDirection>("asc");
   const [syncingSourcePlans, setSyncingSourcePlans] = useState(false);
   const [sourcePageLoading, setSourcePageLoading] = useState(true);
   const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
@@ -349,8 +355,8 @@ export function RealisticReviewUgcPage() {
         page: embroideryPageNumber,
         pageSize: embroideryPageSize,
         query: debouncedEmbroideryQuery,
-        sortBy: "source",
-        sortDirection: "asc",
+        sortBy: embroiderySortBy,
+        sortDirection: embroiderySortDirection,
         colorwaySources: true,
         colorwayWorkflow: "products",
       },
@@ -369,8 +375,8 @@ export function RealisticReviewUgcPage() {
       page: reviewEmbroideryPageNumber,
       pageSize: reviewEmbroideryPageSize,
       query: debouncedReviewEmbroideryQuery,
-      sortBy: "source",
-      sortDirection: "asc",
+      sortBy: reviewEmbroiderySortBy,
+      sortDirection: reviewEmbroiderySortDirection,
       colorwaySources: true,
       colorwayWorkflow: "reviews",
     }, signal);
@@ -386,8 +392,8 @@ export function RealisticReviewUgcPage() {
         page: sourcePageNumber,
         pageSize: sourcePageSize,
         query: activeSourceQuery,
-        sortBy: sourceSortBy,
-        sortDirection: sourceSortDirection,
+        sortBy: activeStage === "stage4" ? stage4SortBy : sourceSortBy,
+        sortDirection: activeStage === "stage4" ? stage4SortDirection : sourceSortDirection,
       },
       signal,
     );
@@ -870,7 +876,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, embroideryPageNumber, embroideryPageSize, debouncedEmbroideryQuery]);
+  }, [activeStage, embroideryPageNumber, embroideryPageSize, debouncedEmbroideryQuery, embroiderySortBy, embroiderySortDirection]);
 
   useEffect(() => {
     if (activeStage !== "reviews-stage2") return;
@@ -890,7 +896,7 @@ export function RealisticReviewUgcPage() {
       void refreshReviewEmbroideryDesigns(controller.signal).catch(() => undefined).finally(() => { busy = false; });
     }, 10000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [activeStage, reviewEmbroideryPageNumber, reviewEmbroideryPageSize, debouncedReviewEmbroideryQuery]);
+  }, [activeStage, reviewEmbroideryPageNumber, reviewEmbroideryPageSize, debouncedReviewEmbroideryQuery, reviewEmbroiderySortBy, reviewEmbroiderySortDirection]);
 
   useEffect(() => {
     if (!groupsStageActive) return;
@@ -923,7 +929,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [groupsStageActive, activeStage, sourcePageNumber, sourcePageSize, activeSourceQuery, sourceSortBy, sourceSortDirection]);
+  }, [groupsStageActive, activeStage, sourcePageNumber, sourcePageSize, activeSourceQuery, sourceSortBy, sourceSortDirection, stage4SortBy, stage4SortDirection]);
 
   useEffect(() => {
     if (activeStage !== "stage4") return;
@@ -1145,6 +1151,9 @@ export function RealisticReviewUgcPage() {
             workflow="products"
             skillCatalogRevision={skillCatalogRevision}
             data={embroideryPage}
+            sortBy={embroiderySortBy}
+            sortDirection={embroiderySortDirection}
+            onSortChange={(key, direction) => { setEmbroideryPageNumber(1); setEmbroideryLoading(true); setEmbroiderySortBy(key); setEmbroiderySortDirection(direction); }}
             loading={embroideryLoading}
             syncing={syncingSourcePlans}
             query={embroideryQuery}
@@ -1176,6 +1185,9 @@ export function RealisticReviewUgcPage() {
             workflow="reviews"
             skillCatalogRevision={skillCatalogRevision}
             data={reviewEmbroideryPage}
+            sortBy={reviewEmbroiderySortBy}
+            sortDirection={reviewEmbroiderySortDirection}
+            onSortChange={(key, direction) => { setReviewEmbroideryPageNumber(1); setReviewEmbroideryLoading(true); setReviewEmbroiderySortBy(key); setReviewEmbroiderySortDirection(direction); }}
             loading={reviewEmbroideryLoading}
             syncing={syncingSourcePlans}
             query={reviewEmbroideryQuery}
@@ -1255,6 +1267,9 @@ export function RealisticReviewUgcPage() {
             page={sourcePageNumber}
             pageSize={sourcePageSize}
             jobs={stage2Jobs}
+            sortBy={stage4SortBy}
+            sortDirection={stage4SortDirection}
+            onSortChange={(key, direction) => { setSourcePageNumber(1); setSourcePageLoading(true); setStage4SortBy(key); setStage4SortDirection(direction); }}
             creatingPlanIds={creatingStage2PlanIds}
             cancellingPlanIds={cancellingStage2PlanIds}
             loading={sourcePageLoading}

@@ -89,6 +89,9 @@ function sourcePlanSortDirectionLabel(
   if (sortBy === "group_size") {
     return direction === "asc" ? "Small → large" : "Large → small";
   }
+  if (["progress", "refs", "active_jobs", "outputs"].includes(sortBy)) {
+    return direction === "asc" ? "Low → high" : "High → low";
+  }
   return direction === "asc" ? "Oldest → newest" : "Newest → oldest";
 }
 
@@ -619,6 +622,8 @@ export function SourcePlanTable({
             <option value="analyzed">AI analyzed time</option>
             <option value="group_size">Embroidery group size</option>
             <option value="status">Status</option>
+            <option value="progress">Scout progress</option>
+            <option value="refs">Drive-ready references</option>
           </select>
         </label>
         <button

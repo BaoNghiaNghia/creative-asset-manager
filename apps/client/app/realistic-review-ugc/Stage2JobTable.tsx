@@ -17,6 +17,8 @@ import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import "./Stage4Regenerate.css";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
+import { StageSortControls } from "./StageSortControls";
+import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type {
@@ -689,6 +691,9 @@ export function Stage2JobTable({
   total,
   page = 1,
   pageSize = 10,
+  sortBy = "source",
+  sortDirection = "asc",
+  onSortChange = () => undefined,
   creatingPlanIds,
   cancellingPlanIds = new Set<string>(),
   loading = false,
@@ -709,6 +714,9 @@ export function Stage2JobTable({
   total?: number;
   page?: number;
   pageSize?: number;
+  sortBy?: SourcePlanSortBy;
+  sortDirection?: SourcePlanSortDirection;
+  onSortChange?: (key: SourcePlanSortBy, direction: SourcePlanSortDirection) => void;
   jobs: Stage2Job[];
   creatingPlanIds: ReadonlySet<string>;
   cancellingPlanIds?: ReadonlySet<string>;
@@ -990,6 +998,11 @@ export function Stage2JobTable({
         label="Search Stage 4 generation groups"
       />
       <span>{stage2Total.toLocaleString()} groups</span>
+    </div>
+    <div className="rrugc-stage4-sort-bar">
+      <StageSortControls stage="Stage 4 groups" sortBy={sortBy} direction={sortDirection}
+        options={["source", "active_jobs", "outputs", "refs", "group_size", "updated", "status"]}
+        onChange={onSortChange} />
     </div>
 
     <div className="rrugc-source-plan-table-wrap">
