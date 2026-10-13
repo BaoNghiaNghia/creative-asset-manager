@@ -35,6 +35,32 @@ with SessionLocal() as db:
             print("state",j.status,"priority",j.priority,"age_min",round((now-created).total_seconds()/60),
                   "due_in_min",round((due-now).total_seconds()/60),
                   "attempt",j.attempt_count,"error",j.last_error_code or "none")
+    print("RECENT_COMPLETIONS")
+    from datetime import timedelta
+    for job_type in relevant[:3]:
+        for minutes in (15, 60):
+            count = db.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == job_type,
+                ProcessingJobModel.status == "completed",
+                ProcessingJobModel.completed_at >= now - timedelta(minutes=minutes),
+            )) or 0
+            print(job_type, f"last_{minutes}m", count)
+        latest = db.scalar(select(func.max(ProcessingJobModel.completed_at)).where(
+            ProcessingJobModel.job_type == job_type,
+            ProcessingJobModel.status == "completed",
+        ))
+        if latest is not None:
+            latest = latest.replace(tzinfo=timezone.utc) if latest.tzinfo is None else latest
+            print(job_type, "last_completion_age_min", round((now - latest).total_seconds()/60))
+    print("CURRENT_LANE_SETTINGS")
+    from app.core.config import get_settings
+    config = get_settings()
+    print("normal_interval_s", config.RRUGC_GEMINI_MIN_INTERVAL_SECONDS,
+          "normal_concurrency", config.RRUGC_GEMINI_MAX_CONCURRENCY,
+          "drain_threshold", config.RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD,
+          "drain_enabled", config.RRUGC_GEMINI_DRAIN_MODE_ENABLED,
+          "drain_min_credentials", config.RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS,
+          "drain_interval_s", config.RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS)
     print("PROCESSING_POLICIES")
     for row in db.scalars(select(TenantProcessingPolicyModel).limit(12)).all():
         print("tenant", row.tenant_id, "ai_analysis_enabled", row.ai_analysis_enabled,

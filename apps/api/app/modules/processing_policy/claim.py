@@ -73,14 +73,16 @@ STAGE5_QUEUED_PRIORITY = 60
 # Guarantee a bounded slice of the shared Gemini lane to existing Drive source
 # context plans. Without a turn, source plans cannot ever beat candidate jobs
 # older than 15m and the user-facing Stage 3 gets stuck in Queued for hours.
-# Rotate the preferred 15-second quarter every minute so a 60-second Gemini
-# start cadence doesn't repeatedly miss the same quarter.
+# Rotate time windows so a fixed Gemini start cadence cannot permanently
+# miss sources. Aged (>30m) source context needs half of the windows instead
+# of the baseline quarter to drain a long-running Stage 3 backlog.
 SOURCE_PLAN_FAIRNESS_AGE = timedelta(minutes=5)
+SOURCE_PLAN_URGENT_FAIRNESS_AGE = timedelta(minutes=30)
 SOURCE_PLAN_FAIRNESS_PRIORITY = 51
 
 
-def source_plan_fairness_turn(now: datetime) -> bool:
-    return (now.minute + now.second // 15) % 4 == 0
+def source_plan_fairness_turn(now: datetime, *, urgent: bool = False) -> bool:
+    return (now.minute + now.second // 15) % (2 if urgent else 4) == 0
 
 # Source-plan context analysis is prerequisite/background enrichment. It shares
 # the same paced RRUGC Gemini lane as candidate analysis, so letting a large
@@ -249,13 +251,23 @@ class TenantAwareJobClaimer:
         starvation_cutoff = now - STARVATION_PREVENTION_AGE
         stage5_cutoff = now - STAGE5_QUEUED_PRIORITY_BOOST_AGE
         source_cutoff = now - SOURCE_PLAN_FAIRNESS_AGE
+        urgent_source_cutoff = now - SOURCE_PLAN_URGENT_FAIRNESS_AGE
         source_fairness_window = source_plan_fairness_turn(now)
+        urgent_source_window = source_plan_fairness_turn(now, urgent=True)
         effective_priority = case(
             (
                 and_(
                     ProcessingJobModel.job_type == "rrugc_source_plan_analyze",
-                    ProcessingJobModel.created_at <= source_cutoff,
-                    source_fairness_window,
+                    or_(
+                        and_(
+                            ProcessingJobModel.created_at <= urgent_source_cutoff,
+                            urgent_source_window,
+                        ),
+                        and_(
+                            ProcessingJobModel.created_at <= source_cutoff,
+                            source_fairness_window,
+                        ),
+                    ),
                 ),
                 SOURCE_PLAN_FAIRNESS_PRIORITY,
             ),
@@ -376,14 +388,16 @@ class TenantAwareJobClaimer:
         )
         return int(primary_available) + backups
 
-    def _rrugc_due_candidate_backlog(
+    def _rrugc_due_analysis_backlog(
         self, tenant_id: str, now: datetime
     ) -> int:
         return int(
             self.session.scalar(
                 select(func.count(ProcessingJobModel.id)).where(
                     ProcessingJobModel.tenant_id == tenant_id,
-                    ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+                    ProcessingJobModel.job_type.in_(
+                        ("rrugc_candidate_analyze", "rrugc_source_plan_analyze")
+                    ),
                     ProcessingJobModel.status.in_(
                         (JobStatus.PENDING.value, JobStatus.RETRY.value)
                     ),
@@ -404,7 +418,9 @@ class TenantAwareJobClaimer:
     ) -> bool:
         if (
             not self.settings.RRUGC_GEMINI_DRAIN_MODE_ENABLED
-            or job.job_type != "rrugc_candidate_analyze"
+            or job.job_type not in (
+                "rrugc_candidate_analyze", "rrugc_source_plan_analyze"
+            )
         ):
             return False
         if (
@@ -413,7 +429,7 @@ class TenantAwareJobClaimer:
         ):
             return False
         return (
-            self._rrugc_due_candidate_backlog(job.tenant_id, now)
+            self._rrugc_due_analysis_backlog(job.tenant_id, now)
             >= self.settings.RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD
         )
 

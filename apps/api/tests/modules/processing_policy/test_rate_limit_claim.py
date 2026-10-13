@@ -28,6 +28,7 @@ from app.modules.processing_policy.claim import (
     RRUGC_GEMINI_LANE_MODEL,
     RRUGC_GEMINI_LANE_PROVIDER,
     RRUGC_GEMINI_MODEL_GATE_PREFIX,
+    TenantAwareJobClaimer,
 )
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 
@@ -851,6 +852,34 @@ class RateLimitedClaimTest(unittest.TestCase):
                 lane.next_eligible_at.replace(tzinfo=timezone.utc),
                 NOW + timedelta(seconds=16),
             )
+
+    def test_source_context_backlog_enables_guarded_drain_with_healthy_keys(self):
+        settings = Settings(
+            GEMINI_API_KEY="test-primary",
+            RRUGC_GEMINI_DRAIN_MODE_ENABLED=True,
+            RRUGC_GEMINI_DRAIN_BACKLOG_THRESHOLD=2,
+            RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS=1,
+        )
+        source_id = self._rrugc_job("source-drain", job_type="rrugc_source_plan_analyze")
+        self._rrugc_job("pin-drain")
+        with self.sessions() as session:
+            claimer = TenantAwareJobClaimer(session, settings)
+            source = session.get(ProcessingJobModel, source_id)
+            assert claimer._rrugc_drain_mode(source, NOW) is True
+            assert claimer._rrugc_lane_profile(source, NOW) == (
+                settings.RRUGC_GEMINI_DRAIN_MIN_INTERVAL_SECONDS,
+                settings.RRUGC_GEMINI_DRAIN_MAX_CONCURRENCY,
+                True,
+            )
+        no_extra_credentials = settings.model_copy(update={
+            "GEMINI_API_KEY": "",
+            "RRUGC_GEMINI_DRAIN_MIN_CREDENTIALS": 4,
+        })
+        with self.sessions() as session:
+            claimer = TenantAwareJobClaimer(session, no_extra_credentials)
+            assert claimer._rrugc_drain_mode(
+                session.get(ProcessingJobModel, source_id), NOW
+            ) is False
 
     def test_rrugc_lane_block_does_not_block_normal_image_analysis(self):
         self._rrugc_job("background", priority=100)

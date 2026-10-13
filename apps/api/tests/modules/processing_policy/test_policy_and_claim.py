@@ -190,6 +190,46 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertEqual(claimer._next_candidate(
                 ProcessingJobModel.status == "pending", now=other).id, candidate)
 
+    def test_long_waiting_source_context_receives_half_the_fairness_turns(self):
+        # A long-running Stage 3 backlog receives half of the 15-second
+        # rotating time windows after source rows have waited 30 minutes.
+        from app.modules.processing_policy.claim import source_plan_fairness_turn
+        self.policy("tenant", total=4, ai=4)
+        candidate = self.job("tenant", "long-wait-pin", kind="rrugc_candidate_analyze",
+                             provider="gemini", scope="ai")
+        source = self.job("tenant", "long-wait-source", kind="rrugc_source_plan_analyze",
+                         provider="gemini", scope="ai")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, candidate).created_at = NOW - timedelta(hours=2)
+            session.get(ProcessingJobModel, candidate).next_attempt_at = NOW - timedelta(hours=2)
+            session.get(ProcessingJobModel, source).created_at = NOW - timedelta(hours=1)
+            session.get(ProcessingJobModel, source).next_attempt_at = NOW - timedelta(hours=1)
+        turns = [NOW + timedelta(seconds=15*n) for n in range(8)]
+        with self.sessions() as session:
+            claimer = TenantAwareJobClaimer(session)
+            selections = [claimer._next_candidate(
+                ProcessingJobModel.status == "pending", now=turn).id for turn in turns]
+        assert selections.count(source) == 4
+        assert selections.count(candidate) == 4
+        assert sum(source_plan_fairness_turn(turn) for turn in turns) == 2
+
+    def test_source_context_within_normal_age_keeps_background_weight(self):
+        self.policy("tenant", total=4, ai=4)
+        candidate = self.job("tenant", "pin", kind="rrugc_candidate_analyze",
+                             provider="gemini", scope="ai")
+        source = self.job("tenant", "source", kind="rrugc_source_plan_analyze",
+                         provider="gemini", scope="ai")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, candidate).created_at = NOW - timedelta(hours=1)
+            session.get(ProcessingJobModel, source).created_at = NOW - timedelta(minutes=10)
+        turns = [NOW + timedelta(seconds=15*n) for n in range(8)]
+        with self.sessions() as session:
+            claimer = TenantAwareJobClaimer(session)
+            selections = [claimer._next_candidate(
+                ProcessingJobModel.status == "pending", now=turn).id for turn in turns]
+        assert selections.count(source) == 2
+        assert selections.count(candidate) == 6
+
     def test_stage5_always_preempts_reserved_source_context_turn(self):
         from app.modules.processing_policy.claim import source_plan_fairness_turn
         self.policy("tenant", total=4, ai=4)
