@@ -215,6 +215,7 @@ export function Stage3ReviewModal({
         <Stage5BeforeAfter
           key={image.stage2_job_id}
           beforeUrl={image.before_url}
+          beforeUrls={image.before_urls}
           afterUrl={displayedImageUrl}
           originalUrl={image.original_url}
           alt={image.source_name ? "Review image for " + image.source_name : "UGC review image"}

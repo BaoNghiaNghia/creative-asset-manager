@@ -1062,6 +1062,7 @@ class Stage3ReviewImageResponse(BaseModel):
     preview_url: str
     original_url: str
     before_url: str | None = None
+    before_urls: list[str] = Field(default_factory=list)
     analysis_id: str | None = None
     analysis_status: Literal[
         "pending", "queued", "analyzing", "ready", "rejected", "error"

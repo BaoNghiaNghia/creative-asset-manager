@@ -3094,9 +3094,16 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, 
                 source_revision=plans[0].source_revision,
                 skill_name="test-stage2",
                 selected_candidate_ids_json=[],
-                selected_reference_snapshot_json=[],
                 status="completed",
                 idempotency_key="stage3-a-1",
+                selected_reference_snapshot_json=[
+                    {
+                        "candidate_id": "pin-at-generation",
+                        "position": 0,
+                        "remote_file_id": "pinterest-beach-selfie",
+                        "content_type": "image/jpeg",
+                    },
+                ],
                 selected_source_snapshot_json={
                     "source_plan_id": plans[0].id,
                     "remote_file_id": "original-hat-from-generation",
@@ -3198,8 +3205,11 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, 
     )
     assert exact_source_job["before_url"] == (
         "/api/v1/realistic-review-ugc/stage2-jobs/"
-        + exact_source_job["stage2_job_id"] + "/source-image"
+        + exact_source_job["stage2_job_id"] + "/reference-image"
     )
+    assert exact_source_job["before_urls"] == [
+        exact_source_job["before_url"] + "?reference_index=0",
+    ]
     # The before endpoint stays tied to the original snapshot even if the
     # mutable Drive source-plan file later changes.
     from app.modules.realistic_review_ugc import router as rrugc_router_module
@@ -3225,7 +3235,15 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, 
     source_response = api.get(exact_source_job["before_url"])
     assert source_response.status_code == 200
     assert source_response.content == b"before-hat-input"
-    assert accessed == [("tenant-a", "original-hat-from-generation")]
+    assert accessed == [("tenant-a", "pinterest-beach-selfie")]
+    assert api.get(
+        exact_source_job["before_url"] + "?reference_index=1"
+    ).status_code == 404
+    # Historical URL aliases to the Pinterest image (not the product hat).
+    assert api.get(
+        exact_source_job["before_url"].replace("reference-image", "source-image")
+    ).status_code == 200
+    assert accessed[-1] == ("tenant-a", "pinterest-beach-selfie")
     assert api.get(
         "/api/v1/realistic-review-ugc/stage2-jobs/not-a-job/source-image"
     ).status_code == 404

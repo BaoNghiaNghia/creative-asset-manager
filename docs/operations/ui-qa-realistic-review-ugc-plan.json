@@ -183,6 +183,10 @@
       ]
     },
     {
+      "name": "stage5-pinterest-reference-choice",
+      "waitFor": ".rrugc-stage5-ba-reference-choice select"
+    },
+    {
       "name": "stage5-compare-slider",
       "click": ".rrugc-stage5-ba-switch button:last-child",
       "waitFor": ".rrugc-stage5-ba-range"

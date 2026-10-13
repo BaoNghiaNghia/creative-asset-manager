@@ -1,4 +1,4 @@
-/* Stage 5: source hat input versus the final generated UGC, in one modal. */
+/* Stage 5: saved Pinterest lifestyle photo versus the generated hat-swap UGC. */
 .rrugc-stage5-ba{position:relative;display:block;width:100%;height:100%;min-height:560px;max-height:88vh;overflow:hidden;background:#e8edf3;isolation:isolate}
 .rrugc-stage5-ba-frame{position:absolute;inset:0;overflow:hidden}
 .rrugc-stage5-ba-frame>.rrugc-stage5-ba-after,.rrugc-stage5-ba-frame>.rrugc-stage5-ba-before{position:absolute;inset:0;display:block;width:100%;height:100%;max-height:none;object-fit:contain;object-position:center;pointer-events:none}
@@ -15,6 +15,19 @@
 .rrugc-stage5-ba-range{position:absolute!important;z-index:2;inset:0;width:100%!important;height:100%!important;margin:0!important;padding:0!important;opacity:0;cursor:ew-resize;touch-action:none}
 .rrugc-stage5-ba-label{position:absolute;z-index:1;top:68px;padding:6px 9px;border-radius:6px;background:rgba(19,31,45,.77);color:#fff;font-size:11px;font-weight:700;pointer-events:none;backdrop-filter:blur(3px)}
 .rrugc-stage5-ba-label.is-before{left:14px}.rrugc-stage5-ba-label.is-after{right:14px}
+.rrugc-stage5-ba-reference-choice{
+  position:absolute;z-index:5;left:50%;bottom:13px;transform:translateX(-50%);
+  display:inline-flex;align-items:center;gap:8px;max-width:calc(100% - 26px);
+  border-radius:9px;background:rgba(26,38,55,.82);padding:5px 7px 5px 11px;
+  color:#fff;font-size:11px;font-weight:700;white-space:nowrap;
+  box-shadow:0 4px 15px #101b2c36;backdrop-filter:blur(7px)
+}
+.rrugc-stage5-ba-reference-choice select{
+  width:auto;min-width:75px;min-height:30px;appearance:auto;
+  border:1px solid #bdcde2;border-radius:6px;padding:4px 7px;
+  background:#fff;color:#263e5d;font:inherit;cursor:pointer
+}
+.rrugc-stage5-ba-reference-choice select:focus-visible{outline:2px solid #93baff;outline-offset:2px}
 .rrugc-stage5-ba-loading,.rrugc-stage5-ba-unavailable{position:absolute;z-index:3;left:50%;bottom:52px;transform:translateX(-50%);max-width:90%;padding:7px 11px;border-radius:7px;background:rgba(29,40,57,.83);color:#fff;font-size:11px;font-weight:600;text-align:center;pointer-events:none}
 .rrugc-stage5-ba-unavailable{bottom:48px;background:rgba(32,43,57,.7)}
 @media(max-width:700px){.rrugc-stage5-ba{min-height:0;height:100%;max-height:none}.rrugc-stage5-ba-switch{top:8px;padding:3px}.rrugc-stage5-ba-switch button{min-height:32px;padding:7px 10px}.rrugc-stage5-ba-label{top:53px;font-size:10px}.rrugc-stage5-ba-unavailable,.rrugc-stage5-ba-loading{bottom:40px}}

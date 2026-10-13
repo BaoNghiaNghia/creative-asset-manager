@@ -6058,7 +6058,7 @@ def list_stage3_review_groups(
         ).all()
         analyses_by_job = {row.stage2_job_id: row for row in analyses}
 
-    from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_source
+    from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_references
 
     grouped: dict[str, dict[str, object]] = {}
     totals = Counter()
@@ -6127,9 +6127,14 @@ def list_stage3_review_groups(
                     + "/output"
                 ),
                 before_url=(
-                    "/api/v1/realistic-review-ugc/stage2-jobs/" + job.id + "/source-image"
-                    if stage5_before_source(job, plan) else None
+                    "/api/v1/realistic-review-ugc/stage2-jobs/" + job.id + "/reference-image"
+                    if stage5_before_references(job) else None
                 ),
+                before_urls=[
+                    "/api/v1/realistic-review-ugc/stage2-jobs/"
+                    + job.id + "/reference-image?reference_index=" + str(index)
+                    for index, _reference in enumerate(stage5_before_references(job))
+                ],
                 analysis_id=analysis.id if analysis else None,
                 analysis_status=analysis_status,
                 final_score=analysis.final_score if analysis else None,
@@ -6665,35 +6670,36 @@ def rrugc_media_storage_status(
     }
 
 
-@router.get("/stage2-jobs/{stage2_job_id}/source-image")
-async def get_stage5_before_source_image(
+@router.get("/stage2-jobs/{stage2_job_id}/reference-image")
+@router.get("/stage2-jobs/{stage2_job_id}/source-image", include_in_schema=False)
+async def get_stage5_before_reference_image(
     stage2_job_id: str,
+    reference_index: int = Query(default=0, ge=0, le=2),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    """The actual Stage 4 hat input, not a newer/replaced source-plan photo."""
-    from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_source
+    """The exact saved Pinterest photo used for the Stage 4 hat-swap.
+
+    Keep the legacy source-image route as a safe alias (not a hat photo),
+    while new clients use a different URL to bypass cached old image bytes.
+    """
+    from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_references
 
     job = RrugcRepository(session).get_stage2_job(
         principal.active_tenant_id, stage2_job_id,
     )
     if job is None or job.status != "completed" or not job.output_remote_file_id:
         raise HTTPException(status_code=404, detail="Stage 4 completed job not found")
-    snapshot = job.selected_source_snapshot_json
-    plan = None
-    if not snapshot:
-        plan = session.scalar(select(RrugcSourcePlanModel).where(
-            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
-            RrugcSourcePlanModel.id == job.source_plan_id,
-        ))
-    source = stage5_before_source(job, plan)
-    if source is None:
+    references = stage5_before_references(job)
+    if reference_index >= len(references):
         raise HTTPException(
             status_code=404,
-            detail={"code": "stage5_before_unavailable",
-                    "message": "The original input photo is no longer available for this job."},
+            detail={
+                "code": "stage5_pinterest_reference_unavailable",
+                "message": "The original Pinterest photo was not saved for this job.",
+            },
         )
-    remote_file_id, content_type, size_bytes = source
+    remote_file_id, content_type, size_bytes = references[reference_index]
     job_id = job.id
     session.close()
 
@@ -6707,7 +6713,7 @@ async def get_stage5_before_source_image(
     try:
         stream = await storage.open_asset(OpenStoredAssetInput(
             tenant_id=principal.active_tenant_id,
-            asset_id=f"rrugc-stage4-before:{job_id}",
+            asset_id=f"rrugc-stage4-pinterest-before:{job_id}:{reference_index}",
             remote_file_id=remote_file_id,
             content_type=content_type,
             size_bytes=size_bytes,
@@ -6715,12 +6721,14 @@ async def get_stage5_before_source_image(
     except StorageProviderError as exc:
         raise HTTPException(
             status_code=503 if exc.retryable else 404,
-            detail={"code": "stage5_before_unavailable",
-                    "message": "The original input photo could not be opened."},
+            detail={
+                "code": "stage5_pinterest_reference_unavailable",
+                "message": "The saved Pinterest photo could not be opened.",
+            },
         ) from exc
     return StreamingResponse(
         stream.body,
-        media_type=content_type or stream.content_type,
+        media_type=stream.content_type or content_type or "image/jpeg",
         background=BackgroundTask(stream.close),
         headers={"Cache-Control": "private, max-age=3600", "Vary": "Cookie"},
     )

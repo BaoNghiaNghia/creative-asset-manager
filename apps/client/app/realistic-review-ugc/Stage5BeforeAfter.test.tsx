@@ -8,12 +8,12 @@ import { Stage5BeforeAfter } from "./Stage5BeforeAfter";
 afterEach(() => document.body.replaceChildren());
 
 describe("Stage 5 Before / After comparison", () => {
-  it("loads the exact source and toggles Before, After and draggable Compare", async () => {
+  it("loads the saved Pinterest scene and toggles Before, After and draggable Compare", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
     await act(async () => root.render(<Stage5BeforeAfter
-      beforeUrl="/api/stage4/job-1/source-image"
+      beforeUrl="/api/stage4/job-1/reference-image"
       afterUrl="/api/stage4/job-1/output"
       originalUrl="/api/stage4/job-1/output-original"
       alt="UGC after photo"
@@ -24,7 +24,7 @@ describe("Stage 5 Before / After comparison", () => {
     expect(stage.classList.contains("is-after")).toBe(true);
     expect(button("After").getAttribute("aria-pressed")).toBe("true");
     expect(host.querySelector<HTMLImageElement>(".rrugc-stage5-ba-before")?.getAttribute("src"))
-      .toBe("/api/stage4/job-1/source-image");
+      .toBe("/api/stage4/job-1/reference-image");
     await act(async () => host.querySelector(".rrugc-stage5-ba-before")!.dispatchEvent(new Event("load")));
     await act(async () => button("Before").click());
     expect(stage.classList.contains("is-before")).toBe(true);
@@ -42,6 +42,33 @@ describe("Stage 5 Before / After comparison", () => {
     await act(async () => root.unmount());
   });
 
+  it("allows choosing among multiple Pinterest references for the same generated image", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<Stage5BeforeAfter
+      beforeUrl="/unused-product-hat"
+      beforeUrls={["/saved-pinterest-1", "/saved-pinterest-2"]}
+      afterUrl="/generated-ugc" originalUrl="/generated-ugc" alt="After replacement"
+    />));
+    const selector = host.querySelector<HTMLSelectElement>(
+      'select[aria-label="Pinterest reference to compare"]'
+    )!;
+    expect(selector).not.toBeNull();
+    expect(selector.options).toHaveLength(2);
+    expect(host.querySelector<HTMLImageElement>(".rrugc-stage5-ba-before")?.getAttribute("src"))
+      .toBe("/saved-pinterest-1");
+    await act(async () => {
+      selector.value = "1";
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(host.querySelector<HTMLImageElement>(".rrugc-stage5-ba-before")?.getAttribute("src"))
+      .toBe("/saved-pinterest-2");
+    expect(host.querySelector(".rrugc-stage5-ba-before")?.getAttribute("alt"))
+      .toContain("Pinterest lifestyle reference 2");
+    await act(async () => root.unmount());
+  });
+
   it("disables missing before without showing an incorrect image", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -52,7 +79,7 @@ describe("Stage 5 Before / After comparison", () => {
     expect(controls[0].disabled).toBe(false);
     expect(controls[1].disabled).toBe(true);
     expect(controls[2].disabled).toBe(true);
-    expect(host.textContent).toContain("Original hat photo unavailable");
+    expect(host.textContent).toContain("Saved Pinterest reference unavailable");
     await act(async () => root.unmount());
   });
 
