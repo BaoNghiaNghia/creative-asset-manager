@@ -134,9 +134,9 @@ def test_batch_equivalent_candidate_confirmation_requires_exact_name_category_an
         pending = []
         for key, name, category, source, tenant in (
             ("31", "Sữa tươi", "Milk", "sheet-1", "tenant-a"),
-            ("32", "SUA TUOI", "Milk", "sheet-1", "tenant-a"),
+            ("32", "SUA TUOI", "Milk", "sheet-other", "tenant-a"),
             ("33", "Sữa tươi", "Topping", "sheet-1", "tenant-a"),
-            ("34", "Sữa tươi", "Milk", "sheet-other", "tenant-a"),
+            ("34", "Sữa tươi", "Beverage", "sheet-other", "tenant-a"),
             ("35", "Sữa tươi", "Milk", "sheet-1", "tenant-b"),
         ):
             r = resolve(registry, name=name, key=key, tenant=tenant)
@@ -149,11 +149,13 @@ def test_batch_equivalent_candidate_confirmation_requires_exact_name_category_an
         groups = registry.readiness("tenant-a")["batch_groups"]
         assert len(groups) == 1
         assert groups[0]["count"] == 2
-        assert groups[0]["source_id"] == "sheet-1"
+        assert groups[0]["source_count"] == 2
+        assert set(groups[0]["candidate_ids"]) == {pending[0].id,pending[1].id}
         assert groups[0]["category"] == "Milk"
         outcome = registry.approve_equivalent(
             "tenant-a", candidate_id=pending[0].id, item_id=milk.id,
             actor_id="admin", expected_count=2,
+            expected_candidate_ids=[pending[0].id,pending[1].id],
         )
         assert outcome == {"item_id": milk.id, "approved": 2}
         session.flush()
@@ -180,12 +182,17 @@ def test_batch_equivalent_candidate_confirmation_rejects_stale_count_and_foreign
         with pytest.raises(LookupError, match="material_not_found"):
             registry.approve_equivalent(
                 "tenant-a", candidate_id=c.id, item_id=foreign.id,
-                actor_id="admin", expected_count=1,
+                actor_id="admin", expected_count=1, expected_candidate_ids=[c.id],
             )
         with pytest.raises(ValueError, match="candidate_group_changed"):
             registry.approve_equivalent(
                 "tenant-a", candidate_id=c.id, item_id="unused",
-                actor_id="admin", expected_count=2,
+                actor_id="admin", expected_count=2, expected_candidate_ids=[c.id],
+            )
+        with pytest.raises(ValueError, match="candidate_group_changed"):
+            registry.approve_equivalent(
+                "tenant-a", candidate_id=c.id, item_id=foreign.id,
+                actor_id="admin", expected_count=1, expected_candidate_ids=["stale-candidate"],
             )
         assert c.status == "new_material"
 

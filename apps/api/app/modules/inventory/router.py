@@ -529,6 +529,7 @@ def refresh_material_candidate_evidence(
 class EquivalentCandidateApprovalRequest(BaseModel):
     item_id: str = Field(min_length=1)
     expected_count: int = Field(ge=2, le=100)
+    expected_candidate_ids: list[str] = Field(min_length=2, max_length=100)
 
 
 @router.post("/materials/candidates/{candidate_id}/approve-equivalent")
@@ -544,6 +545,7 @@ def approve_equivalent_material_candidates(
                 principal.active_tenant_id, candidate_id=candidate_id,
                 item_id=body.item_id, actor_id=principal.actor_id,
                 expected_count=body.expected_count,
+                expected_candidate_ids=body.expected_candidate_ids,
             )
             session.commit()
             _REGISTRY_LOGGER.info(

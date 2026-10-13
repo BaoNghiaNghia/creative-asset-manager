@@ -40,10 +40,10 @@ export function MaterialsPage(){
     const materialId=batchMappings[group.candidate_id];
     const material=items.find(item=>item.material_id===materialId&&item.active);
     if(!material)return;
-    const confirmed=window.confirm(`Xác nhận ghép ${group.count} dòng "${group.sample_name}" trên Sheet ${group.sheet} (nhóm ${group.category||"—"}) với vật tư "${material.canonical_name}"? Không sửa số tồn trong Google Sheets.`);
+    const confirmed=window.confirm(`Xác nhận ghép ${group.count} dòng "${group.sample_name}" từ ${group.source_count} bản nguồn trên Sheet ${group.sheet} (nhóm ${group.category||"—"}) với vật tư "${material.canonical_name}"? Không sửa số tồn trong Google Sheets.`);
     if(!confirmed)return;
     void perform("__batch__"+group.candidate_id,()=>inventoryMaterialApi.approveEquivalent(
-      group.candidate_id,{item_id:materialId,expected_count:group.count},
+      group.candidate_id,{item_id:materialId,expected_count:group.count,expected_candidate_ids:group.candidate_ids},
     ));
   };
   const updateCandidateDimension=(candidateId:string,canonicalDimension:string)=>setCandidateDefinitions(current=>{const previous=current[candidateId];return {...current,[candidateId]:{canonicalDimension,preferredUnit:previous?.preferredUnit||INVENTORY_DIMENSION_DEFAULT_UNITS[canonicalDimension]||""}}});
@@ -95,7 +95,7 @@ export function MaterialsPage(){
         <p>Chỉ ghép cùng nguồn, Sheet, nhóm vật tư và tên chuẩn hóa. Phải chọn vật tư đích và xác nhận từng nhóm.</p>
         <div className="inventory-batch-approval-list">
           {readiness.batch_groups.map(group=><div key={group.candidate_id} className="inventory-batch-approval-row">
-            <div><strong>{group.sample_name}</strong><small>{group.sheet} · {group.category||"Chưa phân loại"} · {group.count} dòng</small></div>
+            <div><strong>{group.sample_name}</strong><small>{group.sheet} · {group.category||"Chưa phân loại"} · {group.count} dòng / {group.source_count} bản nguồn</small></div>
             <select aria-label={"Vật tư đích cho "+group.sample_name} value={batchMappings[group.candidate_id]||""} onChange={e=>setBatchMappings(current=>({...current,[group.candidate_id]:e.target.value}))}>
               <option value="">Chọn vật tư đã xác nhận…</option>
               {items.filter(item=>item.active).map(item=><option key={item.material_id} value={item.material_id}>{item.canonical_name}</option>)}

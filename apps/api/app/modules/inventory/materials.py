@@ -49,10 +49,10 @@ class MaterialRegistry:
         ranked=sorted(groups.values(),key=lambda row:(-row["count"],row["normalized_name"]))
         # Actionable groups are narrower than diagnostic name counts: never
         # batch-approve rows across workbook, category, sheet or tenant.
-        exact_groups:dict[tuple[str,str,str,str],list[Any]]={}
+        exact_groups:dict[tuple[str,str,str],list[Any]]={}
         for candidate in candidates:
             group_key=(
-                candidate.source_id,candidate.sheet,
+                candidate.sheet,
                 normalize_material_text(candidate.category),
                 normalize_material_text(candidate.raw_name),
             )
@@ -60,15 +60,17 @@ class MaterialRegistry:
         batch_groups=[
             {
                 "candidate_id":rows[0].id,
-                "source_id":source_id,"sheet":sheet,"category":rows[0].category,
+                "candidate_ids":sorted(row.id for row in rows),
+                "source_count":len({row.source_id for row in rows}),
+                "sheet":sheet,"category":rows[0].category,
                 "normalized_name":normalized,"sample_name":rows[0].raw_name,
                 "count":len(rows),
             }
-            for (source_id,sheet,category,normalized),rows in exact_groups.items()
+            for (sheet,category,normalized),rows in exact_groups.items()
             if len(rows)>1 and len(rows)<=100
             and len({row.suggested_item_id for row in rows if row.suggested_item_id})<=1
         ]
-        batch_groups.sort(key=lambda row:(-row["count"],row["normalized_name"],row["source_id"]))
+        batch_groups.sort(key=lambda row:(-row["count"],row["normalized_name"],row["sheet"]))
         blockers=[]
         if not materials:blockers.append("missing_material_registry")
         if not active_locations:blockers.append("missing_warehouse_registry")
@@ -153,10 +155,11 @@ class MaterialRegistry:
     def approve_equivalent(
         self, tenant_id: str, *, candidate_id: str, item_id: str,
         actor_id: str | None, expected_count: int,
+        expected_candidate_ids: list[str],
     ) -> dict[str, Any]:
-        """Confirm pending rows with identical normalized name/category and source.
+        """Confirm the exact reviewed IDs across source snapshots with the same sheet/name/category.
 
-        The count is an optimistic concurrency gate: never approve unseen rows.
+        The count plus the complete ID set prevents approving unseen rows.
         Callers must explicitly select the destination material and commit.
         """
         seed = self.session.scalar(select(InventoryMaterialCandidateModel).where(
@@ -167,7 +170,6 @@ class MaterialRegistry:
             raise LookupError("material_candidate_not_pending")
         candidates = list(self.session.scalars(select(InventoryMaterialCandidateModel).where(
             InventoryMaterialCandidateModel.tenant_id == tenant_id,
-            InventoryMaterialCandidateModel.source_id == seed.source_id,
             InventoryMaterialCandidateModel.sheet == seed.sheet,
             InventoryMaterialCandidateModel.status.in_(("new_material", "possible_rename", "ambiguous")),
         ).order_by(InventoryMaterialCandidateModel.id).with_for_update()))
@@ -176,7 +178,8 @@ class MaterialRegistry:
             if normalize_material_text(c.raw_name) == normalize_material_text(seed.raw_name)
             and normalize_material_text(c.category) == normalize_material_text(seed.category)
         ]
-        if not 1 <= expected_count <= 100 or len(group) != expected_count:
+        if (not 1 <= expected_count <= 100 or len(group) != expected_count
+            or sorted(c.id for c in group) != sorted(expected_candidate_ids)):
             raise ValueError("candidate_group_changed")
         material = self._item(tenant_id, item_id)
         if material is None:

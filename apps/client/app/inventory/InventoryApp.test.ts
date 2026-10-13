@@ -29,7 +29,7 @@ describe("Inventory routes and API boundary", () => {
     await inventoryMaterialApi.candidates();
     await inventoryMaterialApi.readiness();
     await inventoryMaterialApi.createWarehouse({ code: "HN", name: "Kho Hà Nội" });
-    await inventoryMaterialApi.approveEquivalent("candidate 31", { item_id: "item-1", expected_count: 2 });
+    await inventoryMaterialApi.approveEquivalent("candidate 31", { item_id: "item-1", expected_count: 2, expected_candidate_ids: ["candidate 31", "candidate 32"] });
     await inventoryMaterialApi.refreshEvidence();
     expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
       "/api/inventory/materials",
@@ -41,7 +41,7 @@ describe("Inventory routes and API boundary", () => {
     ]);
     expect(fetchMock.mock.calls[3][1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[4][1]?.method).toBe("POST");
-    expect(JSON.parse(fetchMock.mock.calls[4][1]?.body as string)).toEqual({item_id:"item-1",expected_count:2});
+    expect(JSON.parse(fetchMock.mock.calls[4][1]?.body as string)).toEqual({item_id:"item-1",expected_count:2,expected_candidate_ids:["candidate 31","candidate 32"]});
     expect(fetchMock.mock.calls[5][1]?.method).toBe("POST");
     vi.unstubAllGlobals();
   });

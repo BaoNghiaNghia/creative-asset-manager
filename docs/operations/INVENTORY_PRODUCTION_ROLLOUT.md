@@ -34,13 +34,15 @@ warehouse code/name against the actual source workbook before approving mappings
 
 Pending rows can now be approved in a strictly scoped group via
 `POST /api/inventory/materials/candidates/{candidate_id}/approve-equivalent`.
-The reviewer must choose an existing, active, same-tenant material and confirm
-the displayed count; the server locks/rechecks every matching candidate by
-tenant, source file, worksheet, normalized name and normalized category.
-Changes to the group count, foreign material IDs and conflicting suggestions
+The reviewer must choose an existing, active, same-tenant material and confirm the displayed rows and source count. A group
+may span dated source snapshots but only within the same tenant, worksheet,
+normalized name and normalized category. The server locks/rechecks every
+candidate ID against the exact ID list seen by the reviewer. New, removed,
+or replaced candidate rows, foreign material IDs and conflicting suggestions
 fail closed. A successful action creates approved aliases/external identities
 only—**no Google Sheets mutations or quantity changes**. The Materials screen
-shows actionable groups separately from global name-duplicate statistics.
+shows actionable cross-snapshot groups separately from global name-duplicate
+statistics. No material identity is inferred solely from a matching name.
 
 The isolated V4 write/readback regression uses two independent in-memory
 workbooks. It verifies that a staged exact-copy edit changes only the test

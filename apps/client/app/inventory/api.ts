@@ -141,7 +141,7 @@ export type InventoryRegistryReadiness={
   distinct_candidate_names:number;duplicate_candidate_rows:number;ready_for_carry_forward:boolean;
   blockers:string[];
   candidate_groups:Array<{normalized_name:string;sample_name:string;count:number;statuses:string[]}>;
-  batch_groups:Array<{candidate_id:string;source_id:string;sheet:string;category:string|null;normalized_name:string;sample_name:string;count:number}>;
+  batch_groups:Array<{candidate_id:string;candidate_ids:string[];source_count:number;sheet:string;category:string|null;normalized_name:string;sample_name:string;count:number}>;
   warehouses:Array<{id:string;code:string;name:string;active:boolean}>;
 };
 export const inventoryMaterialApi={
@@ -150,7 +150,7 @@ export const inventoryMaterialApi={
   createWarehouse:(body:{code:string;name:string})=>request<{id:string;code:string;name:string;active:boolean}>("/materials/warehouses",{method:"POST",body:JSON.stringify(body)}),
   candidates:()=>request<{items:InventoryMaterialCandidate[]}>("/materials/candidates"),
   refreshEvidence:()=>request<{updated:number;statuses:Record<string,number>}>("/materials/candidates/refresh-evidence",{method:"POST"}),
-  approveEquivalent:(id:string,body:{item_id:string;expected_count:number})=>request<{item_id:string;approved:number}>(`/materials/candidates/${encodeURIComponent(id)}/approve-equivalent`,{method:"POST",body:JSON.stringify(body)}),
+  approveEquivalent:(id:string,body:{item_id:string;expected_count:number;expected_candidate_ids:string[]})=>request<{item_id:string;approved:number}>(`/materials/candidates/${encodeURIComponent(id)}/approve-equivalent`,{method:"POST",body:JSON.stringify(body)}),
   approve:(id:string,body:{item_id?:string;canonical_name?:string;preferred_unit?:string;canonical_dimension?:string})=>request<InventoryMaterial>(`/materials/candidates/${encodeURIComponent(id)}/approve`,{method:"POST",body:JSON.stringify(body)}),
   ignore:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/ignore`,{method:"POST"}),
   reject:(id:string)=>request<{status:string}>(`/materials/candidates/${encodeURIComponent(id)}/reject`,{method:"POST"}),
