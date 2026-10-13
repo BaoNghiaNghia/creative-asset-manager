@@ -20,6 +20,39 @@ Each Inventory request is limited to six credential attempts. HTTP 429, transpor
 
 Do not automatically replay an old Morning Reset into an active workbook outside the daily safe window. Check verified closing/opening state and use the explicit recovery workflow.
 
+## Gemini Decision Engine V5, disposable Writeback QA and recovery visibility
+
+Gemini remains the decision-making agent for inventory corrections. The
+`get_evidence_coverage` tool exposes per-sheet row counts, populated/numeric/
+formula counts, and remaining read budget without leaking worksheet values or
+selecting an edit. Gemini uses those signals to decide where to read next.
+An automatic `NO_CHANGES_VERIFIED` assessment is only accepted when its
+fresh, matching cell evidence contains at least two populated columns from
+the same operational row (row 2 or later); one-cell or metadata-only claims
+receive one guided reinvestigation and then review-required status.
+This is an evidence-minimum gate, not an automatic decision that a row is
+correct. Gemini still selects corrections and the backend validates target
+identity, formula safety, current evidence hashes, and write readback.
+
+Writeback QA is an explicit, permission-controlled action available from
+Inventory → Configuration. It uses the *saved* source and archive folder,
+creates a uniquely named fresh Drive copy tagged `cam_inventory_qa_disposable`,
+adds a hidden QA tab **inside the copy**, writes a random marker, reads it
+back, and moves that copy to Trash even when verification fails.
+The original workbook is never a write target; the QA action is not part
+of Inventory's daily scheduler. `POST /api/inventory/daily-sheet/writeback-qa`
+requires Inventory control permission. Validate the archive folder and Google
+OAuth Drive/Sheets permissions before running. The button requests explicit
+confirmation and returns only status flags, not sheet contents or tokens.
+
+Inventory Learning health reports `unverified_noop_streak` after three
+consecutive completed, supposedly verified zero-write days that have no
+credible multi-column row-level no-change evidence. A genuinely grounded
+zero-edit day resets the count; missing evidence triggers a dashboard
+warning rather than invented stock adjustments. Learning still requires
+human review/activation for new business rules. No automatic backfill
+of historical Morning Reset or Shared Sheet changes is triggered.
+
 ## Gemini-led Inventory Daily reconciliation
 
 Inventory Daily keeps **Gemini as the sole agent selecting operational cells and

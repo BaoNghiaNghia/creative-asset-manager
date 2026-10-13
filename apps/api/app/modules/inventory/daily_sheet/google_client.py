@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import email.utils
 import time
+from uuid import uuid4
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -190,6 +191,70 @@ class GoogleSheetsInventoryClient:
                 **({"cam_inventory_copy_key": str(copy_key)} if copy_key else {}),
             },
         })
+
+    def verify_disposable_writeback(
+        self, source_id: str, *, folder_id: str, tenant_id: str,
+    ) -> dict[str, Any]:
+        """Prove Sheets write/readback on a disposable copy; never write the source.
+
+        This is an explicit, bounded QA operation, NOT part of the daily
+        reconcile scheduler. The copied file is trashed even when verification
+        fails. Only a fresh hidden QA tab is mutated.
+        """
+        if not source_id or not folder_id or not tenant_id:
+            raise ValueError("disposable_writeback_missing_identity")
+        self.validate_native_spreadsheet(source_id)
+        nonce = uuid4().hex
+        copy_id: str | None = None
+        verified = False
+        try:
+            payload = self._request(
+                "POST", f"{self.DRIVE}/files/{source_id}/copy",
+                params={"fields": "id,mimeType,appProperties", "supportsAllDrives": "true"},
+                json={
+                    "name": f"CAM-Inventory-QA-{nonce[:12]}",
+                    "parents": [folder_id],
+                    "appProperties": {
+                        "cam_inventory_qa_disposable": "true",
+                        "cam_inventory_tenant_id": tenant_id,
+                        "cam_inventory_source_id": source_id,
+                        "cam_inventory_copy_key": nonce,
+                    },
+                },
+            )
+            copy_id = str(payload.get("id") or "")
+            if not copy_id or copy_id == source_id:
+                raise RuntimeError("disposable_writeback_copy_identity_invalid")
+            qa_sheet = f"_CAM_QA_{nonce[:14]}"
+            self._request(
+                "POST", f"{self.SHEETS}/{copy_id}:batchUpdate",
+                json={"requests": [{"addSheet": {
+                    "properties": {"title": qa_sheet, "hidden": True},
+                }}]},
+            )
+            marker = f"CAM-QA-{nonce}"
+            cell_range = f"'{qa_sheet}'!A1"
+            self.batch_update_values(copy_id, [{
+                "range": cell_range, "majorDimension": "ROWS",
+                "values": [[marker]],
+            }])
+            observed = self.batch_get_values(copy_id, [cell_range])
+            values = observed[0].get("values") if observed else []
+            if not values or not values[0] or values[0][0] != marker:
+                raise RuntimeError("disposable_writeback_readback_mismatch")
+            verified = True
+        finally:
+            if copy_id and copy_id != source_id:
+                self._request(
+                    "PATCH", f"{self.DRIVE}/files/{copy_id}",
+                    params={"supportsAllDrives": "true"},
+                    json={"trashed": True},
+                )
+        return {
+            "verified": verified,
+            "disposable_copy_trashed": True,
+            "source_file_unchanged_by_qa": True,
+        }
 
     def spreadsheet_metadata(self, spreadsheet_id: str) -> dict[str, Any]:
         return self._request("GET", f"{self.SHEETS}/{spreadsheet_id}", params={

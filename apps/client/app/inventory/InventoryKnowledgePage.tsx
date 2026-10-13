@@ -217,6 +217,7 @@ export function InventoryKnowledgePage() {
           {learning.health.issue_codes.includes("learning_failed") ? <p>Phát hiện lỗi trong lần chạy learning gần nhất. Kiểm tra audit và log trước khi retry.</p> : null}
           {learning.health.issue_codes.includes("verified_data_stale") ? <p>Không có dữ liệu đối soát đã xác minh trong ít nhất 2 ngày. Kiểm tra Evening Reconcile và scheduler.</p> : null}
           {learning.health.issue_codes.includes("conflicting_proposals") ? <p>{learning.health.conflicting_proposals} đề xuất có kết luận không nhất quán. Không thể kích hoạt trực tiếp; cần xem bằng chứng và tạo version đã hiệu chỉnh.</p> : null}
+          {learning.health.issue_codes.includes("unverified_noop_streak") ? <p>{learning.health.unverified_noop_streak} ngày đối soát liên tiếp kết thúc 0 thao tác mà chưa chứng minh kiểm tra cấp dòng. Cần xem Agent V5, kế hoạch sửa và bằng chứng.</p> : null}
         </div>
       ) : null}
       {learning?.health.status === "watching" ? (

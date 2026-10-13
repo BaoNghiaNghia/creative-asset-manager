@@ -1204,6 +1204,41 @@ def test_v41_business_goal_is_configurable_and_has_safe_defaults():
     ]
 
 
+def test_v5_coverage_tool_reports_rows_and_read_budget_without_leaking_raw_values():
+    tools = host(max_read_calls=5, max_read_cells=100)
+    tools.read_range({"sheet": "Arbitrary", "a1_range": "C7:D8"})
+    summary = tools.execute("get_evidence_coverage", {})
+    assert summary["sheets"][0]["sheet"] == "Arbitrary"
+    assert summary["sheets"][0]["distinct_rows"] == 2
+    assert summary["sheets"][0]["read_cells"] == 4
+    assert summary["remaining_read_calls"] == 4
+    assert summary["remaining_read_cells"] == 96
+    assert "alpha" not in str(summary)
+    assert "get_evidence_coverage" in [
+        d["name"] for d in function_declarations()
+    ]
+
+
+def test_v5_metadata_only_no_change_code_requires_row_comparison():
+    tools = host()
+    tools.require_actionable_noop = True
+    only = tools.read_range({"sheet": "Arbitrary", "a1_range": "C7"})["cells"][0]
+    tools.submit_workbook_assessment({
+        "summary": "Metadata-only but labeled as verified.",
+        "observations": [{
+            "code": "NO_CHANGES_VERIFIED",
+            "conclusion": "Only inspected one cell",
+            "evidence": [reference(only)],
+            "confidence": 1,
+        }], "uncertainties": [], "additional_reads_needed": False,
+    })
+    feedback = tools.stage_edits({
+        "status": "ready", "operations": [], "issues": [], "material_actions": [],
+    })
+    assert feedback["status"] == "needs_more_evidence"
+    assert tools.staged is None
+
+
 def test_v41_tool_contract_exposes_native_assessment_before_stage():
     declarations = function_declarations()
     names = [item["name"] for item in declarations]
@@ -1294,13 +1329,17 @@ def test_auto_mode_metadata_only_noop_is_review_required_not_a_verified_success(
 def test_auto_mode_explicit_row_level_no_changes_remains_valid():
     tools = host()
     tools.require_actionable_noop = True
-    evidence = tools.read_range({"sheet": "Arbitrary", "a1_range": "D7"})["cells"][0]
+    tools.google.values["'Arbitrary'!C7:D8"][0][0] = "10"
+    tools.google.formulas["'Arbitrary'!C7:D8"][0][0] = "10"
+    tools.google.values["'Arbitrary'!C7"] = [["10"]]
+    tools.google.formulas["'Arbitrary'!C7"] = [["10"]]
+    evidence = tools.read_range({"sheet": "Arbitrary", "a1_range": "C7:D8"})["cells"][:2]
     tools.submit_workbook_assessment({
-        "summary": "Compared cell with verified source. No mismatch.",
+        "summary": "Compared the current target C7 with source D7 and both equal 10.",
         "observations": [{
             "code": "NO_CHANGES_VERIFIED",
-            "conclusion": "D7 already matches its documented numeric source and requires no correction.",
-            "evidence": [reference(evidence)],
+            "conclusion": "Target C7 matches the source D7 and requires no correction.",
+            "evidence": [reference(item) for item in evidence],
             "confidence": .99,
         }], "uncertainties": [], "additional_reads_needed": False,
     })

@@ -139,6 +139,17 @@ def _settings_view(row):
         "config": row.daily_sheet_config_json,
     }
 
+@router.post("/writeback-qa")
+def verify_disposable_inventory_writeback(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    """Explicit QA action: write on a fresh throwaway copy; never on the source."""
+    try:
+        return _service().verify_disposable_writeback(principal.active_tenant_id)
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": str(exc)}) from exc
+
+
 @router.get("/configuration")
 def get_configuration(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
     with SessionLocal() as session:

@@ -8,6 +8,77 @@ from app.modules.inventory.daily_sheet.google_client import (
 )
 
 
+def test_disposable_google_writeback_only_mutates_and_trashes_a_new_copy():
+    from urllib.parse import unquote
+    import json
+
+    requests = []
+    observed_marker = {"value": None}
+    def handler(request):
+        requests.append(request)
+        path = unquote(request.url.path)
+        if path == "/drive/v3/files/source" and request.method == "GET":
+            return httpx.Response(200, json={"id": "source", "name": "Source", "mimeType": "application/vnd.google-apps.spreadsheet"})
+        if path == "/drive/v3/files/source/copy" and request.method == "POST":
+            body = json.loads(request.content)
+            assert body["parents"] == ["disposable-folder"]
+            assert body["appProperties"]["cam_inventory_qa_disposable"] == "true"
+            return httpx.Response(200, json={"id": "disposable-qa", "mimeType": "application/vnd.google-apps.spreadsheet"})
+        if path == "/v4/spreadsheets/disposable-qa:batchUpdate":
+            body = json.loads(request.content)
+            assert body["requests"][0]["addSheet"]["properties"]["hidden"] is True
+            return httpx.Response(200, json={"replies": [{"addSheet": {"properties": {"sheetId": 99}}}]})
+        if path == "/v4/spreadsheets/disposable-qa/values:batchUpdate":
+            observed_marker["value"] = json.loads(request.content)["data"][0]["values"][0][0]
+            assert observed_marker["value"].startswith("CAM-QA-")
+            return httpx.Response(200, json={})
+        if path == "/v4/spreadsheets/disposable-qa/values:batchGet":
+            return httpx.Response(200, json={"valueRanges": [{"values": [[observed_marker["value"]]]}]})
+        if path == "/drive/v3/files/disposable-qa" and request.method == "PATCH":
+            assert json.loads(request.content) == {"trashed": True}
+            return httpx.Response(200, json={"id": "disposable-qa", "trashed": True})
+        return httpx.Response(500, json={"unexpected_path": path})
+
+    client = GoogleSheetsInventoryClient(
+        "token", client=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda _: None,
+    )
+    result = client.verify_disposable_writeback(
+        "source", folder_id="disposable-folder", tenant_id="tenant-a",
+    )
+    assert result["verified"] is True
+    assert result["disposable_copy_trashed"] is True
+    assert result["source_file_unchanged_by_qa"] is True
+    writes = [req for req in requests if req.method in {"POST", "PATCH"}]
+    assert len(writes) == 4
+    assert all("/source/" not in unquote(req.url.path) or req.url.path.endswith("/copy") for req in writes)
+    assert not any("/source/values" in str(req.url) for req in writes)
+
+
+def test_disposable_google_writeback_trashes_copy_when_readback_fails():
+    import json
+    trashed = []
+    def handler(request):
+        path = request.url.path
+        if path.endswith("/source") and request.method == "GET":
+            return httpx.Response(200, json={"id": "source", "mimeType": "application/vnd.google-apps.spreadsheet"})
+        if path.endswith("/source/copy"):
+            return httpx.Response(200, json={"id": "disposable-qa"})
+        if path.endswith(":batchUpdate"):
+            return httpx.Response(200, json={})
+        if path.endswith("values:batchUpdate"):
+            return httpx.Response(200, json={})
+        if path.endswith("values:batchGet"):
+            return httpx.Response(200, json={"valueRanges": [{"values": [["wrong"]]}]})
+        if path.endswith("/disposable-qa") and request.method == "PATCH":
+            trashed.append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        return httpx.Response(500)
+    client = GoogleSheetsInventoryClient("token", client=httpx.Client(transport=httpx.MockTransport(handler)), max_attempts=1)
+    with pytest.raises(RuntimeError, match="disposable_writeback_readback_mismatch"):
+        client.verify_disposable_writeback("source", folder_id="disposable-folder", tenant_id="tenant-a")
+    assert trashed == [{"trashed": True}]
+
+
 def test_google_client_retries_rate_limit_with_retry_after():
     calls = []
     sleeps = []

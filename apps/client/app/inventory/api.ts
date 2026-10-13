@@ -119,6 +119,7 @@ export const inventoryDailySheetApi = {
   updateConfiguration:(body:InventoryDailySheetConfiguration)=>request<InventoryDailySheetConfiguration>("/daily-sheet/configuration",{method:"PUT",body:JSON.stringify(body)}),
   getStatus:()=>request<InventoryDailySheetStatus>("/daily-sheet/status"),
   validateConfiguration:()=>request<InventoryDailySheetValidation>("/daily-sheet/validate-config",{method:"POST"}),
+  verifyWritebackQA:()=>request<{verified:boolean;disposable_copy_trashed:boolean;source_file_unchanged_by_qa:boolean}>("/daily-sheet/writeback-qa",{method:"POST"}),
   discover:(working_spreadsheet_file_id:string)=>request<InventoryDailySheetDiscovery>("/daily-sheet/discover",{method:"POST",body:JSON.stringify({working_spreadsheet_file_id})}),
   runSnapshot:(business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/snapshot/run",{method:"POST",body:JSON.stringify({business_date:business_date||null})}),
   runReconciliation:(dry_run:boolean,business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/reconcile/run",{method:"POST",body:JSON.stringify({business_date:business_date||null,dry_run})}),
@@ -251,7 +252,7 @@ export const inventoryLifecycleApi = {
   replayHistoricalGemini:(businessDate:string,mode:"fresh_copy"|"existing_copy"="fresh_copy",promote=true)=>request<InventoryHistoricalReplayResult>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/gemini/replay`,{method:"POST",body:JSON.stringify({mode,promote})}),
 };
 export type InventoryLearningStatus = {
-  health:{ status:"healthy"|"watching"|"warning"|"critical"; issue_codes:string[]; conflicting_proposals:number; consistent_proposals:number; last_verified_age_days:number|null };
+  health:{ status:"healthy"|"watching"|"warning"|"critical"; issue_codes:string[]; conflicting_proposals:number; consistent_proposals:number; last_verified_age_days:number|null; unverified_noop_streak?:number };
   verified_days:number;
   read_cells_verified:number;
   last_verified_day:string|null;

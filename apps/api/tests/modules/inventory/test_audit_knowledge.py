@@ -424,6 +424,44 @@ def test_assessment_learning_skips_failed_unverified_and_ungrounded_observations
     engine.dispose(); temp.cleanup()
 
 
+def test_learning_health_flags_metadata_only_zero_write_streak_but_not_grounded_noop():
+    temp, engine, sessions = db()
+    from app.modules.inventory.persistence_model import InventoryOperationAuditModel
+    with sessions.begin() as session:
+        for day in (10, 11, 12):
+            session.add(InventoryOperationAuditModel(
+                tenant_id="tenant-a", business_date=date(2026, 10, day),
+                stage="evening_reconcile", status="completed", writes=0,
+                summary_json={"verification_status": "verified", "read_cells": 865},
+                assessment_json={"observations": [{
+                    "code": "METADATA_AND_STRUCTURE_VERIFIED", "evidence": [{
+                        "sheet": "Kho", "cell": "A1", "evidence_hash": "a"*64,
+                    }],
+                }]},
+            ))
+    service = InventoryKnowledgeService(sessions)
+    health = service.learning_status("tenant-a", today=date(2026, 10, 13))["health"]
+    assert "unverified_noop_streak" in health["issue_codes"]
+    assert health["unverified_noop_streak"] == 3
+    with sessions.begin() as session:
+        session.add(InventoryOperationAuditModel(
+            tenant_id="tenant-a", business_date=date(2026, 10, 13),
+            stage="evening_reconcile", status="completed", writes=0,
+            summary_json={"verification_status": "verified", "read_cells": 865},
+            assessment_json={"observations": [{
+                "code": "NO_CHANGES_VERIFIED", "confidence": 0.99,
+                "evidence": [
+                    {"sheet": "Kho", "cell": "C7", "evidence_hash": "a"*64},
+                    {"sheet": "Kho", "cell": "D7", "evidence_hash": "b"*64},
+                ],
+            }]},
+        ))
+    health = service.learning_status("tenant-a", today=date(2026, 10, 13))["health"]
+    assert "unverified_noop_streak" not in health["issue_codes"]
+    assert health["unverified_noop_streak"] == 0
+    engine.dispose(); temp.cleanup()
+
+
 def test_learning_status_reports_verified_reads_and_last_learning_result():
     temp, engine, sessions = db()
     from app.modules.inventory.persistence_model import InventoryOperationAuditModel

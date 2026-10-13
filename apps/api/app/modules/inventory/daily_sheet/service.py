@@ -128,6 +128,28 @@ class InventoryDailySheetService:
         self.agent_service = agent_service
         self.agent_v4_service = agent_v4_service
 
+    def verify_disposable_writeback(self, tenant_id: str) -> dict[str, Any]:
+        """Explicit operator-invoked Google writeback QA on a fresh disposable copy.
+
+        No scheduler calls this function; the currently configured source and
+        archive folder are only used as copy source and temporary destination.
+        """
+        context = self._context(tenant_id, require_enabled=False)
+        if not context.archive_root_id:
+            raise DailySheetConfigurationError("inventory_writeback_qa_folder_missing")
+        with self.client_factory(self._token(context.connection_id)) as google:
+            result = google.verify_disposable_writeback(
+                context.configured_source_file_id,
+                folder_id=context.archive_root_id,
+                tenant_id=tenant_id,
+            )
+        logger.info(
+            "inventory_disposable_writeback_qa_completed",
+            extra={"tenant_id": tenant_id, "verified": result["verified"],
+                   "copy_trashed": result["disposable_copy_trashed"]},
+        )
+        return result
+
     def _parse_v2_runtime(
         self,
         tenant_id: str,

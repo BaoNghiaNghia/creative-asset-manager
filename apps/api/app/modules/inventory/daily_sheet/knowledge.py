@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -607,6 +608,41 @@ class InventoryKnowledgeService:
                 if day not in dates:
                     total_read += int(summary.get("read_cells") or 0)
                     dates.add(day)
+        # Detect a run of purportedly successful zero-write days where Gemini
+        # inspected only metadata. A truly validated no-change comparison or
+        # verified edit resets the streak; legitimate no-edit days are not errors.
+        unverified_noop_streak = 0
+        seen_recent_days: set[date] = set()
+        for audit in audits:
+            if audit.business_date in seen_recent_days:
+                continue
+            seen_recent_days.add(audit.business_date)
+            summary = dict(audit.summary_json or {})
+            if audit.status != "completed" or summary.get("verification_status") != "verified":
+                break
+            if int(audit.writes or 0) != 0:
+                break
+            assessment = dict(audit.assessment_json or {})
+            has_grounded_noop = False
+            for observation in (assessment.get("observations") or []):
+                if not isinstance(observation, dict) or str(observation.get("code") or "").upper() != "NO_CHANGES_VERIFIED":
+                    continue
+                row_columns: dict[tuple[str, int], set[str]] = {}
+                for ref in (observation.get("evidence") or []):
+                    if not isinstance(ref, dict):
+                        continue
+                    cell = str(ref.get("cell") or "")
+                    match = re.fullmatch(r"([A-Z]+)([1-9][0-9]*)", cell)
+                    if not match or int(match.group(2)) < 2 or len(str(ref.get("evidence_hash") or "")) != 64:
+                        continue
+                    row_columns.setdefault((str(ref.get("sheet") or ""), int(match.group(2))), set()).add(match.group(1))
+                if any(len(columns) >= 2 for columns in row_columns.values()):
+                    has_grounded_noop = True
+                    break
+            if has_grounded_noop:
+                break
+            unverified_noop_streak += 1
+
         conflicting = sum(
             1 for rule in observation_rules
             if (rule or {}).get("learner") == "verified_daily_assessment_v2"
@@ -627,6 +663,8 @@ class InventoryKnowledgeService:
             issues.append("verified_data_stale")
         if conflicting:
             issues.append("conflicting_proposals")
+        if unverified_noop_streak >= 3:
+            issues.append("unverified_noop_streak")
         health_status = (
             "critical" if any(code in issues for code in ("learning_failed", "verified_data_stale"))
             else "warning" if issues
@@ -640,6 +678,7 @@ class InventoryKnowledgeService:
                 "conflicting_proposals": conflicting,
                 "consistent_proposals": consistent,
                 "last_verified_age_days": age,
+                "unverified_noop_streak": unverified_noop_streak,
             },
             "verified_days": len(dates),
             "read_cells_verified": total_read,

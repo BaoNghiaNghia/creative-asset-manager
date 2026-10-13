@@ -197,6 +197,63 @@ class V4WorkbookToolHost:
     def get_workbook_metadata(self, _arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
         return self._metadata_payload()
 
+    def get_evidence_coverage(self, _arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Summarize already-read cell coverage without deciding which cells need edits.
+
+        Counts and addresses only; do not repeat raw inventory values or hashes.
+        Gemini decides where to investigate next using its remaining read budget.
+        """
+        sheets: dict[str, list[CellEvidence]] = {}
+        for (sheet, _cell), evidence in self.ledger.items():
+            sheets.setdefault(sheet, []).append(evidence)
+        summary: list[dict[str, Any]] = []
+        for sheet in sorted(sheets):
+            evidence = sheets[sheet]
+            rows = sorted({_cell_parts(item.cell)[1] for item in evidence})
+            summary.append({
+                "sheet": sheet,
+                "read_cells": len(evidence),
+                "distinct_rows": len(rows),
+                "first_row": rows[0] if rows else None,
+                "last_row": rows[-1] if rows else None,
+                "populated_cells": sum(item.raw_value not in (None, "") for item in evidence),
+                "numeric_cells": sum(
+                    isinstance(item.raw_value, (int, float, Decimal))
+                    and not isinstance(item.raw_value, bool)
+                    for item in evidence
+                ),
+                "formula_cells": sum(item.formula is not None for item in evidence),
+            })
+        return {
+            "sheets": summary,
+            "remaining_read_calls": max(0, self.max_read_calls - self.read_calls),
+            "remaining_read_cells": max(0, self.max_read_cells - self.read_cell_count),
+            "guidance": (
+                "Use this coverage to decide which operational rows, formulas and "
+                "source/target columns need fresh comparisons. Gemini decides "
+                "whether there is an evidence-backed correction."
+            ),
+        }
+
+    def _has_grounded_noop_comparison(self) -> bool:
+        """No-op requires at least two distinct, populated columns in one data row."""
+        for observation in self.assessment.observations if self.assessment else ():
+            if (observation.code.strip().upper() != "NO_CHANGES_VERIFIED"
+                    or observation.confidence < 0.8):
+                continue
+            by_row: dict[tuple[str, int], set[int]] = {}
+            for reference in observation.evidence:
+                cell = self.ledger.get((reference.sheet, reference.cell))
+                if (cell is None or cell.evidence_hash != reference.evidence_hash
+                        or cell.raw_value in (None, "")):
+                    continue
+                column, row = _cell_parts(reference.cell)
+                if row >= 2:
+                    by_row.setdefault((reference.sheet, row), set()).add(column)
+            if any(len(columns) >= 2 for columns in by_row.values()):
+                return True
+        return False
+
     def _authorize_sheet(self, sheet: str) -> None:
         if self._metadata is None:
             self._metadata_payload()
@@ -609,10 +666,7 @@ class V4WorkbookToolHost:
             and not staged.operations
             and not staged.issues
             and not staged.material_actions
-            and not any(
-                observation.code.strip().upper() == "NO_CHANGES_VERIFIED"
-                for observation in self.assessment.observations
-            )
+            and not self._has_grounded_noop_comparison()
         ):
             # One chance for Gemini to inspect the actual operational rows
             # before accepting a no-op as a review-required outcome.
@@ -637,7 +691,7 @@ class V4WorkbookToolHost:
             staged.issues.append(StagedIssue(
                 code="no_actionable_assessment",
                 message=(
-                    "No row-level correction or explicit NO_CHANGES_VERIFIED "
+                    "No row-level correction or verified multi-column NO_CHANGES_VERIFIED "
                     "observation was provided. Workbook metadata alone cannot "
                     "justify successful reconciliation."
                 ),
@@ -760,6 +814,7 @@ class V4WorkbookToolHost:
     def execute(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         handlers = {
             "get_workbook_metadata": self.get_workbook_metadata,
+            "get_evidence_coverage": self.get_evidence_coverage,
             "read_range": self.read_range,
             "read_cells": self.read_cells,
             "get_material_catalog": self.get_material_catalog,
@@ -854,6 +909,11 @@ def function_declarations() -> list[dict[str, Any]]:
         {
             "name": "get_workbook_metadata",
             "description": "Return authorized workbook and sheet metadata, including grids, merges and protected ranges.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "get_evidence_coverage",
+            "description": "Summarize already-read data row coverage and remaining read budget without revealing values or deciding edits. Use this before a no-change conclusion.",
             "parameters": {"type": "object", "properties": {}},
         },
         {
