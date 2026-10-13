@@ -12,13 +12,15 @@
     radial-gradient(circle at 93% 80%, #e9effb, transparent 32%), #f8faff;
   font-family: "Be Vietnam Pro", system-ui, sans-serif;
 }
+.cam-under-construction :is(a, span, h1, p, footer) { font-family: "Be Vietnam Pro", system-ui, sans-serif; }
 .cam-under-construction *, .cam-under-construction *::before, .cam-under-construction *::after { box-sizing: border-box; }
 .cam-under-brand {
   display: inline-flex; align-items: center; gap: 10px;
   align-self: flex-start; margin: 28px clamp(20px, 5vw, 74px);
   color: #1b3e89; text-decoration: none; font-size: 17px; font-weight: 800;
 }
-.cam-under-brand img { width: 36px; height: 36px; object-fit: contain; }
+.cam-under-brand-mark { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; }
+.cam-under-brand-mark .brand-logo { display: block; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 9px; object-fit: contain; }
 .cam-under-body {
   display: flex; align-items: center; flex: 1; flex-direction: column;
   justify-content: center; width: 100%; max-width: 900px;
@@ -56,12 +58,13 @@
 }
 .cam-under-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-  min-height: 46px; margin-top: 27px; padding: 12px 22px;
-  border-radius: 12px; background: #345ed6; color: #fff;
-  text-decoration: none; font-size: 13px; font-weight: 750;
-  box-shadow: 0 8px 22px rgb(52 94 214 / 20%);
+  min-height: 38px; margin-top: 22px; padding: 9px 15px;
+  border-radius: 9px; background: #345ed6; color: #fff;
+  text-decoration: none; font-size: 12px; font-weight: 700; line-height: 1.2;
+  box-shadow: 0 5px 15px rgb(52 94 214 / 15%);
   transition: background 0.18s, transform 0.18s;
 }
+.cam-under-back-icon { width: 14px; height: 14px; flex: 0 0 14px; }
 .cam-under-button:hover { background: #254dbd; transform: translateY(-2px); }
 .cam-under-button:focus-visible, .cam-under-brand:focus-visible {
   outline: 3px solid #547de7; outline-offset: 4px;
@@ -72,7 +75,8 @@
 }
 @media (max-width: 680px) {
   .cam-under-brand { margin: 17px 20px; font-size: 15px; }
-  .cam-under-brand img { width: 32px; height: 32px; }
+  .cam-under-brand-mark { width: 32px; height: 32px; flex-basis: 32px; }
+  .cam-under-brand-mark .brand-logo { width: 32px; height: 32px; flex-basis: 32px; }
   .cam-under-body { padding: 20px 16px 30px; }
   .cam-under-scene { border-radius: 18px; }
   .cam-under-eyebrow { margin-top: 25px; font-size: 10px; }

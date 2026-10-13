@@ -13,6 +13,10 @@ describe("UnderConstructionPage", () => {
     expect(html).toContain('loop=""');
     expect(html).toContain('playsinline=""');
     expect(html).toContain("Under Construction");
+    expect(html).toContain('class="brand-logo"');
+    expect(html).toContain('class="cam-under-brand-mark"');
+    expect(html).toContain('class="cam-under-button"');
+    expect(html).toContain('class="cam-under-back-icon"');
     expect(html).toContain('href="/"');
     expect(html).not.toContain("data:video/");
   });

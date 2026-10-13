@@ -1,10 +1,11 @@
 import "./UnderConstructionPage.css";
+import { BrandIcon } from "./Icons";
 
 export function UnderConstructionPage() {
   return (
     <main className="cam-under-construction">
       <a className="cam-under-brand" href="/" aria-label="Creative assets - Asset Explorer">
-        <img src="/app-icon-192.png" alt="" width="38" height="38" />
+        <span className="cam-under-brand-mark"><BrandIcon /></span>
         <span>Creative assets</span>
       </a>
 
@@ -37,7 +38,7 @@ export function UnderConstructionPage() {
           We're building something better. This workspace is being prepared and will be available soon.
         </p>
         <a className="cam-under-button" href="/">
-          Back to Asset Explorer <span aria-hidden="true">↗</span>
+          Back to Asset Explorer <svg className="cam-under-back-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 15 15 5M6 5h9v9" /></svg>
         </a>
       </section>
 
