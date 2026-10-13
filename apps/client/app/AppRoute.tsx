@@ -1,5 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { fetchAccessIdentity } from "../features/access_management";
+import { lazy, Suspense, useEffect } from "react";
+import { useRouteAccessGate } from "./routePermissionGate";
+import { useDeploymentReadiness } from "./deploymentReadiness";
+import { UnderConstructionPage } from "./components/UnderConstructionPage";
 import App from "./App";
 import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
@@ -13,7 +15,6 @@ const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").t
 const JobQueuePage = lazy(() => import("./job-queue/JobQueuePage").then(module => ({ default: module.JobQueuePage })));
 const InventoryApp = lazy(() => import("./inventory/InventoryApp").then(module => ({ default: module.InventoryApp })));
 const InventoryOverviewPage = lazy(() => import("./inventory/InventoryOverviewPage").then(module => ({ default: module.InventoryOverviewPage })));
-const UnderConstructionPage = lazy(() => import("./components/UnderConstructionPage").then(module => ({ default: module.UnderConstructionPage })));
 const PrivacyPolicyPage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.TermsOfServicePage })));
 const PublicReviewRoute = lazy(() => import("./public-review/PublicReviewRoute").then(module => ({ default: module.PublicReviewRoute })));
@@ -65,26 +66,20 @@ export function AppRoute() {
   useEffect(() => {
     if (legacyInventoryTab) window.history.replaceState(window.history.state, "", "/inventory");
   }, [legacyInventoryTab]);
-  const [routePermissions, setRoutePermissions] = useState<readonly string[] | null>(
-    requiredPermission ? null : [],
-  );
-
-  useEffect(() => {
-    if (!requiredPermission) {
-      setRoutePermissions([]);
-      return;
-    }
-    let alive = true;
-    setRoutePermissions(null);
-    fetchAccessIdentity()
-      .then(identity => { if (alive) setRoutePermissions(identity.permissions); })
-      .catch(() => { if (alive) setRoutePermissions([]); });
-    return () => { alive = false; };
-  }, [requiredPermission]);
+  const access = useRouteAccessGate(requiredPermission);
+  const watchBackend = route !== "public-review" && route !== "privacy"
+    && route !== "terms" && route !== "under-construction"
+    && (!requiredPermission || access.status === "allowed");
+  const backendUnavailable = useDeploymentReadiness(watchBackend);
+  // Keep maintenance outside the application shell so no protected workspace,
+  // navigation, or stale async component renders while the API is down.
+  if (access.status === "maintenance" || backendUnavailable) {
+    return <UnderConstructionPage maintenance />;
+  }
 
   const workspaceRoute = workspaceRouteForApplicationRoute(route);
-  const routeAllowed = !requiredPermission || Boolean(routePermissions?.includes(requiredPermission));
-  const page = requiredPermission && routePermissions === null
+  const routeAllowed = !requiredPermission || access.status === "allowed";
+  const page = requiredPermission && access.status === "checking"
     ? <CenteredLoadingState
       kind="permissions"
       title="Checking permissions…"

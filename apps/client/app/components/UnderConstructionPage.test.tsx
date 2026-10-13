@@ -11,6 +11,16 @@ describe("UnderConstructionPage", () => {
     expect(html).not.toContain('src="/under-construction/');
   });
 
+  it("uses the same construction scene for deployment downtime without a broken asset explorer link", () => {
+    const html = renderToStaticMarkup(createElement(UnderConstructionPage, { maintenance: true }));
+    expect(html).toContain("Under Construction");
+    expect(html).toContain("workspace will return automatically");
+    expect(html).toContain('src="/construction-media/animation.mp4"');
+    expect(html).toContain("Try again");
+    expect(html).not.toContain("Back to Asset Explorer");
+    expect(html).not.toContain('class="cam-under-button" href="/"');
+  });
+
   it("uses the supplied construction video and a no-motion fallback", () => {
     const html = renderToStaticMarkup(createElement(UnderConstructionPage));
     expect(html).toContain('src="/construction-media/animation.mp4"');

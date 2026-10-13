@@ -38,6 +38,8 @@
 }
 .cam-under-video { mix-blend-mode: multiply; }
 .cam-under-still { display: none; }
+.cam-under-scene.is-fallback .cam-under-video { display: none; }
+.cam-under-scene.is-fallback .cam-under-still { display: block; }
 .cam-under-eyebrow {
   display: flex; align-items: center; justify-content: center; gap: 9px;
   margin-top: 30px; color: #355ec5; font-size: 11px;
@@ -60,7 +62,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   min-height: 38px; margin-top: 22px; padding: 9px 15px;
   border-radius: 9px; background: #345ed6; color: #fff;
-  text-decoration: none; font-size: 12px; font-weight: 700; line-height: 1.2;
+  text-decoration: none; font: inherit; font-size: 12px; font-weight: 700; line-height: 1.2; border: 0; cursor: pointer;
   box-shadow: 0 5px 15px rgb(52 94 214 / 15%);
   transition: background 0.18s, transform 0.18s;
 }
