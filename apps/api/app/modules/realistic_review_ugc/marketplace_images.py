@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import (
@@ -160,16 +160,16 @@ async def enrich_missing_marketplace_images(
     """
     now = datetime.now(timezone.utc)
     day = now.date().isoformat()
-    keyword_rows = session.scalars(select(RrugcKeywordVolumeModel).join(
-        RrugcKeywordAgentOriginModel,
-        (RrugcKeywordVolumeModel.tenant_id == RrugcKeywordAgentOriginModel.tenant_id)
-        & (RrugcKeywordVolumeModel.keyword_normalized == RrugcKeywordAgentOriginModel.keyword_normalized),
-    ).where(
+    keyword_rows = session.scalars(select(RrugcKeywordVolumeModel).where(
         RrugcKeywordVolumeModel.source_image_url.is_(None),
-        RrugcKeywordAgentOriginModel.source_platform.in_(("etsy", "amazon")),
-        RrugcKeywordAgentOriginModel.source_url.is_not(None),
+        exists(select(RrugcKeywordAgentOriginModel.id).where(
+            RrugcKeywordAgentOriginModel.tenant_id == RrugcKeywordVolumeModel.tenant_id,
+            RrugcKeywordAgentOriginModel.keyword_normalized == RrugcKeywordVolumeModel.keyword_normalized,
+            RrugcKeywordAgentOriginModel.source_platform.in_(("etsy", "amazon")),
+            RrugcKeywordAgentOriginModel.source_url.is_not(None),
+        )),
         *([RrugcKeywordVolumeModel.tenant_id == tenant_id] if tenant_id else []),
-    ).distinct().order_by(RrugcKeywordVolumeModel.created_at.asc()).limit(2000)).all()
+    ).order_by(RrugcKeywordVolumeModel.created_at.asc()).limit(2000)).all()
     if not keyword_rows:
         return {"checked": 0, "updated": 0, "unavailable": 0}
     keys_by_tenant: dict[str, set[str]] = {}
