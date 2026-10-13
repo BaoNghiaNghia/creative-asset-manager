@@ -113,6 +113,30 @@ def test_disposable_google_writeback_trashes_copy_when_readback_fails():
     assert trashed == [{"trashed": True}]
 
 
+def test_batch_update_can_preserve_literal_inventory_values_in_raw_mode():
+    import json
+
+    payloads = []
+
+    def handler(request):
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={"totalUpdatedCells": 2})
+
+    client = GoogleSheetsInventoryClient(
+        "token", client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    updates = [
+        {"range": "'Stock'!A2", "values": [["00123"]]},
+        {"range": "'Stock'!B2", "values": [["=literal-text"]]},
+    ]
+    client.batch_update_values("copy", updates, value_input_option="RAW")
+    assert payloads == [{
+        "valueInputOption": "RAW",
+        "includeValuesInResponse": False,
+        "data": updates,
+    }]
+
+
 def test_google_client_retries_rate_limit_with_retry_after():
     calls = []
     sleeps = []

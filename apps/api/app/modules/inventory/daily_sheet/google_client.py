@@ -270,9 +270,14 @@ class GoogleSheetsInventoryClient:
         ] + [("valueRenderOption", value_render_option), ("dateTimeRenderOption", "FORMATTED_STRING")])
         return list(payload.get("valueRanges") or [])
 
-    def batch_update_values(self, spreadsheet_id: str, updates: list[dict[str, Any]]) -> dict[str, Any]:
+    def batch_update_values(
+        self, spreadsheet_id: str, updates: list[dict[str, Any]],
+        *, value_input_option: str = "USER_ENTERED",
+    ) -> dict[str, Any]:
+        if value_input_option not in {"USER_ENTERED", "RAW"}:
+            raise ValueError("invalid_sheet_value_input_option")
         return self._request("POST", f"{self.SHEETS}/{spreadsheet_id}/values:batchUpdate", json={
-            "valueInputOption": "USER_ENTERED", "includeValuesInResponse": False, "data": updates,
+            "valueInputOption": value_input_option, "includeValuesInResponse": False, "data": updates,
         })
 
     def batch_clear_values(self, spreadsheet_id: str, ranges: list[str]) -> dict[str, Any]:

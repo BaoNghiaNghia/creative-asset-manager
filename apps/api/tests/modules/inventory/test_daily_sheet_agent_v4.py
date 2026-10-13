@@ -139,8 +139,9 @@ class IsolatedCopyGoogle(FakeGoogle):
         data = self.formulas if value_render_option == "FORMULA" else self.workbooks[file_id]
         return [{"range": key, "values": deepcopy(data.get(key, []))} for key in ranges]
 
-    def batch_update_values(self, file_id, updates):
+    def batch_update_values(self, file_id, updates, *, value_input_option="USER_ENTERED"):
         assert file_id == "review-copy", "source workbook must never receive writes"
+        self.value_input_options = getattr(self, "value_input_options", []) + [value_input_option]
         self.mutated_files.append(file_id)
         for update in updates:
             self.workbooks[file_id][update["range"]] = deepcopy(update["values"])
@@ -175,6 +176,7 @@ def test_verified_apply_to_isolated_copy_leaves_source_untouched():
     assert tools.google.workbooks["review-copy"]["'Arbitrary'!C7"] == [["10"]]
     assert tools.google.workbooks["source-master"]["'Arbitrary'!C7"] == [["alpha"]]
     assert tools.google.mutated_files == ["review-copy"]
+    assert tools.google.value_input_options == ["RAW"]
 
 
 def test_copy_write_with_invalid_readback_is_not_counted_verified():
@@ -191,7 +193,7 @@ def test_copy_write_with_invalid_readback_is_not_counted_verified():
         "value": "10", "evidence": [reference(target), reference(source)],
         "provenance": "exact_copy", "copy_from": reference(source),
     }]})
-    google.batch_update_values = lambda *_args: google.mutated_files.append("review-copy")
+    google.batch_update_values = lambda *_args, **_kwargs: google.mutated_files.append("review-copy")
     with pytest.raises(V4AgentSafetyError, match="set_readback_verification_failed"):
         tools.apply_staged()
     assert tools.google.workbooks["source-master"]["'Arbitrary'!C7"] == [["alpha"]]
@@ -1707,7 +1709,8 @@ def test_v41_bad_sequence_stage_without_assessment_fails_closed():
 def test_v4_live_executor_revalidates_then_sets_verifies_and_clears():
     google = FakeGoogle()
 
-    def update(_sheet, updates):
+    def update(_sheet, updates, *, value_input_option="USER_ENTERED"):
+        assert value_input_option == "RAW"
         google.mutation_calls.append("update")
         for item in updates:
             google.values[item["range"]] = deepcopy(item["values"])

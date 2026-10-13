@@ -788,6 +788,7 @@ class V4WorkbookToolHost:
                 self.spreadsheet_file_id,
                 [{"range": item, "majorDimension": "ROWS", "values": [[operation.value]]}
                  for item, operation in zip(set_ranges, set_operations, strict=True)],
+                value_input_option="RAW",  # Never parse SKUs, leading zeros, or '=' literals as formulas.
             )
             observed = self.google.batch_get_values(self.spreadsheet_file_id, set_ranges)
             for expected, block in zip(set_operations, observed, strict=True):
