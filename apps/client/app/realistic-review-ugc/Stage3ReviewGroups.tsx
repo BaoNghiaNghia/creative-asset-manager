@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DeferredImage } from "./DeferredImage";
+import { Stage5BeforeAfter } from "./Stage5BeforeAfter";
+import "./Stage5BeforeAfter.css";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
@@ -123,6 +124,8 @@ export function Stage3ReviewModal({
     document.body.style.overflow = "hidden";
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      if ((event.key === "ArrowLeft" || event.key === "ArrowRight")
+        && event.target instanceof HTMLElement && event.target.closest('input[type="range"]')) return;
       if (count > 1 && event.key === "ArrowLeft") {
         event.preventDefault();
         onIndexChange((index - 1 + count) % count);
@@ -209,12 +212,12 @@ export function Stage3ReviewModal({
       >×</button>
 
       <div className="rrugc-stage3-review-modal-media">
-        <DeferredImage
-          src={displayedImageUrl}
-          data-original-src={image.original_url}
+        <Stage5BeforeAfter
+          key={image.stage2_job_id}
+          beforeUrl={image.before_url}
+          afterUrl={displayedImageUrl}
+          originalUrl={image.original_url}
           alt={image.source_name ? "Review image for " + image.source_name : "UGC review image"}
-          rootMargin="300px 0px"
-          loading="lazy"
         />
 
         <button

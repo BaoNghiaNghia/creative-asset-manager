@@ -6058,6 +6058,8 @@ def list_stage3_review_groups(
         ).all()
         analyses_by_job = {row.stage2_job_id: row for row in analyses}
 
+    from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_source
+
     grouped: dict[str, dict[str, object]] = {}
     totals = Counter()
     for job, plan in rows:
@@ -6123,6 +6125,10 @@ def list_stage3_review_groups(
                     "/api/v1/realistic-review-ugc/stage2-jobs/"
                     + job.id
                     + "/output"
+                ),
+                before_url=(
+                    "/api/v1/realistic-review-ugc/stage2-jobs/" + job.id + "/source-image"
+                    if stage5_before_source(job, plan) else None
                 ),
                 analysis_id=analysis.id if analysis else None,
                 analysis_status=analysis_status,
@@ -6657,6 +6663,67 @@ def rrugc_media_storage_status(
         "reconnect_required": not (root_ready and connected),
         "retry_after_seconds": 60,
     }
+
+
+@router.get("/stage2-jobs/{stage2_job_id}/source-image")
+async def get_stage5_before_source_image(
+    stage2_job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """The actual Stage 4 hat input, not a newer/replaced source-plan photo."""
+    from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_source
+
+    job = RrugcRepository(session).get_stage2_job(
+        principal.active_tenant_id, stage2_job_id,
+    )
+    if job is None or job.status != "completed" or not job.output_remote_file_id:
+        raise HTTPException(status_code=404, detail="Stage 4 completed job not found")
+    snapshot = job.selected_source_snapshot_json
+    plan = None
+    if not snapshot:
+        plan = session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.id == job.source_plan_id,
+        ))
+    source = stage5_before_source(job, plan)
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "stage5_before_unavailable",
+                    "message": "The original input photo is no longer available for this job."},
+        )
+    remote_file_id, content_type, size_bytes = source
+    job_id = job.id
+    session.close()
+
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "managed_storage_unavailable",
+                    "message": "Managed Google Drive is unavailable."},
+        )
+    try:
+        stream = await storage.open_asset(OpenStoredAssetInput(
+            tenant_id=principal.active_tenant_id,
+            asset_id=f"rrugc-stage4-before:{job_id}",
+            remote_file_id=remote_file_id,
+            content_type=content_type,
+            size_bytes=size_bytes,
+        ))
+    except StorageProviderError as exc:
+        raise HTTPException(
+            status_code=503 if exc.retryable else 404,
+            detail={"code": "stage5_before_unavailable",
+                    "message": "The original input photo could not be opened."},
+        ) from exc
+    return StreamingResponse(
+        stream.body,
+        media_type=content_type or stream.content_type,
+        background=BackgroundTask(stream.close),
+        headers={"Cache-Control": "private, max-age=3600", "Vary": "Cookie"},
+    )
 
 
 @router.get("/stage2-jobs/{stage2_job_id}/output")

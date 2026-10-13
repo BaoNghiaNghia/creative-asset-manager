@@ -504,6 +504,7 @@ export type Stage3ReviewImage = {
   completed_at: string | null;
   preview_url: string;
   original_url: string;
+  before_url?: string | null;
   analysis_id: string | null;
   analysis_status: Stage3AnalysisStatus;
   final_score: number | null;

@@ -149,6 +149,24 @@
       "requireIcons": [
         "#rrugc-panel-stage5 .rrugc-stage5-toolbar-actions > button"
       ]
+    },
+    {
+      "name": "stage5-before-after-modal",
+      "click": "#rrugc-panel-stage5 .rrugc-stage3-image.is-clickable",
+      "waitFor": ".rrugc-stage5-ba-switch",
+      "assertions": [
+        {"type": "text-includes", "selector": ".rrugc-stage5-ba-switch", "value": "Compare"}
+      ]
+    },
+    {
+      "name": "stage5-compare-slider",
+      "click": ".rrugc-stage5-ba-switch button:last-child",
+      "waitFor": ".rrugc-stage5-ba-range"
+    },
+    {
+      "name": "stage5-original-photo",
+      "click": ".rrugc-stage5-ba-switch button:nth-child(2)",
+      "waitFor": ".rrugc-stage5-ba.is-before"
     }
   ]
 }

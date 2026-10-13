@@ -1061,6 +1061,7 @@ class Stage3ReviewImageResponse(BaseModel):
     completed_at: datetime | None = None
     preview_url: str
     original_url: str
+    before_url: str | None = None
     analysis_id: str | None = None
     analysis_status: Literal[
         "pending", "queued", "analyzing", "ready", "rejected", "error"

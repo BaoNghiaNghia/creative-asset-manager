@@ -3028,7 +3028,7 @@ def test_stage5_backfill_only_updates_original_auto_composed_ready_text():
     assert refresh_legacy_stage5_copies(rows, dry_run=False)["changed"] == 0
 
 
-def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
+def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, monkeypatch):
     now = datetime.now(timezone.utc)
     with database() as session:
         campaign, _token = RrugcService(session).create_campaign(
@@ -3097,6 +3097,13 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
                 selected_reference_snapshot_json=[],
                 status="completed",
                 idempotency_key="stage3-a-1",
+                selected_source_snapshot_json={
+                    "source_plan_id": plans[0].id,
+                    "remote_file_id": "original-hat-from-generation",
+                    "content_type": "image/png",
+                    "size_bytes": 101,
+                    "source_revision": plans[0].source_revision,
+                },
                 output_remote_file_id="out-a-1",
                 output_remote_folder_id="folder-a",
                 output_width=1024,
@@ -3185,6 +3192,44 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
         )
         for image in groups["folder-a"]["images"]
     )
+    exact_source_job = next(
+        image for group in payload["items"] for image in group["images"]
+        if image["output_remote_file_id"] == "out-a-1"
+    )
+    assert exact_source_job["before_url"] == (
+        "/api/v1/realistic-review-ugc/stage2-jobs/"
+        + exact_source_job["stage2_job_id"] + "/source-image"
+    )
+    # The before endpoint stays tied to the original snapshot even if the
+    # mutable Drive source-plan file later changes.
+    from app.modules.realistic_review_ugc import router as rrugc_router_module
+    accessed = []
+    class FakeHatInput:
+        async def open_asset(self, request):
+            accessed.append((request.tenant_id, request.remote_file_id))
+            async def chunks():
+                yield b"before-hat-input"
+            async def close():
+                return None
+            return StoredAssetReadStream(body=chunks(), close=close,
+                                         content_type="image/png")
+    monkeypatch.setattr(
+        rrugc_router_module, "build_managed_storage_provider",
+        lambda settings: FakeHatInput(),
+    )
+    with database() as session:
+        source = session.get(RrugcSourcePlanModel, plans[0].id)
+        source.source_file_id = "replaced-since-generation"
+        source.source_revision = "new" * 21 + "n"
+        session.commit()
+    source_response = api.get(exact_source_job["before_url"])
+    assert source_response.status_code == 200
+    assert source_response.content == b"before-hat-input"
+    assert accessed == [("tenant-a", "original-hat-from-generation")]
+    assert api.get(
+        "/api/v1/realistic-review-ugc/stage2-jobs/not-a-job/source-image"
+    ).status_code == 404
+
     assert groups["folder-b"]["folder_name"] == "Black"
     assert groups["folder-b"]["image_count"] == 1
     assert all(
