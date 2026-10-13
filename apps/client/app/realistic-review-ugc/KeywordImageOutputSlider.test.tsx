@@ -133,6 +133,18 @@ describe("Stage 1 draggable image strip", () => {
     expect(onOpenVersion).not.toHaveBeenCalled();
   });
 
+  it("shows a clear tile fallback for 503 images and retries after storage reconnects", async () => {
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    const image = host.querySelector<HTMLImageElement>(".rrugc-keyword-output-image img")!;
+    await act(async () => image.dispatchEvent(new Event("error")));
+    expect(host.textContent).toContain("Tạm không tải được ảnh");
+    expect(host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-retry")).not.toBeNull();
+    await act(async () => document.dispatchEvent(new Event("rrugc-media-storage-restored")));
+    expect(host.querySelectorAll(".rrugc-output-image-failed")).toHaveLength(0);
+    expect(host.querySelector<HTMLImageElement>(".rrugc-keyword-output-image img")?.src).toContain("retry=1");
+  });
+
   it("preserves partial results on failed runs without reloading the Skill", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={{ ...row, status: "failed", saved_output_count: 2 }} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));

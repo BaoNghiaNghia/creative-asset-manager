@@ -811,6 +811,18 @@ export const cancelStage2Jobs = (sourcePlanId: string, jobIds?: string[]) =>
     { method: "POST", ...(jobIds?.length ? { body: JSON.stringify({ job_ids: jobIds }) } : {}) },
   );
 
+export type RrugcMediaStorageStatus = {
+  status: "connected" | "reconnect_required";
+  root_folder_configured: boolean;
+  connected: boolean;
+  reconnect_required: boolean;
+  retry_after_seconds: number;
+};
+export const getRrugcMediaStorageStatus = (signal?: AbortSignal) =>
+  request<RrugcMediaStorageStatus>(
+    "/api/v1/realistic-review-ugc/media-storage/status", { signal },
+  );
+
 export const stage2JobOutputUrl = (jobId: string) =>
   "/api/v1/realistic-review-ugc/stage2-jobs/"
   + encodeURIComponent(jobId)

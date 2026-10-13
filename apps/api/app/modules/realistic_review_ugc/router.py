@@ -6606,6 +6606,30 @@ def cancel_stage2_jobs(
     )
 
 
+@router.get("/media-storage/status")
+def rrugc_media_storage_status(
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Safe tenant-reader health summary; never expose OAuth tokens or account IDs.
+
+    Production image routes can return 503 even while output metadata lists 200.
+    Surface managed-storage reconnect state so the UI does not suggest regenerating
+    existing artwork. A successful OAuth status is not proof each Drive file exists.
+    """
+    from app.modules.storage.managed_oauth import managed_storage_oauth_status
+
+    status = managed_storage_oauth_status(get_settings())
+    root_ready = bool(status["root_folder_configured"])
+    connected = bool(status["connected"] and not status["reconnect_required"])
+    return {
+        "status": "connected" if root_ready and connected else "reconnect_required",
+        "root_folder_configured": root_ready,
+        "connected": connected,
+        "reconnect_required": not (root_ready and connected),
+        "retry_after_seconds": 60,
+    }
+
+
 @router.get("/stage2-jobs/{stage2_job_id}/output")
 async def get_stage2_job_output(
     stage2_job_id: str,

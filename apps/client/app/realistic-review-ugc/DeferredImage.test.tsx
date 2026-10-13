@@ -52,6 +52,25 @@ describe("Shared Stage 0–5 modal image skeleton / lazy loading", () => {
     await act(async () => root.unmount());
   });
 
+  it("offers a one-image retry and recovers when media storage reconnects", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<div role="dialog">
+      <DeferredImage src="/api/v1/preview/recover" alt="Recovered output" />
+    </div>));
+    const img = host.querySelector("img")!;
+    await act(async () => img.dispatchEvent(new Event("error")));
+    const retry = host.querySelector<HTMLButtonElement>(".rrugc-deferred-error.is-action");
+    expect(retry?.textContent).toContain("Retry");
+    await act(async () => document.dispatchEvent(new Event("rrugc-media-storage-restored")));
+    expect(host.querySelector(".rrugc-deferred-error")).toBeNull();
+    expect(img.getAttribute("src")).toBe("/api/v1/preview/recover");
+    await act(async () => img.dispatchEvent(new Event("load")));
+    expect(img.classList.contains("is-loaded")).toBe(true);
+    await act(async () => root.unmount());
+  });
+
   it("limits concurrent modal image requests to eight while keeping queued skeletons", async () => {
     const host = document.createElement("div");
     document.body.append(host);

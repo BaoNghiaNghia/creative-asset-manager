@@ -21,12 +21,20 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
   const [error, setError] = useState(false);
   const [scroll, setScroll] = useState({ left: 0, end: true });
   const [reload, setReload] = useState(0);
+  const [imageRetry, setImageRetry] = useState(0);
+  const [brokenVersions, setBrokenVersions] = useState<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    const retry = () => { setBrokenVersions(new Set()); setImageRetry(n => n + 1); };
+    document.addEventListener("rrugc-media-storage-restored", retry);
+    return () => document.removeEventListener("rrugc-media-storage-restored", retry);
+  }, []);
   const hasOutput = Boolean(row.job_id && (row.saved_output_count > 0 || row.output_url));
 
   useEffect(() => {
     setVisible(false);
     setImages([]);
     setError(false);
+    setBrokenVersions(new Set());
   }, [row.job_id]);
 
   useEffect(() => {
@@ -135,8 +143,11 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
               title={image.output_name || `Image ${index + 1} · Version ${image.version}`}
               aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}`}
               draggable={false}>
-              <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256"}
-                alt={`Generated image ${index + 1}`} loading="lazy" draggable={false} />
+              {brokenVersions.has(image.version)
+                ? <span className="rrugc-output-image-failed">Tạm không tải được ảnh</span>
+                : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256" + (imageRetry ? "&retry=" + imageRetry : "")}
+                  alt={`Generated image ${index + 1}`} loading="lazy" draggable={false}
+                  onError={() => setBrokenVersions(current => new Set([...current, image.version]))} /> }
             </button>)}
           </div>
           <button type="button" className="rrugc-keyword-output-arrow is-next"
@@ -158,8 +169,8 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
       </span>
       {(row.status === "queued" || row.status === "running") && slides.length > 0 &&
         <OutputActivityLoader compact status={row.status} />}
-      {error && <button type="button" className="rrugc-keyword-output-retry"
-        title="Reload images" aria-label={`Reload images for ${row.keyword}`} onClick={() => setReload(current => current + 1)}>↻</button>}
+      {(error || brokenVersions.size > 0) && <button type="button" className="rrugc-keyword-output-retry"
+        title="Reload images" aria-label={`Reload images for ${row.keyword}`} onClick={() => { setReload(current => current + 1); setBrokenVersions(new Set()); setImageRetry(n => n + 1); }}>↻</button>}
     </div>
   </div>;
 }

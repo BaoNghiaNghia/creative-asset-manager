@@ -2337,6 +2337,20 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-stable-masonry-column{gap:8px}
 }
 
+
+/* Shared Stage 1 / Stage 4 backend Drive outage state. */
+.rrugc-media-storage-alert{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 15px;border:1px solid #f0d5a7;border-radius:12px;background:#fff9ef;color:#835622;margin-bottom:15px;font-family:"Be Vietnam Pro",system-ui,sans-serif}
+.rrugc-media-storage-alert-icon{flex:0 0 31px;width:31px;height:31px;display:grid;place-items:center;border-radius:9px;background:#f8e4c7;color:#a16a20;font-weight:800;font-size:17px}
+.rrugc-media-storage-alert-copy{flex:1 1 280px;display:grid;gap:4px;min-width:0}
+.rrugc-media-storage-alert-copy strong{font-size:12px;font-weight:800}
+.rrugc-media-storage-alert-copy span{font-size:11px;line-height:1.65}
+.rrugc-media-storage-alert-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rrugc-media-storage-alert-actions :is(a,button){display:inline-flex;align-items:center;justify-content:center;min-height:34px;box-sizing:border-box;padding:7px 11px;border:1px solid #c9b58f;border-radius:8px;background:white;color:#815820;text-decoration:none;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
+.rrugc-media-storage-alert-actions button:disabled{opacity:.55;cursor:wait}
+.rrugc-deferred-error.is-action{border:0;cursor:pointer;pointer-events:auto;width:100%;height:100%;font:inherit;font-size:10px;font-weight:700}
+.rrugc-keyword-output-image .rrugc-output-image-failed{display:grid;place-items:center;padding:5px;font-size:9px;text-align:center;color:#697c94;background:#f1f4f8;height:100%;line-height:1.5}
+@media(max-width:600px){.rrugc-media-storage-alert{align-items:flex-start;padding:11px}.rrugc-media-storage-alert-actions{width:100%}.rrugc-media-storage-alert-actions :is(a,button){flex:1 1 auto}}
+
 /* Recover intentionally archived keyword-only skills through audited admin flow. */
 .rrugc-stage1-skill-recovery{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 11px;border:1px solid #f0d9b2;border-radius:9px;background:#fffaf1}
 .rrugc-stage1-skill-recovery-icon{display:grid;place-items:center;flex:none;width:26px;height:26px;border-radius:8px;background:#fff0d8;color:#a97531}

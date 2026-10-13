@@ -41,6 +41,7 @@ import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage4CompletionNotifications } from "./Stage4CompletionNotifications";
+import { MediaStorageNotice } from "./MediaStorageNotice";
 import { Stage3ReviewGroups } from "./Stage3ReviewGroups";
 import { mergeStage5Pages } from "./stage5Pagination";
 import { RrugcWorkflowNavigation, type RrugcStageTab } from "./RrugcWorkflowNavigation";
@@ -1019,6 +1020,7 @@ export function RealisticReviewUgcPage() {
 
       <div className="rrugc-page-body rrugc-source-first-body">
         {error && <div className="rrugc-error" role="alert">{error}</div>}
+        <MediaStorageNotice active={activeStage === "stage1" || activeStage === "stage4"} />
 
         <section
           id="rrugc-panel-stage0"

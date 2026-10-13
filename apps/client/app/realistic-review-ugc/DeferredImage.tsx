@@ -73,6 +73,17 @@ export function DeferredImage({
   const [grantedSource, setGrantedSource] = useState<string | null>(null);
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
+  const [retryIndex, setRetryIndex] = useState(0);
+
+  useEffect(() => {
+    const handler = () => {
+      if (settledSourceRef.current === src && failedSource === src) {
+        setRetryIndex(index => index + 1);
+      }
+    };
+    document.addEventListener("rrugc-media-storage-restored", handler);
+    return () => document.removeEventListener("rrugc-media-storage-restored", handler);
+  }, [failedSource, src]);
 
   useEffect(() => {
     ticketRef.current?.cancel();
@@ -82,7 +93,7 @@ export function DeferredImage({
     setGrantedSource(null);
     setLoadedSource(null);
     setFailedSource(null);
-  }, [src]);
+  }, [src, retryIndex]);
 
   useEffect(() => {
     const target = imageRef.current;
@@ -95,7 +106,7 @@ export function DeferredImage({
     }, { rootMargin });
     observer.observe(target);
     return () => observer.disconnect();
-  }, [rootMargin, src]);
+  }, [rootMargin, src, retryIndex]);
 
   useEffect(() => {
     if (!nearViewport || !src) {
@@ -116,7 +127,7 @@ export function DeferredImage({
       ticket.cancel();
       if (ticketRef.current === ticket) ticketRef.current = null;
     };
-  }, [nearViewport, src]);
+  }, [nearViewport, src, retryIndex]);
 
   function release() {
     ticketRef.current?.release();
@@ -147,5 +158,8 @@ export function DeferredImage({
       release();
       onError?.(event);
     }}
-  />{failed && <span className="rrugc-deferred-error" role="status">Image unavailable</span>}</>;
+  />{failed && <button type="button" className="rrugc-deferred-error is-action"
+    onClick={() => setRetryIndex(index => index + 1)} aria-label={"Retry image " + (props.alt || "")}>
+    Image unavailable · Retry
+  </button>}</>;
 }
