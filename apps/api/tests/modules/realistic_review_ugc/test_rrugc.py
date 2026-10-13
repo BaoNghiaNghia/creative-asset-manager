@@ -2657,11 +2657,17 @@ def test_loox_file_safety_and_shopify_slug_normalization():
     assert loox_public_photo_url(photo_url) == photo_url
     assert loox_original_photo_url(uuid_sample, "image/jpeg").endswith(".jpg")
     assert loox_original_photo_url("invalid", "image/png") == ""
-    email = stage5_sample_email(uuid_sample)
-    assert email == f"cam-stage5-{uuid_sample}@example.invalid"
-    assert stage5_sample_email(uuid_sample) == email  # Deterministic on retry/export.
-    assert stage5_sample_email("20000000-0000-4000-8000-000000000002") != email
-    assert stage5_sample_email("not-a-uuid") == ""
+    import re
+    email = stage5_sample_email(uuid_sample, "AI concept: Rachel M.")
+    assert re.fullmatch(r"rachel[0-9]{10}@example\.invalid", email)
+    assert stage5_sample_email(uuid_sample, "AI concept: Rachel M.") == email  # Stable between exports.
+    assert re.fullmatch(r"olivia[0-9]{10}@example\.invalid", stage5_sample_email(uuid_sample, "Olivia"))
+    assert stage5_sample_email(uuid_sample, "Olivia") != email
+    assert stage5_sample_email("20000000-0000-4000-8000-000000000002", "Rachel M.") != email
+    assert stage5_sample_email(uuid_sample, "Élodie K.") .startswith("elodie")
+    assert stage5_sample_email(uuid_sample, "") .startswith("review")
+    assert stage5_sample_email("not-a-uuid", "Rachel M.") == ""
+    assert "@gmail.com" not in email and "@yahoo.com" not in email
     assert clean_concept_copy("AI concept: Rachel M.", author=True) == "Rachel M."
     assert clean_concept_copy("AI-generated review concept — not a real customer testimonial. Lovely") == "Lovely"
     for invalid in (
@@ -2688,7 +2694,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     from zipfile import ZipFile
     from xml.etree import ElementTree
 
-    from app.modules.realistic_review_ugc.loox_review_export import PREFIX
+    from app.modules.realistic_review_ugc.loox_review_export import PREFIX, stage5_sample_email
 
     now = datetime.now(timezone.utc)
     with database() as session:
@@ -2783,7 +2789,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     # Loox import must identify synthetic concepts, never impersonate customers.
     assert csv_record["author"] == "Synthetic Tester 1"
     assert csv_record["body"].startswith(PREFIX)
-    assert csv_record["email"] == f"cam-stage5-{retained_id}@example.invalid"
+    assert csv_record["email"] == stage5_sample_email(retained_id, "Synthetic Tester 1")
     assert csv_record["created_at"] == now.date().isoformat()
     assert csv_record["photo_url"].startswith(
         "https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/"
@@ -2848,7 +2854,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
         assert record[0] == "custom-hat-handle"
         assert record[1] == "5"
         assert record[2] == "Synthetic Tester 1"
-        assert record[3] == f"cam-stage5-{retained_id}@example.invalid"
+        assert record[3] == stage5_sample_email(retained_id, "Synthetic Tester 1")
         assert record[4] == "Mock review for sample 1"
         assert record[5] == now.date().isoformat()
         assert record[6].startswith("https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/")

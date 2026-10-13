@@ -6351,7 +6351,7 @@ def export_stage5_loox_review_concepts(
             product_handle,
             int(review.star_rating),
             clean_concept_copy(review.reviewer_name, author=True),
-            stage5_sample_email(image.id),  # Reserved non-deliverable test address, NOT a customer email.
+            stage5_sample_email(image.id, review.reviewer_name),  # Name-based, non-deliverable test email.
             clean_concept_copy(review.review_text),
             created.strftime("%Y-%m-%d") if created else "",
             photo_url,

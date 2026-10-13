@@ -7,6 +7,7 @@ from actual customers.
 from __future__ import annotations
 
 import csv
+import hashlib
 import re
 import unicodedata
 from uuid import UUID
@@ -43,18 +44,26 @@ def loox_original_photo_url(job_id: str, mime_type: str | None) -> str:
     return f"{PUBLIC_PHOTO_ORIGIN}{PUBLIC_PHOTO_PATH}{token}.{extension}"
 
 
-def stage5_sample_email(stage2_job_id: str) -> str:
-    """Stable synthetic-only placeholder email, explicitly not a real inbox.
+def stage5_sample_email(stage2_job_id: str, reviewer_name: str | None = None) -> str:
+    """Generate a name-based synthetic email for internal Stage 5 sample data.
 
-    Reserved .invalid TLD guarantees no mail can be delivered, and a UUID
-    suffix makes the value unique and reproducible per Stage 4 output.
-    Never use these placeholders as actual customers in a live storefront.
+    The UUID-seeded numeric suffix resembles a randomized address but is
+    deterministic on every export and uses the non-deliverable .invalid TLD.
+    Never export it as a real person's email address.
     """
     try:
         stable_id = str(UUID(str(stage2_job_id)))
     except (TypeError, ValueError, AttributeError):
         return ""
-    return f"cam-stage5-{stable_id}@example.invalid"
+    clean_name = clean_concept_copy(reviewer_name, author=True)
+    first_name = clean_name.split(maxsplit=1)[0] if clean_name else ""
+    normalized = unicodedata.normalize("NFKD", first_name)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    safe_name = re.sub(r"[^a-z0-9]", "", normalized.casefold())[:24] or "review"
+    digits = int.from_bytes(
+        hashlib.sha256(stable_id.encode("ascii")).digest()[:8], "big"
+    ) % 10_000_000_000
+    return f"{safe_name}{digits:010d}@example.invalid"
 
 
 def clean_concept_copy(value: str | None, *, author: bool = False) -> str:
@@ -153,7 +162,7 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
     provenance = (
         "AI-GENERATED CONCEPTS ONLY — not real customer reviews or verified purchases.",
         "Review author names and copy are synthetic drafts, not customer testimonials.",
-        "The email field contains sample addresses @example.invalid, never real customer inboxes.",
+        "The email field contains name-based sample addresses @example.invalid, never real customer inboxes.",
         "verified_purchase remains blank until actual customer order proof exists.",
         "Only publish confirmed customer submissions with documented consent.",
         "Public photo links expose original AI-generated images while concepts are ready.",
