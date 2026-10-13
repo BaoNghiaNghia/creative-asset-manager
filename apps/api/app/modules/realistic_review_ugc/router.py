@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -5548,6 +5549,44 @@ async def colorway_output(
         background=BackgroundTask(stream.close),
         headers={"Cache-Control": "private, max-age=300"},
     )
+
+
+class Stage0SourceImageInput(BaseModel):
+    listing_url: str = Field(min_length=20, max_length=2048)
+    image_url: str = Field(min_length=20, max_length=2048)
+    replace: bool = False
+
+
+@router.post("/keyword-analysis/{keyword_id}/source-image")
+async def set_keyword_source_image(
+    keyword_id: str,
+    body: Stage0SourceImageInput,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Attach an operator-supplied marketplace photo to this exact Stage 0 keyword."""
+    from app.modules.realistic_review_ugc.stage0_source_images import (
+        Stage0SourceImageError, attach_marketplace_image,
+    )
+    try:
+        row = await attach_marketplace_image(
+            session,
+            tenant_id=principal.active_tenant_id,
+            keyword_id=keyword_id,
+            listing_url=body.listing_url,
+            image_url=body.image_url,
+            actor_id=principal.user_id,
+            replace=body.replace,
+        )
+        return {
+            "source_image_url": row.source_image_url,
+            "source_image_status": "operator_supplied",
+        }
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Keyword not found")
+    except Stage0SourceImageError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/keyword-analysis/detail/{keyword_id}", response_model=KeywordVolumeResponse)

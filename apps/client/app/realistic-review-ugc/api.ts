@@ -90,6 +90,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 
+export const attachKeywordSourceImage = (
+  keywordId: string,
+  listingUrl: string,
+  imageUrl: string,
+  replace = false,
+) => request<{source_image_url: string; source_image_status: string}>(
+  "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/source-image",
+  { method: "POST", body: JSON.stringify({
+    listing_url: listingUrl, image_url: imageUrl, replace,
+  }) },
+);
+
 export const listProducts = (signal?: AbortSignal) =>
   request<Product[]>("/api/v1/realistic-review-ugc/products", { signal });
 

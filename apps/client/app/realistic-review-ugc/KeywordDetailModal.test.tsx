@@ -84,6 +84,35 @@ describe("Stage 0 platform source attribution", () => {
 });
 
 
+describe("Agent-Reach marketplace image management", () => {
+  it("shows Amazon and Etsy CDN URL form only for recorded marketplace listings", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordDetailModal item={{ ...keyword, source_image_url: null }}
+        onClose={() => undefined} />,
+    ));
+    const form = host.querySelector(".rrugc-stage0-manual-source")!;
+    expect(form).not.toBeNull();
+    expect(form.textContent).toContain("Ảnh nguồn Amazon / Etsy");
+    const choices = Array.from(form.querySelectorAll("option")).map(option => option.value);
+    expect(choices).toEqual([
+      "https://www.etsy.com/listing/123456",
+      "https://www.amazon.com/dp/B012345678",
+    ]);
+    expect(form.querySelector('input[type="url"]')).not.toBeNull();
+    const save = form.querySelector<HTMLButtonElement>("button.rrugc-stage0-manual-source-save");
+    expect(save?.disabled).toBe(true);
+    await act(async () => root.render(<KeywordDetailModal item={{
+      ...keyword, source_agents: [],
+    }} onClose={() => undefined} />));
+    expect(host.querySelector(".rrugc-stage0-manual-source")).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+});
+
 describe("Agent-Reach pending data", () => {
   it("keeps metrics unverified and allows an explicit AEBrowse check", async () => {
     const host = document.createElement("div");

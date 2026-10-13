@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { attachKeywordSourceImage } from "./api";
 import { KeywordSearchInput } from "./KeywordSearchInput";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -185,9 +186,10 @@ function Icon({
   name,
   filled = false,
 }: {
-  name: "search" | "star" | "heart" | "badge-check" | "circle-plus" | "circle-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus";
+  name: "search" | "star" | "heart" | "badge-check" | "circle-plus" | "circle-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus" | "image";
   filled?: boolean;
 }) {
+  if (name === "image") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-5 4 4 3-3 5 5"/></svg>;
   if (name === "search") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" /><path d="m15.2 15.2 4.3 4.3" /></svg>;
   if (name === "star") return <svg viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="m12 2.8 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9z" /></svg>;
   if (name === "heart") return <svg data-icon="heart" viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="M20.8 8.5c0 5.1-8.8 11.2-8.8 11.2S3.2 13.6 3.2 8.5a4.7 4.7 0 0 1 8.8-2.2 4.7 4.7 0 0 1 8.8 2.2Z" /></svg>;
@@ -351,19 +353,32 @@ export function KeywordDetailModal({
   item,
   onClose,
   onResolveMetrics,
+  onSourceImageSaved,
 }: {
   item: KeywordVolume | null;
   onClose: () => void;
   onResolveMetrics?: (keyword: string) => Promise<void>;
+  onSourceImageSaved?: (keywordId: string, imageUrl: string) => void;
 }) {
   const [metricsLoading, setMetricsLoading] = useState(false);
+  const [manualImageUrl, setManualImageUrl] = useState("");
+  const [manualListingUrl, setManualListingUrl] = useState("");
+  const [manualImageSaving, setManualImageSaving] = useState(false);
+  const [manualImageNotice, setManualImageNotice] = useState("");
+  const [manualImageError, setManualImageError] = useState("");
   const [metricsError, setMetricsError] = useState("");
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
   const chartGradientId = useId();
 
   // Live Stage 0/1 polling may replace the row object or onClose callback.
   // Reset only when the actual keyword changes, not on every refreshed render.
-  useEffect(() => { setHoveredTrendIndex(null); }, [item?.id]);
+  useEffect(() => {
+    setHoveredTrendIndex(null);
+    setManualImageUrl("");
+    setManualListingUrl("");
+    setManualImageNotice("");
+    setManualImageError("");
+  }, [item?.id]);
 
   useEffect(() => {
     if (!item) return;
@@ -380,6 +395,28 @@ export function KeywordDetailModal({
   }, [item, onClose]);
 
   if (!item) return null;
+
+  const marketplaceSources = agentSourceLinks(item).filter(source =>
+    (source.platform === "amazon" || source.platform === "etsy") && source.url);
+  const selectedSource = manualListingUrl || marketplaceSources[0]?.url || "";
+
+  async function saveManualImage() {
+    if (!item || manualImageSaving || !selectedSource || !manualImageUrl.trim()) return;
+    setManualImageSaving(true);
+    setManualImageError("");
+    setManualImageNotice("");
+    try {
+      const saved = await attachKeywordSourceImage(
+        item.id, selectedSource, manualImageUrl.trim(), Boolean(item.source_image_url),
+      );
+      onSourceImageSaved?.(item.id, saved.source_image_url);
+      setManualImageNotice("Đã lưu ảnh nguồn công khai. Ảnh do người dùng cung cấp; nội dung chưa được tự xác thực từ listing.");
+    } catch (error) {
+      setManualImageError(error instanceof Error ? error.message : "Không lưu được URL ảnh nguồn.");
+    } finally {
+      setManualImageSaving(false);
+    }
+  }
 
   const trend = item.trend ?? [];
   const chart = makeDetailChartGeometry(trend);
@@ -445,6 +482,38 @@ export function KeywordDetailModal({
             </div>
           </div>
         </div>
+
+        {marketplaceSources.length > 0 && <section className="rrugc-stage0-manual-source">
+          <div className="rrugc-stage0-manual-source-heading">
+            <Icon name="image"/>
+            <div><strong>Ảnh nguồn Amazon / Etsy</strong>
+              <small>Nhập URL ảnh CDN công khai của đúng listing. CAM kiểm tra link ảnh và giữ nguyên dữ liệu keyword.</small></div>
+          </div>
+          <div className="rrugc-stage0-manual-source-fields">
+            <label>
+              <span>Listing nguồn</span>
+              <select value={selectedSource} onChange={event => setManualListingUrl(event.target.value)}
+                disabled={manualImageSaving}>
+                {marketplaceSources.map(source => <option key={source.url} value={source.url!}>
+                  {platformDisplay(source.platform)} · {source.title || source.url}
+                </option>)}
+              </select>
+            </label>
+            <label>
+              <span>URL ảnh sản phẩm (JPEG / PNG / WebP)</span>
+              <input type="url" value={manualImageUrl}
+                onChange={event => setManualImageUrl(event.target.value)}
+                placeholder="https://i.etsystatic.com/... hoặc https://m.media-amazon.com/..."
+                disabled={manualImageSaving} />
+            </label>
+            <button type="button" className="rrugc-stage0-manual-source-save" onClick={() => void saveManualImage()}
+              disabled={manualImageSaving || !manualImageUrl.trim()}>
+              <Icon name="image"/>{manualImageSaving ? "Đang kiểm tra..." : item.source_image_url ? "Thay ảnh nguồn" : "Lưu ảnh nguồn"}
+            </button>
+          </div>
+          {manualImageError && <p className="rrugc-stage0-manual-source-error" role="alert">{manualImageError}</p>}
+          {manualImageNotice && <p className="rrugc-stage0-manual-source-success" role="status">{manualImageNotice}</p>}
+        </section>}
 
         {agentSourceLinks(item).length > 0 && <section className="rrugc-stage0-evidence" aria-label="Agent discovery evidence">
           <h4>Agent-Reach references <small>Search listing evidence · text not image-verified</small></h4>
@@ -723,6 +792,7 @@ export function KeywordAnalysisTable({
         : tailFilter !== "all" ? tailFilter
           : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
+  const [sourceImageOverrides, setSourceImageOverrides] = useState<Record<string, string>>({});
 
   const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites" | "suggested") => {
     const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
@@ -872,7 +942,10 @@ export function KeywordAnalysisTable({
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={14}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(item => {
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={14}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(originalItem => {
+            const item = sourceImageOverrides[originalItem.id]
+              ? { ...originalItem, source_image_url: sourceImageOverrides[originalItem.id] }
+              : originalItem;
             const feedbackScope: ScoutFeedbackScope = item.source_pin_url ? "both" : "keyword";
             const feedbackStatus = scoutFeedbackForScope(item, feedbackScope);
             const hasFeedback = feedbackStatus !== "neutral";
@@ -945,6 +1018,14 @@ export function KeywordAnalysisTable({
       <label>Rows<select aria-label="Stage 0 rows per page" value={data.page_size} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>
   </section>
-  <KeywordDetailModal item={data.items.find(entry => entry.id === detailItem?.id) || detailItem} onClose={() => setDetailItem(null)} onResolveMetrics={onResolveMetrics} />
+  <KeywordDetailModal
+    item={(() => {
+      const current = data.items.find(entry => entry.id === detailItem?.id) || detailItem;
+      return current && sourceImageOverrides[current.id]
+        ? { ...current, source_image_url: sourceImageOverrides[current.id] } : current;
+    })()}
+    onClose={() => setDetailItem(null)} onResolveMetrics={onResolveMetrics}
+    onSourceImageSaved={(keywordId, imageUrl) => setSourceImageOverrides(previous => ({ ...previous, [keywordId]: imageUrl }))}
+  />
   </>;
 }
