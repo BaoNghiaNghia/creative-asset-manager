@@ -3190,77 +3190,9 @@ def _source_plan_response(
 def _group_source_plan_rows(
     rows: list[RrugcSourcePlanModel],
 ) -> list[list[RrugcSourcePlanModel]]:
-    """Group one embroidery job even while its visual signature is being refreshed.
-
-    Source-plan rows can temporarily lose or drift their embroidery signature
-    during a context-model/version upgrade. Rows that already share the same
-    Scout campaign still represent one embroidery group because they share the
-    same discovery job and references. Group on either exact embroidery
-    signature or shared campaign, including transitive overlaps.
-    """
-
-    if not rows:
-        return []
-
-    parents = list(range(len(rows)))
-
-    def find(index: int) -> int:
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    def union(left: int, right: int) -> None:
-        left_root = find(left)
-        right_root = find(right)
-        if left_root != right_root:
-            parents[right_root] = left_root
-
-    computed_signatures: list[str | None] = []
-    effective_signatures: list[str | None] = []
-    by_signature: dict[str, int] = {}
-    for index, row in enumerate(rows):
-        computed_signature = (
-            embroidery_signature(row.visual_context_json)
-            if isinstance(row.visual_context_json, dict)
-            else None
-        )
-        computed_signature = str(computed_signature or "") or None
-        signature = str(computed_signature or row.embroidery_signature or "") or None
-        computed_signatures.append(computed_signature)
-        effective_signatures.append(signature)
-        if signature:
-            previous = by_signature.setdefault(signature, index)
-            union(index, previous)
-
-    # Campaign membership is a legacy fallback for rows that have not yet
-    # produced a current visual signature. Once both rows have a freshly
-    # computed signature, a stale/shared campaign must never override a
-    # mismatch and merge genuinely different embroidery designs.
-    by_campaign: dict[str, int] = {}
-    for index, row in enumerate(rows):
-        if not row.campaign_id:
-            continue
-        campaign_id = str(row.campaign_id)
-        previous = by_campaign.get(campaign_id)
-        if previous is None:
-            by_campaign[campaign_id] = index
-            continue
-        current_computed = computed_signatures[index]
-        previous_computed = computed_signatures[previous]
-        if (
-            current_computed
-            and previous_computed
-            and current_computed != previous_computed
-        ):
-            continue
-        union(index, previous)
-
-    grouped: dict[int, list[RrugcSourcePlanModel]] = {}
-    for index, row in enumerate(rows):
-        grouped.setdefault(find(index), []).append(row)
-    return list(grouped.values())
-
+    """Canonical embroidery grouping for both Reviews Stage 3 and Stage 4."""
+    from app.modules.realistic_review_ugc.embroidery_groups import group_source_plan_rows
+    return group_source_plan_rows(rows)
 
 @router.get("/source-plans", response_model=SourcePlanPageResponse)
 def get_source_plans(

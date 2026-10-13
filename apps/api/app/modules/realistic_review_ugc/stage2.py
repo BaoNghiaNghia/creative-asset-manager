@@ -38,7 +38,6 @@ from app.modules.realistic_review_ugc.skill_registry import (
     assert_skill_enabled,
     ensure_skill_registry,
 )
-from app.modules.realistic_review_ugc.source_plans import embroidery_signature
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError,
@@ -75,69 +74,37 @@ def _stage2_source_group(
     tenant_id: str,
     plan: RrugcSourcePlanModel,
 ) -> list[RrugcSourcePlanModel]:
-    """Resolve the durable embroidery-group members for Stage 2 history.
+    """Resolve job history against exactly the Stage 3/4 UI group.
 
-    Stage 2 history belongs to the embroidery group, not whichever source plan
-    happens to be selected as the current UI representative. A group member can
-    also be temporarily marked missing during a Drive reconciliation and must
-    keep participating in history/duplicate protection until it comes back.
+    Include temporarily missing members so generated outputs and Pinterest
+    duplicate protection survive Drive reconciliation.
     """
-    computed_signature = (
-        embroidery_signature(plan.visual_context_json)
-        if isinstance(plan.visual_context_json, dict)
-        else None
-    )
-    effective_signature = computed_signature or plan.embroidery_signature
-    candidates = list(
-        session.query(RrugcSourcePlanModel)
-        .filter(
-            RrugcSourcePlanModel.tenant_id == tenant_id,
-            RrugcSourcePlanModel.root_folder_id == plan.root_folder_id,
-        )
-        .order_by(
-            RrugcSourcePlanModel.source_relative_path.asc(),
-            RrugcSourcePlanModel.id.asc(),
-        )
-    )
-    members = [
-        member
-        for member in candidates
-        if member.source_file_id
-        and (
-            (
-                (
-                    (
-                        embroidery_signature(member.visual_context_json)
-                        if isinstance(member.visual_context_json, dict)
-                        else None
-                    )
-                    or member.embroidery_signature
-                )
-                == computed_signature
-            )
-            if computed_signature
-            else (
-                (
-                    bool(effective_signature)
-                    and (
-                        (
-                            embroidery_signature(member.visual_context_json)
-                            if isinstance(member.visual_context_json, dict)
-                            else None
-                        )
-                        or member.embroidery_signature
-                    )
-                    == effective_signature
-                )
-                or (
-                    bool(plan.campaign_id)
-                    and member.campaign_id == plan.campaign_id
-                )
-            )
-        )
-    ]
-    return members or [plan]
+    from app.modules.realistic_review_ugc.embroidery_groups import group_source_plan_rows
 
+    candidates = list(
+        session.scalars(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.tenant_id == tenant_id,
+                RrugcSourcePlanModel.root_folder_id == plan.root_folder_id,
+            ).order_by(
+                RrugcSourcePlanModel.source_relative_path.asc(),
+                RrugcSourcePlanModel.id.asc(),
+            )
+        )
+    )
+    # Stage 3/4 source-plan list excludes the intermediate embroidery_ PNGs
+    # used by the separate Reviews Stage 2 colorway pipeline. Apply the
+    # identical namespace filter before resolving job history.
+    from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
+    if plan.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID:
+        candidates = [
+            member for member in candidates
+            if not member.source_name.casefold().startswith("embroidery_")
+        ]
+    for members in group_source_plan_rows(candidates):
+        if any(member.id == plan.id for member in members):
+            return [member for member in members if member.source_file_id] or [plan]
+    return [plan]
 
 def _require_stage4_storage(settings: Settings) -> None:
     """Never queue doomed jobs while Managed Drive credentials are absent.
