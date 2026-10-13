@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import {
   listStage2Skills,
+  getStage4QueueControl,
+  setStage4QueuePaused,
+  type Stage4QueueControl,
   stage2JobOutputThumbnailUrl,
   stage2JobOutputUrl,
 } from "./api";
@@ -674,6 +677,9 @@ export function Stage2JobTable({
   const [tableLogJobId, setTableLogJobId] = useState<string | null>(null);
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
+  const [queueControl, setQueueControl] = useState<Stage4QueueControl | null>(null);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [queueMessage, setQueueMessage] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [outputReview, setOutputReview] = useState<{
     plan: SourcePlan;
@@ -753,6 +759,40 @@ export function Stage2JobTable({
       return changed ? next : current;
     });
   }, [stage2Plans, completedCandidates]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = () => {
+      if (document.hidden || controller.signal.aborted) return;
+      void getStage4QueueControl(controller.signal)
+        .then(setQueueControl)
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  async function toggleStage4Queue() {
+    if (queueBusy || !queueControl) return;
+    const shouldPause = !queueControl.paused;
+    setQueueBusy(true);
+    setQueueMessage("");
+    try {
+      const result = await setStage4QueuePaused(shouldPause);
+      setQueueControl(result);
+      setQueueMessage(shouldPause
+        ? "Stage 4 paused. Queued jobs are preserved; already-running image requests will finish safely."
+        : "Stage 4 resumed. Queued generation jobs can run again.");
+    } catch (reason) {
+      setQueueMessage(reason instanceof Error ? reason.message : "Could not update Stage 4 queue.");
+    } finally {
+      setQueueBusy(false);
+    }
+  }
 
   function selectedSkill(planId: string) {
     const requestedKey = skillKeyByPlan[planId];
@@ -856,12 +896,29 @@ export function Stage2JobTable({
 
     <ActionMessageToast message={message} />
     <ActionMessageToast message={skillMessage} tone="info" />
+    <ActionMessageToast message={queueMessage} tone="info" />
 
     <div className="rrugc-source-plan-kpis rrugc-stage2-kpis">
       <article><span>Embroidery groups</span><strong>{overview.embroidery_groups}</strong></article>
       <article><span>Source images</span><strong>{overview.source_images}</strong></article>
       <article><span>Drive-ready refs</span><strong>{overview.stage2_drive_ready_refs}</strong></article>
-      <article><span>Active jobs</span><strong>{overview.stage2_active_jobs}</strong></article>
+      <article className="rrugc-stage4-active-jobs">
+        <span>Active jobs</span>
+        <div className="rrugc-stage4-active-controls">
+          <strong>{overview.stage2_active_jobs}</strong>
+          <button type="button" className={"rrugc-stage4-pause-button" + (queueControl?.paused ? " is-paused" : "")}
+            disabled={!queueControl || queueBusy}
+            aria-label={queueControl?.paused ? "Resume Stage 4 active jobs" : "Pause Stage 4 active jobs"}
+            aria-pressed={Boolean(queueControl?.paused)}
+            onClick={() => void toggleStage4Queue()}>
+            <RrugcActionIcon name={queueControl?.paused ? "play" : "pause"} />
+            {queueBusy ? "Updating…" : queueControl?.paused ? "Resume" : "Pause"}
+          </button>
+        </div>
+        {queueControl?.paused && <small role="status" className="rrugc-stage4-pause-hint">
+          Paused · {queueControl.queued} queued · {queueControl.running} finishing
+        </small>}
+      </article>
     </div>
 
     <div className="rrugc-stage-search-toolbar rrugc-stage3-search-toolbar">

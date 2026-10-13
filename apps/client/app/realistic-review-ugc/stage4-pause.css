@@ -1,0 +1,43 @@
+/* Durable Stage 4 job-control action in the Active jobs KPI. */
+.rrugc-stage4-active-jobs .rrugc-stage4-active-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rrugc-stage4-pause-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  min-height: 32px;
+  border: 1px solid var(--rrugc-border, #d4d8df);
+  border-radius: 8px;
+  color: #8e2b2b;
+  background: #fff6f4;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.rrugc-stage4-pause-button .rrugc-action-icon {
+  width: 16px;
+  height: 16px;
+}
+.rrugc-stage4-pause-button:hover:not(:disabled) { background: #ffe8e4; border-color: #b65353; }
+.rrugc-stage4-pause-button:focus-visible { outline: 2px solid #3874cd; outline-offset: 2px; }
+.rrugc-stage4-pause-button.is-paused { color: #1d6747; background: #ebfbf1; }
+.rrugc-stage4-pause-button.is-paused:hover:not(:disabled) { background: #d8f4e3; }
+.rrugc-stage4-pause-button:disabled { opacity: .5; cursor: not-allowed; }
+.rrugc-stage4-pause-hint {
+  display: block;
+  color: var(--rrugc-muted, #64748b);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+@media (max-width: 760px) {
+  .rrugc-stage4-pause-button { min-height: 36px; padding: 7px 9px; }
+}

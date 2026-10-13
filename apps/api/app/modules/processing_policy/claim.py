@@ -13,6 +13,7 @@ from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.assets.model import AssetModel
 from app.modules.pipeline.model import AssetPipelineModel
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.model import RrugcStage4QueueControlModel
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.ai_governance.model import AiRuntimeControlModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel, TenantProviderPolicyModel
@@ -230,7 +231,7 @@ class TenantAwareJobClaimer:
                 values["payload_json"] = payload
             claimed = self.session.scalars(
                 update(ProcessingJobModel)
-                .where(ProcessingJobModel.id == candidate.id, self._base_eligibility(now))
+                .where(ProcessingJobModel.id == candidate.id, self._base_eligibility(now), self._stage4_available())
                 .values(**values)
                 .returning(ProcessingJobModel)
                 .execution_options(
@@ -609,6 +610,7 @@ class TenantAwareJobClaimer:
             ProcessingJobModel.job_type.in_(allowed_job_types),
             self._worker_role_available(worker_role),
             self._runtime_control_available(),
+            self._stage4_available(),
             self._managed_storage_capacity_available(),
             exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
             or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
@@ -812,6 +814,14 @@ class TenantAwareJobClaimer:
             already_reserved,
             used_bytes < critical_bytes,
         )
+
+    @staticmethod
+    def _stage4_available():
+        paused = exists(select(RrugcStage4QueueControlModel.tenant_id).where(
+            RrugcStage4QueueControlModel.tenant_id == ProcessingJobModel.tenant_id,
+            RrugcStage4QueueControlModel.paused.is_(True),
+        ))
+        return or_(ProcessingJobModel.job_type != "rrugc_stage2_generate", ~paused)
 
     @staticmethod
     def _runtime_control_available():

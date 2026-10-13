@@ -729,6 +729,10 @@ class RrugcStage2GenerateJobHandler:
         if context.is_cancelled:
             return JobHandlerResult.cancelled()
 
+        held = self._defer_if_paused(context, job_id)
+        if held is not None:
+            return held
+
         settings = self.settings or get_settings()
         if not (
             settings.PROCESSING_JOBS_ENABLED
@@ -936,6 +940,13 @@ class RrugcStage2GenerateJobHandler:
                 "No selected Pinterest reference could be loaded.",
             )
 
+        # A pause requested while Drive inputs were loading must stop before
+        # dispatching a costly image-generation request. Existing outputs remain
+        # untouched; this is a defer, not a cancellation or failed retry.
+        held = self._defer_if_paused(context, job_id)
+        if held is not None:
+            return held
+
         runner = CodexImageGenRunner(
             CodexImageRunnerConfig(
                 binary=str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex"),
@@ -1053,6 +1064,24 @@ class RrugcStage2GenerateJobHandler:
             },
         )
         return JobHandlerResult.completed()
+
+    @staticmethod
+    def _defer_if_paused(
+        context: JobHandlerContext, job_id: str,
+    ) -> DeferredJobOutcome | None:
+        from app.modules.realistic_review_ugc.stage4_queue_control import stage4_is_paused
+
+        with context.dependencies.session_factory() as session:
+            if not stage4_is_paused(session, context.job.tenant_id):
+                return None
+            row = RrugcRepository(session).lock_stage2_job(context.job.tenant_id, job_id)
+            if row is not None and row.status == "running":
+                row.status = "queued"
+                session.commit()
+        return DeferredJobOutcome(
+            "stage4_paused", "Stage 4 generation paused by an operator.",
+            datetime.now(timezone.utc) + timedelta(seconds=60),
+        )
 
     async def _open_prepared(
         self,

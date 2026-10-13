@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
  */
 export type RrugcActionIconName =
   | "scan" | "refresh" | "skills" | "sparkles" | "play"
-  | "stop" | "select-all" | "deselect" | "chevron-left" | "chevron-right" | "chevrons-left" | "chevrons-right"
+  | "stop" | "pause" | "select-all" | "deselect" | "chevron-left" | "chevron-right" | "chevrons-left" | "chevrons-right"
   | "folder" | "sort" | "filter" | "check" | "logs" | "trash" | "download" | "file";
 
 const paths: Record<RrugcActionIconName, ReactNode> = {
@@ -15,6 +15,7 @@ const paths: Record<RrugcActionIconName, ReactNode> = {
   sparkles: <><path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2ZM19 17v5m-2.5-2.5h5" /></>,
   play: <><circle cx="12" cy="12" r="9" /><path d="m10 8 6 4-6 4V8Z" /></>,
   stop: <><circle cx="12" cy="12" r="9" /><rect x="9" y="9" width="6" height="6" rx=".8" /></>,
+  pause: <><circle cx="12" cy="12" r="9" /><path d="M10 8v8m4-8v8" /></>,
   "select-all": <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="m7 12 3 3 7-7" /></>,
   deselect: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="m8 9 8 6m0-6-8 6" /></>,
   "chevron-left": <path d="m15 5-7 7 7 7" />,

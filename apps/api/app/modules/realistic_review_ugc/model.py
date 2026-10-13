@@ -25,6 +25,19 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class RrugcStage4QueueControlModel(Base):
+    """Tenant-scoped durable pause switch for Stage 4 image generation."""
+
+    __tablename__ = "rrugc_stage4_queue_controls"
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
 class RrugcCampaignModel(Base):
     __tablename__ = "rrugc_campaigns"
     __table_args__ = (

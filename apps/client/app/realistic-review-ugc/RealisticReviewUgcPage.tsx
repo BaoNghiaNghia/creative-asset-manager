@@ -49,6 +49,7 @@ import { currentRrugcStage, replaceRrugcStageInUrl, workflowGroupForStage } from
 import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview, Stage2Job, Stage2SkillSelection, Stage3ReviewGroupList } from "./types";
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
+import "./stage4-pause.css";
 
 const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   items: [],

@@ -797,6 +797,16 @@ export const createStage2Job = (
     },
   );
 
+export type Stage4QueueControl = { paused: boolean; queued: number; running: number };
+
+export const getStage4QueueControl = (signal?: AbortSignal) =>
+  request<Stage4QueueControl>("/api/v1/realistic-review-ugc/stage4/queue-control", { signal });
+
+export const setStage4QueuePaused = (paused: boolean) =>
+  request<Stage4QueueControl>("/api/v1/realistic-review-ugc/stage4/queue-control", {
+    method: "POST", body: JSON.stringify({ paused }),
+  });
+
 export const regenerateStage4Job = (jobId: string) =>
   request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate", { method: "POST" });
 

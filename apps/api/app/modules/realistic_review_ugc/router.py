@@ -6507,6 +6507,38 @@ def analyze_stage3_review_groups(
     )
 
 
+class Stage4QueueControlResponse(BaseModel):
+    paused: bool
+    queued: int
+    running: int
+
+
+class Stage4QueueControlRequest(BaseModel):
+    paused: bool
+
+
+@router.get("/stage4/queue-control", response_model=Stage4QueueControlResponse)
+def get_stage4_queue_control(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.stage4_queue_control import stage4_queue_status
+    return stage4_queue_status(session, principal.active_tenant_id)
+
+
+@router.post("/stage4/queue-control", response_model=Stage4QueueControlResponse)
+def update_stage4_queue_control(
+    request: Stage4QueueControlRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.stage4_queue_control import set_stage4_paused
+    return set_stage4_paused(
+        session, tenant_id=principal.active_tenant_id,
+        user_id=principal.user_id, paused=request.paused,
+    )
+
+
 @router.post("/stage4/jobs/{job_id}/regenerate", response_model=Stage2JobResponse, status_code=202)
 def regenerate_stage4_output(
     job_id: str,
