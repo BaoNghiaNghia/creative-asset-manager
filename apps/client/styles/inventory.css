@@ -8,6 +8,24 @@
 .inventory-route-main .inventory-shell:not(.inventory-shell--embedded)>header,
 .inventory-route-main .inventory-shell:not(.inventory-shell--embedded)>.inventory-nav{display:none}
 @media(max-width:1024px){.inventory-desktop-sidebar{display:none}.inventory-route-main{width:100%;margin-left:0}}
+/* Shared AI Operations layout language for every Inventory destination. */
+.inventory-sidebar-brand{display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.3}
+.inventory-sidebar-brand img{width:34px;height:34px;object-fit:contain;flex:none}
+.inventory-desktop-sidebar{width:248px;padding:22px 16px}
+.inventory-route-main{margin-left:248px;width:calc(100% - 248px);background:#f5f7fb;min-height:100vh}
+.inventory-global-header{box-sizing:border-box;display:flex;min-height:103px;padding:20px 30px;border-bottom:1px solid #e4e9f0;background:#fff}
+.inventory-global-tabs{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:0 25px;border-bottom:1px solid #dfe5ed;background:#fff;scrollbar-width:thin}
+.inventory-global-tabs a{display:inline-flex;align-items:center;gap:7px;position:relative;flex:none;min-height:46px;padding:8px 12px;box-sizing:border-box;text-decoration:none;color:#69788e;font-size:12px;font-weight:650;white-space:nowrap}
+.inventory-global-tabs a[aria-current=page]{color:#2854b9;background:#eff3ff}
+.inventory-global-tabs a[aria-current=page]:after{position:absolute;content:"";bottom:0;left:8px;right:8px;height:3px;border-radius:3px 3px 0 0;background:#3568e8}
+.inventory-section-icon{width:19px;height:19px;flex:0 0 19px}
+.inventory-route-main .inventory-workspace>.workspace-page-header{display:none}
+.inventory-route-main .inventory-shell:not(.inventory-shell--embedded)>.inventory-nav{display:none}
+.inventory-route-main .inventory-content{padding:22px 28px 40px}
+.inventory-route-main .inventory-workspace-content{padding:22px 28px 40px}
+.inventory-desktop-sidebar .workspace-navigation .workspace-nav-submenu a{font-size:12px}
+@media(max-width:1024px){.inventory-route-main{width:100%;margin:0}.inventory-global-header{padding:16px 20px}.inventory-global-tabs{padding:0 12px}}
+@media(max-width:680px){.inventory-global-header{min-height:auto;padding:16px}.inventory-global-tabs a{min-height:44px;font-size:11px}.inventory-route-main .inventory-content,.inventory-route-main .inventory-workspace-content{padding:14px}}
 /* Dedicated Inventory workspace, formerly an AI Operations tab. */
 .inventory-workspace{min-height:100vh;min-width:0;background:#f7f9fc;color:#172033}
 .inventory-workspace-content{box-sizing:border-box;min-width:0;padding:24px clamp(16px,3.2vw,46px) 36px}

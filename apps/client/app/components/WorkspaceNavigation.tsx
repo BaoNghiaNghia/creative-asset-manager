@@ -15,7 +15,24 @@ import {
   type AiOpsTab,
 } from "../ai-operations/navigation";
 
-const INVENTORY_SECTIONS = [{ href: "/inventory/pipeline", label: "Tiến trình" }, { href: "/inventory/knowledge", label: "Kiến thức" }, { href: "/inventory/materials", label: "Nguyên vật liệu" }, { href: "/inventory/prompts", label: "Gemini Prompts" }, { href: "/inventory/settings", label: "Cấu hình" }] as const;
+const INVENTORY_SECTIONS = [
+  { href: "/inventory/pipeline", label: "Tiến trình", icon: "pipeline" },
+  { href: "/inventory/knowledge", label: "Kiến thức", icon: "knowledge" },
+  { href: "/inventory/materials", label: "Nguyên vật liệu", icon: "materials" },
+  { href: "/inventory/prompts", label: "Gemini Prompts", icon: "prompts" },
+  { href: "/inventory/settings", label: "Cấu hình", icon: "settings" },
+] as const;
+type InventorySectionIcon = typeof INVENTORY_SECTIONS[number]["icon"];
+export function InventoryNavIcon({ name }: { name: InventorySectionIcon }) {
+  const paths: Record<InventorySectionIcon, string[]> = {
+    pipeline: ["M3 12h4l3-7 4 14 3-7h4", "M4 4h4", "M16 20h4"],
+    knowledge: ["M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Z", "M12 6v14", "M6 9h3", "M15 9h3"],
+    materials: ["m12 3 9 5-9 5-9-5 9-5Z", "m3 12 9 5 9-5", "m3 16 9 5 9-5"],
+    prompts: ["M5 5h14v11H9l-4 4V5Z", "m12 7 1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z"],
+    settings: ["M4 6h16", "M4 12h16", "M4 18h16", "M8 3v6", "M16 9v6", "M10 15v6"],
+  };
+  return <svg className="workspace-nav-submenu-icon inventory-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name].map((d,i) => <path key={i} d={d}/>)}</svg>;
+}
 
 export type WorkspaceRoute = "assets" | "inventory" | "operations" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
 
@@ -124,7 +141,7 @@ export function WorkspaceNavigation({
         {INVENTORY_SECTIONS.map(section => {
           const selected = active === "inventory" && typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === section.href;
           return <a key={section.href} href={section.href} className={selected ? "active" : undefined} aria-current={selected ? "location" : undefined}>
-            <svg className="workspace-nav-submenu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <InventoryNavIcon name={section.icon} />
             <span>{section.label}</span>
           </a>;
         })}
