@@ -4865,11 +4865,11 @@ def select_stage1_design_for_products_stage2(
         RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
         RrugcKeywordImageJobModel.id == job_id,
     ))
-    if job is None or job.status != "completed" or _stage1_replacement_pending(session, job):
-        raise HTTPException(status_code=409, detail={
-            "code": "products_stage1_not_completed",
-            "message": "Only completed Stage 1 designs can be selected.",
-        })
+    if job is None:
+        raise HTTPException(status_code=404, detail="Stage 1 job not found")
+    # Selection is per persisted PNG, not per generation attempt. Retry can
+    # fail or run again after the file has already been uploaded to Drive.
+    # A saved design remains selectable regardless of job.status.
     version_row = session.scalar(select(RrugcImageOutputVersionModel).where(
         RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
         RrugcImageOutputVersionModel.stage == "stage1",
@@ -4929,8 +4929,9 @@ def list_generation_output_versions(
         model.tenant_id == principal.active_tenant_id, model.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Generation job not found")
-    rows = ([] if stage == "stage1" and _stage1_replacement_pending(session, job)
-            else output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job))
+    # Keep previously uploaded designs visible while a new attempt runs.
+    # They are eligible for Products Stage 2 even if the retry never completes.
+    rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
     selected_products_sources = set()
     if stage == "stage1":
         from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
@@ -4981,8 +4982,6 @@ async def download_generation_outputs_archive(
         model.tenant_id == principal.active_tenant_id, model.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Generation job not found")
-    if stage == "stage1" and _stage1_replacement_pending(session, job):
-        raise HTTPException(status_code=409, detail="Previous images are being replaced")
     rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
     title = getattr(job, "keyword_text", None) or getattr(job, "title", None) or "outputs"
     filename = archive_filename(stage, title)
@@ -5029,8 +5028,6 @@ async def get_generation_output_version(
         model.tenant_id == principal.active_tenant_id, model.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Generation job not found")
-    if stage == "stage1" and _stage1_replacement_pending(session, job):
-        raise HTTPException(status_code=404, detail="Previous Stage 1 images are being replaced")
     match = next((r for r in output_versions(
         session, tenant_id=principal.active_tenant_id, stage=stage, job=job
     ) if r["version"] == version), None)
@@ -5798,7 +5795,7 @@ def get_keyword_image_job_status(
         "search_volume": 0, "status": effective_status(row, processing),
         "job_id": row.id, "skill_name": row.skill_name,
         "skill_version": row.skill_version, "retry_count": row.retry_count,
-        "saved_output_count": 0 if replacing else int(session.scalar(select(func.count()).select_from(RrugcImageOutputVersionModel).where(
+        "saved_output_count": int(session.scalar(select(func.count()).select_from(RrugcImageOutputVersionModel).where(
             RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
             RrugcImageOutputVersionModel.stage == "stage1",
             RrugcImageOutputVersionModel.job_id == row.id,

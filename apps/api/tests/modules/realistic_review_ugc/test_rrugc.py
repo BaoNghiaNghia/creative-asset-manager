@@ -2590,6 +2590,117 @@ def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database
         )).status == "missing"
 
 
+@pytest.mark.parametrize("state,replace_pending", [
+    ("failed", False), ("queued", False), ("running", False),
+    ("queued", True), ("running", True), ("completed", False),
+])
+def test_products_stage2_can_star_saved_png_regardless_of_retry_state(api, database, state, replace_pending):
+    from uuid import uuid4
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+
+    keyword_id, job_id, processing_id = str(uuid4()), str(uuid4()), str(uuid4())
+    with database() as session:
+        session.add(RrugcKeywordVolumeModel(
+            id=keyword_id, tenant_id="tenant-a", keyword="Retry Does Not Block",
+            keyword_normalized="retry does not block", provider="test", picked=True,
+        ))
+        if replace_pending:
+            session.add(ProcessingJobModel(
+                id=processing_id, tenant_id="tenant-a",
+                job_type="rrugc_keyword_image_generate", entity_type="rrugc_keyword_image",
+                entity_id=job_id, idempotency_key="retry-"+processing_id,
+                status="pending" if state == "queued" else "processing",
+                payload_json={"replace_outputs": True},
+            ))
+        session.add(RrugcKeywordImageJobModel(
+            id=job_id, tenant_id="tenant-a", keyword_id=keyword_id,
+            keyword_text="Retry Does Not Block", skill_source="local",
+            skill_name="test", prompt_text="test", status=state,
+            processing_job_id=processing_id if replace_pending else None,
+            created_by_user_id="user-a",
+        ))
+        session.add(RrugcImageOutputVersionModel(
+            tenant_id="tenant-a", stage="stage1", job_id=job_id, version=6,
+            remote_file_id="saved-design-retry-6", output_name="design_06.png",
+            content_type="image/png", width=1200, height=1000,
+        ))
+        session.commit()
+
+    base = "/api/v1/realistic-review-ugc"
+    gallery = base + f"/generation-jobs/stage1/{job_id}/outputs"
+    selected = base + f"/keyword-images/jobs/{job_id}/versions/6/products-stage2"
+    history = api.get(gallery)
+    assert history.status_code == 200
+    assert len(history.json()["versions"]) == 1
+    assert api.post(selected + "?selected=true").status_code == 200
+    source = api.get(base + "/source-plans?colorway_sources=true&colorway_workflow=products")
+    assert source.status_code == 200
+    assert source.json()["items"][0]["source_file_id"] == "saved-design-retry-6"
+    assert source.json()["items"][0]["root_folder_id"] == PRODUCTS_STAGE1_SELECTED_ROOT
+    assert api.get(gallery).json()["versions"][0]["selected_for_products_stage2"] is True
+    assert api.post(selected + "?selected=false").status_code == 200
+    assert api.get(gallery).json()["versions"][0]["selected_for_products_stage2"] is False
+
+    # Missing and non-PNG versions must still be rejected, even in running jobs.
+    assert api.post(base + f"/keyword-images/jobs/{job_id}/versions/99/products-stage2?selected=true").status_code == 404
+
+
+def test_products_stage2_starred_output_survives_successful_stage1_retry_cleanup(api, database):
+    from uuid import uuid4
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+    keyword_id, job_id = str(uuid4()), str(uuid4())
+    current_attempt = str(uuid4())
+    with database() as session:
+        session.add(RrugcKeywordVolumeModel(
+            id=keyword_id, tenant_id="tenant-a", keyword="Keep Selected Design",
+            keyword_normalized="keep selected design", provider="test",
+        ))
+        session.add(RrugcKeywordImageJobModel(
+            id=job_id, tenant_id="tenant-a", keyword_id=keyword_id,
+            keyword_text="Keep Selected Design", skill_source="local", skill_name="test",
+            prompt_text="test", status="completed",
+            output_remote_file_id="replacement-design-6", created_by_user_id="user-a",
+        ))
+        for version in range(1, 7):
+            session.add(RrugcImageOutputVersionModel(
+                tenant_id="tenant-a", stage="stage1", job_id=job_id,
+                version=version+2, processing_job_id=current_attempt,
+                remote_file_id="replacement-design-"+str(version),
+                output_name=f"design_{version:02d}.png", content_type="image/png",
+            ))
+        for version in (1,2):
+            session.add(RrugcImageOutputVersionModel(
+                tenant_id="tenant-a", stage="stage1", job_id=job_id,
+                version=version, processing_job_id=None,
+                remote_file_id="old-design-"+str(version),
+                output_name=f"old_{version:02d}.png", content_type="image/png",
+            ))
+        session.commit()
+    url = f"/api/v1/realistic-review-ugc/keyword-images/jobs/{job_id}/versions/1/products-stage2?selected=true"
+    assert api.post(url).status_code == 200
+
+    deleted = []
+    async def delete_asset(request):
+        deleted.append(request.remote_file_id)
+    context = SimpleNamespace(
+        job=SimpleNamespace(tenant_id="tenant-a", entity_id=job_id),
+        dependencies=SimpleNamespace(session_factory=database),
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    count = asyncio.run(KeywordImageGenerateHandler()._cleanup_replaced_stage1_outputs(
+        context, SimpleNamespace(delete_asset=delete_asset),
+        active_processing_id=current_attempt,
+    ))
+    assert count == 1
+    assert deleted == ["old-design-2"]
+    with database() as session:
+        assert session.scalar(select(RrugcImageOutputVersionModel).where(
+            RrugcImageOutputVersionModel.job_id == job_id,
+            RrugcImageOutputVersionModel.remote_file_id == "old-design-1",
+        )) is not None
+    assert api.get("/api/v1/realistic-review-ugc/generation-jobs/stage1/"+job_id+"/outputs").json()["versions"][-1]["selected_for_products_stage2"] is True
+
+
 def test_stage4_completion_feed_bootstrap_catches_up_and_is_tenant_scoped(api, database):
     from urllib.parse import quote
     from uuid import uuid4

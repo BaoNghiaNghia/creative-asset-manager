@@ -525,7 +525,7 @@ class KeywordImageService:
                 "next_retry_at": (processing.next_attempt_at.isoformat()
                                   if processing and processing.status in ("pending", "retry")
                                   and job and int(job.retry_count or 0) > 0 else None),
-                "saved_output_count": int(saved_counts.get(job.id, 0)) if job and not replacing else 0,
+                "saved_output_count": int(saved_counts.get(job.id, 0)) if job else 0,
                 "attempt_count": processing.attempt_count if processing else 0,
                 "max_attempts": processing.max_attempts if processing else STAGE1_MAX_ATTEMPTS,
                 "upload_recovery_available": bool(
@@ -685,6 +685,21 @@ class KeywordImageGenerateHandler:
                 ).order_by(RrugcImageOutputVersionModel.version.asc())
             ))
         for version_id, remote_file_id in previous:
+            # User-starred Stage 1 PNGs are now durable Products Stage 2
+            # sources. A successful retry must NOT invalidate their Drive IDs.
+            # Query for every file, not just once at the start, because users
+            # may mark an existing design during a running retry.
+            with context.dependencies.session_factory() as session:
+                from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+                from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
+                selected = session.scalar(select(RrugcSourcePlanModel.id).where(
+                    RrugcSourcePlanModel.tenant_id == tenant_id,
+                    RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+                    RrugcSourcePlanModel.source_file_id == remote_file_id,
+                    RrugcSourcePlanModel.status != "missing",
+                ).limit(1))
+            if selected:
+                continue
             # Do not delete a shared or accidentally repeated Drive asset that
             # is still referenced by an active version.
             if remote_file_id in {row.remote_file_id for row in active}:

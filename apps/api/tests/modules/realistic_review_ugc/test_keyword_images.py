@@ -12,6 +12,7 @@ from app.modules.realistic_review_ugc.keyword_images import (
 )
 from app.modules.realistic_review_ugc.model import (
     RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
+    RrugcSourcePlanModel,
 )
 from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig
 
@@ -19,7 +20,7 @@ from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerCo
 @pytest.fixture()
 def db():
     engine = create_engine("sqlite://")
-    for table in (RrugcKeywordVolumeModel.__table__, RrugcKeywordImageJobModel.__table__,
+    for table in (RrugcSourcePlanModel.__table__, RrugcKeywordVolumeModel.__table__, RrugcKeywordImageJobModel.__table__,
                   RrugcImageOutputVersionModel.__table__,
                   ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__):
         table.create(engine)
