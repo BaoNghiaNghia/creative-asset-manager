@@ -4,6 +4,7 @@ import App from "./App";
 import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
+import { WorkspaceNavigation } from "./components/WorkspaceNavigation";
 import type { WorkspaceRoute } from "./components/WorkspaceNavigation";
 
 const AccessManagementPage = lazy(() => import("./access-management/AccessManagementPage").then(module => ({ default: module.AccessManagementPage })));
@@ -97,9 +98,9 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}<Suspense fallback={<CenteredLoadingState
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{route === "inventory" ? <aside className="inventory-desktop-sidebar" aria-label="Inventory workspace sidebar"><a className="inventory-sidebar-brand" href="/">Creative assets <small>Operations console</small></a><WorkspaceNavigation active="inventory" /></aside> : null}<div className={route === "inventory" ? "inventory-route-main" : "app-route-content"}><Suspense fallback={<CenteredLoadingState
     kind="application"
     title="Loading application…"
     detail="Preparing the workspace and interface."
-  />}>{page}</Suspense><DesktopUpdateNotice /></>;
+  />}>{page}</Suspense></div><DesktopUpdateNotice /></>;
 }
