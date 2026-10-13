@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import re
 import unicodedata
+from uuid import UUID
 from io import BytesIO, StringIO
 from ipaddress import ip_address
 from urllib.parse import urlsplit
@@ -20,6 +21,36 @@ HEADERS = (
     "photo_url", "verified_purchase",
 )
 PREFIX = "AI-generated review concept — not a real customer testimonial. "
+PUBLIC_PHOTO_ORIGIN = "https://creative-assets.ddns.net"
+PUBLIC_PHOTO_PATH = "/api/v1/realistic-review-ugc/stage5/public-photo/"
+PUBLIC_PHOTO_ROUTE = re.compile(
+    r"^/api/v1/realistic-review-ugc/stage5/public-photo/"
+    r"([0-9a-fA-F-]{36})\.(png|jpg)$"
+)
+
+
+def loox_original_photo_url(job_id: str, mime_type: str | None) -> str:
+    """Public, unguessable UUID URL backed by the original Stage 4 Drive file.
+
+    Access to the image is revocable by hiding its Stage 5 concept. No Drive
+    sharing permissions, temporary thumbnails, or signed query parameters.
+    """
+    try:
+        token = str(UUID(str(job_id)))
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    extension = "jpg" if str(mime_type or "").lower() in {"image/jpeg", "image/jpg"} else "png"
+    return f"{PUBLIC_PHOTO_ORIGIN}{PUBLIC_PHOTO_PATH}{token}.{extension}"
+
+
+def clean_concept_copy(value: str | None, *, author: bool = False) -> str:
+    """Remove historical UI/export labels from internal draft text only."""
+    text = str(value or "").strip()
+    if author:
+        return re.sub(r"^(?:AI\s+concept\s*:\s*)+", "", text, flags=re.IGNORECASE).strip()
+    while text.casefold().startswith(PREFIX.casefold()):
+        text = text[len(PREFIX):].strip()
+    return text
 
 
 def shopify_handle_from_folder(folder: str) -> str:
@@ -44,7 +75,9 @@ def loox_public_photo_url(candidate: str | None) -> str:
             return ""
         if parts.query or parts.fragment or not parts.path.lower().endswith((".jpg", ".jpeg", ".png")):
             return ""
-        if host in {"localhost", "creative-assets.ddns.net"} or host.endswith(
+        if host == "creative-assets.ddns.net" and not PUBLIC_PHOTO_ROUTE.fullmatch(parts.path):
+            return ""
+        if host == "localhost" or host.endswith(
             (".localhost", ".local", ".internal", ".google.com", ".googleusercontent.com")
         ):
             return ""
@@ -103,6 +136,19 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
              '<cols>' + ''.join(f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>'
                for i, w in enumerate((44, 10, 23, 18, 70, 22, 55, 20), 1)) +
              '</cols><sheetData>' + ''.join(sheet_rows) + '</sheetData></worksheet>')
+    provenance = (
+        "AI-GENERATED CONCEPTS ONLY — not real customer reviews or verified purchases.",
+        "Review author names and copy are synthetic drafts, not customer testimonials.",
+        "Customer emails and verified_purchase are blank until actual order proof exists.",
+        "Only publish confirmed customer submissions with documented consent.",
+        "Public photo links expose original AI-generated images while concepts are ready.",
+    )
+    about = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+             '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+             '<sheetData>' + ''.join(
+                 f'<row r="{i}">{_cell(label, f"A{i}")}</row>'
+                 for i, label in enumerate(provenance, 1)
+             ) + '</sheetData></worksheet>')
     memory = BytesIO()
     with ZipFile(memory, "w", compression=ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml",
@@ -112,6 +158,7 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
             '<Default Extension="xml" ContentType="application/xml"/>'
             '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
             '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
             '</Types>')
         archive.writestr("_rels/.rels",
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -122,11 +169,14 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
             ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            '<sheets><sheet name="in" sheetId="1" r:id="rId1"/></sheets></workbook>')
+            '<sheets><sheet name="in" sheetId="1" r:id="rId1"/>'
+            '<sheet name="About AI concepts" sheetId="2" r:id="rId2"/></sheets></workbook>')
         archive.writestr("xl/_rels/workbook.xml.rels",
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
             '</Relationships>')
         archive.writestr("xl/worksheets/sheet1.xml", sheet)
+        archive.writestr("xl/worksheets/sheet2.xml", about)
     return memory.getvalue()

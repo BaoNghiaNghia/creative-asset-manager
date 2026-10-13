@@ -2642,7 +2642,8 @@ def test_stage4_completion_feed_bootstrap_catches_up_and_is_tenant_scoped(api, d
 
 def test_loox_file_safety_and_shopify_slug_normalization():
     from app.modules.realistic_review_ugc.loox_review_export import (
-        shopify_handle_from_folder, loox_public_photo_url, build_loox_csv,
+        shopify_handle_from_folder, loox_public_photo_url, loox_original_photo_url,
+        clean_concept_copy, build_loox_csv,
     )
     import csv
     from io import StringIO
@@ -2650,6 +2651,14 @@ def test_loox_file_safety_and_shopify_slug_normalization():
     assert shopify_handle_from_folder("SIDELINE Social Club hat") == "sideline-social-club-hat"
     assert shopify_handle_from_folder("custom-hat-handle") == "custom-hat-handle"
     assert loox_public_photo_url("https://cdn.example.org/review.png") == "https://cdn.example.org/review.png"
+    uuid_sample = "10000000-0000-4000-8000-000000000001"
+    photo_url = loox_original_photo_url(uuid_sample, "image/webp")
+    assert photo_url.endswith(f"/{uuid_sample}.png")
+    assert loox_public_photo_url(photo_url) == photo_url
+    assert loox_original_photo_url(uuid_sample, "image/jpeg").endswith(".jpg")
+    assert loox_original_photo_url("invalid", "image/png") == ""
+    assert clean_concept_copy("AI concept: Rachel M.", author=True) == "Rachel M."
+    assert clean_concept_copy("AI-generated review concept — not a real customer testimonial. Lovely") == "Lovely"
     for invalid in (
         "https://creative-assets.ddns.net/api/v1/realistic-review-ugc/output/1.png",
         "https://drive.google.com/uc/123.png",
@@ -2670,7 +2679,7 @@ def test_loox_file_safety_and_shopify_slug_normalization():
     assert data[1][7] == ""
 
 
-def test_stage5_review_hide_and_full_loox_export(api, database):
+def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     from zipfile import ZipFile
     from xml.etree import ElementTree
 
@@ -2766,15 +2775,56 @@ def test_stage5_review_hide_and_full_loox_export(api, database):
     ]
     assert csv_record["product_handle"] == "custom-hat-handle"
     assert csv_record["rating"] == "5"
+    # Loox import must identify synthetic concepts, never impersonate customers.
+    assert csv_record["author"] == "Synthetic Tester 1"
     assert csv_record["body"].startswith(PREFIX)
+    assert csv_record["email"] == ""  # No actual customer record exists.
     assert csv_record["created_at"] == now.date().isoformat()
-    assert csv_record["photo_url"] == "https://cdn.example.org/review-1.png"
+    assert csv_record["photo_url"].startswith(
+        "https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/"
+    )
+    assert csv_record["photo_url"].endswith(".png")
     assert csv_record["verified_purchase"] == ""
+    assert response.headers["X-CAM-Review-Origin"] == "AI-generated-concepts-not-customer-testimonials"
+
+    # No authentication/Drive public permissions are necessary for the stable
+    # public export link. Only ready Stage 5 concepts are reachable, and bytes
+    # come from the original completed Stage 4 source.
+    from app.domain.providers.contracts import StoredAssetReadStream
+    from app.modules.realistic_review_ugc import router as rrugc_router_module
+    accessed = []
+    class FakeOriginals:
+        async def open_asset(self, resource):
+            accessed.append(resource.remote_file_id)
+            async def chunks():
+                yield b"\\x89PNG\\r\\n\\x1a\\nfull-resolution"
+            async def close():
+                return None
+            return StoredAssetReadStream(
+                body=chunks(), close=close, content_type="image/png",
+            )
+    monkeypatch.setattr(
+        rrugc_router_module, "build_managed_storage_provider",
+        lambda settings: FakeOriginals(),
+    )
+    public_link = csv_record["photo_url"]
+    from urllib.parse import urlsplit
+    public_path = urlsplit(public_link).path
+    assert api.head(public_path).status_code == 200
+    photo = api.get(public_path)
+    assert photo.status_code == 200
+    assert photo.headers["content-type"].startswith("image/png")
+    assert accessed == ["image-1"]
+    assert api.get(public_path.replace(retained_id, hidden_id)).status_code == 404
+
     assert api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=doc").status_code == 422
 
     preview = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=xlsx")
     assert preview.status_code == 200
     with ZipFile(BytesIO(preview.content)) as book:
+        about_xml = book.read("xl/worksheets/sheet2.xml").decode("utf-8")
+        assert "AI-GENERATED CONCEPTS ONLY" in about_xml
+        assert "not real customer reviews" in about_xml
         root = ElementTree.fromstring(book.read("xl/worksheets/sheet1.xml"))
         ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
         rows = root.findall(".//x:sheetData/x:row", ns)
@@ -2791,11 +2841,12 @@ def test_stage5_review_hide_and_full_loox_export(api, database):
         record = values(rows[1])
         assert record[0] == "custom-hat-handle"
         assert record[1] == "5"
-        assert record[2] == "AI concept: Synthetic Tester 1"
+        assert record[2] == "Synthetic Tester 1"
         assert record[3] == ""
-        assert record[4].startswith(PREFIX)
+        assert record[4] == "Mock review for sample 1"
         assert record[5] == now.date().isoformat()
-        assert record[6] == "https://cdn.example.org/review-1.png"
+        assert record[6].startswith("https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/")
+        assert record[6].endswith(".png")
         assert record[7] == ""
 
 

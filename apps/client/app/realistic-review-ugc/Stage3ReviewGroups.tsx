@@ -417,15 +417,15 @@ export function Stage3ReviewGroups({
         </button>
         {onExportReviews && <>
           <button type="button" className="rrugc-stage5-export rrugc-icon-action"
-            disabled={Boolean(exporting)} title="Loox Custom File: CSV UTF-8, 8 template columns, all retained ready review concepts"
+            disabled={Boolean(exporting)} title="AI-generated concepts for internal review. CSV uses the 8-column Loox format but is NOT genuine customer feedback; verify customer identity and purchase before publishing."
             onClick={() => void exportAll("csv")}>
             <RrugcActionIcon name={exporting ? "refresh" : "download"} />
-            {exporting === "csv" ? "Exporting…" : "Loox CSV"}
+            {exporting === "csv" ? "Exporting…" : "AI Concepts CSV"}
           </button>
           <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action"
-            disabled={Boolean(exporting)} title="Excel preview only; upload the CSV file to Loox"
+            disabled={Boolean(exporting)} title="Draft Excel preview includes plain author and body plus an About AI concepts disclosure sheet."
             onClick={() => void exportAll("xlsx")}>
-            <RrugcActionIcon name="file" />Excel
+            <RrugcActionIcon name="file" />Draft Excel
           </button>
         </>}
       </div>

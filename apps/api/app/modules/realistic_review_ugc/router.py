@@ -6193,6 +6193,113 @@ def hide_stage5_review(
     return {"hidden": True, "stage2_job_id": stage2_job_id}
 
 
+@router.api_route("/stage5/public-photo/{stage2_job_id}.{extension}", methods=["GET", "HEAD"])
+async def public_stage5_original_photo(
+    request: Request,
+    stage2_job_id: str,
+    extension: str,
+    session: Session = Depends(get_db),
+):
+    """Share the full-resolution Stage 4 output only while its Stage 5 concept is ready.
+
+    UUID identifiers are unguessable bearer links. Hiding the concept revokes
+    access (subject to the short public cache TTL). Nothing on Google Drive
+    is made public or assigned public Drive sharing permissions.
+    """
+    from uuid import UUID
+    from io import BytesIO
+    from PIL import Image
+
+    try:
+        job_id = str(UUID(stage2_job_id))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Photo unavailable.")
+    if extension not in {"jpg", "png"}:
+        raise HTTPException(status_code=404, detail="Photo unavailable.")
+    record = session.execute(
+        select(RrugcStage2JobModel, RrugcStage3AnalysisModel)
+        .join(
+            RrugcStage3AnalysisModel,
+            (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
+            & (RrugcStage3AnalysisModel.tenant_id == RrugcStage2JobModel.tenant_id),
+        )
+        .where(
+            RrugcStage2JobModel.id == job_id,
+            RrugcStage2JobModel.status == "completed",
+            RrugcStage2JobModel.output_remote_file_id.is_not(None),
+            RrugcStage3AnalysisModel.status == "ready",
+        )
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Photo unavailable.")
+    job, review = record
+    original_type = str(job.output_content_type or "image/png").lower()
+    expected_extension = "jpg" if original_type in {"image/jpeg", "image/jpg"} else "png"
+    if extension != expected_extension:
+        raise HTTPException(status_code=404, detail="Photo unavailable.")
+
+    if request.method == "HEAD":
+        return Response(status_code=200, media_type="image/jpeg" if extension == "jpg" else "image/png",
+                        headers={
+                            "Cache-Control": "public, max-age=300",
+                            "X-Content-Type-Options": "nosniff",
+                        })
+
+    try:
+        stored = await build_managed_storage_provider(get_settings()).open_asset(
+            OpenStoredAssetInput(
+                tenant_id=job.tenant_id,
+                asset_id=f"rrugc-stage2:{job.id}",
+                remote_file_id=job.output_remote_file_id,
+                content_type=job.output_content_type,
+                size_bytes=job.output_size_bytes,
+            )
+        )
+    except (StorageProviderError, RuntimeError):
+        raise HTTPException(status_code=503, detail="Original photo temporarily unavailable.")
+
+    response_headers = {
+        "Cache-Control": "public, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f'inline; filename="review-{job_id}.{extension}"',
+    }
+    actual_type = str(stored.content_type or original_type).split(";", 1)[0].lower()
+    if ((extension == "png" and actual_type == "image/png")
+            or (extension == "jpg" and actual_type in {"image/jpeg", "image/jpg"})):
+        return StreamingResponse(
+            stored.body,
+            media_type="image/jpeg" if extension == "jpg" else "image/png",
+            headers=response_headers,
+            background=BackgroundTask(stored.close),
+        )
+    # Loox supports PNG/JPG, but Stage 4 can also produce WebP.
+    # PNG preserves every pixel at its original dimensions (no thumbnail resize).
+    try:
+        encoded = bytearray()
+        async for chunk in stored.body:
+            encoded.extend(chunk)
+            if len(encoded) > 30_000_000:
+                raise ValueError("Source image too large")
+        with Image.open(BytesIO(encoded)) as source:
+            converted = BytesIO()
+            is_jpeg = extension == "jpg"
+            source.convert(
+                "RGB" if is_jpeg else ("RGBA" if "A" in source.getbands() else "RGB")
+            ).save(
+                converted, format="JPEG" if is_jpeg else "PNG",
+                **({"quality": 98, "subsampling": 0} if is_jpeg else {}),
+            )
+        return Response(
+            content=converted.getvalue(),
+            media_type="image/jpeg" if extension == "jpg" else "image/png",
+            headers=response_headers,
+        )
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="Original photo temporarily unavailable.")
+    finally:
+        await stored.close()
+
+
 @router.get("/stage3/reviews/export-loox")
 def export_stage5_loox_review_concepts(
     format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
@@ -6202,7 +6309,7 @@ def export_stage5_loox_review_concepts(
     """Export all eligible synthetic concepts, not just the loaded UI page."""
     from app.modules.realistic_review_ugc.loox_review_export import (
         PREFIX, build_loox_xlsx, build_loox_csv,
-        shopify_handle_from_folder, loox_public_photo_url,
+        clean_concept_copy, loox_original_photo_url, shopify_handle_from_folder, loox_public_photo_url,
     )
     joined = session.execute(
         select(RrugcStage3AnalysisModel, RrugcStage2JobModel, RrugcSourcePlanModel)
@@ -6233,33 +6340,39 @@ def export_stage5_loox_review_concepts(
         # Do not invent a Shopify mapping: a sanitized slug is a *candidate*
         # handle and the merchant must match it to the actual Shopify URL.
         # Never leak private CAM/Drive URLs to a storefront importer.
-        photo_url = loox_public_photo_url(image.output_web_url)
+        photo_url = loox_public_photo_url(
+            loox_original_photo_url(image.id, image.output_content_type)
+        ) if image.output_remote_file_id else ""
         if not photo_url:
             missing_photos += 1
         created = review.review_generated_at or image.completed_at
         rows.append((
             product_handle,
             int(review.star_rating),
-            "AI concept: " + str(review.reviewer_name),
-            "",  # No fabricated customer identities or email addresses.
-            PREFIX + str(review.review_text),
+            clean_concept_copy(review.reviewer_name, author=True),
+            "",  # Only real customer-provided addresses may populate email.
+            clean_concept_copy(review.review_text),
             created.strftime("%Y-%m-%d") if created else "",
             photo_url,
-            "",  # Never assert a synthetic concept is a verified purchase.
+            "",  # No verified order information exists for synthetic concepts.
         ))
     is_csv = format == "csv"
     return Response(
-        content=build_loox_csv(rows) if is_csv else build_loox_xlsx(rows),
+        content=(build_loox_csv([
+            (*row[:4], PREFIX + row[4], *row[5:])
+            for row in rows
+        ]) if is_csv else build_loox_xlsx(rows)),
         media_type=("text/csv; charset=utf-8" if is_csv else
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         headers={
-            "Content-Disposition": ('attachment; filename="CAM_Stage5_Loox_Import.csv"' if is_csv else
-                                    'attachment; filename="CAM_Stage5_Loox_Preview.xlsx"'),
+            "Content-Disposition": ('attachment; filename="CAM_Stage5_AI_Concepts_Loox.csv"' if is_csv else
+                                    'attachment; filename="CAM_Stage5_AI_Concepts_Preview.xlsx"'),
             "Cache-Control": "private, no-store",
+            "X-CAM-Review-Origin": "AI-generated-concepts-not-customer-testimonials",
             "X-CAM-Export-Rows": str(len(rows)),
             "X-CAM-Export-Missing-Photos": str(missing_photos),
             "X-CAM-Export-Normalized-Handles": str(normalized_handles),
-            "Access-Control-Expose-Headers": "X-CAM-Export-Rows, X-CAM-Export-Missing-Photos, X-CAM-Export-Normalized-Handles",
+            "Access-Control-Expose-Headers": "X-CAM-Export-Rows, X-CAM-Export-Missing-Photos, X-CAM-Export-Normalized-Handles, X-CAM-Review-Origin",
         },
     )
 
