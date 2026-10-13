@@ -1951,6 +1951,8 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-header-tools{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
 .rrugc-stage0-intelligence-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:31px;padding:6px 10px;border:1px solid #cedbf0;border-radius:8px;background:#f5f8fe;color:#3c629f;font:inherit;font-size:10px;font-weight:800;white-space:nowrap;cursor:pointer;transition:background .15s,border-color .15s}
 .rrugc-stage0-intelligence-trigger svg{flex:none}
+.rrugc-stage0-research-trigger{border-color:#c7d5f5;background:#edf2ff;color:#385db6}
+.rrugc-stage0-research-trigger:hover:not(:disabled){border-color:#9db9ec;background:#e1eaff;color:#214caa}
 .rrugc-stage0-intelligence-trigger:hover:not(:disabled){border-color:#a8bfdf;background:#eaf1ff;color:#274c89}
 .rrugc-stage0-intelligence-trigger:focus-visible{outline:2px solid #7999d5;outline-offset:2px}
 .rrugc-stage0-intelligence-trigger:disabled{opacity:.5;cursor:not-allowed}

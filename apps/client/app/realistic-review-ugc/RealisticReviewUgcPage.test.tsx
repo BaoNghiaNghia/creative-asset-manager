@@ -840,6 +840,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         onFavoritesOnlyChange={() => undefined}
         onSuggestedOnlyChange={() => undefined}
         onResetAll={() => undefined}
+        onOpenResearchInbox={() => undefined}
         onOpenSearchIntelligence={() => undefined}
         onPickChange={() => undefined}
         onFavoriteChange={() => undefined}
@@ -851,7 +852,11 @@ describe("Realistic Review UGC source-first workspace", () => {
 
     expect(markup).toContain("<h2>Analysis Keyword</h2>");
     expect(markup).toContain("Live keyword data");
+    expect(markup).toContain('aria-label="Open Research Intelligence"');
     expect(markup).toContain('aria-label="Open Search Intelligence"');
+    expect(markup.indexOf('aria-label="Open Research Intelligence"')).toBeLessThan(
+      markup.indexOf('aria-label="Open Search Intelligence"'),
+    );
     expect(markup).toContain('aria-haspopup="dialog"');
     expect(markup.indexOf("Search Intelligence")).toBeLessThan(markup.indexOf("Live keyword data"));
     expect(markup).toContain("Bad Day To Be A Hotdog hat");

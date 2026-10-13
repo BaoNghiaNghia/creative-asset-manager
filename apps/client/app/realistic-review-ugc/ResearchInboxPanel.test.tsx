@@ -17,12 +17,10 @@ describe("Research Intelligence Stage 0 Inbox", () => {
     expect(discoveryErrorMessage(null)).toBe("");
   });
 
-  it("renders as an opt-in, collapsed Stage 0 research tool", () => {
-    const markup = renderToStaticMarkup(<ResearchInboxPanel />);
-    expect(markup).toContain("Research Inbox");
-    expect(markup).toContain("GatorHats Products");
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).not.toContain("research-keyword-");
+  it("does not place a Research Inbox card inside Stage 0 until opened", () => {
+    const markup = renderToStaticMarkup(<ResearchInboxPanel open={false} onClose={() => undefined} />);
+    expect(markup).toBe("");
+    expect(markup).not.toContain("rrugc-research-inbox");
   });
 
   it("accepts only bounded, source-attributed records", () => {

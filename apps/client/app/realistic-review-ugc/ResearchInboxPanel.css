@@ -1,117 +1,80 @@
-.rrugc-research-inbox {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: 0 0 16px;
-  border: 1px solid #dce5ef;
-  border-radius: 13px;
-  background: #fff;
-  color: #293a53;
-  overflow: hidden;
-}
-.rrugc-research-inbox-head {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  background: #f8fbff;
-}
-.rrugc-research-inbox-head > div { min-width: 0; }
-.rrugc-research-eyebrow {
-  display: block;
-  margin-bottom: 4px;
-  color: #3865af;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.rrugc-research-inbox h3 { margin: 0 0 5px; font-size: 16px; line-height: 1.35; }
-.rrugc-research-inbox-head p { margin: 0; color: #677b94; font-size: 12px; line-height: 1.5; }
-.rrugc-research-inbox button {
-  min-height: 40px;
-  padding: 9px 12px;
-  border: 1px solid #cad8ee;
-  border-radius: 9px;
-  background: #f3f7ff;
-  color: #2754a1;
-  font-size: 12px;
-  font-weight: 750;
-  cursor: pointer;
-}
-.rrugc-research-inbox button:hover { background: #e8f0ff; }
-.rrugc-research-inbox button:disabled { opacity: .5; cursor: not-allowed; }
-/* Leave clearance for the Stage 0 sticky workspace navigation and the inbox
-   header when keyboard focus has scrolled a later field into view. */
-.rrugc-research-inbox-body :is(button, input, textarea, a) {
-  scroll-margin-block-start: 160px;
-  scroll-margin-block-end: 32px;
-}
-.rrugc-research-inbox button:focus-visible,
-.rrugc-research-inbox a:focus-visible,
-.rrugc-research-inbox textarea:focus-visible,
-.rrugc-research-inbox input:focus-visible { outline: 2px solid #3268c7; outline-offset: 2px; }
-.rrugc-research-expand { display: flex; align-items: center; gap: 10px; }
-.rrugc-research-expand span { font-size: 18px; line-height: 1; }
-.rrugc-research-inbox-body { padding: 12px 16px 16px; }
-.rrugc-discovery-status {display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px;margin-bottom:12px;border:1px solid #dbe6f2;border-radius:10px;background:#f6faff;min-width:0}
-.rrugc-discovery-status>div{display:grid;gap:3px;flex:1;min-width:min(200px,100%)}
-.rrugc-discovery-status strong{font-size:12px}
-.rrugc-discovery-status small{font-size:10.5px;color:#647a98}
-.rrugc-discovery-state{font-size:11px;border-radius:999px;background:#edf0f5;color:#64748b;padding:6px 9px;font-weight:700;white-space:nowrap}
-.rrugc-discovery-state.state-ready,.rrugc-discovery-state.state-busy{background:#e9f6ed;color:#286846}
-.rrugc-discovery-state.state-error{background:#fff1ee;color:#ad3e32}
-.rrugc-discovery-state.state-paused{background:#fff5df;color:#986415}
-.rrugc-research-setup-note {font-size:11px;line-height:1.5;margin:0 0 12px;color:#806025}
-.rrugc-research-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.rrugc-research-import,.rrugc-research-export {
-  display: grid; gap: 7px; padding: 11px; margin: 8px 0 14px;
-  border: 1px solid #e0e7f0; border-radius: 10px; background: #fafcff;
-}
-.rrugc-research-import label,.rrugc-research-export label,
-.rrugc-research-signal-review label { font-size: 11px; font-weight: 750; color: #4b5f7e; }
-.rrugc-research-import textarea,.rrugc-research-export textarea,.rrugc-research-signal-review input {
-  width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
-  border: 1px solid #cad5e4; border-radius: 8px; padding: 9px 10px;
-  background: #fff; color: #273b52; font-size: 13px; line-height: 1.5;
-}
-.rrugc-research-import button { justify-self: start; }
-.rrugc-research-error { color: #b23838; }
-.rrugc-research-notice { color: #276c56; }
-.rrugc-research-loading,.rrugc-research-empty { color: #73849a; font-size: 12px; }
-.rrugc-research-unavailable { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.rrugc-research-unavailable p { margin: 0; color: #905f18; font-size: 12px; }
-.rrugc-research-signal-list { display: grid; gap: 10px; }
-.rrugc-research-signal {
-  display: grid;
-  grid-template-columns: minmax(0,1fr) minmax(200px,255px);
-  align-items: center;
-  gap: 14px;
-  padding: 12px;
-  border: 1px solid #e4eaf2;
-  border-radius: 11px;
-}
-.rrugc-research-signal-main { display: grid; gap: 4px; min-width: 0; }
-.rrugc-research-signal-main small { font-size: 10px; color: #68809f; font-weight: 700; }
-.rrugc-research-signal-main strong { font-size: 12.5px; line-height: 1.35; }
-.rrugc-research-signal-main p { font-size: 11px; color: #64758d; margin: 0; }
-.rrugc-research-signal-main a { font-size: 11px; color: #3869b4; text-decoration: underline; overflow-wrap: anywhere; }
-.rrugc-research-signal-review { display: grid; gap: 6px; }
-.rrugc-research-signal-review > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.rrugc-research-signal-review > div button { flex: 1; }
-@media (max-width: 760px) {
-  .rrugc-research-inbox { margin: 0 0 12px; }
-  .rrugc-research-inbox-head {
-    padding: 12px;
-    grid-template-columns: minmax(0,1fr);
-    min-height: 156px;
-    box-sizing: border-box;
-  }
-  .rrugc-research-inbox-head h3 { font-size: 14px; }
-  .rrugc-research-inbox-body { padding: 10px; }
-  .rrugc-research-signal { grid-template-columns: minmax(0,1fr); }
-  .rrugc-research-inbox :is(input,textarea) { font-size: 16px !important; }
-  .rrugc-research-expand { width: 100%; justify-content: center; }
-}
+/* Research Intelligence is a dedicated Stage 0 modal, never an in-page card. */
+.rrugc-research-backdrop{position:fixed;inset:0;z-index:10050;display:grid;place-items:center;padding:20px;background:rgba(16,30,57,.59);backdrop-filter:blur(5px)}
+.rrugc-research-inbox{display:flex;flex-direction:column;width:min(1040px,100%);max-height:min(92dvh,930px);min-width:0;overflow:hidden;border:1px solid #cfdbed;border-radius:19px;background:#f8fafd;color:#213754;box-shadow:0 26px 85px rgba(10,32,70,.32);font-family:"Be Vietnam Pro",system-ui,sans-serif}
+.rrugc-research-inbox *{box-sizing:border-box}
+.rrugc-research-inbox-head{position:relative;display:flex;align-items:center;gap:15px;min-height:112px;padding:21px 26px;border-bottom:1px solid #dbe5f3;background:linear-gradient(115deg,#eef4ff,#fff 78%);flex:none}
+.rrugc-research-header-icon{display:grid;place-items:center;flex:0 0 50px;width:50px;height:50px;border:1px solid #bfcfff;border-radius:14px;background:linear-gradient(135deg,#3265e5,#6f85fa);color:white;box-shadow:0 6px 18px rgba(60,88,213,.18)}
+.rrugc-research-title-block{min-width:0;flex:1}
+.rrugc-research-eyebrow{display:flex;gap:5px;margin-bottom:6px;color:#536dc4;font-size:9px;font-weight:850;letter-spacing:.1em}
+.rrugc-research-title-block h2{margin:0 0 4px;color:#1c3354;font-size:23px;font-weight:850;line-height:1.2}
+.rrugc-research-title-block p{margin:0;color:#667b94;font-size:11.5px;line-height:1.65}
+.rrugc-research-inbox button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:35px;padding:8px 12px;border:1px solid #cddbee;border-radius:9px;background:#fff;color:#375c94;font:inherit;font-size:11px;font-weight:760;cursor:pointer;transition:background .16s,border-color .16s,box-shadow .16s}
+.rrugc-research-inbox button svg,.rrugc-research-inbox a svg{flex:0 0 auto}
+.rrugc-research-inbox button:hover:not(:disabled){border-color:#9bbbed;background:#edf4ff}
+.rrugc-research-inbox button:disabled{cursor:not-allowed;opacity:.55}
+.rrugc-research-inbox :is(button,input,textarea,a):focus-visible{outline:2px solid #4d83e4;outline-offset:2px}
+.rrugc-research-inbox button.rrugc-research-modal-close{flex:0 0 33px;min-width:33px;width:33px;height:33px;min-height:33px;padding:0;border-color:#d7e2ef;background:#fff;color:#54708d}
+.rrugc-discovery-state{display:inline-flex;align-items:center;gap:7px;flex:none;padding:7px 10px;border-radius:100px;background:#eef2f8;color:#596c86;font-size:10px;font-weight:800;white-space:nowrap}
+.rrugc-research-state-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:currentColor}
+.rrugc-discovery-state.state-ready,.rrugc-discovery-state.state-busy{background:#e6f7ed;color:#238454}
+.rrugc-discovery-state.state-paused{background:#fff4df;color:#996b1e}
+.rrugc-discovery-state.state-error,.rrugc-discovery-state.state-offline{background:#fff0ed;color:#c84b3f}
+.rrugc-research-inbox-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px 25px 26px}
+.rrugc-research-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin-bottom:16px}
+.rrugc-research-stat{display:flex;align-items:center;gap:12px;min-width:0;padding:14px;border:1px solid #e0e7f1;border-radius:12px;background:white;box-shadow:0 2px 8px rgba(47,75,111,.035)}
+.rrugc-research-stat-icon{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:10px;background:#eff3ff;color:#456bcb}
+.rrugc-research-stat:nth-child(2) .rrugc-research-stat-icon{background:#e6f7ef;color:#2d9265}
+.rrugc-research-stat:nth-child(3) .rrugc-research-stat-icon{background:#fff4e3;color:#af832b}
+.rrugc-research-stat:nth-child(4) .rrugc-research-stat-icon{background:#edf8fc;color:#2d829c}
+.rrugc-research-stat div{display:grid;gap:5px;min-width:0}
+.rrugc-research-stat small{color:#788aa0;font-size:10px;font-weight:700;line-height:1.25}
+.rrugc-research-stat strong{color:#263e5f;font-size:21px;line-height:1.15;font-weight:850;font-variant-numeric:tabular-nums}
+.rrugc-research-stat-suffix{font-size:11px;font-weight:650;color:#8697a7}
+.rrugc-discovery-status{display:grid;gap:12px;position:relative;padding:17px;border:1px solid #d7e2f2;border-radius:13px;background:#fff;margin-bottom:16px}
+.rrugc-discovery-status-heading{display:flex;align-items:center;gap:11px;min-width:0}
+.rrugc-discovery-status-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 38px;border-radius:11px;background:#e9efff;color:#4a6bd5}
+.rrugc-discovery-status-heading>div{display:grid;gap:4px;flex:1;min-width:0}
+.rrugc-discovery-status-heading strong{font-size:13px;font-weight:800}
+.rrugc-discovery-status-heading small{color:#8090a6;font-size:10px}
+.rrugc-discovery-platforms{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rrugc-discovery-platforms span{display:inline-flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid #e4eaf4;border-radius:8px;background:#f8faff;color:#667b93;font-size:10px;font-weight:700}
+.rrugc-discovery-platforms strong{font-size:11px;color:#334d74}
+.rrugc-discovery-platforms small{margin-left:auto;color:#889bb1;font-size:10px}
+.rrugc-discovery-warning{display:flex;align-items:center;gap:7px;margin:0;padding:8px 10px;border-radius:8px;background:#fff1e9;color:#a06031;font-size:11px}
+.rrugc-research-vps-button{justify-self:start}
+.rrugc-research-setup-note{margin:0 0 15px;padding:11px 13px;border-radius:9px;background:#fffaee;color:#896c32;font-size:11px;line-height:1.65}
+.rrugc-research-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.rrugc-research-inbox button.rrugc-research-action-primary{background:#3769dd;border-color:#3769dd;color:white}
+.rrugc-research-inbox button.rrugc-research-action-primary:hover{background:#2858c6;border-color:#2858c6}
+.rrugc-research-inbox :is(input,textarea){display:block;width:100%;min-width:0;max-width:100%;padding:10px 11px;border:1px solid #cfdced;border-radius:9px;background:#fff;color:#263d57;font:inherit;font-size:12px;line-height:1.5}
+.rrugc-research-import,.rrugc-research-export{display:grid;gap:10px;padding:15px;margin:0 0 16px;border:1px solid #dce6f3;border-radius:12px;background:#fff}
+.rrugc-research-import label,.rrugc-research-export label,.rrugc-research-signal-review label{color:#4c6384;font-size:11px;font-weight:800}
+.rrugc-research-import button{justify-self:start}
+.rrugc-research-error{margin:0 0 10px;padding:10px;border-radius:8px;background:#fff0ef;color:#b44439;font-size:11px}
+.rrugc-research-notice{margin:0 0 10px;padding:10px;border-radius:8px;background:#eaf7ef;color:#277953;font-size:11px}
+.rrugc-research-section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 10px}
+.rrugc-research-section-heading>div{display:flex;align-items:center;gap:8px;color:#355574}
+.rrugc-research-section-heading strong{font-size:13px}
+.rrugc-research-section-heading span{padding:3px 8px;border-radius:8px;background:#e9effe;color:#4b65af;font-size:10px;font-weight:800}
+.rrugc-research-section-heading small{color:#8494a9;font-size:10px}
+.rrugc-research-loading,.rrugc-research-empty{display:flex;align-items:center;justify-content:center;gap:8px;min-height:100px;border:1px dashed #d6e2f1;border-radius:12px;background:#fff;color:#8c9eb2;font-size:11px}
+.rrugc-research-empty{flex-direction:column;gap:7px;min-height:160px}
+.rrugc-research-empty strong{color:#526b89;font-size:12px}
+.rrugc-research-empty span{font-size:10px}
+.rrugc-research-unavailable{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:15px;padding:15px;background:#fff;border-radius:10px}
+.rrugc-research-unavailable p{margin:0;color:#9b6322;font-size:11px}
+.rrugc-research-signal-list{display:grid;gap:10px}
+.rrugc-research-signal{display:grid;grid-template-columns:minmax(0,1fr) minmax(205px,260px);gap:15px;align-items:start;padding:15px;border:1px solid #dfe8f3;border-radius:12px;background:#fff}
+.rrugc-research-signal-main{display:grid;gap:7px;min-width:0}
+.rrugc-research-signal-main small{color:#6e86a5;font-size:10px;font-weight:750}
+.rrugc-research-signal-main strong{color:#284160;font-size:13px;font-weight:800;line-height:1.4}
+.rrugc-research-signal-main p{margin:0;color:#697e96;font-size:11px;line-height:1.65}
+.rrugc-research-signal-main a{display:inline-flex;align-items:center;gap:5px;justify-self:start;color:#3a68b8;font-size:11px;font-weight:750;text-decoration:none;overflow-wrap:anywhere}
+.rrugc-research-signal-main a:hover{text-decoration:underline}
+.rrugc-research-signal-review{display:grid;gap:8px;min-width:0}
+.rrugc-research-signal-review>div{display:flex;gap:7px}
+.rrugc-research-signal-review>div button{flex:1;white-space:nowrap}
+.rrugc-research-signal-review>div button:first-child{border-color:#b3e1c9;background:#edfbf4;color:#277854}
+@media(max-width:830px){.rrugc-research-inbox-head{padding:17px 18px}.rrugc-research-inbox-body{padding:16px}.rrugc-research-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:580px){.rrugc-research-backdrop{padding:0;place-items:stretch}.rrugc-research-inbox{max-height:100dvh;height:100dvh;width:100%;border:0;border-radius:0}.rrugc-research-inbox-head{gap:10px;min-height:0;padding:15px 13px;align-items:flex-start}.rrugc-research-header-icon{height:39px;width:39px;flex-basis:39px;border-radius:11px}.rrugc-research-header-icon svg{width:21px}.rrugc-research-title-block h2{font-size:18px}.rrugc-research-title-block p{font-size:10px}.rrugc-research-inbox-head>.rrugc-discovery-state{display:none}.rrugc-research-inbox-body{padding:13px}.rrugc-research-overview{gap:8px}.rrugc-research-stat{padding:10px;gap:9px}.rrugc-research-stat-icon{width:30px;height:30px;flex-basis:30px}.rrugc-research-stat strong{font-size:18px}.rrugc-discovery-status{padding:12px}.rrugc-discovery-status-heading{flex-wrap:wrap}.rrugc-discovery-status-heading>.rrugc-discovery-state{margin-left:auto}.rrugc-research-signal{grid-template-columns:minmax(0,1fr)}.rrugc-research-section-heading{align-items:flex-start;flex-direction:column}.rrugc-research-inbox :is(input,textarea){font-size:16px}}
+@media(prefers-reduced-motion:reduce){.rrugc-research-inbox button{transition:none}}

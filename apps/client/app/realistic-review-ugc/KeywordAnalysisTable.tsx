@@ -677,6 +677,7 @@ export function KeywordAnalysisTable({
   onFavoritesOnlyChange,
   onSuggestedOnlyChange,
   onResetAll,
+  onOpenResearchInbox,
   onOpenSearchIntelligence,
   onPickChange,
   onFavoriteChange,
@@ -704,6 +705,7 @@ export function KeywordAnalysisTable({
   onFavoritesOnlyChange: (value: boolean) => void;
   onSuggestedOnlyChange: (value: boolean) => void;
   onResetAll: () => void;
+  onOpenResearchInbox?: () => void;
   onOpenSearchIntelligence?: () => void;
   onPickChange: (keywordId: string, picked: boolean) => void;
   onFavoriteChange: (keywordId: string, favorite: boolean) => void;
@@ -748,6 +750,14 @@ export function KeywordAnalysisTable({
       title="Analysis Keyword"
       description="Quote Scout discovers hat phrases and Stage 0 combines Pinterest context with Google Ads demand, CPC, competition and observed search-volume trends."
       actions={<div className="rrugc-stage0-header-tools">
+        <button type="button" className="rrugc-stage0-intelligence-trigger rrugc-stage0-research-trigger"
+          onClick={onOpenResearchInbox} disabled={!onOpenResearchInbox}
+          aria-haspopup="dialog" aria-label="Open Research Intelligence" title="Agent-Reach · Research Intelligence">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="15" rx="3"/><path d="M3 9h18M8 3v4M16 3v4M7 13h4m-4 3h7"/><circle cx="17.5" cy="15.5" r="2.5"/><path d="m19.5 17.5 2 2"/>
+          </svg>
+          <span>Research Intelligence</span>
+        </button>
         <button type="button" className="rrugc-stage0-intelligence-trigger"
           onClick={onOpenSearchIntelligence} disabled={!onOpenSearchIntelligence}
           aria-haspopup="dialog" aria-label="Open Search Intelligence" title="Xem Search Intelligence và hiệu suất truy vấn">

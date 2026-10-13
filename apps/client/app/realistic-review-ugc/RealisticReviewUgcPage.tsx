@@ -141,6 +141,7 @@ export function RealisticReviewUgcPage() {
   const [intelligenceLoading, setIntelligenceLoading] = useState(true);
   const [intelligenceError, setIntelligenceError] = useState<string | null>(null);
   const [searchIntelligenceOpen, setSearchIntelligenceOpen] = useState(false);
+  const [researchInboxOpen, setResearchInboxOpen] = useState(false);
   const [keywordPageNumber, setKeywordPageNumber] = useState(1);
   const [keywordPageSize, setKeywordPageSize] = useState(20);
   const [keywordQuery, setKeywordQuery] = useState("");
@@ -979,6 +980,7 @@ export function RealisticReviewUgcPage() {
     // Reselecting the active stage must not restart a skeleton without a new
     // fetch: effect dependencies do not change when the same tab is clicked.
     if (nextStage === activeStage) return;
+    setResearchInboxOpen(false);
     if (nextStage === "stage3" || nextStage === "stage4") {
       setSourcePageNumber(1);
       setSourcePageLoading(true);
@@ -1026,7 +1028,7 @@ export function RealisticReviewUgcPage() {
           tabIndex={activeStage === "stage0" ? 0 : -1}
           hidden={activeStage !== "stage0"}
         >
-          <ResearchInboxPanel onKeywordApproved={() => {
+          <ResearchInboxPanel open={researchInboxOpen && activeStage === "stage0"} onClose={() => setResearchInboxOpen(false)} onKeywordApproved={() => {
             setKeywordPageNumber(1);
             setKeywordQuery("");
             setDebouncedKeywordQuery("");
@@ -1053,6 +1055,7 @@ export function RealisticReviewUgcPage() {
             feedbackUpdatingIds={keywordFeedbackIds}
             onFeedbackChange={changeKeywordFeedback}
             onResolveMetrics={refreshKeywordMetrics}
+            onOpenResearchInbox={() => setResearchInboxOpen(true)}
             onOpenSearchIntelligence={() => setSearchIntelligenceOpen(true)}
             onSortChange={changeKeywordSort}
             onUsageFilterChange={value => {
