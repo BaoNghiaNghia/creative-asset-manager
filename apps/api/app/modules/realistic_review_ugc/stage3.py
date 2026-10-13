@@ -186,7 +186,7 @@ def star_rating_for_analysis(analysis_id: str) -> int:
 # words. Learn only cadence and topics, NEVER copy names, quotes, dates, orders,
 # customer experiences, or personal anecdotes from the original customer data.
 # This produces internally labeled AI review *concepts*, not testimonials.
-REVIEW_COPY_STYLE_VERSION = "etsy-8869-casual-v1"
+REVIEW_COPY_STYLE_VERSION = "etsy-8869-casual-v2-lengths-and-cadence"
 _REVIEW_SHORT_EMBROIDERY = (
     "Really cute stitching on this one!",
     "That front detail looks so good.",
@@ -308,32 +308,246 @@ _REVIEW_CLOSINGS = (
     "Nice little everyday detail.",
 )
 
+# Stage 5 copy concepts only: visual reactions, never fabricated transactions.
+# Template fragments have distinct cadence and optional uses; avoid repetitive
+# three-sentence reviews while respecting claims supported by visible details.
+_REVIEW_BREEZY_OPEN = (
+    "Okay, this is seriously a cute cap.",
+    "That color combination is kind of perfect.",
+    "Honestly, the simple look is what makes it stand out.",
+    "A little detail can change the whole look of a hat.",
+    "Not too loud, not too plain. Just a really sweet design.",
+    "The first thing that stands out is the front.",
+    "Now THIS is a fun take on a classic cap.",
+    "The colors really do the talking here!",
+    "There's something really charming about this one.",
+    "Simple, pretty, and a little bit playful.",
+    "It's giving easy weekend outfit energy.",
+    "This looks so good without trying too hard.",
+    "That soft color with the front detail? Love it.",
+    "A cute design that doesn't need to be oversized.",
+    "The shape alone makes this a nice-looking hat.",
+    "Love how much personality this simple design has.",
+    "Definitely the kind of cap that catches your eye.",
+    "This is understated in the best possible way.",
+    "Such a pretty balance of color and shape.",
+    "Wait, this combination looks even better together.",
+    "Nothing overdone here. That's the appeal.",
+    "What a fun little detail to put on a cap.",
+    "Cute, casual, and surprisingly versatile looking.",
+    "There is a lot to like about this design.",
+)
+_REVIEW_EXPANDED_EMBROIDERY = (
+    "The embroidery is noticeable, but the front still has plenty of breathing room. That's a really nice balance.",
+    "The thread colors stand out against the fabric without making the design look overwhelming.",
+    "The little stitched details add personality to a really classic shape. It looks thoughtful rather than busy.",
+    "That embroidery sits in a spot where it feels like part of the hat, not something pasted onto it.",
+    "The texture in the front detail adds so much interest, especially next to the softer fabric color.",
+    "The design stays readable without covering the whole front. It's exactly the sort of proportion that works on a cap.",
+    "The front stitching has a playful feel, while the rest of the hat stays simple and easy on the eyes.",
+    "The contrast between the stitching and the crown is a subtle touch that makes the whole look feel finished.",
+    "There's enough detail in the embroidery to make it interesting, but the colors still feel nicely coordinated.",
+    "The stitched front gives this a little custom-looking personality without turning it into a giant graphic.",
+)
+_REVIEW_EXPANDED_GENERIC = (
+    "The crown and bill have a relaxed, classic shape. Nothing about the silhouette looks overdone.",
+    "The color works with the shape really well, giving the whole design a calm and casual feel.",
+    "It has that simple everyday look where the fabric and shape do most of the work.",
+    "The bill looks nicely proportioned to the crown, and the overall silhouette has a clean line.",
+    "The fabric color is soft enough to be versatile, but it still has personality.",
+    "There's no need for extra detail when the color and silhouette already work this well together.",
+    "The shape looks relaxed without appearing sloppy. It's a nice middle ground for a casual cap.",
+    "What makes this work is the uncluttered front and an easy, balanced outline.",
+    "It's the sort of understated design where the little proportions matter more than any big graphic.",
+    "The front looks neat and the color has just enough interest to keep it from feeling plain.",
+)
+_REVIEW_STYLING_THOUGHTS = (
+    "With a simple tee and jeans, this would be a really fun finishing touch.",
+    "I could see this paired with an oversized shirt and a casual weekend outfit.",
+    "The colors make it easy to imagine a few different outfits without changing the whole vibe.",
+    "This is one of those styles that would look cute with either neutrals or brighter colors.",
+    "For an everyday casual look, the design has just the right amount of personality.",
+    "A little cap like this could make a very simple outfit feel more intentional.",
+    "It would be a fun accent for a casual trip outfit, especially with the softer colors.",
+    "The overall look feels laid-back, but still put together enough to feel special.",
+    "It's an easy style to picture with a sweatshirt, denim, or a simple tank.",
+    "This would be such a cute little addition to a relaxed summer outfit.",
+    "The front detail works as a focal point without demanding a whole coordinated outfit.",
+    "Even next to a plain top, the shape and color combination would still stand out.",
+)
+_REVIEW_PROPORTION_THOUGHTS = (
+    "The best part is how nothing looks crowded or too heavy. Everything has a little room.",
+    "There is something nice about a hat that gets the small details right instead of trying to do too much.",
+    "The front looks balanced and the overall design feels nicely considered.",
+    "The softer tones make this look really approachable, not overly sporty or flashy.",
+    "What catches the eye is the contrast between the relaxed shape and the carefully placed details.",
+    "It's playful enough to be memorable but simple enough to keep the look easy.",
+    "That balance between the bill, crown, and front design works really well visually.",
+    "I like that this has a little personality without leaning too hard into a trendy look.",
+    "It is not an overly complicated design, which makes the little choices stand out.",
+    "The colors and proportions feel cohesive instead of looking like separate pieces.",
+)
+_REVIEW_LONG_ASIDES = (
+    "Honestly, sometimes the simplest designs are the ones that look the best, and this is a good example.",
+    "A different color palette could change the mood entirely, but this combination already has a lot going for it.",
+    "The whole point of a casual cap is that it should look effortless, and this design has that kind of appeal.",
+    "If the goal is something cute that still feels wearable in a lot of settings, this look gets the idea across.",
+    "It would be easy to style this in a more sporty way or keep it soft and casual. Both seem like a good match.",
+    "I actually like that the front isn't oversized. It gives the rest of the color and shape room to show.",
+    "There are lots of loud hat designs out there, so a little restraint makes this one feel refreshing.",
+    "The charm is in the small choices: not too many colors, no enormous front design, just a cohesive look.",
+    "The more you look at the overall shape, the more you notice how well the little pieces work together.",
+    "This would be a great reference for anyone who prefers something personal-looking but still low-key.",
+)
+_REVIEW_SOFT_CAVEATS = (
+    "For someone who wants a giant statement graphic, this might feel a little quiet. I actually like the softer approach.",
+    "If bold neon colors are the goal, this palette is probably too subtle, but that's also what makes it versatile.",
+    "The design leans more casual than dressy, which fits the shape and color palette really nicely.",
+    "It's not trying to look flashy or elaborate, and I think that makes the overall look stronger.",
+    "A more dramatic color pairing would be fun too, although the quieter version has its own charm.",
+    "The small-scale detail may be understated from farther away, but it works well for this silhouette.",
+    "This has a relaxed look rather than a very structured or formal one. That's part of the appeal.",
+    "If you love super busy patterns, this is definitely the simpler option; the balance is still lovely.",
+)
+_REVIEW_LONG_ENDINGS = (
+    "Overall, a really sweet-looking cap with a lot of charm.",
+    "For a simple design, it has a surprisingly memorable look.",
+    "Cute details, easy colors, and nothing that feels forced.",
+    "It feels playful, relaxed, and nicely pulled together.",
+    "That is exactly the kind of visual balance I like.",
+    "A fun example of how small details can make an outfit.",
+    "Really nice without needing any extra fuss.",
+    "The whole color-and-shape combination just works.",
+    "A little personality goes a long way here!",
+    "The subtle touches are definitely doing the work.",
+)
+
 def compose_review_text(
     *,
     analysis_id: str,
     embroidery_visible: bool,
     variant: int = 0,
 ) -> str:
-    """Deterministic human-scale concept copy, calibrated on sample lengths.
+    """Compose varied-length natural-English *concepts*, not fake transactions.
 
-    About 30% short (one sentence), 50% medium (two), 20% longer (three).
-    No real purchase, shipping, fit/durability testing, custom seller contact,
-    gift recipient, or verified ownership is implied by a synthetic image.
+    Approximate mix: 18% tiny, 24% short, 26% medium, 21% long,
+    11% extra-long. The copied cadence comes from the user examples, but
+    no named seller, delivery, purchase, gift, sizing, comfort or wear claim
+    is invented from image analysis. Deterministic seeds make retries safe.
     """
-    digest = hashlib.sha256(
-        f"{REVIEW_COPY_STYLE_VERSION}:{analysis_id}:{variant}".encode("utf-8")
-    ).digest()
-    first_pool = _REVIEW_SHORT_EMBROIDERY if embroidery_visible else _REVIEW_SHORT_GENERIC
+    seed = f"{REVIEW_COPY_STYLE_VERSION}:{analysis_id}:{variant}"
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    bucket = digest[0] % 100
+
+    def choice(items: tuple[str, ...], label: str) -> str:
+        index = int.from_bytes(
+            hashlib.blake2s((seed + ":" + label).encode("utf-8"), digest_size=4).digest(),
+            "big",
+        )
+        return items[index % len(items)]
+
+    shorts = _REVIEW_SHORT_EMBROIDERY if embroidery_visible else _REVIEW_SHORT_GENERIC
+    if bucket < 18:
+        return choice(shorts, "tiny")
+    opening = choice(_REVIEW_BREEZY_OPEN, "opening")
+    if bucket < 42:
+        return opening + " " + choice(_REVIEW_CLOSINGS, "short-ending")
+
+    expanded_detail = choice(
+        _REVIEW_EXPANDED_EMBROIDERY if embroidery_visible else _REVIEW_EXPANDED_GENERIC,
+        "detail",
+    )
+    styling = choice(_REVIEW_STYLING_THOUGHTS, "styling")
+    if bucket < 68:
+        return " ".join((opening, expanded_detail, choice(_REVIEW_CLOSINGS, "mid-ending")))
+
+    base = [
+        opening,
+        expanded_detail,
+        styling,
+        choice(_REVIEW_PROPORTION_THOUGHTS, "proportions"),
+        choice(_REVIEW_LONG_ENDINGS, "ending"),
+    ]
+    if bucket < 89:
+        return " ".join(base)
+
+    # Extended variants retain a conversational train of thought rather
+    # than padding with repeated generic praise or invented order details.
+    base.insert(3, choice(_REVIEW_LONG_ASIDES, "aside"))
+    base.insert(5, choice(_REVIEW_SOFT_CAVEATS, "soft-caveat"))
+    return " ".join(base)
+
+def is_legacy_stage5_copy(text: str | None, *, embroidery_visible: bool) -> bool:
+    """Recognize old generated v1 copy exactly; never match arbitrary edits."""
+    if not text:
+        return False
+    short_pool = _REVIEW_SHORT_EMBROIDERY if embroidery_visible else _REVIEW_SHORT_GENERIC
     detail_pool = _REVIEW_EMBROIDERY_DETAILS if embroidery_visible else _REVIEW_GENERIC_DETAILS
-    length_bucket = digest[0] % 100
-    if length_bucket < 30:
-        return first_pool[digest[1] % len(first_pool)]
-    opening = _REVIEW_OPENINGS[digest[1] % len(_REVIEW_OPENINGS)]
-    detail = detail_pool[digest[2] % len(detail_pool)]
-    if length_bucket < 80:
-        return opening + " " + detail
-    closing = _REVIEW_CLOSINGS[digest[3] % len(_REVIEW_CLOSINGS)]
-    return opening + " " + detail + " " + closing
+    if text in short_pool:
+        return True
+    for opening in _REVIEW_OPENINGS:
+        prefix = opening + " "
+        if not text.startswith(prefix):
+            continue
+        rest = text[len(prefix):]
+        if rest in detail_pool:
+            return True
+        for detail in detail_pool:
+            if not rest.startswith(detail + " "):
+                continue
+            return rest[len(detail) + 1:] in _REVIEW_CLOSINGS
+    return False
+
+
+def refresh_legacy_stage5_copies(rows: list, *, dry_run: bool = True) -> dict[str, int]:
+    """Update v1 auto-generated copy only; never touch hidden/manual drafts.
+
+    The caller owns the transaction. Preview with dry_run=True before apply.
+    Existing ready v2 copy stays stable on repeat execution.
+    """
+    used: dict[str, set[str]] = {}
+    for row in rows:
+        if row.review_text:
+            used.setdefault(row.tenant_id, set()).add(row.review_text)
+    summary = {"scanned": len(rows), "changed": 0, "skipped": 0}
+    for row in rows:
+        if row.status != "ready" or not is_legacy_stage5_copy(
+            row.review_text, embroidery_visible=bool(row.embroidery_visible)
+        ):
+            summary["skipped"] += 1
+            continue
+        # A v2 micro-review can also match a v1 phrase. Detect it by seed.
+        if any(
+            row.review_text == compose_review_text(
+                analysis_id=row.id, embroidery_visible=bool(row.embroidery_visible), variant=variant
+            )
+            for variant in range(32)
+        ):
+            summary["skipped"] += 1
+            continue
+        tenant_used = used.setdefault(row.tenant_id, set())
+        # Exclude the old text from candidate collision detection.
+        other_used = tenant_used - {row.review_text}
+        candidate = next((
+            copy for variant in range(512)
+            if (copy := compose_review_text(
+                analysis_id=row.id,
+                embroidery_visible=bool(row.embroidery_visible),
+                variant=variant,
+            )) not in other_used
+        ), None)
+        if candidate is None:
+            raise RuntimeError("Could not compose a unique Stage 5 draft during backfill.")
+        if candidate == row.review_text:
+            summary["skipped"] += 1
+            continue
+        summary["changed"] += 1
+        tenant_used.add(candidate)
+        if not dry_run:
+            row.review_text = candidate
+            row.review_generated_at = datetime.now(timezone.utc)
+    return summary
+
 
 def review_text_for_analysis(
     document: Stage3UgcAnalysisDocument,

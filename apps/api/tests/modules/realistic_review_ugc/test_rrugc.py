@@ -2223,6 +2223,27 @@ def test_stage3_ugc_decision_rejects_low_fidelity_or_missing_product():
     assert {copy.count(".") for copy in varied_reviews} >= {1, 2, 3}
     assert len({copy.split(maxsplit=1)[0] for copy in varied_reviews}) >= 8
     assert all(not copy.lower().startswith("obsessed with") for copy in varied_reviews)
+    # Stage 5 must include tiny reactions AND substantial multi-sentence
+    # drafts, not the old one-to-three-sentence cookie cutter profile.
+    word_counts = [len(copy.split()) for copy in varied_reviews]
+    assert sum(count <= 12 for count in word_counts) >= 8
+    assert sum(13 <= count <= 27 for count in word_counts) >= 12
+    assert sum(28 <= count <= 52 for count in word_counts) >= 12
+    assert sum(53 <= count <= 90 for count in word_counts) >= 8
+    assert sum(count >= 91 for count in word_counts) >= 4
+    assert len({tuple(copy.split()[:3]) for copy in varied_reviews}) >= 20
+    assert all(len(copy) <= 1200 for copy in varied_reviews)
+    assert all(
+        not any(phrase in copy.casefold() for phrase in (
+            "arrived early", "shipped fast", "ordered these", "seller sent",
+            "customer service", "verified purchase", "wore it last",
+        ))
+        for copy in varied_reviews
+    )
+    plain_document = fallback_document.model_copy(update={"embroidery_visible": False})
+    for index in range(50):
+        text = review_text_for_analysis(plain_document, f"plain-{index}")
+        assert not any(t in text.lower() for t in ("stitching", "embroidery", "embroidered", "thread work"))
 
     normalized = normalize_stage3_metadata(
         {
@@ -2860,6 +2881,40 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
         assert record[6].startswith("https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/")
         assert record[6].endswith(".png")
         assert record[7] == ""
+
+
+def test_stage5_backfill_only_updates_original_auto_composed_ready_text():
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc.stage3 import (
+        compose_review_text, refresh_legacy_stage5_copies,
+    )
+    from datetime import datetime, timezone
+
+    stamp = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(id="old-ready", tenant_id="a", status="ready",
+                        embroidery_visible=True, review_text="Love the colors with the embroidery.",
+                        review_generated_at=stamp),
+        SimpleNamespace(id="old-hidden", tenant_id="a", status="hidden",
+                        embroidery_visible=False, review_text="Love this hat color!",
+                        review_generated_at=stamp),
+        SimpleNamespace(id="edited-ready", tenant_id="a", status="ready",
+                        embroidery_visible=True, review_text="Hand-edited description, please preserve.",
+                        review_generated_at=stamp),
+        SimpleNamespace(id="already-new", tenant_id="b", status="ready",
+                        embroidery_visible=False,
+                        review_text=compose_review_text(analysis_id="already-new", embroidery_visible=False),
+                        review_generated_at=stamp),
+    ]
+    original = [row.review_text for row in rows]
+    dry = refresh_legacy_stage5_copies(rows, dry_run=True)
+    assert dry["changed"] == 1 and [row.review_text for row in rows] == original
+    applied = refresh_legacy_stage5_copies(rows, dry_run=False)
+    assert applied["changed"] == 1
+    assert rows[0].review_text != original[0]
+    assert rows[0].review_generated_at > stamp
+    assert [row.review_text for row in rows[1:]] == original[1:]
+    assert refresh_legacy_stage5_copies(rows, dry_run=False)["changed"] == 0
 
 
 def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database):
