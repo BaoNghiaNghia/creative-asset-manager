@@ -500,9 +500,17 @@ export function RealisticReviewUgcPage() {
       const version = await regenerateStage4Job(job.id);
       setStage2Message("New Stage 4 output queued with original references and current Skill. Older versions remain in history.");
       setStage2Jobs(current => current.some(item => item.id === version.id) ? current : [version, ...current]);
-      await refreshStage2Jobs();
+      // A follow-up refresh failure must not pretend a successful 202 queue failed.
+      // The queued job is already visible optimistically and polling will retry.
+      try {
+        await refreshStage2Jobs();
+      } catch {
+        // Keep the accepted server result and allow the next normal poll to sync.
+      }
+      return version;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not regenerate output.");
+      throw reason;
     }
   }
 

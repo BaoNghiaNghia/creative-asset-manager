@@ -1,0 +1,39 @@
+/* Stage 4 output-card regeneration: one confirmed operation per active lineage. */
+.rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button:disabled{
+  opacity:.45;cursor:not-allowed;filter:grayscale(.4)
+}
+.rrugc-stage4-regenerate-backdrop{
+  position:fixed;inset:0;z-index:4200;display:grid;place-items:center;box-sizing:border-box;
+  padding:16px;background:rgba(16,27,44,.58);backdrop-filter:blur(3px)
+}
+.rrugc-stage4-regenerate-confirm{
+  box-sizing:border-box;width:min(410px,100%);max-height:calc(100dvh - 32px);overflow:auto;
+  padding:23px;border:1px solid #dae3ee;border-radius:14px;background:#fff;
+  box-shadow:0 18px 56px rgba(16,27,44,.26);color:#273950;font-family:"Be Vietnam Pro",system-ui,sans-serif
+}
+.rrugc-stage4-regenerate-glyph{
+  display:grid;place-items:center;width:39px;height:39px;border-radius:11px;background:#eff3ff;color:#4e69b3
+}
+.rrugc-stage4-regenerate-glyph svg{width:20px;height:20px}
+.rrugc-stage4-regenerate-confirm h3{margin:15px 0 7px;font-size:16px;line-height:1.4}
+.rrugc-stage4-regenerate-confirm p{margin:0;font-size:12px;line-height:1.65;color:#66758b}
+.rrugc-stage4-regenerate-confirm footer{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
+.rrugc-stage4-regenerate-confirm footer button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-width:96px;min-height:40px;padding:9px 15px;border:1px solid #d4deeb;border-radius:9px;
+  background:#fff;color:#344c68;font:inherit;font-size:12px;font-weight:750;cursor:pointer
+}
+.rrugc-stage4-regenerate-confirm footer button.is-accept{border-color:#446bc4;background:#446bc4;color:#fff}
+.rrugc-stage4-regenerate-confirm footer button.is-accept:hover:not(:disabled){background:#3154a5}
+.rrugc-stage4-regenerate-confirm footer button:disabled{opacity:.55;cursor:wait}
+.rrugc-stage4-regenerate-confirm footer button:focus-visible{outline:2px solid #7295dc;outline-offset:2px}
+.rrugc-stage4-regenerate-confirm footer button svg{width:15px;height:15px}
+.rrugc-stage4-regenerate-error,.rrugc-stage4-regenerate-notice{margin:9px 16px!important;font-size:11px!important;line-height:1.5!important;color:#a44642!important;overflow-wrap:anywhere}
+.rrugc-stage4-regenerate-notice{color:#376b55!important}
+@media(max-width:760px){
+  .rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button,
+  .rrugc-stage4-output-modal .rrugc-stage4-output-card-actions button.is-new-version{
+    width:36px;height:36px;min-height:36px;flex-basis:36px
+  }
+}
+@media(max-width:480px){.rrugc-stage4-regenerate-confirm{padding:18px}.rrugc-stage4-regenerate-confirm footer button{flex:1}}

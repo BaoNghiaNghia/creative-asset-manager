@@ -651,13 +651,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("rrugc-stage4-output-card-actions");
     expect(markup).toContain("Logs for output 1");
     expect(markup).toContain("Versions for output 1");
-    expect(markup).toContain("Generate new version of output 1");
+    expect(markup).toContain("Regenerate output 1");
     for (const icon of ["logs", "versions", "new-version"]) {
       expect(markup).toContain(`data-action-icon="${icon}"`);
     }
     expect(markup).toContain('title="View logs"');
     expect(markup).toContain('title="View versions"');
-    expect(markup).toContain('title="Generate new version"');
+    expect(markup).toContain('title="Regenerate image"');
     expect(markup).not.toContain(">+ New version</button>");
     expect(markup).toContain("rrugc-stage4-output-modal");
     expect(markup).toContain("Drive ↗");

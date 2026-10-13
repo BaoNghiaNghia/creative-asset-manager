@@ -15,6 +15,7 @@ import { RrugcActionIcon } from "./RrugcActionIcon";
 import { OutputActivityLoader } from "./OutputActivityLoader";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
+import "./Stage4Regenerate.css";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
@@ -477,7 +478,7 @@ function Stage2ReferencePicker({
 function Stage4OutputActionIcon({ name }: { name: "logs" | "versions" | "new-version" }) {
   if (name === "logs") return <svg data-action-icon="logs" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3h10l3 3v15H4V3h3Z" /><path d="M8 10h8M8 14h8M8 18h5" /></svg>;
   if (name === "versions") return <svg data-action-icon="versions" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="7" width="13" height="13" rx="2" /><path d="M4 16V5a2 2 0 0 1 2-2h11" /></svg>;
-  return <svg data-action-icon="new-version" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.25" /><path d="m4 17 5-5 3.5 3.5M16.5 9v6m-3-3h6" /></svg>;
+  return <svg data-action-icon="new-version" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.8 9a7 7 0 0 1 12-2L20 12M4 12l2.2 5a7 7 0 0 0 12-2" /></svg>;
 }
 
 export function Stage2OutputReviewModal({
@@ -491,23 +492,36 @@ export function Stage2OutputReviewModal({
   jobs: Stage2Job[];
   historyJobs?: Stage2Job[];
   onClose: () => void;
-  onRegenerateJob?: (job: Stage2Job) => void;
+  onRegenerateJob?: (job: Stage2Job) => Promise<Stage2Job | void> | Stage2Job | void;
 }) {
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJobId, setVersionsJobId] = useState<string | null>(null);
   const [versionError, setVersionError] = useState("");
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
-  async function regenerate(jobId: string) {
-    if (regeneratingId) return;
-    setRegeneratingId(jobId);
+  const [confirmJob, setConfirmJob] = useState<Stage2Job | null>(null);
+  const [queuedNotice, setQueuedNotice] = useState("");
+  const confirmCancelRef = useRef<HTMLButtonElement>(null);
+  const activeRootIds = new Set(historyJobs
+    .filter(run => run.status === "queued" || run.status === "running")
+    .map(run => run.regenerated_from_job_id || run.id));
+
+  useEffect(() => {
+    if (confirmJob) confirmCancelRef.current?.focus();
+  }, [confirmJob]);
+
+  async function regenerate() {
+    if (regeneratingId || !confirmJob || !onRegenerateJob) return;
+    const target = confirmJob;
+    const rootId = target.regenerated_from_job_id || target.id;
+    if (activeRootIds.has(rootId)) return;
+    setRegeneratingId(target.id);
     setVersionError("");
     try {
-      const target = jobs.find(job => job.id === jobId);
-      if (target && onRegenerateJob) {
-        onRegenerateJob(target);
-        setVersionsJobId(null);
-        onClose();
-      }
+      const created = await onRegenerateJob(target);
+      if (created === undefined) throw new Error("Unable to queue the regeneration.");
+      setQueuedNotice("Regeneration queued. The new image will appear here automatically. Previous outputs are preserved.");
+      setConfirmJob(null);
+      setVersionsJobId(null);
     } catch (reason) {
       setVersionError(reason instanceof Error ? reason.message : "Unable to generate a new version.");
     } finally {
@@ -516,7 +530,12 @@ export function Stage2OutputReviewModal({
   }
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (regeneratingId) return;
+      if (confirmJob) setConfirmJob(null);
+      else if (versionsJobId) setVersionsJobId(null);
+      else if (logJobId) setLogJobId(null);
+      else onClose();
     }
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -525,9 +544,9 @@ export function Stage2OutputReviewModal({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, confirmJob, regeneratingId, versionsJobId, logJobId]);
 
-  return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+  return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && !confirmJob && onClose()}>
     <section className="rrugc-source-review-modal rrugc-stage4-output-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-stage2-output-review-title-" + plan.id}>
       <header className="rrugc-source-review-header">
         <div>
@@ -557,16 +576,56 @@ export function Stage2OutputReviewModal({
               <div className="rrugc-stage4-output-card-actions">
                 <button type="button" title="View logs" aria-label={"Logs for output " + (index + 1)} onClick={() => setLogJobId(run.id)}><Stage4OutputActionIcon name="logs" /></button>
                 <button type="button" title="View versions" aria-label={"Versions for output " + (index + 1)} onClick={() => setVersionsJobId(run.id)}><Stage4OutputActionIcon name="versions" /></button>
-                {onRegenerateJob && <button type="button" className="is-new-version" title="Generate new version" aria-label={"Generate new version of output " + (index + 1)} onClick={() => { onRegenerateJob(run); onClose(); }}><Stage4OutputActionIcon name="new-version" /></button>}
+                {onRegenerateJob && <button type="button" className="is-new-version"
+                  title={activeRootIds.has(run.regenerated_from_job_id || run.id) ? "Regeneration already queued or running" : "Regenerate image"}
+                  aria-label={"Regenerate output " + (index + 1)}
+                  disabled={Boolean(regeneratingId) || activeRootIds.has(run.regenerated_from_job_id || run.id)}
+                  onClick={() => { setVersionError(""); setQueuedNotice(""); setConfirmJob(run); }}>
+                  <Stage4OutputActionIcon name="new-version" />
+                </button>}
               </div>
             </footer>
           </article>
         )} />
-      {versionError && <p role="alert">{versionError}</p>}
+      {versionError && <p role="alert" className="rrugc-stage4-regenerate-error">{versionError}</p>}
+      {queuedNotice && <p role="status" className="rrugc-stage4-regenerate-notice">{queuedNotice}</p>}
+      {historyJobs.filter(run => run.status === "queued" || run.status === "running")
+        .filter(run => jobs.some(output => (run.regenerated_from_job_id || run.id) === (output.regenerated_from_job_id || output.id)))
+        .map(run => <p key={run.id} role="status" className="rrugc-stage4-regenerate-notice">
+          Regeneration {run.status} · output will be added to this gallery when completed.
+        </p>)}
       {versionsJobId && <GenerationOutputVersionsDialog stage="stage4" jobId={versionsJobId}
         title={plan.source_name} onClose={() => setVersionsJobId(null)}
-        onRegenerate={regeneratingId ? undefined : () => void regenerate(versionsJobId)} />}
+        onRegenerate={regeneratingId ? undefined : () => {
+          const target = historyJobs.find(run => run.id === versionsJobId);
+          if (target && !activeRootIds.has(target.regenerated_from_job_id || target.id)) {
+            setVersionsJobId(null);
+            setConfirmJob(target);
+          }
+        }} />}
       {logJobId && <SkillJobLogDialog stage="stage4" jobId={logJobId} onClose={() => setLogJobId(null)} />}
+      {confirmJob && <div className="rrugc-stage4-regenerate-backdrop" role="presentation"
+        onMouseDown={event => { if (event.target === event.currentTarget && !regeneratingId) setConfirmJob(null); }}>
+        <section className="rrugc-stage4-regenerate-confirm" role="dialog" aria-modal="true"
+          aria-labelledby="rrugc-stage4-regenerate-title" aria-describedby="rrugc-stage4-regenerate-description">
+          <span className="rrugc-stage4-regenerate-glyph"><Stage4OutputActionIcon name="new-version" /></span>
+          <h3 id="rrugc-stage4-regenerate-title">Regenerate this image?</h3>
+          <p id="rrugc-stage4-regenerate-description">
+            Generate one new image using this job's saved hat, Pinterest references,
+            prompt and Skill version. All previous outputs will remain available.
+          </p>
+          {versionError && <p role="alert" className="rrugc-stage4-regenerate-error">{versionError}</p>}
+          <footer>
+            <button ref={confirmCancelRef} type="button" disabled={Boolean(regeneratingId)}
+              onClick={() => { setConfirmJob(null); setVersionError(""); }}>Cancel</button>
+            <button type="button" className="is-accept" disabled={Boolean(regeneratingId)}
+              onClick={() => void regenerate()}>
+              <Stage4OutputActionIcon name="new-version" />
+              {regeneratingId ? "Queueing…" : "Regenerate"}
+            </button>
+          </footer>
+        </section>
+      </div>}
     </section>
   </div>;
 }
@@ -666,7 +725,7 @@ export function Stage2JobTable({
   onManageSkills?: () => void;
   onCancelJobs?: (plan: SourcePlan, jobIds: string[]) => void;
   onRetryJob?: (job: Stage2Job) => void;
-  onRegenerateJob?: (job: Stage2Job) => void;
+  onRegenerateJob?: (job: Stage2Job) => Promise<Stage2Job | void> | Stage2Job | void;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
 }) {
@@ -949,7 +1008,9 @@ export function Stage2JobTable({
             const selected = selectedByPlan[plan.id] || [];
             const allPlanJobs = allJobsByPlan.get(plan.id) || [];
             const planJobs = recentJobs.get(plan.id) || [];
-            const completedJobs = latestCompletedStage4Outputs(allPlanJobs);
+            const completedJobs = allPlanJobs.filter(run => run.status === "completed")
+              .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)
+                || b.id.localeCompare(a.id));
             const generated = completedCandidates.get(plan.id) || new Set<string>();
             const pickableAvailable = available.filter(reference => !generated.has(reference.id)).length;
             const runs = outputSummary(planJobs);
@@ -1194,8 +1255,11 @@ export function Stage2JobTable({
     {tableLogJobId && <SkillJobLogDialog stage="stage4" jobId={tableLogJobId} onClose={() => setTableLogJobId(null)} />}
     {outputReview && <Stage2OutputReviewModal
       plan={outputReview.plan}
-      jobs={outputReview.jobs}
-      historyJobs={outputReview.historyJobs}
+      jobs={(allJobsByPlan.get(outputReview.plan.id) || outputReview.historyJobs || [])
+        .filter(run => run.status === "completed")
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)
+          || b.id.localeCompare(a.id))}
+      historyJobs={allJobsByPlan.get(outputReview.plan.id) || outputReview.historyJobs}
       onRegenerateJob={onRegenerateJob}
       onClose={() => setOutputReview(null)}
     />}

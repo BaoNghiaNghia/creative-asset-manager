@@ -143,6 +143,30 @@
       ]
     },
     {
+      "name": "stage4-regenerate-preview",
+      "click": "#rrugc-panel-stage4 .rrugc-stage2-result-open",
+      "waitFor": ".rrugc-stage4-output-modal .rrugc-stage4-output-card-actions",
+      "waitMs": 200
+    },
+    {
+      "name": "stage4-regenerate-confirm",
+      "click": ".rrugc-stage4-output-modal .rrugc-stage4-output-card-actions .is-new-version",
+      "waitFor": ".rrugc-stage4-regenerate-confirm",
+      "assertions": [
+        {"type": "text-includes", "selector": ".rrugc-stage4-regenerate-confirm", "value": "All previous outputs will remain available"}
+      ]
+    },
+    {
+      "name": "stage4-regenerate-cancel",
+      "click": ".rrugc-stage4-regenerate-confirm footer button:not(.is-accept)",
+      "waitFor": ".rrugc-stage4-output-modal"
+    },
+    {
+      "name": "stage4-regenerate-close",
+      "click": ".rrugc-stage4-output-modal .rrugc-source-review-close",
+      "waitFor": "#rrugc-panel-stage4 .rrugc-stage2"
+    },
+    {
       "name": "stage5-actions",
       "click": "#rrugc-tab-stage5",
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage3",

@@ -8,7 +8,7 @@ from io import BytesIO
 from uuid import uuid4
 
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -427,7 +427,7 @@ class RrugcStage2Service:
     def regenerate_completed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
     ) -> RrugcStage2JobModel:
-        """Generate a new output using the latest installed version of the same Skill."""
+        """Generate a new output from saved job inputs, without changing older outputs."""
         original = self.session.scalar(select(RrugcStage2JobModel).where(
             RrugcStage2JobModel.tenant_id == tenant_id,
             RrugcStage2JobModel.id == job_id,
@@ -440,6 +440,42 @@ class RrugcStage2Service:
         _require_stage4_storage(self.settings)
         if original.status != "completed" or not original.output_remote_file_id:
             raise RrugcStage2Error("stage4_version_unavailable", "Only completed outputs can be regenerated.")
+
+        root_id = original.regenerated_from_job_id or original.id
+        # Every regeneration in the same lineage locks the same root row.
+        # This prevents two concurrent requests from queuing duplicate work.
+        root = self.session.scalar(select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcStage2JobModel.id == root_id,
+        ).with_for_update())
+        if root is None:
+            raise RrugcStage2Error("stage4_root_not_found", "Original generation was not found.", status_code=404)
+        existing = self.session.scalar(select(RrugcStage2JobModel).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            or_(
+                RrugcStage2JobModel.id == root_id,
+                RrugcStage2JobModel.regenerated_from_job_id == root_id,
+            ),
+            RrugcStage2JobModel.status.in_(("queued", "running")),
+        ).order_by(RrugcStage2JobModel.created_at.desc(), RrugcStage2JobModel.id.desc()).limit(1))
+        if existing is not None:
+            return existing
+
+        # Reuse the exact original Drive hat and Pinterest snapshot. If a
+        # mutable source has been replaced, fail visibly instead of queueing
+        # a job that cannot reproduce the saved input.
+        plan = self.session.get(RrugcSourcePlanModel, original.source_plan_id)
+        if plan is None or plan.tenant_id != tenant_id or plan.source_revision != original.source_revision:
+            raise RrugcStage2Error("stage4_source_changed",
+                                   "The original hat source has changed; regeneration requires the saved source.", status_code=409)
+        source_snapshot = dict(original.selected_source_snapshot_json or {})
+        if source_snapshot:
+            source_plan_id = str(source_snapshot.get("source_plan_id") or "")
+            selected = self.session.get(RrugcSourcePlanModel, source_plan_id)
+            if selected is None or selected.tenant_id != tenant_id or selected.source_revision != str(source_snapshot.get("source_revision") or ""):
+                raise RrugcStage2Error("stage4_source_changed",
+                                       "The selected hat source has changed; regeneration cannot reuse the original image.", status_code=409)
+
         ensure_skill_registry(self.session, tenant_id=tenant_id)
         try:
             assert_skill_enabled(self.session, tenant_id=tenant_id,
@@ -453,7 +489,7 @@ class RrugcStage2Service:
                 skill_source=original.skill_source,
                 skill_id=original.skill_id,
                 skill_name=original.skill_name,
-                skill_version=None,  # An uploaded replacement wins over the old version.
+                skill_version=original.skill_version,
                 fallback_skill_name=DEFAULT_STAGE2_SKILL,
             )
         except Stage2SkillRegistryError as exc:
@@ -461,6 +497,12 @@ class RrugcStage2Service:
         current_bundle_sha256 = installed_stage2_skill_sha256(
             current_skill.skill_name, settings=self.settings
         )
+        if original.skill_bundle_sha256 and current_bundle_sha256 != original.skill_bundle_sha256:
+            raise RrugcStage2Error(
+                "stage4_skill_version_changed",
+                "The original Skill bundle is no longer installed. Restore its saved version to regenerate the same job.",
+                status_code=409,
+            )
         now = datetime.now(timezone.utc)
         row = RrugcStage2JobModel(
             tenant_id=tenant_id, source_plan_id=original.source_plan_id,
