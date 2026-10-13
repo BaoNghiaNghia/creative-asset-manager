@@ -17,12 +17,15 @@ describe("responsive workspace routing", () => {
     expect(workspaceRouteForApplicationRoute("public-review")).toBeNull();
     expect(workspaceRouteForApplicationRoute("privacy")).toBeNull();
     expect(workspaceRouteForApplicationRoute("terms")).toBeNull();
+    expect(workspaceRouteForApplicationRoute("under-construction")).toBeNull();
   });
 
   it("keeps route parsing compatible with responsive navigation", () => {
     expect(routeForPath("/")).toBe("explorer");
     expect(routeForPath("/ai-operations")).toBe("ai-operations");
     expect(routeForPath("/settings/access")).toBe("access-management");
+    expect(routeForPath("/under-construction")).toBe("under-construction");
+    expect(routeForPath("/under-construction/")).toBe("under-construction");
   });
 
   it("gates privileged workspaces before their page can issue protected API calls", () => {

@@ -1,0 +1,87 @@
+.cam-under-construction {
+  box-sizing: border-box;
+  isolation: isolate;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: #182c50;
+  background: radial-gradient(circle at 12% 13%, #e7efff, transparent 32%),
+    radial-gradient(circle at 93% 80%, #e9effb, transparent 32%), #f8faff;
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+}
+.cam-under-construction *, .cam-under-construction *::before, .cam-under-construction *::after { box-sizing: border-box; }
+.cam-under-brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  align-self: flex-start; margin: 28px clamp(20px, 5vw, 74px);
+  color: #1b3e89; text-decoration: none; font-size: 17px; font-weight: 800;
+}
+.cam-under-brand img { width: 36px; height: 36px; object-fit: contain; }
+.cam-under-body {
+  display: flex; align-items: center; flex: 1; flex-direction: column;
+  justify-content: center; width: 100%; max-width: 900px;
+  margin: 0 auto; padding: 12px 20px 56px; text-align: center;
+}
+.cam-under-scene {
+  display: grid; place-items: center;
+  position: relative; width: min(100%, 610px); aspect-ratio: 3 / 2;
+  overflow: hidden; border-radius: 28px; background: #e7effc;
+  box-shadow: 0 24px 80px rgb(65 108 187 / 10%);
+}
+.cam-under-video, .cam-under-still {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  object-position: center;
+}
+.cam-under-video { mix-blend-mode: multiply; }
+.cam-under-still { display: none; }
+.cam-under-eyebrow {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  margin-top: 30px; color: #355ec5; font-size: 11px;
+  font-weight: 800; letter-spacing: 0.16em;
+}
+.cam-under-dot {
+  width: 8px; height: 8px; flex: none; border-radius: 50%;
+  background: #4a77e7; box-shadow: 0 0 0 4px #dce8ff;
+}
+.cam-under-body h1 {
+  margin: 10px 0 12px; font-size: clamp(32px, 5vw, 60px);
+  font-weight: 850; line-height: 1.18; letter-spacing: -0.065em;
+}
+.cam-under-body h1 span { color: #416fe9; }
+.cam-under-detail {
+  max-width: 540px; margin: 0; color: #72819a;
+  font-size: clamp(13px, 1.7vw, 16px); line-height: 1.8;
+}
+.cam-under-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 46px; margin-top: 27px; padding: 12px 22px;
+  border-radius: 12px; background: #345ed6; color: #fff;
+  text-decoration: none; font-size: 13px; font-weight: 750;
+  box-shadow: 0 8px 22px rgb(52 94 214 / 20%);
+  transition: background 0.18s, transform 0.18s;
+}
+.cam-under-button:hover { background: #254dbd; transform: translateY(-2px); }
+.cam-under-button:focus-visible, .cam-under-brand:focus-visible {
+  outline: 3px solid #547de7; outline-offset: 4px;
+}
+.cam-under-footer {
+  padding: 24px 18px; color: #91a1b9;
+  text-align: center; font-size: 11px;
+}
+@media (max-width: 680px) {
+  .cam-under-brand { margin: 17px 20px; font-size: 15px; }
+  .cam-under-brand img { width: 32px; height: 32px; }
+  .cam-under-body { padding: 20px 16px 30px; }
+  .cam-under-scene { border-radius: 18px; }
+  .cam-under-eyebrow { margin-top: 25px; font-size: 10px; }
+  .cam-under-detail { max-width: 36ch; }
+  .cam-under-footer { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cam-under-video { display: none; }
+  .cam-under-still { display: block; }
+  .cam-under-button { transition: none; }
+  .cam-under-button:hover { transform: none; }
+}

@@ -13,6 +13,7 @@ const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").t
 const JobQueuePage = lazy(() => import("./job-queue/JobQueuePage").then(module => ({ default: module.JobQueuePage })));
 const InventoryApp = lazy(() => import("./inventory/InventoryApp").then(module => ({ default: module.InventoryApp })));
 const InventoryOverviewPage = lazy(() => import("./inventory/InventoryOverviewPage").then(module => ({ default: module.InventoryOverviewPage })));
+const UnderConstructionPage = lazy(() => import("./components/UnderConstructionPage").then(module => ({ default: module.UnderConstructionPage })));
 const PrivacyPolicyPage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.TermsOfServicePage })));
 const PublicReviewRoute = lazy(() => import("./public-review/PublicReviewRoute").then(module => ({ default: module.PublicReviewRoute })));
@@ -20,10 +21,11 @@ const ReviewBoardPage = lazy(() => import("./review-board/ReviewBoardPage").then
 const RealisticReviewUgcPage = lazy(() => import("./realistic-review-ugc/RealisticReviewUgcPage").then(module => ({ default: module.RealisticReviewUgcPage })));
 const VideoGenerationPage = lazy(() => import("./video-generation/VideoGenerationPage").then(module => ({ default: module.VideoGenerationPage })));
 
-export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation" | "realistic-review-ugc";
+export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation" | "realistic-review-ugc" | "under-construction";
 
 export function routeForPath(pathname: string): ApplicationRoute {
   if (/^\/share\/[A-Za-z0-9_-]{1,128}(?:\/folder\/[^/]{1,1024})?\/?$/.test(pathname)) return "public-review";
+  if (pathname === "/under-construction" || pathname === "/under-construction/") return "under-construction";
   if (pathname === "/review-board" || pathname === "/review-board/") return "review-board";
   if (pathname === "/job-queue") return "job-queue";
   if (pathname === "/realistic-review-ugc" || pathname === "/realistic-review-ugc/") return "realistic-review-ugc";
@@ -36,7 +38,7 @@ export function routeForPath(pathname: string): ApplicationRoute {
 }
 
 export function workspaceRouteForApplicationRoute(route: ApplicationRoute): WorkspaceRoute | null {
-  if (route === "public-review" || route === "privacy" || route === "terms") return null;
+  if (route === "public-review" || route === "privacy" || route === "terms" || route === "under-construction") return null;
   if (route === "inventory") return "inventory";
   if (route === "ai-operations") return "operations";
   if (route === "job-queue") return "queue";
@@ -90,7 +92,7 @@ export function AppRoute() {
     />
     : !routeAllowed
       ? <main className="state"><p>This workspace is not available for your role.</p><a href="/">Return to Asset Explorer</a></main>
-      : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
+      : route === "under-construction" ? <UnderConstructionPage /> : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />
     : route === "inventory" ? (legacyInventoryTab || window.location.pathname.replace(/\/$/, "") === "/inventory"
