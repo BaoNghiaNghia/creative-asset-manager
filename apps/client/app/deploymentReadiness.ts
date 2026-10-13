@@ -37,7 +37,10 @@ export function useDeploymentReadiness(
           method: "GET", cache: "no-store", credentials: "same-origin",
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error("backend_not_ready");
+        // Only backend failures signal deployment downtime. An unexpected
+        // 4xx from an intermediary is not evidence of a server shutdown.
+        if (response.status >= 500) throw new Error("backend_not_ready");
+        if (!response.ok) return;
         if (!alive) return;
         if (outage) {
           onRecovered();

@@ -62,6 +62,16 @@ describe("deployment watcher for already-open workspaces", () => {
     expect(probe.status).toBe("maintenance");
   });
 
+  it("does not mistake an intermediary 400 for a maintenance outage", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockResolvedValue(new Response("invalid request", {status: 400}));
+    vi.stubGlobal("fetch", fetcher);
+    const probe = await mount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_INITIAL_DELAY_MS); });
+    expect(probe.status).toBe("operational");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("never polls backend for intentionally public pages", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn();
