@@ -57,6 +57,7 @@ class CodexImageRunnerConfig:
     output_contract: str = "single_png"
     expected_quote: str | None = None
     execution_log_id: str | None = None
+    font_plan: tuple[dict, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -500,7 +501,8 @@ class CodexImageGenRunner:
                 and self.config.skill_name == "gatorhats-stage1-six-designs"
                 and self.config.expected_quote):
             from app.modules.realistic_review_ugc.stage1_font_library import render_font_guides
-            render_font_guides(workspace, self.config.expected_quote)
+            render_font_guides(workspace, self.config.expected_quote,
+                               font_plan=self.config.font_plan)
 
         if resume_missing_numbers is None:
             instruction = self._prompt(

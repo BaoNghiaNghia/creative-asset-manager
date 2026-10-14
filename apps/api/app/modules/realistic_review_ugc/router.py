@@ -5630,6 +5630,47 @@ def create_manual_keyword_image(
     }
 
 
+@router.get("/keyword-images/dafont-pool")
+def get_stage1_dafont_pool(
+    principal: CurrentPrincipal = Depends(READ),
+    session: Session = Depends(get_db),
+):
+    from app.modules.realistic_review_ugc.stage1_font_library import (
+        approved_font_pool, RECENT_JOB_EXCLUSION_WINDOW, RECENT_JOB_LOOKBACK,
+        DESIGNS_PER_JOB,
+    )
+    fonts = approved_font_pool()
+    recent = session.scalars(
+        select(RrugcKeywordImageJobModel)
+        .where(
+            RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
+            RrugcKeywordImageJobModel.font_plan_json.is_not(None),
+        ).order_by(RrugcKeywordImageJobModel.updated_at.desc()).limit(RECENT_JOB_LOOKBACK)
+    ).all()
+    counts: dict[str, int] = {}
+    for job in recent:
+        for plan in job.font_plan_json or []:
+            font_name = plan.get("font")
+            if font_name:
+                counts[font_name] = counts.get(font_name, 0) + 1
+    return {
+        "source": "DaFont",
+        "approved_fonts": len(fonts),
+        "fonts_per_job": DESIGNS_PER_JOB,
+        "avoid_recent_jobs": RECENT_JOB_EXCLUSION_WINDOW,
+        "lookback_jobs": RECENT_JOB_LOOKBACK,
+        "brown_only": True,
+        "require_embroidery_safe": True,
+        "fonts": [
+            {"name": row["font"], "category": row["category"],
+             "group": row["group"], "url": row["url"],
+             "license": row["license"], "enabled": row["enabled"],
+             "times_used_recently": counts.get(row["font"], 0)}
+            for row in fonts
+        ],
+    }
+
+
 @router.get("/keyword-images", response_model=KeywordImagePageResponse)
 def list_keyword_images(
     page: int = Query(default=1, ge=1),

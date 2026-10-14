@@ -265,7 +265,7 @@ def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_c
     files = {name: content for name, content, _content_type in bundle.files}
     skill = files["SKILL.md"].decode("utf-8")
     manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 14_23_14_10_26" in skill
+    assert "version: 16_28_14_10_26" in skill
     assert "typography-only" in skill.lower()
     assert "one single solid thread hue" in skill.lower()
     assert "NO illustrations" in skill
@@ -281,7 +281,9 @@ def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_c
     for index in range(1, 7):
         assert f"output/final/design_{index:02}.png" in skill
     assert "keyword_six_designs" in manifest
-    assert "exactly one thread color per design" in manifest
+    assert "brown-thread embroidery designs" in manifest
+    assert "24-family approved DaFont font pool" in manifest
+    assert "font_registry.json" in files
     from pathlib import Path
     deployed = Path(__file__).resolve().parents[5] / "deploy/codex/skills/gatorhats-stage1-six-designs/SKILL.md"
     assert deployed.read_bytes() == files["SKILL.md"]

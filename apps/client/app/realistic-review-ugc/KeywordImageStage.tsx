@@ -9,6 +9,7 @@ import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
+import { DaFontPoolDialog } from "./DaFontPoolDialog";
 import { KeywordDetailModal, KeywordTrendChart } from "./KeywordAnalysisTable";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
@@ -238,6 +239,7 @@ export function KeywordImageStage({
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
+  const [fontPoolOpen, setFontPoolOpen] = useState(false);
   const [manualKeyword, setManualKeyword] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualResult, setManualResult] = useState<KeywordImageRow | null>(null);
@@ -491,10 +493,12 @@ export function KeywordImageStage({
           {readySkills.map(skill => <option key={skillKey(skill)} value={skillKey(skill)}>{skill.display_name || skill.skill_name}{skill.upload_version || skill.synced_version ? " · " + (skill.upload_version || skill.synced_version) : ""}</option>)}
         </select>
       </label>
+      <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => setFontPoolOpen(true)} title="Approved DaFont font pool and anti-repeat strategy" aria-label="Open DaFont font pool">DaFont Pool</button>
       <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => { setLoading(true); void refresh().catch(reason => { setLoading(false); setError(String(reason)); }); }} aria-label="Refresh keyword jobs" title="Refresh jobs" disabled={loading}>
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 1-2.4-5.7" /><path d="M20 4v7h-7" /></svg>
       </button>
     </div>
+    {fontPoolOpen && <DaFontPoolDialog onClose={() => setFontPoolOpen(false)} />}
     <ActionMessageToast message={error} tone="error" />
     <ActionMessageToast message={message} />
     {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}

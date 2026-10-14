@@ -1126,6 +1126,7 @@ class RrugcKeywordImageJobModel(Base):
     skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
     skill_version: Mapped[str | None] = mapped_column(String(64))
     skill_bundle_sha256: Mapped[str | None] = mapped_column(String(64))
+    font_plan_json: Mapped[list[dict] | None] = mapped_column(JSON)
     prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     processing_job_id: Mapped[str | None] = mapped_column(String(36))

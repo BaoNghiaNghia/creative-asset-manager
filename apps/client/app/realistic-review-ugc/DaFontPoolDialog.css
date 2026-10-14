@@ -1,0 +1,25 @@
+.rrugc-dafont-backdrop{position:fixed;inset:0;z-index:12000;display:grid;place-items:center;padding:18px;background:rgba(19,29,50,.55)}
+.rrugc-dafont-dialog{display:flex;flex-direction:column;width:min(780px,100%);max-height:min(88vh,850px);overflow:hidden;border-radius:14px;background:#fff;color:#263b58;box-shadow:0 20px 70px rgba(17,36,65,.22)}
+.rrugc-dafont-dialog>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 22px;border-bottom:1px solid #e2e9f3}
+.rrugc-dafont-eyebrow{font-size:10px;color:#7286a6;font-weight:800;letter-spacing:.06em}
+.rrugc-dafont-dialog h2{font-size:20px;margin:5px 0 4px}
+.rrugc-dafont-dialog p{font-size:12px;line-height:1.55;margin:0;color:#687c98}
+.rrugc-dafont-close{border:1px solid #d4dfeb;background:#fff;border-radius:9px;width:33px;height:33px;font-size:20px;color:#617595;cursor:pointer}
+.rrugc-dafont-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:14px 22px 9px}
+.rrugc-dafont-metrics>div{padding:10px 12px;border:1px solid #e0e6f0;border-radius:10px;background:#f8faff;display:grid;gap:4px}
+.rrugc-dafont-metrics strong{font-size:20px;color:#30548b}
+.rrugc-dafont-metrics span{font-size:10px;color:#7587a0}
+.rrugc-dafont-dialog .rrugc-dafont-policy{padding:0 22px 14px}
+.rrugc-dafont-font-list{overflow:auto;margin:0 22px 12px;border:1px solid #e1e7f0;border-radius:10px}
+.rrugc-dafont-font-item{display:grid;grid-template-columns:minmax(120px,1fr) 85px 68px 75px;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #edf0f5}
+.rrugc-dafont-font-item:last-child{border-bottom:0}
+.rrugc-dafont-font-item>div{display:grid;gap:3px;min-width:0}
+.rrugc-dafont-font-item strong{font-size:12px;overflow-wrap:anywhere}
+.rrugc-dafont-font-item small,.rrugc-dafont-font-item>span{font-size:10px;color:#7888a0}
+.rrugc-dafont-font-item a{font-size:10px;font-weight:800;color:#4173b4;text-decoration:none}
+.rrugc-dafont-font-item a:hover{text-decoration:underline}
+.rrugc-dafont-dialog .rrugc-dafont-error{color:#ae3b3b;padding:14px 22px}
+.rrugc-dafont-dialog .rrugc-dafont-loading{padding:20px 22px}
+.rrugc-dafont-dialog>footer{padding:12px 22px;border-top:1px solid #e0e8f1;text-align:right}
+.rrugc-dafont-dialog>footer button{padding:7px 18px;border:1px solid #d1ddec;border-radius:8px;background:#fff;color:#375477;font-size:12px;font-weight:700;cursor:pointer}
+@media(max-width:620px){.rrugc-dafont-backdrop{padding:8px}.rrugc-dafont-metrics{grid-template-columns:repeat(2,1fr);padding:10px}.rrugc-dafont-dialog>header{padding:15px}.rrugc-dafont-dialog .rrugc-dafont-policy{padding:0 12px 10px}.rrugc-dafont-font-list{margin:0 12px 9px}.rrugc-dafont-font-item{grid-template-columns:minmax(90px,1fr) 65px 62px;gap:5px;padding:9px}.rrugc-dafont-font-item>small{display:none}}

@@ -29,7 +29,7 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
-from app.modules.realistic_review_ugc.stage1_font_library import font_info_for_number, font_brief
+from app.modules.realistic_review_ugc.stage1_font_library import font_info_for_number, font_brief, ensure_job_font_plan
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -415,6 +415,7 @@ class KeywordImageService:
         job.skill_bundle_sha256 = installed_stage2_skill_sha256(job.skill_name, settings=self.settings)
         job.status = "queued"
         job.retry_count = 0
+        job.font_plan_json = None  # Explicit regenerate rerolls; deferred retry retains the saved plan.
         job.started_at = None
         job.completed_at = None
         job.provider_request_id = None
@@ -907,6 +908,8 @@ class KeywordImageGenerateHandler:
                     return JobHandlerResult.non_retryable(
                         "stage1_legacy_skill_not_supported", job.last_error_message,
                     )
+            font_plan = (ensure_job_font_plan(session, job)
+                         if job.skill_name == "gatorhats-stage1-six-designs" else None)
             job.status = "running"
             job.started_at = job.started_at or datetime.now(timezone.utc)
             job.last_error_code = None
@@ -926,6 +929,7 @@ class KeywordImageGenerateHandler:
             output_contract="stage1_six_final_designs",
             expected_quote=keyword_text if skill_name in ("hanh-redesign-8869-ver-4", "gatorhats-stage1-six-designs") else None,
             execution_log_id=context.job.id,
+            font_plan=tuple(font_plan) if font_plan else None,
         ))
         preserve_finals = False
         upload_only = bool(context.job.payload.get("upload_only"))
@@ -974,7 +978,9 @@ class KeywordImageGenerateHandler:
                             "job_id": context.job.entity_id, "tenant_id": context.job.tenant_id,
                         })
                         generated = await runner.generate_from_references(
-                            attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
+                            attempt_id=context.job.entity_id, person=None, references=[],
+                            prompt=(prompt + " APPROVED RANDOM FONT PLAN: " + font_brief(font_plan)
+                                    if font_plan else prompt),
                             resume_missing_numbers=resume_missing,
                         )
             original_attempt = (
@@ -1152,7 +1158,8 @@ class KeywordImageGenerateHandler:
                         and job.skill_bundle_sha256 == installed_stage2_skill_sha256(
                             job.skill_name, settings=self.settings or get_settings()
                         )):
-                    font_info = font_info_for_number(index + 1)
+                    font_info = (font_info_for_number(index + 1, font_plan=job.font_plan_json)
+                                 if job.font_plan_json else None)
                 save_output_version(
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
                     remote_file_id=stored.remote_file_id, content_type=mime_type,
