@@ -425,16 +425,19 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(reviewMarkup).toContain("Only JPG/PNG files");
     expect(reviewMarkup).toContain('id="rrugc-reviews-stage2-search-input"');
     expect(markup).toContain('id="rrugc-stage2-search-input"');
-    expect(markup).toContain("Embroidery design → 13 colorways");
+    expect(markup).toContain("Embroidery design → 4-skill photo &amp; color pipeline");
+    expect(markup).toContain("4-skill pipeline · 23 outputs");
+    expect(markup).not.toContain("<th>13-color batch</th>");
+    expect(reviewMarkup).toContain("<th>13-color batch</th>");
     expect(markup).toContain("JPG / PNG");
     expect(markup).toContain("bad day hotdog");
-    expect(markup).toContain("13-color batch");
+    expect(markup).not.toContain("<th>13-color batch</th>");
     expect(markup).toContain('data-sort-column="source" data-sort-direction="asc"');
     expect(markup).toContain('<th class="is-sort-column">Embroidery design</th>');
     expect(markup).toContain(">Last updated</th>");
     expect(markup).toContain(">Status</th>");
     expect((markup.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
-    expect(markup).toContain("Run selected · 0");
+    expect(markup).toContain("Run selected colors · 0");
     expect(markup).toContain("0 completed · 0 active · 0 failed");
     for (const [sortBy, direction, header] of [
       ["updated", "desc", "Last updated"],

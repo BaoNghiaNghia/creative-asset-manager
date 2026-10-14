@@ -112,6 +112,7 @@ export function EmbroideryColorwayStage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [colorwayJobs, setColorwayJobs] = useState<ColorwayJob[]>([]);
   const [queueing, setQueueing] = useState(false);
+  const [queueingPlanId, setQueueingPlanId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState("");
   const [logJobId, setLogJobId] = useState<string | null>(null);
@@ -174,7 +175,7 @@ export function EmbroideryColorwayStage({
     [catalog.items, selectedSkillKey],
   );
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
-  const plannedOutputs = data.total * COLOR_SLOT_COUNT;
+  const plannedOutputs = data.total * (workflow === "products" ? COLOR_SLOT_COUNT + 10 : COLOR_SLOT_COUNT);
   const pageIds = data.items.map(item => item.id);
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const ready = Boolean(selectedSkill?.ready);
@@ -265,6 +266,18 @@ export function EmbroideryColorwayStage({
       setJobMessage(reason instanceof Error ? reason.message : "Unable to queue colorways.");
     } finally { setQueueing(false); }
   };
+  const queueOneColorway = async (planId: string) => {
+    if (!skillInput || !executionReady || !serverReadiness?.ready || queueing || queueingPlanId) return;
+    setQueueingPlanId(planId);
+    setJobMessage("");
+    try {
+      const result = await queueColorwayBatch([planId], skillInput, "products");
+      await refreshJobs();
+      setJobMessage(result.queued ? "Hat color jobs queued for this design." : "No missing hat colors to queue.");
+    } catch (reason) {
+      setJobMessage(reason instanceof Error ? reason.message : "Unable to queue hat colors.");
+    } finally { setQueueingPlanId(null); }
+  };
   const retryFailed = async (job: ColorwayJob) => {
     if (retryingId) return;
     setRetryingId(job.id);
@@ -321,9 +334,9 @@ export function EmbroideryColorwayStage({
     <RrugcStageHeader
       className="rrugc-colorway-header"
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
-      title={workflow === "products" ? "Embroidery design → 13 colorways + 3-skill photo pipeline" : "Embroidery design → 13 colorways"}
+      title={workflow === "products" ? "Embroidery design → 4-skill photo & color pipeline" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>Selected Stage 1 PNG designs produce 13 original hat colorways. The additional Ecommerce → Multi-hat → UGC pipeline is shown per design with honest installation and reference readiness. Generation controls remain locked until its worker is deployed.</>
+        ? <>Each Stage 1 design has four separate skill rows: Ecommerce (4), Multi-hat (3), UGC (3), and 13 hat colors. The first three photo workers remain unavailable until their execution pipeline is enabled; the existing 13-color jobs stay operational.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
@@ -342,8 +355,8 @@ export function EmbroideryColorwayStage({
     <div className="rrugc-colorway-kpis">
       <article><span>Designs found</span><strong>{data.total}</strong><small>JPG / PNG source images</small></article>
       <article><span>Hat colors</span><strong>{COLOR_SLOT_COUNT}</strong><small>per design</small></article>
-      <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>design × color</small></article>
-      <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * COLOR_SLOT_COUNT} outputs</small></article>
+      <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>{workflow === "products" ? "design × 23 images" : "design × color"}</small></article>
+      <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * (workflow === "products" ? 23 : COLOR_SLOT_COUNT)} planned outputs</small></article>
     </div>
 
     <div className="rrugc-colorway-toolbar">
@@ -386,7 +399,7 @@ export function EmbroideryColorwayStage({
         title={!serverReadiness?.ready ? "Stage 2 server readiness is not confirmed" : ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
       >
         <RrugcActionIcon name={queueing ? "refresh" : "play"} />
-        {queueing ? "Queueing…" : "Run selected · " + (selectedIds.size * COLOR_SLOT_COUNT)}
+        {queueing ? "Queueing…" : (workflow === "products" ? "Run selected colors · " : "Run selected · ") + (selectedIds.size * COLOR_SLOT_COUNT)}
       </button>
     </div>
 
@@ -397,10 +410,9 @@ export function EmbroideryColorwayStage({
           <tr>
             <th aria-label="Select design" />
             <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
-            <th>13-color batch</th>
-            {workflow === "products" && <th>3-skill photo pipeline · 10 shots</th>}
-            <th>Progress</th>
-            <th>Skill</th>
+            <th>{workflow === "products" ? "4-skill pipeline · 23 outputs" : "13-color batch"}</th>
+            <th>{workflow === "products" ? "13-color progress" : "Progress"}</th>
+            <th>{workflow === "products" ? "Colorway skill" : "Skill"}</th>
             <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th>
             <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>
           </tr>
@@ -408,7 +420,7 @@ export function EmbroideryColorwayStage({
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
             <tr key={index} className="rrugc-colorway-skeleton-row">
-              <td><span /></td><td><span /></td><td><span /></td>{workflow === "products" && <td><span /></td>}<td><span /></td><td><span /></td><td><span /></td><td><span /></td>
+              <td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td>
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
@@ -428,7 +440,7 @@ export function EmbroideryColorwayStage({
                 />
               </td>
               <td><DesignSource plan={plan} /></td>
-              <td>
+              {workflow === "reviews" ? <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
                   {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {
                     const job = slots?.get(COLOR_KEYS[index]);
@@ -450,8 +462,17 @@ export function EmbroideryColorwayStage({
                     </span>;
                   })}
                 </div>
-              </td>
-              {workflow === "products" && <td><ProductsPhotoWorkflow sourceName={plan.source_name} readiness={photoReadiness} /></td>}
+              </td> : <td><ProductsPhotoWorkflow
+                sourceName={plan.source_name} readiness={photoReadiness}
+                colors={Array.from(slots?.values() || [])}
+                colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
+                colorwayReady={Boolean(skillInput && executionReady && serverReadiness?.ready)}
+                colorwayRunning={Boolean(queueing || queueingPlanId || retryingId)}
+                onQueueColors={() => void queueOneColorway(plan.id)}
+                onRetryColor={job => void retryFailed(job)}
+                onOpenColor={job => setVersionsJob({ jobId: job.id, title: job.color_name + " · " + cleanDesignName(plan.source_name) })}
+                onOpenLog={job => setLogJobId(job.id)}
+              /></td>}
               <td>
                 <div className="rrugc-colorway-progress">
                   <div><span style={{ width: Math.round(completed / COLOR_SLOT_COUNT * 100) + "%" }} /></div>
@@ -478,7 +499,7 @@ export function EmbroideryColorwayStage({
             </tr>;
           })}
           {!loading && data.items.length === 0 && <tr>
-            <td colSpan={workflow === "products" ? 8 : 7} className="rrugc-source-plan-empty">
+            <td colSpan={7} className="rrugc-source-plan-empty">
               No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}

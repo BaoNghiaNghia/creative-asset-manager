@@ -2,15 +2,42 @@ import { describe, it, expect } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
+import type { ColorwayJob } from "./api";
 
 describe("Products Stage 2 photo workflow", () => {
-  it("shows three sequential skill groups and safely disables incomplete execution", () => {
-    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null}/>);
+  it("shows four separate skill rows with 10 photo placeholders and 13 colors", () => {
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null} />);
     expect(html).toContain("Ecommerce");
     expect(html).toContain("Multi-hat");
     expect(html).toContain("UGC");
-    expect(html).toContain("Three-skill photo workflow for design_01.png");
-    expect(html).toContain("Details");
+    expect(html).toContain("13 Hat Colors");
+    expect(html).toContain("Four-skill photo workflow for design_01.png");
+    expect(html).toContain("4 skills");
+    expect(html).toContain("23 outputs");
+    expect((html.match(/rrugc-products-photo-stage-row/g) || []).length).toBe(4);
+    expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
+    expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
     expect(html).not.toContain("Completed · 10/10");
+  });
+
+  it("renders real completed colorway previews and independent retry actions", () => {
+    const jobs: ColorwayJob[] = [
+      {
+        id: "one", source_plan_id: "src", color_key: "khaki-maroon",
+        color_name: "Khaki Maroon", status: "completed", retry_count: 0,
+        attempt_count: 1, error_code: null, output_url: "/real-photo.png",
+      },
+      {
+        id: "two", source_plan_id: "src", color_key: "natural-black",
+        color_name: "Natural Black", status: "failed", retry_count: 1,
+        attempt_count: 2, error_code: "skill_failed", output_url: null,
+      },
+    ];
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null}
+      colors={jobs} onOpenColor={() => undefined} onRetryColor={() => undefined} />);
+    expect(html).toContain('src="/real-photo.png"');
+    expect(html).toContain("View Khaki Maroon output versions");
+    expect(html).toContain("Retry Natural Black");
+    expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(11);
   });
 });
