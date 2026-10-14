@@ -187,6 +187,16 @@
     max-height: calc(100dvh - var(--cam-mobile-rail-height) - env(safe-area-inset-bottom));
   }
 
+  /* Allow Inventory table rows to scroll clear of the fixed bottom navigation.
+     The materials page uses inventory-route-main, not the shared shell padding. */
+  .inventory-route-main .inventory-workspace-content,
+  .inventory-route-main .inventory-content {
+    padding-bottom: calc(var(--cam-mobile-rail-height) + 72px + env(safe-area-inset-bottom));
+  }
+  .inventory-material-registry tbody tr {
+    scroll-margin-bottom: calc(var(--cam-mobile-rail-height) + 16px + env(safe-area-inset-bottom));
+  }
+
   /* Shared mobile rhythm and touch-safe form controls. */
   .workspace-page-header,
   .workspace-page-header.rrugc-header,

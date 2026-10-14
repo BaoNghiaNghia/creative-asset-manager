@@ -191,7 +191,7 @@ if [[ "${CAM_UI_QA_RESEARCH_INBOX:-1}" == "1" ]]; then
   for profile in "${PROFILES[@]}"; do
     if [[ "$profile" == "realistic-review-ugc" ]]; then
       note "Research Inbox interactive QA (no visual baseline auto-acceptance)"
-      if ! npm run ui:qa -- \
+      if ! CAM_UI_QA_KEEP="$KEEP_RUNS" npm run ui:qa -- \
         --url "${ROOT_URL}realistic-review-ugc" \
         --fixture "$ROOT/apps/client/scripts/fixtures/realistic-review-ugc.json" \
         --plan "$ROOT/docs/operations/ui-qa-research-inbox-plan.json" \

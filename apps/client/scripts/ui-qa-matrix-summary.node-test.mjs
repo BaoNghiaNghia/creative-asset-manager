@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { summarizeFixtureReport } from "./ui-qa-matrix-summary.mjs";
 
 const sample = {
@@ -54,6 +55,11 @@ test("visual differences cannot be presented as an overall PASS", () => {
   assert.equal(good.status, "pass");
   assert.equal(good.visualStatus, "pass");
   assert.equal(summarizeFixtureReport(sample, "job-queue", ["mobile"]).visualStatus, "skipped");
+});
+
+test("Research Inbox QA does not erase the prior matrix captures", async () => {
+  const shell = await readFile(new URL("../../../scripts/cam-ui-profile-matrix.sh", import.meta.url), "utf8");
+  assert.match(shell, /if ! CAM_UI_QA_KEEP="\$KEEP_RUNS" npm run ui:qa --/);
 });
 
 test("absent results and missing metric audits never count as completed matrix", () => {

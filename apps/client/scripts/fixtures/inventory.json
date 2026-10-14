@@ -6,7 +6,7 @@
     "active_tenant_id": "qa-tenant",
     "available_tenants": [{"id":"qa-tenant","name":"QA Studio","slug":"qa-studio"}],
     "roles": ["operator"],
-    "permissions": ["assets.read","ai_operations.read"],
+    "permissions": ["assets.read","ai_operations.read","inventory.read"],
     "is_processing_admin": false,
     "authorization_source": "tenant_rbac",
     "application_auth_provider": "google",
@@ -21,6 +21,22 @@
   "sources": [],
   "folders": {},
   "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/inventory/materials/readiness",
+      "body": {
+        "active_materials": 2,
+        "active_warehouses": 0,
+        "pending_candidates": 2,
+        "distinct_candidate_names": 2,
+        "duplicate_candidate_rows": 0,
+        "ready_for_carry_forward": false,
+        "blockers": ["qa_pending_material_review"],
+        "candidate_groups": [],
+        "batch_groups": [],
+        "warehouses": []
+      }
+    },
     {
       "method": "GET",
       "path": "/api/inventory/materials",

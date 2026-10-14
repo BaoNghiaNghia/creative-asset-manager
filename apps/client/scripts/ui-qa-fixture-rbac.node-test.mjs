@@ -39,14 +39,15 @@ test("preflight permission mapping is consistent with AppRoute policy", async ()
   }
 });
 
-test("actual Inventory fixture fails preflight until authorized test identity is provisioned", async () => {
+test("Inventory fixture has correct read permission and complete readiness response", async () => {
   const fixture = JSON.parse(await fs.readFile(
     new URL("./fixtures/inventory.json", import.meta.url), "utf8"));
-  const result = checkFixturePermissions("/inventory/materials", fixture);
-  if (!fixture.identity.permissions.includes("inventory.read")) {
-    assert.equal(result.status, "blocked");
-    assert.deepEqual(result.missingPermissions, ["inventory.read"]);
-  } else {
-    assert.equal(result.status, "pass");
-  }
+  assert.equal(checkFixturePermissions("/inventory/materials", fixture).status, "pass");
+  assert.ok(!fixture.identity.permissions.includes("inventory.write"));
+  const readiness = fixture.apiRoutes.find(route => route.method === "GET" &&
+    route.path === "/api/inventory/materials/readiness");
+  assert.equal(typeof readiness?.body.active_materials, "number");
+  assert.ok(Array.isArray(readiness?.body.candidate_groups));
+  assert.ok(Array.isArray(readiness?.body.batch_groups));
+  assert.ok(Array.isArray(readiness?.body.warehouses));
 });

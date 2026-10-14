@@ -122,10 +122,27 @@ contract without elevating it. A mismatch fails quickly with a specific
 from an application assertion failure and does not call a blocked workspace
 PASS. Companion unit tests guard against drift in the protected route mapping.
 
-Known blocker: the Inventory fixture identity does not yet have the
-`inventory.read` permission expected by `AppRoute`. Do not bypass or
-auto-grant it inside the QA runner. The authorized fixture configuration
-must be reconciled through the normal security-reviewed workflow.
+Inventory fixture access and readiness coverage were reconciled on
+2026-10-14: the synthetic operator identity now has the route-required
+`inventory.read` permission, while no production role or grant changed.
+`GET /api/inventory/materials/readiness` has a bounded fixture response.
+Inventory functional Browser QA passes in desktop, tablet portrait and mobile;
+the real mobile layout also reserves scroll clearance above the fixed rail.
+A full nine-workspace functional matrix then passed on all three viewport sizes
+(9/9 profiles, zero interaction/network issues), including a separate clean
+Research Inbox run. This result remains fixture-backed; visual comparisons
+are still skipped pending approvals and authenticated production QA is separate.
+The preflight remains fail-closed for future fixture RBAC regressions.
+
+Further QA hardening (2026-10-14): the Research Inbox sub-run now inherits
+the matrix's `CAM_UI_QA_KEEP` limit, so it cannot silently delete earlier
+workspace screenshots needed for baseline review. AI Operations was separately
+verified across all six declared viewports (1440, 1280, 1024 landscape,
+768 portrait, 390 and 320px), 15 states each, with no issues. Its 90-image
+review packet is `review-only`, not `review-blocked`; RRUGC also has a
+90-image review packet. Both retain unapproved states without accepting any
+new baseline. Public Review now renders a readable fallback when a selected
+file lacks a usable image URL rather than rendering an empty image source.
 
 The visual review CLI now requires the **correct QA plan state list** when
 resolving `--latest`; this prevents a Research Inbox run on the same RRUGC
