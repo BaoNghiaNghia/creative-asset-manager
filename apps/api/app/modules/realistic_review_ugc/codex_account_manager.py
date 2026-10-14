@@ -1,7 +1,6 @@
-"""Admin-only Codex profile registry and Stage 2 worker slot allocation.
+"""Tenant-configured, cross-process Codex account pool for RRUGC image stages.
 
-Secondary Codex profiles retain isolated authentication, and Stage 2 routing
-only selects them after successful authentication and skill verification.
+Authentication is isolated per profile; shared managed skills contain no tokens.
 """
 from __future__ import annotations
 
@@ -22,6 +21,10 @@ from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 PROFILE_IDS = ("account-1", "account-2")
 STAGES = ("stage1", "stage2", "stage4")
 MAX_PROFILES = 2
+
+
+class CodexAccountPoolBusy(RuntimeError):
+    """All eligible worker profile slots are currently reserved."""
 
 
 @contextmanager
@@ -70,7 +73,28 @@ def acquire_worker_profile(
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
                 handle.close()
             return
-    raise RuntimeError("codex_account_pool_busy")
+    raise CodexAccountPoolBusy("codex_account_pool_busy")
+
+
+def active_slots(account_id: str, primary_home: str, limit: int = 3) -> int:
+    """Count currently locked process slots without reading worker credentials."""
+    lock_dir = account_home(account_id, primary_home) / "worker-locks"
+    active = 0
+    for slot in range(max(1, min(limit, 3))):
+        lock_path = lock_dir / f"slot-{slot}.lock"
+        if not lock_path.is_file():
+            continue
+        try:
+            with lock_path.open("r") as handle:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    active += 1
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            continue
+    return active
 
 
 def account_home(account_id: str, primary_home: str) -> Path:
@@ -133,34 +157,36 @@ def auth_status(account_id: str, primary_home: str, binary: str = "codex") -> st
 
 def status(session: Session, tenant_id: str, primary_home: str, binary: str = "codex") -> dict:
     records = ensure_accounts(session, tenant_id)
-    secondary = next(row for row in records if row.account_id == "account-2")
-    stage2_pool_ready = bool(
-        secondary.enabled
-        and "stage2" in (secondary.stages_json or [])
-        and auth_status("account-2", primary_home, binary) == "connected"
-    )
+    accounts = [
+        {
+            "account_id": row.account_id,
+            "display_name": row.display_name,
+            "enabled": row.enabled,
+            "max_concurrent": row.max_concurrent,
+            "stages": row.stages_json,
+            "auth_status": auth_status(row.account_id, primary_home, binary),
+            "active_jobs": active_slots(row.account_id, primary_home),
+            "updated_at": row.updated_at,
+        }
+        for row in records
+    ]
+    for account in accounts:
+        account["is_executing"] = account["active_jobs"] > 0
+    secondary = next(account for account in accounts if account["account_id"] == "account-2")
+    eligible_stages = [
+        stage for stage in STAGES
+        if secondary["enabled"] and secondary["auth_status"] == "connected"
+        and stage in secondary["stages"]
+    ]
     return {
-        "routing_mode": "stage2_pool" if stage2_pool_ready else "single_active",
+        "routing_mode": "multi_account" if eligible_stages else "single_active",
         "routing_note": (
-            "Stage 2 can dispatch to both eligible Codex profiles. "
-            "Stage 1 and Stage 4 still use the existing execution path."
-            if stage2_pool_ready else
-            "Stage 2 uses Account 01 until Account 02 is enabled and authenticated. "
-            "Stage 1 and Stage 4 are not pooled yet."
+            "Account 02 is eligible for " + ", ".join(eligible_stages)
+            + " when the selected skill is installed. Jobs use available profile slots."
+            if eligible_stages else
+            "Account 01 handles eligible jobs until Account 02 is enabled, authenticated and configured for a stage."
         ),
-        "accounts": [
-            {
-                "account_id": row.account_id,
-                "display_name": row.display_name,
-                "enabled": row.enabled,
-                "max_concurrent": row.max_concurrent,
-                "stages": row.stages_json,
-                "auth_status": auth_status(row.account_id, primary_home, binary),
-                "is_executing": row.account_id == "account-1",
-                "updated_at": row.updated_at,
-            }
-            for row in records
-        ],
+        "accounts": accounts,
     }
 
 

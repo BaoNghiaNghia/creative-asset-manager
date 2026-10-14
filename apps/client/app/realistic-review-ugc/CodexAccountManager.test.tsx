@@ -12,15 +12,15 @@ vi.mock("./api", async importOriginal => {
   return { ...actual,
     getCodexAccounts: vi.fn(async () => ({
       routing_mode: "single_active",
-      routing_note: "Account 01 remains active; Account 02 is not scheduled.",
+      routing_note: "Account 01 handles jobs while Account 02 is not connected.",
       can_manage: true,
       accounts: [
         { account_id: "account-1", display_name: "Existing", enabled: true,
           max_concurrent: 1, stages: ["stage1", "stage2", "stage4"],
-          auth_status: "connected", is_executing: true, updated_at: "2026-10-14" },
+          auth_status: "connected", is_executing: true, active_jobs: 1, updated_at: "2026-10-14" },
         { account_id: "account-2", display_name: "Secondary", enabled: false,
           max_concurrent: 1, stages: ["stage1", "stage2", "stage4"],
-          auth_status: "not_connected", is_executing: false, updated_at: "2026-10-14" },
+          auth_status: "not_connected", is_executing: false, active_jobs: 0, updated_at: "2026-10-14" },
       ],
     })),
     updateCodexAccount: vi.fn(async () => ({
@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("Codex account manager", () => {
-  it("renders the two real account states without advertising active scheduling", async () => {
+  it("renders pool availability and live worker slots", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -44,8 +44,8 @@ describe("Codex account manager", () => {
     expect(host.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull();
     expect(host.textContent).toContain("Account 01 · Existing");
     expect(host.textContent).toContain("Account 02 · Secondary");
-    expect(host.textContent).toContain("Routing: Single active account");
-    expect(host.textContent).toContain("Scheduler integration pending");
+    expect(host.textContent).toContain("Routing: Primary account");
+    expect(host.textContent).toContain("1 running / 1 slot");
     const guides = host.querySelectorAll<HTMLButtonElement>("button");
     const guide = [...guides].find(item => item.textContent?.trim() === "Connection guide");
     await act(async () => guide?.click());

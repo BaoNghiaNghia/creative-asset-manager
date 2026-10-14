@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext
 from app.domain.providers.contracts import StoreAssetInput, StorageProviderError
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
 from app.modules.realistic_review_ugc.generation_handler import _bytes_body
 from app.modules.realistic_review_ugc.model import (
     RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
@@ -926,10 +928,25 @@ class KeywordImageGenerateHandler:
                     mime_type="image/png", output_files=final_files,
                 )
             else:
-                generated = await runner.generate_from_references(
-                    attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
-                    resume_missing_numbers=resume_missing,
-                )
+                with context.dependencies.session_factory() as pool_session:
+                    primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
+                    binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
+                    with acquire_worker_profile(
+                        pool_session, context.job.tenant_id, "stage1",
+                        primary_home, binary, skill_name,
+                    ) as (account_id, selected_home):
+                        pool_session.commit()
+                        runner = CodexImageGenRunner(replace(
+                            runner.config, codex_home=selected_home,
+                        ))
+                        context.logger.info("rrugc_codex_pool_dispatch", extra={
+                            "stage": "stage1", "account_id": account_id,
+                            "job_id": context.job.entity_id, "tenant_id": context.job.tenant_id,
+                        })
+                        generated = await runner.generate_from_references(
+                            attempt_id=context.job.entity_id, person=None, references=[], prompt=prompt,
+                            resume_missing_numbers=resume_missing,
+                        )
             original_attempt = (
                 str(context.job.payload.get("generation_processing_id") or context.job.id)
                 if upload_only else context.job.id
@@ -948,6 +965,14 @@ class KeywordImageGenerateHandler:
                     # published full six-image set. The scheduler retries later.
                     context.logger.exception("stage1_post_publish_cleanup_deferred")
             return result
+        except CodexAccountPoolBusy:
+            preserve_finals = True
+            self._fail(context, "codex_account_pool_busy",
+                       "All eligible Codex worker profiles are busy.", terminal=False)
+            return DeferredJobOutcome(
+                "codex_account_pool_busy", "All eligible Codex worker profiles are busy.",
+                datetime.now(timezone.utc) + timedelta(seconds=60),
+            )
         except StorageProviderError:
             # Disk-backed finals are the durable recovery source after Drive
             # outages. Never destroy a six-image generation on an upload fault.

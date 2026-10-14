@@ -1,4 +1,4 @@
-"""Codex profile manager: scoped settings, no token reads, no workload routing."""
+"""Codex account pool: scoped settings, shared process locks and safe failover."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +31,8 @@ def test_default_profile_is_preserved_and_secondary_is_never_active(tmp_path: Pa
         assert results["routing_mode"] == "single_active"
         assert [a["account_id"] for a in results["accounts"]] == ["account-1", "account-2"]
         assert [a["enabled"] for a in results["accounts"]] == [True, False]
-        assert [a["is_executing"] for a in results["accounts"]] == [True, False]
+        assert [a["is_executing"] for a in results["accounts"]] == [False, False]
+        assert [a["active_jobs"] for a in results["accounts"]] == [0, 0]
         assert all(a["auth_status"] == "not_connected" for a in results["accounts"])
         assert str(account_home("account-2", home)).endswith("codex-account-2")
         session.commit()
@@ -53,6 +54,46 @@ def test_pool_locks_slots_and_falls_back_without_secondary_auth(tmp_path: Path):
                     pass
         with acquire_worker_profile(session, "tenant-a", "stage2", home) as (account, _):
             assert account == "account-1"
+    engine.dispose()
+
+
+def test_secondary_stage_routing_and_live_slot_count(tmp_path: Path, monkeypatch):
+    engine = db()
+    primary = str(tmp_path / "codex")
+    secondary = account_home("account-2", primary)
+    (secondary / "skills" / "managed-skill").mkdir(parents=True)
+    (secondary / "skills" / "managed-skill" / "SKILL.md").write_text("managed")
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.codex_account_manager.auth_status",
+        lambda account_id, home, binary="codex": "connected",
+    )
+    with Session(engine) as session:
+        ensure_accounts(session, "tenant-a")
+        update_settings(
+            session, tenant_id="tenant-a", account_id="account-2", actor="admin",
+            display_name="Second", enabled=True, max_concurrent=1,
+            stages=["stage1", "stage4"],
+        )
+        active = status(session, "tenant-a", primary)
+        assert active["routing_mode"] == "multi_account"
+        assert "stage1" in active["routing_note"]
+        with acquire_worker_profile(
+            session, "tenant-a", "stage1", primary, skill_name="managed-skill",
+        ) as (account, selected):
+            assert account == "account-2" and selected == str(secondary)
+            accounts = status(session, "tenant-a", primary)["accounts"]
+            assert [item["active_jobs"] for item in accounts] == [0, 1]
+            # Secondary slot is full: another Stage 1 job falls back to Account 01.
+            with acquire_worker_profile(
+                session, "tenant-a", "stage1", primary, skill_name="managed-skill",
+            ) as (fallback, _):
+                assert fallback == "account-1"
+            # A Stage 2 job is excluded from the secondary profile.
+            with acquire_worker_profile(
+                session, "tenant-a", "stage2", primary, skill_name="managed-skill",
+            ) as (stage2, _):
+                assert stage2 == "account-1"
+        assert [item["active_jobs"] for item in status(session, "tenant-a", primary)["accounts"]] == [0, 0]
     engine.dispose()
 
 

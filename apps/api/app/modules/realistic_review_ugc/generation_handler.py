@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import replace
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -31,6 +32,7 @@ from app.modules.image_generation.providers import (
     ReferenceImageInput,
 )
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
 from app.modules.realistic_review_ugc.repository import RrugcRepository
 from app.modules.realistic_review_ugc.supervisor import RrugcSupervisorService
 from app.providers.ai.codex_image import (
@@ -351,11 +353,35 @@ class RrugcGenerateJobHandler:
                     )
                 )
                 try:
-                    result = await codex_runner.generate_from_references(
-                        attempt_id=attempt_id,
-                        person=person,
-                        references=references,
-                        prompt=prompt,
+                    with context.dependencies.session_factory() as pool_session:
+                        with acquire_worker_profile(
+                            pool_session, context.job.tenant_id, "stage4",
+                            str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex")),
+                            str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex"),
+                            codex_runner.config.skill_name,
+                        ) as (account_id, selected_home):
+                            pool_session.commit()
+                            codex_runner = CodexImageGenRunner(replace(
+                                codex_runner.config, codex_home=selected_home,
+                            ))
+                            context.logger.info("rrugc_codex_pool_dispatch", extra={
+                                "stage": "stage4", "account_id": account_id,
+                                "job_id": attempt_id, "tenant_id": context.job.tenant_id,
+                            })
+                            result = await codex_runner.generate_from_references(
+                                attempt_id=attempt_id,
+                                person=person,
+                                references=references,
+                                prompt=prompt,
+                            )
+                except CodexAccountPoolBusy:
+                    self._mark_failure(
+                        context, "codex_account_pool_busy",
+                        "All eligible Codex worker profiles are busy.", terminal=False,
+                    )
+                    return DeferredJobOutcome(
+                        "codex_account_pool_busy", "All eligible Codex worker profiles are busy.",
+                        datetime.now(timezone.utc) + timedelta(seconds=60),
                     )
                 except CodexImageProviderError as exc:
                     if exc.defer_seconds is not None:

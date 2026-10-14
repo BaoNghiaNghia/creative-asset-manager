@@ -23,6 +23,7 @@ from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext
 from app.domain.providers.contracts import OpenStoredAssetInput, StoreAssetInput, StorageProviderError
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -418,21 +419,41 @@ class ColorwayGenerateHandler:
             "Do not invent lettering, change logos, change cap color, or add side embroidery. "
             "Generate one realistic, sharp ecommerce product photo. The stock color is immutable."
         )
-        runner = CodexImageGenRunner(CodexImageRunnerConfig(
-            binary=str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex"),
-            codex_home=str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex")),
-            staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
-            skill_name=skill_name, timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
-            model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
-        ))
+        binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
+        primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
         try:
-            generated = await runner.generate_from_references(
-                attempt_id=context.job.entity_id, person=stock,
-                references=[ReferenceImageInput(image=design, role="design_reference", label="embroidery")],
-                prompt=prompt,
+            with context.dependencies.session_factory() as pool_session:
+                with acquire_worker_profile(
+                    pool_session, context.job.tenant_id, "stage2",
+                    primary_home, binary, skill_name,
+                ) as (account_id, selected_home):
+                    pool_session.commit()
+                    context.logger.info("rrugc_codex_pool_dispatch", extra={
+                        "stage": "stage2", "account_id": account_id,
+                        "job_id": context.job.entity_id, "tenant_id": context.job.tenant_id,
+                    })
+                    runner = CodexImageGenRunner(CodexImageRunnerConfig(
+                        binary=binary,
+                        codex_home=selected_home,
+                        staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
+                        skill_name=skill_name, timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
+                        model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
+                    ))
+                    try:
+                        generated = await runner.generate_from_references(
+                            attempt_id=context.job.entity_id, person=stock,
+                            references=[ReferenceImageInput(image=design, role="design_reference", label="embroidery")],
+                            prompt=prompt,
+                        )
+                    finally:
+                        runner.cleanup_attempt(context.job.entity_id)
+        except CodexAccountPoolBusy:
+            self._mark_failure(context, "codex_account_pool_busy",
+                               "All eligible Codex worker profiles are busy.")
+            return DeferredJobOutcome(
+                "codex_account_pool_busy", "All eligible Codex worker profiles are busy.",
+                datetime.now(timezone.utc) + timedelta(seconds=60),
             )
-        finally:
-            runner.cleanup_attempt(context.job.entity_id)
         try:
             if len(generated.image_bytes) > MAX_REFERENCE_BYTES:
                 raise ValueError("Generated image is too large")

@@ -68,7 +68,7 @@ export function CodexAccountManager({ onClose }: { onClose: () => void }) {
       });
       setData(updated);
       setDraft(Object.fromEntries(updated.accounts.map(row => [row.account_id, row])));
-      setNotice("Configuration saved. The active worker still uses Account 01.");
+      setNotice("Configuration saved. New image jobs will follow the enabled stage and account settings.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save Codex account settings.");
     } finally { setBusy(null); }
@@ -87,8 +87,8 @@ export function CodexAccountManager({ onClose }: { onClose: () => void }) {
         <button type="button" className="rrugc-codex-pool-close" aria-label="Close Codex accounts" onClick={onClose}>×</button>
       </header>
       <div className="rrugc-codex-pool-banner" role="status">
-        <strong>Routing: Single active account</strong>
-        <span>{data?.routing_note || "Account 01 continues to run existing Codex jobs; secondary profile scheduling is not enabled."}</span>
+        <strong>Routing: {data?.routing_mode === "multi_account" ? "Multi-account pool" : "Primary account"}</strong>
+        <span>{data?.routing_note || "Checking Codex account availability and active worker slots."}</span>
       </div>
       {error && <p className="rrugc-codex-pool-error" role="alert">{error}</p>}
       {notice && <p className="rrugc-codex-pool-notice" role="status">{notice}</p>}
@@ -104,7 +104,7 @@ export function CodexAccountManager({ onClose }: { onClose: () => void }) {
                 <span className={"rrugc-codex-pool-status is-" + account.auth_status}>
                   {statuses[account.auth_status] || account.auth_status}
                 </span>
-                {account.is_executing && <span className="rrugc-codex-pool-live">Current worker profile</span>}
+                <span className="rrugc-codex-pool-live">{account.active_jobs ?? 0} running / {account.max_concurrent} {account.max_concurrent === 1 ? "slot" : "slots"}</span>
               </div>
             </div>
             <label className="rrugc-codex-pool-enabled">
@@ -118,7 +118,7 @@ export function CodexAccountManager({ onClose }: { onClose: () => void }) {
               <input type="text" maxLength={80} value={current.display_name} disabled={disabled}
                 onChange={event => change(account.account_id, { display_name: event.target.value })}/>
             </label>
-            <label>Requested concurrency (future scheduler)
+            <label>Max concurrent jobs
               <select value={current.max_concurrent} disabled={disabled}
                 onChange={event => change(account.account_id, { max_concurrent: Number(event.target.value) })}>
                 {[1, 2, 3].map(n => <option value={n} key={n}>{n} job{n > 1 ? "s" : ""}</option>)}
@@ -158,7 +158,7 @@ export function CodexAccountManager({ onClose }: { onClose: () => void }) {
         </article>;
       })}
       <footer className="rrugc-codex-pool-footer">
-        <span>{data?.can_manage ? "Account preferences only · Scheduler integration pending" : "Read-only · Tenant administrator required to edit"}</span>
+        <span>{data?.can_manage ? "Pool is active for configured stages; account authentication and skill installation are required." : "Read-only · Tenant administrator required to edit"}</span>
         <button type="button" onClick={onClose}>Close</button>
       </footer>
     </section>

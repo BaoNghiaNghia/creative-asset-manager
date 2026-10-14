@@ -30,7 +30,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel,
     RrugcStage2JobModel,
 )
-from app.modules.realistic_review_ugc.codex_account_manager import acquire_worker_profile
+from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
@@ -963,10 +963,14 @@ class RrugcStage2GenerateJobHandler:
         with context.dependencies.session_factory() as pool_session:
             try:
                 with acquire_worker_profile(
-                    pool_session, context.job.tenant_id, "stage2",
+                    pool_session, context.job.tenant_id, "stage4",
                     primary_home, binary, skill_name,
                 ) as (_account_id, selected_home):
                     pool_session.commit()
+                    context.logger.info("rrugc_codex_pool_dispatch", extra={
+                        "stage": "stage4", "account_id": _account_id,
+                        "job_id": job_id, "tenant_id": context.job.tenant_id,
+                    })
                     runner = CodexImageGenRunner(
                         CodexImageRunnerConfig(
                             binary=binary,
@@ -989,9 +993,9 @@ class RrugcStage2GenerateJobHandler:
                         )
                     finally:
                         runner.cleanup_attempt(job_id)
-            except RuntimeError as exc:
-                if str(exc) != "codex_account_pool_busy":
-                    raise
+            except CodexAccountPoolBusy:
+                self._mark_failure(context, "codex_account_pool_busy",
+                                   "All enabled Codex profiles are busy.", deferred=True)
                 return DeferredJobOutcome(
                     "codex_account_pool_busy",
                     "All enabled Codex worker profiles are busy.",

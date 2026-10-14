@@ -238,6 +238,11 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch):
             pass
 
     monkeypatch.setattr(colorways, "CodexImageGenRunner", FakeRunner)
+    from contextlib import nullcontext
+    monkeypatch.setattr(
+        colorways, "acquire_worker_profile",
+        lambda *args, **kwargs: nullcontext(("account-1", "/tmp/test-codex")),
+    )
     dependencies = SimpleNamespace(
         session_factory=sessionmaker(bind=db.get_bind()),
         storage_provider=FakeStorage(),

@@ -805,10 +805,11 @@ export type CodexAccountConfig = {
   stages: string[];
   auth_status: "connected" | "not_connected" | "auth_required" | "cli_unavailable" | "check_failed";
   is_executing: boolean;
+  active_jobs: number;
   updated_at: string;
 };
 export type CodexAccountsStatus = {
-  routing_mode: "single_active";
+  routing_mode: "single_active" | "multi_account" | "stage2_pool";
   routing_note: string;
   can_manage: boolean;
   accounts: CodexAccountConfig[];
