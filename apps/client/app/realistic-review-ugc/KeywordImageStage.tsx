@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
@@ -24,9 +25,9 @@ function Stage1SortHeader({ column, label, sortBy, sortDirection, onSort }: {
 }) {
   const active = sortBy === column;
   return <th aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
-    <button type="button" className={"rrugc-keyword-gen-sort" + (active ? " active" : "")}
+    <button type="button" className={"rrugc-keyword-gen-sort" + (active ? " active rrugc-sort-" + sortDirection : "")}
       onClick={() => onSort(column)} aria-label={`Sort by ${label} ${active ? (sortDirection === "asc" ? "descending" : "ascending") : (column === "keyword" ? "ascending" : "descending")}`}>
-      <span>{label}</span><span aria-hidden="true">{active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}</span>
+      <span>{label}</span><SortDirectionIndicator active={active} direction={sortDirection} />
     </button>
   </th>;
 }

@@ -79,9 +79,20 @@
       "waitFor": "#rrugc-tab-stage0"
     },
     {
+      "name": "stage0-sort-indicator",
+      "waitFor": "#rrugc-panel-stage0 .rrugc-stage0-sort.active .rrugc-sort-indicator.is-active"
+    },
+    {
       "name": "stage1-actions",
       "click": "#rrugc-tab-stage1",
       "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen-trend .rrugc-stage0-sparkline",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen-sort.active .rrugc-sort-indicator",
+          "value": "DESC"
+        }
+      ],
       "requireIcons": [
         "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button",
         "#rrugc-panel-stage1 .rrugc-keyword-manual-controls button"
@@ -122,6 +133,10 @@
       "name": "stage2-sort-controls",
       "waitFor": "#rrugc-panel-stage2 .rrugc-stage-sort select",
       "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage2 .rrugc-stage-sort select","value":"Last updated"}]
+    },
+    {
+      "name": "stage2-sort-color",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-stage-sort.is-asc .rrugc-sort-indicator.is-asc"
     },
     {
       "name": "reviews-workflow-return",

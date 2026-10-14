@@ -888,13 +888,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Avg searches / mo");
     expect(markup).toContain("3-mo change");
     expect(markup).toContain("YoY change");
-    expect(markup).toContain('aria-label="Sort by 3-mo change ascending"');
-    expect(markup).toContain('aria-label="Sort by YoY change ascending"');
+    expect(markup).toContain('aria-label="Sort by 3-mo change descending"');
+    expect(markup).toContain('aria-label="Sort by YoY change descending"');
     expect(markup).toContain("Low CPC ($)");
     expect(markup).toContain("High CPC ($)");
     expect(markup).toContain("Trademark (TM)");
     expect(markup).toContain("Chưa xác minh");
-    expect(markup).toContain('aria-label="Sort by Trademark (TM) ascending"');
+    expect(markup).toContain('aria-label="Sort by Trademark (TM) descending"');
     expect(markup).toContain('aria-label="Stage 0 rows per page"');
     for (const count of [20, 50, 100, 500]) expect(markup).toContain(`<option value="${count}"`);
     expect(markup).not.toContain('<option value="10"');
@@ -938,10 +938,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-label="Sort by Keyword ascending"');
     expect(markup).toContain('aria-label="Sort by Avg searches / mo ascending"');
     expect(markup).toContain('aria-label="Sort by Competition ascending"');
-    expect(markup).toContain('aria-label="Sort by Low CPC ($) ascending"');
-    expect(markup).toContain('aria-label="Sort by High CPC ($) ascending"');
-    expect(markup).toContain('aria-label="Sort by Created date ascending"');
-    expect(markup).toContain('aria-label="Sort by Trend ascending"');
+    expect(markup).toContain('aria-label="Sort by Low CPC ($) descending"');
+    expect(markup).toContain('aria-label="Sort by High CPC ($) descending"');
+    expect(markup).toContain('aria-label="Sort by Created date descending"');
+    expect(markup).toContain('aria-label="Sort by Trend descending"');
     expect(markup).toContain('aria-label="Sort by Platform ascending"');
     expect(markup).toContain('aria-label="Sort by Agent ascending"');
     expect(markup).toContain('aria-label="Found by CAM VPS · Agent-Reach Auto Discover, Keyword Scout Windows"');
@@ -951,9 +951,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     const agentHeader = markup.indexOf('class="rrugc-stage0-agent-heading"');
     const platformHeader = markup.indexOf('class="rrugc-stage0-platform-heading"');
     expect(agentHeader).toBeGreaterThan(platformHeader);
-    expect(agentHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date ascending"'));
-    expect(platformHeader).toBeGreaterThan(markup.indexOf('aria-label="Sort by High CPC ($) ascending"'));
-    expect(platformHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date ascending"'));
+    expect(agentHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date descending"'));
+    expect(platformHeader).toBeGreaterThan(markup.indexOf('aria-label="Sort by High CPC ($) descending"'));
+    expect(platformHeader).toBeLessThan(markup.indexOf('aria-label="Sort by Created date descending"'));
     expect(markup.indexOf('class="rrugc-stage0-platform-cell"')).toBeGreaterThan(
       markup.indexOf('class="rrugc-stage0-cpc"'),
     );

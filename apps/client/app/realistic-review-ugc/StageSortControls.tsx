@@ -1,4 +1,4 @@
-import { RrugcActionIcon } from "./RrugcActionIcon";
+import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import "./StageSortControls.css";
 
@@ -27,7 +27,7 @@ export function StageSortControls({
   const label = numeric ? direction === "asc" ? "Low → high" : "High → low"
     : text ? direction === "asc" ? "A → Z" : "Z → A"
     : direction === "asc" ? "Oldest first" : "Newest first";
-  return <div className="rrugc-stage-sort" role="group" aria-label={"Sort " + stage}>
+  return <div className={"rrugc-stage-sort is-" + direction} role="group" aria-label={"Sort " + stage}>
     <label>
       <span>Sort by</span>
       <select aria-label={"Sort " + stage + " by"} value={sortBy}
@@ -42,7 +42,7 @@ export function StageSortControls({
       aria-label={"Reverse sort order for " + stage}
       title={"Sort direction: " + label}
       onClick={() => onChange(sortBy, direction === "asc" ? "desc" : "asc")}>
-      <RrugcActionIcon name="sort" />{label}
+      <SortDirectionIndicator active direction={direction} />{label}
     </button>
   </div>;
 }

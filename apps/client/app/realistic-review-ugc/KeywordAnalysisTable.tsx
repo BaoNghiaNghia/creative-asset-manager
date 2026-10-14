@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { attachKeywordSourceImage } from "./api";
 import { KeywordSearchInput } from "./KeywordSearchInput";
+import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import "./KeywordAnalysisPlatform.css";
@@ -699,16 +700,19 @@ function SortHeader({
   onSortChange: (column: KeywordAnalysisSortBy) => void;
 }) {
   const active = sortBy === column;
+  const nextDirection = active
+    ? (sortDirection === "asc" ? "desc" : "asc")
+    : (["keyword", "competition", "platform", "agent"].includes(column) ? "asc" : "desc");
   return <th className={className} aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
     <button
       type="button"
-      className={"rrugc-stage0-sort" + (active ? " active" : "")}
+      className={"rrugc-stage0-sort" + (active ? " active rrugc-sort-" + sortDirection : "")}
       onClick={() => onSortChange(column)}
-      aria-label={"Sort by " + label + " " + (active && sortDirection === "asc" ? "descending" : "ascending")}
+      aria-label={"Sort by " + label + " " + (nextDirection === "asc" ? "ascending" : "descending")}
       title={column === "trend" ? "Sort by verified AEBrowse 3-month growth; missing data last" : undefined}
     >
       <span>{label}</span>
-      <span aria-hidden="true">{active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}</span>
+      <SortDirectionIndicator active={active} direction={sortDirection} />
     </button>
   </th>;
 }

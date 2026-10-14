@@ -1,0 +1,39 @@
+/* Consistent non-semantic accent colors: ascending is teal, descending is indigo.
+   Text + direction arrow accompany the colors for accessibility. */
+.rrugc-sort-indicator{
+  display:inline-flex;align-items:center;justify-content:center;gap:3px;flex:none;
+  font-family:"Be Vietnam Pro",system-ui,sans-serif;
+  font-weight:800;line-height:1;white-space:nowrap;
+}
+.rrugc-sort-indicator.is-idle{color:#94a3b8;font-size:13px}
+.rrugc-sort-indicator.is-active{
+  border:1px solid currentColor;border-radius:5px;padding:4px 5px;
+  font-size:9px;letter-spacing:.025em;
+}
+.rrugc-sort-indicator.is-asc{color:#0f766e;background:#e8f8f4}
+.rrugc-sort-indicator.is-desc{color:#4338ca;background:#eeedff}
+.rrugc-sort-indicator-arrow{font-size:13px;font-weight:900}
+.rrugc-sort-indicator-label{font-size:9px;font-weight:850}
+.rrugc-keyword-gen-sort.active.rrugc-sort-asc,
+.rrugc-stage0-sort.active.rrugc-sort-asc,
+.rrugc-stage0-v2 .rrugc-stage0-sort.active.rrugc-sort-asc{color:#0f766e}
+.rrugc-keyword-gen-sort.active.rrugc-sort-desc,
+.rrugc-stage0-sort.active.rrugc-sort-desc,
+.rrugc-stage0-v2 .rrugc-stage0-sort.active.rrugc-sort-desc{color:#4338ca}
+.rrugc-stage0-sort.active.rrugc-sort-asc,
+.rrugc-stage0-sort.active.rrugc-sort-desc,
+.rrugc-keyword-gen-sort.active.rrugc-sort-asc,
+.rrugc-keyword-gen-sort.active.rrugc-sort-desc{
+  border-radius:5px;padding:3px 5px;margin:-3px -5px;
+}
+.rrugc-stage0-sort.active.rrugc-sort-asc,
+.rrugc-keyword-gen-sort.active.rrugc-sort-asc{background:#e8f8f45c}
+.rrugc-stage0-sort.active.rrugc-sort-desc,
+.rrugc-keyword-gen-sort.active.rrugc-sort-desc{background:#eeedff5c}
+.rrugc-keyword-gen-sort.active > .rrugc-sort-indicator.is-active{font-size:9px}
+.rrugc-keyword-gen-sort.active > .rrugc-sort-indicator.is-asc{color:#0f766e}
+.rrugc-keyword-gen-sort.active > .rrugc-sort-indicator.is-desc{color:#4338ca}
+@media(prefers-contrast:more){
+  .rrugc-sort-indicator.is-active{border-width:2px}
+  .rrugc-keyword-gen-sort.active,.rrugc-stage0-sort.active{text-decoration:underline;text-underline-offset:3px}
+}
