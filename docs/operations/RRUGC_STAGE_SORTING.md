@@ -28,7 +28,7 @@ On the keyword Stage 0/1 tables, the active sort column gets a low-opacity
 background tint across its header and visible cells. Stage 2 colorway tables
 highlight the corresponding design, status, or last-updated column, with compact
 Status and Last updated cells added to align the visible table with its sort
-dropdown. ASC uses teal and DESC uses indigo; the tint is a translucent
+dropdown. ASC uses light bright blue (#EFF6FF) and DESC uses light bright purple (#F5F3FF); the tint is a translucent
 background-image overlay so existing hover and selection states remain legible.
 Non-sortable columns, skeleton placeholders, and empty messages stay unchanged.
 
