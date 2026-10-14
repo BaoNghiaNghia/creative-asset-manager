@@ -80,6 +80,61 @@ def test_registry_uses_upload_time_version_without_changing_runtime_version():
         engine.dispose()
 
 
+def test_local_skill_deployment_updates_registry_and_displays_declared_timestamp(monkeypatch):
+    """A deployed SKILL.md version replaces stale tenant metadata on normal GET."""
+    from dataclasses import replace
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            original_id = "original-managed-skill"
+            row = RrugcStage2SkillRegistryModel(
+                id=original_id, tenant_id="tenant-a", source="local",
+                skill_name="test-image-studio", display_name="Test Image Studio",
+                note="Keep operator notes", enabled=True,
+                default_version="07_19_12_10_26",
+                latest_version="07_19_12_10_26",
+                synced_version="07_19_12_10_26",
+                bundle_sha256="a" * 64,
+            )
+            session.add(row)
+            session.flush()
+            session.add(RrugcStage2SkillVersionModel(
+                tenant_id="tenant-a", registry_id=row.id,
+                version="07_19_12_10_26",
+                created_at=datetime(2026, 10, 12, 0, 19, tzinfo=timezone.utc),
+            ))
+            session.commit()
+            new_item = replace(
+                _catalog_item(),
+                default_version="12_37_14_10_26",
+                latest_version="12_37_14_10_26",
+                local_version="12_37_14_10_26",
+                synced_version="12_37_14_10_26",
+                version_options=("12_37_14_10_26",),
+            )
+            monkeypatch.setattr(stage2_skills, "_local_manifests", lambda _: {"test-image-studio": object()})
+            monkeypatch.setattr(stage2_skills, "_local_item", lambda *_: new_item)
+            monkeypatch.setattr(skill_registry, "installed_stage2_skill_sha256",
+                                lambda _name, **_kwargs: "b" * 64)
+            items = skill_registry.ensure_skill_registry(session, tenant_id="tenant-a")
+            assert len(items) == 1 and items[0].id == original_id
+            assert items[0].note == "Keep operator notes"
+            assert items[0].synced_version == "12_37_14_10_26"
+            payload = skill_registry.registry_payload(session, items[0])
+            assert payload["synced_upload_version"] == "12_37_14_10_26"
+            assert payload["default_upload_version"] == "12_37_14_10_26"
+            assert payload["latest_upload_version"] == "12_37_14_10_26"
+            assert payload["versions"][0]["upload_version"] == "12_37_14_10_26"
+            assert payload["bundle_sha256"] == "b" * 64
+            version_count = len(skill_registry.registry_versions(
+                session, tenant_id="tenant-a", registry_id=original_id))
+            skill_registry.ensure_skill_registry(session, tenant_id="tenant-a")
+            assert len(skill_registry.registry_versions(
+                session, tenant_id="tenant-a", registry_id=original_id)) == version_count
+    finally:
+        engine.dispose()
+
+
 def test_changed_bundle_reupload_updates_timestamp_even_when_embedded_version_is_same():
     from app.modules.realistic_review_ugc.skill_registry import upload_time_version
     engine = _engine()

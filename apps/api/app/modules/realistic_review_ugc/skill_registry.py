@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -49,6 +50,16 @@ def upload_time_version(value: datetime | None) -> str | None:
         return None
     aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
     return aware.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).strftime("%H_%M_%d_%m_%y")
+
+
+_TIMESTAMP_SKILL_VERSION = re.compile(r"^\d{2}_\d{2}_\d{2}_\d{2}_\d{2}$")
+
+
+def _visible_version(row: RrugcStage2SkillRegistryModel, version: str, uploaded_at: datetime | None) -> str | None:
+    """A bundled local skill's declared timestamp version is its release identity."""
+    if row.source == "local" and _TIMESTAMP_SKILL_VERSION.fullmatch(version):
+        return version
+    return upload_time_version(uploaded_at)
 
 
 def _record_uploaded_bundle(
@@ -264,6 +275,44 @@ def reconcile_skill_registry(
     return rows
 
 
+def _sync_changed_local_skills(session: Session, *, tenant_id: str, rows: list[RrugcStage2SkillRegistryModel]) -> None:
+    """Detect deployed local skill changes without expensive remote API refreshes.
+
+    The project deploy syncs SKILL.md before starting the API, but the tenant
+    registry may still hold a previous release. A read must never show a stale
+    version or allow new jobs to pin that previous local version.
+    """
+    if not any(row.source == "local" for row in rows):
+        return
+    from app.core.config import get_settings
+    from app.modules.realistic_review_ugc.stage2_skills import _local_item, _local_manifests
+    settings = get_settings()
+    manifests = _local_manifests(settings)
+    changed = False
+    for row in rows:
+        if row.source != "local" or row.deleted_at is not None:
+            continue
+        manifest = manifests.get(row.skill_name)
+        if manifest is None:
+            continue
+        current = _local_item(settings, manifest)
+        if current is None or not current.ready:
+            continue
+        current_hash = installed_stage2_skill_sha256(row.skill_name, settings=settings)
+        if (row.synced_version == current.synced_version
+                and row.bundle_sha256 == current_hash
+                and row.validation_status == "valid"):
+            continue
+        old_version = row.synced_version
+        old_hash = row.bundle_sha256
+        _upsert_catalog_item(session, tenant_id=tenant_id, actor_id=None, item=current)
+        if old_version == current.synced_version and old_hash != current_hash:
+            _record_uploaded_bundle(session, row=row, uploaded_at=utcnow())
+        changed = True
+    if changed:
+        session.commit()
+
+
 def ensure_skill_registry(
     session: Session,
     *,
@@ -289,6 +338,7 @@ def ensure_skill_registry(
             actor_id=actor_id,
             refresh=True,
         )
+    _sync_changed_local_skills(session, tenant_id=tenant_id, rows=rows)
     return rows
 
 
@@ -319,10 +369,11 @@ def registry_payload(
         tenant_id=row.tenant_id,
         registry_id=row.id,
     )
-    labels = {v.version: upload_time_version(v.created_at) for v in versions}
+    labels = {v.version: _visible_version(row, v.version, v.created_at) for v in versions}
     # Bundled Skills imported before CAM tracked uploads have a first-indexed
     # timestamp, not a verified original upload time.
-    fallback = upload_time_version(row.created_at)
+    fallback = (_visible_version(row, row.synced_version, row.created_at)
+                if row.synced_version else upload_time_version(row.created_at))
     return {
         "id": row.id,
         "source": row.source,
