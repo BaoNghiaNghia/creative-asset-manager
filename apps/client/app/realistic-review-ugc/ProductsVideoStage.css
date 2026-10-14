@@ -1,4 +1,6 @@
-.rrugc-products-video-stage{min-width:0}
+.rrugc-stage-panel>.rrugc-products-video-stage{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+.rrugc-products-video-stage>*{min-width:0}
+.rrugc-video-stage-layout>*{min-width:0}
 .rrugc-video-stage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 16px}
 .rrugc-video-stage-metrics>div{padding:12px 14px;border:1px solid #dce5f0;border-radius:12px;background:#f8faff;display:grid;gap:6px}
 .rrugc-video-stage-metrics span{font-size:11px;font-weight:750;color:#64758f}
