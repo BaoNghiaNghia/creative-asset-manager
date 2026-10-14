@@ -9,6 +9,7 @@ import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { StageSortControls } from "./StageSortControls";
+import "./SortColumnHighlight.css";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 
@@ -379,20 +380,23 @@ export function EmbroideryColorwayStage({
     </div>
 
     <div className="rrugc-colorway-table-wrap">
-      <table className="rrugc-colorway-table" aria-busy={loading}>
+      <table className="rrugc-colorway-table" aria-busy={loading}
+        data-sort-column={sortBy} data-sort-direction={sortDirection}>
         <thead>
           <tr>
             <th aria-label="Select design" />
-            <th>Embroidery design</th>
+            <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
             <th>13-color batch</th>
             <th>Progress</th>
             <th>Skill</th>
+            <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th>
+            <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>
           </tr>
         </thead>
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
             <tr key={index} className="rrugc-colorway-skeleton-row">
-              <td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td>
+              <td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td>
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
@@ -400,6 +404,8 @@ export function EmbroideryColorwayStage({
             const completed = Array.from(slots?.values() || []).filter(job => job.status === "completed").length;
             const failed = Array.from(slots?.values() || []).filter(job => job.status === "failed").length;
             const inProgress = Array.from(slots?.values() || []).filter(job => job.status === "running" || job.status === "queued").length;
+            const lastUpdated = plan.updated_at && Number.isFinite(Date.parse(plan.updated_at))
+              ? new Date(plan.updated_at) : null;
             return <tr key={plan.id} className={selected ? "is-selected" : ""}>
               <td className="rrugc-colorway-check-cell">
                 <input
@@ -448,10 +454,18 @@ export function EmbroideryColorwayStage({
                   <small>{completed} completed · {inProgress} active · {failed} failed</small>
                 </div>
               </td>
+              <td><span className="rrugc-colorway-sort-status">{plan.status.replaceAll("_", " ")}</span></td>
+              <td className="rrugc-colorway-sort-meta">
+                {lastUpdated
+                  ? <time dateTime={lastUpdated.toISOString()} title={lastUpdated.toLocaleString()}>
+                    {lastUpdated.toLocaleDateString()}
+                  </time>
+                  : "—"}
+              </td>
             </tr>;
           })}
           {!loading && data.items.length === 0 && <tr>
-            <td colSpan={5} className="rrugc-source-plan-empty">
+            <td colSpan={7} className="rrugc-source-plan-empty">
               No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}

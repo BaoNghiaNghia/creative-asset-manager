@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
+import "./SortColumnHighlight.css";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
@@ -505,7 +506,7 @@ export function KeywordImageStage({
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>
     <div className="rrugc-keyword-gen-table-wrap" aria-busy={loading} role="region" aria-label="Stage 1 keyword jobs scrollable table" tabIndex={0}>
-      <table className="rrugc-keyword-gen-table">
+      <table className="rrugc-keyword-gen-table" data-sort-column={sortBy} data-sort-direction={sortDirection}>
         <thead><tr>
           <Stage1SortHeader column="keyword" label="Keyword / Source" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Trend</th>

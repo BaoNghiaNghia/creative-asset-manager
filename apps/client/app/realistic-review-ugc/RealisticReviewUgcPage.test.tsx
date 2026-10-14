@@ -429,9 +429,29 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("JPG / PNG");
     expect(markup).toContain("bad day hotdog");
     expect(markup).toContain("13-color batch");
+    expect(markup).toContain('data-sort-column="source" data-sort-direction="asc"');
+    expect(markup).toContain('<th class="is-sort-column">Embroidery design</th>');
+    expect(markup).toContain(">Last updated</th>");
+    expect(markup).toContain(">Status</th>");
     expect((markup.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
     expect(markup).toContain("Run selected · 0");
     expect(markup).toContain("0 completed · 0 active · 0 failed");
+    for (const [sortBy, direction, header] of [
+      ["updated", "desc", "Last updated"],
+      ["status", "asc", "Status"],
+    ] as const) {
+      const sorted = renderToStaticMarkup(
+        <EmbroideryColorwayStage
+          data={{ items: [plan], page: 1, page_size: 20, total: 1, overview: GLOBAL_OVERVIEW }}
+          sortBy={sortBy} sortDirection={direction}
+          loading={false} syncing={false} query=""
+          onSync={() => undefined} onQueryChange={() => undefined}
+          onPageChange={() => undefined} onPageSizeChange={() => undefined}
+        />,
+      );
+      expect(sorted).toContain(`data-sort-column="${sortBy}" data-sort-direction="${direction}"`);
+      expect(sorted).toContain(`<th class="is-sort-column">${header}</th>`);
+    }
   });
 
   it("queues one independent Stage 4 generation job per selected reference", () => {
@@ -935,6 +955,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('aria-pressed="false"');
     expect(markup).toContain('aria-sort="descending"');
+    expect(markup).toContain('data-sort-column="search_volume" data-sort-direction="desc"');
     expect(markup).toContain('aria-label="Sort by Keyword ascending"');
     expect(markup).toContain('aria-label="Sort by Avg searches / mo ascending"');
     expect(markup).toContain('aria-label="Sort by Competition ascending"');

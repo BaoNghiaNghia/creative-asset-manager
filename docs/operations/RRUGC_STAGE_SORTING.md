@@ -24,6 +24,14 @@ the selected sort, and modal keyboard navigation follows the displayed order.
 No claim is made that a client-only sort covers images not yet loaded; the
 UI explicitly notes this limitation and exposes Load older images.
 
+On the keyword Stage 0/1 tables, the active sort column gets a low-opacity
+background tint across its header and visible cells. Stage 2 colorway tables
+highlight the corresponding design, status, or last-updated column, with compact
+Status and Last updated cells added to align the visible table with its sort
+dropdown. ASC uses teal and DESC uses indigo; the tint is a translucent
+background-image overlay so existing hover and selection states remain legible.
+Non-sortable columns, skeleton placeholders, and empty messages stay unchanged.
+
 All sorts are stable with deterministic filename/folder/ID ties; original
 images, source assignments, job versions, and progress state are unchanged.
 API data is not mutated by Stage 5 sorting.

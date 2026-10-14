@@ -25,6 +25,7 @@ describe("Stage 0–2 sort direction visuals", () => {
     const html = renderToStaticMarkup(<KeywordImageStage active={false}
       skillCatalogRevision={0} onManageSkills={() => undefined} />);
     expect(html).toContain("rrugc-keyword-gen-sort active rrugc-sort-desc");
+    expect(html).toContain('data-sort-column="finished_at" data-sort-direction="desc"');
     expect(html).toContain('data-sort-state="desc"');
     expect(html).toContain('data-sort-state="none"');
     expect(html).toContain('aria-sort="descending"');

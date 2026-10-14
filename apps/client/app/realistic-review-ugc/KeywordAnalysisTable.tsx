@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { attachKeywordSourceImage } from "./api";
 import { KeywordSearchInput } from "./KeywordSearchInput";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
+import "./SortColumnHighlight.css";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import "./KeywordAnalysisPlatform.css";
@@ -928,7 +929,8 @@ export function KeywordAnalysisTable({
     </div>
 
     <div className="rrugc-stage0-table-wrap" role="region" aria-label="Stage 0 keyword analysis scrollable table" tabIndex={0}>
-      <table className="rrugc-stage0-table rrugc-stage0-keyword-table" aria-busy={loading}>
+      <table className="rrugc-stage0-table rrugc-stage0-keyword-table" aria-busy={loading}
+        data-sort-column={sortBy} data-sort-direction={sortDirection}>
         <thead><tr>
           <th>Preview</th>
           <SortHeader column="keyword" label="Keyword" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />

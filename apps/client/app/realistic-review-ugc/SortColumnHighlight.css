@@ -1,0 +1,56 @@
+/* A translucent overlay keeps row hover, selection, badges and zebra colors visible. */
+.rrugc-stage0-keyword-table[data-sort-direction="asc"],
+.rrugc-keyword-gen-table[data-sort-direction="asc"],
+.rrugc-colorway-table[data-sort-direction="asc"]{
+  --rrugc-active-col-overlay:rgba(15,118,110,.065);
+  --rrugc-active-col-border:rgba(15,118,110,.42);
+}
+.rrugc-stage0-keyword-table[data-sort-direction="desc"],
+.rrugc-keyword-gen-table[data-sort-direction="desc"],
+.rrugc-colorway-table[data-sort-direction="desc"]{
+  --rrugc-active-col-overlay:rgba(67,56,202,.06);
+  --rrugc-active-col-border:rgba(67,56,202,.38);
+}
+/* Only a corresponding visible table column is tinted; control columns are untouched. */
+.rrugc-stage0-keyword-table[data-sort-column="keyword"] :is(thead th:nth-child(2),tbody td:nth-child(2):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="trend"] :is(thead th:nth-child(3),tbody td:nth-child(3):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="search_volume"] :is(thead th:nth-child(4),tbody td:nth-child(4):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="three_month_change"] :is(thead th:nth-child(5),tbody td:nth-child(5):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="yoy_change"] :is(thead th:nth-child(6),tbody td:nth-child(6):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="competition"] :is(thead th:nth-child(7),tbody td:nth-child(7):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="trademark"] :is(thead th:nth-child(8),tbody td:nth-child(8):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="cpc"] :is(thead th:nth-child(9),tbody td:nth-child(9):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="high_cpc"] :is(thead th:nth-child(10),tbody td:nth-child(10):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="platform"] :is(thead th:nth-child(11),tbody td:nth-child(11):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="agent"] :is(thead th:nth-child(12),tbody td:nth-child(12):not([colspan])),
+.rrugc-stage0-keyword-table[data-sort-column="created_at"] :is(thead th:nth-child(13),tbody td:nth-child(13):not([colspan])),
+.rrugc-keyword-gen-table[data-sort-column="keyword"] :is(thead th:nth-child(1),tbody td:nth-child(1):not([colspan])),
+.rrugc-keyword-gen-table[data-sort-column="search_volume"] :is(thead th:nth-child(3),tbody td:nth-child(3):not([colspan])),
+.rrugc-keyword-gen-table[data-sort-column="duration"] :is(thead th:nth-child(6),tbody td:nth-child(6):not([colspan])),
+.rrugc-keyword-gen-table[data-sort-column="finished_at"] :is(thead th:nth-child(7),tbody td:nth-child(7):not([colspan])),
+.rrugc-colorway-table[data-sort-column="source"] :is(thead th:nth-child(2),tbody td:nth-child(2):not([colspan])),
+.rrugc-colorway-table[data-sort-column="status"] :is(thead th:nth-child(6),tbody td:nth-child(6):not([colspan])),
+.rrugc-colorway-table[data-sort-column="updated"] :is(thead th:nth-child(7),tbody td:nth-child(7):not([colspan])){
+  background-image:linear-gradient(var(--rrugc-active-col-overlay),var(--rrugc-active-col-overlay));
+  background-clip:padding-box;
+}
+/* A hairline on the header reinforces the active column without heavy borders. */
+.rrugc-stage0-keyword-table thead th[aria-sort="ascending"],
+.rrugc-stage0-keyword-table thead th[aria-sort="descending"],
+.rrugc-keyword-gen-table thead th[aria-sort="ascending"],
+.rrugc-keyword-gen-table thead th[aria-sort="descending"],
+.rrugc-colorway-table thead th.is-sort-column{
+  box-shadow:inset 0 2px 0 var(--rrugc-active-col-border);
+}
+.rrugc-colorway-table{min-width:1390px}
+.rrugc-colorway-table th:nth-child(6){width:96px}
+.rrugc-colorway-table th:nth-child(7){width:125px}
+.rrugc-colorway-sort-meta{font-size:10px;font-weight:650;color:#506781}
+.rrugc-colorway-sort-meta time{font-variant-numeric:tabular-nums}
+.rrugc-colorway-sort-status{display:inline-flex;align-items:center;border-radius:6px;
+ padding:5px 7px;background:#eef2f8;color:#486079;font-size:9px;font-weight:750}
+@media(prefers-reduced-transparency:reduce){
+ .rrugc-stage0-keyword-table,.rrugc-keyword-gen-table,.rrugc-colorway-table{
+   --rrugc-active-col-overlay:rgba(67,86,116,.09)
+ }
+}
