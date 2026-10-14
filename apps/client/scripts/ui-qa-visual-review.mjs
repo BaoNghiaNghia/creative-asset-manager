@@ -135,8 +135,10 @@ export async function createVisualReviewPacket({ profileName, runDir, root = ROO
   };
   await fs.writeFile(path.join(actualRun, "visual-review.json"), JSON.stringify(summary, null, 2) + "\n");
 
+  const viewportOptions = [...new Set(rows.map(row => row.viewport))]
+    .map(viewport => `<option value="${escapeHtml(viewport)}">${escapeHtml(viewport)}</option>`).join("");
   const content = rows.map(row => `
-<section class="item">
+<section class="item" data-viewport="${escapeHtml(row.viewport)}" data-approval="${row.approvedState ? "approved" : "pending"}" data-state="${escapeHtml(row.state)}">
   <h3>${escapeHtml(row.viewport)} · ${escapeHtml(row.state)}</h3>
   <p class="state">${row.approvedState ? "Existing approved state" : "New state · approval required"}</p>
   <div class="images">
@@ -156,6 +158,12 @@ export async function createVisualReviewPacket({ profileName, runDir, root = ROO
 :root{font-family:system-ui,sans-serif;color-scheme:light;background:#f6f8fb;color:#25334a}
 body{margin:0 auto;max-width:1480px;padding:24px}
 h1{font-size:25px}h2{font-size:18px}h3{font-size:15px;margin:0}
+.review-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap;padding:14px 16px;background:#fff;border:1px solid #dce3ee;border-radius:12px}
+.review-filters label{display:grid;gap:5px;font-size:12px;font-weight:650;color:#415673}
+.review-filters select,.review-filters input{min-height:38px;padding:7px 10px;border:1px solid #ccd8e7;border-radius:8px;background:#fff;color:#213547;font:inherit;font-size:13px}
+.review-filters input{width:min(320px,80vw)}
+.review-count{margin:12px 0;font-size:13px;color:#51647f}
+.item[hidden]{display:none}
 p{line-height:1.5}.intro{color:#53647d}
 .item{background:white;border:1px solid #dce3ee;border-radius:12px;padding:16px;margin:16px 0}
 .state{font-size:12px;color:#62758d}.images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
@@ -170,7 +178,34 @@ ${rows.length} captures · ${pending.length} states without approved baselines.<
 <p><strong>${eligibility.readyForHumanReview ? "Review only" : "QA blocked"}.</strong> ${eligibility.readyForHumanReview
   ? "No baseline is accepted or modified. Inspect mobile, tablet, and desktop screenshots before explicitly approving design changes."
   : "This run is not eligible for baseline approval. Blockers: " + escapeHtml(eligibility.blockers.join("; "))}</p>
-${content}</body></html>`;
+<div class="review-filters" role="group" aria-label="Filter screenshot review">
+<label>Approval status<select id="review-approval"><option value="pending">Needs first approval</option><option value="all">All states</option><option value="approved">Already approved</option></select></label>
+<label>Viewport<select id="review-viewport"><option value="all">All viewports</option>${viewportOptions}</select></label>
+<label>Search state<input id="review-search" type="search" placeholder="Stage, modal, sort..." autocomplete="off"></label>
+</div>
+<p id="review-count" class="review-count" role="status" aria-live="polite"></p>
+${content}
+<script>(() => {
+  const approval = document.getElementById('review-approval');
+  const viewport = document.getElementById('review-viewport');
+  const search = document.getElementById('review-search');
+  const count = document.getElementById('review-count');
+  const cards = [...document.querySelectorAll('.item')];
+  const apply = () => {
+    let visible = 0;
+    const term = search.value.trim().toLowerCase();
+    for (const card of cards) {
+      const matches = (approval.value === 'all' || card.dataset.approval === approval.value)
+        && (viewport.value === 'all' || card.dataset.viewport === viewport.value)
+        && (!term || card.dataset.state.toLowerCase().includes(term));
+      card.hidden = !matches;
+      if (matches) visible++;
+    }
+    count.textContent = visible + ' of ' + cards.length + ' screenshots shown. Filtering never approves a baseline.';
+  };
+  for (const control of [approval, viewport, search]) control.addEventListener('input', apply);
+  apply();
+})();</script></body></html>`;
   await fs.writeFile(path.join(actualRun, "visual-review.html"), html);
   return { ...summary, htmlPath: path.join(actualRun, "visual-review.html") };
 }

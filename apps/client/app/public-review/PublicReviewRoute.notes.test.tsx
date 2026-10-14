@@ -209,6 +209,45 @@ describe("Public Review modal downloads", () => {
   });
 });
 
+describe("Public Review broken-image recovery", () => {
+  it("tries preview, thumbnail, original, then renders a useful fallback without an empty image", async () => {
+    vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.spyOn(api, "bootstrap").mockResolvedValue({
+      public_id: "share-1", name: "Review", allow_comments: true,
+      allow_download: true, expires_at: null,
+    });
+    vi.spyOn(api, "folders").mockResolvedValue({
+      items: [{ source_id: "source", folder_id: "root", name: "Root" }],
+    });
+    vi.spyOn(api, "children").mockResolvedValue({ items: [assets[0], assets[2]], next_offset: null });
+    vi.spyOn(api, "annotations").mockResolvedValue({ items: [] });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<PublicReviewRoute/>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await click(host.querySelector('[aria-label="Open a.jpg"]'));
+    const image = () => host.querySelector<HTMLImageElement>('.public-media-stage img[alt="a.jpg"]');
+    expect(image()?.getAttribute("src")).toBe("/preview/a");
+    await act(async () => image()?.dispatchEvent(new Event("error", { bubbles: false })));
+    expect(image()?.getAttribute("src")).toBe("/thumb/a");
+    await act(async () => image()?.dispatchEvent(new Event("error", { bubbles: false })));
+    expect(image()?.getAttribute("src")).toContain("/assets/a/preview?");
+    await act(async () => image()?.dispatchEvent(new Event("error", { bubbles: false })));
+    expect(image()).toBeNull();
+    expect(host.querySelector(".public-image-unavailable")?.textContent).toContain("Image preview unavailable");
+    await click(host.querySelector('[aria-label="Next asset"]'));
+    expect(host.querySelector<HTMLImageElement>('.public-media-stage img[alt="c.jpg"]')?.getAttribute("src"))
+      .toBe("/preview/c");
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Public Review progressive original images", () => {
   it("shows the preview immediately and swaps only after the original is decoded", async () => {
     vi.stubGlobal("location", { pathname: "/share/share-1", hash: "", origin: "https://review.example.test" });

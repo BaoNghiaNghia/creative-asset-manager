@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assessVisualReviewRun, buildVisualReviewRows, reportMatchesPlan } from "./ui-qa-visual-review.mjs";
+import { assessVisualReviewRun, buildVisualReviewRows, createVisualReviewPacket, reportMatchesPlan } from "./ui-qa-visual-review.mjs";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 
 test("visual review marks new states without modifying the accepted manifest", () => {
   const manifest = { states: ["default"] };
@@ -45,6 +48,41 @@ test("latest review selection excludes unrelated Research Inbox runs on the same
   assert.equal(reportMatchesPlan({states:["stage0-actions","stage5-actions"]},main),true);
   assert.equal(reportMatchesPlan({states:["stage0-products","research-inbox-open"]},main),false);
   assert.equal(reportMatchesPlan({states:["stage0-actions"]},main),false);
+});
+
+test("review packet exposes safe viewport/state filters but never auto-approves screenshots", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "cam-visual-review-"));
+  try {
+    const planDir = path.join(root, "docs/operations");
+    const baselineDir = path.join(root, "apps/client/visual-baselines/realistic-review-ugc");
+    const runDir = path.join(root, "apps/client/.ui-qa", "2026-10-14-test");
+    await Promise.all([fs.mkdir(planDir, {recursive:true}),
+      fs.mkdir(baselineDir, {recursive:true}), fs.mkdir(runDir,{recursive:true})]);
+    const plan = {viewports:["mobile"],steps:[{name:"default"},{name:"stage1"}]};
+    await fs.writeFile(path.join(planDir,"ui-qa-realistic-review-ugc-plan.json"),JSON.stringify(plan));
+    await fs.writeFile(path.join(baselineDir,"manifest.json"), JSON.stringify({states:["default"]}));
+    await fs.writeFile(path.join(baselineDir,"mobile--default.png"), "approved");
+    const screenshots = ["mobile--default.png","mobile--stage1.png"];
+    for (const name of screenshots) await fs.writeFile(path.join(runDir,name), "capture");
+    const report = {runId:"safe-test",browser:{engine:"chrome"},
+      states:["default","stage1"], results:[{
+        viewport:"mobile", screenshots, qualityAudit:[{state:"default"},{state:"stage1"}],
+        issues:{consoleErrors:[],pageErrors:[],requestFailures:[],badResponses:[],stepFailures:[]},
+      }]};
+    await fs.writeFile(path.join(runDir,"report.json"),JSON.stringify(report));
+    const result=await createVisualReviewPacket({profileName:"realistic-review-ugc",root,runDir});
+    assert.equal(result.status,"review-only");
+    assert.deepEqual(result.pendingStates,["stage1"]);
+    const html=await fs.readFile(result.htmlPath,"utf8");
+    assert.match(html,/id="review-approval"/);
+    assert.match(html,/id="review-viewport"/);
+    assert.match(html,/id="review-search"/);
+    assert.match(html,/data-approval="pending"/);
+    assert.match(html,/data-approval="approved"/);
+    assert.match(html,/Filtering never approves a baseline/);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(baselineDir,"manifest.json"),"utf8")),
+      {states:["default"]});
+  } finally { await fs.rm(root,{recursive:true,force:true}); }
 });
 
 test("visual review rejects unsafe or duplicated screenshot paths", () => {

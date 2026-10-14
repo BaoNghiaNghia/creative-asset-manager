@@ -27,6 +27,28 @@ CAM_PRODUCTION_UI_STORAGE_STATE=/etc/creative-asset-manager/production-ui-storag
 CAM_PRODUCTION_UI_MODE=strict make production-ui-smoke
 ```
 
+To prepare this state on a trusted workstation with a graphical browser,
+run the operator-only helper (after installing the client's pinned dependencies):
+
+```bash
+node apps/client/scripts/production-ui-capture.mjs \
+  --url https://creative-assets.ddns.net \
+  --output "$HOME/.config/cam/production-ui-storage-state.json"
+```
+
+The helper opens Chromium so the operator can **manually** log in with a
+least-privilege read-only QA account, visually verify access, then press Enter.
+It rejects non-HTTPS targets, foreign-origin sessions and paths inside Git,
+writes a new file (never overwrites), sets 0600 permissions on POSIX and never
+prints session secrets. On Windows, additionally restrict NTFS file ACLs and
+keep the state outside synced folders. In PowerShell, use
+`--output "$env:USERPROFILE\.config\cam\production-ui-storage-state.json"`.
+An authorized operator must transfer the file through an encrypted channel,
+install it as mode 600 outside the repository (for example the path above
+under `/etc/creative-asset-manager`), and run strict smoke. Never attach
+this file to a chat, issue tracker or Git commit. The interactive capture
+cannot provision permissions or replace the real account.
+
 The default `auto` mode will **explicitly report degraded public-only
 coverage** if no authorized state is present. It must not be described as
 a full authenticated production QA pass. All non-read requests are blocked.
@@ -149,7 +171,10 @@ resolving `--latest`; this prevents a Research Inbox run on the same RRUGC
 URL from replacing the primary Stage 0–5 review packet. A review packet
 assesses all expected states, viewports, screenshots, quality audits and
 functional issues. Incomplete or failed runs are marked `review-blocked`;
-clean runs are `review-only`. Neither mode modifies accepted PNGs.
+clean runs are `review-only`. The generated local HTML supports filtering by
+pending/approved states, viewport and state name to make review of large
+30-state RRUGC runs practical; it does not contain any approval action.
+Neither mode modifies accepted PNGs.
 
 Last validated RRUGC run:
 `apps/client/.ui-qa/2026-10-14T13-20-32-787Z/`.
