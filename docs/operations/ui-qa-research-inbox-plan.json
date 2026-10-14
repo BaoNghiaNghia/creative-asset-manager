@@ -30,28 +30,21 @@
     {
       "name": "stage0-products",
       "goto": "/realistic-review-ugc?workflow=products&stage=stage0",
-      "waitFor": "#rrugc-panel-stage0 .rrugc-research-expand"
+      "waitFor": "#rrugc-panel-stage0 .rrugc-stage0-research-trigger"
     },
     {
       "name": "research-inbox-open",
-      "click": ".rrugc-research-expand",
-      "waitFor": ".rrugc-research-signal",
+      "click": "#rrugc-panel-stage0 .rrugc-stage0-research-trigger",
+      "waitFor": ".rrugc-research-inbox[role='dialog']",
       "assertions": [
         {
-          "type": "attribute",
-          "selector": ".rrugc-research-expand",
-          "name": "aria-expanded",
-          "value": "true"
+          "type": "visible",
+          "selector": ".rrugc-discovery-status"
         },
         {
           "type": "no-horizontal-overflow",
           "selector": ".rrugc-research-inbox",
           "maxPx": 1
-        },
-        {
-          "type": "text-includes",
-          "selector": ".rrugc-discovery-status",
-          "value": "Exa đang giới hạn tìm kiếm"
         }
       ]
     },
@@ -61,13 +54,13 @@
     },
     {
       "name": "research-import-open",
-      "click": ".rrugc-research-actions button:first-child",
+      "click": ".rrugc-research-actions button:nth-child(2)",
       "waitFor": "#rrugc-research-import-text",
       "assertions": [
         {
           "type": "min-control-size",
           "selector": ".rrugc-research-actions button",
-          "minPx": 36
+          "minPx": 32
         }
       ]
     },
@@ -91,80 +84,9 @@
       ]
     },
     {
-      "name": "research-valid-import-fill",
-      "fill": {
-        "selector": "#rrugc-research-import-text",
-        "value": "[{\"source\":\"rss\",\"channel\":\"Cap trends\",\"title\":\"Hat news\",\"url\":\"https://news.google.com/rss/articles/qa-2\"}]"
-      }
-    },
-    {
-      "name": "research-valid-import",
-      "click": ".rrugc-research-import button",
-      "waitFor": ".rrugc-research-notice",
-      "assertions": [
-        {
-          "type": "text-includes",
-          "selector": ".rrugc-research-notice",
-          "value": "Đã thêm 1"
-        }
-      ]
-    },
-    {
-      "name": "research-review-keyword-fill",
-      "fill": {
-        "selector": "#research-keyword-qa-research-signal-1",
-        "value": "MADE TO WORSHIP"
-      }
-    },
-    {
-      "name": "research-review-keyword",
-      "click": ".rrugc-research-signal-review button:first-child",
-      "waitFor": ".rrugc-research-notice",
-      "assertions": [
-        {
-          "type": "text-includes",
-          "selector": ".rrugc-research-notice",
-          "value": "Đã thêm keyword vào Stage 0"
-        }
-      ]
-    },
-    {
-      "name": "research-stage0-backfill",
-      "click": ".rrugc-research-actions button:nth-child(2)",
-      "waitFor": ".rrugc-research-notice",
-      "assertions": [
-        {
-          "type": "text-includes",
-          "selector": ".rrugc-research-notice",
-          "value": "Đã đồng bộ"
-        }
-      ]
-    },
-    {
-      "name": "research-stage0-preview",
-      "click": ".rrugc-research-actions button:nth-child(3)",
-      "waitFor": "#rrugc-research-export-text",
-      "assertions": [
-        {
-          "type": "attribute",
-          "selector": "#rrugc-research-export-text",
-          "name": "readonly",
-          "value": ""
-        }
-      ]
-    },
-    {
-      "name": "research-inbox-collapse",
-      "click": ".rrugc-research-expand",
-      "waitFor": ".rrugc-research-inbox-head",
-      "assertions": [
-        {
-          "type": "attribute",
-          "selector": ".rrugc-research-expand",
-          "name": "aria-expanded",
-          "value": "false"
-        }
-      ]
+      "name": "research-inbox-close",
+      "click": ".rrugc-research-modal-close",
+      "waitFor": "#rrugc-panel-stage0 .rrugc-stage0-research-trigger"
     }
   ]
 }

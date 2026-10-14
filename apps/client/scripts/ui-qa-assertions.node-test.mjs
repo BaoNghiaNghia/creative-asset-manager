@@ -3,7 +3,7 @@ import test from "node:test";
 import { assertUiStep, assertUiState } from "./ui-qa-assertions.mjs";
 
 function fakePage({ text = "Ready for review", count = 2, overflow = 0, visible = true, undersizedControls = [] } = {}) {
-  return { locator(selector) {
+  return { evaluate: async () => [], locator(selector) {
     return {
       count: async () => count,
       first() { return this; },

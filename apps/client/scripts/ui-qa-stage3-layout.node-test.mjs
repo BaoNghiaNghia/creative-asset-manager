@@ -13,7 +13,7 @@ test("Stage 3 review groups span the full stage grid", async () => {
 
   assert.match(
     layoutCss,
-    /\.rrugc-stage-panel>\.rrugc-stage3\{grid-column:1\/-1\}/,
+    /\.rrugc-stage-panel>\.rrugc-stage3(?=,|\{)[^{]*\{grid-column:1\/-1\}/,
   );
   assert.match(
     stage3Css,

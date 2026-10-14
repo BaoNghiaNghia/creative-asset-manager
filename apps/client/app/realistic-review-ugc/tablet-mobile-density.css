@@ -142,6 +142,11 @@
   .rrugc-stage2-result{width:44px;height:44px}
 }
 
+/* Reference moderation must be accessible on actual touch devices, not hover-only. */
+@media (hover: none), (pointer: coarse) {
+  .rrugc-source-ref-vote, .rrugc-source-review-vote {opacity: 1; pointer-events: auto}
+}
+
 /* 320px: management controls must reflow instead of expanding the document. */
 @media(max-width:360px){
   .rrugc-main,.rrugc-header,.rrugc-page-body,.rrugc-stage-tabs-shell{min-width:0;max-width:100%;box-sizing:border-box}

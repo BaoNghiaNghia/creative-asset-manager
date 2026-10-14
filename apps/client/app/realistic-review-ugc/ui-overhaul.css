@@ -1343,7 +1343,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-main-filters button.active{border-color:#a9bee0;background:#edf4ff;color:#315f9c;box-shadow:0 1px 2px rgba(32,66,111,.05)}
 .rrugc-stage0-usage-switch{padding-left:8px;border-left:1px solid #dce3ec}
 .rrugc-stage0-usage-switch button{min-height:28px;padding:4px 7px;font-size:8px}.rrugc-stage0-usage-switch button.active{background:#e9edf3;color:#40536f}
-.rrugc-stage0-v2 .rrugc-stage0-table-wrap{overflow:visible;border:1px solid #e2e7ee;border-radius:12px;background:#fff}
+.rrugc-stage0-v2 .rrugc-stage0-table-wrap{min-width:0;max-width:100%;overflow-x:auto;overflow-y:auto;border:1px solid #e2e7ee;border-radius:12px;background:#fff}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table{min-width:980px;width:100%;border-collapse:separate;border-spacing:0}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table thead th{height:38px;padding:0 10px;border-bottom:1px solid #e4e9ef;background:#f8fafc;color:#7f8da0;font-size:8px;font-weight:900;letter-spacing:.05em;text-align:left;text-transform:uppercase;white-space:nowrap}
 .rrugc-stage0-v2 .rrugc-stage0-keyword-table tbody td{height:68px;padding:8px 10px;border-bottom:1px solid #edf0f4;background:#fff;color:#4b5d75;font-size:9px;vertical-align:middle}
@@ -1954,6 +1954,13 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-settings-modal-body .rrugc-scout-health-note{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){.rrugc-settings-modal-body *{scroll-behavior:auto}}
+
+/* Keep Stage 0 actions above the KPI strip when the header wraps on tablets/phones. */
+@media(max-width:900px){
+  .rrugc-stage0-v2 .rrugc-stage0-heading{display:flex;flex-direction:column;align-items:stretch;gap:12px;position:relative;z-index:2;height:auto;min-height:0;margin-bottom:20px}
+  .rrugc-stage0-v2 .rrugc-stage-header-actions{position:relative;z-index:2;width:100%;min-width:0;flex:0 0 auto;justify-content:flex-start}
+  .rrugc-stage0-v2 .rrugc-stage0-kpis-restored{position:relative;z-index:0}
+}
 
 /* Stage 0 Search Intelligence: open on demand beside the live-data badge. */
 .rrugc-stage0-header-tools{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}

@@ -477,13 +477,22 @@
   .rrugc-keyword-gen-stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .rrugc-keyword-gen-table { min-width: 1560px; }
 }
+/* The fourth DaFont action must not extend the Stage 1 toolbar at iPad widths. */
+@media (min-width:761px) and (max-width:900px) {
+  .rrugc-keyword-gen-toolbar { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .rrugc-keyword-gen-search { grid-column:1/-1; }
+  .rrugc-keyword-gen-skill { grid-column:1; }
+  .rrugc-keyword-gen-font-pool { grid-column:2; justify-self:start; }
+  .rrugc-keyword-gen-refresh { grid-column:2; justify-self:end; }
+}
 @media (max-width: 760px) {
   .rrugc-keyword-gen { padding: 11px; }
   .rrugc-keyword-manual { grid-template-columns: 1fr; }
   .rrugc-keyword-gen-toolbar { grid-template-columns: minmax(0,1fr) 32px; }
-  .rrugc-keyword-gen-search { grid-column: 1 / -1; }
-  .rrugc-keyword-gen-skill { grid-column: 1; }
-  .rrugc-keyword-gen-refresh { grid-column: 2; }
+  .rrugc-keyword-gen-search { grid-column: 1 / -1; grid-row: 1; }
+  .rrugc-keyword-gen-skill { grid-column: 1; grid-row: 2; }
+  .rrugc-keyword-gen-font-pool { grid-column: 1; grid-row: 3; max-width:100%; justify-self:start; box-sizing:border-box; }
+  .rrugc-keyword-gen-refresh { grid-column: 2; grid-row: 2; }
   .rrugc-keyword-gen-stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .rrugc-keyword-gen-list-heading { align-items: flex-start; }
   .rrugc-keyword-gen-list-title { flex-direction: column; gap: 3px; }

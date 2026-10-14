@@ -60,14 +60,24 @@
     },
     {
       "name": "candidate-hover",
-      "hover": ".rrugc-source-ref-card",
+      "hover": ".rrugc-source-ref-card"
+    },
+    {
+      "name": "candidate-review-open",
+      "click": ".rrugc-source-ref-open",
+      "waitFor": ".rrugc-source-review-modal .rrugc-source-review-votes",
       "mobileAssertions": [
         {
           "type": "min-control-size",
-          "selector": ".rrugc-source-ref-card:hover .rrugc-source-ref-vote",
+          "selector": ".rrugc-source-review-modal .rrugc-source-review-vote",
           "minPx": 24
         }
       ]
+    },
+    {
+      "name": "candidate-review-close",
+      "click": ".rrugc-source-review-close",
+      "waitFor": "#rrugc-stage3-search-input"
     },
     {
       "name": "candidate-filter-focus",
@@ -167,10 +177,10 @@
     },
     {
       "name": "stage4-codex-manager-open",
-      "click": "#rrugc-panel-stage4 [data-codex-accounts-open]",
+      "click": ".rrugc-global-management-actions [data-codex-accounts-open]",
       "waitFor": ".rrugc-codex-pool-dialog",
       "assertions": [
-        {"type": "text-includes", "selector": ".rrugc-codex-pool-banner", "value": "Single active account"},
+        {"type": "text-includes", "selector": ".rrugc-codex-pool-banner", "value": "Routing: Primary account"},
         {"type": "text-includes", "selector": ".rrugc-codex-pool-dialog", "value": "Account 02"}
       ]
     },
