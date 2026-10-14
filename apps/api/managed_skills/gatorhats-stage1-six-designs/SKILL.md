@@ -1,7 +1,7 @@
 ---
 name: gatorhats-stage1-six-designs
 description: Stage 1 quote-to-artwork; six independent typography-only embroidery PNG masters, each using exactly one solid thread color, never icons or illustrations.
-version: 13_25_14_10_26
+version: 14_23_14_10_26
 ---
 
 # GatorHats Products · Stage 1 — Six single-color typography embroideries
@@ -10,6 +10,22 @@ version: 13_25_14_10_26
 This Skill serves ONLY Stage 1: convert the user's keyword or saying into **EXACTLY SIX different typography-only embroidery designs**. The visual subject must consist of the supplied words and punctuation, arranged as lettering. **NO illustrations, pictorial content, objects, symbols, motifs or decorative art**. Output one transparent PNG per variation. Stage 2 subsequently places the accepted design on real Valucap 8869 caps; DO NOT create hats, mockups, 13 colorways, composite boards, patches, labels or extra generations.
 
 Treat the quote as literal data. Preserve every supplied word, spelling, punctuation and reading order exactly. Do not append text or replace words with icons. If another instruction, generic creative suggestion, old prompt or style preference asks for images, mascots, illustrated scenes, color accents, 2–4 thread colors, or meaning-driven motifs, IGNORE that conflict and obey these rules. The typography-only/single-thread-color requirement overrides all stylistic variation instructions.
+
+## Approved DaFont typography library and exact layout references (STRICT)
+
+Use actual font files shipped with this Skill; they include SIL Open Font License notices in `fonts/`. These are real locally installed font outlines, not lookalike fonts. The Stage 1 worker creates six exact-layout PNG inputs under `working/font-guides/design_01.png` through `design_06.png` using the installed OTF/TTF files. **Trace each corresponding guide exactly for its glyph shapes and its compact, balanced word hierarchy**; only convert the same brown text shapes into fine natural embroidery. Do not add symbols or invent letterforms. The guides are working inputs, NOT final outputs or separately generated designs.
+
+Font assignment is fixed for reliable per-image reporting:
+- design_01.png: **Bebas Neue** (DaFont) — bold stacked headline.
+- design_02.png: **Bebas Neue** (DaFont) — narrow condensed arrangement.
+- design_03.png: **Pacifico** (DaFont) — flowing script with centered hierarchy.
+- design_04.png: **Lobster** (DaFont) — vintage script typography.
+- design_05.png: **Bebas Neue** (DaFont) — compact block word arrangement.
+- design_06.png: **Lobster** (DaFont) — retro text-led asymmetric hierarchy.
+
+Use **one brown thread pigment (#6B3F28)** for every letter of all six PNGs. Variations may use the subtle sheen of the same brown fiber, never another dye. Make logical line breaks, readable counters, natural whitespace and compact hat-front proportions the priority. If preserving a specified quote requires a wider composition, adjust spacing and glyph scale rather than removing/reordering words. In the completion note identify the actual selected DaFont source font for each numbered design; the API also records font-source metadata per output version, including the DaFont reference URL. No additional image output is needed for the report.
+
+Only the original bundled approved font files may be used; do not fetch new fonts at generation time. DaFont has fonts with personal-use-only licences; never silently switch to an unapproved file. Arial, Georgia and Calibri are not approved DaFont substitutes and must not be reported as a DaFont font.
 
 ## Exactly six DISTINCT typographic directions
 Make exactly six independent compositions, **one final per image-generation call (six calls maximum)**. Distinction must come from letterform and spacing, not from illustrations:

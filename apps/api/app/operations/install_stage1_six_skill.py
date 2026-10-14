@@ -41,8 +41,9 @@ def eligible_tenant(session):
 def skill_bundle():
     with io.BytesIO() as stream:
         with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for filename in ("SKILL.md", "manifest.json"):
-                archive.write(SKILL_PATH / filename, filename)
+            for path in sorted(SKILL_PATH.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(SKILL_PATH).as_posix())
         payload = stream.getvalue()
     bundle = inspect_uploaded_stage2_skill_bundle(payload)
     if bundle.skill_name != NEW:

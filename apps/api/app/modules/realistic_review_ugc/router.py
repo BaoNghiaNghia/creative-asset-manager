@@ -4956,6 +4956,7 @@ def list_generation_output_versions(
              else output_roles.get(row["version"]) if not row.get("output_name") else None
          ),
          "output_name": row.get("output_name"),
+         "font_info": row.get("font_info") if stage == "stage1" else None,
          "selected_for_products_stage2": stage == "stage1" and row["remote_file_id"] in selected_products_sources,
          "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}
         for row in rows]}

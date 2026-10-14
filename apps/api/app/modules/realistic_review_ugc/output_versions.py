@@ -16,6 +16,7 @@ def save_output_version(
     width: int | None, height: int | None, processing_job_id: str | None,
     allow_multiple_per_attempt: bool = False,
     output_name: str | None = None,
+    font_info: dict | None = None,
 ) -> int:
     """Called while the logical job row is locked, before changing its latest output."""
     last = session.scalar(select(RrugcImageOutputVersionModel).where(
@@ -47,6 +48,7 @@ def save_output_version(
         id=str(uuid4()), tenant_id=tenant_id, stage=stage, job_id=job.id,
         version=version, processing_job_id=processing_job_id,
         output_name=(output_name or "")[:255] or None,
+        font_info_json=font_info,
         remote_file_id=remote_file_id, content_type=content_type,
         size_bytes=size_bytes, width=width, height=height,
         created_at=datetime.now(timezone.utc),
@@ -87,6 +89,7 @@ def output_versions(session: Session, *, tenant_id: str, stage: str, job: object
         "width": r.width, "height": r.height, "created_at": r.created_at,
         "processing_job_id": r.processing_job_id,
         "output_name": r.output_name,
+        "font_info": r.font_info_json,
     } for r in rows] or ([
         {"version": 1, "remote_file_id": job.output_remote_file_id,
          "content_type": job.output_content_type, "size_bytes": job.output_size_bytes,

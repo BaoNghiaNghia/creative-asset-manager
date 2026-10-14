@@ -265,7 +265,7 @@ def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_c
     files = {name: content for name, content, _content_type in bundle.files}
     skill = files["SKILL.md"].decode("utf-8")
     manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 13_25_14_10_26" in skill
+    assert "version: 14_23_14_10_26" in skill
     assert "typography-only" in skill.lower()
     assert "one single solid thread hue" in skill.lower()
     assert "NO illustrations" in skill

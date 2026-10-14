@@ -49,10 +49,17 @@ def acquire_worker_profile(
         ) != "connected":
             continue
         home = account_home(record.account_id, primary_home)
-        if skill_name and record.account_id == "account-2" and not (
-            home / "skills" / skill_name / "SKILL.md"
-        ).is_file():
-            continue
+        if skill_name and record.account_id == "account-2":
+            skill_dir = home / "skills" / skill_name
+            if not (skill_dir / "SKILL.md").is_file():
+                continue
+            # Stage 1 now requires the actual licensed font assets, not
+            # merely a copy of SKILL.md, to avoid mislabeled font reports.
+            if skill_name == "gatorhats-stage1-six-designs" and not all(
+                (skill_dir / "fonts" / filename).is_file()
+                for filename in ("BebasNeue-Regular.ttf", "Pacifico-Regular.ttf", "Lobster-Regular.otf")
+            ):
+                continue
         lock_dir = home / "worker-locks"
         try:
             lock_dir.mkdir(parents=True, exist_ok=True, mode=0o700)

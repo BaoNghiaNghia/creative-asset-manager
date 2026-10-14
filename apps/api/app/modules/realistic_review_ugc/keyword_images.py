@@ -29,6 +29,7 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.stage1_font_library import font_info_for_number, font_brief
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -123,10 +124,9 @@ def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str |
             "hierarchy to create six genuinely distinct layouts: bold block, condensed "
             "stacked, script, Western serif, varsity, distressed bold. "
             "HARD RULE: exactly ONE SOLID THREAD COLOR PER DESIGN. All letters and "
-            "stitches within each individual PNG use the SAME thread hue, no accent "
-            "colors, color gradients or secondary pigments. The six independent "
-            "designs may have different single colors unless a specific thread color "
-            "was requested. Preserve every character, punctuation and text order. "
+            "stitches within each individual PNG use BROWN (#6B3F28) thread only; no accent "
+            "colors, gradients or secondary pigments. ALL SIX images must use the SAME "
+            "brown thread color. Preserve every character, punctuation and text order. "
             "Depict real thin low-relief embroidery, fine satin stitch on narrow "
             "lettering, Tatami fill on wider areas and visible directional thread "
             "ridges, subtle same-hue reflections, clean counters, no printed fills, "
@@ -139,8 +139,18 @@ def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str |
             "The one-color typography-only restriction OVERRIDES all conflicting "
             "creative guidance, including any appended custom text. "
             + ((custom or "").strip() if custom else "")
-            + " FINAL STAGE 1 RULE: ONLY quoted text in one thread hue "
-            "per independent image. Reject ALL illustrations and multicolor elements."
+            + " FONT LIBRARY (bundled, original font assets, licensed OFL): "
+            + font_brief()
+            + " The pipeline has already rendered EXACT glyph outlines in "
+            "working/font-guides/design_01.png ... design_06.png from these bundled "
+            "font files. Use the corresponding numbered guide as a mandatory layout "
+            "reference for each design; preserve real letters, spacing and composition, "
+            "adding only realistic embroidery stitch texture in the same brown hue. "
+            "Do not redraw text using a guessed font; "
+            "make the lettering visually compact and balanced. Do NOT substitute guessed "
+            "fonts. Report each actual source font name in the final completion text. "
+            "FINAL RULE: six independent BROWN-ONLY typography masters; no drawings, "
+            "no badges, no secondary color, no background."
         ).strip()
     if skill_name == "hanh-redesign-8869-ver-4":
         return (
@@ -904,7 +914,7 @@ class KeywordImageGenerateHandler:
             ),
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
             output_contract="stage1_six_final_designs",
-            expected_quote=keyword_text if skill_name == "hanh-redesign-8869-ver-4" else None,
+            expected_quote=keyword_text if skill_name in ("hanh-redesign-8869-ver-4", "gatorhats-stage1-six-designs") else None,
             execution_log_id=context.job.id,
         ))
         preserve_finals = False
@@ -1125,13 +1135,21 @@ class KeywordImageGenerateHandler:
                     return JobHandlerResult.non_retryable(
                         "keyword_image_job_not_active", "Generation is no longer active."
                     )
+                # A font is recorded only for outputs pinned to this installed
+                # font-enabled Skill release; older output history stays unknown.
+                font_info = None
+                if (job.skill_name == "gatorhats-stage1-six-designs"
+                        and job.skill_bundle_sha256 == installed_stage2_skill_sha256(
+                            job.skill_name, settings=self.settings or get_settings()
+                        )):
+                    font_info = font_info_for_number(index + 1)
                 save_output_version(
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
                     remote_file_id=stored.remote_file_id, content_type=mime_type,
                     size_bytes=size_bytes, width=width, height=height,
                     processing_job_id=generation_processing_id,
                     allow_multiple_per_attempt=index > 0,
-                    output_name=name,
+                    output_name=name, font_info=font_info,
                 )
                 if first_uploaded is None:
                     first_uploaded = (stored, size_bytes, width, height, mime_type)

@@ -123,6 +123,13 @@ export function GenerationOutputVersionsDialog({
         <small>{new Date(version.created_at).toLocaleString()}</small>
         {version.width && version.height && <small>{version.width}×{version.height}</small>}
         {version.output_name && <small title={version.output_name}>v{version.version} · {version.output_name}</small>}
+        {stage === "stage1" && version.font_info && <div className="rrugc-version-font-report">
+          <strong>Font: {version.font_info.font_name}</strong>
+          <small>{version.font_info.font_style} · {version.font_info.layout_name}</small>
+          <a href={version.font_info.font_url} target="_blank" rel="noopener noreferrer"
+            title="Open original DaFont font page">DaFont ↗</a>
+          <small>Font source · {version.font_info.font_license}</small>
+        </div>}
       </div>
       <div className="rrugc-version-download-actions">
         <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>

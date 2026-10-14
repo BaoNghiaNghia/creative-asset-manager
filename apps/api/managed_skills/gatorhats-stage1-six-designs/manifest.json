@@ -2,7 +2,7 @@
   "schema_version": 1,
   "skill_name": "gatorhats-stage1-six-designs",
   "display_name": "GatorHats · Stage 1 Six Designs",
-  "description": "Six typography-only embroidery designs with different lettering layouts, exactly one thread color per design and thin realistic satin/fill stitches; no illustrations, icons or 13-color renders.",
+  "description": "Six compact typography-only brown-thread embroidery designs based on licensed, bundled DaFont fonts (Bebas Neue, Lobster, Pacifico), with per-design font attribution and no illustrations.",
   "workflows": [
     "image_studio",
     "keyword_artwork",

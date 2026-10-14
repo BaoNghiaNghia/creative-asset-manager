@@ -903,6 +903,14 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 @media(max-width:1199px){.rrugc-page-body>#rrugc-source-plans{grid-column:1}.rrugc-source-plan-toolbar{grid-template-columns:1fr}.rrugc-source-plan-sort{grid-template-columns:auto minmax(180px,1fr) auto auto}}
 @media(max-width:760px){.rrugc-source-plans-heading{display:grid}.rrugc-source-plan-heading-actions{justify-content:stretch}.rrugc-source-root{max-width:none;flex:1}.rrugc-source-plan-heading-actions .rrugc-primary{flex:1}.rrugc-source-plan-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-source-plan-sort{grid-template-columns:auto minmax(0,1fr) auto}.rrugc-source-plan-sort-count{grid-column:2/-1;justify-self:end}.rrugc-source-plan-table{min-width:1040px}}
 
+
+/* Stage 1: verified font-source attribution per generated design. */
+.rrugc-version-font-report{display:grid;gap:3px;margin-top:7px;padding:8px 9px;border:1px solid #d7e1ed;border-radius:8px;background:#f8fafc;min-width:0}
+.rrugc-version-font-report strong{font-size:11px;color:#2d4b67;overflow-wrap:anywhere}
+.rrugc-version-font-report small{font-size:9px;color:#6d7f91;overflow-wrap:anywhere}
+.rrugc-version-font-report a{width:max-content;font-size:10px;font-weight:750;color:#326ba8;text-decoration:none}
+.rrugc-version-font-report a:hover{text-decoration:underline}
+
 /* Stage 0: embroidery quote extraction -> Pinterest keyword plan. */
 .rrugc-stage0{grid-column:1/-1;min-width:0;overflow:hidden}
 .rrugc-stage0-heading{align-items:flex-start}.rrugc-stage0-heading>div:first-child{min-width:0}

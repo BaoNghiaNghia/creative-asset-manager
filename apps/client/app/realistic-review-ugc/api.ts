@@ -652,7 +652,8 @@ export const updateStageSkillDefault = (stage: "stage1" | "stage2" | "stage4", r
   );
 
 export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; version: number; created_at: string; width: number | null;
-  height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null };
+  height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null;
+  font_info?: { font_name: string; font_style: string; layout_name: string; font_source: string; font_url: string; font_license: string; font_status: string } | null };
 export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<{ job_id: string; stage: string; versions: GenerationOutputVersion[] }>(
     "/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs",
