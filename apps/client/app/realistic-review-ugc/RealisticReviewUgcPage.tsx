@@ -33,6 +33,7 @@ import {
 } from "./api";
 import { RrugcWorkflowSettingsModal } from "./RrugcWorkflowSettingsModal";
 import { SkillManagerModal } from "./SkillManagerModal";
+import { CodexAccountManager } from "./CodexAccountManager";
 import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { ResearchInboxPanel } from "./ResearchInboxPanel";
 import { SearchIntelligenceModal } from "./SearchIntelligencePanel";
@@ -212,6 +213,7 @@ export function RealisticReviewUgcPage() {
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState<RrugcStageTab>(currentRrugcStage);
   const [skillManagerOpen, setSkillManagerOpen] = useState(false);
+  const [codexManagerOpen, setCodexManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillCatalogRevision, setSkillCatalogRevision] = useState(0);
   const groupsStageActive = activeStage === "stage3" || activeStage === "stage4";
@@ -1021,6 +1023,12 @@ export function RealisticReviewUgcPage() {
           <button
             type="button"
             className="rrugc-global-management-button"
+            data-codex-accounts-open
+            onClick={() => setCodexManagerOpen(true)}
+          >Codex accounts</button>
+          <button
+            type="button"
+            className="rrugc-global-management-button"
             onClick={() => setSkillManagerOpen(true)}
           >Manage skills</button>
           <button
@@ -1319,6 +1327,7 @@ export function RealisticReviewUgcPage() {
         </section>
 
       </div>
+      {codexManagerOpen && <CodexAccountManager onClose={() => setCodexManagerOpen(false)} />}
       <SkillManagerModal
         open={skillManagerOpen}
         onClose={() => setSkillManagerOpen(false)}

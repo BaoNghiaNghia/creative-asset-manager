@@ -18,7 +18,6 @@ import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog
 import "./Stage4Regenerate.css";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { StageSortControls } from "./StageSortControls";
-import { CodexAccountManager } from "./CodexAccountManager";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
@@ -746,7 +745,6 @@ export function Stage2JobTable({
   const [refreshingSkills, setRefreshingSkills] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
   const [queueControl, setQueueControl] = useState<Stage4QueueControl | null>(null);
-  const [codexManagerOpen, setCodexManagerOpen] = useState(false);
   const [queueBusy, setQueueBusy] = useState(false);
   const [queueMessage, setQueueMessage] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -938,11 +936,6 @@ export function Stage2JobTable({
       title="Pinterest references → image generation"
       description={<>Stage 3 grouping is preserved. Select any number of Drive-ready references; generation queues a separate job for each selected reference plus 1 random hat input until the selection is queued.</>}
       actions={<div className="rrugc-stage2-registry-actions">
-        <button type="button" data-codex-accounts-open
-          className="rrugc-stage2-refresh rrugc-icon-action"
-          onClick={() => setCodexManagerOpen(true)}>
-          <RrugcActionIcon name="skills" />Codex accounts
-        </button>
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} ref + 1 random hat / job</span>
         <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
           <i aria-hidden="true" />
@@ -963,7 +956,6 @@ export function Stage2JobTable({
       </div>}
     />
 
-    {codexManagerOpen && <CodexAccountManager onClose={() => setCodexManagerOpen(false)} />}
     {jobs.some(stage4QuotaPaused) && <div className="rrugc-stage4-quota-notice" role="status">
       <strong>Codex image generation quota reached</strong>
       <span>{jobs.filter(stage4QuotaPaused).length} Stage 4 jobs are paused by the provider usage limit. They will retry automatically when their cooldown ends; no need to requeue or delete outputs.</span>
