@@ -161,7 +161,20 @@ Do not claim visual regression PASS while these states lack approval.
 Production login remains a separate dependency: the VPS needs a legitimate
 least-privilege authenticated Playwright storage state outside Git, with mode
 600. Never synthesize or copy live credentials into fixtures or reports.
-The public production smoke is only a limited route/health check.
+The authenticated smoke now validates the Playwright storage-state shape,
+production origin and cookie freshness **offline** before opening Firefox;
+the validator reports only status and counts, never secrets. This guards
+against stale or wrong-domain sessions but does not substitute for a valid
+read-only account. The public production smoke is only a limited route/health check.
+
+On 2026-10-14, Impeccable advisory findings decreased from 14 to 1 after
+replacing heavy colored side borders with subtle full-card borders and tinted
+backgrounds. Reply/blockquote nesting remains visually represented. The sole
+remaining `broken-image` finding is on an image tag guarded by
+`displayedImageUrl ? <img ...>` and is under review as a static-analysis
+heuristic. Functional Browser QA passed all nine profiles on desktop,
+tablet portrait and mobile, plus Research Inbox. Visual approval was
+*not* inferred from the functional pass; 27 baseline states remain pending.
 
 ### Useful commands
 

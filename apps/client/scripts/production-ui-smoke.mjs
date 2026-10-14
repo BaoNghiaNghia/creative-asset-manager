@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { firefox } from "playwright";
+import { inspectProductionQaStorageState } from "./production-ui-auth-state.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -298,7 +299,13 @@ async function main() {
     );
   }
 
-  if (storageState) await fs.access(storageState);
+  if (storageState) {
+    const state = JSON.parse(await fs.readFile(storageState, "utf8"));
+    const check = inspectProductionQaStorageState(state, baseUrl);
+    if (!check.ready) {
+      throw new Error(`Production QA storage state preflight failed: ${check.reason}. Renew the authorized session outside the repository.`);
+    }
+  }
 
   const runDir = path.join(outputRoot, nowId());
   await fs.mkdir(runDir, { recursive: true });
