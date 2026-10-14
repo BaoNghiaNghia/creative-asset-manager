@@ -113,6 +113,39 @@ Both jobs are independent of Production and need no session credentials.
 Browser QA does not replace unit tests, authenticated Production smoke,
 WCAG accessibility auditing or a real backend integration test.
 
+## October 14, 2026 — RBAC preflight and baseline-review integrity
+
+Fixture-backed QA now validates route-specific read permissions **before**
+launching a browser. It checks simulated identity data against the route
+contract without elevating it. A mismatch fails quickly with a specific
+`fixture-rbac-mismatch` reason; matrix reporting distinguishes `BLOCKED`
+from an application assertion failure and does not call a blocked workspace
+PASS. Companion unit tests guard against drift in the protected route mapping.
+
+Known blocker: the Inventory fixture identity does not yet have the
+`inventory.read` permission expected by `AppRoute`. Do not bypass or
+auto-grant it inside the QA runner. The authorized fixture configuration
+must be reconciled through the normal security-reviewed workflow.
+
+The visual review CLI now requires the **correct QA plan state list** when
+resolving `--latest`; this prevents a Research Inbox run on the same RRUGC
+URL from replacing the primary Stage 0–5 review packet. A review packet
+assesses all expected states, viewports, screenshots, quality audits and
+functional issues. Incomplete or failed runs are marked `review-blocked`;
+clean runs are `review-only`. Neither mode modifies accepted PNGs.
+
+Last validated RRUGC run:
+`apps/client/.ui-qa/2026-10-14T13-20-32-787Z/`.
+Its read-only review packet contains 90 captures covering 30 states across
+desktop, tablet portrait and mobile, with 26 RRUGC states awaiting review.
+AI Operations has one additional baseline state awaiting review (27 total).
+Do not claim visual regression PASS while these states lack approval.
+
+Production login remains a separate dependency: the VPS needs a legitimate
+least-privilege authenticated Playwright storage state outside Git, with mode
+600. Never synthesize or copy live credentials into fixtures or reports.
+The public production smoke is only a limited route/health check.
+
 ### Useful commands
 
 ```bash

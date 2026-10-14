@@ -16,6 +16,7 @@ import { cleanupRuns } from "./ui-qa-cleanup.mjs";
 import { assertUiStep } from "./ui-qa-assertions.mjs";
 import { assertQualityBudgets } from "./ui-qa-quality.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
+import { assertFixturePermissions } from "./ui-qa-fixture-rbac.mjs";
 import { isExpectedQaRequestAbort } from "./ui-qa-request-classification.mjs";
 import {
   parseCsvList,
@@ -425,6 +426,8 @@ const captureStateNames = new Set(
 const qaMode = argValue("--mode") || process.env.CAM_UI_QA_MODE || "full";
 const fixturePath = argValue("--fixture") || process.env.CAM_UI_QA_FIXTURE;
 const fixture = await loadUiQaFixture(fixturePath);
+// Detect simulated RBAC mismatch before launching a browser or waiting for a selector.
+assertFixturePermissions(url, fixture);
 const baselineArg = argValue("--baseline-dir") || process.env.CAM_UI_VISUAL_BASELINE_DIR;
 const baselineDir = baselineArg ? path.resolve(baselineArg) : null;
 const updateBaselines =

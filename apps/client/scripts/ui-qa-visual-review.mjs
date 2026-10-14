@@ -13,6 +13,32 @@ const arg = flag => {
   return i < 0 ? "" : process.argv[i + 1] || "";
 };
 
+export function assessVisualReviewRun(report, plan) {
+  const expectedStates = [...new Set((plan.steps || []).map(s => String(s.name || "default")))];
+  const expectedViewports = [...new Set(plan.viewports || [])];
+  const capturedStates = Array.isArray(report.states) ? report.states : [];
+  const issues = [];
+  if (expectedStates.some(state => !capturedStates.includes(state)) ||
+      capturedStates.length !== expectedStates.length) {
+    issues.push("incomplete-plan-states");
+  }
+  for (const viewport of expectedViewports) {
+    const row = (report.results || []).find(r => r.viewport === viewport);
+    if (!row) { issues.push("missing-viewport:" + viewport); continue; }
+    if (!Array.isArray(row.screenshots) || row.screenshots.length !== expectedStates.length ||
+        expectedStates.some(state => !row.screenshots.includes(viewport + "--" + state + ".png"))) {
+      issues.push("incomplete-screenshots:" + viewport);
+    }
+    if (!Array.isArray(row.qualityAudit) || row.qualityAudit.length !== expectedStates.length) {
+      issues.push("missing-quality-audit:" + viewport);
+    }
+    for (const kind of ["consoleErrors", "pageErrors", "requestFailures", "badResponses", "stepFailures"]) {
+      if ((row.issues?.[kind] || []).length) issues.push(kind + ":" + viewport);
+    }
+  }
+  return { readyForHumanReview: issues.length === 0, blockers: issues };
+}
+
 export function buildVisualReviewRows(report, manifest) {
   const approved = new Set(manifest.states || []);
   const rows = [];
@@ -39,8 +65,16 @@ export function buildVisualReviewRows(report, manifest) {
   return rows;
 }
 
+export function reportMatchesPlan(report, plan) {
+  const wanted = (plan.steps || []).map(step => String(step.name || "default"));
+  const got = Array.isArray(report.states) ? report.states : [];
+  return wanted.length > 0 && wanted.length === got.length &&
+    wanted.every((state, index) => state === got[index]);
+}
+
 export async function findLatestProfileRun(profileName, root = ROOT) {
   const profile = getUiQaProfile(profileName);
+  const plan = JSON.parse(await fs.readFile(path.join(root, profile.plan), "utf8"));
   const qaRoot = path.resolve(root, "apps/client/.ui-qa");
   const entries = (await fs.readdir(qaRoot, { withFileTypes: true }))
     .filter(entry => entry.isDirectory() && /^20\d\d-/.test(entry.name))
@@ -49,7 +83,8 @@ export async function findLatestProfileRun(profileName, root = ROOT) {
     const runDir = path.join(qaRoot, name);
     try {
       const report = JSON.parse(await fs.readFile(path.join(runDir, "report.json"), "utf8"));
-      if (new URL(report.url).pathname === profile.route && report.results?.length) return runDir;
+      if (new URL(report.url).pathname === profile.route &&
+          report.results?.length && reportMatchesPlan(report, plan)) return runDir;
     } catch (error) {
       if (error.code !== "ENOENT") continue;
     }
@@ -65,6 +100,8 @@ export async function createVisualReviewPacket({ profileName, runDir, root = ROO
     throw new Error("Review packet must stay inside apps/client/.ui-qa");
   }
   const report = JSON.parse(await fs.readFile(path.join(actualRun, "report.json"), "utf8"));
+  const plan = JSON.parse(await fs.readFile(path.join(root, profile.plan), "utf8"));
+  const eligibility = assessVisualReviewRun(report, plan);
   const baselineDir = path.join(root, profile.baseline);
   const manifest = JSON.parse(await fs.readFile(path.join(baselineDir, "manifest.json"), "utf8"));
   const rows = buildVisualReviewRows(report, manifest);
@@ -87,9 +124,14 @@ export async function createVisualReviewPacket({ profileName, runDir, root = ROO
   const summary = {
     schemaVersion: 1, profile: profileName, runId: report.runId,
     browser: report.browser || null,
-    status: "review-only", approvedStates: manifest.states || [],
+    status: eligibility.readyForHumanReview ? "review-only" : "review-blocked",
+    readyForHumanReview: eligibility.readyForHumanReview,
+    reviewBlockers: eligibility.blockers,
+    approvedStates: manifest.states || [],
     pendingStates: pending, screenshots: rows,
-    warning: "This packet is for human review. It does not approve or modify tracked visual baselines.",
+    warning: eligibility.readyForHumanReview
+      ? "This packet is for human review. It does not approve or modify tracked visual baselines."
+      : "This capture is incomplete or has QA errors. Fix the blockers and rerun before requesting baseline approval.",
   };
   await fs.writeFile(path.join(actualRun, "visual-review.json"), JSON.stringify(summary, null, 2) + "\n");
 
@@ -125,7 +167,9 @@ img{width:100%;height:auto;display:block;border:1px solid #e2e7f0;border-radius:
 <h1>Visual QA review · ${escapeHtml(profileName)}</h1>
 <p class="intro">Run: ${escapeHtml(report.runId)} · Browser: ${escapeHtml(report.browser?.engine || "unknown")} ·
 ${rows.length} captures · ${pending.length} states without approved baselines.</p>
-<p><strong>Review only.</strong> No baseline is accepted or modified. Inspect mobile, tablet, and desktop screenshots before explicitly approving design changes.</p>
+<p><strong>${eligibility.readyForHumanReview ? "Review only" : "QA blocked"}.</strong> ${eligibility.readyForHumanReview
+  ? "No baseline is accepted or modified. Inspect mobile, tablet, and desktop screenshots before explicitly approving design changes."
+  : "This run is not eligible for baseline approval. Blockers: " + escapeHtml(eligibility.blockers.join("; "))}</p>
 ${content}</body></html>`;
   await fs.writeFile(path.join(actualRun, "visual-review.html"), html);
   return { ...summary, htmlPath: path.join(actualRun, "visual-review.html") };

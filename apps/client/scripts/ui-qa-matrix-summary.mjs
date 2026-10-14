@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getUiQaProfile } from "./ui-qa-profiles.mjs";
 import { collectVisualCoverage } from "./ui-qa-coverage.mjs";
+import { checkFixturePermissions } from "./ui-qa-fixture-rbac.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const ISSUE_KEYS = ["consoleErrors", "pageErrors", "requestFailures", "badResponses", "stepFailures"];
@@ -67,15 +68,25 @@ export async function collectQaMatrix({ profiles, since, root = ROOT, viewports 
       if (error.code !== "ENOENT") throw error;
     }
   }
-  const rows = profiles.map(profileName => {
+  const rows = await Promise.all(profiles.map(async profileName => {
     const profile = getUiQaProfile(profileName);
     const report = reports.find(r => {
       try { return new URL(r.url).pathname === profile.route; }
       catch { return false; }
     });
-    return report ? summarizeFixtureReport(report, profileName, viewports)
-      : { profile: profileName, status: "missing", reason: "No QA report from this matrix run" };
-  });
+    if (report) return summarizeFixtureReport(report, profileName, viewports);
+    const fixture = JSON.parse(await fs.readFile(path.join(root, profile.fixture), "utf8"));
+    const preflight = checkFixturePermissions(profile.route, fixture);
+    if (preflight.status === "blocked") {
+      return {
+        profile: profileName, status: "blocked", functionalStatus: "blocked",
+        visualStatus: "skipped", reason: preflight.reason,
+        requiredPermission: preflight.requiredPermission,
+        missingPermissions: preflight.missingPermissions,
+      };
+    }
+    return { profile: profileName, status: "missing", reason: "No QA report from this matrix run" };
+  }));
   const baseline = await collectVisualCoverage(root);
   let designQuality = { status: "not-run", findingCount: null, engine: null };
   try {
@@ -100,6 +111,7 @@ export async function collectQaMatrix({ profiles, since, root = ROOT, viewports 
       failed: rows.filter(r => r.status !== "pass").length,
       functionalPassed: rows.filter(r => r.functionalStatus === "pass").length,
       visualFailed: rows.filter(r => r.visualStatus === "fail").length,
+      blocked: rows.filter(r => r.status === "blocked").length,
       baselineProfilesAligned: baseline.summary.aligned,
       baselineProfilesTotal: baseline.summary.total,
       baselineStatesAwaitingApproval: baseline.summary.uncoveredStates },
@@ -126,7 +138,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   for (const row of report.profiles) {
     console.log(`${row.status.toUpperCase()} ${row.profile} ` +
       `(functional=${row.functionalStatus || "missing"}, visual=${row.visualStatus || "missing"}, ` +
-      `visualIssues=${row.visualIssueCount ?? "n/a"}; ${row.viewports?.join(",") || row.reason || "unknown"})`);
+      `visualIssues=${row.visualIssueCount ?? "n/a"}; ${row.viewports?.join(",") || row.reason || "unknown"}` +
+      (row.missingPermissions?.length ? ` — missing fixture permission: ${row.missingPermissions.join(",")}` : "") + ")");
   }
   console.log(`Design QA: ${report.designQuality.status}; ` +
     `findings=${report.designQuality.findingCount ?? "not run"}`);
