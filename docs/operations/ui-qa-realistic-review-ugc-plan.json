@@ -241,6 +241,8 @@
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-source-tree .rrugc-stage5-tree-all",
       "assertions": [
         {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-source-tree","value":"Source tree"},
+        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-tree-all","value":"All folders"},
+        {"type":"no-horizontal-overflow","selector":"#rrugc-panel-stage5 .rrugc-stage5-tree-scroll","maxPx":0},
         {"type":"visible","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-content .rrugc-stage3-image"}
       ]
     },

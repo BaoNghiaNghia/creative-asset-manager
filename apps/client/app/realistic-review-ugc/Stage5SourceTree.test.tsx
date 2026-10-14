@@ -79,6 +79,8 @@ describe("Stage 5 source folder tree", () => {
     // Global mobile workspace styles hide <aside>; the folder rail must not use it.
     expect(tree?.tagName).toBe("DIV");
     expect(tree?.getAttribute("role")).toBe("complementary");
+    expect(tree?.querySelector('[role="navigation"]')?.tagName).toBe("DIV");
+    expect(tree?.querySelector("nav")).toBeNull();
     expect(content).not.toBeNull();
     const cards = () => content!.querySelectorAll(".rrugc-stage3-image");
     expect(cards()).toHaveLength(5);

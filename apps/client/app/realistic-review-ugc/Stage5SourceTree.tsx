@@ -74,7 +74,7 @@ export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore }: Props
         {allExpanded ? "Collapse" : "Expand all"}
       </button>
     </header>
-    <nav className="rrugc-stage5-tree-scroll" aria-label="Choose a source folder">
+    <div className="rrugc-stage5-tree-scroll" role="navigation" aria-label="Choose a source folder">
       <button type="button"
         className={"rrugc-stage5-tree-all" + (selectedKey === null ? " is-selected" : "")}
         aria-pressed={selectedKey === null}
@@ -84,7 +84,7 @@ export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore }: Props
       </button>
       {root.children.map(renderNode)}
       {!root.children.length && <p className="rrugc-stage5-tree-empty">No folders loaded yet.</p>}
-    </nav>
+    </div>
     <footer className="rrugc-stage5-tree-foot">
       <span>{root.groupIds.length} loaded folder{root.groupIds.length === 1 ? "" : "s"}</span>
       {hasMore && <small>More folders may appear when older images are loaded.</small>}

@@ -204,7 +204,12 @@ tree entries represent **loaded pages only**; `Load older images` remains
 available and progressively expands the tree. Desktop/tablet use a side
 rail; narrow screens stack the bounded-height tree above the gallery.
 The fixture-backed Stage 5 QA plan tests selecting a parent, child and
-the root without accepting visual baselines.
+the root without accepting visual baselines. The desktop tree uses a dedicated
+role=navigation container (not a bare `nav` element) so global navigation
+flex styles cannot flatten all folders into one horizontally scrolling row.
+The side rail keeps its header/footer visible, scrolls folder rows vertically,
+and grows to a bounded viewport height. QA asserts zero horizontal tree
+scroll as well as zero page overflow on desktop, tablet and mobile.
 
 The 2026-10-14 RRUGC density follow-up promotes zero viewport overflow
 and zero sub-24px targets into **all three** viewport quality budgets.
