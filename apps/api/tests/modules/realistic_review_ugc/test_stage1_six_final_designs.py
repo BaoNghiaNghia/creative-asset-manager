@@ -265,26 +265,39 @@ def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_c
     files = {name: content for name, content, _content_type in bundle.files}
     skill = files["SKILL.md"].decode("utf-8")
     manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 12_37_14_10_26" in skill
-    assert "at least three illustration-led" in skill.lower()
-    assert "brown/tan/sepia may dominate at most one" in skill.lower()
-    assert "Do **not** create or persist preview" in skill
+    assert "version: 13_25_14_10_26" in skill
+    assert "typography-only" in skill.lower()
+    assert "one single solid thread hue" in skill.lower()
+    assert "NO illustrations" in skill
+    assert "Do NOT add" in skill
+    assert "birds, flowers" in skill.lower()
+    assert "at least three illustration-led" not in skill.lower()
+    assert "2–4-color" not in skill.lower()
+    assert "Do not generate a collage" in skill
     assert "embroidered-satin-natural" in skill
-    for forbidden_effect in ("NOT bulky puff", "no hat", "flat printed graphic"):
-        assert forbidden_effect.lower() in skill.lower()
+    assert "NOT a flat screen print" in skill
+    assert "one final per image-generation call" in skill
+    assert "NO hat" in skill
     for index in range(1, 7):
         assert f"output/final/design_{index:02}.png" in skill
     assert "keyword_six_designs" in manifest
-    assert "visible satin/fill stitch direction" in manifest
+    assert "exactly one thread color per design" in manifest
+    from pathlib import Path
+    deployed = Path(__file__).resolve().parents[5] / "deploy/codex/skills/gatorhats-stage1-six-designs/SKILL.md"
+    assert deployed.read_bytes() == files["SKILL.md"]
 
 
 def test_stage1_keyword_prompt_requires_creative_distinct_stitches_and_thread_pigment():
     from app.modules.realistic_review_ugc.keyword_images import keyword_prompt
     value = keyword_prompt("WELL READ", skill_name="gatorhats-stage1-six-designs")
     assert "embroidered-satin-natural" in value
-    assert "ILLUSTRATION-LED" in value
-    assert "Brown/tan/sepia may dominate at most ONE" in value
-    assert "directional contrast" in value
+    assert "TYPOGRAPHY-ONLY" in value
+    assert "exactly ONE SOLID THREAD COLOR PER DESIGN" in value
+    assert "NO pictorial illustrations" in value
+    assert "Vary strictly the font style" in value
+    assert "at least THREE must be ILLUSTRATION-LED" not in value
+    assert "2–4 THREAD COLOR" not in value
+    assert "Tatami fill" in value
     assert "output/final/design_01.png through design_06.png" in value
     assert "WELL READ" in value
     assert "Do not generate, save, upload or" in value
