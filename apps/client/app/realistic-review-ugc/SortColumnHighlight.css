@@ -29,8 +29,9 @@
 .rrugc-keyword-gen-table[data-sort-column="duration"] :is(thead th:nth-child(6),tbody td:nth-child(6):not([colspan])),
 .rrugc-keyword-gen-table[data-sort-column="finished_at"] :is(thead th:nth-child(7),tbody td:nth-child(7):not([colspan])),
 .rrugc-colorway-table[data-sort-column="source"] :is(thead th:nth-child(2),tbody td:nth-child(2):not([colspan])),
-.rrugc-colorway-table[data-sort-column="status"] :is(thead th:nth-child(6),tbody td:nth-child(6):not([colspan])),
-.rrugc-colorway-table[data-sort-column="updated"] :is(thead th:nth-child(7),tbody td:nth-child(7):not([colspan])){
+.rrugc-colorway-table.is-reviews[data-sort-column="status"] :is(thead th:nth-child(6),tbody td:nth-child(6):not([colspan])),
+.rrugc-colorway-table.is-reviews[data-sort-column="updated"] :is(thead th:nth-child(7),tbody td:nth-child(7):not([colspan])),
+.rrugc-colorway-table.is-products[data-sort-column="updated"] :is(thead th:nth-child(4),tbody td:nth-child(4):not([colspan])){
   background-image:linear-gradient(var(--rrugc-active-col-overlay),var(--rrugc-active-col-overlay));
   background-clip:padding-box;
 }

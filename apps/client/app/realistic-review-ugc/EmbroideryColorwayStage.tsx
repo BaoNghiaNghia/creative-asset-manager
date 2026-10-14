@@ -371,8 +371,8 @@ export function EmbroideryColorwayStage({
         />
       </div>
       <StageSortControls stage="Stage 2 designs" sortBy={sortBy} direction={sortDirection}
-        onChange={onSortChange} options={["source", "updated", "status"]} />
-      <label className="rrugc-colorway-skill">
+        onChange={onSortChange} options={workflow === "products" ? ["source", "updated"] : ["source", "updated", "status"]} />
+      {workflow === "reviews" && <label className="rrugc-colorway-skill">
         <span>Generation skill</span>
         <select
           value={selectedSkillKey}
@@ -386,7 +386,7 @@ export function EmbroideryColorwayStage({
             </option>
           ))}
         </select>
-      </label>
+      </label>}
       <button type="button" className="rrugc-colorway-select rrugc-icon-action" onClick={togglePage} disabled={loading || data.items.length === 0}>
         <RrugcActionIcon name={pageSelected ? "deselect" : "select-all"} />
         {pageSelected ? "Clear page" : "Select page"}
@@ -404,23 +404,23 @@ export function EmbroideryColorwayStage({
     </div>
 
     <div className="rrugc-colorway-table-wrap">
-      <table className="rrugc-colorway-table" aria-busy={loading}
+      <table className={"rrugc-colorway-table " + (workflow === "products" ? "is-products" : "is-reviews")} aria-busy={loading}
         data-sort-column={sortBy} data-sort-direction={sortDirection}>
         <thead>
           <tr>
             <th aria-label="Select design" />
             <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
             <th>{workflow === "products" ? "4-skill pipeline · 23 outputs" : "13-color batch"}</th>
-            <th>{workflow === "products" ? "13-color progress" : "Progress"}</th>
-            <th>{workflow === "products" ? "Colorway skill" : "Skill"}</th>
-            <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th>
+            {workflow === "reviews" && <><th>Progress</th>
+            <th>Skill</th>
+            <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th></>}
             <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>
           </tr>
         </thead>
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
             <tr key={index} className="rrugc-colorway-skeleton-row">
-              <td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td>
+              <td><span /></td><td><span /></td><td><span /></td>{workflow === "reviews" && <><td><span /></td><td><span /></td><td><span /></td></>}<td><span /></td>
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
@@ -466,6 +466,10 @@ export function EmbroideryColorwayStage({
                 sourceName={plan.source_name} readiness={photoReadiness}
                 colors={Array.from(slots?.values() || [])}
                 colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
+                colorwaySkillKey={selectedSkillKey}
+                colorwaySkillDisabled={catalogLoading || catalog.items.length === 0}
+                colorwaySkillOptions={catalog.items.map(skill => ({ value: skillKey(skill), label: skill.display_name + (skill.upload_version ? " · v" + skill.upload_version : ""), ready: skill.ready }))}
+                onColorwaySkillChange={setSelectedSkillKey}
                 colorwayReady={Boolean(skillInput && executionReady && serverReadiness?.ready)}
                 colorwayRunning={Boolean(queueing || queueingPlanId || retryingId)}
                 onQueueColors={() => void queueOneColorway(plan.id)}
@@ -473,7 +477,7 @@ export function EmbroideryColorwayStage({
                 onOpenColor={job => setVersionsJob({ jobId: job.id, title: job.color_name + " · " + cleanDesignName(plan.source_name) })}
                 onOpenLog={job => setLogJobId(job.id)}
               /></td>}
-              <td>
+              {workflow === "reviews" && <><td>
                 <div className="rrugc-colorway-progress">
                   <div><span style={{ width: Math.round(completed / COLOR_SLOT_COUNT * 100) + "%" }} /></div>
                   <strong>{completed} / {COLOR_SLOT_COUNT}</strong>
@@ -488,7 +492,7 @@ export function EmbroideryColorwayStage({
                   <small>{completed} completed · {inProgress} active · {failed} failed</small>
                 </div>
               </td>
-              <td><span className="rrugc-colorway-sort-status">{plan.status.replaceAll("_", " ")}</span></td>
+              <td><span className="rrugc-colorway-sort-status">{plan.status.replaceAll("_", " ")}</span></td></>}
               <td className="rrugc-colorway-sort-meta">
                 {lastUpdated
                   ? <time dateTime={lastUpdated.toISOString()} title={lastUpdated.toLocaleString()}>
@@ -499,7 +503,7 @@ export function EmbroideryColorwayStage({
             </tr>;
           })}
           {!loading && data.items.length === 0 && <tr>
-            <td colSpan={7} className="rrugc-source-plan-empty">
+            <td colSpan={workflow === "products" ? 4 : 7} className="rrugc-source-plan-empty">
               No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}

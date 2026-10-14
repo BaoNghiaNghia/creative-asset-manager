@@ -435,13 +435,19 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('data-sort-column="source" data-sort-direction="asc"');
     expect(markup).toContain('<th class="is-sort-column">Embroidery design</th>');
     expect(markup).toContain(">Last updated</th>");
-    expect(markup).toContain(">Status</th>");
+    expect(markup).not.toContain(">Status</th>");
+    expect(markup).not.toContain(">13-color progress</th>");
+    expect(markup).not.toContain(">Colorway skill</th>");
+    expect(reviewMarkup).toContain(">Status</th>");
     expect((markup.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
     expect(markup).toContain("Run selected colors · 0");
-    expect(markup).toContain("0 completed · 0 active · 0 failed");
+    expect(markup).not.toContain("0 completed · 0 active · 0 failed");
+    expect(markup).toContain("13 Hat Colors");
+    expect(markup).toContain("Skill 4");
+    expect(markup).toContain("Checking skill");
     for (const [sortBy, direction, header] of [
       ["updated", "desc", "Last updated"],
-      ["status", "asc", "Status"],
+
     ] as const) {
       const sorted = renderToStaticMarkup(
         <EmbroideryColorwayStage

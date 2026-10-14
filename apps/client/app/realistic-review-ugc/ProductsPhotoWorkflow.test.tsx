@@ -20,6 +20,42 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).not.toContain("Completed · 10/10");
   });
 
+  it("shows an independent assigned skill and status for every row, with a selectable colorway skill", () => {
+    const readiness = {
+      workflow: "products_stage2_photo_pipeline",
+      sequential: true,
+      ready: false,
+      total_outputs_per_design: 10,
+      steps: [
+        { key: "ecommerce" as const, skill_name: "ecommerce-v2", title: "Ecommerce", output_count: 4,
+          shot_labels: [], ready: false, bundle_installed: true, status: "needs_pipeline_worker" as const,
+          missing_assets: [], required_inputs: "References" },
+        { key: "multihat" as const, skill_name: "multihat-v2", title: "Multi-hat", output_count: 3,
+          shot_labels: [], ready: false, bundle_installed: false, status: "needs_install" as const,
+          missing_assets: ["SKILL.md"], required_inputs: "References" },
+        { key: "ugc" as const, skill_name: "ugc-v3", title: "UGC", output_count: 3,
+          shot_labels: [], ready: false, bundle_installed: true, status: "needs_pipeline_worker" as const,
+          missing_assets: [], required_inputs: "References" },
+      ],
+    };
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design.png" readiness={readiness}
+      colorwaySkillKey="scale" colorwaySkillName="8869 scale"
+      colorwaySkillOptions={[
+        { value: "scale", label: "8869 scale", ready: true },
+        { value: "alternate", label: "Other colorway", ready: false },
+      ]}
+      onColorwaySkillChange={() => undefined} />);
+    for (const skill of ["ecommerce-v2", "multihat-v2", "ugc-v3"]) {
+      expect(html).toContain(skill);
+    }
+    expect((html.match(/Worker pending/g) || []).length).toBe(2);
+    expect(html).toContain("Needs skill");
+    expect(html).toContain('aria-label="13 Hat Colors skill for design.png"');
+    expect(html).toContain('<option value="scale" selected="">8869 scale</option>');
+    expect(html).toContain("Other colorway · needs sync");
+    expect(html).toContain("Not run");
+  });
+
   it("renders real completed colorway previews and independent retry actions", () => {
     const jobs: ColorwayJob[] = [
       {

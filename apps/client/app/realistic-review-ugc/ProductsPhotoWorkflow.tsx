@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { ColorwayJob, ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 
@@ -39,11 +39,21 @@ function HatSlotIcon() {
   </svg>;
 }
 
+export type ColorwaySkillOption = {
+  value: string;
+  label: string;
+  ready: boolean;
+};
+
 type Props = {
   sourceName: string;
   readiness: ProductsStage2PhotoReadiness | null;
   colors?: ColorwayJob[];
   colorwaySkillName?: string;
+  colorwaySkillKey?: string;
+  colorwaySkillOptions?: ColorwaySkillOption[];
+  colorwaySkillDisabled?: boolean;
+  onColorwaySkillChange?: (value: string) => void;
   colorwayReady?: boolean;
   colorwayRunning?: boolean;
   onQueueColors?: () => void;
@@ -53,25 +63,30 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, readiness, colors = [], colorwaySkillName, colorwayReady = false,
-  colorwayRunning = false, onQueueColors, onRetryColor, onOpenColor, onOpenLog,
+  sourceName, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
+  colorwayReady = false, colorwayRunning = false,
+  onQueueColors, onRetryColor, onOpenColor, onOpenLog,
 }: Props) {
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const colorSkillSelectId = useId();
   const byColor = new Map(colors.map(job => [job.color_key, job]));
   const complete = colors.filter(job => job.status === "completed").length;
   const failed = colors.filter(job => job.status === "failed").length;
   const active = colors.filter(job => job.status === "running" || job.status === "queued").length;
+  const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : complete > 0 ? complete + "/13 done" : "Not run";
 
   return <div className="rrugc-products-photo-pipeline" aria-label={"Four-skill photo workflow for " + sourceName}>
     <div className="rrugc-products-photo-pipeline-summary">
       <strong>4 skills <span aria-hidden="true">·</span> 23 outputs</strong>
-      <small>Sequential photo skills (10 shots) + 13 hat colors</small>
+      <small>Each skill has its own outputs and status</small>
     </div>
     <div className="rrugc-products-photo-stage-list">
       {PHOTO_STEPS.map((step, index) => {
         const state = readiness?.steps.find(item => item.key === step.key);
         const opened = expandedStep === step.key;
-        const status = state?.bundle_installed ? "Worker pending" : "Needs skill";
+        const skillName = state?.skill_name || step.skillName;
+        const status = state?.ready ? "Ready" : state?.bundle_installed ? "Worker pending" : state ? "Needs skill" : "Checking skill";
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key}>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
@@ -84,17 +99,23 @@ export function ProductsPhotoWorkflow({
               <b>{String(PHOTO_STEPS.slice(0, index).reduce((n, item) => n + item.shots.length, 0) + shotIndex + 1).padStart(2, "0")}</b>
             </span>)}
           </div>
+          <div className="rrugc-products-photo-skill" title={skillName}>
+            <span>Skill {index + 1}</span><strong>{skillName}</strong>
+          </div>
           <div className="rrugc-products-photo-stage-controls">
-            <span className="rrugc-products-photo-state is-unavailable" title={state?.required_inputs || "Execution worker is not yet enabled"}>{status}</span>
+            <span className={"rrugc-products-photo-state " + (state?.ready ? "is-done" : "is-unavailable")}
+              title={state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
             <button type="button" className="rrugc-products-photo-detail-toggle"
               aria-expanded={opened} aria-label={step.title + " details"}
               onClick={() => setExpandedStep(opened ? null : step.key)}>{opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
           </div>
           {opened && <div className="rrugc-products-photo-stage-detail">
-            <div><strong>{step.skillName}</strong><p>{state?.required_inputs || "Requires verified stock photography and scene references. Photos have not been generated."}</p>
-              {!!state?.missing_assets?.length && <small>Missing assets: {state.missing_assets.join(", ")}</small>}</div>
+            <div><strong>{skillName}</strong>
+              <p>{state?.required_inputs || "Requires verified stock and reference photography. Execution has not been enabled."}</p>
+              {!!state?.missing_assets?.length && <small>Missing assets: {state.missing_assets.join(", ")}</small>}
+            </div>
             <button type="button" onClick={openSkillsManager}>Manage skill</button>
-            <button type="button" disabled title="The photo worker, per-shot output persistence and retry/log API are not yet enabled.">Run / Retry / Logs</button>
+            <button type="button" disabled title="The photo worker, output persistence and job APIs have not yet been enabled.">Run / Retry / Logs</button>
           </div>}
         </div>;
       })}
@@ -127,9 +148,20 @@ export function ProductsPhotoWorkflow({
               aria-label={colorName + " · " + (job?.status || "Not run")}>{content}</span>;
           })}
         </div>
+        <div className="rrugc-products-photo-skill">
+          <label htmlFor={colorSkillSelectId}><span>Skill 4</span></label>
+          <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"
+            aria-label={"13 Hat Colors skill for " + sourceName}
+            title={colorwaySkillName || "Choose 13 Hat Colors skill"}
+            value={colorwaySkillKey} disabled={colorwaySkillDisabled || !onColorwaySkillChange}
+            onChange={event => onColorwaySkillChange?.(event.target.value)}>
+            {colorwaySkillOptions.length === 0 && <option value="">{colorwaySkillDisabled ? "Loading skills…" : "No skill available"}</option>}
+            {colorwaySkillOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.ready ? "" : " · needs sync"}</option>)}
+          </select>
+        </div>
         <div className="rrugc-products-photo-stage-controls">
           <span className={"rrugc-products-photo-state " + (failed ? "is-failed" : active ? "is-running" : complete === 13 ? "is-done" : "")}>
-            {failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : "Not run"}
+            {colorStatus}
           </span>
           <button type="button" className="rrugc-products-photo-detail-toggle"
             aria-expanded={expandedStep === "colorway"} aria-label="13 Hat Colors details"
@@ -139,7 +171,7 @@ export function ProductsPhotoWorkflow({
         </div>
         {expandedStep === "colorway" && <div className="rrugc-products-photo-stage-detail">
           <div><strong>{colorwaySkillName || "Select colorway skill"}</strong>
-            <p>One output per genuine Valucap 8869 stock color. Existing versions are preserved; click a finished image for versions or a failed slot to retry.</p></div>
+            <p>Generate each of 13 Valucap 8869 colors. Finished versions stay available; click an image to view versions or a failed slot to retry.</p></div>
           <button type="button" onClick={openSkillsManager}>Manage skill</button>
           <button type="button" disabled={!colorwayReady || colorwayRunning || complete === 13}
             onClick={onQueueColors}>{colorwayRunning ? "Queueing…" : "Run missing"}</button>
