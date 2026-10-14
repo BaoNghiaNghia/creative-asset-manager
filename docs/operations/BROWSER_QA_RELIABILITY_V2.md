@@ -192,6 +192,20 @@ the validator reports only status and counts, never secrets. This guards
 against stale or wrong-domain sessions but does not substitute for a valid
 read-only account. The public production smoke is only a limited route/health check.
 
+The Stage 5 source-tree layout derives its folder hierarchy from the
+already-authorized `stage3/review-groups` response, using
+`folder_path` and `folder_id`. It never exposes additional Drive metadata
+or triggers a Drive traversal. The left column supports nested expansion,
+parent-folder filtering (including descendants), leaf selection and
+`All folders`; the right column retains existing review cards, status,
+Before/After, per-folder analysis, sort, search and review actions. A
+right-column summary shows the selected path and image count. Counts and
+tree entries represent **loaded pages only**; `Load older images` remains
+available and progressively expands the tree. Desktop/tablet use a side
+rail; narrow screens stack the bounded-height tree above the gallery.
+The fixture-backed Stage 5 QA plan tests selecting a parent, child and
+the root without accepting visual baselines.
+
 The 2026-10-14 RRUGC density follow-up promotes zero viewport overflow
 and zero sub-24px targets into **all three** viewport quality budgets.
 It reserves four explicit grid tracks in the Stage 1 DaFont toolbar

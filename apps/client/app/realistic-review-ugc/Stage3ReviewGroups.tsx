@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Stage5BeforeAfter } from "./Stage5BeforeAfter";
+import { Stage5SourceTree } from "./Stage5SourceTree";
+import { buildStage5FolderTree, findStage5FolderNode, groupsForStage5Folder } from "./stage5SourceTree";
 import "./Stage5BeforeAfter.css";
 import { ActionMessageToast } from "../components/ActionToast";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -12,6 +14,7 @@ import type {
   Stage3ReviewImage,
 } from "./types";
 import "./Stage3ReviewGroups.css";
+import "./Stage5SourceTree.css";
 import "./Stage5Toolbar.css";
 import "./StageSortControls.css";
 
@@ -448,11 +451,16 @@ export function Stage3ReviewGroups({
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [actionError, setActionError] = useState("");
   const [sortBy, setSortBy] = useState<Stage5SortBy>("newest");
+  const [selectedFolderKey, setSelectedFolderKey] = useState<string | null>(null);
+  const folderTree = useMemo(() => buildStage5FolderTree(data.items), [data.items]);
+  const selectedFolder = findStage5FolderNode(folderTree, selectedFolderKey);
+  const activeFolderKey = selectedFolderKey && selectedFolder ? selectedFolderKey : null;
   const finished = data.ready_images + data.rejected_images;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleGroups = useMemo(() => {
-    if (!normalizedQuery) return sortStage5LoadedGroups(data.items, sortBy);
-    return sortStage5LoadedGroups(data.items.filter(group => {
+    const folderGroups = groupsForStage5Folder(data.items, folderTree, activeFolderKey);
+    if (!normalizedQuery) return sortStage5LoadedGroups(folderGroups, sortBy);
+    return sortStage5LoadedGroups(folderGroups.filter(group => {
       const searchable = [
         group.folder_name,
         group.folder_path,
@@ -468,7 +476,7 @@ export function Stage3ReviewGroups({
       ].join(" ").toLocaleLowerCase();
       return searchable.includes(normalizedQuery);
     }), sortBy);
-  }, [data.items, normalizedQuery, sortBy]);
+  }, [data.items, folderTree, activeFolderKey, normalizedQuery, sortBy]);
   const searchSuggestions = useMemo(() => data.items.flatMap(group => [
     { value: group.folder_name, meta: group.folder_path || "Review folder", badge: "Folder" },
     ...group.images.slice(0, 4).flatMap(image => [
@@ -589,6 +597,25 @@ export function Stage3ReviewGroups({
       <small>Sort applies to loaded results. Use “Load older images” to include more.</small>
     </div>
 
+    <div className="rrugc-stage5-content-grid">
+      <Stage5SourceTree
+        root={folderTree}
+        selectedKey={activeFolderKey}
+        onSelect={key => {
+          setSelectedFolderKey(key);
+          setSelectedReviewId(null);
+        }}
+        hasMore={Boolean(data.has_more)}
+      />
+      <div className="rrugc-stage5-folder-content">
+        <div className="rrugc-stage5-folder-summary" aria-live="polite">
+          <div>
+            <strong>{activeFolderKey ? selectedFolder?.name : "All folder images"}</strong>
+            <small>{activeFolderKey ? selectedFolder?.path : "Browse images from the loaded Stage 4 source folders"}</small>
+          </div>
+          <span>{visibleGroups.reduce((total, group) => total + group.images.length, 0)} images</span>
+          {activeFolderKey && <button type="button" onClick={() => setSelectedFolderKey(null)}>Clear folder</button>}
+        </div>
     {loading ? (
       <div className="rrugc-stage3-skeletons" aria-label="Loading Stage 5 groups">
         {Array.from({ length: 4 }, (_, index) => (
@@ -714,6 +741,9 @@ export function Stage3ReviewGroups({
         ))}
       </div>
     )}
+
+      </div>
+    </div>
 
     {data.has_more && data.next_cursor && (
       <div className="rrugc-stage3-load-more">

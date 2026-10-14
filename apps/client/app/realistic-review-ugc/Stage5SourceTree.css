@@ -1,0 +1,49 @@
+/* Stage 5: folder navigation beside the existing review cards. */
+.rrugc-stage5-content-grid{display:grid;grid-template-columns:minmax(238px,270px) minmax(0,1fr);gap:14px;align-items:start;min-width:0;width:100%}
+.rrugc-stage5-folder-content{display:flex;flex-direction:column;gap:10px;min-width:0}
+.rrugc-stage5-source-tree{position:sticky;top:12px;align-self:start;min-width:0;border:1px solid #dfe6f1;border-radius:12px;background:#fff;overflow:hidden}
+.rrugc-stage5-tree-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:13px 12px 11px;border-bottom:1px solid #ecf0f6;background:#f8fafd}
+.rrugc-stage5-tree-head>div{display:grid;gap:3px;min-width:0}
+.rrugc-stage5-tree-head strong{color:#263e60;font-size:12px;font-weight:800}
+.rrugc-stage5-tree-head small{color:#8795a7;font-size:9px;line-height:1.4}
+.rrugc-stage5-tree-expand{flex-shrink:0;border:0;background:transparent;color:#4268a6;padding:6px 2px;font-size:10px;font-weight:750;cursor:pointer}
+.rrugc-stage5-tree-expand:disabled{opacity:.45;cursor:default}
+.rrugc-stage5-tree-scroll{min-width:0;max-height:min(65vh,690px);overflow-y:auto;overscroll-behavior:contain;padding:9px 7px;scrollbar-width:thin;scrollbar-color:#cad6e6 transparent}
+.rrugc-stage5-tree-all,.rrugc-stage5-tree-folder{display:flex;align-items:center;gap:8px;min-width:0;min-height:36px;box-sizing:border-box;color:#52657e;border:0;border-radius:8px;background:transparent;font:inherit;font-size:11px;text-align:left;cursor:pointer}
+.rrugc-stage5-tree-all{width:100%;padding:5px 9px;margin:0 0 6px;font-weight:750}
+.rrugc-stage5-tree-all>.rrugc-action-icon{flex:0 0 17px;width:17px;height:17px;color:#5579b6}
+.rrugc-stage5-tree-all>strong{font-size:11px;flex:1}
+.rrugc-stage5-tree-row{display:flex;align-items:center;min-width:0;border-radius:8px;margin:1px 0}
+.rrugc-stage5-tree-row:hover,.rrugc-stage5-tree-all:hover{background:#f4f7fd}
+.rrugc-stage5-tree-row.is-selected,.rrugc-stage5-tree-all.is-selected{background:#eaf2ff;color:#2a58a0}
+.rrugc-stage5-tree-toggle,.rrugc-stage5-tree-spacer{display:grid;flex:0 0 28px;width:28px;height:34px;place-items:center;border:0;background:transparent;color:#7e90ab}
+.rrugc-stage5-tree-toggle{cursor:pointer}.rrugc-stage5-tree-toggle .rrugc-action-icon{width:13px;height:13px;transition:transform .15s}.rrugc-stage5-tree-toggle.is-expanded .rrugc-action-icon{transform:rotate(90deg)}
+.rrugc-stage5-tree-folder{flex:1;padding:4px 7px 4px 0}
+.rrugc-stage5-tree-folder-icon{display:grid;place-items:center;flex:0 0 18px;color:#6d89b3}.rrugc-stage5-tree-folder-icon .rrugc-action-icon{width:17px;height:17px}
+.rrugc-stage5-tree-folder-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:650}
+.rrugc-stage5-tree-count{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:23px;padding:3px 6px;box-sizing:border-box;border-radius:999px;background:#ecf1f8;color:#71829a;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}
+.rrugc-stage5-tree-row.is-selected .rrugc-stage5-tree-count,.rrugc-stage5-tree-all.is-selected .rrugc-stage5-tree-count{background:#d6e5fe;color:#275ba9}
+.rrugc-stage5-source-tree button:focus-visible,.rrugc-stage5-folder-summary button:focus-visible{outline:2px solid #4f80ce;outline-offset:2px}
+.rrugc-stage5-tree-empty{margin:8px;padding:6px;color:#8795a7;font-size:11px}
+.rrugc-stage5-tree-foot{display:grid;gap:4px;padding:10px 12px;border-top:1px solid #ecf0f6;background:#fcfdff;color:#667b97;font-size:10px;font-weight:700}
+.rrugc-stage5-tree-foot small{font-size:9px;font-weight:500;line-height:1.4;color:#8a97ab}
+.rrugc-stage5-folder-summary{display:flex;align-items:center;gap:10px;min-width:0;padding:11px 13px;border:1px solid #e0e8f1;border-radius:10px;background:#f9fbff}
+.rrugc-stage5-folder-summary>div{display:grid;gap:3px;flex:1;min-width:0}
+.rrugc-stage5-folder-summary strong{color:#2b4667;font-size:12px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-stage5-folder-summary small{color:#8090a5;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrugc-stage5-folder-summary>span{color:#506b91;font-size:10px;white-space:nowrap;font-weight:750}
+.rrugc-stage5-folder-summary button{min-height:32px;box-sizing:border-box;border:1px solid #cddbed;border-radius:7px;background:#fff;color:#3769ae;padding:6px 9px;font:inherit;font-size:10px;font-weight:750;white-space:nowrap;cursor:pointer}
+.rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+@media(max-width:1100px){
+  .rrugc-stage5-content-grid{grid-template-columns:minmax(205px,235px) minmax(0,1fr);gap:10px}
+  .rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:repeat(auto-fill,minmax(175px,1fr))}
+}
+@media(max-width:760px){
+  .rrugc-stage5-content-grid{grid-template-columns:minmax(0,1fr)}
+  .rrugc-stage5-source-tree{position:static}
+  .rrugc-stage5-tree-scroll{max-height:200px}
+  .rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-stage5-folder-summary{flex-wrap:wrap;gap:7px}
+  .rrugc-stage5-folder-summary>div{flex-basis:100%}
+}
+@media(max-width:360px){.rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:minmax(0,1fr)}}

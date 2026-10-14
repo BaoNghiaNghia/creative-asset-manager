@@ -236,6 +236,39 @@
       "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-sort-label select","value":"Highest UGC score"}]
     },
     {
+      "name": "stage5-source-tree",
+      "goto": "/realistic-review-ugc?workflow=reviews&stage=stage5",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-source-tree .rrugc-stage5-tree-all",
+      "assertions": [
+        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-source-tree","value":"Source tree"},
+        {"type":"visible","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-content .rrugc-stage3-image"}
+      ]
+    },
+    {
+      "name": "stage5-parent-folder",
+      "click": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA']",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA/Stage 5']",
+      "assertions": [
+        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary","value":"QA"}
+      ]
+    },
+    {
+      "name": "stage5-child-folder",
+      "click": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA/Stage 5']",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-folder-summary",
+      "assertions": [
+        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary","value":"QA/Stage 5"}
+      ]
+    },
+    {
+      "name": "stage5-all-folders",
+      "click": "#rrugc-panel-stage5 .rrugc-stage5-tree-all",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-folder-content .rrugc-stage3-gallery",
+      "assertions": [
+        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary","value":"All folder images"}
+      ]
+    },
+    {
       "name": "stage5-before-after-modal",
       "click": "#rrugc-panel-stage5 .rrugc-stage3-image.is-clickable",
       "waitFor": ".rrugc-stage5-ba-switch",
