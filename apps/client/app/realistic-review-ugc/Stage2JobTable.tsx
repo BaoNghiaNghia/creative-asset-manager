@@ -1202,7 +1202,7 @@ export function Stage2JobTable({
                     })}
                   >
                     <DeferredImage
-                      src={stage2JobOutputThumbnailUrl(run.id)}
+                      src={stage2JobOutputThumbnailUrl(run.id, 192, run.output_remote_file_id)}
                       alt={"Generated output " + (index + 1)}
                       rootMargin="180px"
                     />

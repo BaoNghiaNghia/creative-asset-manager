@@ -26,6 +26,11 @@ from app.domain.providers.contracts import (
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
+from app.modules.realistic_review_ugc.image_cache_policy import (
+    matches_etag,
+    preview_cache_control,
+    preview_etag,
+)
 from app.modules.image_generation.providers import GEMINI_IMAGE_MODEL
 from app.modules.image_generation.service import provider_capability
 from app.providers.ai.codex_execution_log import read_codex_execution_log
@@ -2809,6 +2814,29 @@ def generation_skills(
     )
 
 
+def _rrugc_conditional_preview(
+    *,
+    tenant_id: str,
+    remote_file_id: str,
+    size: int,
+    revision: str,
+    requested_version: object,
+    if_none_match: object,
+    default_max_age: int = 300,
+) -> tuple[Response | None, str, str]:
+    """A 304 is only callable after the route's tenant-scoped DB authorization."""
+    etag = preview_etag(tenant_id, remote_file_id, size, revision=revision)
+    control = preview_cache_control(
+        requested_version, revision, default_max_age=default_max_age,
+    )
+    if matches_etag(if_none_match, etag):
+        return Response(
+            status_code=304,
+            headers={"Cache-Control": control, "ETag": etag, "Vary": "Cookie"},
+        ), etag, control
+    return None, etag, control
+
+
 async def _managed_drive_thumbnail_response(
     storage,
     *,
@@ -5013,6 +5041,8 @@ async def get_generation_output_version(
     thumbnail: bool = Query(default=False),
     download: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
+    v: str | None = Query(default=None, max_length=256),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -5033,14 +5063,22 @@ async def get_generation_output_version(
     remote_id, content_type, size_bytes = (
         match["remote_file_id"], match["content_type"], match["size_bytes"])
     session.close()
+    if thumbnail and not download:
+        not_modified, etag, cache_control = _rrugc_conditional_preview(
+            tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
+            size=size, revision=remote_id, requested_version=v,
+            if_none_match=if_none_match,
+        )
+        if not_modified is not None:
+            return not_modified
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(status_code=503, detail="Managed storage unavailable")
     if thumbnail and not download:
         compact = await _managed_drive_thumbnail_response(
             storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
-            size_pixels=size, cache_control="private, max-age=3600",
-            cache_version=job_id + ":" + str(version) + ":" + remote_id)
+            size_pixels=size, cache_control=cache_control,
+            cache_version=job_id + ":" + str(version) + ":" + remote_id, etag=etag)
         if compact is not None:
             return compact
     try:
@@ -5513,6 +5551,8 @@ async def colorway_output(
     job_id: str,
     thumbnail: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
+    v: str | None = Query(default=None, max_length=256),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -5526,14 +5566,22 @@ async def colorway_output(
         raise HTTPException(status_code=409, detail="Colorway output not ready")
     remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
     session.close()
+    if thumbnail:
+        not_modified, etag, cache_control = _rrugc_conditional_preview(
+            tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
+            size=size, revision=remote_id, requested_version=v,
+            if_none_match=if_none_match,
+        )
+        if not_modified is not None:
+            return not_modified
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(status_code=503, detail="Managed storage unavailable")
     if thumbnail:
         compact = await _managed_drive_thumbnail_response(
             storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
-            size_pixels=size, cache_control="private, max-age=3600",
-            cache_version=job_id + ":" + remote_id,
+            size_pixels=size, cache_control=cache_control,
+            cache_version=job_id + ":" + remote_id, etag=etag,
         )
         if compact is not None:
             return compact
@@ -5864,6 +5912,8 @@ async def keyword_image_output(
     job_id: str,
     thumbnail: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
+    v: str | None = Query(default=None, max_length=256),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -5877,14 +5927,22 @@ async def keyword_image_output(
         raise HTTPException(status_code=409, detail="Keyword generation is not ready")
     remote_id, content_type, size_bytes = row.output_remote_file_id, row.output_content_type, row.output_size_bytes
     session.close()
+    if thumbnail:
+        not_modified, etag, cache_control = _rrugc_conditional_preview(
+            tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
+            size=size, revision=remote_id, requested_version=v,
+            if_none_match=if_none_match,
+        )
+        if not_modified is not None:
+            return not_modified
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(status_code=503, detail="Managed storage is unavailable")
     if thumbnail:
         compact = await _managed_drive_thumbnail_response(
             storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
-            size_pixels=size, cache_control="private, max-age=3600",
-            cache_version=job_id + ":" + remote_id,
+            size_pixels=size, cache_control=cache_control,
+            cache_version=job_id + ":" + remote_id, etag=etag,
         )
         if compact is not None:
             return compact
@@ -6165,7 +6223,8 @@ def list_stage3_review_groups(
                 preview_url=(
                     "/api/v1/realistic-review-ugc/stage2-jobs/"
                     + job.id
-                    + "/output?thumbnail=true&size=512"
+                    + "/output?thumbnail=true&size=512&v="
+                    + remote_file_id
                 ),
                 original_url=(
                     "/api/v1/realistic-review-ugc/stage2-jobs/"
@@ -6178,7 +6237,8 @@ def list_stage3_review_groups(
                 ),
                 before_urls=[
                     "/api/v1/realistic-review-ugc/stage2-jobs/"
-                    + job.id + "/reference-image?reference_index=" + str(index)
+                    + job.id + "/reference-image?thumbnail=true&size=1024&reference_index=" + str(index)
+                    + "&v=" + _reference[0]
                     for index, _reference in enumerate(stage5_before_references(job))
                 ],
                 analysis_id=analysis.id if analysis else None,
@@ -6787,6 +6847,10 @@ def rrugc_media_storage_status(
 async def get_stage5_before_reference_image(
     stage2_job_id: str,
     reference_index: int = Query(default=0, ge=0, le=2),
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=1024, ge=128, le=1024),
+    v: str | None = Query(default=None, max_length=256),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -6814,6 +6878,14 @@ async def get_stage5_before_reference_image(
     remote_file_id, content_type, size_bytes = references[reference_index]
     job_id = job.id
     session.close()
+    if thumbnail is True:
+        not_modified, etag, cache_control = _rrugc_conditional_preview(
+            tenant_id=principal.active_tenant_id, remote_file_id=remote_file_id,
+            size=size, revision=remote_file_id, requested_version=v,
+            if_none_match=if_none_match,
+        )
+        if not_modified is not None:
+            return not_modified
 
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
@@ -6822,6 +6894,16 @@ async def get_stage5_before_reference_image(
             detail={"code": "managed_storage_unavailable",
                     "message": "Managed Google Drive is unavailable."},
         )
+    if thumbnail is True:
+        compact = await _managed_drive_thumbnail_response(
+            storage, tenant_id=principal.active_tenant_id,
+            remote_file_id=remote_file_id, size_pixels=size,
+            cache_control=cache_control,
+            cache_version=f"{job_id}:{reference_index}:{remote_file_id}",
+            etag=etag,
+        )
+        if compact is not None:
+            return compact
     try:
         stream = await storage.open_asset(OpenStoredAssetInput(
             tenant_id=principal.active_tenant_id,
@@ -6851,6 +6933,8 @@ async def get_stage2_job_output(
     stage2_job_id: str,
     thumbnail: bool = Query(default=False),
     size: int = Query(default=192, ge=128, le=1024),
+    v: str | None = Query(default=None, max_length=256),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -6873,6 +6957,15 @@ async def get_stage2_job_output(
     output_size_bytes = row.output_size_bytes
     row_id = row.id
     session.close()
+    if thumbnail:
+        not_modified, etag, cache_control = _rrugc_conditional_preview(
+            tenant_id=principal.active_tenant_id,
+            remote_file_id=output_remote_file_id,
+            size=size, revision=output_remote_file_id,
+            requested_version=v, if_none_match=if_none_match,
+        )
+        if not_modified is not None:
+            return not_modified
 
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
@@ -6889,8 +6982,9 @@ async def get_stage2_job_output(
             tenant_id=principal.active_tenant_id,
             remote_file_id=output_remote_file_id,
             size_pixels=size,
-            cache_control="private, max-age=86400",
+            cache_control=cache_control,
             cache_version=f"{row_id}:{output_remote_file_id}",
+            etag=etag,
         )
         if compact is not None:
             return compact

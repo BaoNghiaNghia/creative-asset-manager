@@ -910,10 +910,11 @@ export const stage2JobOutputUrl = (jobId: string) =>
   + encodeURIComponent(jobId)
   + "/output";
 
-export const stage2JobOutputThumbnailUrl = (jobId: string, size = 192) =>
+export const stage2JobOutputThumbnailUrl = (jobId: string, size = 192, revision?: string | null) =>
   stage2JobOutputUrl(jobId)
   + "?thumbnail=true&size="
-  + Math.min(1024, Math.max(128, Math.round(size)));
+  + Math.min(1024, Math.max(128, Math.round(size)))
+  + (revision ? "&v=" + encodeURIComponent(revision) : "");
 
 export const listScoutRuns = (
   campaignId?: string,
