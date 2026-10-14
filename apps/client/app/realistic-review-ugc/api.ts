@@ -57,6 +57,44 @@ import type {
   SupervisorResult,
 } from "./types";
 
+
+export type CapStackLabel = "good" | "bad" | "ai" | null;
+export type CapStackImage = {
+  id: string; pin_url: string; image_url: string; alt_text: string | null;
+  source_query: string | null; caps_detected: number | null;
+  count_status: string; count_confidence: number | null;
+  manual_caps_count: number | null; manual_label: CapStackLabel; created_at: string;
+};
+export type CapStackPage = {
+  items: CapStackImage[]; total: number; page: number; page_size: number;
+  stats: { discovered: number; approved: number; rejected: number; ai: number; pending: number };
+  scout: { enabled: boolean; running: boolean; last_result: string | null; next_scan_at: string | null };
+};
+const CAP_STACK_PATH = "/api/v1/realistic-review-ugc/cap-stack";
+export function listCapStackImages(params: {
+  page?: number; pageSize?: number; q?: string; label?: string; capsCount?: number | null;
+}, signal?: AbortSignal): Promise<CapStackPage> {
+  const query = new URLSearchParams({
+    page: String(params.page || 1), page_size: String(params.pageSize || 40),
+    q: params.q || "", label: params.label || "all",
+  });
+  if (params.capsCount) query.set("caps_count", String(params.capsCount));
+  return request<CapStackPage>(CAP_STACK_PATH + "?" + query.toString(), { signal });
+}
+export function setCapStackEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request(CAP_STACK_PATH + "/settings", {
+    method: "POST", body: JSON.stringify({ enabled }),
+  });
+}
+export function setCapStackImageFeedback(
+  imageId: string,
+  body: { label?: "good" | "bad" | "ai" | "clear"; caps_count?: number },
+): Promise<CapStackImage> {
+  return request(CAP_STACK_PATH + "/" + encodeURIComponent(imageId) + "/feedback", {
+    method: "POST", body: JSON.stringify(body),
+  });
+}
+
 export class RrugcApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
     super(message);

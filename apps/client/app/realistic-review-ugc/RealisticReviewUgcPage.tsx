@@ -41,6 +41,7 @@ import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { ProductsVideoStage } from "./ProductsVideoStage";
 import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
+import { CapStackScoutStage } from "./CapStackScoutStage";
 import { Stage2JobTable } from "./Stage2JobTable";
 import { Stage4CompletionNotifications } from "./Stage4CompletionNotifications";
 import { MediaStorageNotice } from "./MediaStorageNotice";
@@ -1187,6 +1188,17 @@ export function RealisticReviewUgcPage() {
           hidden={activeStage !== "products-stage3"}
         >
           <ProductsVideoStage active={activeStage === "products-stage3"} />
+        </section>
+
+        <section
+          id="rrugc-panel-reviews-stage1"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-reviews-stage1"
+          tabIndex={activeStage === "reviews-stage1" ? 0 : -1}
+          hidden={activeStage !== "reviews-stage1"}
+        >
+          <CapStackScoutStage active={activeStage === "reviews-stage1"}/>
         </section>
 
         <section

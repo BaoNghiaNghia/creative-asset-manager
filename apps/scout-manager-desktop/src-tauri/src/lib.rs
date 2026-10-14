@@ -346,7 +346,7 @@ impl Controller {
         Ok(Self {
             repo,
             log_root,
-            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword")]),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
             #[cfg(windows)]
             manager_lock: winjob::ManagerLock::acquire()?,
             update_state: Mutex::new("Idle - press Run automation".into()),
@@ -407,6 +407,8 @@ impl Controller {
             .stderr(Stdio::from(errors));
         if name == "keyword" {
             process.arg("-KeywordMode");
+        } else if name == "cap_stack" {
+            process.arg("-CapStackMode");
         }
         hide_console(&mut process); // no flashing PowerShell console
         let mut child = process
@@ -515,7 +517,7 @@ impl Controller {
                 self.automation_enabled.store(true, Ordering::SeqCst);
                 if let Ok(mut status) = self.update_state.lock() { *status = "Auto update active".into(); }
                 let mut errors = Vec::new();
-                for m in ["review", "keyword"] {
+                for m in ["review", "keyword", "cap_stack"] {
                     if let Err(error) = self.control(m, "start") {
                         errors.push(error);
                     }
@@ -529,7 +531,7 @@ impl Controller {
             "stop" => {
                 self.require_manager_lock()?;
                 self.automation_enabled.store(false, Ordering::SeqCst);
-                for m in ["review", "keyword"] {
+                for m in ["review", "keyword", "cap_stack"] {
                     self.control(m, "stop")?;
                 }
                 if let Ok(mut status) = self.update_state.lock() { *status = "Paused - press Run automation".into(); }
@@ -938,7 +940,7 @@ fn log_tail(
     mode: String,
     max_lines: usize,
 ) -> Result<String, String> {
-    if mode != "review" && mode != "keyword" {
+    if mode != "review" && mode != "keyword" && mode != "cap_stack" {
         return Err("Unknown log source.".into());
     }
     Ok(file_tail(
@@ -1091,7 +1093,7 @@ pub fn run() {
         .manage(state)
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Open Scout Manager", true, None::<&str>)?;
-            let pause = MenuItem::with_id(app, "pause", "Pause both Scouts", true, None::<&str>)?;
+            let pause = MenuItem::with_id(app, "pause", "Pause all Scouts", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit and stop Scouts", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &pause, &quit])?;
             let icon = app.default_window_icon().cloned();
@@ -1221,7 +1223,7 @@ mod tests {
             // fixture on that exact path conversion route.
             repo: shell_friendly_path(scratch.canonicalize().unwrap()),
             log_root: logs.clone(),
-            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword")]),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
             updating: AtomicBool::new(false),

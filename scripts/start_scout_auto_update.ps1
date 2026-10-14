@@ -1,6 +1,7 @@
 param(
     [switch]$SkipUpdate,
-    [switch]$KeywordMode
+    [switch]$KeywordMode,
+    [switch]$CapStackMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +14,7 @@ $RequirementsPath = Join-Path $RepoRoot "apps\rrugc_scout\requirements.txt"
 $RequirementsStampPath = Join-Path $RepoRoot ".rrugc-scout-requirements.sha256"
 $ScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\scout.py"
 $KeywordScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\quote_keyword_volume.py"
+if ($KeywordMode -and $CapStackMode) { throw "KeywordMode and CapStackMode are mutually exclusive." }
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -389,6 +391,9 @@ if (-not $SkipUpdate) {
             if ($KeywordMode) {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -KeywordMode
             }
+            elseif ($CapStackMode) {
+                & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -CapStackMode
+            }
             else {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate
             }
@@ -411,8 +416,10 @@ $agentId = Get-ConfigValue $config "RRUGC_AGENT_ID"
 $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
 $profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
 $keywordProfileDir = Get-ConfigValue $config "RRUGC_KEYWORD_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-keyword")
+$capStackProfileDir = Get-ConfigValue $config "RRUGC_CAP_STACK_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-cap-stack")
 $profileDir = [IO.Path]::GetFullPath($profileDir).TrimEnd([char[]]"\/")
 $keywordProfileDir = [IO.Path]::GetFullPath($keywordProfileDir).TrimEnd([char[]]"\/")
+$capStackProfileDir = [IO.Path]::GetFullPath($capStackProfileDir).TrimEnd([char[]]"\/")
 $pathComparer = [StringComparer]::OrdinalIgnoreCase
 $profileSeparator = [IO.Path]::DirectorySeparatorChar
 if (
@@ -424,6 +431,15 @@ if (
         "Review Scout and Keyword Scout must use two independent Chrome profile folders. " +
         "Current Review profile: " + $profileDir + "; Keyword profile: " + $keywordProfileDir
     )
+}
+foreach ($existing in @($profileDir, $keywordProfileDir)) {
+    if (
+        $pathComparer.Equals($existing, $capStackProfileDir) -or
+        $capStackProfileDir.StartsWith($existing + $profileSeparator, [StringComparison]::OrdinalIgnoreCase) -or
+        $existing.StartsWith($capStackProfileDir + $profileSeparator, [StringComparison]::OrdinalIgnoreCase)
+    ) {
+        Fail "Cap Stack Chrome profile must be separate from Review and Keyword profiles."
+    }
 }
 $machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
 $pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
@@ -451,6 +467,9 @@ if (-not (Test-Path -LiteralPath $profileDir)) {
 }
 if (-not (Test-Path -LiteralPath $keywordProfileDir)) {
     New-Item -ItemType Directory -Path $keywordProfileDir -Force | Out-Null
+}
+if (-not (Test-Path -LiteralPath $capStackProfileDir)) {
+    New-Item -ItemType Directory -Path $capStackProfileDir -Force | Out-Null
 }
 
 $python = ""
@@ -547,7 +566,7 @@ $shortScoutVersion = $scoutVersion -replace '^rrugc-scout-', ''
 # Keyword Scout are independent. A mode-specific runner mutex prevents only
 # accidental duplicate starts of the same Scout.
 Release-ScoutStartupLock
-$runMode = if ($KeywordMode) { "Keyword" } else { "Review" }
+$runMode = if ($KeywordMode) { "Keyword" } elseif ($CapStackMode) { "CapStack" } else { "Review" }
 Acquire-ScoutRunnerLock $runMode
 
 $scoutExit = 1
@@ -604,6 +623,28 @@ try {
         }
 
         & $python @keywordArguments
+        $scoutExit = $LASTEXITCODE
+    }
+    elseif ($CapStackMode) {
+        try { $Host.UI.RawUI.WindowTitle = "Cap Stack Scout | $shortScoutVersion | $head" } catch {}
+        Write-Step "Starting GatorHats Reviews Stage 1 Cap Stack Scout"
+        Write-Host "Initial keyword: Cap Stack" -ForegroundColor Green
+        Write-Host "Library: tenant-wide, separate from Stage 3 hat groups" -ForegroundColor Green
+        Write-Host ("Pinterest profile : " + $capStackProfileDir) -ForegroundColor Green
+        Write-Host "Queue: server-enabled only; paused by default" -ForegroundColor Green
+        $capArguments = @(
+            $ScoutPath, "--cap-stack-mode",
+            "--base-url", $baseUrl, "--agent-id", $agentId,
+            "--profile-dir", $capStackProfileDir, "--pace", $pace,
+            "--detail-concurrency", "1"
+        )
+        if (-not [string]::IsNullOrWhiteSpace($machineLabel)) {
+            $capArguments += @("--machine-label", $machineLabel)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+            $capArguments += @("--chrome-executable", $chromeExecutable)
+        }
+        & $python @capArguments
         $scoutExit = $LASTEXITCODE
     }
     else {

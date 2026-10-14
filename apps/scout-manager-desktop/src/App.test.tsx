@@ -9,6 +9,8 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Scout version");
     expect(html).toContain("Review Scout");
     expect(html).toContain("Keyword Scout");
+    expect(html).toContain("Cap Stack Scout");
+    expect(html).toContain("Shared Cap Stack library");
     expect(html).toContain("Stage 0 keywords");
     expect(html).toContain("Agent-Reach · VPS Auto Discover");
     expect(html).toContain("unaffected by Windows Run / Pause / Quit");

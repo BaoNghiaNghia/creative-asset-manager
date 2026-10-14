@@ -3,6 +3,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+
+
+def test_cap_stack_mode_has_isolated_profile_launcher_native_control_and_server_lane():
+    runtime = (ROOT / "apps/rrugc_scout/scout.py").read_text(encoding="utf-8")
+    launcher = (ROOT / "scripts/start_scout_auto_update.ps1").read_text(encoding="utf-8")
+    manager = (ROOT / "apps/scout-manager-desktop/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    standalone = (ROOT / "START_SCOUT_CAP_STACK.cmd").read_text(encoding="utf-8")
+    assert 'class CapStackScoutClient(AutoScoutClient):' in runtime
+    assert 'parser.add_argument("--cap-stack-mode"' in runtime
+    assert '"cap_stack" if getattr(args, "cap_stack_mode", False)' in runtime
+    assert "$capStackProfileDir" in launcher
+    assert 'pinterest-profile-cap-stack' in launcher
+    assert "-CapStackMode" in launcher
+    assert 'for m in ["review", "keyword", "cap_stack"]' in manager
+    assert 'process.arg("-CapStackMode")' in manager
+    assert 'Scout::new("cap_stack")' in manager
+    assert '-CapStackMode' in standalone
+
 def test_tauri_launcher_remains_opt_in_with_fallback():
     script = (ROOT / "START_SCOUT_TAURI.cmd").read_text(encoding="utf-8")
     assert "scout-manager-releases\\RRUGC_Scout_Manager_Latest_x64.exe" in script
@@ -75,9 +93,9 @@ def test_manager_and_scout_versions_are_distinct_on_dashboard():
     package = (ROOT / "apps/scout-manager-desktop/package.json").read_text(encoding="utf-8")
     cargo = (ROOT / "apps/scout-manager-desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
     tauri = (ROOT / "apps/scout-manager-desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
-    assert '"version": "0.1.9"' in package
-    assert 'version = "0.1.9"' in cargo
-    assert '"version": "0.1.9"' in tauri
+    assert '"version": "0.1.19"' in package
+    assert 'version = "0.1.19"' in cargo
+    assert '"version": "0.1.19"' in tauri
 
 
 def test_build_script_publishes_portable_and_installer_together():

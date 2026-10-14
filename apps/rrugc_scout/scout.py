@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v54"
+CLIENT_VERSION = "rrugc-scout-v55"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -2380,6 +2380,83 @@ class AutoScoutClient:
         return response.json()
 
 
+
+class CapStackScoutClient(AutoScoutClient):
+    """Shared-library lane using the already-paired Scout Agent token.
+
+    It never claims a Review campaign or mutates a Stage 3 candidate.
+    The cap-stack heartbeat only refreshes its own lease, so concurrent Review
+    and Keyword Scouts can safely share the pairing key.
+    """
+    prefix = "/api/v1/realistic-review-ugc/cap-stack"
+
+    async def claim(self) -> dict[str, Any] | None:
+        response = await self._request(
+            "POST", f"{self.prefix}/scout-agents/{self.agent_id}/claim",
+            operation="cap_stack_claim",
+        )
+        response.raise_for_status()
+        return response.json() or None
+
+    async def heartbeat(
+        self, status: str, run_id: str | None = None,
+        error_code: str | None = None,
+    ) -> dict[str, Any]:
+        if not run_id:
+            return {"ok": True}
+        response = await self._request(
+            "POST",
+            f"{self.prefix}/scout-agents/{self.agent_id}/runs/{run_id}/heartbeat",
+            operation="cap_stack_heartbeat",
+            json={"status": status},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def diagnostics(self) -> dict[str, Any]:
+        response = await self._request(
+            "GET", f"{self.prefix}/scout-agents/{self.agent_id}/status",
+            operation="cap_stack_status",
+        )
+        response.raise_for_status()
+        result = response.json()
+        return {"claimable": 0, "cap_stack": result, "campaigns": []}
+
+    async def submit(
+        self, run_id: str, rows: list[Candidate],
+        *, source_query: str | None = None,
+    ) -> dict[str, Any]:
+        filtered = [
+            row for row in rows
+            if allowed_pin(row.pin_url) and allowed_image(row.image_url)
+            and len(row.pin_url) <= 2048 and len(row.image_url) <= 4096
+        ]
+        if not filtered:
+            raise ValueError("Cap Stack Scout needs resolved Pinterest images")
+        response = await self._request(
+            "POST",
+            f"{self.prefix}/scout-agents/{self.agent_id}/runs/{run_id}/candidates",
+            operation="cap_stack_submit",
+            json={"items": [row.as_json() for row in filtered],
+                  "source_query": " ".join((source_query or "").split())[:256] or None},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def complete(
+        self, run_id: str, status: str,
+        *, error_code: str | None = None,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            f"{self.prefix}/scout-agents/{self.agent_id}/runs/{run_id}/complete",
+            operation="cap_stack_complete",
+            json={"status": status, "error_code": error_code},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
 async def wait_for_manual_access(
     page: Any,
     client: AutoScoutClient,
@@ -2921,7 +2998,8 @@ async def scan_auto_run(
     for query_index, raw_query in enumerate(search_queries):
         keyword_candidate_cap = keyword_budgets[query_index]
         created_for_keyword = 0
-        search_query = quality_search_query(raw_query)
+        search_query = (raw_query if task.get("scout_type") == "cap_stack"
+                        else quality_search_query(raw_query))
         query = quote_plus(search_query)
         url = "https://www.pinterest.com/search/pins/?q=" + query
         await heartbeat_if_due(force=True)
@@ -3612,7 +3690,8 @@ def review_idle_poll_delay_seconds(
 
 async def run_agent(args: argparse.Namespace) -> None:
     profile_dir = Path(args.profile_dir).expanduser().resolve()
-    log_path = configure_scout_debug_log(profile_dir, scout_type="review")
+    scout_kind = "cap_stack" if getattr(args, "cap_stack_mode", False) else "review"
+    log_path = configure_scout_debug_log(profile_dir, scout_type=scout_kind)
     configure_scout_remote_log(
         base_url=args.base_url,
         agent_id=args.agent_id,
@@ -3633,7 +3712,7 @@ async def run_agent(args: argparse.Namespace) -> None:
         base_url=args.base_url,
         pace=args.pace,
     )
-    client = AutoScoutClient(
+    client = (CapStackScoutClient if getattr(args, "cap_stack_mode", False) else AutoScoutClient)(
         args.base_url,
         args.agent_id,
         args.token,
@@ -3757,6 +3836,15 @@ async def run_agent(args: argparse.Namespace) -> None:
             )
 
     try:
+        if getattr(args, "cap_stack_mode", False):
+            # Do not open a third Chrome profile while the tenant-wide Cap
+            # Stack lane is disabled. Existing Review/Keyword remain online.
+            while True:
+                cap_status = (await client.diagnostics()).get("cap_stack", {})
+                if cap_status.get("enabled") is True:
+                    break
+                print("Cap Stack Stage 1 is paused on CAM; waiting without Chrome.")
+                await asyncio.sleep(max(15, args.poll_interval_seconds))
         await ensure_startup_login()
         print(
             "Pinterest Auto Scout online. agent="
@@ -3871,6 +3959,14 @@ async def run_agent(args: argparse.Namespace) -> None:
                     continue
                 except httpx.HTTPStatusError as exc:
                     status = exc.response.status_code
+                    if getattr(args, "cap_stack_mode", False) and status == 409:
+                        # Operator paused Stage 1 or another lease legitimately
+                        # replaced ours. This is not a browser fault and must
+                        # not trigger the full Review Scout restart supervisor.
+                        scout_debug_event("cap_stack_lease_cancelled", run_id=str(task["run"]["id"]))
+                        print("Cap Stack lease paused or expired; returning to idle.")
+                        await asyncio.sleep(max(2, args.poll_interval_seconds))
+                        continue
                     if status in {401, 403}:
                         raise
                     try:
@@ -4046,6 +4142,8 @@ def parse_args() -> argparse.Namespace:
         help="Legacy one-campaign mode.",
     )
     parser.add_argument("--token", default="")
+    parser.add_argument("--cap-stack-mode", action="store_true",
+                        help="Isolated Cap Stack shared-library Scout instead of campaign Review.")
     parser.add_argument("--profile-dir", required=True)
     parser.add_argument("--chrome-executable", default="")
     parser.add_argument(
@@ -4107,13 +4205,15 @@ def parse_args() -> argparse.Namespace:
     if args.login_wait_seconds < 60:
         parser.error("--login-wait-seconds must be at least 60")
     if args.bootstrap_login:
-        if args.agent_id or args.campaign_id or args.base_url:
+        if args.agent_id or args.campaign_id or args.base_url or args.cap_stack_mode:
             parser.error("--bootstrap-login only needs --profile-dir and optional --chrome-executable")
         return args
     if not args.base_url:
         parser.error("--base-url is required unless --bootstrap-login is used")
     if not args.agent_id and not args.campaign_id:
         parser.error("--agent-id or --campaign-id is required unless --bootstrap-login is used")
+    if args.cap_stack_mode and not args.agent_id:
+        parser.error("--cap-stack-mode requires --agent-id")
     args.token = resolve_token(args)
     return args
 

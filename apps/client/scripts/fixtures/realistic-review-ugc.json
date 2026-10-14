@@ -21,6 +21,12 @@
   "sources": [],
   "folders": {},
   "apiRoutes": [
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/cap-stack","body":{
+      "items":[{"id":"cap-qa-1","pin_url":"https://www.pinterest.com/pin/123456/","image_url":"data:image/svg+xml,%3Csvg%20xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox='0%200%20400%20300'%3E%3Crect%20width='400'%20height='300'%20fill='%23e6ddce'%2F%3E%3Cpath%20d='M80%20160Q200%2070%20320%20160L340%20180L60%20180Z'%20fill='%237a8caa'%2F%3E%3Cpath%20d='M80%20200Q200%20110%20320%20200L340%20220L60%20220Z'%20fill='%23bba782'%2F%3E%3C%2Fsvg%3E","alt_text":"Stacked caps arranged on a table","source_query":"Cap Stack","caps_detected":null,"count_status":"pending","count_confidence":null,"manual_caps_count":4,"manual_label":"good","created_at":"2026-10-15T05:00:00Z"}],
+      "total":1,"page":1,"page_size":40,
+      "stats":{"discovered":1,"approved":1,"rejected":0,"ai":0,"pending":0},
+      "scout":{"enabled":false,"running":false,"last_result":null,"next_scan_at":null}
+    }},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/codex-accounts","body":{"routing_mode":"single_active","routing_note":"Account 01 is the current worker profile. Account 02 is configured but not yet scheduled.","can_manage":true,"accounts":[{"account_id":"account-1","display_name":"Account 01 · Existing","enabled":true,"max_concurrent":1,"stages":["stage1","stage2","stage4"],"auth_status":"connected","is_executing":true,"updated_at":"2026-10-14T00:00:00Z"},{"account_id":"account-2","display_name":"Account 02","enabled":false,"max_concurrent":1,"stages":["stage1","stage2","stage4"],"auth_status":"not_connected","is_executing":false,"updated_at":"2026-10-14T00:00:00Z"}]}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/research/signals","body":{"items":[{"id":"qa-research-signal-1","source":"rss","channel":"US Cap Trends","title":"Cap embroidery trends","excerpt":"A public headline to review","url":"https://news.google.com/rss/articles/qa-1","status":"pending","keyword":null,"created_at":"2026-10-10T08:00:00Z"}]}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/research/auto-discover/status","body":{"state":"error","connected":true,"server":"VPS","source":"Agent-Reach / Exa","last_seen_at":"2026-10-11T14:00:00Z","last_error_code":"exa_rate_limited","total_evidence":0,"pending_review":0,"platforms":{"pinterest":0,"amazon":0,"etsy":0}}},

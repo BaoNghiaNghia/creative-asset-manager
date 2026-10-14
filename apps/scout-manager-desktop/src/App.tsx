@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, Copy, FileText, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, Settings2, ShieldCheck, Terminal, X } from "lucide-react";
+import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, Copy, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, Settings2, ShieldCheck, Terminal, X } from "lucide-react";
 
-type ModeName = "review" | "keyword";
+type ModeName = "review" | "keyword" | "cap_stack";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type OperationsSummary = {
@@ -36,6 +36,7 @@ type Dashboard = { managerVersion: string; version: string; commit: string; upda
 const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
+  { mode: "cap_stack", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
 ] };
 const isNative = typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 
@@ -56,10 +57,10 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
 }) {
   const active = info.state === "Running";
   const failed = /fatal|fail|attention|error|pairing/i.test(info.state);
-  const Icon = info.mode === "review" ? FileText : Search;
+  const Icon = info.mode === "review" ? FileText : info.mode === "keyword" ? Search : Layers3;
   return <article className="scout-card">
     <div className="scout-top">
-      <div className="scout-identity"><div className={"mode-icon " + info.mode}><Icon size={24}/></div><div><h2>{info.mode === "review" ? "Review Scout" : "Keyword Scout"}</h2><p>{info.mode === "review" ? "Monitors image references and review contexts" : "Discovers quotes and keyword opportunities"}</p></div></div>
+      <div className="scout-identity"><div className={"mode-icon " + info.mode}><Icon size={24}/></div><div><h2>{info.mode === "review" ? "Review Scout" : info.mode === "keyword" ? "Keyword Scout" : "Cap Stack Scout"}</h2><p>{info.mode === "review" ? "Monitors image references and review contexts" : info.mode === "keyword" ? "Discovers quotes and keyword opportunities" : "Shared Cap Stack library · initial query Cap Stack"}</p></div></div>
       <span className={"status-pill " + (active ? "success" : failed ? "danger" : "neutral")}><span className="status-dot"/>{info.state}</span>
     </div>
     <div className="meta-row"><div><span>PID</span><b>{info.pid ?? "—"}</b></div><div><span>Scout version</span><b>{version}</b></div><div><span>Commit</span><b>{commit}</b></div></div>
@@ -86,7 +87,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
           <div className="scout-jobs-foot">{operations?.review.discovery_throttled ? "Review discovery throttled to protect Gemini queue · " : ""}AI throughput: {operations?.review.stage1_completed_1h ?? "—"} done / hour · Gemini-deferred: {operations?.review.stage1_deferred_gemini ?? "—"} · Oldest waiting: {operations?.review.stage1_oldest_wait_minutes ?? "—"} min</div>
           <div className="scout-jobs-foot">Pinterest scan jobs: {operations ? operations.review.scout_active + " active · " + operations.review.scout_completed_24h + " done / 24h · " + operations.review.scout_failed_24h + " failed / 24h" : "Waiting for server…"}</div>
         </>
-      : <>
+      : info.mode === "keyword" ? <>
           <JobCounters title="Keyword search jobs" rows={[
             ["Active leases", operations?.keyword.active_searches, "normal"],
             ["Eligible now", operations?.keyword.ready_queries, "normal"],
@@ -101,16 +102,21 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
           {active && operations?.keyword.active_searches === 0 && (operations.keyword.active_priority_tasks || 0) === 0 && operations.keyword.ready_queries === 0 &&
             (operations.keyword.cooling_queries || 0) > 0 &&
             <div className="scout-jobs-foot">Query pool is cooling down. Running means the process is alive; the next scan must wait until a query becomes eligible.</div>}
-        </>
+        </> : <div className="cap-stack-manager-details">
+          <strong>Cap Stack · GatorHats Reviews Stage 1</strong>
+          <p>One shared library, not grouped by embroidery or hat product. Each candidate is linked by Pinterest Pin ID.</p>
+          <p>Independent Chrome profile, history and 45-minute claim lease. Human ✓ / × / AI feedback updates the server's next keyword priorities.</p>
+          <p>Discovery runs only while Stage 1 Cap Stack Scout is enabled in CAM. Image cap counts remain pending until a verified count is set.</p>
+        </div>
     }
-    <div className="scout-gemini-status" role="status">
+    {info.mode !== "cap_stack" && <div className="scout-gemini-status" role="status">
       <span className={"gemini-status-indicator " + (operations?.gemini.capacity_available && !operations.gemini.review_backpressure ? "ready" : operations ? "limited" : "")}/>
       {operations
         ? <>Gemini: <strong>{operations.gemini.configured_keys ? operations.gemini.review_backpressure ? "Stage 1 backlog · keyword discovery paused" : operations.gemini.capacity_available ? "Daily quota available (runtime may be cooling down)" : "Daily quota limited" : "No key"}</strong>
           <span> · {operations.gemini.configured_keys} configured ({operations.gemini.unique_credentials} unique), {operations.gemini.daily_quota_available_credentials} daily-quota available, {operations.gemini.backup_keys} backup · {operations.gemini.failover_enabled ? "Auto failover" : "No backup configured"}{operations.gemini.keyword_fair_share_limited ? " · Keyword discovery waits for Review queue · recheck ~" + operations.gemini.keyword_next_slot_seconds + "s" : ""}</span></>
         : "Checking Gemini key pool…"}
-    </div>
-    {operationsError && <div className="scout-jobs-error">{operationsError}</div>}
+    </div>}
+    {operationsError && info.mode !== "cap_stack" && <div className="scout-jobs-error">{operationsError}</div>}
     <div className="chips"><div><RefreshCcw/><span>Auto restart</span></div><div><ShieldCheck/><span>Browser watchdog</span></div><div><LockKeyhole/><span>Isolated profile</span></div></div>
     {info.lastError && <div className="inline-error" title={info.lastError}><CircleAlert size={15}/><span>{info.lastError}</span></div>}
     <div className="card-actions">
@@ -217,11 +223,12 @@ export default function App() {
   const onMode = (command: "start" | "stop" | "restart", which: ModeName) => void act("control_scout", { mode: which, command });
   const review = state.modes.find(m => m.mode === "review") ?? EMPTY.modes[0];
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
+  const capStack = state.modes.find(m => m.mode === "cap_stack") ?? EMPTY.modes[2];
   const updateProblem = /error|paused|fail/i.test(state.updateState);
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword + Cap Stack, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
@@ -232,6 +239,7 @@ export default function App() {
     <div className="summary">
       <div className="summary-item"><span className={"sum-icon " + (review.state === "Running" ? "ok" : "off")}><Check size={19}/></span><div><span className="sum-title">Review Scout</span><strong className={review.state === "Running" ? "ok-text" : ""}>{review.state}</strong></div></div>
       <div className="summary-item"><span className={"sum-icon " + (keyword.state === "Running" ? "ok" : "off")}><Check size={19}/></span><div><span className="sum-title">Keyword Scout</span><strong className={keyword.state === "Running" ? "ok-text" : ""}>{keyword.state}</strong></div></div>
+      <div className="summary-item"><span className={"sum-icon " + (capStack.state === "Running" ? "ok" : "off")}><Layers3 size={19}/></span><div><span className="sum-title">Cap Stack Scout</span><strong className={capStack.state === "Running" ? "ok-text" : ""}>{capStack.state}</strong></div></div>
       <div className="summary-item"><span className={"sum-icon " + (updateProblem ? "off" : "ok")}><RefreshCcw size={19}/></span><div><span className="sum-title">Auto update</span><strong className={updateProblem ? "warn-text" : ""}>{state.updateState}</strong></div></div>
       <div className="summary-item"><span className="sum-icon ok"><Search size={19}/></span><div><span className="sum-title">Stage 0 keywords</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") + " saved · +" + keywordSummary.added_24h + " / 24h" : keywordError ? "Stats unavailable" : "Checking server..."}</strong></div></div>
     </div>
@@ -246,13 +254,14 @@ export default function App() {
     <section className="mode-grid">
       <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
+      <Card info={capStack} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
     </section>
     <section className="terminal-panel">
-      <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
+      <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option><option value="cap_stack">Cap Stack Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
       <pre className="log-pre" ref={scrollRef}>{logs || (isNative ? "Waiting for Scout activity…" : "Browser preview — logs appear in the Windows desktop application.")}</pre>
       <div className="terminal-footer"><span><span className="live-dot"/> Monitor refreshes every 2 seconds</span><span>Manager v{state.managerVersion} · Scout {state.version}</span></div>
     </section>
-    <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop both Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>
+    <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop all Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>
   </div>
   {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { if (await act("save_pairing", { agentId, token })) { setPairing(false); setToast("Pairing saved. Press Run automation to start."); } })(); }}/>}
   </main>;

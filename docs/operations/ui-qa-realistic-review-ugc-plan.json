@@ -38,6 +38,20 @@
       "waitFor": "#rrugc-tab-stage3"
     },
     {
+      "name": "cap-stack-stage1",
+      "click": "#rrugc-tab-reviews-stage1",
+      "waitFor": "#rrugc-panel-reviews-stage1 .rrugc-cap-stack-stage",
+      "mobileAssertions": [
+        {"type":"min-control-size","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-preview","minPx":24}
+      ],
+      "assertions": [
+        {"type":"text-includes","selector":"#rrugc-panel-reviews-stage1","value":"Cap Stack Scout"},
+        {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-summary"},
+        {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-gallery"},
+        {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-toolbar"}
+      ]
+    },
+    {
       "name": "default",
       "click": "#rrugc-tab-stage3",
       "waitFor": "#rrugc-source-plans",

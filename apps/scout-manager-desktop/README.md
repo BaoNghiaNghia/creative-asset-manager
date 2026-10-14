@@ -16,6 +16,41 @@ Tauri NSIS installer: src-tauri/target/release/bundle/nsis. Windows build was ve
 
 The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor checkout / D:\Bot_Tool_Auto_Game\scan_pinterest). It runs the existing scripts/start_scout_auto_update.ps1 -SkipUpdate with separate Review / Keyword Chrome profiles and log files. Tauri 0.1.2 shares the `Local\\CreativeAssetManager.RrugcScout.Manager` named Windows mutex with WinForms. Only the holder can start, stop, pair, or update Scouts; a second Manager shows a warning and disables its controls. Close the old WinForms Manager when ready to switch. It is preserved for rollback.
 
+## Native 0.1.19 / Scout v55 — Cap Stack lane (Reviews Stage 1)
+
+The Windows Scout Manager now presents a third, individually controllable
+**Cap Stack Scout** card and log channel. The new runner uses the same
+authenticated Scout Agent pairing token, but a **third Chrome profile**
+(`pinterest-profile-cap-stack`), independent Pin-history file and log spool.
+It never claims or modifies a Review campaign or Keyword Scout query lease.
+
+The Stage 1 Cap Stack queue lives on CAM backend, defaults to **paused**, and
+requires both the global **Run automation** (for the local process) and the
+Stage 1 **Enable Scout** toggle (for the server lease). Repeated starts,
+automatic restarts and global Pause follow the existing native Manager
+single-instance and bounded restart rules. A 45-minute exclusive lease
+prevents multiple Cap Stack processes from scouting the same shared lane.
+No credentials are copied to React or logged.
+
+Initial search is exactly `Cap Stack`, with a few related stacked-cap
+phrases. Accepted Pins are stored only in the tenant-wide Cap Stack Library
+(not in a source-plan, embroidery group or Review Scout campaign). The
+✓/×/AI choices are learned through a distinct query-yield ranking;
+human-corrected cap counts are recorded separately from machine guesses.
+**Automatic computer-vision cap counting is not yet implemented**; new rows
+are explicitly `pending`, never assigned fabricated counts.
+
+The Windows operator may also use `START_SCOUT_CAP_STACK.cmd` directly after
+updating the checkout; this is an alternative to the third Tauri card, not
+a fourth concurrent instance. The script enforces independent profile paths
+and a separate process lock. Do not run both control mechanisms for the same
+mode. Legacy WinForms does not yet expose a Cap Stack control.
+
+**Deployment order:** migrate/release the CAM backend and Stage 1 UI first;
+then install Manager 0.1.19 or update Scout scripts on Windows. The old native
+binary does not dynamically gain a third card from a Git fetch. Keep the
+existing Review/Keyword processes unchanged while rolling out this lane.
+
 ## Native 0.1.17 / Scout v54 — shared Gemini fairness and Pinterest watchdog
 
 This Windows x64 build packages the current Scout Manager with Scout v54 source compatibility. The API now targets 50/50 Gemini start opportunities between Review and Keyword during heavy Review backlog (12-second lanes, independent credential/project quota controls). The allocation is server-side: rebuilding the Manager is for consistent versioning, distribution, diagnostics and updating Scout processes, not to apply the quota policy.

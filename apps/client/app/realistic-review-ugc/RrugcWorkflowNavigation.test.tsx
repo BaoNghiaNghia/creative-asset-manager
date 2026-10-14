@@ -36,10 +36,10 @@ describe("GatorHats sidebar groups and stage navigation", () => {
   const selected = () => host.querySelector<HTMLOutputElement>('[data-testid="active-stage"]')?.textContent;
   const tabs = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.rrugc-stage-tabs button')).map(tab => tab.id);
 
-  it("maps Products Stage 0–3 independently from Reviews Stage 2–5", () => {
+  it("maps Products Stage 0–3 independently from Reviews Stage 1–5", () => {
     expect(RRUGC_WORKFLOW_GROUPS.map(item => item.title)).toEqual(["GatorHats Products", "GatorHats Reviews"]);
     expect(stagesForWorkflowGroup("products").map(item => item.id)).toEqual(["stage0", "stage1", "stage2", "products-stage3"]);
-    expect(stagesForWorkflowGroup("reviews").map(item => item.id)).toEqual(["reviews-stage2", "stage3", "stage4", "stage5"]);
+    expect(stagesForWorkflowGroup("reviews").map(item => item.id)).toEqual(["reviews-stage1", "reviews-stage2", "stage3", "stage4", "stage5"]);
     expect(workflowGroupForStage("stage5")).toBe("reviews");
     expect(tabs()).toEqual(["rrugc-tab-stage0", "rrugc-tab-stage1", "rrugc-tab-stage2", "rrugc-tab-products-stage3"]);
     expect(host.querySelector("#rrugc-workflow-products")).toBeNull();
@@ -51,7 +51,7 @@ describe("GatorHats sidebar groups and stage navigation", () => {
     expect(selected()).toBe("stage2");
     await act(async () => { host.querySelector<HTMLButtonElement>("#open-reviews")?.click(); });
     expect(selected()).toBe("stage3");
-    expect(tabs()).toEqual(["rrugc-tab-reviews-stage2", "rrugc-tab-stage3", "rrugc-tab-stage4", "rrugc-tab-stage5"]);
+    expect(tabs()).toEqual(["rrugc-tab-reviews-stage1", "rrugc-tab-reviews-stage2", "rrugc-tab-stage3", "rrugc-tab-stage4", "rrugc-tab-stage5"]);
     expect(host.querySelector("#rrugc-tab-stage0")).toBeNull();
     expect(host.querySelector('.rrugc-workflow-group-tabs')).toBeNull();
   });
@@ -75,12 +75,12 @@ describe("GatorHats sidebar groups and stage navigation", () => {
         new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight", cancelable: true }),
       );
     });
-    expect(selected()).toBe("reviews-stage2");
+    expect(selected()).toBe("reviews-stage1");
   });
 
   it("provides stable links, legacy deep links and safe validation of conflicting parameters", () => {
     expect(rrugcWorkflowHref("products")).toBe("/realistic-review-ugc?workflow=products&stage=stage0");
-    expect(rrugcWorkflowHref("reviews")).toBe("/realistic-review-ugc?workflow=reviews&stage=reviews-stage2");
+    expect(rrugcWorkflowHref("reviews")).toBe("/realistic-review-ugc?workflow=reviews&stage=reviews-stage1");
     expect(rrugcWorkflowHref("products", "stage5")).toBe(rrugcWorkflowHref("products"));
     expect(rrugcStageFromSearch("?workflow=reviews&stage=stage5")).toBe("stage5");
     expect(rrugcStageFromSearch("?workflow=products&stage=stage4")).toBe("stage0");
