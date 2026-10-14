@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, case, exists, false, func, or_, select, true, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.config import Settings, get_settings
 from app.domain.processing.types import JobStatus
@@ -80,6 +80,11 @@ STAGE5_QUEUED_PRIORITY = 60
 SOURCE_PLAN_FAIRNESS_AGE = timedelta(minutes=5)
 SOURCE_PLAN_URGENT_FAIRNESS_AGE = timedelta(minutes=30)
 SOURCE_PLAN_FAIRNESS_PRIORITY = 51
+# Stage 1 image creation is intentionally serial per tenant. Promote a waiting
+# interactive batch after five minutes, ahead of generic 15-minute backlog,
+# without allowing a second concurrent Stage 1 Codex invocation.
+STAGE1_QUEUED_PRIORITY_BOOST_AGE = timedelta(minutes=5)
+STAGE1_QUEUED_PRIORITY = 51
 
 
 def source_plan_fairness_turn(now: datetime, *, urgent: bool = False) -> bool:
@@ -252,10 +257,22 @@ class TenantAwareJobClaimer:
         starvation_cutoff = now - STARVATION_PREVENTION_AGE
         stage5_cutoff = now - STAGE5_QUEUED_PRIORITY_BOOST_AGE
         source_cutoff = now - SOURCE_PLAN_FAIRNESS_AGE
+        stage1_cutoff = now - STAGE1_QUEUED_PRIORITY_BOOST_AGE
         urgent_source_cutoff = now - SOURCE_PLAN_URGENT_FAIRNESS_AGE
         source_fairness_window = source_plan_fairness_turn(now)
         urgent_source_window = source_plan_fairness_turn(now, urgent=True)
         effective_priority = case(
+            (
+                and_(
+                    ProcessingJobModel.job_type == "rrugc_keyword_image_generate",
+                    ProcessingJobModel.created_at <= stage1_cutoff,
+                ),
+                case(
+                    (ProcessingJobModel.priority < STAGE1_QUEUED_PRIORITY,
+                     STAGE1_QUEUED_PRIORITY),
+                    else_=ProcessingJobModel.priority,
+                ),
+            ),
             (
                 and_(
                     ProcessingJobModel.job_type == "rrugc_source_plan_analyze",
@@ -604,9 +621,21 @@ class TenantAwareJobClaimer:
                 for tenant_id, provider_key in excluded_rrugc_scopes
             ],
         )
+        active_stage1 = aliased(ProcessingJobModel)
+        another_active_stage1 = exists(select(active_stage1.id).where(
+            active_stage1.tenant_id == ProcessingJobModel.tenant_id,
+            active_stage1.id != ProcessingJobModel.id,
+            active_stage1.job_type == "rrugc_keyword_image_generate",
+            active_stage1.status == JobStatus.PROCESSING.value,
+            active_stage1.concurrency_accounted.is_(True),
+        )).correlate(ProcessingJobModel)
         return and_(
             self._base_eligibility(now),
             scope_available,
+            or_(
+                ProcessingJobModel.job_type != "rrugc_keyword_image_generate",
+                ~another_active_stage1,
+            ),
             ProcessingJobModel.job_type.in_(allowed_job_types),
             self._worker_role_available(worker_role),
             self._runtime_control_available(),

@@ -56,6 +56,17 @@ STAGE1_PARTIAL_RECOVERY_CODES = frozenset({
 })
 # Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
+# Six separate typography masters can legitimately take longer than the
+# generic single-image Codex timeout. Preserve in-flight generation time.
+STAGE1_SIX_DESIGNS_MIN_TIMEOUT_SECONDS = 1800
+
+
+def codex_stage1_timeout_seconds(skill_name: str, configured: int) -> int:
+    minimum = (7200 if skill_name == "hanh-redesign-8869-ver-4"
+               else STAGE1_SIX_DESIGNS_MIN_TIMEOUT_SECONDS
+               if skill_name == "gatorhats-stage1-six-designs" else 0)
+    return max(minimum, configured)
+
 STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
     "managed_storage_temporarily_unavailable", "managed_storage_network_error",
     "keyword_image_storage_invalid",
@@ -908,9 +919,8 @@ class KeywordImageGenerateHandler:
             codex_home=str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex")),
             staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
             skill_name=skill_name,
-            timeout_seconds=max(
-                7200 if skill_name == "hanh-redesign-8869-ver-4" else 0,
-                int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
+            timeout_seconds=codex_stage1_timeout_seconds(
+                skill_name, int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
             ),
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
             output_contract="stage1_six_final_designs",

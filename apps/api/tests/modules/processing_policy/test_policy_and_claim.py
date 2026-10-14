@@ -381,6 +381,52 @@ class ProcessingPolicyTest(unittest.TestCase):
         second = self.claim("worker-b", ("rrugc_keyword_image_generate",), worker_role="image")
         self.assertEqual(second.id, jobs[1])
 
+    def test_stage1_busy_slot_does_not_block_other_image_work(self):
+        """A queued Stage 1 job cannot occupy the head of an unavailable lane."""
+        self.policy("tenant", total=5, ai=5)
+        first = self.job("tenant", "stage1-running",
+                         kind="rrugc_keyword_image_generate", provider="codex", scope="ai")
+        waiting = self.job("tenant", "stage1-waiting",
+                           kind="rrugc_keyword_image_generate", provider="codex", scope="ai")
+        unrelated = self.job("tenant", "other-work",
+                             kind="asset_store", provider="google_drive", scope="storage")
+        with self.sessions.begin() as session:
+            session.get(ProcessingJobModel, waiting).priority = 90
+        claimed = self.claim("worker-a", ("rrugc_keyword_image_generate",), worker_role="image")
+        self.assertEqual(claimed.id, waiting)
+        # Another Stage 1 is present but must NOT prevent unrelated work.
+        self.assertEqual(
+            self.claim("worker-b", ("rrugc_keyword_image_generate", "asset_store"),
+                       worker_role="image").id,
+            unrelated,
+        )
+        with self.sessions() as session:
+            ProcessingJobService(ProcessingRepository(session)).complete(
+                job_id=waiting, worker_id="worker-a")
+        self.assertEqual(
+            self.claim("worker-c", ("rrugc_keyword_image_generate",),
+                       worker_role="image").id,
+            first,
+        )
+
+    def test_waiting_stage1_gets_priority_after_five_minutes(self):
+        self.policy("tenant", total=5, ai=5)
+        stage1 = self.job("tenant", "stage1-old",
+                          kind="rrugc_keyword_image_generate", provider="codex", scope="ai")
+        other = self.job("tenant", "rrugc-other",
+                         kind="rrugc_stage2_generate", provider="codex", scope="ai")
+        with self.sessions.begin() as session:
+            pending = session.get(ProcessingJobModel, stage1)
+            pending.created_at = NOW - timedelta(minutes=6)
+            pending.next_attempt_at = NOW - timedelta(minutes=6)
+            pending.priority = 20
+            session.get(ProcessingJobModel, other).priority = 25
+        claimed = self.claim(
+            "worker-a", ("rrugc_keyword_image_generate", "rrugc_stage2_generate"),
+            worker_role="image",
+        )
+        self.assertEqual(claimed.id, stage1)
+
     def test_rrugc_jobs_are_claimable_by_image_worker(self):
         cases = (
             ("rrugc_source_plan_analyze", "gemini", "ai"),

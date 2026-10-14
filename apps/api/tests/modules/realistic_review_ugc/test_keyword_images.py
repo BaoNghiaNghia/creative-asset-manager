@@ -388,6 +388,15 @@ def test_stage1_zero_output_auto_recovery_is_bounded_durable_and_tenant_safe(db)
     ) is None
 
 
+def test_six_designs_get_longer_timeout_without_changing_other_skills():
+    from app.modules.realistic_review_ugc.keyword_images import codex_stage1_timeout_seconds
+
+    assert codex_stage1_timeout_seconds("gatorhats-stage1-six-designs", 900) == 1800
+    assert codex_stage1_timeout_seconds("gatorhats-stage1-six-designs", 2400) == 2400
+    assert codex_stage1_timeout_seconds("hanh-redesign-8869-ver-4", 900) == 7200
+    assert codex_stage1_timeout_seconds("other-image-skill", 900) == 900
+
+
 def test_stage1_auto_recovery_skips_existing_outputs_and_cancellation(db):
     from types import SimpleNamespace
     from sqlalchemy.orm import Session
