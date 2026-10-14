@@ -493,7 +493,7 @@ export function KeywordImageStage({
           {readySkills.map(skill => <option key={skillKey(skill)} value={skillKey(skill)}>{skill.display_name || skill.skill_name}{skill.upload_version || skill.synced_version ? " · " + (skill.upload_version || skill.synced_version) : ""}</option>)}
         </select>
       </label>
-      <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => setFontPoolOpen(true)} title="Approved DaFont font pool and anti-repeat strategy" aria-label="Open DaFont font pool">DaFont Pool</button>
+      <button type="button" className="rrugc-keyword-gen-font-pool" onClick={() => setFontPoolOpen(true)} title="Approved DaFont font pool and anti-repeat strategy" aria-label="Open DaFont font pool">DaFont Pool</button>
       <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => { setLoading(true); void refresh().catch(reason => { setLoading(false); setError(String(reason)); }); }} aria-label="Refresh keyword jobs" title="Refresh jobs" disabled={loading}>
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 1-2.4-5.7" /><path d="M20 4v7h-7" /></svg>
       </button>

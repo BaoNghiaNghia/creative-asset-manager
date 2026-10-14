@@ -173,6 +173,8 @@
   text-transform: none;
   letter-spacing: 0;
 }
+.rrugc-keyword-gen-font-pool { display: inline-flex; align-items: center; justify-content: center; width: auto; min-width: 94px; min-height: 32px; padding: 0 10px; border: 1px solid #bacce6; border-radius: 7px; background: #eef5ff; color: #2d5b96; font: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.rrugc-keyword-gen-font-pool:hover { background: #e1edff; border-color: #8cadde; }
 .rrugc-keyword-gen-refresh { display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 1px solid #cfd9e7; border-radius: 7px; background: #fff; color: #567091; cursor: pointer; }
 .rrugc-keyword-gen-refresh svg { width: 15px; height: 15px; }
 .rrugc-keyword-notice {
