@@ -5,17 +5,17 @@ import { StageSortControls } from "./StageSortControls";
 import { KeywordImageStage } from "./KeywordImageStage";
 
 describe("Stage 0–2 sort direction visuals", () => {
-  it("displays readable ASC and DESC badges and a neutral idle arrow", () => {
+  it("displays borderless up/down arrows and a neutral idle arrow", () => {
     const asc = renderToStaticMarkup(<SortDirectionIndicator active direction="asc" />);
     const desc = renderToStaticMarkup(<SortDirectionIndicator active direction="desc" />);
     const idle = renderToStaticMarkup(<SortDirectionIndicator active={false} direction="asc" />);
     expect(asc).toContain('data-sort-state="asc"');
     expect(asc).toContain('class="rrugc-sort-indicator is-active is-asc"');
     expect(asc).toContain("↑");
-    expect(asc).toContain(">ASC<");
+    expect(asc).not.toContain(">ASC<");
     expect(desc).toContain('data-sort-state="desc"');
     expect(desc).toContain("↓");
-    expect(desc).toContain(">DESC<");
+    expect(desc).not.toContain(">DESC<");
     expect(idle).toContain('data-sort-state="none"');
     expect(idle).not.toContain(">ASC<");
     expect(idle).not.toContain(">DESC<");
@@ -40,10 +40,10 @@ describe("Stage 0–2 sort direction visuals", () => {
       onChange={() => undefined} />);
     expect(desc).toContain('class="rrugc-stage-sort is-desc"');
     expect(desc).toContain('data-sort-state="desc"');
-    expect(desc).toContain(">DESC<");
+    expect(desc).not.toContain(">DESC<");
     expect(asc).toContain('class="rrugc-stage-sort is-asc"');
     expect(asc).toContain('data-sort-state="asc"');
-    expect(asc).toContain(">ASC<");
+    expect(asc).not.toContain(">ASC<");
     expect(desc).toContain("Reverse sort order for Stage 2 designs");
   });
 });

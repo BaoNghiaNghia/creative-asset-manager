@@ -42,7 +42,7 @@ export function StageSortControls({
       aria-label={"Reverse sort order for " + stage}
       title={"Sort direction: " + label}
       onClick={() => onChange(sortBy, direction === "asc" ? "desc" : "asc")}>
-      <SortDirectionIndicator active direction={direction} />{label}
+      <SortDirectionIndicator active direction={direction} />
     </button>
   </div>;
 }

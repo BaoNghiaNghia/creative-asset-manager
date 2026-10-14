@@ -12,6 +12,5 @@ export function SortDirectionIndicator({
     className={"rrugc-sort-indicator" + (active ? " is-active is-" + direction : " is-idle")}
     data-sort-state={active ? direction : "none"}>
     <span className="rrugc-sort-indicator-arrow">{active ? direction === "asc" ? "↑" : "↓" : "↕"}</span>
-    {active && <span className="rrugc-sort-indicator-label">{direction.toUpperCase()}</span>}
   </span>;
 }
