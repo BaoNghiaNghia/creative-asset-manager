@@ -1391,6 +1391,25 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">AI<");
   });
 
+  it("keeps rejected images restorable without placing Restore inside the vote toolbar", () => {
+    const plan = makePlan(3);
+    plan.reference_previews[2].rejected = true;
+    const markup = renderToStaticMarkup(
+      <ReferenceReviewModal
+        plan={plan}
+        reviewingReferenceIds={new Set<string>()}
+        onSetReferenceFeedback={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(markup).toContain("rrugc-source-review-card status-drive_ready is-rejected");
+    expect(markup).toContain('class="rrugc-source-review-restore"');
+    expect(markup).toContain("Restore rejected reference 3");
+    expect(markup).not.toContain("rrugc-source-review-vote is-restore");
+    expect(markup.indexOf('class="rrugc-source-review-restore"'))
+      .toBeGreaterThan(markup.indexOf('class="rrugc-source-review-votes"'));
+  });
+
   it("opens ready Stage 3 review cards into a navigable detail modal", () => {
     const first = makeStage3ReviewImage(
       "review-1",

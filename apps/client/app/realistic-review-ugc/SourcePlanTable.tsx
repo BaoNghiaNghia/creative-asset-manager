@@ -307,12 +307,6 @@ export function ReferenceReviewModal({
               <span className="rrugc-source-review-index">{index + 1}</span>
               {reference.status === "analysis_failed" && <span className="rrugc-source-review-failed" title="AI analysis failed">!</span>}
               <div className="rrugc-source-review-votes" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
-                {reference.rejected && <button type="button" className="rrugc-source-review-vote is-restore"
-                  aria-label={"Restore rejected reference " + (index + 1)}
-                  title="Restore this reference to the active picker"
-                  disabled={!plan.campaign_id || reviewing}
-                  onClick={() => onSetReferenceFeedback(plan, reference, "clear")}
-                >{reviewing ? "…" : "↶ Restore"}</button>}
                 <button
                   type="button"
                   className="rrugc-source-review-vote is-good"
@@ -339,6 +333,19 @@ export function ReferenceReviewModal({
                   onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
                 >{reviewing ? "…" : "AI"}</button>
               </div>
+              {reference.rejected && <button type="button"
+                className="rrugc-source-review-restore"
+                aria-label={"Restore rejected reference " + (index + 1)}
+                title="Restore this reference to the active picker"
+                disabled={!plan.campaign_id || reviewing}
+                onClick={() => onSetReferenceFeedback(plan, reference, "clear")}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 11a9 9 0 1 1 2.6 6.4"/><path d="M3 4v7h7"/>
+                </svg>
+                {reviewing ? "Restoring…" : "Restore"}
+              </button>}
             </div>
             <footer>
               <span>{pending ? "Pending analysis" : reference.status.replaceAll("_", " ")}</span>
