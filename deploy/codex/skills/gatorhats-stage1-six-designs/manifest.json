@@ -2,7 +2,7 @@
   "schema_version": 1,
   "skill_name": "gatorhats-stage1-six-designs",
   "display_name": "GatorHats · Stage 1 Six Designs",
-  "description": "Six compact typography-only brown-thread embroidery designs using a 24-family approved DaFont font pool, anti-repeat random selection per job, true glyph guides and font attribution.",
+  "description": "Six compact typography-only brown-thread embroidery designs using a 200-family approved DaFont font pool, anti-repeat random selection per job, true glyph guides and font attribution.",
   "workflows": [
     "image_studio",
     "keyword_artwork",

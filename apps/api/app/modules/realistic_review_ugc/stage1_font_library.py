@@ -23,7 +23,7 @@ LAYOUTS = (
     "Strong collegiate-style word hierarchy without decorations",
     "Natural contrasting word scale, compact composition",
 )
-RECENT_JOB_EXCLUSION_WINDOW = 3
+RECENT_JOB_EXCLUSION_WINDOW = 30
 RECENT_JOB_LOOKBACK = 30
 DESIGNS_PER_JOB = 6
 
@@ -51,6 +51,9 @@ def approved_font_pool() -> tuple[dict[str, Any], ...]:
         if (not font_file.is_file() or not license_file.is_file()
                 or hashlib.sha256(font_file.read_bytes()).hexdigest() != row["sha256"]):
             raise ValueError(f"DaFont approved asset missing or modified: {row['font']}")
+        license_text = license_file.read_text(encoding="utf-8", errors="replace").upper()
+        if "SIL OPEN FONT LICENSE" not in license_text or "VERSION 1.1" not in license_text:
+            raise ValueError(f"DaFont font is missing its OFL license text: {row['font']}")
         seen.add(row["font"])
         fonts.append(row)
     if len(fonts) < DESIGNS_PER_JOB:
@@ -64,11 +67,12 @@ def select_font_plan(
     rng: random.Random | None = None,
     pool: tuple[dict[str, Any], ...] | None = None,
 ) -> list[dict[str, Any]]:
-    """Six distinct font families, preferring not used by the last three jobs.
+    """Six distinct families, maximizing non-repetition across recent jobs.
 
-    Falls back to shorter exclusion windows as the pool becomes exhausted.
-    A hard 30-job blacklist is impossible with <180 different fonts; instead
-    every font's usage in the last 30 jobs is penalized.
+    With 200 approved families, six-per-job generation can usually avoid the
+    preceding 30 full jobs. If historical usage exhausts eligible families,
+    relax the exclusion window without blocking generation; recency penalties
+    still discourage overused fonts.
     """
     source = tuple(pool if pool is not None else approved_font_pool())
     if len({row["font"] for row in source}) < DESIGNS_PER_JOB:

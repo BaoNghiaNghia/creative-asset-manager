@@ -2,7 +2,7 @@
 from pathlib import Path
 from random import Random
 
-from PIL import Image
+from PIL import Image, ImageFont
 
 from app.modules.realistic_review_ugc.stage1_font_library import (
     approved_font_pool, font_brief, font_info_for_number, render_font_guides,
@@ -10,11 +10,19 @@ from app.modules.realistic_review_ugc.stage1_font_library import (
 )
 
 
-def test_approved_pool_has_at_least_18_unique_licensed_fonts():
+def test_approved_pool_has_200_unique_licensed_fonts():
     pool = approved_font_pool()
-    assert len(pool) >= 18
+    assert len(pool) >= 200
+    assert len({row['sha256'] for row in pool}) == len(pool)
     assert len({row["font"] for row in pool}) == len(pool)
     assert {"Bebas Neue", "Pacifico", "Lobster"}.issubset({row["font"] for row in pool})
+    for row in pool:
+        font_path = Path(__file__).resolve().parents[5] / (
+            "apps/api/managed_skills/gatorhats-stage1-six-designs/fonts"
+        ) / row["file"]
+        font = ImageFont.truetype(str(font_path), 84)
+        bounds = font.getbbox("GATORHATS 8869")
+        assert bounds and bounds[2] - bounds[0] > 20
     for font in pool:
         assert font["source"] == "DaFont"
         assert font["license_status"] == "approved"
@@ -38,7 +46,19 @@ def test_each_job_has_six_distinct_fonts_and_avoids_last_three_jobs():
     assert not {row["font"] for row in first} & {row["font"] for row in second}
     assert not {row["font"] for row in second} & {row["font"] for row in third}
     assert not {row["font"] for row in fourth} & {row["font"] for row in (first + second + third)}
-    assert RECENT_JOB_EXCLUSION_WINDOW == 3
+    assert RECENT_JOB_EXCLUSION_WINDOW == 30
+
+
+def test_200_font_pool_can_avoid_thirty_full_recent_jobs():
+    pool = approved_font_pool()
+    assert len(pool) >= 200
+    histories = [[{"font": font["font"]} for font in pool[i : i + 6]]
+                 for i in range(0, 180, 6)]
+    plan = select_font_plan(histories, rng=Random(21))
+    assert len(plan) == 6
+    blocked = {row["font"] for old in histories for row in old}
+    assert len({row["font"] for row in plan}) == 6
+    assert not blocked.intersection(row["font"] for row in plan)
 
 
 def test_exhausted_recent_pool_falls_back_without_repeating_within_job():
