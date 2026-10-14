@@ -253,7 +253,7 @@ export function ReferenceReviewModal({
   onSetReferenceFeedback: (
     plan: SourcePlan,
     reference: SourcePlanReferencePreview,
-    label: ReferenceManualLabel,
+    label: ReferenceManualLabel | "clear",
   ) => void;
   onClose: () => void;
 }) {
@@ -307,6 +307,12 @@ export function ReferenceReviewModal({
               <span className="rrugc-source-review-index">{index + 1}</span>
               {reference.status === "analysis_failed" && <span className="rrugc-source-review-failed" title="AI analysis failed">!</span>}
               <div className="rrugc-source-review-votes" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
+                {reference.rejected && <button type="button" className="rrugc-source-review-vote is-restore"
+                  aria-label={"Restore rejected reference " + (index + 1)}
+                  title="Restore this reference to the active picker"
+                  disabled={!plan.campaign_id || reviewing}
+                  onClick={() => onSetReferenceFeedback(plan, reference, "clear")}
+                >{reviewing ? "…" : "↶ Restore"}</button>}
                 <button
                   type="button"
                   className="rrugc-source-review-vote is-good"
@@ -359,14 +365,14 @@ function ReferenceSlider({
   onSetReferenceFeedback: (
     plan: SourcePlan,
     reference: SourcePlanReferencePreview,
-    label: ReferenceManualLabel,
+    label: ReferenceManualLabel | "clear",
   ) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const { dragging, dragHandlers } = useHorizontalDragScroll();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [windowRange, setWindowRange] = useState({ start: 0, end: REFERENCE_WINDOW_MIN });
-  const references = plan.reference_previews;
+  const references = plan.reference_previews.filter(reference => !reference.rejected);
 
   function updateWindow() {
     const track = trackRef.current;
@@ -406,10 +412,18 @@ function ReferenceSlider({
       <div className="rrugc-source-ref-empty" role="status">
         <span className="rrugc-source-ref-empty-icon" aria-hidden="true">↗</span>
         <span>
-          <strong>Waiting for Pinterest refs</strong>
-          <small>Auto Scout will add qualified references here automatically.</small>
+          <strong>{plan.reference_previews.some(reference => reference.rejected) ? "No active references" : "Waiting for Pinterest refs"}</strong>
+          <small>{plan.reference_previews.some(reference => reference.rejected) ? "Rejected references can be restored from the review modal." : "Auto Scout will add qualified references here automatically."}</small>
         </span>
+        {plan.reference_previews.some(reference => reference.rejected) && <button type="button"
+          className="rrugc-source-ref-review-rejected"
+          onClick={() => setReviewOpen(true)}>Review rejected</button>}
       </div>
+      {reviewOpen && <ReferenceReviewModal
+        plan={plan} reviewingReferenceIds={reviewingReferenceIds}
+        onSetReferenceFeedback={onSetReferenceFeedback}
+        onClose={() => setReviewOpen(false)}
+      />}
     </div>;
   }
 
@@ -457,35 +471,6 @@ function ReferenceSlider({
             <span>{index + 1}</span>
             {reference.status === "analysis_failed" && <i className="rrugc-source-ref-ai-state is-failed">!</i>}
           </button>
-          <div className="rrugc-source-ref-feedback" role="group" aria-label={"Reference " + (index + 1) + " feedback for " + plan.source_name}>
-            <button
-              type="button"
-              className="rrugc-source-ref-vote is-good"
-              aria-label={(reference.picked ? "Clear suitable mark for " : "Mark suitable ") + "reference " + (index + 1)}
-              aria-pressed={reference.picked}
-              disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
-              title={reference.picked ? "Clear suitable mark" : "Suitable / preferred training reference"}
-              onClick={() => onSetReferenceFeedback(plan, reference, "good")}
-            >{reviewingReferenceIds.has(reference.id) ? "…" : "✓"}</button>
-            <button
-              type="button"
-              className="rrugc-source-ref-vote is-bad"
-              aria-label={(reference.rejected ? "Clear unsuitable mark for " : "Mark unsuitable ") + "reference " + (index + 1)}
-              aria-pressed={reference.rejected}
-              disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
-              title={reference.rejected ? "Clear unsuitable mark" : "Unsuitable / remove / train negative"}
-              onClick={() => onSetReferenceFeedback(plan, reference, "bad")}
-            >{reviewingReferenceIds.has(reference.id) ? "…" : "×"}</button>
-            <button
-              type="button"
-              className="rrugc-source-ref-vote is-ai"
-              aria-label={"Mark AI-generated reference " + (index + 1)}
-              aria-pressed={false}
-              disabled={!plan.campaign_id || reviewingReferenceIds.has(reference.id)}
-              title="AI-generated · remove from real refs · train AI + negative"
-              onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
-            >{reviewingReferenceIds.has(reference.id) ? "…" : "AI"}</button>
-          </div>
         </div>;
       })}
       {trailingWidth > 0 && <span
@@ -558,7 +543,7 @@ export function SourcePlanTable({
   onSetReferenceFeedback?: (
     plan: SourcePlan,
     reference: SourcePlanReferencePreview,
-    label: ReferenceManualLabel,
+    label: ReferenceManualLabel | "clear",
   ) => void;
 }) {
   const pageCount = sourcePlanPageCount(total, pageSize);

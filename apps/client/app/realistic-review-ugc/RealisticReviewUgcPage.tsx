@@ -677,7 +677,7 @@ export function RealisticReviewUgcPage() {
   async function setSourceReferenceFeedback(
     plan: SourcePlan,
     reference: SourcePlanReferencePreview,
-    requestedLabel: ReferenceManualLabel,
+    requestedLabel: ReferenceManualLabel | "clear",
   ) {
     if (!plan.campaign_id || reviewingReferenceIds.has(reference.id)) return;
     const nextLabel = (
@@ -686,7 +686,6 @@ export function RealisticReviewUgcPage() {
     ) ? "clear" : requestedLabel;
     const nextPicked = nextLabel === "good";
     const nextRejected = nextLabel === "bad" || nextLabel === "ai";
-    const removeFromPicker = nextLabel === "bad" || nextLabel === "ai";
 
     setReviewingReferenceIds(current => new Set(current).add(reference.id));
     setError("");
@@ -694,13 +693,11 @@ export function RealisticReviewUgcPage() {
       ...current,
       items: current.items.map(item => item.id !== plan.id ? item : {
         ...item,
-        reference_previews: removeFromPicker
-          ? item.reference_previews.filter(row => row.id !== reference.id)
-          : item.reference_previews.map(row => (
-            row.id === reference.id
-              ? { ...row, picked: nextPicked, rejected: nextRejected }
-              : row
-          )),
+        reference_previews: item.reference_previews.map(row => (
+          row.id === reference.id
+            ? { ...row, picked: nextPicked, rejected: nextRejected }
+            : row
+        )),
       }),
     }));
     try {

@@ -699,13 +699,17 @@ def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usab
             "alternate-color.jpg",
             "cookout-cap.jpg",
         ]
-        assert len(item.reference_previews) == 2
-        assert all(reference.rejected is False for reference in item.reference_previews)
-        assert [row.status for row in item.reference_previews] == [
+        # Keep rejected examples accessible for restoration from the modal;
+        # only non-rejected references count as selectable thumbnails.
+        assert len(item.reference_previews) == 4
+        active_references = [reference for reference in item.reference_previews if not reference.rejected]
+        rejected_references = [reference for reference in item.reference_previews if reference.rejected]
+        assert len(rejected_references) == 2
+        assert [row.status for row in active_references] == [
             "drive_ready",
             "analysis_queued",
         ]
-        assert {row.image_url for row in item.reference_previews} == {
+        assert {row.image_url for row in active_references} == {
             "https://i.pinimg.com/736x/usable.jpg",
             "https://i.pinimg.com/736x/pending.jpg",
         }

@@ -268,7 +268,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     const cards = markup.match(/class="rrugc-source-ref-card/g) || [];
     expect(cards.length).toBeLessThanOrEqual(8);
-    expect(markup).toContain("50 reference images for front.png");
+    expect(markup).toContain("49 reference images for front.png");
   });
 
   it("ignores scheduler-only timestamps when deciding whether Stage 1 changed", () => {
@@ -1212,12 +1212,12 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("rrugc-source-ref-slider");
     expect(markup).toContain("rrugc-source-ref-track");
     expect(markup).toContain("is-picked");
-    expect(markup).toContain("is-rejected");
+    expect(markup).not.toContain("rrugc-source-ref-card status-drive_ready is-rejected");
     expect(markup).toContain("✓ Good");
     expect(markup).toContain("× Reject");
     expect(markup).toContain("AI Synthetic");
     expect(markup).toContain("Drive-ready");
-    expect(markup).toContain("rrugc-source-ref-vote is-ai");
+    expect(markup).not.toContain("rrugc-source-ref-vote is-ai");
     expect(markup).toContain("Same embroidery · 3 images");
     expect(markup).toContain("rrugc-source-group-track");
     expect(markup).toContain("3 source images · same embroidery");
@@ -1358,7 +1358,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("<b>1</b> pending AI");
     expect(markup).toContain("status-analysis_queued");
     expect(markup).toContain("rrugc-source-ref-open");
-    expect(markup).toContain("rrugc-source-ref-vote is-ai");
+    expect(markup).not.toContain("rrugc-source-ref-vote is-ai");
     expect(markup).not.toContain("rrugc-source-ref-ai-state");
   });
 

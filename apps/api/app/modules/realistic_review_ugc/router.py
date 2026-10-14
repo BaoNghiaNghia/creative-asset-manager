@@ -3520,6 +3520,7 @@ def get_source_plans(
     counts_by_campaign: dict[str, Counter] = {}
     excluded_counts_by_campaign: dict[str, Counter] = {}
     previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
+    rejected_previews_by_campaign: dict[str, list[RrugcCandidateModel]] = {}
     if campaign_ids:
         campaigns = {
             row.id: row
@@ -3581,8 +3582,11 @@ def get_source_plans(
                     candidate.campaign_id,
                     Counter(),
                 )[candidate.status] += 1
-                # Human-negative references remain durable training examples,
-                # but never stay in the active real-reference picker.
+                # Keep rejected items recoverable in the review modal, while
+                # excluding them from the active thumbnail slider and counts.
+                rejected_rows = rejected_previews_by_campaign.setdefault(candidate.campaign_id, [])
+                if len(rejected_rows) < SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT:
+                    rejected_rows.append(candidate)
                 continue
             if candidate.status == "rejected_context":
                 continue
@@ -3599,7 +3603,10 @@ def get_source_plans(
                 row.campaign_id or "",
                 Counter(),
             ),
-            previews=previews_by_campaign.get(row.campaign_id or "", []),
+            previews=(
+                previews_by_campaign.get(row.campaign_id or "", [])
+                + rejected_previews_by_campaign.get(row.campaign_id or "", [])
+            )[:SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT],
             embroidery_group_size=len(group_members_by_plan_id.get(row.id, [row])),
             source_group_images=group_members_by_plan_id.get(row.id, [row]),
         )
