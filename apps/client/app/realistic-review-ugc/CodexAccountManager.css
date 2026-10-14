@@ -38,6 +38,7 @@
 @media(max-width:900px){
   .rrugc-stage2.rrugc-card > .rrugc-stage2-heading{
     display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:10px;
+    height:auto!important;min-height:0;
   }
   .rrugc-stage2.rrugc-card > .rrugc-stage2-heading > .rrugc-stage-header-actions{
     display:block;width:100%;min-width:0;
