@@ -6,10 +6,14 @@
   ],
   "qualityBudgets": {
     "desktop": {
+      "maxViewportOverflowPx": 0,
+      "maxSmallTargets": 0,
       "maxUnnamedControls": 0,
       "maxMissingAlt": 0
     },
     "tabletPortrait": {
+      "maxViewportOverflowPx": 0,
+      "maxSmallTargets": 0,
       "maxUnnamedControls": 0,
       "maxMissingAlt": 0
     },

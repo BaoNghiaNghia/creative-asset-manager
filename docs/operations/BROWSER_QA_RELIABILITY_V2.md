@@ -192,6 +192,17 @@ the validator reports only status and counts, never secrets. This guards
 against stale or wrong-domain sessions but does not substitute for a valid
 read-only account. The public production smoke is only a limited route/health check.
 
+The 2026-10-14 RRUGC density follow-up promotes zero viewport overflow
+and zero sub-24px targets into **all three** viewport quality budgets.
+It reserves four explicit grid tracks in the Stage 1 DaFont toolbar
+(instead of implicitly creating a fourth overflowing track), and provides
+at least 28px target height/width for sort buttons, reference navigation,
+reference selection and Products Stage 2 skill details. QA recognizes
+cancellation of a same-origin read-only sorted source-plans GET **only
+when Playwright reports `net::ERR_ABORTED`** on workflow navigation;
+mutation requests, unrelated routes and HTTP/API failures still fail QA.
+An additional source-contract test protects these responsive rules.
+
 On 2026-10-14, Impeccable advisory findings decreased from 14 to 1 after
 replacing heavy colored side borders with subtle full-card borders and tinted
 backgrounds. Reply/blockquote nesting remains visually represented. The sole

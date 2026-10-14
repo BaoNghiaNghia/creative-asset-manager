@@ -10,6 +10,15 @@ test("read-only completion feed cancelled by stage navigation is benign", () => 
   }, "normal", "http://127.0.0.1:49000/realistic-review-ugc"), true);
 });
 
+test("read-only source-plan sorting request cancelled by workflow navigation is benign", () => {
+  const base = "http://127.0.0.1:49000/api/v1/realistic-review-ugc/source-plans";
+  const query = "?page=1&page_size=10&sort_by=source&sort_dir=asc";
+  assert.equal(isExpectedQaRequestAbort({method:"GET", url:base + query,
+    error:"net::ERR_ABORTED"}, "normal", "http://127.0.0.1:49000/realistic-review-ugc"), true);
+  assert.equal(isExpectedQaRequestAbort({method:"GET", url:base,
+    error:"net::ERR_ABORTED"}, "normal", "http://127.0.0.1:49000/realistic-review-ugc"), false);
+});
+
 test("never hide other request failures or unexpected aborted mutations", () => {
   const base = "http://127.0.0.1:49000/api/v1/realistic-review-ugc/stage4/completions";
   for (const request of [

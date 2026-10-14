@@ -58,8 +58,8 @@
   .rrugc-source-refs-head strong{font-size:8.2px}
   .rrugc-source-refs-head small{font-size:7.2px}
   .rrugc-source-ref-card{flex-basis:62px;width:62px;height:62px}
-  .rrugc-source-ref-arrow{width:22px;height:62px;font-size:15px}
-  .rrugc-source-ref-slider{grid-template-columns:22px minmax(0,1fr) 22px}
+  .rrugc-source-ref-arrow{width:28px;height:62px;font-size:15px}
+  .rrugc-source-ref-slider{grid-template-columns:28px minmax(0,1fr) 28px}
 
   .rrugc-stage2{margin-top:0}
   .rrugc-stage2-table{min-width:1320px}
@@ -133,7 +133,7 @@
   .rrugc-stage2-table{min-width:1180px}
   .rrugc-stage2 .rrugc-source-file-grouped{grid-template-columns:minmax(0,1fr)}
   .rrugc-stage2-ref{flex-basis:48px;width:48px;height:48px}
-  .rrugc-stage2-ref-toggle{min-width:26px;height:26px;top:2px;right:2px}
+  .rrugc-stage2-ref-toggle{min-width:28px;height:28px;top:2px;right:2px}
   .rrugc-stage2-ref-grid{min-height:54px;gap:4px}
   .rrugc-stage2-ref-head strong,.rrugc-stage2-skill>strong{font-size:8.8px}
   .rrugc-stage2-ref-head small,.rrugc-stage2-skill small,.rrugc-stage2-status small,.rrugc-stage2-results small{font-size:7.6px}
