@@ -33,4 +33,17 @@
 .rrugc-codex-pool-error{background:#fff0ec;color:#973b30}.rrugc-codex-pool-notice{background:#ebf8f0;color:#266445}
 .rrugc-codex-pool-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:17px;font-size:10px;color:#697f95}
 .rrugc-codex-pool-actions button:focus-visible,.rrugc-codex-pool-close:focus-visible,.rrugc-codex-pool-footer button:focus-visible{outline:2px solid #6597e1;outline-offset:2px}
+/* Avoid the Stage 4 KPI cards overlapping its header actions on tablet/mobile.
+   Keep controls in their own grid row rather than masking the hit target. */
+@media(max-width:900px){
+  .rrugc-stage2.rrugc-card > .rrugc-stage2-heading{
+    display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:10px;
+  }
+  .rrugc-stage2.rrugc-card > .rrugc-stage2-heading > .rrugc-stage-header-actions{
+    display:block;width:100%;min-width:0;
+  }
+  .rrugc-stage2.rrugc-card .rrugc-stage2-registry-actions{
+    width:100%;justify-content:flex-start;align-items:center;
+  }
+}
 @media(max-width:600px){.rrugc-codex-pool-dialog{padding:15px}.rrugc-codex-pool-fields{grid-template-columns:1fr}.rrugc-codex-pool-account{padding:12px}.rrugc-codex-pool-footer{align-items:stretch;flex-direction:column}.rrugc-codex-pool-actions button{flex:1 1 auto}}
