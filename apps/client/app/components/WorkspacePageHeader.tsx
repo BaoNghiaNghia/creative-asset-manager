@@ -90,5 +90,5 @@ export function WorkspacePageHeader({
 }
 
 export function WorkspaceBackToAssets() {
-  return <a className="workspace-page-back-link" href="/">← Back to assets</a>;
+  return <a className="workspace-page-back-link" href="/"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="m15 18-6-6 6-6M9 12h12"/></svg>Back to assets</a>;
 }

@@ -36,8 +36,8 @@ describe("Stage 4 completion alerts", () => {
   });
   it("exposes a notification preferences control", () => {
     const markup = renderToStaticMarkup(<Stage4CompletionNotifications onViewStage4={() => undefined} />);
-    expect(markup).toContain("Stage 4 alerts");
-    expect(markup).toContain("Stage 4 completion notifications");
+    expect(markup).toContain("Alerts");
+    expect(markup).toContain("aria-label=\"Alerts");
   });
 });
 import {

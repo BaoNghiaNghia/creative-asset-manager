@@ -1025,17 +1025,17 @@ export function RealisticReviewUgcPage() {
             className="rrugc-global-management-button"
             data-codex-accounts-open
             onClick={() => setCodexManagerOpen(true)}
-          >Codex accounts</button>
+          ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Codex accounts</button>
           <button
             type="button"
             className="rrugc-global-management-button"
             onClick={() => setSkillManagerOpen(true)}
-          >Manage skills</button>
+          ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m2 10 10-6 10 6-10 6-10-6Z"/><path d="M6 12.4V18c4 3 8 3 12 0v-5.6M22 10v7"/></svg>Manage skills</button>
           <button
             type="button"
             className="rrugc-global-management-button"
             onClick={() => setSettingsOpen(true)}
-          >Settings</button>
+          ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2"/></svg>Settings</button>
           <WorkspaceBackToAssets />
         </div>}
       />

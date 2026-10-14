@@ -201,16 +201,16 @@ export function Stage4CompletionNotifications({ onViewStage4 }: Props) {
 
   return <div className="rrugc-stage4-notify">
     <button type="button" className="rrugc-global-management-button rrugc-stage4-notify-trigger"
-      aria-expanded={open} aria-label={"Stage 4 completion notifications" + (unread ? ", " + unread + " new" : "")}
+      aria-expanded={open} aria-label={"Alerts" + (unread ? ", " + unread + " new" : "")}
       onClick={() => setOpen(value => !value)}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
       </svg>
-      Stage 4 alerts {unread > 0 && <span className="rrugc-stage4-notify-count">{unread > 99 ? "99+" : unread}</span>}
+      Alerts {unread > 0 && <span className="rrugc-stage4-notify-count">{unread > 99 ? "99+" : unread}</span>}
     </button>
-    {open && <section className="rrugc-stage4-notify-panel" aria-label="Stage 4 notification preferences">
-      <strong>Stage 4 · Image completion</strong>
-      <p>Check every 15 seconds while CAM is open. Combine completed images into a single notice.</p>
+    {open && <section className="rrugc-stage4-notify-panel" aria-label="Shared notification preferences">
+      <strong>Realistic Review UGC · Alerts</strong>
+      <p>Shared notification controls across all stages. Stage 4 image completions are currently connected; other stage feeds can be added here without another alerts button. Check every 15 seconds while CAM is open.</p>
       <label className="rrugc-stage4-notify-checkbox">
         <input type="checkbox" checked={toastEnabled} disabled={!scope}
           onChange={event => toggleToast(event.target.checked)}/>
