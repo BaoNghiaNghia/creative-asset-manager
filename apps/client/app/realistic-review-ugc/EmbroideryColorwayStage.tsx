@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
-import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness } from "./api";
-import type { ColorwayJob, ColorwayReadiness } from "./api";
+import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness } from "./api";
+import type { ColorwayJob, ColorwayReadiness, ProductsStage2PhotoReadiness } from "./api";
+import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { OutputActivityLoader } from "./OutputActivityLoader";
@@ -116,6 +117,7 @@ export function EmbroideryColorwayStage({
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string } | null>(null);
   const [serverReadiness, setServerReadiness] = useState<ColorwayReadiness | null>(null);
+  const [photoReadiness, setPhotoReadiness] = useState<ProductsStage2PhotoReadiness | null>(null);
   const [readinessMessage, setReadinessMessage] = useState("");
 
   useEffect(() => {
@@ -134,6 +136,15 @@ export function EmbroideryColorwayStage({
       });
     return () => controller.abort();
   }, [active, skillCatalogRevision]);
+
+  useEffect(() => {
+    if (!active || workflow !== "products") return;
+    const controller = new AbortController();
+    void getProductsStage2PhotoReadiness(controller.signal)
+      .then(value => { if (!controller.signal.aborted) setPhotoReadiness(value); })
+      .catch(() => { if (!controller.signal.aborted) setPhotoReadiness(null); });
+    return () => controller.abort();
+  }, [active, workflow, skillCatalogRevision]);
 
   useEffect(() => {
     if (!active) return;
@@ -310,9 +321,9 @@ export function EmbroideryColorwayStage({
     <RrugcStageHeader
       className="rrugc-colorway-header"
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
-      title="Embroidery design → 13 colorways"
+      title={workflow === "products" ? "Embroidery design → 13 colorways + 3-skill photo pipeline" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>Uses only PNG designs explicitly selected in Products Stage 1 output modal. Each selection generates 13 official hat colorways; no unrelated Drive files are included.</>
+        ? <>Selected Stage 1 PNG designs produce 13 original hat colorways. The additional Ecommerce → Multi-hat → UGC pipeline is shown per design with honest installation and reference readiness. Generation controls remain locked until its worker is deployed.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
@@ -387,6 +398,7 @@ export function EmbroideryColorwayStage({
             <th aria-label="Select design" />
             <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
             <th>13-color batch</th>
+            {workflow === "products" && <th>3-skill photo pipeline · 10 shots</th>}
             <th>Progress</th>
             <th>Skill</th>
             <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th>
@@ -396,7 +408,7 @@ export function EmbroideryColorwayStage({
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
             <tr key={index} className="rrugc-colorway-skeleton-row">
-              <td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td><td><span /></td>
+              <td><span /></td><td><span /></td><td><span /></td>{workflow === "products" && <td><span /></td>}<td><span /></td><td><span /></td><td><span /></td><td><span /></td>
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
@@ -439,6 +451,7 @@ export function EmbroideryColorwayStage({
                   })}
                 </div>
               </td>
+              {workflow === "products" && <td><ProductsPhotoWorkflow sourceName={plan.source_name} readiness={photoReadiness} /></td>}
               <td>
                 <div className="rrugc-colorway-progress">
                   <div><span style={{ width: Math.round(completed / COLOR_SLOT_COUNT * 100) + "%" }} /></div>
@@ -465,7 +478,7 @@ export function EmbroideryColorwayStage({
             </tr>;
           })}
           {!loading && data.items.length === 0 && <tr>
-            <td colSpan={7} className="rrugc-source-plan-empty">
+            <td colSpan={workflow === "products" ? 8 : 7} className="rrugc-source-plan-empty">
               No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}

@@ -574,6 +574,31 @@ export type ColorwayJob = {
   output_url: string | null;
 };
 
+export type ProductsStage2PhotoStep = {
+  key: "ecommerce" | "multihat" | "ugc";
+  skill_name: string;
+  title: string;
+  output_count: number;
+  shot_labels: string[];
+  ready: boolean;
+  bundle_installed: boolean;
+  status: "needs_install" | "needs_pipeline_worker";
+  missing_assets: string[];
+  required_inputs: string;
+};
+export type ProductsStage2PhotoReadiness = {
+  workflow: string;
+  sequential: boolean;
+  ready: boolean;
+  total_outputs_per_design: number;
+  steps: ProductsStage2PhotoStep[];
+};
+export const getProductsStage2PhotoReadiness = (signal?: AbortSignal) =>
+  request<ProductsStage2PhotoReadiness>(
+    "/api/v1/realistic-review-ugc/products-stage2/photo-pipeline/readiness",
+    { signal },
+  );
+
 export type ColorwayReadiness = {
   ready: boolean;
   error_code: string | null;

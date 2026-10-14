@@ -5423,6 +5423,14 @@ def sync_stage2_skill(
     return _stage2_skill(item)
 
 
+@router.get("/products-stage2/photo-pipeline/readiness")
+def product_photo_pipeline_readiness(
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.products_photo_pipeline import readiness
+    return readiness()
+
+
 @router.get("/colorways/readiness")
 def colorway_readiness(
     session: Session = Depends(get_db),
