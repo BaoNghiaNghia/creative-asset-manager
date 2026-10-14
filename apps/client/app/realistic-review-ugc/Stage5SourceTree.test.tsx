@@ -82,6 +82,13 @@ describe("Stage 5 source folder tree", () => {
     expect(tree?.querySelector('[role="navigation"]')?.tagName).toBe("DIV");
     expect(tree?.querySelector("nav")).toBeNull();
     expect(content).not.toBeNull();
+    const toolbar = host.querySelector(".rrugc-stage5-toolbar");
+    expect(toolbar?.querySelector(".rrugc-stage5-search-group")).not.toBeNull();
+    expect(toolbar?.querySelector(".rrugc-stage5-sort-bar")).not.toBeNull();
+    expect(toolbar?.querySelector(".rrugc-stage5-toolbar-actions")).not.toBeNull();
+    expect(toolbar?.querySelectorAll(".rrugc-stage5-toolbar-stats span")).toHaveLength(3);
+    expect(host.querySelector(".rrugc-stage4-heading .rrugc-stage3-stats")).toBeNull();
+    expect(host.querySelector(".rrugc-stage5-folder-summary")).toBeNull();
     const cards = () => content!.querySelectorAll(".rrugc-stage3-image");
     expect(cards()).toHaveLength(5);
 

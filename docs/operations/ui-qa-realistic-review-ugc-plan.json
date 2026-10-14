@@ -228,6 +228,11 @@
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage3",
       "requireIcons": [
         "#rrugc-panel-stage5 .rrugc-stage5-toolbar-actions > button"
+      ],
+      "assertions": [
+        {"type":"visible","selector":"#rrugc-panel-stage5 .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats"},
+        {"type":"visible","selector":"#rrugc-panel-stage5 .rrugc-stage5-toolbar .rrugc-stage5-sort-bar"},
+        {"type":"hidden","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary"}
       ]
     },
     {
@@ -251,15 +256,15 @@
       "click": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA']",
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA/Stage 5']",
       "assertions": [
-        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary","value":"QA"}
+        {"type":"attribute","selector":"#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA']","name":"aria-pressed","value":"true"}
       ]
     },
     {
       "name": "stage5-child-folder",
       "click": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA/Stage 5']",
-      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-folder-summary",
+      "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA/Stage 5']",
       "assertions": [
-        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary","value":"QA/Stage 5"}
+        {"type":"attribute","selector":"#rrugc-panel-stage5 .rrugc-stage5-tree-folder[title='QA/Stage 5']","name":"aria-pressed","value":"true"}
       ]
     },
     {
@@ -267,7 +272,7 @@
       "click": "#rrugc-panel-stage5 .rrugc-stage5-tree-all",
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-folder-content .rrugc-stage3-gallery",
       "assertions": [
-        {"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary","value":"All folder images"}
+        {"type":"attribute","selector":"#rrugc-panel-stage5 .rrugc-stage5-tree-all","name":"aria-pressed","value":"true"}
       ]
     },
     {

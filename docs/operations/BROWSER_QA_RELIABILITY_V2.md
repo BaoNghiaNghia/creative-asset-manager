@@ -198,11 +198,14 @@ already-authorized `stage3/review-groups` response, using
 or triggers a Drive traversal. The left column supports nested expansion,
 parent-folder filtering (including descendants), leaf selection and
 `All folders`; the right column retains existing review cards, status,
-Before/After, per-folder analysis, sort, search and review actions. A
-right-column summary shows the selected path and image count. Counts and
-tree entries represent **loaded pages only**; `Load older images` remains
-available and progressively expands the tree. Desktop/tablet use a side
-rail; narrow screens stack the bounded-height tree above the gallery.
+Before/After, per-folder analysis and review actions. Stage 5 search,
+loaded-result sorting, Refresh/Analyze/Export and its three summary KPIs
+share one compact responsive toolbar above the tree and gallery. The former
+redundant `All folder images` summary strip has been removed; the selected
+folder remains indicated in the tree and the existing gallery group headers.
+Counts and tree entries represent **loaded pages only**; `Load older images`
+remains available and progressively expands the tree. Desktop/tablet use
+a side rail; narrow screens stack the bounded-height tree above the gallery.
 The fixture-backed Stage 5 QA plan tests selecting a parent, child and
 the root without accepting visual baselines. The desktop tree uses a dedicated
 role=navigation container (not a bare `nav` element) so global navigation

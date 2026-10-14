@@ -23,16 +23,10 @@
 .rrugc-stage5-tree-folder-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:650}
 .rrugc-stage5-tree-count{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:23px;padding:3px 6px;box-sizing:border-box;border-radius:999px;background:#ecf1f8;color:#71829a;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}
 .rrugc-stage5-tree-row.is-selected .rrugc-stage5-tree-count,.rrugc-stage5-tree-all.is-selected .rrugc-stage5-tree-count{background:#d6e5fe;color:#275ba9}
-.rrugc-stage5-source-tree button:focus-visible,.rrugc-stage5-folder-summary button:focus-visible{outline:2px solid #4f80ce;outline-offset:2px}
+.rrugc-stage5-source-tree button:focus-visible{outline:2px solid #4f80ce;outline-offset:2px}
 .rrugc-stage5-tree-empty{margin:8px;padding:6px;color:#8795a7;font-size:11px}
 .rrugc-stage5-tree-foot{display:grid;flex:0 0 auto;gap:4px;padding:10px 12px;border-top:1px solid #ecf0f6;background:#fcfdff;color:#667b97;font-size:10px;font-weight:700}
 .rrugc-stage5-tree-foot small{font-size:9px;font-weight:500;line-height:1.4;color:#8a97ab}
-.rrugc-stage5-folder-summary{display:flex;align-items:center;gap:10px;min-width:0;padding:11px 13px;border:1px solid #e0e8f1;border-radius:10px;background:#f9fbff}
-.rrugc-stage5-folder-summary>div{display:grid;gap:3px;flex:1;min-width:0}
-.rrugc-stage5-folder-summary strong{color:#2b4667;font-size:12px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rrugc-stage5-folder-summary small{color:#8090a5;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rrugc-stage5-folder-summary>span{color:#506b91;font-size:10px;white-space:nowrap;font-weight:750}
-.rrugc-stage5-folder-summary button{min-height:32px;box-sizing:border-box;border:1px solid #cddbed;border-radius:7px;background:#fff;color:#3769ae;padding:6px 9px;font:inherit;font-size:10px;font-weight:750;white-space:nowrap;cursor:pointer}
 .rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 @media(max-width:1100px){
   .rrugc-stage5-content-grid{grid-template-columns:minmax(225px,255px) minmax(0,1fr);gap:12px}
@@ -43,7 +37,5 @@
   .rrugc-stage5-source-tree{position:static;min-height:0;max-height:none}
   .rrugc-stage5-source-tree>.rrugc-stage5-tree-scroll{flex:0 1 auto;max-height:220px}
   .rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .rrugc-stage5-folder-summary{flex-wrap:wrap;gap:7px}
-  .rrugc-stage5-folder-summary>div{flex-basis:100%}
 }
 @media(max-width:360px){.rrugc-stage5-folder-content .rrugc-stage3-gallery{grid-template-columns:minmax(0,1fr)}}

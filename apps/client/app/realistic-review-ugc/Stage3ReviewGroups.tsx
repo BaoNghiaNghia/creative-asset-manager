@@ -532,11 +532,6 @@ export function Stage3ReviewGroups({
       kicker="STAGE 5 · FOLDER GROUPS → UGC REVIEW"
       title="UGC Review"
       description="Review Stage 4 outputs by folder. Analyze new images, manage cards and export retained review concepts."
-      actions={<div className="rrugc-stage3-stats" aria-label="Stage 5 summary">
-        <span><strong>{data.total_groups}</strong><small>Folders</small></span>
-        <span><strong>{data.total_images}</strong><small>Images</small></span>
-        <span><strong>{finished}/{data.total_images}</strong><small>Reviewed</small></span>
-      </div>}
     />
 
     <ActionMessageToast message={message} />
@@ -555,6 +550,19 @@ export function Stage3ReviewGroups({
         <span className="rrugc-stage5-loaded-count">
           {normalizedQuery ? visibleGroups.length + " matching folders" : data.total_groups + " folders loaded"}
         </span>
+      </div>
+      <div className="rrugc-stage5-sort-bar" role="group" aria-label="Sort Stage 5 loaded reviews">
+        <label className="rrugc-stage5-sort-label">Sort loaded reviews
+          <select aria-label="Sort Stage 5 loaded reviews" title="Sort applies to loaded results. Load older images to include more." value={sortBy}
+            onChange={event => setSortBy(event.target.value as Stage5SortBy)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="folder">Folder A → Z</option>
+            <option value="image_count">Most images</option>
+            <option value="score">Highest UGC score</option>
+            <option value="status">Review status · needs attention first</option>
+          </select>
+        </label>
       </div>
       <div className="rrugc-stage5-toolbar-actions">
         <button type="button" className="rrugc-stage3-refresh rrugc-icon-action"
@@ -580,21 +588,11 @@ export function Stage3ReviewGroups({
           </button>
         </>}
       </div>
-    </div>
-
-    <div className="rrugc-stage5-sort-bar" role="group" aria-label="Sort Stage 5 loaded reviews">
-      <label className="rrugc-stage5-sort-label">Sort loaded reviews
-        <select aria-label="Sort Stage 5 loaded reviews" value={sortBy}
-          onChange={event => setSortBy(event.target.value as Stage5SortBy)}>
-          <option value="newest">Newest first</option>
-          <option value="oldest">Oldest first</option>
-          <option value="folder">Folder A → Z</option>
-          <option value="image_count">Most images</option>
-          <option value="score">Highest UGC score</option>
-          <option value="status">Review status · needs attention first</option>
-        </select>
-      </label>
-      <small>Sort applies to loaded results. Use “Load older images” to include more.</small>
+      <div className="rrugc-stage3-stats rrugc-stage5-toolbar-stats" aria-label="Stage 5 summary">
+        <span><strong>{data.total_groups}</strong><small>Folders</small></span>
+        <span><strong>{data.total_images}</strong><small>Images</small></span>
+        <span><strong>{finished}/{data.total_images}</strong><small>Reviewed</small></span>
+      </div>
     </div>
 
     <div className="rrugc-stage5-content-grid">
@@ -608,14 +606,6 @@ export function Stage3ReviewGroups({
         hasMore={Boolean(data.has_more)}
       />
       <div className="rrugc-stage5-folder-content">
-        <div className="rrugc-stage5-folder-summary" aria-live="polite">
-          <div>
-            <strong>{activeFolderKey ? selectedFolder?.name : "All folder images"}</strong>
-            <small>{activeFolderKey ? selectedFolder?.path : "Browse images from the loaded Stage 4 source folders"}</small>
-          </div>
-          <span>{visibleGroups.reduce((total, group) => total + group.images.length, 0)} images</span>
-          {activeFolderKey && <button type="button" onClick={() => setSelectedFolderKey(null)}>Clear folder</button>}
-        </div>
     {loading ? (
       <div className="rrugc-stage3-skeletons" aria-label="Loading Stage 5 groups">
         {Array.from({ length: 4 }, (_, index) => (
