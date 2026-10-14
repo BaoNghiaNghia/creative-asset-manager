@@ -200,8 +200,12 @@ parent-folder filtering (including descendants), leaf selection and
 `All folders`; the right column retains existing review cards, status,
 Before/After, per-folder analysis and review actions. Stage 5 search,
 loaded-result sorting, Refresh/Analyze/Export and its three summary KPIs
-share one compact responsive toolbar above the tree and gallery. The former
-redundant `All folder images` summary strip has been removed; the selected
+share one compact responsive toolbar above the tree and gallery. The desktop
+layout deliberately caps search at 280px and reserves width for `Reviewed`,
+with shorter but accessible button captions at narrower desktop sizes. A
+Browser QA single-row assertion checks group alignment, overlap and clipping
+at desktop viewport sizes >=1280px; smaller workspaces reflow responsively.
+The former redundant `All folder images` summary strip has been removed; the selected
 folder remains indicated in the tree and the existing gallery group headers.
 Counts and tree entries represent **loaded pages only**; `Load older images`
 remains available and progressively expands the tree. Desktop/tablet use

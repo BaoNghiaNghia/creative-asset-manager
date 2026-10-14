@@ -1,32 +1,55 @@
-/* Stage 5: one shared control strip for search, sorting, actions and KPIs. */
+/* Stage 5: a legible, bounded single-row desktop command bar.
+   Search must never claim all spare space or push the Reviewed KPI offscreen. */
 .rrugc-stage3>.rrugc-stage4-heading{align-items:center;gap:16px;padding-bottom:12px;border-bottom:1px solid #edf1f6}
 .rrugc-stage3>.rrugc-stage4-heading .rrugc-stage-header-copy{flex:1;min-width:0}
 .rrugc-stage3>.rrugc-stage4-heading .rrugc-stage-header-copy p{max-width:690px}
-.rrugc-stage5-toolbar{display:grid;grid-template-areas:"search sort actions stats";grid-template-columns:minmax(215px,1fr) minmax(165px,205px) max-content max-content;column-gap:12px;row-gap:10px;align-items:center;min-width:0;padding:10px 12px;border:1px solid #e1e8f1;border-radius:10px;background:#fafbfd}
-.rrugc-stage5-search-group{grid-area:search;display:flex;align-items:center;gap:8px;min-width:0;width:100%}
-.rrugc-stage5-search-group>:first-child{flex:1 1 0;min-width:0}
-.rrugc-stage5-loaded-count{flex:0 0 auto;font-size:10px;font-weight:700;color:#75859a;white-space:nowrap}
-.rrugc-stage5-toolbar>.rrugc-stage5-sort-bar{grid-area:sort;display:flex;align-items:center;margin:0;min-width:0;max-width:100%;gap:0}
+.rrugc-stage5-toolbar{
+  display:grid;
+  grid-template-areas:"search sort actions stats";
+  grid-template-columns:minmax(185px,280px) 154px max-content minmax(216px,1fr);
+  gap:10px;align-items:center;min-width:0;max-width:100%;
+  padding:10px 12px;box-sizing:border-box;
+  border:1px solid #e1e8f1;border-radius:10px;background:#fafbfd;
+}
+.rrugc-stage5-search-group{grid-area:search;display:flex;align-items:center;min-width:0;width:100%}
+.rrugc-stage5-search-group>:first-child{flex:1 1 auto;min-width:0;width:100%}
+.rrugc-stage5-toolbar>.rrugc-stage5-sort-bar{grid-area:sort;display:flex;align-items:center;margin:0;min-width:0;width:100%;gap:0}
 .rrugc-stage5-toolbar .rrugc-stage5-sort-label{display:flex;flex-direction:column;gap:4px;min-width:0;width:100%;max-width:none;font-size:10px;font-weight:750;color:#6b7990}
-.rrugc-stage5-toolbar .rrugc-stage5-sort-label select{width:100%;min-width:0}
-.rrugc-stage5-toolbar-actions{grid-area:actions;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0}
-.rrugc-stage5-toolbar-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;box-sizing:border-box;padding:7px 10px;border-radius:8px;font:inherit;font-size:11px;font-weight:750;white-space:nowrap}
+.rrugc-stage5-toolbar .rrugc-stage5-sort-label select{width:100%;min-width:0;min-height:36px}
+.rrugc-stage5-toolbar-actions{grid-area:actions;display:flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;white-space:nowrap}
+.rrugc-stage5-toolbar-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;box-sizing:border-box;padding:7px 9px;border-radius:8px;font:inherit;font-size:11px;font-weight:750;white-space:nowrap}
 .rrugc-stage5-toolbar-actions>button:disabled{opacity:.55;cursor:not-allowed}
 .rrugc-stage5-toolbar-actions .rrugc-stage5-export{background:#eaf2ff;color:#274f8e;border-color:#b8ccec}
 .rrugc-stage5-toolbar-actions .rrugc-stage5-preview-export{border:1px solid #d2dce9;background:#fff;color:#4e647e;cursor:pointer}
 .rrugc-stage5-toolbar-actions .rrugc-stage5-preview-export:hover:not(:disabled){background:#f2f6fc}
-.rrugc-stage5-toolbar>.rrugc-stage5-toolbar-stats{grid-area:stats;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0}
-.rrugc-stage5-toolbar-stats span{display:block;min-width:79px;padding:7px 9px;border:1px solid #e0e6ef;border-radius:9px;background:#f8faff}
-.rrugc-stage5-toolbar-stats strong{font-size:17px;line-height:1.25}
-.rrugc-stage5-toolbar-stats small{font-size:9px}
-@media(max-width:1600px){
-  /* The folder KPI already conveys this count; prioritize usable search width. */
-  .rrugc-stage5-loaded-count{display:none}
+.rrugc-stage5-short-label{display:none}
+.rrugc-stage5-toolbar>.rrugc-stage5-toolbar-stats{grid-area:stats;display:flex;align-items:center;justify-content:flex-end;justify-self:end;gap:5px;min-width:0;width:max-content;max-width:100%;border-left:1px solid #dce5ef;padding-left:10px}
+.rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats span{display:block;min-width:64px;max-width:none;box-sizing:border-box;padding:7px 8px;border:1px solid #e0e6ef;border-radius:9px;background:#f8faff}
+.rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats span:last-child{min-width:90px}
+.rrugc-stage5-toolbar-stats strong{display:block;white-space:nowrap;font-size:16px;line-height:1.25;font-variant-numeric:tabular-nums;color:#18315a}
+.rrugc-stage5-toolbar-stats small{display:block;white-space:nowrap;font-size:8px;letter-spacing:.05em;text-transform:uppercase;color:#7f8ca1}
+/* Compact desktop uses shorter button captions but retains full accessible labels. */
+@media(max-width:1599px){
+  .rrugc-stage5-long-label{display:none}
+  .rrugc-stage5-short-label{display:inline}
+  .rrugc-stage5-toolbar{grid-template-columns:minmax(185px,260px) 146px max-content minmax(206px,1fr);column-gap:8px}
+  .rrugc-stage5-toolbar-actions{gap:5px}
+  .rrugc-stage5-toolbar-actions>button{padding-inline:8px}
 }
-@media(max-width:1360px){
-  .rrugc-stage5-toolbar{grid-template-areas:"search stats" "sort actions";grid-template-columns:minmax(0,1fr) max-content}
-  .rrugc-stage5-toolbar>.rrugc-stage5-sort-bar{width:min(235px,100%)}
-  .rrugc-stage5-toolbar-actions{justify-self:end;flex-wrap:wrap}
+@media(min-width:1280px) and (max-width:1359px){
+  .rrugc-stage5-toolbar{grid-template-columns:minmax(170px,200px) 134px max-content minmax(197px,1fr);gap:7px;padding-inline:9px}
+  .rrugc-stage5-toolbar-actions{gap:4px}
+  .rrugc-stage5-toolbar-actions>button{gap:4px;padding-inline:6px;font-size:10px}
+  .rrugc-stage5-toolbar>.rrugc-stage5-toolbar-stats{padding-left:6px;gap:4px}
+  .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats span{min-width:58px;padding-inline:6px}
+  .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats span:last-child{min-width:80px}
+  .rrugc-stage5-toolbar-stats strong{font-size:14px}
+}
+/* Smaller work areas reflow rather than clipping controls or values. */
+@media(max-width:1279px){
+  .rrugc-stage5-toolbar{grid-template-areas:"search stats" "sort actions";grid-template-columns:minmax(0,1fr) max-content;column-gap:10px}
+  .rrugc-stage5-toolbar>.rrugc-stage5-sort-bar{width:min(210px,100%)}
+  .rrugc-stage5-toolbar-actions{justify-self:end}
 }
 @media(max-width:900px){
   .rrugc-stage5-toolbar{grid-template-areas:"search search" "sort stats" "actions actions";grid-template-columns:minmax(0,1fr) max-content;gap:10px}
@@ -35,17 +58,14 @@
 @media(max-width:760px){
   .rrugc-stage3>.rrugc-stage4-heading{align-items:stretch}
   .rrugc-stage5-toolbar{grid-template-areas:"search" "sort" "stats" "actions";grid-template-columns:minmax(0,1fr);padding:9px;gap:10px}
-  .rrugc-stage5-search-group{flex-wrap:wrap;gap:5px}
-  .rrugc-stage5-search-group>:first-child{flex:1 1 100%}
-  .rrugc-stage5-loaded-count{flex-basis:100%}
   .rrugc-stage5-toolbar>.rrugc-stage5-sort-bar{width:100%}
-  .rrugc-stage5-toolbar>.rrugc-stage5-toolbar-stats{width:100%;justify-content:stretch}
-  .rrugc-stage5-toolbar-stats span{min-width:0;flex:1}
+  .rrugc-stage5-toolbar>.rrugc-stage5-toolbar-stats{width:100%;justify-self:stretch;justify-content:stretch;padding-left:0;border-left:0}
+  .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats span{min-width:0;flex:1}
   .rrugc-stage5-toolbar-actions{justify-self:stretch;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .rrugc-stage5-toolbar-actions>button{min-width:0;width:100%}
 }
 @media(max-width:390px){
   .rrugc-stage5-toolbar>.rrugc-stage5-toolbar-stats{gap:4px}
-  .rrugc-stage5-toolbar-stats span{padding:6px}
+  .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats span{padding:6px}
   .rrugc-stage5-toolbar-stats small{font-size:8px}
 }

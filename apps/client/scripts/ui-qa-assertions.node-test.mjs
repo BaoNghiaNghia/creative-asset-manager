@@ -32,6 +32,27 @@ test("interaction assertions validate text, visibility, attributes and count", a
   ]);
 });
 
+test("desktop command bar must fit one horizontal row and stay within its panel", async () => {
+  const selector = ".rrugc-stage5-toolbar";
+  const assertion = { type: "single-row-within", selector, minViewportPx: 1280,
+    items: [".search", ".sort", ".actions", ".stats"] };
+  const page = (result, width = 1440) => ({
+    viewportSize: () => ({ width, height: 900 }),
+    locator: () => ({ first() { return this; }, evaluate: async () => result }),
+  });
+  await assert.doesNotReject(assertUiState(page({ reason: "", rows: [] }), assertion));
+  await assert.doesNotReject(assertUiState(page({ reason: "ignored" }, 390), assertion));
+  await assert.rejects(
+    assertUiState(page({ reason: "clipped-or-outside-toolbar",
+      rows: [{ selector: ".stats", right: 1400 }], containerRight: 1320 }), assertion),
+    /single-row layout failed.*clipped-or-outside-toolbar/,
+  );
+  await assert.rejects(
+    assertUiState(page({ reason: "controls-wrap-to-multiple-rows", rows: [] }), assertion),
+    /single-row layout failed.*controls-wrap-to-multiple-rows/,
+  );
+});
+
 test("scrollable table assertion requires a functioning independent scroll area", async () => {
   await assert.doesNotReject(
     assertUiState(fakePage({ overflow: 1 }), { type: "scrollable-x", selector: ".access-table-wrap" }),

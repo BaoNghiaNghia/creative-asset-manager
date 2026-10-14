@@ -4,7 +4,7 @@ export async function assertUiState(page, assertion) {
   const selector = String(assertion?.selector || "");
   if (!selector || !["visible", "hidden", "text-includes", "count", "attribute",
                       "checked", "no-horizontal-overflow", "no-viewport-overflow",
-                      "min-control-size", "scrollable-x", "icon-visible"].includes(type)) {
+                      "min-control-size", "scrollable-x", "icon-visible", "single-row-within"].includes(type)) {
     throw new Error(`Invalid UI QA assertion type/selector: ${type} ${selector}`);
   }
   const locator = page.locator(selector);
@@ -80,6 +80,45 @@ export async function assertUiState(page, assertion) {
       height: Math.round(node.getBoundingClientRect().height) })), minimum);
     if (!await locator.count() || missing.length) {
       throw new Error(`UI QA undersized controls at ${selector}: ${JSON.stringify(missing)}`);
+    }
+  } else if (type === "single-row-within") {
+    const minViewportPx = Number(assertion.minViewportPx ?? 1280);
+    const viewportWidth = page.viewportSize()?.width ?? 0;
+    if (viewportWidth >= minViewportPx) {
+      const items = assertion.items;
+      if (!Array.isArray(items) || items.length < 2
+          || items.some(item => typeof item !== "string" || !item.trim())) {
+        throw new Error("UI QA single-row-within requires at least two child selectors.");
+      }
+      const result = await locator.first().evaluate((container, selectors) => {
+        const bounds = container.getBoundingClientRect();
+        const rows = selectors.map(selector => {
+          const node = container.querySelector(selector);
+          if (!node) return null;
+          const rect = node.getBoundingClientRect();
+          return { selector, x: rect.left, right: rect.right, midY: (rect.top + rect.bottom) / 2,
+            width: rect.width, height: rect.height };
+        });
+        if (rows.some(row => !row || row.width < 1 || row.height < 1)) {
+          return { reason: "missing-or-hidden-child", rows };
+        }
+        const visible = rows.filter(Boolean);
+        if (visible.some(row => row.x < bounds.left - 1 || row.right > bounds.right + 1)) {
+          return { reason: "clipped-or-outside-toolbar", rows, containerRight: bounds.right };
+        }
+        if (Math.max(...visible.map(row => row.midY)) - Math.min(...visible.map(row => row.midY)) > 14) {
+          return { reason: "controls-wrap-to-multiple-rows", rows };
+        }
+        for (let i = 1; i < visible.length; i++) {
+          if (visible[i].x < visible[i - 1].right - 1) {
+            return { reason: "overlapping-controls", rows };
+          }
+        }
+        return { reason: "", rows };
+      }, items);
+      if (result.reason) {
+        throw new Error(`UI QA single-row layout failed at ${selector}: ${JSON.stringify(result)}`);
+      }
     }
   } else if (type === "scrollable-x") {
     const scrollable = await locator.first().evaluate(element => {

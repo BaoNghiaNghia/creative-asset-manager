@@ -544,15 +544,12 @@ export function Stage3ReviewGroups({
           query={query}
           onQueryChange={onQueryChange}
           suggestions={searchSuggestions}
-          placeholder="Search folder, image, reviewer, or scene…"
+          placeholder="Search folders, images, reviewers…"
           label="Search Stage 5 UGC reviews"
         />
-        <span className="rrugc-stage5-loaded-count">
-          {normalizedQuery ? visibleGroups.length + " matching folders" : data.total_groups + " folders loaded"}
-        </span>
       </div>
       <div className="rrugc-stage5-sort-bar" role="group" aria-label="Sort Stage 5 loaded reviews">
-        <label className="rrugc-stage5-sort-label">Sort loaded reviews
+        <label className="rrugc-stage5-sort-label">Sort by
           <select aria-label="Sort Stage 5 loaded reviews" title="Sort applies to loaded results. Load older images to include more." value={sortBy}
             onChange={event => setSortBy(event.target.value as Stage5SortBy)}>
             <option value="newest">Newest first</option>
@@ -567,24 +564,27 @@ export function Stage3ReviewGroups({
       <div className="rrugc-stage5-toolbar-actions">
         <button type="button" className="rrugc-stage3-refresh rrugc-icon-action"
           onClick={onRefresh} disabled={loading || loadingMore}>
-          <RrugcActionIcon name="refresh" />Refresh
+          <RrugcActionIcon name="refresh" /><span>Refresh</span>
         </button>
         <button type="button" className="rrugc-stage3-analyze-all rrugc-icon-action"
+          aria-label="Analyze all Stage 5 images" title="Analyze all Stage 5 images"
           onClick={() => onAnalyze()} disabled={analyzing || data.total_images === 0}>
           <RrugcActionIcon name={analyzing ? "refresh" : "sparkles"} />
-          {analyzing ? "Queueing…" : "Analyze all"}
+          <span className="rrugc-stage5-long-label">{analyzing ? "Queueing…" : "Analyze all"}</span>
+          <span className="rrugc-stage5-short-label">{analyzing ? "Queueing…" : "Analyze"}</span>
         </button>
         {onExportReviews && <>
-          <button type="button" className="rrugc-stage5-export rrugc-icon-action"
+          <button type="button" className="rrugc-stage5-export rrugc-icon-action" aria-label="Export AI Concepts CSV"
             disabled={Boolean(exporting)} title="Internal AI concepts only. Export creates reviewer-name-based non-deliverable @example.invalid test emails; verified_purchase stays blank until a real order is verified. Do not publish as genuine customer reviews."
             onClick={() => void exportAll("csv")}>
             <RrugcActionIcon name={exporting ? "refresh" : "download"} />
-            {exporting === "csv" ? "Exporting…" : "AI Concepts CSV"}
+            <span className="rrugc-stage5-long-label">{exporting === "csv" ? "Exporting…" : "AI Concepts CSV"}</span>
+            <span className="rrugc-stage5-short-label">{exporting === "csv" ? "Exporting…" : "CSV"}</span>
           </button>
-          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action"
+          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label="Export Draft Excel"
             disabled={Boolean(exporting)} title="Draft Excel preview includes plain author and body plus an About AI concepts disclosure sheet."
             onClick={() => void exportAll("xlsx")}>
-            <RrugcActionIcon name="file" />Draft Excel
+            <RrugcActionIcon name="file" /><span className="rrugc-stage5-long-label">Draft Excel</span><span className="rrugc-stage5-short-label">Excel</span>
           </button>
         </>}
       </div>

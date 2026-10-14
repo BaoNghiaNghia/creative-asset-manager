@@ -232,6 +232,8 @@
       "assertions": [
         {"type":"visible","selector":"#rrugc-panel-stage5 .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats"},
         {"type":"visible","selector":"#rrugc-panel-stage5 .rrugc-stage5-toolbar .rrugc-stage5-sort-bar"},
+        {"type":"single-row-within","selector":"#rrugc-panel-stage5 .rrugc-stage5-toolbar","minViewportPx":1280,
+         "items":[".rrugc-stage5-search-group",".rrugc-stage5-sort-bar",".rrugc-stage5-toolbar-actions",".rrugc-stage5-toolbar-stats"]},
         {"type":"hidden","selector":"#rrugc-panel-stage5 .rrugc-stage5-folder-summary"}
       ]
     },
