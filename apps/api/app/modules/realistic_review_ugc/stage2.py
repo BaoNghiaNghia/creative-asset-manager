@@ -30,6 +30,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel,
     RrugcStage2JobModel,
 )
+from app.modules.realistic_review_ugc.codex_account_manager import acquire_worker_profile
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
@@ -956,42 +957,46 @@ class RrugcStage2GenerateJobHandler:
         if held is not None:
             return held
 
-        runner = CodexImageGenRunner(
-            CodexImageRunnerConfig(
-                binary=str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex"),
-                codex_home=str(
-                    getattr(
-                        settings,
-                        "CODEX_IMAGE_HOME",
-                        "/var/lib/creative-asset-manager/codex",
-                    )
-                ),
-                staging_root=str(
-                    getattr(
-                        settings,
-                        "IMAGE_GENERATION_STAGING_ROOT",
-                        "/var/lib/creative-asset-manager/image-generation",
-                    )
-                ),
-                skill_name=skill_name,
-                timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
-                model=(
-                    str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip()
-                    or None
-                ),
-            )
-        )
         generation_prompt = (prompt or DEFAULT_STAGE2_PROMPT).strip()
-
-        try:
-            result = await runner.generate_from_references(
-                attempt_id=job_id,
-                person=source,
-                references=reference_inputs,
-                prompt=generation_prompt,
-            )
-        finally:
-            runner.cleanup_attempt(job_id)
+        primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
+        binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
+        with context.dependencies.session_factory() as pool_session:
+            try:
+                with acquire_worker_profile(
+                    pool_session, context.job.tenant_id, "stage2",
+                    primary_home, binary, skill_name,
+                ) as (_account_id, selected_home):
+                    pool_session.commit()
+                    runner = CodexImageGenRunner(
+                        CodexImageRunnerConfig(
+                            binary=binary,
+                            codex_home=selected_home,
+                            staging_root=str(getattr(
+                                settings, "IMAGE_GENERATION_STAGING_ROOT",
+                                "/var/lib/creative-asset-manager/image-generation",
+                            )),
+                            skill_name=skill_name,
+                            timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
+                            model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
+                        )
+                    )
+                    try:
+                        result = await runner.generate_from_references(
+                            attempt_id=job_id,
+                            person=source,
+                            references=reference_inputs,
+                            prompt=generation_prompt,
+                        )
+                    finally:
+                        runner.cleanup_attempt(job_id)
+            except RuntimeError as exc:
+                if str(exc) != "codex_account_pool_busy":
+                    raise
+                return DeferredJobOutcome(
+                    "codex_account_pool_busy",
+                    "All enabled Codex worker profiles are busy.",
+                    datetime.now(timezone.utc) + timedelta(seconds=60),
+                )
 
         try:
             with Image.open(BytesIO(result.image_bytes)) as image:

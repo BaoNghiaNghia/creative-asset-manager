@@ -1,15 +1,15 @@
-"""Admin-only Codex profile registry.
+"""Admin-only Codex profile registry and Stage 2 worker slot allocation.
 
-This module intentionally does not distribute jobs between accounts.
-Current Codex workers still use the original CODEX_IMAGE_HOME. Any secondary
-profile is configured independently and must be explicitly authenticated by
-its owner before a separately reviewed scheduler can be enabled.
+Secondary Codex profiles retain isolated authentication, and Stage 2 routing
+only selects them after successful authentication and skill verification.
 """
 from __future__ import annotations
 
 import os
+import fcntl
 import shutil
 import subprocess
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +22,55 @@ from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 PROFILE_IDS = ("account-1", "account-2")
 STAGES = ("stage1", "stage2", "stage4")
 MAX_PROFILES = 2
+
+
+@contextmanager
+def acquire_worker_profile(
+    session: Session,
+    tenant_id: str,
+    stage: str,
+    primary_home: str,
+    binary: str = "codex",
+    skill_name: str | None = None,
+):
+    """Hold a cross-process profile slot until its Codex invocation finishes."""
+    if stage not in STAGES:
+        raise ValueError("Unsupported Codex stage")
+    records = ensure_accounts(session, tenant_id)
+    candidates = [row for row in records if row.enabled and stage in (row.stages_json or [])]
+    # Prefer authenticated secondary capacity, falling back to the original profile.
+    candidates.sort(key=lambda row: row.account_id != "account-2")
+    for record in candidates:
+        if record.account_id == "account-2" and auth_status(
+            record.account_id, primary_home, binary
+        ) != "connected":
+            continue
+        home = account_home(record.account_id, primary_home)
+        if skill_name and record.account_id == "account-2" and not (
+            home / "skills" / skill_name / "SKILL.md"
+        ).is_file():
+            continue
+        lock_dir = home / "worker-locks"
+        try:
+            lock_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        except OSError:
+            continue
+        for slot in range(max(1, min(record.max_concurrent, 3))):
+            handle = None
+            try:
+                handle = (lock_dir / f"slot-{slot}.lock").open("a+")
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                if handle is not None:
+                    handle.close()
+                continue
+            try:
+                yield record.account_id, str(home)
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
+            return
+    raise RuntimeError("codex_account_pool_busy")
 
 
 def account_home(account_id: str, primary_home: str) -> Path:
@@ -84,9 +133,21 @@ def auth_status(account_id: str, primary_home: str, binary: str = "codex") -> st
 
 def status(session: Session, tenant_id: str, primary_home: str, binary: str = "codex") -> dict:
     records = ensure_accounts(session, tenant_id)
+    secondary = next(row for row in records if row.account_id == "account-2")
+    stage2_pool_ready = bool(
+        secondary.enabled
+        and "stage2" in (secondary.stages_json or [])
+        and auth_status("account-2", primary_home, binary) == "connected"
+    )
     return {
-        "routing_mode": "single_active",
-        "routing_note": "Codex workers currently use Account 01. Account 02 is configured but is not a live worker pool member.",
+        "routing_mode": "stage2_pool" if stage2_pool_ready else "single_active",
+        "routing_note": (
+            "Stage 2 can dispatch to both eligible Codex profiles. "
+            "Stage 1 and Stage 4 still use the existing execution path."
+            if stage2_pool_ready else
+            "Stage 2 uses Account 01 until Account 02 is enabled and authenticated. "
+            "Stage 1 and Stage 4 are not pooled yet."
+        ),
         "accounts": [
             {
                 "account_id": row.account_id,

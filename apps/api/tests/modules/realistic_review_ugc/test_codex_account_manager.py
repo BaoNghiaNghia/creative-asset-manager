@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 from app.modules.realistic_review_ugc.codex_account_manager import (
-    account_home, ensure_accounts, status, update_settings,
+    account_home, acquire_worker_profile, ensure_accounts, status, update_settings,
 )
 from app.modules.realistic_review_ugc.model import RrugcCodexAccountConfigModel
 from app.modules.realistic_review_ugc.router import CodexAccountSettingsRequest, save_codex_account_settings
@@ -36,6 +36,23 @@ def test_default_profile_is_preserved_and_secondary_is_never_active(tmp_path: Pa
         assert str(account_home("account-2", home)).endswith("codex-account-2")
         session.commit()
         assert len(ensure_accounts(session, "tenant-a")) == 2
+    engine.dispose()
+
+
+def test_pool_locks_slots_and_falls_back_without_secondary_auth(tmp_path: Path):
+    engine = db()
+    home = str(tmp_path / "codex")
+    with Session(engine) as session:
+        ensure_accounts(session, "tenant-a")
+        session.commit()
+        with acquire_worker_profile(session, "tenant-a", "stage2", home) as (account, selected):
+            assert account == "account-1"
+            assert selected == str(tmp_path / "codex")
+            with pytest.raises(RuntimeError, match="codex_account_pool_busy"):
+                with acquire_worker_profile(session, "tenant-a", "stage2", home):
+                    pass
+        with acquire_worker_profile(session, "tenant-a", "stage2", home) as (account, _):
+            assert account == "account-1"
     engine.dispose()
 
 
