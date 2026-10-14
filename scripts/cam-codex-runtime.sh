@@ -7,6 +7,7 @@ CODEX_HOME="${CAM_CODEX_HOME:-/var/lib/creative-asset-manager/codex}"
 SERVICE_USER="${CAM_CODEX_SERVICE_USER:-creative-assets}"
 SKILLS_SOURCE="$ROOT/deploy/codex/skills"
 SMOKE_WORKSPACE="$CODEX_HOME/smoke-workspace"
+SECONDARY_CODEX_HOME="${CAM_CODEX_SECONDARY_HOME:-${CODEX_HOME}-account-2}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -55,6 +56,37 @@ codex_as_service_user() {
       HOME="$CODEX_HOME" \
       CODEX_HOME="$CODEX_HOME" \
       "$@"
+}
+
+prepare_secondary() {
+  prepare >/dev/null
+  install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$SECONDARY_CODEX_HOME"
+  [[ "$SECONDARY_CODEX_HOME" != "$CODEX_HOME" ]] || die "Secondary Codex home must be distinct."
+  if [[ -e "$SECONDARY_CODEX_HOME/skills" && ! -L "$SECONDARY_CODEX_HOME/skills" ]]; then
+    die "Secondary skills directory must not replace shared skills."
+  fi
+  if [[ ! -e "$SECONDARY_CODEX_HOME/skills" && ! -L "$SECONDARY_CODEX_HOME/skills" ]]; then
+    ln -s "$CODEX_HOME/skills" "$SECONDARY_CODEX_HOME/skills"
+  fi
+  [[ "$(readlink -f "$SECONDARY_CODEX_HOME/skills")" == "$(readlink -f "$CODEX_HOME/skills")" ]] \
+    || die "Secondary skills link is not the managed shared skills directory."
+}
+
+codex_as_secondary_user() {
+  runuser -u "$SERVICE_USER" -- env \
+    -u OPENAI_API_KEY -u OPENAI_ORGANIZATION -u OPENAI_PROJECT \
+    -u OPENAI_BASE_URL -u CODEX_API_KEY -u OPENAI_EXECUTOR_API_KEY \
+    HOME="$SECONDARY_CODEX_HOME" CODEX_HOME="$SECONDARY_CODEX_HOME" "$@"
+}
+
+login_secondary() {
+  prepare_secondary
+  codex_as_secondary_user codex login --device-auth
+}
+
+status_secondary() {
+  require_root
+  codex_as_secondary_user codex login status
 }
 
 login() {
@@ -111,11 +143,14 @@ PY
 case "${1:-}" in
   prepare) prepare ;;
   login) login ;;
+  login-2) login_secondary ;;
   status) status ;;
+  status-2) status_secondary ;;
+  prepare-2) prepare_secondary ;;
   smoke) smoke ;;
   *)
     cat >&2 <<'USAGE'
-Usage: sudo scripts/cam-codex-runtime.sh {prepare|login|status|smoke}
+Usage: sudo scripts/cam-codex-runtime.sh {prepare|login|status|prepare-2|login-2|status-2|smoke}
 USAGE
     exit 2
     ;;

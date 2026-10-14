@@ -797,6 +797,30 @@ export const createStage2Job = (
     },
   );
 
+export type CodexAccountConfig = {
+  account_id: "account-1" | "account-2";
+  display_name: string;
+  enabled: boolean;
+  max_concurrent: number;
+  stages: string[];
+  auth_status: "connected" | "not_connected" | "auth_required" | "cli_unavailable" | "check_failed";
+  is_executing: boolean;
+  updated_at: string;
+};
+export type CodexAccountsStatus = {
+  routing_mode: "single_active";
+  routing_note: string;
+  can_manage: boolean;
+  accounts: CodexAccountConfig[];
+};
+export const getCodexAccounts = (signal?: AbortSignal) =>
+  request<CodexAccountsStatus>("/api/v1/realistic-review-ugc/codex-accounts", { signal });
+export const updateCodexAccount = (id: CodexAccountConfig["account_id"], config: Pick<CodexAccountConfig, "display_name" | "enabled" | "max_concurrent" | "stages">) =>
+  request<CodexAccountsStatus>("/api/v1/realistic-review-ugc/codex-accounts/" + encodeURIComponent(id), {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+
 export type Stage4QueueControl = { paused: boolean; queued: number; running: number };
 
 export const getStage4QueueControl = (signal?: AbortSignal) =>

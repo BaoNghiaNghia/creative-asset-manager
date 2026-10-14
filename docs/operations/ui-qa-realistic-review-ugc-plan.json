@@ -166,6 +166,20 @@
       ]
     },
     {
+      "name": "stage4-codex-manager-open",
+      "click": "#rrugc-panel-stage4 [data-codex-accounts-open]",
+      "waitFor": ".rrugc-codex-pool-dialog",
+      "assertions": [
+        {"type": "text-includes", "selector": ".rrugc-codex-pool-banner", "value": "Single active account"},
+        {"type": "text-includes", "selector": ".rrugc-codex-pool-dialog", "value": "Account 02"}
+      ]
+    },
+    {
+      "name": "stage4-codex-manager-close",
+      "click": ".rrugc-codex-pool-close",
+      "waitFor": "#rrugc-panel-stage4 .rrugc-stage2"
+    },
+    {
       "name": "stage4-sort-controls",
       "waitFor": "#rrugc-panel-stage4 .rrugc-stage-sort select",
       "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage4 .rrugc-stage-sort select","value":"Active jobs"}]

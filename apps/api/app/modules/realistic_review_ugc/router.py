@@ -6505,6 +6505,72 @@ def analyze_stage3_review_groups(
     )
 
 
+class CodexAccountSettingsRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    enabled: bool
+    max_concurrent: int = Field(ge=1, le=3)
+    stages: list[str] = Field(default_factory=list, max_length=3)
+
+
+@router.get("/codex-accounts")
+def list_codex_accounts(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.codex_account_manager import status
+    settings = get_settings()
+    result = status(
+        session, principal.active_tenant_id,
+        settings.CODEX_IMAGE_HOME,
+        settings.CODEX_IMAGE_BINARY,
+    )
+    result["can_manage"] = bool(
+        principal.platform_admin or "tenant_members.manage" in principal.effective_permissions
+    )
+    session.commit()
+    return result
+
+
+@router.put("/codex-accounts/{account_id}")
+def save_codex_account_settings(
+    account_id: str,
+    request: CodexAccountSettingsRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    if not (principal.platform_admin or
+            "tenant_members.manage" in principal.effective_permissions):
+        raise HTTPException(status_code=403, detail={
+            "code": "codex_account_admin_required",
+            "message": "Tenant administrator permission is required to change Codex account settings.",
+        })
+    from app.modules.realistic_review_ugc.codex_account_manager import (
+        update_settings, status,
+    )
+    settings = get_settings()
+    try:
+        update_settings(
+            session,
+            tenant_id=principal.active_tenant_id,
+            account_id=account_id,
+            actor=principal.user_id,
+            display_name=request.display_name,
+            enabled=request.enabled,
+            max_concurrent=request.max_concurrent,
+            stages=request.stages,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    result = status(
+        session, principal.active_tenant_id,
+        settings.CODEX_IMAGE_HOME,
+        settings.CODEX_IMAGE_BINARY,
+    )
+    result["can_manage"] = True
+    session.commit()
+    return result
+
+
 class Stage4QueueControlResponse(BaseModel):
     paused: bool
     queued: int

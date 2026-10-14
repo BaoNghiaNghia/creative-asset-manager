@@ -38,6 +38,23 @@ class RrugcStage4QueueControlModel(Base):
     )
 
 
+class RrugcCodexAccountConfigModel(Base):
+    """Non-secret Codex profile settings; the CLI session stays on the server."""
+
+    __tablename__ = "rrugc_codex_account_configs"
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    max_concurrent: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    stages_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
 class RrugcCampaignModel(Base):
     __tablename__ = "rrugc_campaigns"
     __table_args__ = (
