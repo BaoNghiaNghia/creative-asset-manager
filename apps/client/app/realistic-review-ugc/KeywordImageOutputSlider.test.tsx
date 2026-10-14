@@ -62,7 +62,9 @@ describe("Stage 1 draggable image strip", () => {
     expect(listGenerationOutputVersions).toHaveBeenCalledWith("stage1", "job-1", expect.anything());
     expect(host.querySelectorAll(".rrugc-keyword-output-image")).toHaveLength(8);
     expect(host.querySelectorAll(".rrugc-keyword-output-track")).toHaveLength(1);
-    expect(host.textContent).toContain("8 images");
+    expect(host.textContent).not.toContain("8 images");
+    expect(host.querySelector(".rrugc-keyword-output-footer")).toBeNull();
+    expect(host.querySelector(".rrugc-keyword-output-track")?.getAttribute("aria-label")).toContain("8 generated images");
     expect(host.querySelector(".rrugc-keyword-output-image")?.tagName).toBe("BUTTON");
     expect(host.querySelector(".rrugc-keyword-output-image")?.hasAttribute("href")).toBe(false);
     await act(async () => host.querySelectorAll<HTMLButtonElement>(".rrugc-keyword-output-image")[2].click());
@@ -148,7 +150,8 @@ describe("Stage 1 draggable image strip", () => {
   it("preserves partial results on failed runs without reloading the Skill", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={{ ...row, status: "failed", saved_output_count: 2 }} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));
-    expect(host.textContent).toContain("Partial");
+    expect(host.textContent).not.toContain("Partial");
+    expect(host.querySelector(".rrugc-keyword-output-footer")).toBeNull();
     expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
   });
 

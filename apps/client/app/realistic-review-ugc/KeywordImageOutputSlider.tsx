@@ -163,14 +163,12 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
               ? <OutputActivityLoader status={row.status} />
               : loading || hasOutput ? "Loading images…" : "No images yet"}
         </div>}
-    <div className="rrugc-keyword-output-footer">
-      <span title={row.status === "failed" && count > 0 ? "Partial output is preserved" : undefined}>
-        {count ? `${count} image${count === 1 ? "" : "s"}${row.status === "failed" ? " · Partial" : ""}` : "Output"}
-      </span>
-      {(row.status === "queued" || row.status === "running") && slides.length > 0 &&
-        <OutputActivityLoader compact status={row.status} />}
-      {(error || brokenVersions.size > 0) && <button type="button" className="rrugc-keyword-output-retry"
-        title="Reload images" aria-label={`Reload images for ${row.keyword}`} onClick={() => { setReload(current => current + 1); setBrokenVersions(new Set()); setImageRetry(n => n + 1); }}>↻</button>}
-    </div>
+    {((row.status === "queued" || row.status === "running") && slides.length > 0 || error || brokenVersions.size > 0) &&
+      <div className="rrugc-keyword-output-footer" aria-label="Output activity and reload controls">
+        {(row.status === "queued" || row.status === "running") && slides.length > 0 &&
+          <OutputActivityLoader compact status={row.status} />}
+        {(error || brokenVersions.size > 0) && <button type="button" className="rrugc-keyword-output-retry"
+          title="Reload images" aria-label={`Reload images for ${row.keyword}`} onClick={() => { setReload(current => current + 1); setBrokenVersions(new Set()); setImageRetry(n => n + 1); }}>↻</button>}
+      </div>}
   </div>;
 }

@@ -38,5 +38,10 @@ def test_bundled_scale_skill_works_with_stage2_catalog(tmp_path):
         skill_id=resolved.skill_id, skill_name=resolved.skill_name,
         skill_version=resolved.skill_version,
     )
-    assert resolved.skill_version == "1.0.0"
+    assert resolved.skill_version is not None
+    import re
+    assert re.fullmatch(r"\d{2}_\d{2}_\d{2}_\d{2}_\d{2}", resolved.skill_version)
     assert pinned.skill_name == DEFAULT_COLORWAY_SKILL
+    skill_text = (source / "SKILL.md").read_text(encoding="utf-8")
+    assert "NEVER convert a multi-colored input into monochrome sepia" in skill_text
+    assert "ALL independent reference thread colors" in skill_text

@@ -415,9 +415,14 @@ class ColorwayGenerateHandler:
             "Apply the embroidery from the design reference to the FRONT CENTER of the "
             f"Valucap 8869 five-panel twill cap shown in the base stock photo. Official cap color: {color_name}. "
             "Use the stock photo for the exact cap shape, crown color, bill color and perspective. "
-            "Preserve the original embroidery design, letter spelling, stitch details, colors and placement. "
+            "Preserve the source artwork lettering, original motif geometry, stitch direction, "
+            "relative thread pigment RGB hues and saturated multicolor thread regions exactly. "
+            "Do not recolor embroidery to brown/sepia, auto-match the cap brim, flatten stitches "
+            "into a printed texture, or erase fine satin/tatami thread grooves. A truly monochrome "
+            "reference must stay monochrome, not be artificially colorized. "
             "Do not invent lettering, change logos, change cap color, or add side embroidery. "
-            "Generate one realistic, sharp ecommerce product photo. The stock color is immutable."
+            "Generate one realistic, sharp ecommerce product photo with thin direct embroidery. "
+            "The stock color and existing artwork identity are immutable."
         )
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))

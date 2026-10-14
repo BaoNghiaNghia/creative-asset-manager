@@ -265,7 +265,9 @@ def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_c
     files = {name: content for name, content, _content_type in bundle.files}
     skill = files["SKILL.md"].decode("utf-8")
     manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 1.2.1" in skill
+    assert "version: 12_37_14_10_26" in skill
+    assert "at least three illustration-led" in skill.lower()
+    assert "brown/tan/sepia may dominate at most one" in skill.lower()
     assert "Do **not** create or persist preview" in skill
     assert "embroidered-satin-natural" in skill
     for forbidden_effect in ("NOT bulky puff", "no hat", "flat printed graphic"):
@@ -280,7 +282,8 @@ def test_stage1_keyword_prompt_requires_creative_distinct_stitches_and_thread_pi
     from app.modules.realistic_review_ugc.keyword_images import keyword_prompt
     value = keyword_prompt("WELL READ", skill_name="gatorhats-stage1-six-designs")
     assert "embroidered-satin-natural" in value
-    assert "Not six font swaps" in value
+    assert "ILLUSTRATION-LED" in value
+    assert "Brown/tan/sepia may dominate at most ONE" in value
     assert "directional contrast" in value
     assert "output/final/design_01.png through design_06.png" in value
     assert "WELL READ" in value

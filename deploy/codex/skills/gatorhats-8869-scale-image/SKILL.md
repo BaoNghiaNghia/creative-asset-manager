@@ -1,6 +1,6 @@
 ---
 name: gatorhats-8869-scale-image
-version: 1.0.0
+version: 12_37_14_10_26
 description: Strictly copy one approved embroidery artwork onto one official Valucap 8869 stock cap colorway. Use for a single-color output in the Stage 2 13-color pipeline; do not create a ten-image ecommerce set.
 ---
 
@@ -21,9 +21,9 @@ This Skill is the specialized **COLOR_SCALE_HANDOFF** from GatorHats 8869 Image 
 2. Identify only the embroidery art. Discard the reference's background, mockup surface and product color; do not copy another cap from the reference.
 3. Apply the same embroidery **only at front center**, at realistic scale, aligned to the front crown and seam geometry.
 4. Keep text character-for-character. No replacement letters, made-up words, extra text, icons or side personalization.
-5. Preserve the original embroidery palette as faithfully as the stock crown contrast permits. Do not automatically recolor the design to match the bill or each cap color. Preserve meaning over decoration.
-6. Render one crisp, photographically convincing product-front image; retain fabric and embroidery stitch realism, visible cap structure and natural lighting. No collage, model, props, additional hats, background scene change or art style change.
-7. Before finalizing, visually check artwork identity, correct letters, embroidered texture, placement, 8869 crown/bill geometry and the exact named cap color.
+5. **Thread color fidelity is mandatory.** Transfer the embroidery image's exact independent thread color regions (including saturated cyan/teal, red, yellow, blue, green, pink or purple when present). NEVER convert a multi-colored input into monochrome sepia, muddy brown, warm beige, desaturated dark ink, bill-matched colors or luminance-mapped brown. Preserve each thread region's hue/saturation and relative relationships through the same colorway; change only physically believable shading/highlights caused by cloth and lighting. A genuinely monochrome source must remain monochrome rather than inventing colors; request a revised multicolor Stage 1 master upstream when more colors are wanted.
+6. Render one crisp, photographically convincing product-front image; retain fabric and embroidery stitch realism, visible cap structure and natural lighting. Thread fibers must follow lettering/motif stitch direction: narrow satin stitches, tight Tatami/fill in broad areas, and delicate running stitch for fine details; low relief stitched INTO fabric, never a flat printed transfer, puffy foam, brown rubber overlay, sticker or thick stitched patch border. No collage, model, props, additional hats, background scene change or art style change.
+7. Before finalizing, visually compare the embroidered image to the design reference and stock photo: (a) character-for-character lettering, motif silhouette and relative motif/text scale, (b) ALL independent reference thread colors remain perceptibly distinct, with no sepia/brown cast, (c) genuine fine stitch texture and correct low-profile physical adherence, (d) placement, 8869 crown/bill geometry and exact named cap color. If any check fails, correct this ONE output rather than silently accepting a degraded artwork.
 8. Save **one** final PNG to `output/final.png`. Do not generate a set or overwrite a different job's output.
 
 If you cannot preserve a legible design or the requested stock color, favor a faithful result and do not hallucinate missing letters. The caller validates dimensions, stores output and handles retries.
