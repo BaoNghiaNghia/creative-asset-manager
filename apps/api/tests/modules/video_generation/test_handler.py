@@ -15,6 +15,12 @@ from app.core.database import Base
 from app.domain.processing.handlers import ClaimedJob, DeferredJobOutcome, WorkerDependencies
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.storage.model import AssetStorageObjectModel
+from app.modules.assets.model import AssetModel
+from app.modules.video_generation.model import VideoGenerationReferenceModel
+from app.domain.providers.contracts import StoredAssetReadStream
+import hashlib
+from io import BytesIO
+from PIL import Image
 from app.modules.video_generation.gateway_client import GatewayGeneration, GatewayContent
 from app.domain.providers.contracts import StoredAsset
 from app.modules.video_generation.handler import VideoGenerateJobHandler
@@ -109,6 +115,45 @@ def test_submit_polls_and_stays_storing_when_managed_storage_is_unavailable(setu
         assert run.status == "storing"
         assert run.output_asset_id is None
 
+
+
+def test_video_worker_resolves_managed_stage2_images_without_source_asset_links(setup):
+    factory, settings, gateway, context, run_id = setup
+    image = BytesIO()
+    Image.new("RGB", (128, 128), "navy").save(image, format="PNG")
+    image_bytes = image.getvalue()
+    digest = hashlib.sha256(image_bytes).hexdigest()
+    with factory() as session:
+        asset = AssetModel(tenant_id="tenant-a", content_hash=digest, mime_type="image/png", size_bytes=len(image_bytes))
+        session.add(asset)
+        session.flush()
+        session.add(AssetStorageObjectModel(
+            tenant_id="tenant-a", asset_id=asset.id, content_hash=digest,
+            storage_provider="managed-test", storage_class="durable",
+            status="stored", remote_file_id="hat-image-remote",
+        ))
+        session.add(VideoGenerationReferenceModel(
+            tenant_id="tenant-a", run_id=run_id, asset_id=asset.id, position=0,
+        ))
+        session.commit()
+    class ReadStorage:
+        provider_name = "managed-test"
+        async def open_asset(self, request):
+            assert request.tenant_id == "tenant-a"
+            assert request.remote_file_id == "hat-image-remote"
+            async def body():
+                yield image_bytes
+            async def close():
+                return None
+            return StoredAssetReadStream(body=body(), close=close, content_type="image/png")
+    context.dependencies.storage_provider = ReadStorage()
+    result = VideoGenerateJobHandler(settings)(context)
+    assert isinstance(result, DeferredJobOutcome)
+    assert len(gateway.submit_calls) == 1
+    references = gateway.submit_calls[0]["references"]
+    assert len(references) == 1
+    assert references[0].mime_type == "image/png"
+    assert references[0].content == image_bytes
 
 def test_unknown_without_gateway_never_submits(setup):
     factory, settings, gateway, context, run_id = setup

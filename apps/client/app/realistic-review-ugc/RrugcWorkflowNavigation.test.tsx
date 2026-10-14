@@ -36,12 +36,12 @@ describe("GatorHats sidebar groups and stage navigation", () => {
   const selected = () => host.querySelector<HTMLOutputElement>('[data-testid="active-stage"]')?.textContent;
   const tabs = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.rrugc-stage-tabs button')).map(tab => tab.id);
 
-  it("maps only 0–2 to Products and 3–5 to Reviews", () => {
+  it("maps Products Stage 0–3 independently from Reviews Stage 2–5", () => {
     expect(RRUGC_WORKFLOW_GROUPS.map(item => item.title)).toEqual(["GatorHats Products", "GatorHats Reviews"]);
-    expect(stagesForWorkflowGroup("products").map(item => item.id)).toEqual(["stage0", "stage1", "stage2"]);
+    expect(stagesForWorkflowGroup("products").map(item => item.id)).toEqual(["stage0", "stage1", "stage2", "products-stage3"]);
     expect(stagesForWorkflowGroup("reviews").map(item => item.id)).toEqual(["reviews-stage2", "stage3", "stage4", "stage5"]);
     expect(workflowGroupForStage("stage5")).toBe("reviews");
-    expect(tabs()).toEqual(["rrugc-tab-stage0", "rrugc-tab-stage1", "rrugc-tab-stage2"]);
+    expect(tabs()).toEqual(["rrugc-tab-stage0", "rrugc-tab-stage1", "rrugc-tab-stage2", "rrugc-tab-products-stage3"]);
     expect(host.querySelector("#rrugc-workflow-products")).toBeNull();
     expect(host.querySelector("#rrugc-workflow-reviews")).toBeNull();
   });
@@ -62,7 +62,7 @@ describe("GatorHats sidebar groups and stage navigation", () => {
         new KeyboardEvent("keydown", { bubbles: true, key: "ArrowLeft", cancelable: true }),
       );
     });
-    expect(selected()).toBe("stage2");
+    expect(selected()).toBe("products-stage3");
     await act(async () => { host.querySelector<HTMLButtonElement>("#open-reviews")?.click(); });
     await act(async () => {
       host.querySelector<HTMLElement>(".rrugc-stage-tabs")?.dispatchEvent(
@@ -84,13 +84,16 @@ describe("GatorHats sidebar groups and stage navigation", () => {
     expect(rrugcWorkflowHref("products", "stage5")).toBe(rrugcWorkflowHref("products"));
     expect(rrugcStageFromSearch("?workflow=reviews&stage=stage5")).toBe("stage5");
     expect(rrugcStageFromSearch("?workflow=products&stage=stage4")).toBe("stage0");
+    expect(rrugcStageFromSearch("?workflow=products&stage=products-stage3")).toBe("products-stage3");
+    expect(rrugcWorkflowHref("products", "products-stage3")).toBe("/realistic-review-ugc?workflow=products&stage=products-stage3");
+    expect(workflowGroupForStage("products-stage3")).toBe("products");
     expect(rrugcStageFromSearch("?stage=stage4")).toBe("stage4");
     expect(rrugcStageFromSearch("?workflow=invalid&stage=unknown")).toBe("stage0");
   });
 
   it("keeps one selected stage tab in each workflow", () => {
     expect(host.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(1);
-    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   });
 
   it("updates workflow/stage in the URL while keeping unrelated query and hash", () => {

@@ -731,7 +731,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(routeForPath("/realistic-review-ugc/")).toBe("realistic-review-ugc");
   });
 
-  it("renders only Stage 0–2 for Products and exposes group links in the sidebar instead of in-page tabs", () => {
+  it("renders Stage 0–3 for Products without affecting Reviews tabs", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
     expect(markup).toContain('role="tablist"');
     expect(markup).toContain('aria-label="GatorHats Products stages"');
@@ -744,6 +744,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('id="rrugc-tab-stage0"');
     expect(markup).toContain('id="rrugc-tab-stage1"');
     expect(markup).toContain('id="rrugc-tab-stage2"');
+    expect(markup).toContain('id="rrugc-tab-products-stage3"');
     expect(markup).not.toContain('id="rrugc-tab-stage3"');
     expect(markup).not.toContain('id="rrugc-tab-stage4"');
     expect(markup).not.toContain('id="rrugc-tab-stage5"');

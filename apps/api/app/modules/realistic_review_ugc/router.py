@@ -352,6 +352,8 @@ router = APIRouter(
     prefix="/api/v1/realistic-review-ugc",
     tags=["realistic-review-ugc"],
 )
+from .products_video_stage import router as products_stage3_video_router
+router.include_router(products_stage3_video_router)
 READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
 

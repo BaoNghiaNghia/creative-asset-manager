@@ -38,6 +38,7 @@ import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { ResearchInboxPanel } from "./ResearchInboxPanel";
 import { SearchIntelligenceModal } from "./SearchIntelligencePanel";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
+import { ProductsVideoStage } from "./ProductsVideoStage";
 import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
 import { Stage2JobTable } from "./Stage2JobTable";
@@ -1175,6 +1176,17 @@ export function RealisticReviewUgcPage() {
               setEmbroideryPageSize(value);
             }}
           />
+        </section>
+
+        <section
+          id="rrugc-panel-products-stage3"
+          className="rrugc-stage-panel"
+          role="tabpanel"
+          aria-labelledby="rrugc-tab-products-stage3"
+          tabIndex={activeStage === "products-stage3" ? 0 : -1}
+          hidden={activeStage !== "products-stage3"}
+        >
+          <ProductsVideoStage active={activeStage === "products-stage3"} />
         </section>
 
         <section

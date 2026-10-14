@@ -19,7 +19,7 @@ from app.modules.assets.repository import AssetContentConflictError, AssetRegist
 from app.modules.storage.model import AssetStorageObjectModel
 from app.modules.storage.repository import ManagedStorageRepository
 from app.modules.storage.service import ManagedAssetStorageService
-from app.domain.providers.contracts import StorageProviderError, StoreAssetInput
+from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError, StoreAssetInput
 
 from .gateway_client import DolaGatewayClient, DolaGatewayError, GatewayReference
 from .model import VideoGenerationReferenceModel
@@ -163,23 +163,61 @@ class VideoGenerateJobHandler:
                 ).order_by(VideoGenerationReferenceModel.position)
             ))
         source_ids = [source_by_asset.get(reference.asset_id) for reference in references]
-        if any(source_id is None for source_id in source_ids):
-            raise VideoGenerationHandlerError("video_reference_unavailable", "A reference image is unavailable.")
-
         resolver = context.dependencies.resources.get("video_generation_content_resolver")
         resolver = resolver or SourceAssetContentResolver(context.dependencies.session_factory)
         prepared: list[GatewayReference] = []
         total = 0
         for index, reference in enumerate(references):
             data = bytearray()
+            source_id = source_ids[index]
             try:
-                async with resolver.open(tenant_id=context.job.tenant_id, source_asset_id=source_ids[index]) as stream:
-                    declared_mime = stream.content_type.split(";", 1)[0].lower()
-                    async for block in stream.body:
-                        data.extend(block)
-                        if len(data) > MAX:
-                            raise VideoGenerationHandlerError("video_reference_too_large", "Reference image exceeds size limit.")
-            except SourceAssetContentUnavailable as exc:
+                if source_id is not None:
+                    async with resolver.open(
+                        tenant_id=context.job.tenant_id, source_asset_id=source_id,
+                    ) as stream:
+                        declared_mime = stream.content_type.split(";", 1)[0].lower()
+                        async for block in stream.body:
+                            data.extend(block)
+                            if len(data) > MAX:
+                                raise VideoGenerationHandlerError("video_reference_too_large", "Reference image exceeds size limit.")
+                else:
+                    # Generated Stage 2 outputs live directly in Managed Storage and
+                    # have no external SourceAsset link. Never fall back to a URL.
+                    with context.dependencies.session_factory() as session:
+                        asset = session.scalar(select(AssetModel).where(
+                            AssetModel.id == reference.asset_id,
+                            AssetModel.tenant_id == context.job.tenant_id,
+                        ))
+                        stored = session.scalar(select(AssetStorageObjectModel).where(
+                            AssetStorageObjectModel.asset_id == reference.asset_id,
+                            AssetStorageObjectModel.tenant_id == context.job.tenant_id,
+                            AssetStorageObjectModel.status == "stored",
+                            AssetStorageObjectModel.remote_file_id.is_not(None),
+                        ))
+                    storage = context.dependencies.storage_provider
+                    if asset is None or stored is None or storage is None:
+                        raise VideoGenerationHandlerError("video_reference_unavailable", "A reference image is unavailable.")
+                    provider_name = getattr(storage, "provider_name", storage.__class__.__name__)
+                    if stored.storage_provider != provider_name:
+                        raise VideoGenerationHandlerError("video_reference_unavailable", "Reference storage provider is unavailable.")
+                    declared_mime = (asset.mime_type or "").split(";", 1)[0].lower()
+                    stream = await storage.open_asset(OpenStoredAssetInput(
+                        tenant_id=context.job.tenant_id,
+                        asset_id=reference.asset_id,
+                        remote_file_id=stored.remote_file_id,
+                        content_type=declared_mime,
+                        size_bytes=asset.size_bytes,
+                    ))
+                    try:
+                        async for block in stream.body:
+                            data.extend(block)
+                            if len(data) > MAX:
+                                raise VideoGenerationHandlerError("video_reference_too_large", "Reference image exceeds size limit.")
+                    finally:
+                        await stream.close()
+                    if hashlib.sha256(data).hexdigest() != asset.content_hash:
+                        raise VideoGenerationHandlerError("video_reference_mismatch", "Reference image has changed.")
+            except (SourceAssetContentUnavailable, StorageProviderError) as exc:
                 raise VideoGenerationHandlerError("video_reference_unavailable", "A reference image is unavailable.") from exc
             total += len(data)
             if total > TOTAL:
