@@ -95,9 +95,9 @@ def test_manager_and_scout_versions_are_distinct_on_dashboard():
     package = (ROOT / "apps/scout-manager-desktop/package.json").read_text(encoding="utf-8")
     cargo = (ROOT / "apps/scout-manager-desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
     tauri = (ROOT / "apps/scout-manager-desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
-    assert '"version": "0.1.19"' in package
-    assert 'version = "0.1.19"' in cargo
-    assert '"version": "0.1.19"' in tauri
+    assert '"version": "0.1.20"' in package
+    assert 'version = "0.1.20"' in cargo
+    assert '"version": "0.1.20"' in tauri
 
 
 def test_build_script_publishes_portable_and_installer_together():

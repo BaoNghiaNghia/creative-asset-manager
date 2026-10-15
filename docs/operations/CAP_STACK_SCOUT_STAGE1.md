@@ -7,8 +7,8 @@ Stage 3 campaign, source plan, product or embroidery group.
 
 - CAM → GatorHats Reviews → **Stage 1 / Cap Stack Scout**: enable/disable
   the server queue; filter shared images, review with ✓ / × / AI, and manually
-  record 1–50 visible caps per image.
-- **RRUGC Scout Manager for Windows, version 0.1.19**: separate Cap Stack
+  record a verified 2–6 cap count per image. Gemini also records counts above six for exclusion and diagnostics.
+- **RRUGC Scout Manager for Windows, version 0.1.20**: separate Cap Stack
   Scout card with Start/Pause/Restart, PID, health, and independent live logs.
   The existing Review and Keyword lanes remain independently controllable.
 - `START_SCOUT_CAP_STACK.cmd` is an alternative direct process launcher;
@@ -58,8 +58,9 @@ the production Windows workstation.
 - Vision returns `is_cap_stack`, count of *visually distinct* target caps
   (0–50), confidence (0–1), uncertain AI suspicion (NOT definitive AI
   provenance), and a short pixel-grounded summary. A count under 66%
-  confidence is flagged `needs_review` and non-stacked imagery is flagged
-  `not_cap_stack`. This is an AI estimate, **not a verified ground truth**.
+  confidence is flagged `needs_review`, non-stacked imagery is flagged
+  `not_cap_stack`, and stacks of 7+ caps are flagged `out_of_range`.
+  Only stacks with 2–6 visible caps can reach `ready`. This is an AI estimate, **not a verified ground truth**.
 - Human corrections are stored separately as `manual_caps_count`,
   prioritized over the AI suggestion and never overwritten by regeneration.
   Likewise ✓ / × / AI manual labels are independent from Gemini suggestions.
@@ -76,7 +77,7 @@ the production Windows workstation.
    **disabled** and the original Review/Keyword APIs remain responsive.
 3. Deploy the Stage 1 frontend and run a fixture-backed Browser QA pass
    on desktop, tablet, mobile. Do not confuse fixtures with live PIN data.
-4. Build and distribute the **Windows** Tauri 0.1.19 x64 installer/portable
+4. Build and distribute the **Windows** Tauri 0.1.20 x64 installer/portable
    executable through the Windows CI workflow. Git source auto-update can
    refresh `scout.py` and the PowerShell launchers, but cannot update
    the native binary on a workstation by itself.

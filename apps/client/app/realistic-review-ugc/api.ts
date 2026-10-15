@@ -71,7 +71,7 @@ export type CapStackImage = {
 export type CapStackPage = {
   items: CapStackImage[]; total: number; page: number; page_size: number;
   stats: { discovered: number; approved: number; rejected: number; ai: number; pending: number };
-  vision?: { ready: number; analyzing: number; pending: number; needs_review: number; not_cap_stack: number; error: number; ai_suspected: number };
+  vision?: { ready: number; analyzing: number; pending: number; needs_review: number; not_cap_stack: number; out_of_range?: number; error: number; ai_suspected: number };
   scout: { enabled: boolean; running: boolean; last_result: string | null; next_scan_at: string | null };
 };
 const CAP_STACK_PATH = "/api/v1/realistic-review-ugc/cap-stack";

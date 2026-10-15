@@ -20,7 +20,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.realistic_review_ugc.cap_stack_model import RrugcCapStackControlModel, RrugcCapStackImageModel
-from app.modules.realistic_review_ugc.cap_stack_analysis import enqueue_cap_stack_pending
+from app.modules.realistic_review_ugc.cap_stack_analysis import (
+    CAP_STACK_MIN_CAPS, CAP_STACK_MAX_CAPS, enqueue_cap_stack_pending,
+)
 from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
 from app.modules.realistic_review_ugc.service import RrugcError
 
@@ -100,7 +102,7 @@ class SettingsRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     label: str | None = Field(default=None, pattern="^(good|bad|ai|clear)$")
-    caps_count: int | None = Field(default=None, ge=1, le=50)
+    caps_count: int | None = Field(default=None, ge=CAP_STACK_MIN_CAPS, le=CAP_STACK_MAX_CAPS)
 
 
 class ScoutCandidate(BaseModel):
@@ -128,7 +130,7 @@ def list_cap_stack(
     q: str = Query(default="", max_length=160),
     label: str = Query(default="all", pattern="^(all|pending|good|bad|ai)$"),
     caps_count: int | None = Query(default=None, ge=1, le=50),
-    vision_status: str = Query(default="all", pattern="^(all|pending|analyzing|ready|needs_review|not_cap_stack|error)$"),
+    vision_status: str = Query(default="all", pattern="^(all|pending|analyzing|ready|needs_review|not_cap_stack|out_of_range|error)$"),
     page: int = Query(default=1, ge=1, le=10000),
     page_size: int = Query(default=40, ge=1, le=100),
     session: Session = Depends(get_db),
@@ -181,7 +183,8 @@ def list_cap_stack(
         "vision": {
             "ready": vision_counts["ready"], "analyzing": vision_counts["analyzing"],
             "pending": vision_counts["pending"], "needs_review": vision_counts["needs_review"],
-            "not_cap_stack": vision_counts["not_cap_stack"], "error": vision_counts["error"],
+            "not_cap_stack": vision_counts["not_cap_stack"],
+            "out_of_range": vision_counts["out_of_range"], "error": vision_counts["error"],
             "ai_suspected": suspected_ai,
         },
         "items": [image_dict(row) for row in rows], "total": total,
@@ -231,6 +234,12 @@ def set_cap_stack_feedback(
     ).with_for_update())
     if row is None:
         raise HTTPException(404, "Cap Stack image not found.")
+    if body.label == "good":
+        verified_count = body.caps_count if body.caps_count is not None else (
+            row.manual_caps_count if row.manual_caps_count is not None else row.caps_detected
+        )
+        if verified_count is None or not CAP_STACK_MIN_CAPS <= verified_count <= CAP_STACK_MAX_CAPS:
+            raise HTTPException(422, "Approve only Cap Stack images with 2–6 visible caps. Verify the cap count first.")
     if body.label is not None:
         row.manual_label = None if body.label == "clear" else body.label
         row.reviewed_at = utc_now()

@@ -22,7 +22,9 @@ from app.modules.realistic_review_ugc.gemini_safety import deferred_rrugc_ai_ret
 from app.modules.realistic_review_ugc.quote_scout_analysis import QuoteScoutError, fetch_pinterest_image
 
 CAP_STACK_ANALYZE_JOB_TYPE = "rrugc_cap_stack_analyze"
-CAP_STACK_VISION_VERSION = "rrugc-cap-stack-gemini-v1"
+CAP_STACK_VISION_VERSION = "rrugc-cap-stack-gemini-v2-range-2-6"
+CAP_STACK_MIN_CAPS = 2
+CAP_STACK_MAX_CAPS = 6
 CAP_STACK_MAX_QUEUE = 6
 CAP_STACK_BACKFILL_BATCH = 6
 
@@ -43,8 +45,8 @@ Examine this Pinterest image visually, ignoring the Pinterest title, text metada
 and any claims printed on the image. Return exactly one structured JSON object.
 
 Goal: select realistic photos of a CAP STACK — a visible pile/stack of
-TWO OR MORE overlapping baseball-style caps / trucker hats / snapbacks
-with brims. An orderly stack of several caps counts. A lone cap, a shelf
+TWO THROUGH SIX (inclusive) overlapping baseball-style caps / trucker hats /
+snapbacks with brims. An orderly stack of 2–6 caps counts. A lone cap, a shelf
 display with non-overlapping caps, hats merely worn by people, a collage
 of multiple product thumbnails, an illustration and non-baseball hats do
 NOT constitute a Cap Stack.
@@ -55,6 +57,8 @@ Ignore beanies, bucket hats, fedoras, cowboy hats, unrelated apparel, and
 decorations that look like caps. If occlusion makes the count uncertain,
 report the most defensible visible count with a reduced confidence. Never
 invent hidden caps. 0 is permitted only if none of these cap types appear.
+Report the ACTUAL visible count even if it exceeds six; do not cap it at six.
+Seven or more visible caps are out of scope for this Scout library.
 
 AI suspicion is an uncertain visual assessment, not a fact about how the image
 was made. Assess implausible brims, inconsistent seams, repeated impossible
@@ -66,8 +70,10 @@ human review labels are always independent.
 
 
 def count_status_for(result: CapStackVisionDocument) -> str:
-    if not result.is_cap_stack or result.caps_count < 2:
+    if not result.is_cap_stack or result.caps_count < CAP_STACK_MIN_CAPS:
         return "not_cap_stack"
+    if result.caps_count > CAP_STACK_MAX_CAPS:
+        return "out_of_range"
     if result.count_confidence < 0.66:
         return "needs_review"
     return "ready"

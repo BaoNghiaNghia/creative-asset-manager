@@ -87,6 +87,11 @@ def test_cap_stack_is_model_gated_and_background_prioritized():
     assert CAP_STACK_ANALYZE_JOB_TYPE in MODEL_GATED_AI_JOB_TYPES
     assert CAP_STACK_ANALYZE_JOB_TYPE in STARVATION_PREVENTION_EXCLUDED_JOB_TYPES
     assert count_status_for(CapStackVisionDocument(**sample_document())) == "ready"
+    assert count_status_for(CapStackVisionDocument(**sample_document(caps=2))) == "ready"
+    assert count_status_for(CapStackVisionDocument(**sample_document(caps=6))) == "ready"
+    assert count_status_for(CapStackVisionDocument(**sample_document(caps=7))) == "out_of_range"
+    assert count_status_for(CapStackVisionDocument(**sample_document(caps=50))) == "out_of_range"
+    assert count_status_for(CapStackVisionDocument(**sample_document(caps=1))) == "not_cap_stack"
     assert count_status_for(CapStackVisionDocument(**sample_document(confidence=0.4))) == "needs_review"
     assert count_status_for(CapStackVisionDocument(**sample_document(is_stack=False, caps=1))) == "not_cap_stack"
     with pytest.raises(ValueError):

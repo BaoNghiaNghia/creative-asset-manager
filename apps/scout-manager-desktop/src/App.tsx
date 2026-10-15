@@ -106,7 +106,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
           <strong>Cap Stack · GatorHats Reviews Stage 1</strong>
           <p>One shared library, not grouped by embroidery or hat product. Each candidate is linked by Pinterest Pin ID.</p>
           <p>Independent Chrome profile, history and 45-minute claim lease. Human ✓ / × / AI feedback updates the server's next keyword priorities.</p>
-          <p>Discovery runs only while Stage 1 Cap Stack Scout is enabled in CAM. Image cap counts remain pending until a verified count is set.</p>
+          <p>Accepts photos with 2–6 overlapping caps only. Shared Gemini flags images with 7+ caps as out of range. Discovery requires Stage 1 enabled in CAM.</p>
         </div>
     }
     {info.mode !== "cap_stack" && <div className="scout-gemini-status" role="status">

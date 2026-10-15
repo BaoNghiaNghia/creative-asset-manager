@@ -17,7 +17,7 @@ const LABELS = [
 const VISION_STATUS_OPTIONS = [
   ["all", "Any Gemini status"], ["pending", "Gemini pending"], ["analyzing", "Gemini analyzing"],
   ["ready", "Count ready"], ["needs_review", "Low confidence"],
-  ["not_cap_stack", "Not a Cap Stack"], ["error", "Gemini error"],
+  ["not_cap_stack", "Not a Cap Stack"], ["out_of_range", "Over 6 caps"], ["error", "Gemini error"],
 ] as const;
 
 const DEFAULT_PAGE: CapStackPage = {
@@ -156,7 +156,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     <RrugcStageHeader
       kicker="GATORHATS REVIEWS · STAGE 1"
       title="Cap Stack Scout"
-      description="Shared Pinterest library. Gemini pool counts visible caps and highlights uncertain photos; human feedback remains authoritative."
+      description="Shared Pinterest library for stacks of 2–6 caps. Gemini counts visible caps and flags out-of-range photos; human feedback remains authoritative."
       actions={<div className="rrugc-cap-stack-top">
         <span className={"rrugc-cap-stack-state " + (data.scout.enabled ? "enabled" : "")}>
           <span aria-hidden="true">●</span> {data.scout.running ? "Scanning" : data.scout.enabled ? "Enabled · waiting" : "Paused"}
@@ -187,6 +187,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       <span>Waiting: {(data.vision?.pending ?? 0) + (data.vision?.analyzing ?? 0)}</span>
       <span>Review count: {data.vision?.needs_review ?? 0}</span>
       <span>Not Cap Stack: {data.vision?.not_cap_stack ?? 0}</span>
+      <span>Over 6 caps: {data.vision?.out_of_range ?? 0}</span>
       <span>Suspected AI: {data.vision?.ai_suspected ?? 0}</span>
       <span>Errors: {data.vision?.error ?? 0}</span>
     </div>
@@ -205,7 +206,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       </select></label>
       <label>Caps detected<select value={count ?? ""} onChange={event => { setCount(event.target.value ? Number(event.target.value) : null); setPage(1); }}>
         <option value="">Any number</option>
-        {Array.from({ length: 15 }, (_, index) => index + 1).map(value => <option value={value} key={value}>{value} caps</option>)}
+        {Array.from({ length: 5 }, (_, index) => index + 2).map(value => <option value={value} key={value}>{value} caps</option>)}
       </select></label>
       <label>View<select value={view} onChange={event => setView(event.target.value as "grid" | "list")}>
         <option value="grid">Grid</option><option value="list">List</option>
@@ -237,7 +238,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
             <span className={"label-" + (item.manual_label || "pending")}>{actionLabel(item.manual_label)}</span></div>
           <p>{item.alt_text || "Pinterest reference · pending verification"}</p>
           <div className="rrugc-cap-stack-ai-status">
-            <span className={"status-" + item.count_status}>{item.count_status === "ready" ? "Gemini: counted" : item.count_status === "needs_review" ? "Gemini: low confidence" : item.count_status === "not_cap_stack" ? "Not a Cap Stack" : item.count_status === "error" ? "Gemini error" : item.count_status === "analyzing" ? "Gemini: analyzing" : "Gemini: queued"}</span>
+            <span className={"status-" + item.count_status}>{item.count_status === "ready" ? "Gemini: 2–6 caps" : item.count_status === "needs_review" ? "Gemini: low confidence" : item.count_status === "out_of_range" ? "Over 6 caps · excluded" : item.count_status === "not_cap_stack" ? "Not a Cap Stack" : item.count_status === "error" ? "Gemini error" : item.count_status === "analyzing" ? "Gemini: analyzing" : "Gemini: queued"}</span>
             {item.ai_suspected === true && <span className="suspected">AI suspected · review</span>}
           </div>
           <div className="rrugc-cap-stack-card-footer">{buttons(item)}
@@ -262,9 +263,9 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
           <img src={selected.image_url} alt={selected.alt_text || "Cap Stack reference"} referrerPolicy="no-referrer"/>
           <div className="rrugc-cap-stack-modal-aside">
             <label>Number of caps in this image<input type="number" value={editableCount}
-              min={1} max={50} placeholder="Count caps"
+              min={2} max={6} placeholder="2–6 caps"
               onChange={event => setEditableCount(event.target.value)} /></label>
-            <button type="button" disabled={Boolean(busy) || !Number.isInteger(Number(editableCount)) || Number(editableCount) < 1 || Number(editableCount) > 50}
+            <button type="button" disabled={Boolean(busy) || !Number.isInteger(Number(editableCount)) || Number(editableCount) < 2 || Number(editableCount) > 6}
               onClick={() => void updateImage(selected, { caps_count: Number(editableCount) })}>Save cap count</button>
             <div className="rrugc-cap-stack-ai-details">
               <strong>Gemini vision · {selected.count_status.replace(/_/g, " ")}</strong>

@@ -156,7 +156,7 @@ def test_urls_fail_closed_and_wrong_tenant_cannot_see_library(session):
                             session=session, principal=user("tenant-b"))["total"] == 0
 
 
-def test_feedback_rejects_cross_tenant_and_count_over_50(session):
+def test_feedback_rejects_cross_tenant_and_count_outside_2_to_6(session):
     r.set_cap_stack_settings(r.SettingsRequest(enabled=True), session, user())
     run = claim(session)["run"]["id"]
     r.submit_cap_stack("agent-one", run, candidate(), "Bearer test", session)
@@ -166,5 +166,19 @@ def test_feedback_rejects_cross_tenant_and_count_over_50(session):
         r.set_cap_stack_feedback(entry["id"], r.FeedbackRequest(label="good"),
                                  session, user("tenant-b"))
     assert error.value.status_code == 404
-    with pytest.raises(Exception):
-        r.FeedbackRequest(caps_count=51)
+    for invalid in (1, 7, 51):
+        with pytest.raises(Exception):
+            r.FeedbackRequest(caps_count=invalid)
+    with pytest.raises(HTTPException) as error:
+        r.set_cap_stack_feedback(entry["id"], r.FeedbackRequest(label="good"), session, user())
+    assert error.value.status_code == 422
+    image = session.get(RrugcCapStackImageModel, entry["id"])
+    image.count_status = "out_of_range"
+    image.caps_detected = 7
+    session.commit()
+    with pytest.raises(HTTPException) as error:
+        r.set_cap_stack_feedback(entry["id"], r.FeedbackRequest(label="good"), session, user())
+    assert error.value.status_code == 422
+    approved = r.set_cap_stack_feedback(entry["id"], r.FeedbackRequest(label="good", caps_count=6), session, user())
+    assert approved["manual_label"] == "good"
+    assert approved["manual_caps_count"] == 6

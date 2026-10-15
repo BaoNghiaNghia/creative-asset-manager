@@ -76,7 +76,7 @@
 .rrugc-cap-stack-ai-status{display:flex;align-items:center;flex-wrap:wrap;gap:5px;font-size:10px;font-weight:700}
 .rrugc-cap-stack-ai-status span{padding:4px 6px;border:1px solid #dce7f3;border-radius:5px;color:#57759a;background:#f5f8fd}
 .rrugc-cap-stack-ai-status .status-ready{background:#e9f7ed;border-color:#cae7d1;color:#2e7e4b}
-.rrugc-cap-stack-ai-status .status-error,.rrugc-cap-stack-ai-status .status-not_cap_stack{background:#fff3ee;border-color:#eed6c8;color:#a8583c}
+.rrugc-cap-stack-ai-status .status-error,.rrugc-cap-stack-ai-status .status-not_cap_stack,.rrugc-cap-stack-ai-status .status-out_of_range{background:#fff3ee;border-color:#eed6c8;color:#a8583c}
 .rrugc-cap-stack-ai-status .status-needs_review,.rrugc-cap-stack-ai-status .suspected{background:#fbf0ff;border-color:#e6c9f2;color:#834aa4}
 .rrugc-cap-stack-ai-details{display:grid;gap:8px;padding:12px;border:1px solid #dce7f6;border-radius:9px;background:#f7faff;color:#536b88;font-size:11px}
 .rrugc-cap-stack-ai-details strong{color:#2b4f79;font-size:12px}
