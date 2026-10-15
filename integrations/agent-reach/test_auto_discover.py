@@ -31,6 +31,75 @@ class FakeSearch:
 
 
 class AutoDiscoverTests(unittest.TestCase):
+
+    def test_adaptive_query_ranking_learns_without_new_provider_calls(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                self.assertEqual(auto.select_queries(db, set(), 2, 0), [0, 1])
+                for _ in range(5):
+                    auto.update_query_metrics(db, 0, 0, 8)
+                for _ in range(3):
+                    auto.update_query_metrics(db, 3, 5, 0)
+                selected = auto.select_queries(db, set(), 2, 0)
+                self.assertEqual(selected[0], 3)
+                self.assertNotEqual(auto.SEARCH_QUERIES[selected[0]][0],
+                                    auto.SEARCH_QUERIES[selected[1]][0])
+                self.assertNotIn(0, auto.select_queries(db, {0, 3}, 2, 0))
+                self.assertLessEqual(db.execute(
+                    "SELECT COUNT(*) FROM discovery_query_metrics").fetchone()[0],
+                    len(auto.SEARCH_QUERIES))
+
+    def test_playwright_verification_is_opt_in_bounded_and_preserves_outbox(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                items = [
+                    {"source": "etsy", "channel": "auto-discover",
+                     "title": "Custom Name Embroidered Trucker Hat",
+                     "url": f"https://www.etsy.com/listing/{123456700 + n}",
+                     "excerpt": "Unverified public search result"} for n in range(6)
+                ]
+                auto.ingest(db, items)
+                with patch.dict(os.environ, {"CAM_RESEARCH_PLAYWRIGHT_VERIFY": "0"}):
+                    with patch.object(auto, "playwright_page_title") as verifier:
+                        self.assertEqual(auto.verify_selected_titles(db, items), 0)
+                        verifier.assert_not_called()
+                with patch.dict(os.environ, {"CAM_RESEARCH_PLAYWRIGHT_VERIFY": "1"}):
+                    with patch.object(auto, "playwright_page_title",
+                                      return_value="Original Custom Trucker Hat") as verifier:
+                        self.assertEqual(auto.verify_selected_titles(db, items), 1)
+                        self.assertEqual(auto.verify_selected_titles(db, items), 1)
+                        self.assertEqual(auto.verify_selected_titles(db, items), 1)
+                        self.assertEqual(auto.verify_selected_titles(db, items), 1)
+                        self.assertEqual(auto.verify_selected_titles(db, items), 0)
+                        self.assertEqual(verifier.call_count, 4)
+                self.assertEqual(auto.status_dict(db)["browser_title_checks_today"], 4)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM research_signal").fetchone()[0], 6)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM research_signal WHERE status='pending'"
+                ).fetchone()[0], 6)
+
+    def test_browser_failure_is_recorded_once_without_dropping_signal(self):
+        item = {"source": "etsy", "channel": "auto-discover",
+                "title": "Custom Name Embroidered Trucker Hat",
+                "url": "https://www.etsy.com/listing/123456789",
+                "excerpt": "Unverified search result"}
+        with tempfile.TemporaryDirectory() as folder:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                auto.prepare_state(db)
+                auto.ingest(db, [item])
+                with patch.dict(os.environ, {"CAM_RESEARCH_PLAYWRIGHT_VERIFY": "1"}):
+                    with patch.object(auto, "playwright_page_title", return_value=None) as ver:
+                        self.assertEqual(auto.verify_selected_titles(db, [item]), 0)
+                        self.assertEqual(auto.verify_selected_titles(db, [item]), 0)
+                        ver.assert_called_once()
+                self.assertEqual(db.execute(
+                    "SELECT status FROM discovery_browser_checks").fetchone()[0],
+                    "unavailable")
+                self.assertEqual(db.execute(
+                    "SELECT status FROM research_signal").fetchone()[0], "pending")
     def test_parser_rejects_cross_source_domains_search_paths_and_spoofs(self):
         body = [{"type": "text", "text": (
             "Title: Cap search\nURL: https://www.etsy.com/search?q=cap\n"

@@ -16,7 +16,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 from urllib.parse import urlsplit
 
@@ -79,6 +81,67 @@ def prepare_state(db: sqlite3.Connection) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS discovery_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS discovery_attempt (day TEXT NOT NULL, query_index INTEGER NOT NULL, "
                "run_at TEXT NOT NULL, PRIMARY KEY (day,query_index))")
+    # Constant size (one row per immutable query), safe with existing SQLite outboxes.
+    db.execute("""CREATE TABLE IF NOT EXISTS discovery_query_metrics (
+      query_index INTEGER PRIMARY KEY, runs INTEGER NOT NULL DEFAULT 0,
+      novel INTEGER NOT NULL DEFAULT 0, repeated INTEGER NOT NULL DEFAULT 0,
+      empty_runs INTEGER NOT NULL DEFAULT 0, last_run_day TEXT NOT NULL DEFAULT ''
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS discovery_browser_checks (
+      url TEXT PRIMARY KEY, day TEXT NOT NULL, status TEXT NOT NULL,
+      page_title TEXT NOT NULL DEFAULT ''
+    )""")
+    db.commit()
+
+
+def select_queries(db: sqlite3.Connection, attempted: set[int], count: int,
+                   cursor: int) -> list[int]:
+    """Favor new results per provider call, with cold-start exploration and source variety.
+
+    One slot prioritizes smoothed measured novelty; a second, when available,
+    explores the least-tested DIFFERENT marketplace. All ties rotate by cursor.
+    No additional search API calls are made for the ranking itself.
+    """
+    rows = {int(row[0]): row[1:] for row in db.execute(
+        "SELECT query_index,runs,novel,repeated,empty_runs,last_run_day "
+        "FROM discovery_query_metrics"
+    )}
+    n = len(SEARCH_QUERIES)
+    eligible = [(cursor + offset) % n for offset in range(n)
+                if (cursor + offset) % n not in attempted]
+    if not eligible or count <= 0:
+        return []
+    def score(idx: int) -> float:
+        runs, novel, repeated, empty, _ = rows.get(idx, (0, 0, 0, 0, ""))
+        # Low-value repeated queries sink gradually, but remain explorable.
+        return (novel + 1) / (novel + repeated + 3) + (
+            .20 / (runs + 1) ** .5) - min(empty, 5) * .015
+    chosen: list[int] = []
+    # Preserve cursor ordering on equal scores to prevent starvation.
+    chosen.append(max(eligible, key=score))
+    remaining = [idx for idx in eligible if idx not in chosen]
+    if count > 1 and remaining:
+        different = [idx for idx in remaining
+                     if SEARCH_QUERIES[idx][0] != SEARCH_QUERIES[chosen[0]][0]]
+        exploration = different or remaining
+        chosen.append(min(exploration, key=lambda idx: (
+            rows.get(idx, (0, 0, 0, 0, ""))[0], eligible.index(idx))))
+    while len(chosen) < count and len(chosen) < len(eligible):
+        chosen.append(max((idx for idx in eligible if idx not in chosen), key=score))
+    return chosen
+
+
+def update_query_metrics(db: sqlite3.Connection, idx: int, novel: int,
+                         repeated: int) -> None:
+    db.execute("""INSERT INTO discovery_query_metrics
+      (query_index,runs,novel,repeated,empty_runs,last_run_day)
+      VALUES (?,1,?,?,?,?)
+      ON CONFLICT(query_index) DO UPDATE SET
+        runs=runs+1, novel=novel+excluded.novel,
+        repeated=repeated+excluded.repeated,
+        empty_runs=empty_runs+excluded.empty_runs,
+        last_run_day=excluded.last_run_day""",
+        (idx, novel, repeated, int(novel == 0), today()))
     db.commit()
 
 
@@ -400,6 +463,88 @@ def parse_marketplace_results(source: str, content: list[dict], query: str, prov
     return list(found.values())[:20]
 
 
+def needs_browser_title_check(item: dict) -> bool:
+    """Search snippets sometimes contain unrelated product names: inspect selectively."""
+    title = str(item.get("title") or "")
+    return bool(CAP_RE.search(title) and (
+        len(title) < 28 or re.search(
+            r"\b(custom|personalized|name|listing|product|shop|catalog)\b",
+            title, re.I)))
+
+
+def playwright_page_title(url: str) -> str | None:
+    """No cookies, images, arbitrary hosts, browsers downloaded or secret env.
+
+    Requires preinstalled Node + Playwright + compatible browser on cam-research.
+    Never bypass a captcha, login screen, robots restriction or access denial.
+    """
+    executable = shutil.which("node")
+    verifier = ROOT / "verify_public_marketplace.cjs"
+    if not executable or not verifier.is_file():
+        return None
+    try:
+        result = subprocess.run(
+            [executable, str(verifier)],
+            input=json.dumps({"url": url}), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=15, check=False,
+            env={"PATH": os.environ.get("PATH", ""),
+                 "HOME": os.environ.get("HOME", "/nonexistent")},
+        )
+        if result.returncode != 0 or len(result.stdout) > 1024:
+            return None
+        response = json.loads(result.stdout)
+        title = normalize_text(response.get("title"), 200)
+        return title if response.get("status") == "ok" and CAP_RE.search(title) else None
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return None
+
+
+def verify_selected_titles(db: sqlite3.Connection, items: list[dict], *,
+                           max_per_day: int = 4, max_per_cycle: int = 1) -> int:
+    """Optional public listing title check; all findings are advisory.
+
+    It cannot prove what is physically embroidered. Keep unverified results
+    in the outbox and never auto-approve or overwrite human corrections.
+    """
+    if os.getenv("CAM_RESEARCH_PLAYWRIGHT_VERIFY", "0") != "1":
+        return 0
+    used = int(db.execute(
+        "SELECT COUNT(*) FROM discovery_browser_checks WHERE day=?", (today(),)
+    ).fetchone()[0])
+    remaining = max(0, min(max_per_cycle, max_per_day - used))
+    verified = 0
+    for item in items:
+        if remaining <= 0:
+            break
+        url = str(item.get("url") or "")
+        if not needs_browser_title_check(item) or db.execute(
+            "SELECT 1 FROM discovery_browser_checks WHERE url=?", (url,)
+        ).fetchone():
+            continue
+        # Only explicit canonical marketplace product URLs, no third-party fetch.
+        try:
+            url = canonical_marketplace_url(str(item["source"]), url)
+        except (KeyError, ValueError):
+            continue
+        # Journal first: crashes or unavailable browser never trigger unbounded retries.
+        db.execute("INSERT OR IGNORE INTO discovery_browser_checks(url,day,status) "
+                   "VALUES(?,?,'unavailable')", (url, today()))
+        db.commit()
+        remaining -= 1
+        title = playwright_page_title(url)
+        if title:
+            verified += 1
+            db.execute("UPDATE discovery_browser_checks SET status='title_checked', "
+                       "page_title=? WHERE url=?", (title, url))
+            # Source title is observational; quote/embroidery remains unverified.
+            db.execute("""UPDATE research_signal SET title=?,
+                 excerpt='Public listing title checked in a browser; embroidery not visually verified.'
+                 WHERE url=? AND status='pending'""", (title, url))
+            db.commit()
+    return verified
+
+
 def status_dict(db: sqlite3.Connection) -> dict:
     prepare_state(db)
     day = today()
@@ -407,7 +552,21 @@ def status_dict(db: sqlite3.Connection) -> dict:
     pending = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='pending'").fetchone()[0]
     paired = bool(os.getenv("CAM_RESEARCH_SCOUT_AGENT_ID") and os.getenv("CAM_RESEARCH_SCOUT_TOKEN"))
     synced = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='synced'").fetchone()[0]
-    return {"provider": meta(db, "active_provider", PROVIDER),
+    metrics = db.execute(
+        "SELECT COALESCE(SUM(runs),0),COALESCE(SUM(novel),0),"
+        "COALESCE(SUM(repeated),0),COALESCE(SUM(empty_runs),0) "
+        "FROM discovery_query_metrics").fetchone()
+    checked = db.execute(
+        "SELECT COUNT(*) FROM discovery_browser_checks WHERE day=? AND status='title_checked'",
+        (day,)).fetchone()[0]
+    attempts_today = db.execute(
+        "SELECT COUNT(*) FROM discovery_browser_checks WHERE day=?",
+        (day,)).fetchone()[0]
+    return {"browser_attempts_today": int(attempts_today),
+            "browser_title_checks_today": int(checked),
+            "query_performance": {"runs": metrics[0], "new": metrics[1],
+             "duplicates": metrics[2], "zero_yield": metrics[3]},
+            "provider": meta(db, "active_provider", PROVIDER),
             "paired": paired, "sync_status": ("paired" if paired else "waiting_pairing"),
             "synced_total": int(synced), "last_run_at": meta(db, "last_run_at") or None,
             "last_success_at": meta(db, "last_success_at") or None,
@@ -501,7 +660,7 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
         return {"status": "error" if sync_error else "rate_budget_exhausted", **status_dict(db)}
     start = int(meta(db, "query_cursor", "0")) % len(SEARCH_QUERIES)
     candidates = [(start + i) % len(SEARCH_QUERIES) for i in range(len(SEARCH_QUERIES))]
-    planned = [i for i in candidates if i not in attempted][:max_queries]
+    planned = select_queries(db, attempted, max_queries, start)
     added = duplicates = 0
     error = ""
     heartbeat("busy")
@@ -514,10 +673,19 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
         db.commit()
         try:
             items = parse_marketplace_results(source, search.search(query), query, provider)
+            # Skip expensive browser checks for URLs already stored in the outbox.
+            fresh = [item for item in items if not db.execute(
+                "SELECT 1 FROM research_signal WHERE source=? AND url=?",
+                (item["source"], item["url"])).fetchone()]
+            query_added = query_duplicates = 0
             for start_at in range(0, len(items), MAX_BATCH):
                 created, repeated = ingest(db, items[start_at:start_at + MAX_BATCH])
-                added += created
-                duplicates += repeated
+                query_added += created
+                query_duplicates += repeated
+            added += query_added
+            duplicates += query_duplicates
+            update_query_metrics(db, index, query_added, query_duplicates)
+            verify_selected_titles(db, fresh)
             save_meta(db, query_cursor=(index + 1) % len(SEARCH_QUERIES),
                       last_success_at=now_iso(), last_error="", **{cooldown_key: ""})
         except (RuntimeError, requests.RequestException, ValueError) as exc:
