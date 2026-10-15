@@ -6884,8 +6884,8 @@ async def get_stage5_before_reference_image(
     job = RrugcRepository(session).get_stage2_job(
         principal.active_tenant_id, stage2_job_id,
     )
-    if job is None or job.status != "completed" or not job.output_remote_file_id:
-        raise HTTPException(status_code=404, detail="Stage 4 completed job not found")
+    if job is None:
+        raise HTTPException(status_code=404, detail="Stage 4 job not found")
     references = stage5_before_references(job)
     if reference_index >= len(references):
         raise HTTPException(

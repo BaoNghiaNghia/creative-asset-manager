@@ -62,3 +62,8 @@
 .rrugc-stage4-queue-status.is-running{background:#e7f7ef;color:#237044}
 .rrugc-stage4-queue-error{padding:6px 20px;color:#a33!important}
 @media(max-width:600px){.rrugc-stage4-queue-backdrop{padding:8px}.rrugc-stage4-queue-dialog{max-height:94vh}.rrugc-stage4-queue-dialog>header{padding:14px}.rrugc-stage4-queue-scroll{padding:0 12px 14px}}
+.rrugc-stage4-queue-thumbnails{display:flex;align-items:center;gap:5px;min-width:78px;max-width:230px}
+.rrugc-stage4-queue-thumbnails img{width:65px;height:75px;object-fit:cover;background:#edf2f7;border:1px solid #dce3ec;border-radius:7px;flex-shrink:0}
+.rrugc-stage4-queue-no-image{display:inline-flex;align-items:center;justify-content:center;width:80px;min-height:65px;background:#f2f5f9;color:#718096;border-radius:7px;font-size:10px;text-align:center;padding:5px}
+.rrugc-stage4-queue-scroll table{min-width:690px}
+@media(max-width:600px){.rrugc-stage4-queue-thumbnails img{width:50px;height:58px}.rrugc-stage4-queue-scroll table{min-width:610px}}

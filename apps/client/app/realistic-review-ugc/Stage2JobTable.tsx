@@ -1038,8 +1038,15 @@ export function Stage2JobTable({
         {activeQueueLoading && activeQueueJobs.length === 0 ? <p>Loading queue…</p> :
           activeQueueJobs.length === 0 ? <p>No active jobs in queue.</p> :
           <div className="rrugc-stage4-queue-scroll"><table><thead><tr>
-            <th>Job</th><th>Skill</th><th>Status</th><th>Queued at</th>
+            <th>Reference thumbnails</th><th>Job</th><th>Skill</th><th>Status</th><th>Queued at</th>
           </tr></thead><tbody>{activeQueueJobs.map(job => <tr key={job.id}>
+            <td><div className="rrugc-stage4-queue-thumbnails">
+              {Array.from({ length: Math.min(job.reference_count || 0, 3) }, (_, index) =>
+                <img key={index} loading="lazy" alt={"Pinterest reference " + (index + 1)}
+                  src={"/api/v1/realistic-review-ugc/stage2-jobs/" + encodeURIComponent(job.id)
+                    + "/reference-image?thumbnail=true&size=256&reference_index=" + index} />)}
+              {!job.reference_count && <span className="rrugc-stage4-queue-no-image">No saved reference</span>}
+            </div></td>
             <td><code title={job.id}>{job.id.slice(0, 12)}…</code></td>
             <td>{job.skill_name}</td>
             <td><span className={"rrugc-stage4-queue-status is-" + job.status}>{job.status}</span></td>
