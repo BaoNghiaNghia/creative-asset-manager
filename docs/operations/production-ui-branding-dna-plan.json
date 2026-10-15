@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "routes": [
+    {
+      "name": "branding-dna-foundation",
+      "path": "/branding-dna",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.branding-dna-page",
+      "states": [
+        {
+          "name": "registry",
+          "waitFor": ".bdna-live-section",
+          "waitMs": 1000,
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".bdna-live-heading"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body",
+              "maxPx": 1
+            }
+          ]
+        },
+        {
+          "name": "add-shop",
+          "click": ".bdna-live-heading button",
+          "waitFor": ".bdna-shop-form",
+          "waitMs": 400,
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".bdna-shop-form"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

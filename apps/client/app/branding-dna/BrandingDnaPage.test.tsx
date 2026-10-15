@@ -19,6 +19,6 @@ describe("Branding DNA Stage 0 preview", () => {
     expect(html).toContain("sandbox=\"allow-scripts allow-downloads\"");
     expect(html).not.toContain("allow-same-origin");
     expect(html).not.toContain("allow-forms");
-    expect(html).toContain("/branding-dna/index.html?embed=1");
+    expect(html).toContain("/branding-dna-preview/index.html?embed=1");
   });
 });

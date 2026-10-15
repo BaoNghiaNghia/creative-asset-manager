@@ -32,7 +32,7 @@ export function BrandingDnaPage() {
     <BrandingDnaFoundation />
     <iframe className="branding-dna-preview-frame"
       title="Branding DNA interactive design preview"
-      src={`/branding-dna/index.html?embed=1&view=${encodeURIComponent(tab)}`}
+      src={`/branding-dna-preview/index.html?embed=1&view=${encodeURIComponent(tab)}`}
       sandbox="allow-scripts allow-downloads"
       referrerPolicy="no-referrer"
     />

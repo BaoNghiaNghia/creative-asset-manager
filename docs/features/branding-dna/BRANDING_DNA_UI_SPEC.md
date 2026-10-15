@@ -1,7 +1,7 @@
 # CAM · Branding DNA — UI/UX & Technical Blueprint
 
 **Trạng thái:** Tài liệu thiết kế v1.0 — chưa triển khai vào CAM production.  
-**Prototype:** `./prototype/index.html` (bản gốc) và `apps/client/public/branding-dna/index.html` (CSP-compatible preview trong CAM); dữ liệu mô phỏng, không quét website thật.
+**Prototype:** `./prototype/index.html` (bản gốc) và `apps/client/public/branding-dna-preview/index.html` (CSP-compatible preview trong CAM); dữ liệu mô phỏng, không quét website thật.
 **Điểm tham chiếu:** `creative-ai-hub` (Shop/Profile/Listing/Image/Platform Profile), `WorkspaceNavigation.tsx` và giao diện light-blue / Be Vietnam Pro của CAM.
 **Trước triển khai:** xem [Worker Architecture](./WORKER_ARCHITECTURE.md) và [Pre-implementation Optimization](./PRE_IMPLEMENTATION_OPTIMIZATION.md). Giao diện chỉ là bản prototype, scanner chưa chạy thật.
 

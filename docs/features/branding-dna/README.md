@@ -11,7 +11,7 @@
 - [Pre-implementation optimization](./PRE_IMPLEMENTATION_OPTIMIZATION.md): P0/P1/P2 scope, canonical product identity, evidence quality and readiness fixes.
 - [Reference architecture](./REFERENCE_ARCHITECTURE.md): relation to `creative-ai-hub`'s five Profile layers.
 - CAM frontend preview page: `apps/client/app/branding-dna/BrandingDnaPage.tsx`
-- CSP-compatible static prototype: `apps/client/public/branding-dna/{index.html,prototype.css,prototype.js}`
+- CSP-compatible static prototype: `apps/client/public/branding-dna-preview/{index.html,prototype.css,prototype.js}`
 - Preview tests: `apps/client/scripts/branding-dna-design-qa.mjs`
 
 ## Access
