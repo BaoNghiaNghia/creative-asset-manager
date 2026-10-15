@@ -215,3 +215,36 @@ line **does not prove that Inventory is healthy**; it can mean idle,
 retry-delayed, review-blocked or missed safe window. Inspect the persisted
 inventory slot jobs, carry-forward status, previous-day snapshot verification
 and provider credentials to distinguish them.
+
+## Durable historical Gemini recovery queue
+
+Inventory Daily uses a **separate native systemd timer**
+(`creative-asset-manager-inventory-replay-queue.timer`) for historical Gemini
+replays. It is independent of the V5J lifecycle timer, so a long Gemini replay
+cannot prevent the scheduled Morning Reset or Evening Reconcile from running.
+The operator uses Inventory → Tiến trình kiểm kho → Gemini từ Snapshot sạch
+(or Replay Sandbox). These controls enqueue a persisted, tenant-scoped
+`inventory_v4_historical_replay_request` job instead of waiting for
+`/gemini/replay` synchronously in the browser. Duplicate active requests for
+the same tenant/day share a job; after browser reload the active job list can
+be queried. Replay jobs retry transient Gemini errors with a minimum five-minute
+backoff, up to 72 attempts, and show status/attempt count in UI. Permanent
+permission/model/configuration failures remain visible as failed jobs.
+
+The replay source is always a **fresh copy of the immutable date snapshot**,
+not the Shared Sheet. Promotion requires independently verified Gemini output;
+it updates the official Gemini copy pointer only. Automatic replay does
+**not** run Morning Reset recovery or mutate Shared. If the current-day
+Morning Reset is blocked by `previous_day_gemini_not_verified`, recover the
+prior day's Gemini evidence first. Once verified, explicitly Preview the
+current-day Opening-only repair; review the exact source/target cells and
+plan hash; then Apply after approval. No automatic historical reset, no clear
+of operator input or formulas, and no blind overwrite after the safety window.
+
+API endpoints:
+- `POST /api/inventory/daily-sheet/lifecycle-history/{date}/gemini/replay/queue` (control)
+- `GET /api/inventory/daily-sheet/gemini/replay/jobs` (read)
+- `GET /api/inventory/daily-sheet/gemini/replay/jobs/{job_id}` (read)
+
+The old synchronous replay endpoint is retained for backward compatibility,
+but the UI and batch replay use the durable queue.

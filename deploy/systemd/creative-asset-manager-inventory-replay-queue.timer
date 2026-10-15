@@ -1,0 +1,10 @@
+[Unit]
+Description=Inventory historical Gemini replay queue timer
+
+[Timer]
+OnCalendar=*-*-* *:*:00 Asia/Ho_Chi_Minh
+Persistent=false
+Unit=creative-asset-manager-inventory-replay-queue.service
+
+[Install]
+WantedBy=timers.target

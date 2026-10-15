@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, type InventoryHistoricalReplayResult } from "./api";
-import { isManualRecoveryError, isMaterialRecoveryError, retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
+import { isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -41,6 +41,17 @@ describe("Inventory Morning Reset manual recovery routing", () => {
     expect(isMaterialRecoveryError("unknown_material")).toBe(true);
     expect(isMaterialRecoveryError("unknown_warehouse")).toBe(false);
     expect(isMaterialRecoveryError(null)).toBe(false);
+  });
+});
+
+describe("Inventory dependency recovery routing", () => {
+  it("routes missing prior-day Gemini to queued replay, then to preview after verification", () => {
+    expect(previousInventoryBusinessDate("2026-10-15")).toBe("2026-10-14");
+    expect(previousInventoryBusinessDate("2026-01-01")).toBe("2025-12-31");
+    expect(morningResetRecoveryAction("previous_day_gemini_not_verified", false)).toBe("replay_previous");
+    expect(morningResetRecoveryAction("previous_day_gemini_not_verified", true)).toBe("preview");
+    expect(morningResetRecoveryAction("inventory_morning_reset_missed_safe_window", false)).toBe("preview");
+    expect(morningResetRecoveryAction(null, false)).toBe("rerun");
   });
 });
 

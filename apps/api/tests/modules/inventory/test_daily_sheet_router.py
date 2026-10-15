@@ -285,6 +285,33 @@ def test_lifecycle_history_rejects_invalid_pagination():
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_lifecycle_history_pagination"
 
+
+def test_historical_replay_queue_enforces_control_and_returns_persisted_job():
+    url = "/api/inventory/daily-sheet/lifecycle-history/2030-08-09/gemini/replay/queue"
+    assert client_for(principal({"inventory.read"})).post(url, json={"mode":"fresh_copy","promote":True}).status_code == 403
+    allowed = client_for(principal({"inventory.control","inventory.read"}))
+    queue = Mock()
+    queue.enqueue.return_value = {
+        "job_id": "queued-1", "business_date": "2030-08-09", "status": "pending",
+        "mode": "fresh_copy", "promote": True,
+    }
+    queue.status.return_value = {**queue.enqueue.return_value, "status": "retry", "attempt_count": 1}
+    queue.active_jobs.return_value = [queue.status.return_value]
+    with patch("app.modules.inventory.daily_sheet.router.HistoricalReplayQueue", return_value=queue):
+        result = allowed.post(url, json={"mode":"fresh_copy","promote":True})
+        assert result.status_code == 200
+        assert result.json()["job_id"] == "queued-1"
+        queue.enqueue.assert_called_once_with("tenant-a", date(2030,8,9), "fresh_copy", True)
+        status = allowed.get("/api/inventory/daily-sheet/gemini/replay/jobs/queued-1")
+        assert status.status_code == 200
+        assert status.json()["status"] == "retry"
+        queue.status.assert_called_once_with("tenant-a","queued-1")
+        active = allowed.get("/api/inventory/daily-sheet/gemini/replay/jobs")
+        assert active.status_code == 200
+        assert active.json()["items"][0]["job_id"] == "queued-1"
+        queue.active_jobs.assert_called_once_with("tenant-a")
+
+
 def test_morning_reset_rerun_requires_control_permission_and_calls_scheduler():
     denied = client_for(principal({"inventory.read"}))
     assert denied.post("/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/rerun").status_code == 403

@@ -15,6 +15,7 @@ from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVE
 from app.modules.inventory.persistence_model import InventorySettingsModel
 from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPromptConflict, InventoryPromptResolver, InventoryPromptStorageUnavailable
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
+from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -487,6 +488,40 @@ def rerun_agent_v4_current(
         elif "not ready" in str(exc).lower():
             code = "daily_gemini_workbook_not_ready"
         raise HTTPException(409, detail={"code": code, "message": str(exc)}) from exc
+
+@router.post("/lifecycle-history/{business_date}/gemini/replay/queue")
+def enqueue_historical_gemini(
+    business_date: date,
+    body: HistoricalReplayRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_CONTROL_PERMISSION)),
+):
+    try:
+        return HistoricalReplayQueue(SessionLocal).enqueue(
+            principal.active_tenant_id, business_date, body.mode, body.promote,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": str(exc)}) from exc
+
+
+@router.get("/gemini/replay/jobs")
+def active_historical_gemini_jobs(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    return {"items": HistoricalReplayQueue(SessionLocal).active_jobs(principal.active_tenant_id)}
+
+
+@router.get("/gemini/replay/jobs/{job_id}")
+def historical_gemini_job_status(
+    job_id: str,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    try:
+        return HistoricalReplayQueue(SessionLocal).status(
+            principal.active_tenant_id, job_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(404, detail={"code": str(exc)}) from exc
+
 
 @router.post("/lifecycle-history/{business_date}/gemini/replay")
 def replay_historical_gemini(

@@ -14,6 +14,28 @@ _SPEC.loader.exec_module(_MODULE)
 _run_manual_recovery_current_day = _MODULE._run_manual_recovery_current_day
 
 
+def test_replay_queue_cli_is_exclusive():
+    import pytest
+    with pytest.raises(SystemExit):
+        _MODULE._arguments(["--replay-queue", "--once"])
+    with pytest.raises(SystemExit):
+        _MODULE._arguments(["--replay-queue", "--manual-recovery-current-day"])
+
+
+def test_replay_queue_oneshot_runs_without_creating_lifecycle_scheduler(capsys):
+    scheduler = Mock()
+    queue = Mock()
+    queue.run_once.return_value = 1
+    settings = Mock(inventory_tenant_allowlist=frozenset({"tenant-a"}))
+    with patch.object(_MODULE, "get_settings", return_value=settings), patch.object(
+        _MODULE, "HistoricalReplayQueue", return_value=queue
+    ), patch.object(_MODULE, "InventoryDailyScheduler", return_value=scheduler):
+        assert _MODULE.main(["--replay-queue"]) == 0
+    scheduler.assert_not_called()
+    queue.run_once.assert_called_once_with(frozenset({"tenant-a"}))
+    assert "INVENTORY_REPLAY_QUEUE_ONESHOT executions=1" in capsys.readouterr().out
+
+
 def _preview():
     return {
         "status": "preview_ready",

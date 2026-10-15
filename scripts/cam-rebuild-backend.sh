@@ -2015,6 +2015,8 @@ for unit in \
   creative-asset-manager-inventory-v41-reconcile.timer \
   creative-asset-manager-inventory-v5j-lifecycle.service \
   creative-asset-manager-inventory-v5j-lifecycle.timer \
+  creative-asset-manager-inventory-replay-queue.service \
+  creative-asset-manager-inventory-replay-queue.timer \
   creative-asset-manager-inventory-manual-recovery.service
 do
 
@@ -2133,7 +2135,8 @@ systemctl reset-failed \
 
 systemctl enable \
   --now \
-  creative-asset-manager-inventory-v5j-lifecycle.timer
+  creative-asset-manager-inventory-v5j-lifecycle.timer \
+  creative-asset-manager-inventory-replay-queue.timer
 
 
 #

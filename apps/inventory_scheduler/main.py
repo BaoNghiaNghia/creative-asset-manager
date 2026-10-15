@@ -23,6 +23,7 @@ from app.modules.inventory.daily.scheduler import (
     InventoryDailyScheduler,
     V4_MANUAL_RECOVERY_ERROR_CODES,
 )
+from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 
 # Backward-compatible name used by operational tests and older wrappers.
 _MANUAL_RECOVERY_ERROR_CODES = V4_MANUAL_RECOVERY_ERROR_CODES
@@ -39,6 +40,7 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inventory scheduler runtime")
     parser.add_argument("--once", action="store_true", help="Evaluate the configured daily lifecycle once and exit")
     parser.add_argument("--slot", choices=("snapshot", "reconcile"))
+    parser.add_argument("--replay-queue", action="store_true", help="Process a durable historical replay job")
     parser.add_argument(
         "--manual-recovery-current-day",
         action="store_true",
@@ -47,6 +49,8 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     arguments = parser.parse_args(argv)
     if arguments.slot and not arguments.once:
         parser.error("--slot requires --once")
+    if arguments.replay_queue and (arguments.once or arguments.slot or arguments.manual_recovery_current_day):
+        parser.error("--replay-queue cannot be combined with lifecycle or manual recovery")
     if arguments.manual_recovery_current_day and (arguments.once or arguments.slot):
         parser.error("--manual-recovery-current-day cannot be combined with --once/--slot")
     return arguments
@@ -367,6 +371,12 @@ def _run_manual_recovery_current_day(
 def main(argv: list[str] | None = None) -> int:
     arguments = _arguments(argv)
     settings = get_settings()
+    if arguments.replay_queue:
+        count = HistoricalReplayQueue(SessionLocal).run_once(
+            settings.inventory_tenant_allowlist,
+        )
+        print(f"INVENTORY_REPLAY_QUEUE_ONESHOT executions={count}")
+        return 0
     scheduler = InventoryDailyScheduler(
         SessionLocal,
         allowed_tenant_ids=settings.inventory_tenant_allowlist,
