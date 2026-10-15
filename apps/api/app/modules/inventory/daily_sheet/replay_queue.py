@@ -406,7 +406,33 @@ class HistoricalReplayQueue:
                 if job is None or job.status != "processing" or job.claimed_by != worker_id:
                     raise RuntimeError("inventory_replay_job_lease_lost")
                 job.payload_json = {**job.payload_json, "result": result}
-                InventoryJobRepository(session, (REPLAY_REQUEST_TYPE,)).complete(job, worker_id)
+                repository = InventoryJobRepository(session, (REPLAY_REQUEST_TYPE,))
+                verified_and_promoted = (
+                    isinstance(result, dict)
+                    and result.get("status") == "completed"
+                    and result.get("verification_status") == "verified"
+                    and result.get("promoted") is True
+                )
+                if promote and not verified_and_promoted:
+                    # A successfully executed model call does not imply verified
+                    # closing stock. Preserve the unverified result for review,
+                    # but don't report the queue job as completed or auto-retry.
+                    result_status = str(result.get("status") or "unverified") if isinstance(result, dict) else "unverified"
+                    code = (
+                        "inventory_historical_replay_review_required"
+                        if result_status == "review_required"
+                        else "inventory_historical_replay_not_verified"
+                    )
+                    repository.fail(
+                        job, worker_id, error_code=code,
+                        error_message=code, retryable=False,
+                    )
+                    logger.warning(
+                        "inventory_historical_replay_unverified tenant_id=%s business_date=%s result_status=%s",
+                        tenant_id, day.isoformat(), result_status,
+                    )
+                    return 0
+                repository.complete(job, worker_id)
             return 1
         except Exception as error:
             code = str(getattr(error, "code", str(error) or type(error).__name__))[:100]

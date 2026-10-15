@@ -206,6 +206,58 @@ def test_structured_http_errors_are_safe_and_classified(
     assert "test-secret" not in str(captured.value)
 
 
+
+def test_successful_auth_fallback_is_reused_in_later_gemini_tool_rounds(monkeypatch):
+    class ResolverWithBackup(Resolver):
+        def resolve_candidates(self, tenant_id: str) -> tuple[str, ...]:
+            self.calls.append(tenant_id)
+            return ("expired-inventory", "working-backup")
+
+    attempted = []
+    def post(_url, **kwargs):
+        key = kwargs["headers"]["x-goog-api-key"]
+        attempted.append(key)
+        if key == "expired-inventory":
+            return Response(403, {"error": {"message": "private"}})
+        return Response(200, {"candidates": [{"content": {"parts": [
+            {"functionCall": {"name": "read_range", "args": {"sheet": "WH1", "a1_range": "A1"}}}
+        ]}}]})
+
+    monkeypatch.setattr("app.modules.inventory.ai.gateway.httpx.post", post)
+    gateway = RuntimeInventoryGeminiGateway(ResolverWithBackup())
+    for _ in range(3):
+        gateway.generate_tool_turn(
+            tenant_id="tenant-a", contents=[{"role": "user", "parts": [{"text": "check"}]}],
+            function_declarations=[{"name": "read_range"}], provider="gemini",
+            model="gemini-test",
+        )
+    assert attempted == [
+        "expired-inventory", "working-backup", "working-backup", "working-backup",
+    ]
+
+
+def test_successful_backup_cache_invalidates_when_credential_list_rotates():
+    class RotatingResolver(Resolver):
+        keys = ("expired-inventory", "working-backup")
+        def resolve_candidates(self, tenant_id: str) -> tuple[str, ...]:
+            return self.keys
+    resolver = RotatingResolver()
+    attempts = []
+    def request(key, *_):
+        attempts.append(key)
+        if key == "expired-inventory":
+            raise InventoryAiGatewayError(
+                "inventory_gemini_auth_or_permission_error", retryable=False,
+            )
+        return {"extracted_json": {"ok": True}}
+    gateway = RuntimeInventoryGeminiGateway(resolver, request=request)
+    args = dict(tenant_id="tenant-a", image_bytes=b"fake-image", image_mime_type="image/png",
+                prompt="check", schema={}, provider="gemini", model="gemini-test")
+    gateway.analyze(**args)
+    resolver.keys = ("new-inventory", "working-backup")
+    gateway.analyze(**args)
+    assert attempts == ["expired-inventory", "working-backup", "new-inventory"]
+
 def test_shared_fallback_retries_only_auth_failures_for_structured_text_and_tools(monkeypatch):
     class SharedResolver(Resolver):
         def resolve_candidates(self, tenant_id: str) -> tuple[str, ...]:
@@ -245,7 +297,7 @@ def test_shared_fallback_retries_only_auth_failures_for_structured_text_and_tool
         model="gemini-test",
     )
     assert turn.calls[0].name == "check_stock"
-    assert attempted == ["broken-inventory", "image-key", "video-key"]
+    assert attempted == ["image-key", "broken-inventory", "video-key"]
 
 
 def test_image_analysis_retries_other_tenant_key_on_unauthorized():

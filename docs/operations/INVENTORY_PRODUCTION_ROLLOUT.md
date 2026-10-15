@@ -285,3 +285,23 @@ jobs are excluded. A v2 review-required result remains unverified and **does not
 promote or update Shared. Use persisted diagnostics for
 `INVENTORY_REPLAY_DIAGNOSTICS` and `INVENTORY_REPLAY_RESULTS` to distinguish
 successful execution from true `verified / promoted` inventory reconciliation.
+
+### Gemini credential fallback and replay result semantics
+
+Within each Gemini gateway instance (one execution), a successful credential
+fallback is reused for later tool calls **only while the resolver's candidate
+list is unchanged**. The resolver is still queried on every call; a candidate
+rotation invalidates the cached preferred position. Raw credentials are never
+cached in logs. The fallback remains limited to 401/403; 429, 5xx, invalid
+payload and model errors do **not** switch to Image/Video quota as a workaround.
+Gemini provider retry logs now show the machine code and HTTP status (never
+response bodies, keys or workbook contents).
+
+When a promotion replay finishes `review_required`, `shadow`, or without
+`verification_status=verified` and `promoted=true`, the durable queue job is
+terminal `failed` with explicit `inventory_historical_replay_review_required`
+or `inventory_historical_replay_not_verified`. The original result and
+its audit remain for human inspection. This is **not** a provider failure and
+is never blindly retried. Sandbox-only replay (`promote=false`) may complete
+without verified promotion because it was explicitly non-promoting. Morning
+Reset remains blocked until verified Closing exists.

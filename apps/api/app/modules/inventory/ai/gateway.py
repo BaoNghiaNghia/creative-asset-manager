@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Callable
 
 import base64
+import hashlib
 import json
 import logging
 
@@ -69,6 +70,9 @@ class RuntimeInventoryGeminiGateway:
         self.timeout_seconds = timeout_seconds
         self._request = request or self._request_gemini
         self._text_request = text_request or self._request_gemini_text
+        # Cache only candidate-set fingerprints and preferred positions, never keys.
+        # Resolver still runs on every request to honor rotations and revocations.
+        self._preferred_credential: dict[str, tuple[str, int]] = {}
 
     def _with_credential_fallback(self, tenant_id: str, call: Callable[[str], Any]) -> Any:
         try:
@@ -82,17 +86,29 @@ class RuntimeInventoryGeminiGateway:
         except InventoryCredentialError as exc:
             raise InventoryAiGatewayError(str(exc), retryable=False) from exc
         # One selected Inventory key and at most five shared Image/Video keys.
-        # Never use another domain's quota on 429, model errors or bad payloads.
-        attempts = secrets[:6]
-        for index, secret in enumerate(attempts):
+        # Never fall back on 429, model errors or bad payloads. A successful
+        # authorization fallback is reused for subsequent Gemini tool rounds.
+        attempts = tuple(secrets[:6])
+        fingerprint = hashlib.sha256(
+            b"".join(len(value.encode("utf-8")).to_bytes(4, "big")
+                     + value.encode("utf-8") for value in attempts)
+        ).hexdigest()
+        preferred = self._preferred_credential.get(tenant_id)
+        start = preferred[1] if preferred and preferred[0] == fingerprint else 0
+        indices = (start, *(i for i in range(len(attempts)) if i != start))
+        for position, index in enumerate(indices):
             try:
-                return call(secret)
+                result = call(attempts[index])
+                self._preferred_credential[tenant_id] = (fingerprint, index)
+                return result
             except InventoryAiGatewayError as exc:
-                if exc.code != "inventory_gemini_auth_or_permission_error" or index == len(attempts) - 1:
+                if exc.code != "inventory_gemini_auth_or_permission_error" or position == len(indices) - 1:
+                    if self._preferred_credential.get(tenant_id) == (fingerprint, index):
+                        self._preferred_credential.pop(tenant_id, None)
                     raise
                 logger.warning(
                     "inventory_gemini_credential_fallback tenant_id=%s attempt=%d",
-                    tenant_id, index + 1,
+                    tenant_id, position + 1,
                 )
         raise InventoryAiGatewayError("inventory_gemini_credential_unavailable", retryable=False)
 

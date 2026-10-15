@@ -254,7 +254,8 @@ class InventoryDailySheetV4Service:
                         except InventoryAiGatewayError as exc:
                             if not exc.retryable:
                                 logger.error(
-                                    "inventory_sheet_agent_v4_provider_failed",
+                                    "inventory_sheet_agent_v4_provider_failed tenant_id=%s model=%s round=%d error_code=%s status=%s",
+                                    tenant_id, model, rounds, exc.code, getattr(exc, "provider_status", None),
                                     extra={
                                         "tenant_id": tenant_id,
                                         "model": model,
@@ -268,7 +269,8 @@ class InventoryDailySheetV4Service:
                                 raise
                             last_retryable_error = exc
                             logger.warning(
-                                "inventory_sheet_agent_v4_provider_retry",
+                                "inventory_sheet_agent_v4_provider_retry tenant_id=%s model=%s round=%d retry=%d error_code=%s status=%s",
+                                tenant_id, model, rounds, retry_index, exc.code, getattr(exc, "provider_status", None),
                                 extra={
                                     "tenant_id": tenant_id,
                                     "model": model,

@@ -74,6 +74,50 @@ def test_historical_replay_queue_deduplicates_and_completes_without_live_workboo
         tmp.cleanup()
 
 
+
+def test_unverified_replay_requires_review_and_never_counts_as_completed():
+    tmp, engine, sessions = _sessions()
+    try:
+        class Service:
+            def replay_agent_v4_historical(self, *_args, **_kwargs):
+                return {
+                    "status": "review_required", "verification_status": "not_executed",
+                    "promoted": False, "run_id": "review-run",
+                }
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: Service())
+        job = queue.enqueue("tenant-a", date(2030, 8, 9), promote=True)
+        assert queue.run_once(frozenset({"tenant-a"})) == 0
+        row = queue.status("tenant-a", job["job_id"])
+        assert row["status"] == "failed"
+        assert row["last_error_code"] == "inventory_historical_replay_review_required"
+        assert row["result"]["status"] == "review_required"
+        assert row["result"]["promoted"] is False
+        assert queue.run_once(frozenset({"tenant-a"})) == 0
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_sandbox_replay_with_review_result_is_completed_without_promotion():
+    tmp, engine, sessions = _sessions()
+    try:
+        class Service:
+            def replay_agent_v4_historical(self, *_args, **_kwargs):
+                return {
+                    "status": "review_required", "verification_status": "not_executed",
+                    "promoted": False,
+                }
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: Service())
+        job = queue.enqueue("tenant-a", date(2030, 8, 9), promote=False)
+        assert queue.run_once(frozenset({"tenant-a"})) == 1
+        state = queue.status("tenant-a", job["job_id"])
+        assert state["status"] == "completed"
+        assert state["result"]["promoted"] is False
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
 def test_historical_replay_queue_retries_provider_failure_without_duplicate_dispatch():
     tmp, engine, sessions = _sessions()
     try:
