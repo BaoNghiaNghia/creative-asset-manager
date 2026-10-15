@@ -108,7 +108,7 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{route === "inventory" ? <aside className="inventory-desktop-sidebar" aria-label="Inventory workspace sidebar"><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active="inventory" /></aside> : null}<div className={route === "inventory" ? "inventory-route-main" : "app-route-content"}>{route === "inventory" ? <>
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{(route === "inventory" || route === "branding-dna") ? <aside className="inventory-desktop-sidebar" aria-label={route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active={route === "branding-dna" ? "branding-dna" : "inventory"} /></aside> : null}<div className={route === "inventory" || route === "branding-dna" ? "inventory-route-main" : "app-route-content"}>{route === "inventory" ? <>
     <WorkspacePageHeader route="inventory" className="inventory-global-header" actions={<WorkspaceBackToAssets />} />
     <nav className="inventory-global-tabs" aria-label="Inventory sections">
       {([
