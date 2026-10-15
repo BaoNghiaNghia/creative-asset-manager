@@ -205,7 +205,6 @@ export function KeywordImageRowControls({
 export function KeywordImageStage({
   active,
   skillCatalogRevision,
-  onManageSkills,
 }: {
   active: boolean;
   skillCatalogRevision: number;
@@ -437,7 +436,15 @@ export function KeywordImageStage({
       title="Generate images from used keywords"
       description="Generate six separate final embroidery concepts per keyword, track progress, and replace all old images on confirmed Retry."
       actions={<div className="rrugc-keyword-gen-actions">
-        <button type="button" className="rrugc-global-management-button rrugc-icon-action" onClick={onManageSkills}><RrugcActionIcon name="skills" />Manage skills</button>
+        <label className="rrugc-keyword-gen-search">
+          <span className="sr-only">Search used keywords</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
+          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search used keywords…" />
+        </label>
+        <button type="button" className="rrugc-keyword-gen-font-pool" onClick={() => setFontPoolOpen(true)} title="Approved DaFont font pool and anti-repeat strategy" aria-label="Open DaFont font pool">
+          <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAMAAABF0y+mAAAAbFBMVEXMAADLAADPDg7QHBzXSEj109P439/fcXHJAAD1y8v////+9/fVNjbKAADRFRXXPj7UMTHQISHqoaHbVFTwv7/cXl799PTyxcXtrKzeaWn32trjgYHxu7vli4vvtLTnlpb65ubVSUnlkZHZV1c1b8cdAAAAy0lEQVR4AZXQBXaFQAwFUEY+BHd32P8em1dvA5WHc89I4vwjSht1a/bhendKfhAE5g5Dxuh6aJwEnFSiikllPtAqYXnhQjilwLgK3lJ/R2Ua/t12wF6g5X26Dg2MXvwdU8ZBEyYfBWYNjzQ0Mc4Cc2BOC+MqMGHcMsKOCtkEYEQFY3eJTUrA5RotrYyVI7IFQbjTgVYIU8CSZkZfYIy2nzTy/SFxQMsZ0ajvSC3G1BjvGjESYxA5EuleLTyVRLUf6zp7VkuDxoiguzwB9ewNjgtodkEAAAAASUVORK5CYII=" alt="" width="21" height="21" />
+          DaFont
+        </button>
         {bulkRunning
           ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
@@ -480,24 +487,7 @@ export function KeywordImageStage({
         <strong>{(data.overview[key] || 0).toLocaleString()}</strong><span>{STATUS_LABEL[key]}</span>
       </button>)}
     </div>
-    <div className="rrugc-keyword-gen-toolbar">
-      <label className="rrugc-keyword-gen-search">
-        <span className="sr-only">Search used keywords</span>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
-        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search used keywords…" />
-      </label>
-      <label className="rrugc-keyword-gen-skill">
-        <span>Generation Skill</span>
-        <select value={selectedSkillKey} onChange={event => setSelectedSkillKey(event.target.value)} disabled={catalogLoading || !readySkills.length} aria-label="Keyword generation Skill">
-          {!readySkills.length && <option value="">{catalogLoading ? "Loading Skills…" : "No ready Skills"}</option>}
-          {readySkills.map(skill => <option key={skillKey(skill)} value={skillKey(skill)}>{skill.display_name || skill.skill_name}{skill.upload_version || skill.synced_version ? " · " + (skill.upload_version || skill.synced_version) : ""}</option>)}
-        </select>
-      </label>
-      <button type="button" className="rrugc-keyword-gen-font-pool" onClick={() => setFontPoolOpen(true)} title="Approved DaFont font pool and anti-repeat strategy" aria-label="Open DaFont font pool">DaFont Pool</button>
-      <button type="button" className="rrugc-keyword-gen-refresh" onClick={() => { setLoading(true); void refresh().catch(reason => { setLoading(false); setError(String(reason)); }); }} aria-label="Refresh keyword jobs" title="Refresh jobs" disabled={loading}>
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 1 1-2.4-5.7" /><path d="M20 4v7h-7" /></svg>
-      </button>
-    </div>
+
     {fontPoolOpen && <DaFontPoolDialog onClose={() => setFontPoolOpen(false)} />}
     <ActionMessageToast message={error} tone="error" />
     <ActionMessageToast message={message} />

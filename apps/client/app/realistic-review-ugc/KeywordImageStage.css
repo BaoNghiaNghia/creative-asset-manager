@@ -25,7 +25,11 @@
   max-width: 680px;
   font-size: 10px;
 }
-.rrugc-keyword-gen-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rrugc-keyword-gen-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.rrugc-keyword-gen-actions .rrugc-keyword-gen-search { flex: 1 1 220px; width: clamp(190px, 23vw, 360px); max-width: 360px; }
+.rrugc-keyword-gen-actions .rrugc-keyword-gen-font-pool { gap: 6px; flex: none; }
+.rrugc-keyword-gen-actions .rrugc-keyword-gen-font-pool img { display: block; width: 21px; height: 21px; object-fit: contain; border-radius: 4px; }
+@media(max-width:800px) { .rrugc-keyword-gen-actions { width: 100%; justify-content: flex-start; } .rrugc-keyword-gen-actions .rrugc-keyword-gen-search { max-width: none; } }
 .rrugc-keyword-gen-primary,
 .rrugc-keyword-gen-stop {
   min-height: 32px;
