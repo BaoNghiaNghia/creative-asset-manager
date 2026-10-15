@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BACKEND_READINESS_INITIAL_DELAY_MS,
+  BACKEND_READINESS_CONFIRM_RETRY_MS,
   BACKEND_READINESS_POLL_MS,
   BACKEND_READINESS_TIMEOUT_MS,
   useDeploymentReadiness,
@@ -36,12 +37,15 @@ describe("deployment watcher for already-open workspaces", () => {
   it("switches to maintenance on failed readiness, then reloads the existing URL when restored", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockResolvedValueOnce(new Response("updating", { status: 503 }))
+      .mockResolvedValueOnce(new Response("still updating", { status: 503 }))
       .mockResolvedValueOnce(new Response("ready", { status: 200 }));
     vi.stubGlobal("fetch", fetcher);
     const recovered = vi.fn();
     const probe = await mount(recovered);
     expect(probe.status).toBe("operational");
     await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_INITIAL_DELAY_MS); });
+    expect(probe.status).toBe("operational");
+    await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_CONFIRM_RETRY_MS); });
     expect(probe.status).toBe("maintenance");
     await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_POLL_MS); });
     expect(recovered).toHaveBeenCalledTimes(1);
@@ -59,7 +63,27 @@ describe("deployment watcher for already-open workspaces", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(BACKEND_READINESS_INITIAL_DELAY_MS + BACKEND_READINESS_TIMEOUT_MS);
     });
+    expect(probe.status).toBe("operational");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BACKEND_READINESS_CONFIRM_RETRY_MS + BACKEND_READINESS_TIMEOUT_MS);
+    });
     expect(probe.status).toBe("maintenance");
+  });
+
+  it("keeps the workspace visible after a single failed health probe", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("deploy blip", { status: 503 }))
+      .mockResolvedValue(new Response("ready", { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    const recovered = vi.fn();
+    const probe = await mount(recovered);
+    await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_INITIAL_DELAY_MS); });
+    expect(probe.status).toBe("operational");
+    await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_CONFIRM_RETRY_MS); });
+    expect(probe.status).toBe("operational");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(recovered).not.toHaveBeenCalled();
   });
 
   it("does not mistake an intermediary 400 for a maintenance outage", async () => {

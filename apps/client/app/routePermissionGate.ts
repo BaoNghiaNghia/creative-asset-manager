@@ -5,6 +5,7 @@ const reloadAfterMaintenance = () => window.location.reload();
 
 export const ROUTE_IDENTITY_TIMEOUT_MS = 5_000;
 export const ROUTE_IDENTITY_RETRY_MS = 5_000;
+export const ROUTE_IDENTITY_CONFIRM_RETRY_MS = 1_500;
 export type RouteAccessState =
   | { status: "checking" }
   | { status: "allowed"; permissions: readonly string[] }
@@ -39,6 +40,7 @@ export function useRouteAccessGate(
 
     let active = true;
     let hasEnteredMaintenance = false;
+    let consecutiveFailures = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let requestTimeout: ReturnType<typeof setTimeout> | undefined;
     let abort: AbortController | undefined;
@@ -59,6 +61,7 @@ export function useRouteAccessGate(
         });
         const identity = await Promise.race([fetchAccessIdentity(scopedFetch), timeout]);
         if (!active) return;
+        consecutiveFailures = 0;
         if (hasEnteredMaintenance) {
           onRecovered();
           return;
@@ -70,6 +73,13 @@ export function useRouteAccessGate(
         if (!active) return;
         if (!unavailable(error)) {
           setState({ status: "denied" });
+          return;
+        }
+        consecutiveFailures += 1;
+        if (consecutiveFailures < 2) {
+          // One transient 5xx or timeout during deployment is not a durable
+          // maintenance state. Keep the permission loading view briefly.
+          retryTimer = setTimeout(() => { if (active) void checkIdentity(); }, ROUTE_IDENTITY_CONFIRM_RETRY_MS);
           return;
         }
         hasEnteredMaintenance = true;

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export const BACKEND_READINESS_POLL_MS = 15_000;
 export const BACKEND_READINESS_TIMEOUT_MS = 4_000;
 export const BACKEND_READINESS_INITIAL_DELAY_MS = 2_000;
+export const BACKEND_READINESS_CONFIRM_RETRY_MS = 3_000;
 
 const reloadCurrentRoute = () => window.location.reload();
 
@@ -23,7 +24,9 @@ export function useDeploymentReadiness(
     }
     let alive = true;
     let outage = false;
+    let consecutiveFailures = 0;
     let running = false;
+    let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | null = null;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
 
@@ -40,8 +43,14 @@ export function useDeploymentReadiness(
         // Only backend failures signal deployment downtime. An unexpected
         // 4xx from an intermediary is not evidence of a server shutdown.
         if (response.status >= 500) throw new Error("backend_not_ready");
-        if (!response.ok) return;
+        if (!response.ok) {
+          // Authorization/proxy 4xx responses are not evidence of an outage.
+          consecutiveFailures = 0;
+          return;
+        }
         if (!alive) return;
+        consecutiveFailures = 0;
+        if (confirmationTimer !== undefined) clearTimeout(confirmationTimer);
         if (outage) {
           onRecovered();
           return;
@@ -49,6 +58,13 @@ export function useDeploymentReadiness(
         setUnavailable(false);
       } catch {
         if (!alive) return;
+        consecutiveFailures += 1;
+        // A single slow/failed probe during a deploy should not replace the
+        // whole workspace with the Under Construction screen.
+        if (consecutiveFailures < 2) {
+          confirmationTimer = setTimeout(() => void probe(), BACKEND_READINESS_CONFIRM_RETRY_MS);
+          return;
+        }
         outage = true;
         setUnavailable(true);
       } finally {
@@ -63,6 +79,7 @@ export function useDeploymentReadiness(
       controller?.abort();
       clearTimeout(initial);
       clearInterval(interval);
+      if (confirmationTimer !== undefined) clearTimeout(confirmationTimer);
       if (watchdog !== undefined) clearTimeout(watchdog);
     };
   }, [enabled, onRecovered]);

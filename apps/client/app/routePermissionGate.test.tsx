@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTITY_TIMEOUT_MS, useRouteAccessGate } from "./routePermissionGate";
+import { ROUTE_IDENTITY_CONFIRM_RETRY_MS, ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTITY_TIMEOUT_MS, useRouteAccessGate } from "./routePermissionGate";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let currentRoot: Root | null = null;
@@ -39,14 +39,17 @@ describe("production deploy permissions gate", () => {
   it("shows maintenance on 503 and reloads the original route once identity recovers", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockResolvedValueOnce(new Response("updating", { status: 503 }))
+      .mockResolvedValueOnce(new Response("still updating", { status: 503 }))
       .mockResolvedValueOnce(identity());
     vi.stubGlobal("fetch", fetcher);
     const recovered = vi.fn();
     const probe = await mount(recovered);
+    expect(probe.status).toBe("checking");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS); });
     expect(probe.status).toBe("maintenance");
     await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_RETRY_MS); });
     expect(recovered).toHaveBeenCalledTimes(1);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("never hangs on Checking permissions when backend stops responding", async () => {
@@ -56,7 +59,23 @@ describe("production deploy permissions gate", () => {
     const probe = await mount();
     expect(probe.status).toBe("checking");
     await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_TIMEOUT_MS); });
+    expect(probe.status).toBe("checking");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS + ROUTE_IDENTITY_TIMEOUT_MS); });
     expect(probe.status).toBe("maintenance");
+  });
+
+  it("retries a transient identity 503 without showing Under Construction", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("deploy blip", { status: 503 }))
+      .mockResolvedValueOnce(identity());
+    vi.stubGlobal("fetch", fetcher);
+    const recovered = vi.fn();
+    const probe = await mount(recovered);
+    expect(probe.status).toBe("checking");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS); });
+    expect(probe.status).toBe("allowed");
+    expect(recovered).not.toHaveBeenCalled();
   });
 
   it("keeps authorization failures separate from production downtime", async () => {
