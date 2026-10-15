@@ -7,9 +7,10 @@ type Props = {
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
   hasMore: boolean;
+  stage?: 3 | 4 | 5;
 };
 
-export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore }: Props) {
+export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore, stage = 5 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const branches = useMemo(() => {
     const items: string[] = [];
@@ -65,9 +66,9 @@ export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore }: Props
     </div>;
   }
 
-  return <div className="rrugc-stage5-source-tree" role="complementary" aria-label="Stage 5 source folder tree">
+  return <div className="rrugc-stage5-source-tree" role="complementary" aria-label={`Stage ${stage} source folder tree`}>
     <header className="rrugc-stage5-tree-head">
-      <div><strong>Source tree</strong><small>Folders from Stage 4 outputs</small></div>
+      <div><strong>Source tree</strong><small>{stage === 3 ? "Folders from Drive sources" : stage === 4 ? "Folders from Stage 3 sources" : "Folders from Stage 4 outputs"}</small></div>
       <button type="button" className="rrugc-stage5-tree-expand"
         disabled={!branches.length}
         onClick={() => setExpanded(allExpanded ? new Set() : new Set(branches))}>
@@ -86,7 +87,7 @@ export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore }: Props
       {!root.children.length && <p className="rrugc-stage5-tree-empty">No folders loaded yet.</p>}
     </div>
     <footer className="rrugc-stage5-tree-foot">
-      <span>{root.groupIds.length} loaded folder{root.groupIds.length === 1 ? "" : "s"}</span>
+      <span>{stage === 5 ? root.groupIds.length : branches.length + root.children.filter(node => !node.children.length).length} {stage === 5 ? "loaded folders" : "source folders"}</span>
       {hasMore && <small>More folders may appear when older images are loaded.</small>}
     </footer>
   </div>;

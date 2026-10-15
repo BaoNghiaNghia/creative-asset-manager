@@ -1,3 +1,14 @@
+/* Reviews Stage 3 Scout column follows Stage 0 blue ASC / violet DESC. */
+.rrugc-stage3-source-table[data-sort-direction="asc"]{--rrugc-active-col-overlay:rgba(59,130,246,.085);--rrugc-active-col-border:rgba(59,130,246,.48)}
+.rrugc-stage3-source-table[data-sort-direction="desc"]{--rrugc-active-col-overlay:rgba(168,85,247,.085);--rrugc-active-col-border:rgba(168,85,247,.45)}
+.rrugc-stage3-source-table[data-sort-column="scout"] :is(thead th:nth-child(3),tbody td:nth-child(3):not([colspan])){
+  background-image:linear-gradient(var(--rrugc-active-col-overlay),var(--rrugc-active-col-overlay));background-clip:padding-box;
+}
+.rrugc-stage3-source-table thead th[aria-sort="ascending"],
+.rrugc-stage3-source-table thead th[aria-sort="descending"]{box-shadow:inset 0 2px 0 var(--rrugc-active-col-border)}
+.rrugc-stage3-scout-sort{display:inline-flex;align-items:center;gap:6px;border:0;padding:3px 1px;background:transparent;color:inherit;font:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
+.rrugc-stage3-scout-sort:hover{color:#3569bd}
+.rrugc-stage3-scout-sort:focus-visible{outline:2px solid #4a8cf0;outline-offset:2px;border-radius:3px}
 /* A translucent overlay keeps row hover, selection, badges and zebra colors visible. */
 .rrugc-stage0-keyword-table[data-sort-direction="asc"],
 .rrugc-keyword-gen-table[data-sort-direction="asc"],

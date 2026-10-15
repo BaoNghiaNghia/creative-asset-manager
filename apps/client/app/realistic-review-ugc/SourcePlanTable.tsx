@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
-import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
+import type { SourcePlanSortBy, SourcePlanSortDirection, SourcePlanFolders } from "./api";
+import { Stage5SourceTree } from "./Stage5SourceTree";
+import { ResizableSourceLayout } from "./ResizableSourceLayout";
+import { buildSourcePlanFolderTree } from "./sourcePlanFolderTree";
+import { SortDirectionIndicator } from "./SortDirectionIndicator";
+import "./Stage5SourceTree.css";
+import "./SortColumnHighlight.css";
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -510,6 +516,9 @@ function SourcePlanSkeletonRows({ count }: { count: number }) {
 
 export function SourcePlanTable({
   plans,
+  folderData = null,
+  selectedFolderPath = null,
+  onFolderSelect = () => undefined,
   total,
   overview = fallbackSourcePlanOverview(plans, total),
   page,
@@ -530,6 +539,9 @@ export function SourcePlanTable({
   onSetReferenceFeedback = () => undefined,
 }: {
   plans: SourcePlan[];
+  folderData?: SourcePlanFolders | null;
+  selectedFolderPath?: string | null;
+  onFolderSelect?: (path: string | null) => void;
   total: number;
   overview?: SourcePlanOverview;
   page: number;
@@ -553,6 +565,7 @@ export function SourcePlanTable({
     label: ReferenceManualLabel | "clear",
   ) => void;
 }) {
+  const folderTree = useMemo(() => buildSourcePlanFolderTree(folderData), [folderData]);
   const pageCount = sourcePlanPageCount(total, pageSize);
   const searchSuggestions = useMemo(() => plans.flatMap(plan => {
     const folder = plan.source_relative_path.includes("/")
@@ -630,9 +643,24 @@ export function SourcePlanTable({
       </div>
     </div>
 
+    <ResizableSourceLayout stage={3} tree={<Stage5SourceTree stage={3} root={folderTree}
+      selectedKey={selectedFolderPath === null ? null : "folder:" + selectedFolderPath}
+      onSelect={key => onFolderSelect(key === null ? null : key.slice(7))} hasMore={false} />}>
     <div className="rrugc-source-plan-table-wrap">
-      <table className="rrugc-source-plan-table" aria-busy={loading}>
-        <thead><tr><th>Source image</th><th>AI context & Pinterest plan</th><th>Scout</th><th>References</th></tr></thead>
+      <table className="rrugc-source-plan-table rrugc-stage3-source-table" aria-busy={loading}
+        data-sort-column={sortBy === "progress" ? "scout" : ""}
+        data-sort-direction={sortDirection}>
+        <thead><tr><th>Source image</th><th>AI context & Pinterest plan</th>
+          <th aria-sort={sortBy === "progress" ? sortDirection === "asc" ? "ascending" : "descending" : "none"}>
+            <button type="button" className="rrugc-stage3-scout-sort"
+              aria-label={"Sort Scout progress " + (sortBy === "progress" && sortDirection === "desc" ? "ascending" : "descending")}
+              onClick={() => {
+                onSortByChange("progress");
+                onSortDirectionChange(sortBy === "progress" && sortDirection === "desc" ? "asc" : "desc");
+              }}>
+              Scout <SortDirectionIndicator active={sortBy === "progress"} direction={sortDirection} />
+            </button>
+          </th><th>References</th></tr></thead>
         <tbody>
           {loading ? <SourcePlanSkeletonRows count={pageSize} /> : plans.map((plan, rowIndex) => {
             const progress = sourcePlanProgressPercent(plan);
@@ -698,5 +726,6 @@ export function SourcePlanTable({
       </div>
       <label>Rows<select value={pageSize} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>
+    </ResizableSourceLayout>
   </section>;
 }

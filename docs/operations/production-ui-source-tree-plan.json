@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "routes": [
+    {
+      "name": "reviews-stage3-tree",
+      "path": "/realistic-review-ugc?workflow=reviews&stage=stage3",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.rrugc-shell",
+      "states": [
+        {
+          "name": "tree-and-scout",
+          "waitFor": "#rrugc-panel-stage3 .rrugc-resizable-source-layout",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage3 .rrugc-stage5-source-tree"
+            },
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage3 .rrugc-stage3-scout-sort"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body",
+              "maxPx": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reviews-stage4-tree",
+      "path": "/realistic-review-ugc?workflow=reviews&stage=stage4",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.rrugc-shell",
+      "states": [
+        {
+          "name": "source-and-outputs",
+          "waitFor": "#rrugc-panel-stage4 .rrugc-resizable-source-layout",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage4 .rrugc-stage5-source-tree"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body",
+              "maxPx": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reviews-stage5-split",
+      "path": "/realistic-review-ugc?workflow=reviews&stage=stage5",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.rrugc-shell",
+      "states": [
+        {
+          "name": "split-layout",
+          "waitFor": "#rrugc-panel-stage5 .rrugc-resizable-source-layout",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#rrugc-panel-stage5 .rrugc-stage5-source-tree"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body",
+              "maxPx": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

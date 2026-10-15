@@ -3226,6 +3226,47 @@ def _group_source_plan_rows(
     from app.modules.realistic_review_ugc.embroidery_groups import group_source_plan_rows
     return group_source_plan_rows(rows)
 
+def _rrugc_source_folder(relative_path: str) -> str:
+    """Folder path relative to the Reviews source root, never a file name."""
+    normalized = str(relative_path or "").replace("\\", "/").strip("/")
+    return normalized.rsplit("/", 1)[0] if "/" in normalized else ""
+
+
+@router.get("/source-plans/folders")
+def get_source_plan_folders(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Lightweight unpaginated tree shared by Stage 3 and 4.
+
+    Apply the same grouping used by the paginated plans endpoint so folder
+    counts do not change when users paginate or sort the main table.
+    """
+    rows = list(session.scalars(select(RrugcSourcePlanModel).where(
+        RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+        RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+        ~func.lower(RrugcSourcePlanModel.source_name).startswith("embroidery_", autoescape=True),
+    )))
+    groups = _group_source_plan_rows(rows)
+    counts: dict[str, list[int]] = {}
+    for members in groups:
+        # One embroidery group can have color variants from multiple folders.
+        # Count each group once in each folder where it has source images.
+        per_folder: dict[str, int] = {}
+        for member in members:
+            path = _rrugc_source_folder(member.source_relative_path)
+            per_folder[path] = per_folder.get(path, 0) + 1
+        for folder, image_count in per_folder.items():
+            value = counts.setdefault(folder, [0, 0])
+            value[0] += 1
+            value[1] += image_count
+    return {
+        "folders": [{"path": path, "group_count": counts[path][0],
+                     "image_count": counts[path][1]} for path in sorted(counts)],
+        "total_groups": len(groups),
+    }
+
+
 @router.get("/source-plans", response_model=SourcePlanPageResponse)
 def get_source_plans(
     page: int = Query(default=1, ge=1),
@@ -3238,6 +3279,7 @@ def get_source_plans(
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     stage2_only: bool = False,
     source_prefix: str | None = Query(default=None, max_length=80),
+    folder_path: str | None = Query(default=None, max_length=512),
     colorway_sources: bool = False,
     colorway_workflow: str = Query(default="reviews", pattern="^(products|reviews)$"),
     session: Session = Depends(get_db),
@@ -3307,6 +3349,13 @@ def get_source_plans(
 
     needle = str(q or "").strip().lower()
     groups = [[row] for row in all_plans] if colorway_sources else _group_source_plan_rows(all_plans)
+    if isinstance(folder_path, str) and not colorway_sources:
+        chosen = folder_path.replace("\\", "/").strip("/")
+        groups = [members for members in groups if any(
+            _rrugc_source_folder(member.source_relative_path) == chosen
+            or _rrugc_source_folder(member.source_relative_path).startswith(chosen + "/")
+            for member in members
+        )]
     if needle:
         groups = [
             members

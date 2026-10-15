@@ -19,7 +19,11 @@ import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog
 import "./Stage4Regenerate.css";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { StageSortControls } from "./StageSortControls";
-import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
+import { Stage5SourceTree } from "./Stage5SourceTree";
+import { ResizableSourceLayout } from "./ResizableSourceLayout";
+import { buildSourcePlanFolderTree } from "./sourcePlanFolderTree";
+import "./Stage5SourceTree.css";
+import type { SourcePlanSortBy, SourcePlanSortDirection, SourcePlanFolders } from "./api";
 import { SourceImageGroup, sourcePlanPageCount } from "./SourcePlanTable";
 import { useHorizontalDragScroll } from "./useHorizontalDragScroll";
 import type {
@@ -687,6 +691,9 @@ function Stage2SkeletonRows({ count }: { count: number }) {
 
 export function Stage2JobTable({
   plans,
+  folderData = null,
+  selectedFolderPath = null,
+  onFolderSelect = () => undefined,
   jobs,
   overview = fallbackStage2Overview(plans, jobs),
   total,
@@ -711,6 +718,9 @@ export function Stage2JobTable({
   onPageSizeChange = () => undefined,
 }: {
   plans: SourcePlan[];
+  folderData?: SourcePlanFolders | null;
+  selectedFolderPath?: string | null;
+  onFolderSelect?: (path: string | null) => void;
   overview?: SourcePlanOverview;
   total?: number;
   page?: number;
@@ -759,6 +769,7 @@ export function Stage2JobTable({
     historyJobs?: Stage2Job[];
   } | null>(null);
   const stage2Plans = plans;
+  const folderTree = useMemo(() => buildSourcePlanFolderTree(folderData), [folderData]);
   const allJobsByPlan = useMemo(
     () => stage2JobsByPlan(stage2Plans, jobs),
     [stage2Plans, jobs],
@@ -1071,6 +1082,9 @@ export function Stage2JobTable({
       </div>
     </div>
 
+    <ResizableSourceLayout stage={4} tree={<Stage5SourceTree stage={4} root={folderTree}
+      selectedKey={selectedFolderPath === null ? null : "folder:" + selectedFolderPath}
+      onSelect={key => onFolderSelect(key === null ? null : key.slice(7))} hasMore={false} />}>
     <div className="rrugc-source-plan-table-wrap">
       <table className="rrugc-source-plan-table rrugc-stage2-table" aria-busy={loading}>
         <thead>
@@ -1331,6 +1345,7 @@ export function Stage2JobTable({
         </select>
       </label>
     </div>
+    </ResizableSourceLayout>
     {tableLogJobId && <SkillJobLogDialog stage="stage4" jobId={tableLogJobId} onClose={() => setTableLogJobId(null)} />}
     {outputReview && <Stage2OutputReviewModal
       plan={outputReview.plan}

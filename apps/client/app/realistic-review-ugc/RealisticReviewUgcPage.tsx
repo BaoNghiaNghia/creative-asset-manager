@@ -14,6 +14,8 @@ import {
   getQueryIntelligence,
   type QueryIntelligenceSummary,
   listSourcePlans,
+  listSourcePlanFolders,
+  type SourcePlanFolders,
   listStage2Jobs,
   listStage3ReviewGroups,
   resolveStage0KeywordMetrics,
@@ -183,6 +185,8 @@ export function RealisticReviewUgcPage() {
   const [reviewEmbroiderySortBy, setReviewEmbroiderySortBy] = useState<SourcePlanSortBy>("source");
   const [reviewEmbroiderySortDirection, setReviewEmbroiderySortDirection] = useState<SourcePlanSortDirection>("asc");
   const [sourcePage, setSourcePage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
+  const [sourceFolderTree, setSourceFolderTree] = useState<SourcePlanFolders | null>(null);
+  const [selectedSourceFolder, setSelectedSourceFolder] = useState<string | null>(null);
   const [sourcePageNumber, setSourcePageNumber] = useState(1);
   const [sourcePageSize, setSourcePageSize] = useState(10);
   const [sourceQuery, setSourceQuery] = useState("");
@@ -396,6 +400,7 @@ export function RealisticReviewUgcPage() {
         page: sourcePageNumber,
         pageSize: sourcePageSize,
         query: activeSourceQuery,
+        folderPath: selectedSourceFolder,
         sortBy: activeStage === "stage4" ? stage4SortBy : sourceSortBy,
         sortDirection: activeStage === "stage4" ? stage4SortDirection : sourceSortDirection,
       },
@@ -902,6 +907,19 @@ export function RealisticReviewUgcPage() {
   useEffect(() => {
     if (!groupsStageActive) return;
     const controller = new AbortController();
+    const load = () => {
+      void listSourcePlanFolders(controller.signal)
+        .then(result => { if (!controller.signal.aborted) setSourceFolderTree(result); })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(() => { if (!document.hidden) load(); }, 60000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [groupsStageActive, syncingSourcePlans]);
+
+  useEffect(() => {
+    if (!groupsStageActive) return;
+    const controller = new AbortController();
     let refreshInFlight = true;
     setError("");
     if (sourcePage.items.length === 0 && sourcePage.total === 0) {
@@ -930,7 +948,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [groupsStageActive, activeStage, sourcePageNumber, sourcePageSize, activeSourceQuery, sourceSortBy, sourceSortDirection, stage4SortBy, stage4SortDirection]);
+  }, [groupsStageActive, activeStage, sourcePageNumber, sourcePageSize, activeSourceQuery, sourceSortBy, sourceSortDirection, stage4SortBy, stage4SortDirection, selectedSourceFolder]);
 
   useEffect(() => {
     if (activeStage !== "stage4") return;
@@ -1245,6 +1263,9 @@ export function RealisticReviewUgcPage() {
         >
           <SourcePlanTable
             plans={sourcePage.items}
+            folderData={sourceFolderTree}
+            selectedFolderPath={selectedSourceFolder}
+            onFolderSelect={path => { setSelectedSourceFolder(path); setSourcePageNumber(1); setSourcePageLoading(true); }}
             total={sourcePage.total}
             overview={sourcePage.overview}
             page={sourcePageNumber}
@@ -1291,6 +1312,9 @@ export function RealisticReviewUgcPage() {
         >
           <Stage2JobTable
             plans={sourcePage.items}
+            folderData={sourceFolderTree}
+            selectedFolderPath={selectedSourceFolder}
+            onFolderSelect={path => { setSelectedSourceFolder(path); setSourcePageNumber(1); setSourcePageLoading(true); }}
             total={sourcePage.total}
             overview={sourcePage.overview}
             page={sourcePageNumber}

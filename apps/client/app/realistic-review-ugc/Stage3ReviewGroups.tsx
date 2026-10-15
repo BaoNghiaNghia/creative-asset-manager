@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Stage5BeforeAfter } from "./Stage5BeforeAfter";
 import { Stage5SourceTree } from "./Stage5SourceTree";
+import { ResizableSourceLayout } from "./ResizableSourceLayout";
 import { buildStage5FolderTree, findStage5FolderNode, groupsForStage5Folder } from "./stage5SourceTree";
 import "./Stage5BeforeAfter.css";
 import { ActionMessageToast } from "../components/ActionToast";
@@ -595,8 +596,7 @@ export function Stage3ReviewGroups({
       </div>
     </div>
 
-    <div className="rrugc-stage5-content-grid">
-      <Stage5SourceTree
+    <ResizableSourceLayout stage={5} tree={<Stage5SourceTree
         root={folderTree}
         selectedKey={activeFolderKey}
         onSelect={key => {
@@ -604,8 +604,7 @@ export function Stage3ReviewGroups({
           setSelectedReviewId(null);
         }}
         hasMore={Boolean(data.has_more)}
-      />
-      <div className="rrugc-stage5-folder-content">
+      />}>
     {loading ? (
       <div className="rrugc-stage3-skeletons" aria-label="Loading Stage 5 groups">
         {Array.from({ length: 4 }, (_, index) => (
@@ -732,8 +731,7 @@ export function Stage3ReviewGroups({
       </div>
     )}
 
-      </div>
-    </div>
+    </ResizableSourceLayout>
 
     {data.has_more && data.next_cursor && (
       <div className="rrugc-stage3-load-more">

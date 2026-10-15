@@ -20,6 +20,7 @@ from app.modules.realistic_review_ugc.router import (
     _group_source_plan_rows,
     _source_plan_reference_preview,
     get_source_plans,
+    get_source_plan_folders,
 )
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
@@ -787,6 +788,46 @@ def test_source_plan_list_groups_shared_campaign_when_signatures_drift():
             "Natural/BestGrandpa/front.jpg",
             "Navy/BestGrandpa/front.jpg",
         }
+
+
+def test_reviews_source_tree_is_unpaginated_and_folder_filter_is_exact():
+    factory = make_database()
+    with factory() as session:
+        entries = [
+            ("a1", "Hats/A/front.jpg", "emb-1", "tenant-a"),
+            ("a2", "Hats/A/side.jpg", "emb-1", "tenant-a"),
+            ("b", "Hats/AB/front.jpg", "emb-2", "tenant-a"),
+            ("c", "Other/side.jpg", "emb-3", "tenant-a"),
+            ("external", "Hats/A/hidden.jpg", "emb-4", "tenant-b"),
+        ]
+        for ident, path, signature, tenant in entries:
+            session.add(RrugcSourcePlanModel(
+                tenant_id=tenant, root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id=ident, source_parent_folder_id="folder-" + ident,
+                source_relative_path=path, source_name=path.rsplit("/", 1)[-1],
+                source_mime_type="image/jpeg", source_revision=(ident[0] * 64),
+                embroidery_signature=signature, analysis_revision=1,
+                target_count=50, status="ready", created_by_user_id="tester",
+            ))
+        session.commit()
+        principal = SimpleNamespace(active_tenant_id="tenant-a")
+        tree = get_source_plan_folders(session=session, principal=principal)
+        assert tree["total_groups"] == 3
+        counts = {item["path"]: (item["group_count"], item["image_count"]) for item in tree["folders"]}
+        assert counts == {"Hats/A": (1, 2), "Hats/AB": (1, 1), "Other": (1, 1)}
+        # Folder filters happen before pagination (same for Stage 3 and 4).
+        chosen = get_source_plans(page=1, page_size=1, q=None, folder_path="Hats/A",
+                                  session=session, principal=principal)
+        assert chosen.total == 1
+        assert chosen.items[0].embroidery_group_size == 2
+        # A prefix with a similar spelling must not be included.
+        sibling = get_source_plans(page=1, page_size=5, q=None, folder_path="Hats/AB",
+                                   session=session, principal=principal)
+        assert sibling.total == 1
+        assert sibling.items[0].source_relative_path.startswith("Hats/AB/")
+        parent = get_source_plans(page=1, page_size=1, q=None, folder_path="Hats",
+                                  session=session, principal=principal)
+        assert parent.total == 2
 
 
 def test_source_plan_list_is_server_paginated_and_searchable():

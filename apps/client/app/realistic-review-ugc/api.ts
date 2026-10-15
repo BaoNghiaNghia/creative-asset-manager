@@ -221,6 +221,12 @@ export const archiveProductReference = (productId: string, referenceId: string) 
 
 export type SourcePlanSortBy = "source" | "updated" | "analyzed" | "group_size" | "status" | "progress" | "refs" | "active_jobs" | "outputs";
 export type SourcePlanSortDirection = "asc" | "desc";
+export type SourcePlanFolders = {
+  folders: Array<{ path: string; group_count: number; image_count: number }>;
+  total_groups: number;
+};
+export const listSourcePlanFolders = (signal?: AbortSignal) =>
+  request<SourcePlanFolders>("/api/v1/realistic-review-ugc/source-plans/folders", { signal });
 export type KeywordAnalysisSortBy = "keyword" | "trend" | "platform" | "agent" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
 export type KeywordUsageFilter = "all" | "unused" | "used";
@@ -235,6 +241,7 @@ export const listSourcePlans = (
     sortDirection?: SourcePlanSortDirection;
     stage2Only?: boolean;
     sourcePrefix?: string;
+    folderPath?: string | null;
     colorwaySources?: boolean;
     colorwayWorkflow?: "products" | "reviews";
   } = {},
@@ -249,6 +256,7 @@ export const listSourcePlans = (
   if (filters.query?.trim()) params.set("q", filters.query.trim());
   if (filters.stage2Only) params.set("stage2_only", "true");
   if (filters.sourcePrefix?.trim()) params.set("source_prefix", filters.sourcePrefix.trim());
+  if (filters.folderPath !== null && filters.folderPath !== undefined) params.set("folder_path", filters.folderPath);
   if (filters.colorwaySources) {
     params.set("colorway_sources", "true");
     params.set("colorway_workflow", filters.colorwayWorkflow || "reviews");
