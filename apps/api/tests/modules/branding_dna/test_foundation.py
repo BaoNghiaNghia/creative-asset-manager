@@ -52,6 +52,14 @@ def test_tenant_registration_duplicate_and_ownership(db):
 def test_invalid_url_rejected(platform,url):
     with pytest.raises(ValueError):normalize_shop_url(platform,url)
 
+def test_shop_registration_only_requires_platform_and_url(db):
+    payload = ShopCreate(platform='etsy', storefront_url='https://www.etsy.com/shop/ActualHats')
+    row = add_shop(payload, session=db, principal=principal())
+    assert row['display_name'] == 'actualhats'
+    assert row['region'] == 'US'
+    assert row['access_mode'] == 'public_observation'
+
+
 def test_scanner_blocked_until_worker_available(db):
     row = add_shop(shop(), session=db, principal=principal())
     assert status(session=db,principal=principal())['scanner_ready'] is False

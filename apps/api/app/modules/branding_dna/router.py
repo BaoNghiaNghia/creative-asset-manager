@@ -22,7 +22,7 @@ LABEL = re.compile(r"^[\w\- '().&]{2,90}$", re.UNICODE)
 SAFE_SEGMENT = re.compile(r"^[a-zA-Z0-9._%-]{2,120}$")
 
 class ShopCreate(BaseModel):
-    display_name: str = Field(min_length=2, max_length=90)
+    display_name: str | None = Field(default=None, min_length=2, max_length=90)
     platform: str = Field(pattern="^(amazon|etsy|shopify)$")
     storefront_url: str = Field(min_length=12, max_length=2048)
     region: str = Field(default="US", min_length=2, max_length=10)
@@ -108,7 +108,7 @@ def list_shops(session: Session = Depends(get_db),
 @router.post("/shops", status_code=201)
 def add_shop(body: ShopCreate, session: Session = Depends(get_db),
              principal: CurrentPrincipal = Depends(CONFIGURE)):
-    if body.display_name != body.display_name.strip() or not LABEL.fullmatch(body.display_name):
+    if body.display_name is not None and (body.display_name != body.display_name.strip() or not LABEL.fullmatch(body.display_name)):
         raise HTTPException(422, detail="Invalid shop display name")
     region = body.region.upper()
     if not re.fullmatch(r"[A-Z]{2,10}", region):
@@ -117,9 +117,11 @@ def add_shop(body: ShopCreate, session: Session = Depends(get_db),
         url, key = normalize_shop_url(body.platform, body.storefront_url)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
+    inferred_name = key.split(":")[-1].split("/")[-1] if body.platform == "amazon" else (key.split(".")[0] if body.platform == "shopify" else key)
+    display_name = body.display_name or inferred_name[:90]
     shop = BrandShopModel(
         tenant_id=principal.active_tenant_id, platform=body.platform, region=region,
-        canonical_shop_key=key, storefront_url=url, display_name=body.display_name,
+        canonical_shop_key=key, storefront_url=url, display_name=display_name,
         access_mode=body.access_mode, status="draft", created_by=principal.actor_id
     )
     session.add(shop)

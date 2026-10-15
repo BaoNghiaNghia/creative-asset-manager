@@ -21,10 +21,7 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
  const [open,setOpen]=useState(false);
  const [error,setError]=useState("");
  const [platform,setPlatform]=useState("etsy");
- const [displayName,setDisplayName]=useState("");
  const [url,setUrl]=useState("");
- const [region,setRegion]=useState("US");
- const [accessMode,setAccessMode]=useState("public_observation");
  const refresh = useCallback(async () => {
   const [s,list]=await Promise.all([
    jsonRequest<Status>("/api/v1/branding-dna/status"),
@@ -42,9 +39,9 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
   try {
    await jsonRequest<Shop>("/api/v1/branding-dna/shops",{
     method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({platform,display_name:displayName.trim(),storefront_url:url.trim(),region,access_mode:accessMode})
+    body:JSON.stringify({platform,storefront_url:url.trim()})
    });
-   await refresh();setOpen(false);setDisplayName("");setUrl("");
+   await refresh();setOpen(false);setUrl("");
   }catch(e){setError(e instanceof Error?e.message:"Cannot save shop");}
   finally{setSaving(false);}
  }
@@ -64,16 +61,10 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
   </p>
   {error&&<div className="bdna-live-error" role="alert">{error}</div>}
   {!compact && open && <form className="bdna-shop-form" onSubmit={createShop}>
-   <label>Tên shop<input required minLength={2} maxLength={90} value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Example Hats"/></label>
-   <label>Nền tảng<select value={platform} onChange={e=>setPlatform(e.target.value)}>
+      <label>Nền tảng<select value={platform} onChange={e=>setPlatform(e.target.value)}>
     <option value="etsy">Etsy</option><option value="amazon">Amazon</option><option value="shopify">Shopify</option>
    </select></label>
-   <label>Region<input required value={region} maxLength={10} onChange={e=>setRegion(e.target.value)} placeholder="US"/></label>
-   <label>Chế độ truy cập<select value={accessMode} onChange={e=>setAccessMode(e.target.value)}>
-    <option value="public_observation">Public observation (subject to platform rules)</option>
-    <option value="owned">Owned shop</option><option value="authorized">Authorized shop</option>
-   </select></label>
-   <label className="bdna-shop-form-url">Storefront HTTPS URL<input required inputMode="url" type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder={platform==="etsy"?"https://www.etsy.com/shop/ShopName":platform==="amazon"?"https://www.amazon.com/stores/BrandName/page/...":"https://yourshop.myshopify.com"}/></label>
+         <label className="bdna-shop-form-url">Storefront HTTPS URL<input required inputMode="url" type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder={platform==="etsy"?"https://www.etsy.com/shop/ShopName":platform==="amazon"?"https://www.amazon.com/stores/BrandName/page/...":"https://yourshop.myshopify.com"}/></label>
    <div className="bdna-shop-form-footer"><small>Tạo shop ở trạng thái draft, không tự mở browser.</small><button type="submit" disabled={saving}>{saving?"Đang lưu…":"Lưu shop"}</button></div>
   </form>}
   {!compact && (shops.length>0?<div className="bdna-shop-cards">{shops.map(shop=><article key={shop.id} className="bdna-shop-card">
