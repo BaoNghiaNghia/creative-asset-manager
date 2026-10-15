@@ -41,6 +41,41 @@ def test_replay_queue_oneshot_runs_without_creating_lifecycle_scheduler(capsys):
     assert "INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=2 executions=1" in capsys.readouterr().out
 
 
+def test_replay_diagnostics_is_read_only_and_never_processes_jobs(capsys):
+    queue = Mock()
+    queue.recent_failure_reasons.return_value = [
+        {"business_date": "2026-10-14", "error_code": "inventory_gemini_transport_error", "reason": "transient"}
+    ]
+    queue.recent_replay_results.return_value = [
+        {"business_date": "2026-10-14", "status": "review_required", "verification_status": "not_verified", "promoted": False}
+    ]
+    settings = Mock(inventory_tenant_allowlist=frozenset({"tenant-a"}))
+    with patch.object(_MODULE, "get_settings", return_value=settings), patch.object(
+        _MODULE, "HistoricalReplayQueue", return_value=queue
+    ), patch.object(_MODULE, "InventoryDailyScheduler") as scheduler:
+        assert _MODULE.main(["--replay-diagnostics"]) == 0
+    queue.recent_failure_reasons.assert_called_once_with(frozenset({"tenant-a"}))
+    queue.recent_replay_results.assert_called_once_with(frozenset({"tenant-a"}))
+    queue.enqueue_failed_evening_days.assert_not_called()
+    queue.run_once.assert_not_called()
+    scheduler.assert_not_called()
+    output = capsys.readouterr().out
+    assert "INVENTORY_REPLAY_DIAGNOSTICS" in output
+    assert "INVENTORY_REPLAY_RESULTS" in output
+    assert "2026-10-14" in output
+
+
+def test_replay_diagnostics_rejects_mutating_cli_combinations():
+    import pytest
+    for argv in (
+        ["--replay-diagnostics", "--replay-queue"],
+        ["--replay-diagnostics", "--once"],
+        ["--replay-diagnostics", "--manual-recovery-current-day"],
+    ):
+        with pytest.raises(SystemExit):
+            _MODULE._arguments(argv)
+
+
 def _preview():
     return {
         "status": "preview_ready",

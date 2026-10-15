@@ -1,0 +1,39 @@
+{
+  "viewports": [
+    "desktop",
+    "compact",
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
+  "steps": [
+    {
+      "name": "writeback-button-visible",
+      "waitFor": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)",
+      "waitMs": 250,
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".inventory-settings-actions-card",
+          "value": "Kiểm tra ghi trên bản sao"
+        }
+      ]
+    },
+    {
+      "name": "writeback-focus",
+      "focus": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)",
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    }
+  ]
+}

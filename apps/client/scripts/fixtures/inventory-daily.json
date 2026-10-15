@@ -38,6 +38,43 @@
   "apiRoutes": [
     {
       "method": "GET",
+      "path": "/api/inventory/daily-sheet/configuration",
+      "body": {
+        "image_pipeline_enabled": false,
+        "daily_sheet_automation_enabled": false,
+        "working_spreadsheet_file_id": "qa-only-source",
+        "archive_root_folder_id": null,
+        "template_spreadsheet_file_id": null,
+        "target_spreadsheet_file_id": null,
+        "snapshot_time_local": "23:50",
+        "reconcile_time_local": "23:55",
+        "carry_forward_time_local": "05:00",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "config": {}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/status",
+      "body": {
+        "enabled": false,
+        "configured": true,
+        "execution_mode": "v4_slots",
+        "operational_state": "disabled",
+        "working_business_date": "2026-10-15",
+        "working_spreadsheet_url": null,
+        "last_snapshot": null,
+        "last_reconciliation": null,
+        "carry_forward": null
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/prompts",
+      "body": {"prompts": []}
+    },
+    {
+      "method": "GET",
       "path": "/api/inventory/daily-sheet/lifecycle-history",
       "body": {
         "page": 1,

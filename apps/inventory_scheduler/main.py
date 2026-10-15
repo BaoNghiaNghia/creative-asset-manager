@@ -42,6 +42,7 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--once", action="store_true", help="Evaluate the configured daily lifecycle once and exit")
     parser.add_argument("--slot", choices=("snapshot", "reconcile"))
     parser.add_argument("--replay-queue", action="store_true", help="Process a durable historical replay job")
+    parser.add_argument("--replay-diagnostics", action="store_true", help="Read-only historical replay status; never enqueue or run jobs")
     parser.add_argument(
         "--manual-recovery-current-day",
         action="store_true",
@@ -54,6 +55,10 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--replay-queue cannot be combined with lifecycle or manual recovery")
     if arguments.manual_recovery_current_day and (arguments.once or arguments.slot):
         parser.error("--manual-recovery-current-day cannot be combined with --once/--slot")
+    if arguments.replay_diagnostics and (
+        arguments.replay_queue or arguments.once or arguments.slot or arguments.manual_recovery_current_day
+    ):
+        parser.error("--replay-diagnostics cannot be combined with mutating worker modes")
     return arguments
 
 
@@ -372,6 +377,15 @@ def _run_manual_recovery_current_day(
 def main(argv: list[str] | None = None) -> int:
     arguments = _arguments(argv)
     settings = get_settings()
+    if arguments.replay_diagnostics:
+        # This separate operator mode performs SELECTs only; no automatic
+        # enqueue, execution, Morning Reset preview or Shared Sheet writes.
+        queue = HistoricalReplayQueue(SessionLocal)
+        failures = queue.recent_failure_reasons(settings.inventory_tenant_allowlist)
+        outcomes = queue.recent_replay_results(settings.inventory_tenant_allowlist)
+        print(f"INVENTORY_REPLAY_DIAGNOSTICS failures={json.dumps(failures, sort_keys=True)}")
+        print(f"INVENTORY_REPLAY_RESULTS items={json.dumps(outcomes, sort_keys=True)}")
+        return 0
     if arguments.replay_queue:
         queue = HistoricalReplayQueue(SessionLocal)
         discovered = queue.enqueue_failed_evening_days(

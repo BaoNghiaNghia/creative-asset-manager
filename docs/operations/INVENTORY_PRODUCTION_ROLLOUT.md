@@ -46,6 +46,20 @@ requires Inventory control permission. Validate the archive folder and Google
 OAuth Drive/Sheets permissions before running. The button requests explicit
 confirmation and returns only status flags, not sheet contents or tokens.
 
+**Disposable QA verification gate (2026-10-15):** A successful Google Drive
+trash PATCH is no longer accepted as proof of cleanup: an independent GET
+must return the exact disposable copy ID with `trashed=true`. The original
+source's Drive `modifiedTime` must be available before QA and must still match
+a second metadata GET after verified disposal; any missing or changed evidence
+fails closed. A concurrent third-party edit to the source will conservatively
+fail this test, without claiming that CAM performed the edit. The UI accepts
+a successful HTTP response only when all three returned flags are literally
+`true`: `verified`, `disposable_copy_trashed`, and
+`source_file_unchanged_by_qa`. Tests using HTTP mocks do not prove live
+Google OAuth write or source permissions. Live verification must be performed
+under an authenticated, authorized CAM Inventory Control session against the
+configured source, with no writing to Shared Sheet.
+
 Inventory Learning health reports `unverified_noop_streak` after three
 consecutive completed, supposedly verified zero-write days that have no
 credible multi-column row-level no-change evidence. A genuinely grounded
@@ -248,6 +262,19 @@ API endpoints:
 
 The old synchronous replay endpoint is retained for backward compatibility,
 but the UI and batch replay use the durable queue.
+
+**Safe operator diagnosis:** `apps/inventory_scheduler/main.py --replay-diagnostics`
+is a separate read-only CLI mode. It reports safe machine-code replay failures,
+durable queue statuses, verification and promotion flags for the configured
+tenant allowlist; it never discovers/enqueues new jobs, invokes Gemini,
+previews/applies Morning Reset or touches Sheets. Run under the approved,
+least-privileged Inventory service environment (not a root workaround).
+This diagnostic limits results to the queue's existing seven-day lookback;
+older or missing dates require separate authorized, tenant-scoped history
+review, not automatic backfill. In the 2026-10-15 incident, inspect 14/10
+Closing first, then the 15/10 opening recovery dependency, and only afterwards
+the 13/10 and 08/10 historical backlog. Do not treat `completed` without
+`verification_status=verified` and `promoted=true` as authoritative closing.
 
 ### Automatic transient evening recovery (from 2026-10-15)
 

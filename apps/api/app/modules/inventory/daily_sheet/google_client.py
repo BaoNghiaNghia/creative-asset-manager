@@ -204,6 +204,9 @@ class GoogleSheetsInventoryClient:
         if not source_id or not tenant_id:
             raise ValueError("disposable_writeback_missing_identity")
         source_metadata = self.validate_native_spreadsheet(source_id)
+        source_modified_at = str(source_metadata.get("modifiedTime") or "")
+        if source_metadata.get("id") != source_id or not source_modified_at:
+            raise RuntimeError("disposable_writeback_source_evidence_unavailable")
         destination_folder = folder_id or next(iter(source_metadata.get("parents") or []), None)
         if not destination_folder:
             raise ValueError("disposable_writeback_copy_folder_unavailable")
@@ -253,6 +256,21 @@ class GoogleSheetsInventoryClient:
                     params={"supportsAllDrives": "true"},
                     json={"trashed": True},
                 )
+                # PATCH acceptance does not prove the disposable copy was trashed.
+                cleanup_state = self._request(
+                    "GET", f"{self.DRIVE}/files/{copy_id}",
+                    params={"fields": "id,trashed", "supportsAllDrives": "true"},
+                )
+                if cleanup_state.get("id") != copy_id or cleanup_state.get("trashed") is not True:
+                    raise RuntimeError("disposable_writeback_trash_not_verified")
+        # A separate source metadata readback is required before claiming the
+        # operational workbook remained untouched throughout the QA operation.
+        source_after = self.drive_file(source_id)
+        if (
+            source_after.get("id") != source_id
+            or source_after.get("modifiedTime") != source_modified_at
+        ):
+            raise RuntimeError("disposable_writeback_source_changed_during_qa")
         return {
             "verified": verified,
             "disposable_copy_trashed": True,
