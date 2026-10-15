@@ -48,7 +48,10 @@ mode. Legacy WinForms does not yet expose a Cap Stack control.
 
 **Deployment order:** migrate/release the CAM backend and Stage 1 UI first;
 then install Manager 0.1.19 or update Scout scripts on Windows. The old native
-binary does not dynamically gain a third card from a Git fetch. Keep the
+binary does not dynamically gain a third card from a Git fetch.
+Versioned portable executables are preferred on ordinary relaunch by
+`START_SCOUT_TAURI.cmd`; building a newer version will not overwrite a running
+`Latest` binary or terminate active Scout children. Keep the
 existing Review/Keyword processes unchanged while rolling out this lane.
 
 ## Native 0.1.17 / Scout v54 — shared Gemini fairness and Pinterest watchdog

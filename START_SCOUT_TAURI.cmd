@@ -3,6 +3,13 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 title RRUGC Scout Manager - Tauri
 set "SCOUT_TAURI=%~dp0scout-manager-releases\RRUGC_Scout_Manager_Latest_x64.exe"
+rem Prefer newest versioned portable. A running Latest.exe cannot be overwritten:
+rem new builds remain selectable at the next ordinary Manager relaunch.
+for /f "delims=" %%F in ('dir /b /a:-d /o:-d "%~dp0scout-manager-releases\RRUGC_Scout_Manager_*_x64_Portable.exe" 2^>nul') do (
+  set "SCOUT_TAURI=%~dp0scout-manager-releases\%%F"
+  goto :portable_resolved
+)
+:portable_resolved
 if not exist "%SCOUT_TAURI%" (
   echo.
   echo [ERROR] RRUGC Scout Manager Tauri executable is not installed in this checkout.

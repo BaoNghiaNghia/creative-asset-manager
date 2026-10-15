@@ -54,10 +54,18 @@ try {
   $portableVersioned = Join-Path $releaseDir ("RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe")
   $portableLatest = Join-Path $releaseDir "RRUGC_Scout_Manager_Latest_x64.exe"
   Copy-Item -LiteralPath $builtExe -Destination $portableVersioned -Force
-  Copy-Item -LiteralPath $portableVersioned -Destination $portableLatest -Force
-  Write-Host "==> Installer and portable executable ready:" -ForegroundColor Green
-  Get-Item -LiteralPath $destination, $portableVersioned, $portableLatest | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
-  Get-FileHash -LiteralPath $destination, $portableLatest -Algorithm SHA256 | Select-Object Path, Hash | Format-List
+  # Windows prevents replacing a running portable executable. Publishing a
+  # versioned executable must still succeed without stopping active Scouts.
+  # START_SCOUT_TAURI.cmd resolves the newest versioned executable on next launch.
+  try {
+    Copy-Item -LiteralPath $portableVersioned -Destination $portableLatest -Force -ErrorAction Stop
+  }
+  catch [System.IO.IOException] {
+    Write-Warning "Latest alias is in use. Versioned portable is ready for next restart; existing Scouts were not interrupted."
+  }
+  Write-Host "==> Installer and versioned portable ready:" -ForegroundColor Green
+  Get-Item -LiteralPath $destination, $portableVersioned | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
+  Get-FileHash -LiteralPath $destination, $portableVersioned -Algorithm SHA256 | Select-Object Path, Hash | Format-List
   Write-Host "Launch the native UI with START_SCOUT_TAURI.cmd; fallback: START_SCOUT_MANAGER.cmd."
 } finally {
   $env:CI = $OriginalCi
