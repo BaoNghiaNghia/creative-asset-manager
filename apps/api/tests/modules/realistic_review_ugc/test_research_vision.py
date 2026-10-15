@@ -4,7 +4,7 @@ import pytest
 
 from app.modules.realistic_review_ugc.research_vision import (
     ImageMetadataParser, ResearchCapVision, fetch_public_listing_image,
-    permitted_image_url, verified_quote, PublicImageUnavailable,
+    permitted_image_url, verified_quote, PublicImageUnavailable, valid_image_signature,
 )
 
 
@@ -21,6 +21,14 @@ from app.modules.realistic_review_ugc.research_vision import (
 ])
 def test_image_host_allowlist(source, url, expected):
     assert permitted_image_url(url, source) is expected
+
+
+def test_real_image_magic_bytes_accepted_and_text_rejected():
+    assert valid_image_signature(bytes.fromhex("ffd8ff") + b"x" * 300)
+    assert valid_image_signature(bytes.fromhex("89504e470d0a1a0a") + b"x" * 300)
+    assert valid_image_signature(b"RIFF" + b"x" * 4 + b"WEBP" + b"x" * 300)
+    assert not valid_image_signature(b"<html>" + b"x" * 300)
+    assert not valid_image_signature(bytes.fromhex("ffd8ff") + b"x" * 30)
 
 
 def test_og_image_extraction_does_not_follow_arbitrary_links():

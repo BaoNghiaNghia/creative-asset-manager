@@ -123,7 +123,10 @@ def get_auto_discover_status(
     principal: CurrentPrincipal = Depends(READ),
 ):
     enabled()
-    return discovery_status(session, principal.active_tenant_id)
+    status = discovery_status(session, principal.active_tenant_id)
+    from app.modules.realistic_review_ugc.research_vision import research_vision_counts
+    status["vision_jobs"] = research_vision_counts(session, principal.active_tenant_id)
+    return status
 
 
 @router.post("/auto-discover/control")

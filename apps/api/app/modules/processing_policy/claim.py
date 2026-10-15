@@ -84,6 +84,10 @@ STAGE5_QUEUED_PRIORITY = 60
 SOURCE_PLAN_FAIRNESS_AGE = timedelta(minutes=5)
 SOURCE_PLAN_URGENT_FAIRNESS_AGE = timedelta(minutes=30)
 SOURCE_PLAN_FAIRNESS_PRIORITY = 51
+# Low-frequency fairness for queued research image validation. This must never
+# outrank interactive Stage 5 or bypass the shared Gemini model/quota gates.
+RESEARCH_VISION_FAIRNESS_AGE = timedelta(minutes=20)
+RESEARCH_VISION_FAIRNESS_PRIORITY = 51
 # Stage 1 image creation is intentionally serial per tenant. Promote a waiting
 # interactive batch after five minutes, ahead of generic 15-minute backlog,
 # without allowing a second concurrent Stage 1 Codex invocation.
@@ -267,6 +271,10 @@ class TenantAwareJobClaimer:
         source_cutoff = now - SOURCE_PLAN_FAIRNESS_AGE
         stage1_cutoff = now - STAGE1_QUEUED_PRIORITY_BOOST_AGE
         urgent_source_cutoff = now - SOURCE_PLAN_URGENT_FAIRNESS_AGE
+        research_cutoff = now - RESEARCH_VISION_FAIRNESS_AGE
+        # A narrow time slice (one in twelve 15-second slots) prevents a long
+        # interactive queue from starving Agent-Reach indefinitely.
+        research_fairness_turn = (now.minute * 4 + now.second // 15) % 12 == 7
         source_fairness_window = source_plan_fairness_turn(now)
         urgent_source_window = source_plan_fairness_turn(now, urgent=True)
         effective_priority = case(
@@ -296,6 +304,14 @@ class TenantAwareJobClaimer:
                     ),
                 ),
                 SOURCE_PLAN_FAIRNESS_PRIORITY,
+            ),
+            (
+                and_(
+                    ProcessingJobModel.job_type == "rrugc_research_vision",
+                    ProcessingJobModel.created_at <= research_cutoff,
+                    research_fairness_turn,
+                ),
+                RESEARCH_VISION_FAIRNESS_PRIORITY,
             ),
             (
                 and_(

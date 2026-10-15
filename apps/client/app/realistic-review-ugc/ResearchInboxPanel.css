@@ -81,4 +81,62 @@
 .rrugc-research-signal-review>div button:first-child{border-color:#b3e1c9;background:#edfbf4;color:#277854}
 @media(max-width:830px){.rrugc-research-inbox-head{padding:17px 18px}.rrugc-research-inbox-body{padding:16px}.rrugc-research-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:580px){.rrugc-research-backdrop{padding:0;place-items:stretch}.rrugc-research-inbox{max-height:100dvh;height:100dvh;width:100%;border:0;border-radius:0}.rrugc-research-inbox-head{gap:10px;min-height:0;padding:15px 13px;align-items:flex-start}.rrugc-research-header-icon{height:39px;width:39px;flex-basis:39px;border-radius:11px}.rrugc-research-header-icon svg{width:21px}.rrugc-research-title-block h2{font-size:18px}.rrugc-research-title-block p{font-size:10px}.rrugc-research-inbox-head>.rrugc-discovery-state{display:none}.rrugc-research-inbox-body{padding:13px}.rrugc-research-overview{gap:8px}.rrugc-research-stat{padding:10px;gap:9px}.rrugc-research-stat-icon{width:30px;height:30px;flex-basis:30px}.rrugc-research-stat strong{font-size:18px}.rrugc-discovery-status{padding:12px}.rrugc-discovery-status-heading{flex-wrap:wrap}.rrugc-discovery-status-heading>.rrugc-discovery-state{margin-left:auto}.rrugc-research-signal{grid-template-columns:minmax(0,1fr)}.rrugc-research-section-heading{align-items:flex-start;flex-direction:column}.rrugc-research-inbox :is(input,textarea){font-size:16px}}
+/* Compact Research Inbox: keep evidence and actions visible without a near-fullscreen modal. */
+.rrugc-research-backdrop{padding:22px}
+.rrugc-research-inbox{width:min(875px,calc(100vw - 44px));max-height:min(79dvh,745px);border-radius:15px}
+.rrugc-research-inbox-head{min-height:0;padding:13px 18px;gap:11px}
+.rrugc-research-header-icon{flex-basis:38px;width:38px;height:38px;border-radius:11px}
+.rrugc-research-header-icon svg{width:22px;height:22px}
+.rrugc-research-eyebrow{margin-bottom:3px;font-size:8px}
+.rrugc-research-title-block h2{font-size:18px;margin-bottom:2px}
+.rrugc-research-title-block p{font-size:10px;line-height:1.4}
+.rrugc-research-inbox-body{padding:11px 17px 15px}
+.rrugc-research-overview{gap:8px;margin-bottom:9px}
+.rrugc-research-stat{gap:8px;padding:9px 10px;border-radius:9px}
+.rrugc-research-stat-icon{flex-basis:27px;width:27px;height:27px;border-radius:8px}
+.rrugc-research-stat-icon svg{width:15px;height:15px}
+.rrugc-research-stat div{gap:2px}
+.rrugc-research-stat small{font-size:9px}
+.rrugc-research-stat strong{font-size:17px}
+.rrugc-discovery-status{gap:7px;padding:10px 12px;margin-bottom:10px;border-radius:10px}
+.rrugc-discovery-status-heading{gap:8px}
+.rrugc-discovery-status-icon{width:29px;height:29px;flex-basis:29px;border-radius:8px}
+.rrugc-discovery-status-heading>div{gap:2px}
+.rrugc-discovery-status-heading strong{font-size:11.5px}
+.rrugc-discovery-platforms{gap:5px}
+.rrugc-discovery-platforms span{gap:6px;padding:5px 8px;font-size:9.5px}
+.rrugc-discovery-platforms small{font-size:9px}
+.rrugc-discovery-note{padding:6px 9px;font-size:9.5px;line-height:1.5}
+.rrugc-research-inbox button{min-height:30px;padding:6px 9px;font-size:10px;border-radius:7px;gap:5px}
+.rrugc-research-inbox button.rrugc-research-modal-close{min-width:28px;width:28px;height:28px;min-height:28px;flex-basis:28px}
+.rrugc-research-actions{gap:6px;margin-bottom:8px}
+.rrugc-research-section-heading{margin:9px 0 7px}
+.rrugc-research-signal-list{gap:6px}
+.rrugc-research-signal{grid-template-columns:minmax(0,1fr) minmax(170px,215px);gap:10px;padding:10px 11px;border-radius:9px}
+.rrugc-research-signal-main{gap:4px}
+.rrugc-research-signal-main small{font-size:9px}
+.rrugc-research-signal-main strong{font-size:11px;line-height:1.4}
+.rrugc-research-signal-main p{font-size:9.5px;line-height:1.45}
+.rrugc-research-signal-main a{font-size:9.5px}
+.rrugc-research-signal-review{gap:5px}
+.rrugc-research-signal-review label{font-size:9.5px}
+.rrugc-research-inbox :is(input,textarea){padding:7px 9px;font-size:11px;line-height:1.4}
+.rrugc-research-signal-review>div{gap:5px}
+.rrugc-research-vision-evidence{gap:6px;font-size:9.5px}
+.rrugc-research-vision-evidence img{height:36px;width:36px}
+.rrugc-discovery-platforms .rrugc-research-auto-queue{background:#edf5ff;color:#3a65a6;border-color:#d9e7fc;white-space:normal}
+.rrugc-research-inbox-body::-webkit-scrollbar{width:7px}
+.rrugc-research-inbox-body::-webkit-scrollbar-thumb{background:#c1d0e5;border-radius:9px}
+@media(max-width:900px){.rrugc-research-inbox{width:min(780px,calc(100vw - 32px));max-height:85dvh}.rrugc-research-inbox-body{padding:11px 13px}}
+@media(max-width:580px){
+  .rrugc-research-backdrop{padding:0}
+  .rrugc-research-inbox{width:100%;height:100dvh;max-height:100dvh;border-radius:0}
+  .rrugc-research-inbox-head{padding:12px}
+  .rrugc-research-inbox-body{padding:11px}
+  .rrugc-research-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rrugc-discovery-platforms .rrugc-research-auto-queue{width:100%}
+  .rrugc-research-signal{grid-template-columns:1fr}
+  .rrugc-research-signal-review{gap:5px}
+  .rrugc-research-inbox :is(input,textarea){font-size:16px}
+}
 @media(prefers-reduced-motion:reduce){.rrugc-research-inbox button{transition:none}}

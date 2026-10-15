@@ -19,12 +19,13 @@ from app.core.database import SessionLocal
 from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
 from app.modules.realistic_review_ugc.research_discovery import AGENT_NAME
 from app.modules.realistic_review_ugc.research_intelligence import backfill_auto_discover_candidates
-from app.modules.realistic_review_ugc.research_vision import enqueue_research_vision
+from app.modules.realistic_review_ugc.research_vision import enqueue_research_vision, research_vision_counts
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true", help="Import conservative quotes into Stage 0")
+    parser.add_argument("--status", action="store_true", help="Show aggregate vision job statuses without changing data")
     args = parser.parse_args()
     with SessionLocal() as session:
         tenants = session.scalars(select(RrugcScoutAgentModel.tenant_id).where(
@@ -33,6 +34,12 @@ def main() -> int:
     totals = {"tenants": len(tenants), "checked": 0, "auto_promoted": 0, "needs_review": 0, "vision_queued": 0}
     for tenant_id in tenants:
         with SessionLocal() as session:
+            if args.status:
+                counts = research_vision_counts(session, tenant_id)
+                totals.setdefault("vision_jobs", {name: 0 for name in counts})
+                for name, amount in counts.items():
+                    totals["vision_jobs"][name] += amount
+                continue
             result = backfill_auto_discover_candidates(
                 session, tenant_id=tenant_id, dry_run=not args.apply
             )

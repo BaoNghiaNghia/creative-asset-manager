@@ -78,6 +78,14 @@ def permitted_image_url(url: str, source: str) -> bool:
         return False
 
 
+def valid_image_signature(data: bytes) -> bool:
+    return len(data) >= 256 and (
+        data.startswith(bytes.fromhex("ffd8ff"))
+        or data.startswith(bytes.fromhex("89504e470d0a1a0a"))
+        or (data.startswith(b"RIFF") and data[8:12] == b"WEBP")
+    )
+
+
 async def fetch_public_listing_image(url: str, source: str) -> tuple[bytes, str, str]:
     """Do not follow redirects, fetch search-result supplied URLs or proxy a LAN host."""
     from app.modules.realistic_review_ugc.research_intelligence import ResearchValidationError
@@ -118,10 +126,7 @@ async def fetch_public_listing_image(url: str, source: str) -> tuple[bytes, str,
                         raise PublicImageUnavailable("listing_image_too_large")
                     image_chunks.append(block)
             data = b"".join(image_chunks)
-            if len(data) < 256 or not (
-                data.startswith(b"\\xff\\xd8\\xff") or data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
-                or (data.startswith(b"RIFF") and data[8:12] == b"WEBP")
-            ):
+            if not valid_image_signature(data):
                 raise PublicImageUnavailable("listing_image_invalid")
             return data, mime, image_url
         except httpx.RequestError as exc:
@@ -169,6 +174,23 @@ clearance. Never classify a product description as physical embroidery.
 Return JSON matching the supplied schema."""
 
 
+def research_vision_counts(session, tenant_id: str) -> dict[str, int]:
+    """Tenant-scoped aggregate status for the Research Inbox and automation logs."""
+    from sqlalchemy import inspect
+    counts = {"pending": 0, "retry": 0, "processing": 0, "completed": 0, "failed": 0}
+    if not inspect(session.get_bind()).has_table("processing_jobs"):
+        return counts
+    for status, amount in session.execute(
+        select(ProcessingJobModel.status, func.count(ProcessingJobModel.id)).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type == JOB_TYPE,
+        ).group_by(ProcessingJobModel.status)
+    ):
+        if status in counts:
+            counts[status] = int(amount)
+    return counts
+
+
 def enqueue_research_vision(session, tenant_id: str, *, limit: int = MAX_PER_TICK) -> int:
     agent_ids = list(session.scalars(select(RrugcScoutAgentModel.id).where(
         RrugcScoutAgentModel.tenant_id == tenant_id,
@@ -203,7 +225,7 @@ def enqueue_research_vision(session, tenant_id: str, *, limit: int = MAX_PER_TIC
             entity_type="rrugc_research_signal", entity_id=row.id,
             idempotency_key=f"rrugc:research:vision:{VISION_VERSION}:{row.id}",
             payload={"signal_id": row.id, "vision_version": VISION_VERSION},
-            provider_key="gemini", provider_scope="ai", priority=2,
+            provider_key="gemini", provider_scope="ai", priority=5,
             max_attempts=4,
         )
         if added:

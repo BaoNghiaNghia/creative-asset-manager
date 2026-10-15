@@ -165,7 +165,10 @@ def list_signals(session: Session, *, tenant_id: str, status: str = "pending",
     )
     if status != "all":
         statement = statement.where(RrugcResearchSignalModel.status == status)
-    statement = statement.order_by(RrugcResearchSignalModel.created_at.desc()).limit(limit)
+    statement = statement.order_by(
+        RrugcResearchSignalModel.created_at.asc() if status == "pending"
+        else RrugcResearchSignalModel.created_at.desc()
+    ).limit(limit)
     rows = session.scalars(statement).all()
     values = [row_dict(row) for row in rows]
     if not rows:

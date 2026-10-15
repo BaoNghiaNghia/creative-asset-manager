@@ -40,6 +40,7 @@ export type AutoDiscoverStatus = {
   connected: boolean; server: string; source: string; last_seen_at: string | null;
   last_error_code: string | null; total_evidence: number; pending_review: number; stage0_auto_keywords?: number;
   platforms: { pinterest: number; amazon: number; etsy: number };
+  vision_jobs?: { pending: number; retry: number; processing: number; completed: number; failed: number };
 };
 const DISCOVERY_LABELS: Record<AutoDiscoverStatus["state"], string> = {
   not_configured: "Chưa kết nối", paused: "Đã tạm dừng",
@@ -368,6 +369,9 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
             <span>Pinterest <strong>{autoDiscover?.platforms.pinterest ?? "—"}</strong></span>
             <span>Etsy <strong>{autoDiscover?.platforms.etsy ?? "—"}</strong></span>
             <span>Amazon <strong>{autoDiscover?.platforms.amazon ?? "—"}</strong></span>
+            {autoDiscover?.vision_jobs && <span className="rrugc-research-auto-queue" title="Tự kiểm tra mỗi 15 phút, ưu tiên thấp trên Gemini pool dùng chung">
+              <ResearchGlyph name="clock" size={13}/> Tự duyệt 15 phút/lượt · Gemini queue <strong>{autoDiscover.vision_jobs.pending + autoDiscover.vision_jobs.retry + autoDiscover.vision_jobs.processing}</strong> · Đã kiểm tra <strong>{autoDiscover.vision_jobs.completed}</strong>
+            </span>}
             {autoDiscover?.last_seen_at && <small>Heartbeat: {new Date(autoDiscover.last_seen_at).toLocaleString()}</small>}
           </div>
           {discoveryErrorMessage(autoDiscover) && <p className="rrugc-discovery-warning" role="status"><ResearchGlyph name="warning"/>{discoveryErrorMessage(autoDiscover)}</p>}
@@ -382,7 +386,7 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
         {autoDiscover?.state === "not_configured" && <p className="rrugc-research-setup-note">VPS có thể thu thập công khai vào outbox riêng. Để đồng bộ vào CAM và bật điều khiển Pause/Resume, ghép một Scout Agent tên <strong>Agent-Reach Auto Discover</strong> và cấu hình token riêng trên VPS. Không dùng token Windows.</p>}
         <div className="rrugc-research-actions">
           <button type="button" disabled={autoApproveBusy || busyId !== null} onClick={() => void autoApproveClearKeywords()} className="rrugc-research-action-primary">
-            <ResearchGlyph name="check"/> {autoApproveBusy ? "Đang kiểm tra…" : "Tự duyệt keyword rõ ràng"}
+            <ResearchGlyph name="check"/> {autoApproveBusy ? "Đang kiểm tra…" : "Chạy tự duyệt ngay"}
           </button>
           <button type="button" className="rrugc-research-action-primary" onClick={() => setImportOpen(v => !v)}
             aria-expanded={importOpen}><ResearchGlyph name="upload"/>Nhập research JSON</button>
