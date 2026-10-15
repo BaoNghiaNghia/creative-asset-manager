@@ -1319,7 +1319,7 @@ export function RealisticReviewUgcPage() {
             onCreateJob={(plan, candidateIds, skill) => void queueStage2Job(plan, candidateIds, skill)}
             onCancelJobs={(plan, jobIds) => void cancelStage2Batch(plan, jobIds)}
             onRetryJob={job => void retryFailedStage4Job(job)}
-            onRegenerateJob={job => void generateStage4NewVersion(job)}
+            onRegenerateJob={generateStage4NewVersion}
           />
         </section>
 
