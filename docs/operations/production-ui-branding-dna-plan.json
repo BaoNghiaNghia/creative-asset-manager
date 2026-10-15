@@ -19,39 +19,53 @@
   ],
   "routes": [
     {
-      "name": "branding-dna-foundation",
+      "name": "branding-dna-worker-control",
       "path": "/branding-dna",
       "public": false,
       "requiresAuth": true,
       "ready": "main.branding-dna-page",
+      "forbiddenText": [
+        "Under Construction",
+        "Sign in required",
+        "Internal Server Error"
+      ],
       "states": [
         {
-          "name": "registry",
-          "waitFor": ".bdna-live-section",
-          "waitMs": 1000,
+          "name": "foundation-and-worker",
+          "waitFor": ".bdna-worker-manager",
           "assertions": [
             {
               "type": "visible",
-              "selector": ".bdna-live-heading"
+              "selector": ".bdna-live-section"
+            },
+            {
+              "type": "visible",
+              "selector": ".bdna-worker-list"
             },
             {
               "type": "no-viewport-overflow",
               "selector": "body",
               "maxPx": 1
             }
-          ]
+          ],
+          "waitMs": 1000
         },
         {
-          "name": "add-shop",
+          "name": "add-shop-form",
           "click": ".bdna-live-heading button",
           "waitFor": ".bdna-shop-form",
-          "waitMs": 400,
           "assertions": [
             {
               "type": "visible",
-              "selector": ".bdna-shop-form"
+              "selector": ".bdna-shop-form-url input"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body",
+              "maxPx": 1
             }
-          ]
+          ],
+          "waitMs": 250
         }
       ]
     }
