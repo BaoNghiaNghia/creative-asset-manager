@@ -44,6 +44,10 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--replay-queue", action="store_true", help="Process a durable historical replay job")
     parser.add_argument("--replay-diagnostics", action="store_true", help="Read-only historical replay status; never enqueue or run jobs")
     parser.add_argument(
+        "--inspect-dates",
+        help="With --replay-diagnostics only: up to eight comma-separated YYYY-MM-DD dates, including older backlog.",
+    )
+    parser.add_argument(
         "--manual-recovery-current-day",
         action="store_true",
         help="Preview and apply exactly one eligible current-day Morning Reset recovery.",
@@ -59,6 +63,18 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         arguments.replay_queue or arguments.once or arguments.slot or arguments.manual_recovery_current_day
     ):
         parser.error("--replay-diagnostics cannot be combined with mutating worker modes")
+    if arguments.inspect_dates:
+        if not arguments.replay_diagnostics:
+            parser.error("--inspect-dates requires --replay-diagnostics")
+        dates = arguments.inspect_dates.split(",")
+        if not 1 <= len(dates) <= 8 or len(set(dates)) != len(dates):
+            parser.error("--inspect-dates requires 1-8 unique dates")
+        try:
+            for item in dates:
+                if len(item) != 10 or date.fromisoformat(item).isoformat() != item:
+                    raise ValueError("invalid date")
+        except ValueError:
+            parser.error("--inspect-dates must contain valid YYYY-MM-DD dates")
     return arguments
 
 
@@ -385,6 +401,10 @@ def main(argv: list[str] | None = None) -> int:
         outcomes = queue.recent_replay_results(settings.inventory_tenant_allowlist)
         print(f"INVENTORY_REPLAY_DIAGNOSTICS failures={json.dumps(failures, sort_keys=True)}")
         print(f"INVENTORY_REPLAY_RESULTS items={json.dumps(outcomes, sort_keys=True)}")
+        if arguments.inspect_dates:
+            requested_dates = tuple(date.fromisoformat(item) for item in arguments.inspect_dates.split(","))
+            inspections = queue.inspect_dates(settings.inventory_tenant_allowlist, requested_dates)
+            print(f"INVENTORY_DATE_INSPECTION items={json.dumps(inspections, sort_keys=True)}")
         return 0
     if arguments.replay_queue:
         queue = HistoricalReplayQueue(SessionLocal)

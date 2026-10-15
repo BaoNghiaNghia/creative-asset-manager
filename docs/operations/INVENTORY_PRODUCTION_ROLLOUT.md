@@ -295,12 +295,29 @@ durable queue statuses, verification and promotion flags for the configured
 tenant allowlist; it never discovers/enqueues new jobs, invokes Gemini,
 previews/applies Morning Reset or touches Sheets. Run under the approved,
 least-privileged Inventory service environment (not a root workaround).
-This diagnostic limits results to the queue's existing seven-day lookback;
-older or missing dates require separate authorized, tenant-scoped history
-review, not automatic backfill. In the 2026-10-15 incident, inspect 14/10
-Closing first, then the 15/10 opening recovery dependency, and only afterwards
-the 13/10 and 08/10 historical backlog. Do not treat `completed` without
-`verification_status=verified` and `promoted=true` as authoritative closing.
+The default failure/outcome summaries still use the queue's seven-day
+lookback. For the older October 8 backlog, use the separately bounded,
+**read-only and date-scoped** operator command:
+
+```bash
+apps/api/.venv/bin/python apps/inventory_scheduler/main.py \
+  --replay-diagnostics \
+  --inspect-dates 2026-10-08,2026-10-13,2026-10-14,2026-10-15
+```
+
+Run this only with the approved Inventory service principal; do not copy
+production credentials into a terminal or bypass file permissions. The extra
+`INVENTORY_DATE_INSPECTION` JSON line reads persisted snapshots, Evening
+slots, replay requests, configured `agent.apply_mode`, verification flags and
+the selected day's Morning Reset/carry-forward status. It returns neither
+tenant IDs nor spreadsheet file IDs, cell values, provider responses or raw
+error messages. It supports 1–8 distinct dates without triggering jobs or
+lifting the automatic seven-day replay window. The absence of a carry-forward
+record is `missing`, not evidence of a successful Reset. In the October 15
+incident, inspect 14/10 Closing first, then the 15/10 opening dependency, and
+only afterwards the 13/10 and 08/10 historical backlog. Do not treat
+`completed` without `verification_status=verified` and `promoted=true`
+as authoritative closing.
 
 ### Automatic transient evening recovery (from 2026-10-15)
 
@@ -312,7 +329,11 @@ slot remains owned by the regular V5J lifecycle **until its configured Morning
 Reset cutoff**; no two workers should mutate the same Gemini copy concurrently.
 The scanner excludes incomplete Snapshots, already-verified days, review-required
 or other non-transient states, and any day already requested by a human or the
-scanner. The automatic replay idempotency key is stable per tenant/day; terminal
+scanner. It also skips a tenant's automatic promotion candidates when the
+persisted `agent.apply_mode` is not `auto`, reporting the aggregate
+`apply_mode_not_auto` skip count without changing tenant settings.
+The enqueue API uses the same preflight to return HTTP 409 before allocating
+a job; sandbox-only `promote=false` investigation is still supported. The automatic replay idempotency key is stable per tenant/day; terminal
 failures stay terminal and are never recreated every minute. This operation
 copies from the immutable Snapshot into a **new** Gemini spreadsheet and only
 promotes if the Gemini result is verified. It does not write or reset the live

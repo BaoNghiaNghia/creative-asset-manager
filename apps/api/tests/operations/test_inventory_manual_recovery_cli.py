@@ -76,6 +76,43 @@ def test_replay_diagnostics_rejects_mutating_cli_combinations():
             _MODULE._arguments(argv)
 
 
+def test_diagnostic_date_inspection_is_strictly_read_only(capsys):
+    requested = ("2026-10-08", "2026-10-13", "2026-10-14", "2026-10-15")
+    queue = Mock()
+    queue.recent_failure_reasons.return_value = []
+    queue.recent_replay_results.return_value = []
+    queue.inspect_dates.return_value = [{
+        "business_date": "2026-10-08",
+        "profiles": [{"apply_mode": "shadow", "replay_status": "review_required"}],
+    }]
+    settings = Mock(inventory_tenant_allowlist=frozenset({"tenant-a"}))
+    with patch.object(_MODULE, "get_settings", return_value=settings), patch.object(
+        _MODULE, "HistoricalReplayQueue", return_value=queue
+    ), patch.object(_MODULE, "InventoryDailyScheduler") as scheduler:
+        assert _MODULE.main(["--replay-diagnostics", "--inspect-dates", ",".join(requested)]) == 0
+    queue.inspect_dates.assert_called_once_with(
+        frozenset({"tenant-a"}), tuple(date.fromisoformat(day) for day in requested),
+    )
+    queue.enqueue_failed_evening_days.assert_not_called()
+    queue.run_once.assert_not_called()
+    scheduler.assert_not_called()
+    assert "INVENTORY_DATE_INSPECTION" in capsys.readouterr().out
+
+
+def test_diagnostic_date_list_is_validated_without_service_access():
+    import pytest
+    for argv in (
+        ["--inspect-dates", "2026-10-08"],
+        ["--replay-queue", "--inspect-dates", "2026-10-08"],
+        ["--replay-diagnostics", "--inspect-dates", "2026-10-08,2026-10-08"],
+        ["--replay-diagnostics", "--inspect-dates", "2026-02-30"],
+        ["--replay-diagnostics", "--inspect-dates", "2026-10-08,"],
+        ["--replay-diagnostics", "--inspect-dates", ",".join(f"2026-10-{i:02d}" for i in range(1, 10))],
+    ):
+        with pytest.raises(SystemExit):
+            _MODULE._arguments(argv)
+
+
 def _preview():
     return {
         "status": "preview_ready",

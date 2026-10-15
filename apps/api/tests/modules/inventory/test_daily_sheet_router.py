@@ -312,6 +312,17 @@ def test_historical_replay_queue_enforces_control_and_returns_persisted_job():
         queue.active_jobs.assert_called_once_with("tenant-a")
 
 
+def test_historical_promoting_replay_returns_controlled_conflict_when_apply_mode_is_shadow():
+    url = "/api/inventory/daily-sheet/lifecycle-history/2030-08-09/gemini/replay/queue"
+    allowed = client_for(principal({"inventory.control", "inventory.read"}))
+    queue = Mock()
+    queue.enqueue.side_effect = ValueError("inventory_historical_replay_requires_auto_apply_mode")
+    with patch("app.modules.inventory.daily_sheet.router.HistoricalReplayQueue", return_value=queue):
+        response = allowed.post(url, json={"mode": "fresh_copy", "promote": True})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "inventory_historical_replay_requires_auto_apply_mode"
+
+
 def test_morning_reset_rerun_requires_control_permission_and_calls_scheduler():
     denied = client_for(principal({"inventory.read"}))
     assert denied.post("/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/rerun").status_code == 403

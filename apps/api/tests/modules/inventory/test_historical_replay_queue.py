@@ -12,7 +12,7 @@ from app.core.database import Base
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.inventory.jobs.model import InventoryJobModel
-from app.modules.inventory.persistence_model import InventorySettingsModel, InventoryDailySheetSnapshotModel
+from app.modules.inventory.persistence_model import InventorySettingsModel, InventoryDailySheetSnapshotModel, InventoryDailyCarryForwardModel
 from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 
 
@@ -20,7 +20,7 @@ def _sessions():
     tmp = tempfile.TemporaryDirectory()
     engine = create_engine(f"sqlite:///{Path(tmp.name) / 'queue.db'}")
     event.listen(engine, "connect", lambda con, _: con.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs", "inventory_daily_sheet_snapshots"):
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs", "inventory_daily_sheet_snapshots", "inventory_daily_carry_forwards"):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as session:
@@ -29,9 +29,100 @@ def _sessions():
         session.add(InventorySettingsModel(
             tenant_id="tenant-a", enabled=True, image_pipeline_enabled=False,
             daily_sheet_automation_enabled=True, external_source_id="source-a", inbox_folder_id="x",
-            daily_sheet_config_json={"version": 4},
+            daily_sheet_config_json={"version": 4, "agent": {"apply_mode": "auto"}},
         ))
     return tmp, engine, sessions
+
+
+def test_promoting_replay_is_rejected_before_enqueue_in_shadow_or_review_mode():
+    import pytest
+    tmp, engine, sessions = _sessions()
+    try:
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        for mode in ("shadow", "review"):
+            with sessions.begin() as session:
+                settings = session.scalar(select(InventorySettingsModel))
+                settings.daily_sheet_config_json = {"version": 4, "agent": {"apply_mode": mode}}
+            with pytest.raises(ValueError, match="inventory_historical_replay_requires_auto_apply_mode"):
+                queue.enqueue("tenant-a", date(2030, 8, 9), promote=True)
+            with sessions() as session:
+                assert session.scalars(select(InventoryJobModel)).all() == []
+        sandbox = queue.enqueue("tenant-a", date(2030, 8, 9), promote=False)
+        assert sandbox["status"] == "pending"
+        assert sandbox["promote"] is False
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_automatic_replay_skips_shadow_mode_without_creating_jobs():
+    tmp, engine, sessions = _sessions()
+    try:
+        day = date(2030, 8, 9)
+        _failed_evening(sessions, day)
+        with sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel))
+            settings.daily_sheet_config_json = {"version": 4, "agent": {"apply_mode": "shadow"}}
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        moment = datetime(2030, 8, 10, 10, tzinfo=timezone.utc)
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=moment) == 0
+        assert queue.last_auto_scan["apply_mode_not_auto"] == 1
+        assert queue.last_auto_scan["snapshots"] == 1
+        assert queue.last_auto_scan["v4_tenants"] == 1
+        with sessions() as session:
+            assert session.scalars(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v4_historical_replay_request"
+            )).all() == []
+        with sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel))
+            settings.daily_sheet_config_json = {"version": 4, "agent": {"apply_mode": "auto"}}
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=moment) == 1
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_date_inspection_reads_old_backlog_and_reset_without_leaking_identifiers():
+    tmp, engine, sessions = _sessions()
+    try:
+        old_day, reset_day = date(2030, 8, 1), date(2030, 8, 2)
+        _failed_evening(sessions, old_day)
+        with sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v4_historical_replay_request",
+                entity_type="inventory_daily_sheet_snapshot", entity_id=old_day.isoformat(),
+                idempotency_key="replay-old", status="completed",
+                payload_json={
+                    "promote": True,
+                    "result": {"status": "review_required", "verification_status": "not_executed",
+                               "promoted": False, "review_issue_codes": ["no_actionable_assessment", "TOKEN secret 12"]},
+                },
+            ))
+            session.add(InventoryDailyCarryForwardModel(
+                tenant_id="tenant-a", target_business_date=reset_day,
+                previous_business_date=old_day, idempotency_key="carry-old",
+                status="review_required", error_code="previous_day_gemini_not_verified",
+            ))
+        queue = HistoricalReplayQueue(sessions)
+        result = queue.inspect_dates(frozenset({"tenant-a"}), (old_day, reset_day))
+        assert len(result) == 2
+        backlog = result[0]["profiles"][0]
+        assert backlog["apply_mode"] == "auto"
+        assert backlog["immutable_snapshot_ready"] is True
+        assert backlog["gemini_verified"] is False
+        assert backlog["replay_status"] == "review_required"
+        assert backlog["replay_verification"] == "not_executed"
+        assert backlog["review_issue_codes"] == ["no_actionable_assessment"]
+        assert result[1]["profiles"][0]["morning_reset_status"] == "review_required"
+        assert result[1]["profiles"][0]["morning_reset_error"] == "previous_day_gemini_not_verified"
+        assert queue.inspect_dates(frozenset({"other-tenant"}), (old_day,))[0]["profiles"] == []
+        assert queue.inspect_dates(frozenset(), (old_day,))[0]["profiles"] == []
+        assert "tenant-a" not in str(result)
+        assert "immutable-2030" not in str(result)
+        assert "TOKEN secret" not in str(result)
+    finally:
+        engine.dispose()
+        tmp.cleanup()
 
 
 def test_historical_replay_queue_deduplicates_and_completes_without_live_workbook_mutation():

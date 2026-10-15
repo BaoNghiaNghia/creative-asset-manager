@@ -20,7 +20,7 @@ from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.jobs.repository import InventoryJobRepository
-from app.modules.inventory.persistence_model import InventorySettingsModel, InventoryDailySheetSnapshotModel
+from app.modules.inventory.persistence_model import InventorySettingsModel, InventoryDailySheetSnapshotModel, InventoryDailyCarryForwardModel
 
 REPLAY_REQUEST_TYPE = "inventory_v4_historical_replay_request"
 REPLAY_MAX_ATTEMPTS = 72
@@ -117,6 +117,13 @@ class HistoricalReplayQueue:
                 if bool((active.payload_json or {}).get("promote", True)) != promote:
                     raise ValueError("inventory_historical_replay_conflicting_active_request")
                 return self._view(active)
+            # Match the actual service preflight before a durable queue item
+            # exists, so shadow/review configurations don't create terminal
+            # jobs or spend the Gemini budget on unverifiable promotion.
+            config = settings.daily_sheet_config_json
+            agent = config.get("agent") if isinstance(config.get("agent"), dict) else {}
+            if promote and agent.get("apply_mode", "shadow") != "auto":
+                raise ValueError("inventory_historical_replay_requires_auto_apply_mode")
             job = InventoryJobRepository(session, (REPLAY_REQUEST_TYPE,)).create_job(
                 tenant_id=tenant_id,
                 job_type=REPLAY_REQUEST_TYPE,
@@ -207,7 +214,7 @@ class HistoricalReplayQueue:
             "v4_tenants": 0, "snapshots": 0,
             "before_safe_boundary": 0, "snapshot_not_ready": 0,
             "verified": 0, "slot_not_retryable": 0,
-            "already_requested": 0, "eligible": 0,
+            "already_requested": 0, "apply_mode_not_auto": 0, "eligible": 0,
         }
         if allowed_tenant_ids is not None and not allowed_tenant_ids:
             return 0
@@ -224,6 +231,10 @@ class HistoricalReplayQueue:
                 if (settings.daily_sheet_config_json or {}).get("version") != 4:
                     continue
                 self.last_auto_scan["v4_tenants"] += 1
+                agent = (settings.daily_sheet_config_json or {}).get("agent")
+                can_promote = isinstance(agent, dict) and agent.get("apply_mode", "shadow") == "auto"
+                if not can_promote:
+                    self.last_auto_scan["apply_mode_not_auto"] += 1
                 try:
                     local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
                 except (KeyError, ValueError):
@@ -259,6 +270,10 @@ class HistoricalReplayQueue:
                     if snapshot.gemini_reconcile_status not in {"pending", "failed", "retryable_failure"}:
                         continue
                     if snapshot.gemini_reconcile_verified_at is not None:
+                        continue
+                    if not can_promote:
+                        # Keep health counters accurate even when no promotion
+                        # may be enqueued under this tenant's approved mode.
                         continue
                     slot = session.scalar(select(InventoryJobModel).where(
                         InventoryJobModel.tenant_id == settings.tenant_id,
@@ -299,6 +314,89 @@ class HistoricalReplayQueue:
                     tenant_id, day, str(error),
                 )
         return enqueued
+
+    def inspect_dates(
+        self,
+        allowed_tenant_ids: frozenset[str] | None,
+        business_dates: tuple[date, ...],
+    ) -> list[dict[str, Any]]:
+        """Read-only date-specific evidence, including days outside auto lookback.
+
+        Never return tenant/file identifiers, workbook values, provider text,
+        prompts, Google credentials or unstructured error messages.
+        """
+        if not business_dates or len(business_dates) > 8:
+            raise ValueError("inventory_replay_diagnostic_dates_invalid")
+        if allowed_tenant_ids is not None and not allowed_tenant_ids:
+            return [{"business_date": day.isoformat(), "profiles": []} for day in business_dates]
+
+        def safe_code(value: Any) -> str:
+            code = str(value or "none")
+            return code if re.fullmatch(r"[a-z][a-z0-9_]{2,99}", code) else "unstructured_error"
+
+        reports: list[dict[str, Any]] = []
+        with self.session_factory() as session:
+            query = select(InventorySettingsModel).order_by(InventorySettingsModel.tenant_id)
+            if allowed_tenant_ids is not None:
+                query = query.where(InventorySettingsModel.tenant_id.in_(allowed_tenant_ids))
+            settings_rows = [
+                row for row in session.scalars(query)
+                if isinstance(row.daily_sheet_config_json, dict)
+                and row.daily_sheet_config_json.get("version") == 4
+            ]
+            for day in business_dates:
+                profiles: list[dict[str, Any]] = []
+                for settings in settings_rows:
+                    agent = settings.daily_sheet_config_json.get("agent")
+                    raw_mode = agent.get("apply_mode", "shadow") if isinstance(agent, dict) else "shadow"
+                    mode = raw_mode if raw_mode in {"auto", "shadow", "review"} else "unknown"
+                    snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                        InventoryDailySheetSnapshotModel.tenant_id == settings.tenant_id,
+                        InventoryDailySheetSnapshotModel.business_date == day,
+                    ))
+                    carry = session.scalar(select(InventoryDailyCarryForwardModel).where(
+                        InventoryDailyCarryForwardModel.tenant_id == settings.tenant_id,
+                        InventoryDailyCarryForwardModel.target_business_date == day,
+                    ))
+                    replay = session.scalar(select(InventoryJobModel).where(
+                        InventoryJobModel.tenant_id == settings.tenant_id,
+                        InventoryJobModel.job_type == REPLAY_REQUEST_TYPE,
+                        InventoryJobModel.entity_id == day.isoformat(),
+                    ).order_by(InventoryJobModel.created_at.desc()).limit(1))
+                    slot = session.scalar(select(InventoryJobModel).where(
+                        InventoryJobModel.tenant_id == settings.tenant_id,
+                        InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot",
+                        InventoryJobModel.entity_id == f"{day.isoformat()}:evening_reconcile",
+                    ).order_by(InventoryJobModel.created_at.desc()).limit(1))
+                    payload = replay.payload_json if replay and isinstance(replay.payload_json, dict) else {}
+                    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+                    issue_codes = result.get("review_issue_codes")
+                    profiles.append({
+                        "apply_mode": mode,
+                        "snapshot_status": safe_code(snapshot.status if snapshot else "missing"),
+                        "immutable_snapshot_ready": bool(
+                            snapshot and snapshot.status == "completed" and snapshot.snapshot_file_id
+                        ),
+                        "gemini_status": safe_code(snapshot.gemini_reconcile_status if snapshot else "missing"),
+                        "gemini_verified": bool(
+                            snapshot and snapshot.gemini_reconcile_status == "completed"
+                            and snapshot.gemini_reconcile_verified_at is not None
+                        ),
+                        "evening_slot_status": safe_code(slot.status if slot else "missing"),
+                        "evening_slot_error": safe_code(slot.last_error_code if slot else "none"),
+                        "replay_status": safe_code(self._effective_status(replay) if replay else "missing"),
+                        "replay_attempt_count": int(replay.attempt_count or 0) if replay else 0,
+                        "replay_verification": safe_code(result.get("verification_status")),
+                        "replay_promoted": result.get("promoted") is True,
+                        "review_issue_codes": [
+                            safe_code(item) for item in issue_codes[:8]
+                            if safe_code(item) != "unstructured_error"
+                        ] if isinstance(issue_codes, list) else [],
+                        "morning_reset_status": safe_code(carry.status if carry else "missing"),
+                        "morning_reset_error": safe_code(carry.error_code if carry else "none"),
+                    })
+                reports.append({"business_date": day.isoformat(), "profiles": profiles})
+        return reports
 
     def recent_failure_reasons(
         self, allowed_tenant_ids: frozenset[str] | None,
