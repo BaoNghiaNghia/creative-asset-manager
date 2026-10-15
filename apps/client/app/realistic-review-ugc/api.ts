@@ -624,7 +624,9 @@ export async function downloadStage5LooxReviewConcepts(
   try {
     const link = document.createElement("a");
     link.href = fileUrl;
-    link.download = format === "csv" ? "CAM_Stage5_Loox_Import.csv" : format === "internal_csv" ? "CAM_Stage5_Internal_Concepts.csv" : "CAM_Stage5_Loox_Preview.xlsx";
+    const exportedAt = new Date();
+    const stamp = `${exportedAt.getFullYear()}${String(exportedAt.getMonth() + 1).padStart(2, "0")}${String(exportedAt.getDate()).padStart(2, "0")}_${String(exportedAt.getHours()).padStart(2, "0")}${String(exportedAt.getMinutes()).padStart(2, "0")}${String(exportedAt.getSeconds()).padStart(2, "0")}`;
+    link.download = format === "csv" ? `CAM_Stage5_Loox_Import_${stamp}.csv` : format === "internal_csv" ? `CAM_Stage5_Internal_Concepts_${stamp}.csv` : `CAM_Stage5_Loox_Preview_${stamp}.xlsx`;
     document.body.appendChild(link);
     link.click();
     link.remove();

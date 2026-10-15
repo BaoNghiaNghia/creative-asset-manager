@@ -582,19 +582,7 @@ export function Stage3ReviewGroups({
           <span className="rrugc-stage5-short-label">{analyzing ? "Queueing…" : "Analyze"}</span>
         </button>
         {onExportReviews && <>
-          <button type="button" className="rrugc-stage5-export rrugc-icon-action" aria-label="Export AI Concepts CSV"
-            disabled={Boolean(exporting)} title="Internal AI concepts only. Export creates reviewer-name-based non-deliverable @example.invalid test emails; verified_purchase stays blank until a real order is verified. Do not publish as genuine customer reviews."
-            onClick={() => void exportAll("csv")}>
-            <RrugcActionIcon name={exporting ? "refresh" : "download"} />
-            <span className="rrugc-stage5-long-label">{exporting === "csv" ? "Exporting…" : "AI Concepts CSV"}</span>
-            <span className="rrugc-stage5-short-label">{exporting === "csv" ? "Exporting…" : "CSV"}</span>
-          </button>
           <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label="Export Internal Concepts CSV" disabled={Boolean(exporting)} title="Internal synthetic concept dataset with clean body and explicit review_origin=synthetic_ai column. Not a public customer-review import." onClick={() => void exportAll("internal_csv")}><RrugcActionIcon name="download" /><span>Internal CSV</span></button>
-          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label="Export Draft Excel"
-            disabled={Boolean(exporting)} title="Draft Excel preview includes plain author and body plus an About AI concepts disclosure sheet."
-            onClick={() => void exportAll("xlsx")}>
-            <RrugcActionIcon name="file" /><span className="rrugc-stage5-long-label">Draft Excel</span><span className="rrugc-stage5-short-label">Excel</span>
-          </button>
         </>}
       </div>
       <div className="rrugc-stage3-stats rrugc-stage5-toolbar-stats" aria-label="Stage 5 summary">
