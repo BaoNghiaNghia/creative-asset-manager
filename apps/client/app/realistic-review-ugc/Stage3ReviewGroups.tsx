@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Stage5BeforeAfter } from "./Stage5BeforeAfter";
 import { Stage5SourceTree } from "./Stage5SourceTree";
 import { ResizableSourceLayout } from "./ResizableSourceLayout";
@@ -255,6 +255,7 @@ export function Stage3ReviewModal({
   >
     <section
       className="rrugc-stage3-review-modal"
+      style={{ "--review-image-ratio": Math.max(0.45, Math.min(2, (image.output_width || 3) / (image.output_height || 4))) } as CSSProperties}
       role="dialog"
       aria-modal="true"
       aria-labelledby="rrugc-stage3-review-modal-title"
