@@ -17,6 +17,7 @@ test("heartbeat never fetches an external shop page and must remain scan-disable
  const res=await heartbeatOnce(config,async(url,options)=>{
   called=url;
   assert.equal(options.method,"POST");
+  assert.equal(options.redirect,"error","Never forward enrollment credentials through redirects");
   assert.equal(options.headers.Authorization,"Bearer "+settings.BRANDING_DNA_AGENT_TOKEN);
   return {ok:true,status:200,json:async()=>({status:"accepted",scan_enabled:false})};
  });
