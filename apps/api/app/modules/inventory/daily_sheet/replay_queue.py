@@ -59,12 +59,27 @@ class HistoricalReplayQueue:
         self.last_auto_scan: dict[str, int] = {}
 
     @staticmethod
+    def _effective_status(job: InventoryJobModel) -> str:
+        """Do not present legacy unverified promotion replays as successful."""
+        payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+        result = payload.get("result")
+        if job.status == "completed" and bool(payload.get("promote", True)):
+            if not isinstance(result, dict) or not (
+                result.get("status") == "completed"
+                and result.get("verification_status") == "verified"
+                and result.get("promoted") is True
+            ):
+                return "review_required"
+        return job.status
+
+    @staticmethod
     def _view(job: InventoryJobModel) -> dict[str, Any]:
         payload = job.payload_json if isinstance(job.payload_json, dict) else {}
         return {
             "job_id": job.id,
             "business_date": job.entity_id,
-            "status": job.status,
+            "status": HistoricalReplayQueue._effective_status(job),
+            "stored_status": job.status,
             "mode": payload.get("mode", "fresh_copy"),
             "promote": bool(payload.get("promote", True)),
             "attempt_count": job.attempt_count,
@@ -345,7 +360,8 @@ class HistoricalReplayQueue:
                 result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
                 results.append({
                     "business_date": job.entity_id,
-                    "status": job.status,
+                    "status": self._effective_status(job),
+                    "stored_status": job.status,
                     "attempt_count": job.attempt_count,
                     "result_status": str(result.get("status") or "none")[:35],
                     "verification_status": str(result.get("verification_status") or "none")[:35],

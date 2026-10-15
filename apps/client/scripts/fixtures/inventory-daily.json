@@ -1,0 +1,181 @@
+{
+  "name": "inventory-daily",
+  "identity": {
+    "user_id": "qa-inventory-operator",
+    "actor_id": "qa-inventory-operator",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [
+      {
+        "id": "qa-tenant",
+        "name": "QA Studio",
+        "slug": "qa-studio"
+      }
+    ],
+    "roles": [
+      "operator"
+    ],
+    "permissions": [
+      "assets.read",
+      "inventory.read"
+    ],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Inventory Operator",
+    "email": "qa.inventory@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {
+      "id": "qa-google-inventory",
+      "name": "QA Inventory Operator",
+      "email": "qa.inventory@example.test"
+    }
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/lifecycle-history",
+      "body": {
+        "page": 1,
+        "page_size": 25,
+        "pages": 1,
+        "total": 3,
+        "items": [
+          {
+            "business_date": "2026-10-15",
+            "previous_day_verified": false,
+            "overall_status": "failed",
+            "current_stage": "morning_reset",
+            "updated_at": "2026-10-15T10:00:00Z",
+            "files": {
+              "shared_url": null,
+              "snapshot_url": null,
+              "gemini_url": null
+            },
+            "invariants": [],
+            "action_required": {
+              "code": "previous_day_gemini_not_verified",
+              "stage": "morning_reset",
+              "label": "Repair Gemini ngày trước"
+            },
+            "stages": [
+              {
+                "key": "morning_reset",
+                "label": "Reset đầu ngày",
+                "status": "failed",
+                "error_code": "previous_day_gemini_not_verified",
+                "error_category": "DEPENDENCY",
+                "retryable": false
+              },
+              {
+                "key": "afternoon_snapshot",
+                "label": "Snapshot",
+                "status": "pending"
+              },
+              {
+                "key": "evening_reconcile",
+                "label": "Đối soát Gemini",
+                "status": "pending"
+              },
+              {
+                "key": "verified",
+                "label": "Xác minh",
+                "status": "pending"
+              }
+            ]
+          },
+          {
+            "business_date": "2026-10-14",
+            "previous_day_verified": false,
+            "overall_status": "review_required",
+            "current_stage": "evening_reconcile",
+            "updated_at": "2026-10-14T20:00:00Z",
+            "files": {
+              "shared_url": null,
+              "snapshot_url": "https://example.test/qa-snapshot-14",
+              "gemini_url": null
+            },
+            "invariants": [],
+            "action_required": {
+              "code": "inventory_historical_replay_review_required",
+              "stage": "evening_reconcile",
+              "label": "Chạy lại Gemini"
+            },
+            "stages": [
+              {
+                "key": "morning_reset",
+                "label": "Reset đầu ngày",
+                "status": "completed"
+              },
+              {
+                "key": "afternoon_snapshot",
+                "label": "Snapshot",
+                "status": "completed"
+              },
+              {
+                "key": "evening_reconcile",
+                "label": "Đối soát Gemini",
+                "status": "review_required",
+                "error_code": "inventory_historical_replay_review_required",
+                "error_category": "REVIEW",
+                "retryable": false
+              },
+              {
+                "key": "verified",
+                "label": "Xác minh",
+                "status": "blocked"
+              }
+            ]
+          },
+          {
+            "business_date": "2026-10-13",
+            "previous_day_verified": true,
+            "overall_status": "completed",
+            "current_stage": "completed",
+            "updated_at": "2026-10-13T20:00:00Z",
+            "files": {
+              "shared_url": null,
+              "snapshot_url": "https://example.test/qa-snapshot-13",
+              "gemini_url": "https://example.test/qa-gemini-13"
+            },
+            "invariants": [],
+            "action_required": null,
+            "stages": [
+              {
+                "key": "morning_reset",
+                "label": "Reset đầu ngày",
+                "status": "completed"
+              },
+              {
+                "key": "afternoon_snapshot",
+                "label": "Snapshot",
+                "status": "completed"
+              },
+              {
+                "key": "evening_reconcile",
+                "label": "Đối soát Gemini",
+                "status": "completed"
+              },
+              {
+                "key": "verified",
+                "label": "Xác minh",
+                "status": "completed"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/gemini/replay/jobs",
+      "body": {
+        "items": []
+      }
+    }
+  ]
+}

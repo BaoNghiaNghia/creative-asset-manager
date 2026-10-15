@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, type InventoryHistoricalReplayResult } from "./api";
-import { isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay } from "./InventoryDailyPipeline";
+import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -41,6 +41,37 @@ describe("Inventory Morning Reset manual recovery routing", () => {
     expect(isMaterialRecoveryError("unknown_material")).toBe(true);
     expect(isMaterialRecoveryError("unknown_warehouse")).toBe(false);
     expect(isMaterialRecoveryError(null)).toBe(false);
+  });
+});
+
+describe("Inventory lifecycle monitoring and paginated recovery safety", () => {
+  const createItem = (day: string, overall: "failed" | "completed" | "review_required", verified: boolean, errorCode: string | null = null) => ({
+    business_date: day, overall_status: overall, current_stage: "morning_reset",
+    previous_day_verified: false, updated_at: null,
+    files: { shared_url: null, snapshot_url: "https://example.test/snapshot", gemini_url: null },
+    invariants: [],
+    action_required: errorCode ? { code: errorCode, stage: "morning_reset", label: "Xử lý" } : null,
+    stages: [
+      { key: "morning_reset", label: "Reset", status: overall === "failed" ? "failed" : "completed", error_code: errorCode },
+      { key: "verified", label: "Xác minh", status: verified ? "completed" : "blocked" },
+    ],
+  } as import("./api").InventoryLifecycleHistoryItem);
+
+  it("uses authoritative previous-day verification when the prior day is outside the page", () => {
+    const current = { ...createItem("2026-10-15", "failed", false, "previous_day_gemini_not_verified"), previous_day_verified: true };
+    expect(sourceVerifiedForRecovery(current, [current])).toBe(true);
+    expect(sourceVerifiedForRecovery({ ...current, previous_day_verified: false }, [current])).toBe(false);
+  });
+
+  it("shows blocked and unverified days separately from successfully verified days", () => {
+    const rows = [
+      createItem("2026-10-15", "failed", false, "previous_day_gemini_not_verified"),
+      createItem("2026-10-14", "review_required", false, "inventory_historical_replay_review_required"),
+      createItem("2026-10-13", "completed", true),
+    ];
+    expect(inventoryDailyHealth(rows)).toEqual({
+      total: 3, verified: 1, attention: 2, awaitingVerification: 2, retrying: 0,
+    });
   });
 });
 

@@ -1,0 +1,9 @@
+{
+  "viewports": ["desktop", "compact", "tabletLandscape", "tabletPortrait", "mobile", "mobileSmall"],
+  "steps": [
+    { "name": "pipeline-default", "waitFor": ".inventory-pipeline table tbody tr", "waitMs": 250 },
+    { "name": "refresh-focus", "focus": ".inventory-pipeline-header-actions button:last-child" },
+    { "name": "refresh-click", "click": ".inventory-pipeline-header-actions button:last-child", "waitFor": ".inventory-pipeline table tbody tr", "waitMs": 250 },
+    { "name": "refresh-hover", "hover": ".inventory-pipeline-header-actions button:last-child" }
+  ]
+}

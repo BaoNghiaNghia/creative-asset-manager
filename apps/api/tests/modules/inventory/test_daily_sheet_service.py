@@ -31,6 +31,13 @@ from app.modules.inventory.persistence_model import (
 )
 
 
+def test_inventory_error_categories_distinguish_review_and_model_protocol_from_transport():
+    from app.modules.inventory.daily_sheet.service import inventory_error_metadata
+    assert inventory_error_metadata("unknown_tool") == {"category": "TOOL_PROTOCOL", "retryable": False}
+    assert inventory_error_metadata("inventory_historical_replay_review_required") == {"category": "REVIEW", "retryable": False}
+    assert inventory_error_metadata("inventory_gemini_transport_error") == {"category": "TRANSPORT", "retryable": True}
+
+
 def test_disposable_writeback_service_uses_saved_source_not_runtime_copy(monkeypatch):
     from contextlib import nullcontext
 
@@ -1567,6 +1574,7 @@ def test_lifecycle_history_marks_missed_reset_window_after_dependency_is_repaire
     assert morning["error_category"] == "DEPENDENCY"
     assert morning["retryable"] is False
     assert current["action_required"]["label"] == "Cần recovery thủ công"
+    assert current["previous_day_verified"] is True
 
 
 def test_lifecycle_history_marks_invariant_when_completed_snapshot_has_no_files(daily_sheet_db):

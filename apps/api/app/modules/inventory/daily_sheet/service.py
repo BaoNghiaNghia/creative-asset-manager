@@ -37,12 +37,14 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
     elif "model_not_found" in value or ("model" in value and "not found" in value):
         category = "MODEL"
     elif any(token in value for token in (
-        "tool_call", "missing_tool", "round_limit", "plan_not_submitted",
+        "tool_call", "missing_tool", "unknown_tool", "round_limit", "plan_not_submitted",
         "empty_carry_forward_plan",
     )):
         category = "TOOL_PROTOCOL"
     elif any(token in value for token in ("previous_day_gemini_not_verified", "morning_reset_not_completed", "afternoon_snapshot_not_ready", "missed_safe_window", "dependency")):
         category = "DEPENDENCY"
+    elif "review_required" in value:
+        category = "REVIEW"
     elif any(token in value for token in ("stale_evidence", "verification", "not_verified", "invalid_response")):
         category = "VERIFICATION"
     elif any(token in value for token in ("google_sheets", "spreadsheet", "sheets_scope", "drive_")):
@@ -2447,7 +2449,7 @@ class InventoryDailySheetService:
                 if action_required is None and invariants:
                     action_required = {"code": invariants[0]["code"], "stage": invariants[0]["stage"], "label": "Kiểm tra invariant"}
                 current_stage = "completed" if overall == "completed" else (invariants[0]["stage"] if overall == "stale" else current["key"])
-                return {"business_date": day.isoformat(), "overall_status": overall, "current_stage": current_stage, "stages": stages, "invariants": invariants, "files": {"shared_url": f"https://docs.google.com/spreadsheets/d/{shared_file_id}/edit" if shared_file_id else None, "snapshot_url": f"https://docs.google.com/spreadsheets/d/{snapshot.snapshot_file_id}/edit" if snapshot and snapshot.snapshot_file_id else None, "gemini_url": f"https://docs.google.com/spreadsheets/d/{snapshot.gemini_file_id}/edit" if snapshot and snapshot.gemini_file_id else None}, "updated_at": max(timestamps).isoformat() if timestamps else None, "action_required": action_required}
+                return {"business_date": day.isoformat(), "previous_day_verified": bool(previous_snapshot and previous_snapshot.gemini_reconcile_status == "completed" and previous_snapshot.gemini_reconcile_verified_at is not None), "overall_status": overall, "current_stage": current_stage, "stages": stages, "invariants": invariants, "files": {"shared_url": f"https://docs.google.com/spreadsheets/d/{shared_file_id}/edit" if shared_file_id else None, "snapshot_url": f"https://docs.google.com/spreadsheets/d/{snapshot.snapshot_file_id}/edit" if snapshot and snapshot.snapshot_file_id else None, "gemini_url": f"https://docs.google.com/spreadsheets/d/{snapshot.gemini_file_id}/edit" if snapshot and snapshot.gemini_file_id else None}, "updated_at": max(timestamps).isoformat() if timestamps else None, "action_required": action_required}
 
             return {
                 "items": [build(day) for day in page_dates],

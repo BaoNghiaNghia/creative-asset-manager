@@ -75,6 +75,24 @@ def test_historical_replay_queue_deduplicates_and_completes_without_live_workboo
 
 
 
+def test_unverified_legacy_completed_job_renders_as_review_required():
+    tmp, engine, sessions = _sessions()
+    try:
+        queue = HistoricalReplayQueue(sessions)
+        request = queue.enqueue("tenant-a", date(2030, 8, 9))
+        with sessions.begin() as session:
+            job = session.get(InventoryJobModel, request["job_id"])
+            job.status = "completed"
+            job.payload_json = {**job.payload_json, "result": {"status": "review_required", "verification_status": "not_executed", "promoted": False}}
+        assert queue.status("tenant-a", request["job_id"])["status"] == "review_required"
+        assert queue.recent_replay_results(frozenset({"tenant-a"}))[0]["status"] == "review_required"
+        with sessions() as session:
+            assert session.get(InventoryJobModel, request["job_id"]).status == "completed"
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
 def test_unverified_replay_requires_review_and_never_counts_as_completed():
     tmp, engine, sessions = _sessions()
     try:

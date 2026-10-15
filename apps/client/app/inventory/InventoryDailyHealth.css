@@ -1,0 +1,24 @@
+.inventory-pipeline > header {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.inventory-daily-health-inline {
+  display: block;
+  margin-top: 10px !important;
+  padding: 10px 12px;
+  border-left: 3px solid #6e86cf;
+  border-radius: 6px;
+  background: #f2f6fd;
+  color: #314563 !important;
+  font-size: 12px !important;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 768px) {
+  .inventory-daily-health-inline {
+    padding: 10px;
+    font-size: 11px !important;
+  }
+}
