@@ -32,7 +32,7 @@ type Props = {
   loadingMore?: boolean;
   onRefresh?: () => void;
   onDeleteReview?: (stage2JobId: string) => Promise<void>;
-  onExportReviews?: (format: "csv" | "xlsx") => Promise<void>;
+  onExportReviews?: (format: "csv" | "xlsx" | "internal_csv") => Promise<void>;
 };
 
 export type Stage5SortBy = "newest" | "oldest" | "folder" | "image_count" | "score" | "status";
@@ -456,7 +456,7 @@ export function Stage3ReviewGroups({
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<Stage3ReviewImage | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
+  const [exporting, setExporting] = useState<"csv" | "xlsx" | "internal_csv" | null>(null);
   const [actionError, setActionError] = useState("");
   const [sortBy, setSortBy] = useState<Stage5SortBy>("newest");
   const [selectedFolderKey, setSelectedFolderKey] = useState<string | null>(null);
@@ -521,7 +521,7 @@ export function Stage3ReviewGroups({
     }
   }
 
-  async function exportAll(format: "csv" | "xlsx") {
+  async function exportAll(format: "csv" | "xlsx" | "internal_csv") {
     if (!onExportReviews || exporting) return;
     setExporting(format);
     setActionError("");
@@ -589,6 +589,7 @@ export function Stage3ReviewGroups({
             <span className="rrugc-stage5-long-label">{exporting === "csv" ? "Exporting…" : "AI Concepts CSV"}</span>
             <span className="rrugc-stage5-short-label">{exporting === "csv" ? "Exporting…" : "CSV"}</span>
           </button>
+          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label="Export Internal Concepts CSV" disabled={Boolean(exporting)} title="Internal synthetic concept dataset with clean body and explicit review_origin=synthetic_ai column. Not a public customer-review import." onClick={() => void exportAll("internal_csv")}><RrugcActionIcon name="download" /><span>Internal CSV</span></button>
           <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label="Export Draft Excel"
             disabled={Boolean(exporting)} title="Draft Excel preview includes plain author and body plus an About AI concepts disclosure sheet."
             onClick={() => void exportAll("xlsx")}>

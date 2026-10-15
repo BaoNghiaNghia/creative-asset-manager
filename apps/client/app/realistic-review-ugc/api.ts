@@ -603,18 +603,18 @@ export type Stage5LooxExportResult = {
   rows: number;
   missingPhotos: number;
   normalizedHandles: number;
-  format: "csv" | "xlsx";
+  format: "csv" | "xlsx" | "internal_csv";
 };
 
 export async function downloadStage5LooxReviewConcepts(
-  format: "csv" | "xlsx" = "csv",
+  format: "csv" | "xlsx" | "internal_csv" = "csv",
 ): Promise<Stage5LooxExportResult> {
   const response = await fetch(
     "/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=" + format,
     {
       credentials: "include",
       headers: {
-        Accept: format === "csv" ? "text/csv" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Accept: format !== "xlsx" ? "text/csv" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       },
     },
   );
@@ -624,7 +624,7 @@ export async function downloadStage5LooxReviewConcepts(
   try {
     const link = document.createElement("a");
     link.href = fileUrl;
-    link.download = format === "csv" ? "CAM_Stage5_Loox_Import.csv" : "CAM_Stage5_Loox_Preview.xlsx";
+    link.download = format === "csv" ? "CAM_Stage5_Loox_Import.csv" : format === "internal_csv" ? "CAM_Stage5_Internal_Concepts.csv" : "CAM_Stage5_Loox_Preview.xlsx";
     document.body.appendChild(link);
     link.click();
     link.remove();

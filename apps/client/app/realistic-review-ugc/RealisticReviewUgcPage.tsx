@@ -453,7 +453,7 @@ export function RealisticReviewUgcPage() {
     await refreshStage3Groups();
   }
 
-  async function exportStage5Reviews(format: "csv" | "xlsx") {
+  async function exportStage5Reviews(format: "csv" | "xlsx" | "internal_csv") {
     const result = await downloadStage5LooxReviewConcepts(format);
     const warnings = [
       result.missingPhotos ? result.missingPhotos + " image URLs are not publicly importable" : "",

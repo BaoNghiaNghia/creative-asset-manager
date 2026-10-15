@@ -150,6 +150,18 @@ def build_loox_csv(rows: list[tuple]) -> bytes:
     return out.getvalue().encode("utf-8-sig")
 
 
+def build_internal_concept_csv(rows: list[tuple]) -> bytes:
+    """Internal concept dataset: clean body but row-level provenance is mandatory."""
+    out = StringIO(newline="")
+    writer = csv.writer(out, dialect="excel", lineterminator="\r\n")
+    writer.writerow((*HEADERS, "review_origin"))
+    for row in rows:
+        if len(row) != len(HEADERS):
+            raise ValueError("Invalid Stage 5 review column count")
+        writer.writerow((*("" if cell is None or cell is False else cell for cell in row), "synthetic_ai"))
+    return out.getvalue().encode("utf-8-sig")
+
+
 def _cell(value: object, reference: str) -> str:
     if isinstance(value, bool):
         return f'<c r="{reference}" t="b"><v>{int(value)}</v></c>'

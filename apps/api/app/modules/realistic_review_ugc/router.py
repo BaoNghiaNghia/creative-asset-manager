@@ -6553,13 +6553,13 @@ async def public_stage5_original_photo(
 
 @router.get("/stage3/reviews/export-loox")
 def export_stage5_loox_review_concepts(
-    format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
+    format: str = Query(default="csv", pattern="^(csv|xlsx|internal_csv)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     """Export all eligible synthetic concepts, not just the loaded UI page."""
     from app.modules.realistic_review_ugc.loox_review_export import (
-        PREFIX, build_loox_xlsx, build_loox_csv,
+        PREFIX, build_loox_xlsx, build_loox_csv, build_internal_concept_csv,
         clean_concept_copy, loox_original_photo_url, shopify_handle_from_folder, loox_public_photo_url,
         stage5_sample_email, stage5_sample_review_date,
     )
@@ -6614,12 +6614,13 @@ def export_stage5_loox_review_concepts(
         content=(build_loox_csv([
             (*row[:4], PREFIX + row[4], *row[5:])
             for row in rows
-        ]) if is_csv else build_loox_xlsx(rows)),
-        media_type=("text/csv; charset=utf-8" if is_csv else
+        ]) if is_csv else (build_internal_concept_csv(rows) if format == "internal_csv" else build_loox_xlsx(rows))),
+        media_type=("text/csv; charset=utf-8" if format in ("csv", "internal_csv") else
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         headers={
             "Content-Disposition": ('attachment; filename="CAM_Stage5_AI_Concepts_Loox.csv"' if is_csv else
-                                    'attachment; filename="CAM_Stage5_AI_Concepts_Preview.xlsx"'),
+                                    ('attachment; filename="CAM_Stage5_Internal_Concepts.csv"' if format == "internal_csv" else
+                                     'attachment; filename="CAM_Stage5_AI_Concepts_Preview.xlsx"')),
             "Cache-Control": "private, no-store",
             "X-CAM-Review-Origin": "AI-generated-concepts-not-customer-testimonials",
             "X-CAM-Export-Sample-Emails": str(sum(1 for row in rows if row[3])),
