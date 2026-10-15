@@ -42,7 +42,20 @@
               "selector": "body",
               "maxPx": 1
             }
-          ]
+          ],
+          "waitMs": 1400
+        },
+        {
+          "name": "scout-sort-desc",
+          "click": "#rrugc-panel-stage3 .rrugc-stage3-scout-sort",
+          "waitFor": "#rrugc-panel-stage3 .rrugc-stage3-source-table[data-sort-column=\"scout\"][data-sort-direction=\"desc\"]",
+          "waitMs": 2000
+        },
+        {
+          "name": "scout-sort-asc",
+          "click": "#rrugc-panel-stage3 .rrugc-stage3-scout-sort",
+          "waitFor": "#rrugc-panel-stage3 .rrugc-stage3-source-table[data-sort-column=\"scout\"][data-sort-direction=\"asc\"]",
+          "waitMs": 2000
         }
       ]
     },

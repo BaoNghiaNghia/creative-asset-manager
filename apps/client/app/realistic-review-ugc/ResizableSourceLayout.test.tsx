@@ -41,6 +41,18 @@ describe("Reviews Stage 3/4/5 source tree layout", () => {
     await act(async () => splitter.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
     expect(splitter.getAttribute("aria-valuenow")).toBe("315");
     expect(localStorage.getItem("rrugc:source-tree-width:5")).toBe("315");
+    // Pointer drag uses capture so rapid movement outside the grab handle
+    // continues resizing until release.
+    splitter.setPointerCapture = vi.fn();
+    splitter.hasPointerCapture = vi.fn(() => true);
+    splitter.releasePointerCapture = vi.fn();
+    await act(async () => {
+      splitter.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 100 }));
+      splitter.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 155 }));
+      splitter.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 155 }));
+    });
+    expect(splitter.getAttribute("aria-valuenow")).toBe("370");
+    expect(document.body.classList.contains("rrugc-source-split-dragging")).toBe(false);
     await act(async () => root.unmount());
   });
 
