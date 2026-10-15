@@ -212,6 +212,64 @@ def test_recent_replay_failure_diagnostics_exposes_only_safe_reason_tokens():
         tmp.cleanup()
 
 
+
+def test_v2_automatically_retries_once_after_unknown_tool_safety_failure():
+    tmp, engine, sessions = _sessions()
+    try:
+        day = date(2030, 8, 9)
+        _failed_evening(sessions, day)
+        with sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v4_historical_replay_request",
+                entity_type="daily_sheet_snapshot", entity_id=str(day),
+                idempotency_key="inventory-replay-auto-v1:tenant-a:2030-08-09",
+                status="failed", last_error_code="inventory_sheet_agent_v4_safety_error",
+                payload_json={"automatic": True, "promote": True},
+            ))
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v4_historical_replay",
+                entity_type="daily_sheet_snapshot", entity_id=str(day),
+                idempotency_key="historical-failed", status="failed",
+                last_error_message="unknown_tool",
+            ))
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        now = datetime(2030, 8, 10, 10, tzinfo=timezone.utc)
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=now) == 1
+        assert queue.active_jobs("tenant-a")[0]["business_date"] == str(day)
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=now) == 0
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_v2_replans_once_for_unverified_review_required_but_never_auth_failures():
+    tmp, engine, sessions = _sessions()
+    try:
+        review_day, auth_day = date(2030, 8, 9), date(2030, 8, 8)
+        _failed_evening(sessions, review_day)
+        _failed_evening(sessions, auth_day)
+        with sessions.begin() as session:
+            for day, status, code, result in (
+                (review_day, "completed", None, {"status": "review_required", "promoted": False}),
+                (auth_day, "failed", "inventory_gemini_auth_or_permission_error", {}),
+            ):
+                session.add(InventoryJobModel(
+                    tenant_id="tenant-a", job_type="inventory_v4_historical_replay_request",
+                    entity_type="daily_sheet_snapshot", entity_id=str(day),
+                    idempotency_key=f"inventory-replay-auto-v1:tenant-a:{day}",
+                    status=status, last_error_code=code,
+                    payload_json={"automatic": True, "promote": True, "result": result},
+                ))
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        assert queue.enqueue_failed_evening_days(
+            frozenset({"tenant-a"}), now=datetime(2030, 8, 10, 10, tzinfo=timezone.utc),
+        ) == 1
+        assert queue.active_jobs("tenant-a")[0]["business_date"] == str(review_day)
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
 def test_legacy_in_progress_replay_is_retried_not_terminal():
     from app.modules.inventory.daily_sheet.service import DailySheetConfigurationError
     tmp, engine, sessions = _sessions()

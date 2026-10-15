@@ -731,6 +731,20 @@ def test_match_existing_rejects_material_outside_tenant():
         )
 
 
+
+def test_unknown_gemini_tool_call_returns_corrective_feedback_without_writes():
+    tools = host()
+    response = tools.execute("delete_sheet", {"sheet": "Arbitrary"})
+    assert response["accepted"] is False
+    assert response["error"] == "unknown_tool"
+    assert "read_range" in response["allowed_tools"]
+    assert "stage_edits" in response["allowed_tools"]
+    assert "delete_sheet" not in response["allowed_tools"]
+    assert tools.google.mutation_calls == []
+    assert tools.staged is None
+    assert tools.tool_trace[-1]["error"] == "unknown_tool"
+
+
 class ScriptedGateway:
     def __init__(self):
         self.calls = 0

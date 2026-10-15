@@ -268,3 +268,20 @@ Preview → Review → Apply operation. The timer logs
 `INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=... executions=... scan={...}`
 with aggregate eligibility reasons and no spreadsheet content, allowing
 operators to distinguish an idle timer from a missing snapshot or hard failure.
+
+### V4 Gemini tool-protocol recovery
+
+A Gemini hallucinated function name must never execute. The tool host returns
+`accepted=false`, `error=unknown_tool` and exact allowed tool names, so Gemini
+can correct the request within the existing bounded max-tool-rounds limit.
+No unknown tool is silently mapped to a mutating tool.
+
+Automatic recovery policy v2 allows **one additional immutable-Snapshot replay**
+for previously queued v1 jobs whose persisted replay failure reason was exactly
+`unknown_tool`, or whose result remained `review_required` without promotion.
+The v2 idempotency key prevents repeated new jobs after terminal failure.
+Human-submitted, already-active, provider-auth/permission-failed and already-v2
+jobs are excluded. A v2 review-required result remains unverified and **does not**
+promote or update Shared. Use persisted diagnostics for
+`INVENTORY_REPLAY_DIAGNOSTICS` and `INVENTORY_REPLAY_RESULTS` to distinguish
+successful execution from true `verified / promoted` inventory reconciliation.

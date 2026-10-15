@@ -27,6 +27,7 @@ REPLAY_MAX_ATTEMPTS = 72
 REPLAY_LEASE_SECONDS = 60 * 60
 REPLAY_RETRY_MIN_SECONDS = 5 * 60
 AUTO_REPLAY_LOOKBACK_DAYS = 7
+AUTO_REPLAY_POLICY_VERSION = 2
 AUTO_RETRYABLE_ERRORS = frozenset({
     "inventory_gemini_rate_limited",
     "inventory_gemini_transport_error",
@@ -107,12 +108,13 @@ class HistoricalReplayQueue:
                 entity_type="inventory_daily_sheet_snapshot",
                 entity_id=business_date.isoformat(),
                 idempotency_key=(
-                    f"inventory-replay-auto-v1:{tenant_id}:{business_date.isoformat()}"
+                    f"inventory-replay-auto-v{AUTO_REPLAY_POLICY_VERSION}:{tenant_id}:{business_date.isoformat()}"
                     if automatic else
                     f"inventory-replay-request:{tenant_id}:{business_date.isoformat()}:{uuid4()}"
                 ),
                 payload={"business_date": business_date.isoformat(), "mode": mode, "promote": promote,
-                         "automatic": automatic},
+                         "automatic": automatic,
+                         "automatic_policy_version": AUTO_REPLAY_POLICY_VERSION if automatic else None},
                 max_attempts=REPLAY_MAX_ATTEMPTS,
             )
             return self._view(job)
@@ -136,6 +138,43 @@ class HistoricalReplayQueue:
                 InventoryJobModel.status.in_(("pending", "retry", "processing")),
             ).order_by(InventoryJobModel.created_at.desc()).limit(limit))
             return [self._view(job) for job in jobs]
+
+    @staticmethod
+    def _allow_policy_upgrade(
+        session: Session, tenant_id: str, day: date,
+        prior_jobs: list[InventoryJobModel],
+    ) -> bool:
+        """At most one v2 replay for v1 model protocol failures.
+
+        Never supersede a human job, active run, previously promoted result,
+        permanent Google/auth failure, or a prior v2 attempt.
+        """
+        if not prior_jobs:
+            return True
+        if any(
+            item.status in {"pending", "processing", "retry"}
+            or (item.payload_json or {}).get("automatic") is not True
+            or (item.payload_json or {}).get("automatic_policy_version", 1) >= AUTO_REPLAY_POLICY_VERSION
+            for item in prior_jobs
+        ):
+            return False
+        latest = prior_jobs[0]
+        payload = latest.payload_json or {}
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        if latest.status == "completed":
+            return (
+                result.get("status") == "review_required"
+                and not bool(result.get("promoted"))
+            )
+        if latest.status != "failed" or latest.last_error_code != "inventory_sheet_agent_v4_safety_error":
+            return False
+        error = session.scalar(select(InventoryJobModel.last_error_message).where(
+            InventoryJobModel.tenant_id == tenant_id,
+            InventoryJobModel.job_type == "inventory_v4_historical_replay",
+            InventoryJobModel.entity_id == day.isoformat(),
+            InventoryJobModel.status == "failed",
+        ).order_by(InventoryJobModel.created_at.desc()).limit(1))
+        return str(error or "") == "unknown_tool"
 
     def enqueue_failed_evening_days(
         self, allowed_tenant_ids: frozenset[str] | None,
@@ -217,12 +256,14 @@ class HistoricalReplayQueue:
                     ):
                         self.last_auto_scan["slot_not_retryable"] += 1
                         continue
-                    already_requested = session.scalar(select(InventoryJobModel.id).where(
+                    prior_jobs = session.scalars(select(InventoryJobModel).where(
                         InventoryJobModel.tenant_id == settings.tenant_id,
                         InventoryJobModel.job_type == REPLAY_REQUEST_TYPE,
                         InventoryJobModel.entity_id == day.isoformat(),
-                    ).limit(1))
-                    if already_requested:
+                    ).order_by(InventoryJobModel.created_at.desc())).all()
+                    if not self._allow_policy_upgrade(
+                        session, settings.tenant_id, day, prior_jobs,
+                    ):
                         self.last_auto_scan["already_requested"] += 1
                         continue
                     candidates.append((settings.tenant_id, day))

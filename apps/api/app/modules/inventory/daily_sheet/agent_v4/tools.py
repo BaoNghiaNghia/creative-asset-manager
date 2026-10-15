@@ -826,7 +826,17 @@ class V4WorkbookToolHost:
         }
         handler = handlers.get(name)
         if handler is None:
-            raise V4AgentSafetyError("unknown_tool")
+            # Gemini may hallucinate a function name even when declarations are
+            # constrained. Return non-executing corrective feedback rather than
+            # aborting an otherwise recoverable run. The agent still has a hard
+            # max_tool_rounds budget and no unknown function can ever execute.
+            self.tool_trace.append({"tool": "rejected_unknown_tool", "accepted": False, "error": "unknown_tool"})
+            return {
+                "accepted": False,
+                "error": "unknown_tool",
+                "allowed_tools": list(handlers),
+                "instruction": "Call only one of allowed_tools using its exact declared name. No operation was executed.",
+            }
         try:
             result = handler(arguments)
         except V4AgentLimitExceeded:
