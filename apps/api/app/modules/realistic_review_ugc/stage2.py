@@ -516,8 +516,6 @@ class RrugcStage2Service:
             ProcessingJobModel.entity_type == "rrugc_stage2_job",
             ProcessingJobModel.entity_id == job_id,
         )) or 0)
-        if previous >= 4:
-            raise RrugcStage2Error("stage4_retry_limit", "Maximum of three manual retries reached.")
         try:
             latest = resolve_stage2_skill(
                 settings=self.settings, skill_source=row.skill_source,
@@ -676,37 +674,26 @@ class RrugcStage2GenerateJobHandler:
         try:
             return asyncio.run(self._execute(context))
         except CodexImageProviderError as exc:
-            retryable = exc.defer_seconds is not None or exc.retryable
-            self._mark_failure(
-                context,
+            # Defer rather than exhaust the processing retry budget during an
+            # outage. Claim/deferral bookkeeping leaves the job in the queue.
+            self._mark_failure(context, exc.code, str(exc), deferred=True)
+            return DeferredJobOutcome(
                 exc.code,
                 str(exc),
-                terminal=not retryable,
-                deferred=exc.defer_seconds is not None,
-            )
-            if exc.defer_seconds is not None:
-                return DeferredJobOutcome(
-                    exc.code,
-                    str(exc),
-                    datetime.now(timezone.utc)
-                    + timedelta(seconds=max(60, int(exc.defer_seconds))),
-                )
-            return (
-                JobHandlerResult.retryable(exc.code, str(exc))
-                if exc.retryable
-                else JobHandlerResult.non_retryable(exc.code, str(exc))
+                datetime.now(timezone.utc) + timedelta(
+                    seconds=max(300, int(exc.defer_seconds or (900 if not exc.retryable else 300)))
+                ),
             )
         except (RrugcGenerationHandlerError, StorageProviderError) as exc:
             code = getattr(exc, "code", "stage2_reference_unavailable")
             retryable = bool(getattr(exc, "retryable", True))
-            self._mark_failure(context, code, str(exc), terminal=not retryable)
-            return (
-                JobHandlerResult.retryable(code, str(exc))
-                if retryable
-                else JobHandlerResult.non_retryable(code, str(exc))
+            self._mark_failure(context, code, str(exc), deferred=True)
+            return DeferredJobOutcome(
+                code, str(exc),
+                datetime.now(timezone.utc) + timedelta(seconds=300 if retryable else 900),
             )
         except Exception as exc:
-            self._mark_failure(context, "stage2_generation_internal_error", str(exc))
+            self._mark_failure(context, "stage2_generation_internal_error", str(exc), deferred=True)
             context.logger.exception(
                 "rrugc_stage2_generation_failed",
                 extra={
@@ -714,9 +701,10 @@ class RrugcStage2GenerateJobHandler:
                     "tenant_id": context.job.tenant_id,
                 },
             )
-            return JobHandlerResult.retryable(
+            return DeferredJobOutcome(
                 "stage2_generation_internal_error",
                 "Stage 2 image generation failed.",
+                datetime.now(timezone.utc) + timedelta(minutes=10),
             )
 
     async def _execute(self, context: JobHandlerContext) -> JobHandlerResult:
@@ -747,11 +735,12 @@ class RrugcStage2GenerateJobHandler:
                 context,
                 "stage2_generation_disabled",
                 "Codex image generation is disabled.",
-                terminal=True,
+                deferred=True,
             )
-            return JobHandlerResult.non_retryable(
+            return DeferredJobOutcome(
                 "stage2_generation_disabled",
-                "Codex image generation is disabled.",
+                "Codex image generation is disabled; job remains queued.",
+                datetime.now(timezone.utc) + timedelta(minutes=15),
             )
 
         storage = context.dependencies.storage_provider
@@ -784,13 +773,14 @@ class RrugcStage2GenerateJobHandler:
                 )
             plan = session.get(RrugcSourcePlanModel, row.source_plan_id)
             if plan is None or plan.source_revision != row.source_revision:
-                row.status = "failed"
+                row.status = "queued"
                 row.last_error_code = "stage2_source_changed"
                 row.last_error_message = "The embroidery source changed after this job was queued."
                 session.commit()
-                return JobHandlerResult.non_retryable(
+                return DeferredJobOutcome(
                     "stage2_source_changed",
                     row.last_error_message,
+                    datetime.now(timezone.utc) + timedelta(minutes=15),
                 )
             try:
                 verify_stage2_skill_runtime(
@@ -812,7 +802,7 @@ class RrugcStage2GenerateJobHandler:
                             status_code=409,
                         )
             except Stage2SkillRegistryError as exc:
-                row.status = "failed"
+                row.status = "queued"
                 row.last_error_code = exc.code
                 row.last_error_message = exc.message
                 session.commit()
@@ -828,7 +818,10 @@ class RrugcStage2GenerateJobHandler:
                         "error_code": exc.code,
                     },
                 )
-                return JobHandlerResult.non_retryable(exc.code, exc.message)
+                return DeferredJobOutcome(
+                    exc.code, exc.message,
+                    datetime.now(timezone.utc) + timedelta(minutes=15),
+                )
             row.status = "running"
             row.started_at = row.started_at or datetime.now(timezone.utc)
             row.last_error_code = None
@@ -849,15 +842,15 @@ class RrugcStage2GenerateJobHandler:
                     or selected_source_plan.source_revision
                     != str(selected_source_snapshot.get("source_revision") or "")
                 ):
-                    row.status = "failed"
+                    row.status = "queued"
                     row.last_error_code = "stage2_source_changed"
                     row.last_error_message = (
                         "The randomly selected hat input changed after this job was queued."
                     )
                     session.commit()
-                    return JobHandlerResult.non_retryable(
-                        "stage2_source_changed",
-                        row.last_error_message,
+                    return DeferredJobOutcome(
+                        "stage2_source_changed", row.last_error_message,
+                        datetime.now(timezone.utc) + timedelta(minutes=15),
                     )
                 source_file_id = str(
                     selected_source_snapshot.get("remote_file_id") or ""

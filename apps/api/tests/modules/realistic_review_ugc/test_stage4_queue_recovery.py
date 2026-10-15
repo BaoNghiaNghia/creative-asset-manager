@@ -52,8 +52,8 @@ def seed(factory, *, stage_status="queued", processing_status="failed", error="c
     return job_id, processing_id
 
 
-@pytest.mark.parametrize("count,expected", [(1, "queued"), (3, "failed")])
-def test_worker_marks_last_retryable_failure_terminal(db, monkeypatch, count, expected):
+@pytest.mark.parametrize("count", [1, 3])
+def test_worker_defers_codex_failure_even_after_max_attempts(db, monkeypatch, count):
     from app.domain.processing.handlers import ClaimedJob
 
     async def missing(_self, _context):
@@ -77,55 +77,38 @@ def test_worker_marks_last_retryable_failure_terminal(db, monkeypatch, count, ex
         dependencies=SimpleNamespace(session_factory=db),
         logger=logging.getLogger("stage4-test"),
     )
-    RrugcStage2GenerateJobHandler()(context)
+    from app.domain.processing.handlers import DeferredJobOutcome
+    outcome = RrugcStage2GenerateJobHandler()(context)
+    assert isinstance(outcome, DeferredJobOutcome)
+    assert outcome.reason_code == "codex_image_output_missing"
     with db() as session:
-        assert session.get(RrugcStage2JobModel, job_id).status == expected
+        assert session.get(RrugcStage2JobModel, job_id).status == "queued"
 
 
-def test_recovery_requeues_once_without_overwriting_completed_jobs(db, monkeypatch):
-    orphan, old = seed(db)
+def test_recovery_reuses_processing_job_and_preserves_completed_output(db):
+    orphan, previous = seed(db)
     completed, _ = seed(db, stage_status="completed", processing_status="completed", output="published")
-    runs = []
 
-    def retry(self, *, tenant_id, user_id, job_id):
-        assert tenant_id == "test-tenant" and user_id == "actor"
-        runs.append(job_id)
-        row = self.session.get(RrugcStage2JobModel, job_id)
-        row.status = "queued"
-        new = ProcessingJobModel(
-            tenant_id=tenant_id, job_type="rrugc_stage2_generate", entity_type="rrugc_stage2_job",
-            entity_id=job_id, idempotency_key="replay:"+str(uuid4()),
-            payload_json={"stage2_job_id": job_id}, status="pending", max_attempts=3,
-            next_attempt_at=datetime.now(timezone.utc),
-        )
-        self.session.add(new)
-        self.session.flush()
-        row.processing_job_id = new.id
-        self.session.commit()
-
-    monkeypatch.setattr(stage4_queue_recovery.RrugcStage2Service, "retry_failed_job", retry)
     result = stage4_queue_recovery.reconcile_stage4_terminal(limit=5)
-    assert result == {"eligible": 1, "failed_synced": 1, "auto_requeued": 1, "skipped": 0}
-    assert runs == [orphan]
+    assert result == {"eligible": 1, "failed_synced": 0, "auto_requeued": 1, "skipped": 0}
     with db() as session:
-        saved = session.get(RrugcStage2JobModel, completed)
-        assert saved.status == "completed" and saved.output_remote_file_id == "published"
+        assert session.get(RrugcStage2JobModel, completed).output_remote_file_id == "published"
         resumed = session.get(RrugcStage2JobModel, orphan)
-        assert resumed.status == "queued" and resumed.processing_job_id != old
-        processing = session.get(ProcessingJobModel, resumed.processing_job_id)
+        assert resumed.status == "queued"
+        assert resumed.processing_job_id == previous
+        processing = session.get(ProcessingJobModel, previous)
         assert processing.status == "pending"
-        # A second terminal failure must be visible, not requeued infinitely.
+        assert processing.attempt_count == 0
         processing.status = "failed"
         processing.attempt_count = 3
-        processing.last_error_code = "codex_image_output_missing"
         session.commit()
-    result2 = stage4_queue_recovery.reconcile_stage4_terminal(limit=5)
-    assert result2["failed_synced"] == 1 and result2["auto_requeued"] == 1
+
+    # Even repeated outages cannot exhaust the recovery budget or grow history.
+    again = stage4_queue_recovery.reconcile_stage4_terminal(limit=5)
+    assert again["auto_requeued"] == 1
     with db() as session:
+        assert session.query(ProcessingJobModel).filter_by(entity_id=orphan).count() == 1
         assert session.get(RrugcStage2JobModel, orphan).status == "queued"
-        assert session.query(ProcessingJobModel).filter_by(entity_id=orphan).count() == 3
-
-
 
 
 def test_only_proven_legacy_attribute_failure_is_replayed_once(db, monkeypatch):
@@ -186,21 +169,17 @@ def test_legacy_regression_replay_rejects_non_matching_error_chain(db, monkeypat
                         lambda *_a, **_kw: pytest.fail("Unproven history must not replay"))
     assert stage4_queue_recovery.replay_legacy_attribute_error()["eligible"] == 0
 
-def test_recovery_dry_run_and_unrelated_error_never_requeue(db, monkeypatch):
-    orphan, old = seed(db, error="stage2_source_changed")
-    monkeypatch.setattr(
-        stage4_queue_recovery.RrugcStage2Service, "retry_failed_job",
-        lambda *_a, **_kw: pytest.fail("Non-imagegen failure must not replay"),
-    )
+def test_recovery_dry_run_then_revives_all_failed_processing_codes(db):
+    orphan, previous = seed(db, error="stage2_source_changed")
     dry = stage4_queue_recovery.reconcile_stage4_terminal(limit=5, dry_run=True)
-    assert dry["eligible"] == 1 and dry["failed_synced"] == 0
+    assert dry["eligible"] == 1 and dry["auto_requeued"] == 0
+    with db() as session:
+        assert session.get(ProcessingJobModel, previous).status == "failed"
+    changed = stage4_queue_recovery.reconcile_stage4_terminal(limit=5)
+    assert changed["auto_requeued"] == 1
     with db() as session:
         assert session.get(RrugcStage2JobModel, orphan).status == "queued"
-    changed = stage4_queue_recovery.reconcile_stage4_terminal(limit=5)
-    assert changed["failed_synced"] == 1 and changed["auto_requeued"] == 0
-    with db() as session:
-        assert session.get(RrugcStage2JobModel, orphan).last_error_code == "stage2_source_changed"
-        assert session.get(ProcessingJobModel, old).status == "failed"
+        assert session.get(ProcessingJobModel, previous).status == "pending"
 
 
 def test_previously_failed_transient_job_is_requeued(db, monkeypatch):
@@ -222,7 +201,7 @@ def test_previously_failed_transient_job_is_requeued(db, monkeypatch):
         assert session.get(RrugcStage2JobModel, job_id).status == "queued"
 
 
-def test_exhausted_failed_job_stays_failed(db, monkeypatch):
+def test_exhausted_failed_job_returns_to_queue(db, monkeypatch):
     job_id, _ = seed(db, stage_status="failed")
     with db() as session:
         row = session.get(RrugcStage2JobModel, job_id)
@@ -237,9 +216,11 @@ def test_exhausted_failed_job_stays_failed(db, monkeypatch):
                 next_attempt_at=datetime.now(timezone.utc),
             ))
         session.commit()
-    monkeypatch.setattr(stage4_queue_recovery.RrugcStage2Service, "retry_failed_job",
-                        lambda *_a, **_kw: pytest.fail("Exhausted retry budget must not requeue"))
     result = stage4_queue_recovery.reconcile_stage4_terminal(limit=5)
-    assert result["auto_requeued"] == 0
+    assert result["auto_requeued"] == 1
     with db() as session:
-        assert session.get(RrugcStage2JobModel, job_id).status == "failed"
+        row = session.get(RrugcStage2JobModel, job_id)
+        assert row.status == "queued"
+        processing = session.get(ProcessingJobModel, row.processing_job_id)
+        assert processing.status == "pending"
+        assert processing.attempt_count == 0
