@@ -167,6 +167,16 @@ class RrugcCapStackAnalyzeHandler:
             row.analysis_error_code = None
             session.commit()
         if context.is_cancelled:
+            # A claimed job may be cancelled after the row was marked analyzing.
+            # Release that transient state so a later backfill can recover it.
+            with context.dependencies.session_factory() as session:
+                row = session.scalar(select(RrugcCapStackImageModel).where(
+                    RrugcCapStackImageModel.tenant_id == context.job.tenant_id,
+                    RrugcCapStackImageModel.id == image_id,
+                ).with_for_update())
+                if row and row.analysis_revision == revision and row.count_status == "analyzing":
+                    row.count_status = "pending"
+                    session.commit()
             return JobHandlerResult.cancelled()
         image_bytes, mime = await fetch_pinterest_image(image_url)
         registry = context.dependencies.ai_provider_registry
