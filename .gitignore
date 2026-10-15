@@ -13,6 +13,8 @@
 scout.local.env
 scout.local.env.*
 apps/scout-manager-desktop/src-tauri/target/
+# Generated Tauri/Windows schema files are not source-controlled.
+apps/scout-manager-desktop/src-tauri/gen/
 scout-manager-releases/
 .rrugc-scout-requirements.sha256
 pinterest-profile/
