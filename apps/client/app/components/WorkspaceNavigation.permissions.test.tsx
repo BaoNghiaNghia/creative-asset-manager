@@ -46,6 +46,7 @@ describe("WorkspaceNavigation permissions", () => {
     expect(markup).toContain("Realistic Review UGC");
     expect(markup).toContain("Review Board");
     expect(markup).not.toContain("AI Operations");
+    expect(markup).not.toContain("Branding Character");
     expect(markup).not.toContain("Job Queue");
     expect(markup).not.toContain("Access Management");
   });
@@ -76,6 +77,7 @@ describe("WorkspaceNavigation permissions", () => {
     );
 
     expect(markup).toContain("AI Operations");
+    expect(markup).toContain("Branding Character");
     expect(markup).toContain("Job Queue");
     expect(markup).toContain("Realistic Review UGC");
     expect(markup).toContain("Access Management");
@@ -95,7 +97,7 @@ describe("WorkspaceNavigation permissions", () => {
     expect(markup).toContain('aria-label="Collapse Realistic Review UGC navigation"');
     expect(markup).toContain('data-rrugc-workflow="products"');
     expect(markup).toContain('data-rrugc-workflow="reviews"');
-    expect(markup).toContain('/realistic-review-ugc?workflow=reviews&amp;stage=reviews-stage2');
+    expect(markup).toContain('/realistic-review-ugc?workflow=reviews&amp;stage=reviews-stage1');
     expect(markup).toMatch(/aria-current="location"[^>]*data-rrugc-workflow="reviews"/);
     expect(markup).not.toContain("GatorHats workflows");
   });
