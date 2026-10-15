@@ -1,10 +1,9 @@
-/* Final stage-rail alignment rules. Desktop stages divide the entire rail evenly. */
+/* Compact Branding DNA stage navigation: intrinsic tab widths, no selected underline. */
 .branding-dna-page{background:#fff;--bdna-bg:#fff}
-.branding-dna-page .bdna-ops-header{background:#fff}
-.branding-dna-page .bdna-stage-shell{background:#fff}
-.branding-dna-page .bdna-stage-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:3px clamp(14px,2.5vw,40px);overflow-x:visible}
-.branding-dna-page .bdna-stage-tabs button{min-width:0;width:100%;min-height:58px;flex:none;margin:0;justify-content:flex-start;background:#fff;border:0;border-bottom:3px solid transparent;border-radius:0;box-sizing:border-box}
-.branding-dna-page .bdna-stage-tabs button.active,.branding-dna-page .bdna-stage-tabs button[aria-selected="true"]{background:#eef3ff;border-bottom:3px solid #416be2;color:#2451b4}
+.branding-dna-page .bdna-ops-header,.branding-dna-page .bdna-stage-shell{background:#fff}
+.branding-dna-page .bdna-stage-tabs{display:flex;justify-content:flex-start;gap:6px;padding:5px clamp(14px,2.5vw,40px);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.branding-dna-page .bdna-stage-tabs button{flex:0 0 auto;min-width:0;width:auto;min-height:53px;margin:0;padding:9px 16px;justify-content:flex-start;background:#fff;border:0;border-radius:9px;box-sizing:border-box}
+.branding-dna-page .bdna-stage-tabs button.active,.branding-dna-page .bdna-stage-tabs button[aria-selected="true"]{background:#eef3ff;border:0;color:#2451b4}
 .branding-dna-page .bdna-stage-tabs button:not(.active):hover{background:#f7f9fd}
 .branding-dna-page .bdna-stage-tabs button[aria-selected="true"] .bdna-stage-number{background:#dfe8ff;color:#2451b4}
-@media(max-width:760px){.branding-dna-page .bdna-stage-tabs{display:flex;gap:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;overscroll-behavior-inline:contain;padding:2px 9px}.branding-dna-page .bdna-stage-tabs button{flex:0 0 152px;min-width:152px;width:152px;min-height:50px}}
+@media(max-width:760px){.branding-dna-page .bdna-stage-tabs{gap:4px;padding:5px 9px}.branding-dna-page .bdna-stage-tabs button{flex:0 0 auto;min-width:0;width:auto;min-height:49px;padding:8px 12px}}
