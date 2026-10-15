@@ -46,7 +46,7 @@ describe("WorkspaceNavigation permissions", () => {
     expect(markup).toContain("Realistic Review UGC");
     expect(markup).toContain("Review Board");
     expect(markup).not.toContain("AI Operations");
-    expect(markup).not.toContain("Branding Character");
+    expect(markup).not.toContain("Branding DNA");
     expect(markup).not.toContain("Job Queue");
     expect(markup).not.toContain("Access Management");
   });
@@ -77,7 +77,7 @@ describe("WorkspaceNavigation permissions", () => {
     );
 
     expect(markup).toContain("AI Operations");
-    expect(markup).toContain("Branding Character");
+    expect(markup).toContain("Branding DNA");
     expect(markup).toContain("Job Queue");
     expect(markup).toContain("Realistic Review UGC");
     expect(markup).toContain("Access Management");

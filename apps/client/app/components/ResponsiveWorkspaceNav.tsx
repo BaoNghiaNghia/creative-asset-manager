@@ -11,7 +11,7 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
   { id: "inventory", href: "/inventory", title: "Inventory", shortTitle: "Inventory" },
   { id: "operations", href: "/ai-operations", title: "AI Operations", shortTitle: "AI Ops" },
   { id: "realistic-review-ugc", href: "/realistic-review-ugc", title: "Realistic Review UGC", shortTitle: "UGC" },
-  { id: "branding-character", href: "/branding-character", title: "Branding Character", shortTitle: "Brand" },
+  { id: "branding-dna", href: "/branding-dna", title: "Branding DNA", shortTitle: "Brand" },
   { id: "review-board", href: "/review-board", title: "Review Board", shortTitle: "Reviews" },
   { id: "generation", href: "/video-generation", title: "Video Generation", shortTitle: "Video" },
   { id: "queue", href: "/job-queue", title: "Job Queue", shortTitle: "Queue" },
@@ -21,7 +21,7 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
 /** Navigation on phones uses the same permission model as the desktop sidebar. */
 export function availableMobileDestinations(permissions: readonly string[]): readonly MobileDestination[] {
   return ALL_MOBILE_DESTINATIONS.filter(item => {
-    if (item.id === "operations" || item.id === "queue" || item.id === "branding-character") return permissions.includes("ai_operations.read");
+    if (item.id === "operations" || item.id === "queue" || item.id === "branding-dna") return permissions.includes("ai_operations.read");
     if (item.id === "inventory") return permissions.includes("inventory.read");
     if (item.id === "realistic-review-ugc") return permissions.includes("realistic_review_ugc.read");
     if (item.id === "review-board") return mayViewReviewBoard(permissions);

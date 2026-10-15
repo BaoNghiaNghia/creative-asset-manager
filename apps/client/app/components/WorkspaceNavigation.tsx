@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchAccessIdentity } from "../../features/access_management";
 import accessManagementIcon from "../../assets/navigation/access-management.svg";
 import aiOperationsIcon from "../../assets/navigation/ai-operations.svg";
-import brandingCharacterIcon from "../../assets/navigation/branding-character.svg";
+import brandingDnaIcon from "../../assets/navigation/branding-dna.svg";
 import inventoryIcon from "../../assets/navigation/inventory-daily.svg";
 import assetExplorerIcon from "../../assets/navigation/asset-explorer.svg";
 import jobQueueIcon from "../../assets/navigation/job-queue.svg";
@@ -35,7 +35,7 @@ export function InventoryNavIcon({ name }: { name: InventorySectionIcon }) {
   return <svg className="workspace-nav-submenu-icon inventory-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name].map((d,i) => <path key={i} d={d}/>)}</svg>;
 }
 
-export type WorkspaceRoute = "assets" | "inventory" | "operations" | "branding-character" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
+export type WorkspaceRoute = "assets" | "inventory" | "operations" | "branding-dna" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
 
 export const mayViewReviewBoard = (permissions: readonly string[]) =>
   permissions.includes("public_review.read")
@@ -45,7 +45,7 @@ const navigationIconSources: Record<WorkspaceRoute, string> = {
   assets: assetExplorerIcon,
   inventory: inventoryIcon,
   operations: aiOperationsIcon,
-  "branding-character": brandingCharacterIcon,
+  "branding-dna": brandingDnaIcon,
   queue: jobQueueIcon,
   generation: videoGenerationIcon,
   "realistic-review-ugc": realisticReviewUgcIcon,
@@ -112,7 +112,7 @@ export function WorkspaceNavigation({
     ] : []),
     ...(canViewOperations ? [
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
-      { id: "branding-character" as const, href: "/branding-character", label: "Branding Character" },
+      { id: "branding-dna" as const, href: "/branding-dna", label: "Branding DNA" },
     ] : []),
     ...(canViewRrugc ? [
       { id: "realistic-review-ugc" as const, href: rrugcWorkflowHref("products"), label: "Realistic Review UGC" },

@@ -28,9 +28,9 @@ export const WORKSPACE_PAGE_HEADERS: Record<WorkspaceRoute, WorkspacePageHeaderD
     title: "AI Operations",
     description: "Pipeline progress, AI analysis, usage and cost for the current tenant.",
   },
-  "branding-character": {
+  "branding-dna": {
     eyebrow: "Shop intelligence · Preview",
-    title: "Branding Character",
+    title: "Branding DNA",
     description: "Shop research, browser discovery and versioned Brand DNA design workspace.",
   },
   "realistic-review-ugc": {
