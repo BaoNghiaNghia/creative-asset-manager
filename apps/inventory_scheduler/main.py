@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import signal
 import sys
@@ -372,10 +373,12 @@ def main(argv: list[str] | None = None) -> int:
     arguments = _arguments(argv)
     settings = get_settings()
     if arguments.replay_queue:
-        count = HistoricalReplayQueue(SessionLocal).run_once(
+        queue = HistoricalReplayQueue(SessionLocal)
+        discovered = queue.enqueue_failed_evening_days(
             settings.inventory_tenant_allowlist,
         )
-        print(f"INVENTORY_REPLAY_QUEUE_ONESHOT executions={count}")
+        count = queue.run_once(settings.inventory_tenant_allowlist)
+        print(f"INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued={discovered} executions={count} scan={json.dumps(queue.last_auto_scan, sort_keys=True)}")
         return 0
     scheduler = InventoryDailyScheduler(
         SessionLocal,

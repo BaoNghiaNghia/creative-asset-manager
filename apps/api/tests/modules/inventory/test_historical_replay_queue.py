@@ -12,7 +12,7 @@ from app.core.database import Base
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.inventory.jobs.model import InventoryJobModel
-from app.modules.inventory.persistence_model import InventorySettingsModel
+from app.modules.inventory.persistence_model import InventorySettingsModel, InventoryDailySheetSnapshotModel
 from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 
 
@@ -20,7 +20,7 @@ def _sessions():
     tmp = tempfile.TemporaryDirectory()
     engine = create_engine(f"sqlite:///{Path(tmp.name) / 'queue.db'}")
     event.listen(engine, "connect", lambda con, _: con.execute("PRAGMA foreign_keys=ON"))
-    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs"):
+    for name in ("tenants", "oauth_connections", "external_sources", "inventory_settings", "inventory_jobs", "inventory_daily_sheet_snapshots"):
         Base.metadata.tables[name].create(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     with sessions.begin() as session:
@@ -88,6 +88,103 @@ def test_historical_replay_queue_retries_provider_failure_without_duplicate_disp
         with sessions() as session:
             stored = session.get(InventoryJobModel, job["job_id"])
             assert stored.next_attempt_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+
+def _failed_evening(sessions, day, *, code="inventory_gemini_request_failed", status="failed"):
+    with sessions.begin() as session:
+        session.add(InventoryDailySheetSnapshotModel(
+            tenant_id="tenant-a", business_date=day, external_source_id="source-a",
+            source_spreadsheet_file_id="shared-live", snapshot_file_id=f"immutable-{day}",
+            gemini_file_id=f"copy-{day}", status="completed",
+            gemini_reconcile_status="failed",
+        ))
+        session.add(InventoryJobModel(
+            tenant_id="tenant-a", job_type="inventory_v5_evening_reconcile_slot",
+            entity_type="inventory_v5_scheduler_slot", entity_id=f"{day}:evening_reconcile",
+            idempotency_key=f"evening-{day}", status=status,
+            attempt_count=12, max_attempts=12, last_error_code=code,
+        ))
+
+
+def test_auto_discovers_only_prior_day_transient_failures_and_stays_idempotent():
+    tmp, engine, sessions = _sessions()
+    try:
+        yesterday = date(2030, 8, 9)
+        today = date(2030, 8, 10)
+        _failed_evening(sessions, yesterday, status="retry")
+        _failed_evening(sessions, today)
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        now = datetime(2030, 8, 10, 10, tzinfo=timezone.utc)
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=now) == 1
+        active = queue.active_jobs("tenant-a")
+        assert len(active) == 1 and active[0]["business_date"] == yesterday.isoformat()
+        assert active[0]["promote"] is True
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=now) == 0
+        assert queue.enqueue_failed_evening_days(frozenset({"another-tenant"}), now=now) == 0
+        with sessions.begin() as session:
+            job = session.get(InventoryJobModel, active[0]["job_id"])
+            job.status = "failed"
+        # A terminal auto job must never be silently resurrected next minute.
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=now) == 0
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_auto_recovery_ignores_permanent_failure_and_respects_reset_window():
+    tmp, engine, sessions = _sessions()
+    try:
+        yesterday = date(2030, 8, 9)
+        older = date(2030, 8, 8)
+        _failed_evening(sessions, yesterday, code="inventory_gemini_provider_rejected")
+        _failed_evening(sessions, older, code="inventory_gemini_rate_limited")
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        before_reset = datetime(2030, 8, 9, 21, tzinfo=timezone.utc)  # 04:00 local on Aug 10
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=before_reset) == 1
+        assert queue.active_jobs("tenant-a")[0]["business_date"] == older.isoformat()
+        assert queue.enqueue_failed_evening_days(
+            frozenset({"tenant-a"}), now=datetime(2030, 8, 10, 10, tzinfo=timezone.utc),
+        ) == 0
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+
+
+def test_auto_waits_for_previous_day_lifecycle_cutoff_before_copying():
+    tmp, engine, sessions = _sessions()
+    try:
+        previous = date(2030, 8, 9)
+        _failed_evening(sessions, previous, code="inventory_gemini_rate_limited", status="retry")
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        before_cutoff = datetime(2030, 8, 9, 21, tzinfo=timezone.utc)  # 04:00 local Aug 10
+        after_cutoff = datetime(2030, 8, 9, 23, tzinfo=timezone.utc)  # 06:00 local Aug 10
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=before_cutoff) == 0
+        assert queue.last_auto_scan["before_safe_boundary"] == 1
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=after_cutoff) == 1
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_legacy_in_progress_replay_is_retried_not_terminal():
+    from app.modules.inventory.daily_sheet.service import DailySheetConfigurationError
+    tmp, engine, sessions = _sessions()
+    try:
+        class Service:
+            def replay_agent_v4_historical(self, *_args, **_kwargs):
+                raise DailySheetConfigurationError("inventory_historical_replay_in_progress")
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: Service())
+        job = queue.enqueue("tenant-a", date(2030, 8, 9))
+        assert queue.run_once(frozenset({"tenant-a"})) == 0
+        result = queue.status("tenant-a", job["job_id"])
+        assert result["status"] == "retry"
+        assert result["last_error_code"] == "inventory_historical_replay_in_progress"
     finally:
         engine.dispose()
         tmp.cleanup()

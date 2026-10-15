@@ -26,14 +26,17 @@ def test_replay_queue_oneshot_runs_without_creating_lifecycle_scheduler(capsys):
     scheduler = Mock()
     queue = Mock()
     queue.run_once.return_value = 1
+    queue.enqueue_failed_evening_days.return_value = 2
+    queue.last_auto_scan = {"v4_tenants": 1, "eligible": 2}
     settings = Mock(inventory_tenant_allowlist=frozenset({"tenant-a"}))
     with patch.object(_MODULE, "get_settings", return_value=settings), patch.object(
         _MODULE, "HistoricalReplayQueue", return_value=queue
     ), patch.object(_MODULE, "InventoryDailyScheduler", return_value=scheduler):
         assert _MODULE.main(["--replay-queue"]) == 0
     scheduler.assert_not_called()
+    queue.enqueue_failed_evening_days.assert_called_once_with(frozenset({"tenant-a"}))
     queue.run_once.assert_called_once_with(frozenset({"tenant-a"}))
-    assert "INVENTORY_REPLAY_QUEUE_ONESHOT executions=1" in capsys.readouterr().out
+    assert "INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=2 executions=1" in capsys.readouterr().out
 
 
 def _preview():

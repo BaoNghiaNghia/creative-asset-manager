@@ -7,7 +7,8 @@ Morning Reset recovery remains a separate preview/apply workflow.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Callable, Any
 from uuid import uuid4
 
@@ -18,12 +19,23 @@ from app.modules.inventory.daily_sheet.service import InventoryDailySheetService
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.jobs.repository import InventoryJobRepository
-from app.modules.inventory.persistence_model import InventorySettingsModel
+from app.modules.inventory.persistence_model import InventorySettingsModel, InventoryDailySheetSnapshotModel
 
 REPLAY_REQUEST_TYPE = "inventory_v4_historical_replay_request"
 REPLAY_MAX_ATTEMPTS = 72
 REPLAY_LEASE_SECONDS = 60 * 60
 REPLAY_RETRY_MIN_SECONDS = 5 * 60
+AUTO_REPLAY_LOOKBACK_DAYS = 7
+AUTO_RETRYABLE_ERRORS = frozenset({
+    "inventory_gemini_rate_limited",
+    "inventory_gemini_transport_error",
+    "inventory_gemini_request_failed",
+    "inventory_gemini_request_failed_429",
+    "inventory_gemini_request_failed_500",
+    "inventory_gemini_request_failed_502",
+    "inventory_gemini_request_failed_503",
+    "inventory_gemini_request_failed_504",
+})
 logger = logging.getLogger("cam.inventory.historical_replay_queue")
 
 
@@ -42,6 +54,7 @@ class HistoricalReplayQueue:
         ))
         # Intentionally do NOT auto-apply/reset shared Sheet when replay succeeds.
         self.recovery = recovery
+        self.last_auto_scan: dict[str, int] = {}
 
     @staticmethod
     def _view(job: InventoryJobModel) -> dict[str, Any]:
@@ -59,7 +72,7 @@ class HistoricalReplayQueue:
             "result": payload.get("result"),
         }
 
-    def enqueue(self, tenant_id: str, business_date: date, mode: str = "fresh_copy", promote: bool = True) -> dict[str, Any]:
+    def enqueue(self, tenant_id: str, business_date: date, mode: str = "fresh_copy", promote: bool = True, *, automatic: bool = False) -> dict[str, Any]:
         if mode != "fresh_copy":
             # Retryable queue requests always start from an isolated immutable snapshot.
             raise ValueError("inventory_historical_replay_queue_fresh_copy_only")
@@ -92,8 +105,13 @@ class HistoricalReplayQueue:
                 job_type=REPLAY_REQUEST_TYPE,
                 entity_type="inventory_daily_sheet_snapshot",
                 entity_id=business_date.isoformat(),
-                idempotency_key=f"inventory-replay-request:{tenant_id}:{business_date.isoformat()}:{uuid4()}",
-                payload={"business_date": business_date.isoformat(), "mode": mode, "promote": promote},
+                idempotency_key=(
+                    f"inventory-replay-auto-v1:{tenant_id}:{business_date.isoformat()}"
+                    if automatic else
+                    f"inventory-replay-request:{tenant_id}:{business_date.isoformat()}:{uuid4()}"
+                ),
+                payload={"business_date": business_date.isoformat(), "mode": mode, "promote": promote,
+                         "automatic": automatic},
                 max_attempts=REPLAY_MAX_ATTEMPTS,
             )
             return self._view(job)
@@ -117,6 +135,113 @@ class HistoricalReplayQueue:
                 InventoryJobModel.status.in_(("pending", "retry", "processing")),
             ).order_by(InventoryJobModel.created_at.desc()).limit(limit))
             return [self._view(job) for job in jobs]
+
+    def enqueue_failed_evening_days(
+        self, allowed_tenant_ids: frozenset[str] | None,
+        *, now: datetime | None = None,
+    ) -> int:
+        """Rescue only recent, durable and transient historical Gemini failures.
+
+        The active V5J lifecycle owns the preceding night's Gemini file until
+        the configured Morning Reset boundary. A replay always starts from an
+        immutable date snapshot; it never writes to the Shared Sheet. Permanent
+        failures are deliberately excluded and one auto request per day is
+        allowed, even after a terminal queue failure.
+        """
+        self.last_auto_scan = {
+            "v4_tenants": 0, "snapshots": 0,
+            "before_safe_boundary": 0, "snapshot_not_ready": 0,
+            "verified": 0, "slot_not_retryable": 0,
+            "already_requested": 0, "eligible": 0,
+        }
+        if allowed_tenant_ids is not None and not allowed_tenant_ids:
+            return 0
+        moment = now or datetime.now(timezone.utc)
+        candidates: list[tuple[str, date]] = []
+        with self.session_factory() as session:
+            settings_rows = session.scalars(select(InventorySettingsModel).where(
+                InventorySettingsModel.enabled.is_(True),
+                InventorySettingsModel.daily_sheet_automation_enabled.is_(True),
+            )).all()
+            for settings in settings_rows:
+                if allowed_tenant_ids is not None and settings.tenant_id not in allowed_tenant_ids:
+                    continue
+                if (settings.daily_sheet_config_json or {}).get("version") != 4:
+                    continue
+                self.last_auto_scan["v4_tenants"] += 1
+                try:
+                    local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
+                except (KeyError, ValueError):
+                    local = moment.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
+                local_today = local.date()
+                earliest = local_today - timedelta(days=AUTO_REPLAY_LOOKBACK_DAYS)
+                try:
+                    reset_clock = time.fromisoformat(settings.daily_carry_forward_time_local or "05:00")
+                except ValueError:
+                    reset_clock = time(5, 0)
+                snapshots = session.scalars(
+                    select(InventoryDailySheetSnapshotModel).where(
+                        InventoryDailySheetSnapshotModel.tenant_id == settings.tenant_id,
+                        InventoryDailySheetSnapshotModel.business_date >= earliest,
+                        InventoryDailySheetSnapshotModel.business_date < local_today,
+                    ).order_by(InventoryDailySheetSnapshotModel.business_date)
+                ).all()
+                for snapshot in snapshots:
+                    self.last_auto_scan["snapshots"] += 1
+                    day = snapshot.business_date
+                    if snapshot.status != "completed" or not snapshot.snapshot_file_id:
+                        self.last_auto_scan["snapshot_not_ready"] += 1
+                        continue
+                    if (
+                        day == local_today - timedelta(days=1)
+                        and local.time() < reset_clock
+                    ):
+                        self.last_auto_scan["before_safe_boundary"] += 1
+                        continue
+                    if snapshot.gemini_reconcile_status == "completed" and snapshot.gemini_reconcile_verified_at is not None:
+                        self.last_auto_scan["verified"] += 1
+                        continue
+                    if snapshot.gemini_reconcile_status not in {"pending", "failed", "retryable_failure"}:
+                        continue
+                    if snapshot.gemini_reconcile_verified_at is not None:
+                        continue
+                    slot = session.scalar(select(InventoryJobModel).where(
+                        InventoryJobModel.tenant_id == settings.tenant_id,
+                        InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot",
+                        InventoryJobModel.entity_id == f"{day.isoformat()}:evening_reconcile",
+                    ))
+                    if (
+                        slot is None or slot.status not in {"failed", "retry"}
+                        or str(slot.last_error_code or "").lower() not in AUTO_RETRYABLE_ERRORS
+                    ):
+                        self.last_auto_scan["slot_not_retryable"] += 1
+                        continue
+                    already_requested = session.scalar(select(InventoryJobModel.id).where(
+                        InventoryJobModel.tenant_id == settings.tenant_id,
+                        InventoryJobModel.job_type == REPLAY_REQUEST_TYPE,
+                        InventoryJobModel.entity_id == day.isoformat(),
+                    ).limit(1))
+                    if already_requested:
+                        self.last_auto_scan["already_requested"] += 1
+                        continue
+                    candidates.append((settings.tenant_id, day))
+                    self.last_auto_scan["eligible"] += 1
+        enqueued = 0
+        for tenant_id, day in candidates:
+            try:
+                result = self.enqueue(tenant_id, day, automatic=True)
+                if result["status"] == "pending":
+                    enqueued += 1
+                    logger.warning(
+                        "inventory_historical_replay_auto_queued tenant_id=%s business_date=%s job_id=%s",
+                        tenant_id, day, result["job_id"],
+                    )
+            except ValueError as error:
+                logger.warning(
+                    "inventory_historical_replay_auto_skipped tenant_id=%s business_date=%s error=%s",
+                    tenant_id, day, str(error),
+                )
+        return enqueued
 
     def run_once(self, allowed_tenant_ids: frozenset[str] | None) -> int:
         """Process one durable request; V5J timer calls this once each tick."""
@@ -174,6 +299,11 @@ class HistoricalReplayQueue:
             return 1
         except Exception as error:
             code = str(getattr(error, "code", str(error) or type(error).__name__))[:100]
+            # DailySheetConfigurationError uses a generic class-level .code;
+            # retain specific stable inventory_* messages for retry routing.
+            details = str(error).strip()
+            if code == "invalid_configuration" and details.startswith("inventory_"):
+                code = details[:100]
             explicit = getattr(error, "retryable", None)
             retryable = explicit if isinstance(explicit, bool) else bool(inventory_error_metadata(code)["retryable"])
             if code == "inventory_historical_replay_in_progress":

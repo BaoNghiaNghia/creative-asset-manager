@@ -248,3 +248,23 @@ API endpoints:
 
 The old synchronous replay endpoint is retained for backward compatibility,
 but the UI and batch replay use the durable queue.
+
+### Automatic transient evening recovery (from 2026-10-15)
+
+The isolated replay timer now also **discovers and queues up to seven previous business
+days** when a finished immutable Snapshot exists and that day's persisted V5
+Evening Reconcile slot is stranded in `retry` or `failed` with an explicitly
+recognized temporary Gemini 429/transport/provider 5xx-style error. A previous-day
+slot remains owned by the regular V5J lifecycle **until its configured Morning
+Reset cutoff**; no two workers should mutate the same Gemini copy concurrently.
+The scanner excludes incomplete Snapshots, already-verified days, review-required
+or other non-transient states, and any day already requested by a human or the
+scanner. The automatic replay idempotency key is stable per tenant/day; terminal
+failures stay terminal and are never recreated every minute. This operation
+copies from the immutable Snapshot into a **new** Gemini spreadsheet and only
+promotes if the Gemini result is verified. It does not write or reset the live
+Shared workbook. Midday opening correction remains an explicit manual
+Preview → Review → Apply operation. The timer logs
+`INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=... executions=... scan={...}`
+with aggregate eligibility reasons and no spreadsheet content, allowing
+operators to distinguish an idle timer from a missing snapshot or hard failure.
