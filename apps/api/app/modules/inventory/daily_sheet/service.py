@@ -30,6 +30,8 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
     value = str(code).strip().lower()
     if any(token in value for token in ("invariant", "completed_without_", "without_durable_state")):
         category = "STATE_INVARIANT"
+    elif "requires_auto_apply_mode" in value:
+        category = "CONFIGURATION"
     elif any(token in value for token in ("invalid_key", "credential", "auth", "permission", "decryption", "encryption")):
         category = "AUTH"
     elif "429" in value or "rate_limit" in value or "rate limit" in value:
@@ -972,6 +974,14 @@ class InventoryDailySheetService:
         context = self._context(tenant_id, require_enabled=False)
         if not isinstance(context.config, GeminiToolSheetAgentConfig):
             raise DailySheetConfigurationError("Gemini Tool Sheet Agent V4 is not configured.")
+        # A shadow/review run cannot apply or verify the Gemini COPY, so
+        # promotion would always finish unverified. Reject before allocating
+        # a historical job, copying Drive files, or invoking the model.
+        # Sandbox-only replay remains available for investigative reviews.
+        if promote and context.config.agent.apply_mode != "auto":
+            raise DailySheetConfigurationError(
+                "inventory_historical_replay_requires_auto_apply_mode"
+            )
 
         from uuid import uuid4
         from app.modules.inventory.daily_sheet.prompts import InventoryPromptResolver
@@ -1148,6 +1158,14 @@ class InventoryDailySheetService:
                 str(getattr(result, "status", "")) == "completed"
                 and verification_status == "verified"
             )
+            # Emit only bounded, machine-readable issue codes: never provider
+            # messages, spreadsheet cell contents or user-authored narratives.
+            raw_issues = getattr(getattr(result, "staged", None), "issues", ()) or ()
+            safe_issue_codes = list(dict.fromkeys(
+                code for issue in raw_issues
+                if (code := str(getattr(issue, "code", "")))
+                and re.fullmatch(r"[a-z][a-z0-9_]{2,79}", code)
+            ))[:8]
             promoted = bool(promote and verified)
             completed_at = inventory_utcnow()
             with self.session_factory() as session:
@@ -1165,6 +1183,8 @@ class InventoryDailySheetService:
                         **(job.payload_json or {}),
                         "result_status": getattr(result, "status", None),
                         "verification_status": verification_status,
+                        "apply_mode": context.config.agent.apply_mode,
+                        "review_issue_codes": safe_issue_codes,
                         "plan_hash": getattr(result, "plan_hash", None),
                         "writes": int(getattr(result, "writes", 0) or 0),
                         "model": getattr(result, "model", None),
@@ -1212,6 +1232,8 @@ class InventoryDailySheetService:
                 "mode": mode,
                 "status": str(getattr(result, "status", "unknown")),
                 "verification_status": verification_status,
+                "apply_mode": context.config.agent.apply_mode,
+                "review_issue_codes": safe_issue_codes,
                 "promoted": promoted,
                 "source_snapshot_file_id": source_snapshot_file_id,
                 "previous_gemini_file_id": previous_gemini_file_id,

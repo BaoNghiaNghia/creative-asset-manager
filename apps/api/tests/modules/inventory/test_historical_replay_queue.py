@@ -83,9 +83,16 @@ def test_unverified_legacy_completed_job_renders_as_review_required():
         with sessions.begin() as session:
             job = session.get(InventoryJobModel, request["job_id"])
             job.status = "completed"
-            job.payload_json = {**job.payload_json, "result": {"status": "review_required", "verification_status": "not_executed", "promoted": False}}
+            job.payload_json = {**job.payload_json, "result": {
+                "status": "review_required", "verification_status": "not_executed",
+                "promoted": False, "apply_mode": "auto",
+                "review_issue_codes": ["no_actionable_assessment", "unsafe details: private cells"],
+            }}
         assert queue.status("tenant-a", request["job_id"])["status"] == "review_required"
-        assert queue.recent_replay_results(frozenset({"tenant-a"}))[0]["status"] == "review_required"
+        diagnostic = queue.recent_replay_results(frozenset({"tenant-a"}))[0]
+        assert diagnostic["status"] == "review_required"
+        assert diagnostic["apply_mode"] == "auto"
+        assert diagnostic["review_issue_codes"] == ["no_actionable_assessment"]
         with sessions() as session:
             assert session.get(InventoryJobModel, request["job_id"]).status == "completed"
     finally:

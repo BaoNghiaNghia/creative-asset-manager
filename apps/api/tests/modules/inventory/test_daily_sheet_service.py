@@ -33,6 +33,9 @@ from app.modules.inventory.persistence_model import (
 
 def test_inventory_error_categories_distinguish_review_and_model_protocol_from_transport():
     from app.modules.inventory.daily_sheet.service import inventory_error_metadata
+    assert inventory_error_metadata("inventory_historical_replay_requires_auto_apply_mode") == {
+        "category": "CONFIGURATION", "retryable": False,
+    }
     assert inventory_error_metadata("unknown_tool") == {"category": "TOOL_PROTOCOL", "retryable": False}
     assert inventory_error_metadata("inventory_historical_replay_review_required") == {"category": "REVIEW", "retryable": False}
     assert inventory_error_metadata("inventory_gemini_transport_error") == {"category": "TRANSPORT", "retryable": True}
@@ -964,6 +967,7 @@ def configure_v4(
     allowed_sheets=("Arbitrary",),
     automation_enabled=False,
     stale_template=False,
+    apply_mode=None,
 ):
     with sessions.begin() as session:
         settings = session.scalar(select(InventorySettingsModel))
@@ -974,6 +978,7 @@ def configure_v4(
         )
         settings.daily_sheet_config_json = {
             **V4_CONFIG,
+            **({"agent": {"apply_mode": apply_mode}} if apply_mode else {}),
             "source": {
                 "spreadsheet_file_id": spreadsheet_file_id,
                 "allowed_sheets": list(allowed_sheets),
@@ -1178,10 +1183,11 @@ class HistoricalReplayGoogle(FakeGoogle):
 
 
 class HistoricalReplayAgent:
-    def __init__(self, *, fail=False, status="completed", verification_status="verified"):
+    def __init__(self, *, fail=False, status="completed", verification_status="verified", issues=()):
         self.fail = fail
         self.status = status
         self.verification_status = verification_status
+        self.issues = issues
         self.calls = []
 
     def run(self, tenant_id, business_date, **kwargs):
@@ -1195,14 +1201,47 @@ class HistoricalReplayAgent:
             writes=3,
             model="gemini-test",
             knowledge_proposals=(),
+            staged=SimpleNamespace(issues=[
+                SimpleNamespace(code=code) for code in self.issues
+            ]),
             run_id=kwargs["run_id"],
         )
+
+
+def test_historical_promoting_replay_requires_auto_mode_before_google_or_gemini(daily_sheet_db):
+    """A shadow/review Gemini config cannot produce a verified promoted replay."""
+    configure_v4(daily_sheet_db, automation_enabled=True)
+    _historical_snapshot(daily_sheet_db)
+    for apply_mode in ("shadow", "review"):
+        with daily_sheet_db.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel))
+            settings.daily_sheet_config_json = {
+                **settings.daily_sheet_config_json,
+                "agent": {"apply_mode": apply_mode},
+            }
+        agent = HistoricalReplayAgent()
+        worker = InventoryDailySheetService(
+            daily_sheet_db,
+            client_factory=lambda _: (_ for _ in ()).throw(AssertionError("Google copy should not run")),
+            token_resolver=lambda _: (_ for _ in ()).throw(AssertionError("Google token should not resolve")),
+            agent_v4_service=agent,
+        )
+        with pytest.raises(DailySheetConfigurationError, match="inventory_historical_replay_requires_auto_apply_mode"):
+            worker.replay_agent_v4_historical(
+                "tenant-a", date(2030, 8, 9), mode="fresh_copy", promote=True,
+            )
+        assert agent.calls == []
+    with daily_sheet_db() as session:
+        assert session.scalar(select(InventoryDailySheetSnapshotModel)).gemini_file_id == "old-gemini"
+        assert session.scalars(select(InventoryJobModel).where(
+            InventoryJobModel.job_type == "inventory_v4_historical_replay"
+        )).all() == []
 
 
 def test_historical_replay_uses_snapshot_copy_and_promotes_only_verified_result(
     daily_sheet_db,
 ):
-    configure_v4(daily_sheet_db, automation_enabled=True)
+    configure_v4(daily_sheet_db, automation_enabled=True, apply_mode="auto")
     _historical_snapshot(daily_sheet_db)
     google = HistoricalReplayGoogle()
     agent = HistoricalReplayAgent()
@@ -1248,7 +1287,7 @@ def test_historical_replay_uses_snapshot_copy_and_promotes_only_verified_result(
 
 
 def test_historical_replay_failure_keeps_official_gemini_pointer(daily_sheet_db):
-    configure_v4(daily_sheet_db, automation_enabled=True)
+    configure_v4(daily_sheet_db, automation_enabled=True, apply_mode="auto")
     _historical_snapshot(daily_sheet_db)
     google = HistoricalReplayGoogle()
     worker = InventoryDailySheetService(
@@ -1285,7 +1324,7 @@ def test_historical_replay_failure_keeps_official_gemini_pointer(daily_sheet_db)
 
 
 def test_historical_replay_does_not_promote_unverified_result(daily_sheet_db):
-    configure_v4(daily_sheet_db, automation_enabled=True)
+    configure_v4(daily_sheet_db, automation_enabled=True, apply_mode="auto")
     _historical_snapshot(daily_sheet_db)
     google = HistoricalReplayGoogle()
     worker = InventoryDailySheetService(
@@ -1293,7 +1332,8 @@ def test_historical_replay_does_not_promote_unverified_result(daily_sheet_db):
         client_factory=lambda _token: google,
         token_resolver=lambda _connection: "token",
         agent_v4_service=HistoricalReplayAgent(
-            status="review_required", verification_status="not_executed"
+            status="review_required", verification_status="not_executed",
+            issues=("no_actionable_assessment", "Private address: 123", "no_actionable_assessment"),
         ),
     )
 
@@ -1303,6 +1343,8 @@ def test_historical_replay_does_not_promote_unverified_result(daily_sheet_db):
 
     assert result["promoted"] is False
     assert result["status"] == "review_required"
+    assert result["review_issue_codes"] == ["no_actionable_assessment"]
+    assert result["apply_mode"] == "auto"
     with daily_sheet_db() as session:
         snapshot = session.scalar(select(InventoryDailySheetSnapshotModel))
         assert snapshot.gemini_file_id == "old-gemini"

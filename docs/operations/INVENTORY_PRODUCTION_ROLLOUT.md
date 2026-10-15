@@ -339,6 +339,23 @@ promote or update Shared. Use persisted diagnostics for
 `INVENTORY_REPLAY_DIAGNOSTICS` and `INVENTORY_REPLAY_RESULTS` to distinguish
 successful execution from true `verified / promoted` inventory reconciliation.
 
+**Replay mode preflight (16 October):** A promoting V4 historical replay requires
+`agent.apply_mode=auto` in the tenant's existing approved configuration.
+In `shadow` or `review` modes the executor cannot perform copy writeback or
+independent verification, so it must refuse with
+`inventory_historical_replay_requires_auto_apply_mode` *before* creating a
+historical run, requesting Google Drive access, or spending Gemini capacity.
+This is a non-retryable CONFIGURATION blocker. The safeguard **does not change**
+the tenant's configured apply mode; operators must separately approve any
+configuration changes. Sandbox-only replay (`promote=false`) remains available
+for review. When a promoting run proceeds but still requires human review,
+return bounded `review_issue_codes` and `apply_mode` in the result/queue
+diagnostics. Codes are strict lowercase machine identifiers; free-text issue
+messages, cell values, provider bodies and credentials are not logged. These
+extra codes apply to new runs, not retroactively to old stored jobs. A
+`review_required` result is not a transient outage and must never be
+automatically retried or silently promoted simply to drain the queue.
+
 ### Gemini credential fallback and replay result semantics
 
 Within each Gemini gateway instance (one execution), a successful credential

@@ -365,6 +365,14 @@ class HistoricalReplayQueue:
                     "attempt_count": job.attempt_count,
                     "result_status": str(result.get("status") or "none")[:35],
                     "verification_status": str(result.get("verification_status") or "none")[:35],
+                    "apply_mode": (
+                        result.get("apply_mode") if result.get("apply_mode") in {"auto", "shadow", "review"}
+                        else "unknown"
+                    ),
+                    "review_issue_codes": [
+                        code for code in (result.get("review_issue_codes") or [])[:8]
+                        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{2,79}", code)
+                    ] if isinstance(result.get("review_issue_codes"), list) else [],
                     "promoted": bool(result.get("promoted")),
                     "error_code": str(job.last_error_code or "none")[:100],
                 })
