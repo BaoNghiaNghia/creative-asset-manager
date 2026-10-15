@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "tabletPortrait",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "routes": [
+    {
+      "name": "research-compact",
+      "path": "/realistic-review-ugc?workflow=products&stage=stage0",
+      "public": false,
+      "requiresAuth": true,
+      "ready": "main.rrugc-shell",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        {
+          "name": "open-inbox",
+          "click": "#rrugc-panel-stage0 .rrugc-stage0-research-trigger",
+          "waitFor": ".rrugc-research-inbox[role='dialog']",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".rrugc-discovery-status"
+            },
+            {
+              "type": "no-horizontal-overflow",
+              "selector": ".rrugc-research-inbox",
+              "maxPx": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

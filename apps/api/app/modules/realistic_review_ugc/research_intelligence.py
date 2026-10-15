@@ -190,7 +190,7 @@ def list_signals(session: Session, *, tenant_id: str, status: str = "pending",
         job = by_signal.get(value["id"])
         if job is None:
             continue
-        payload = job.payload or {}
+        payload = job.payload_json or {}
         value["vision_status"] = job.status
         value["vision_reason"] = str(payload.get("vision_reason") or "")[:100]
         image_url = payload.get("vision_image_url")

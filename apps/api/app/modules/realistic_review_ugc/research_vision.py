@@ -240,7 +240,7 @@ def record_vision_evidence(context: JobHandlerContext, **fields: str | float) ->
     with context.dependencies.session_factory() as session:
         job = session.get(ProcessingJobModel, context.job.id)
         if job is not None:
-            job.payload = {**(job.payload or {}), **fields}
+            job.payload_json = {**(job.payload_json or {}), **fields}
             session.commit()
 
 

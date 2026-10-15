@@ -28,6 +28,41 @@ def _signal(url="https://news.google.com/rss/articles/example"):
             "url": url, "excerpt": "Hats for the weekend"}
 
 
+
+def test_research_inbox_reads_actual_processing_job_payload(session):
+    from sqlalchemy import select
+    from types import SimpleNamespace
+    from app.modules.processing.model import ProcessingJobModel
+    from app.modules.realistic_review_ugc.research_vision import record_vision_evidence
+
+    ProcessingJobModel.__table__.create(session.get_bind())
+    import_signals(session, tenant_id="tenant-a", user_id="user-a", signals=[
+        {"source": "etsy", "channel": "auto-discover", "title": "Cap with words",
+         "url": "https://www.etsy.com/listing/123456789"}
+    ])
+    signal = session.scalar(select(RrugcResearchSignalModel))
+    job = ProcessingJobModel(
+        tenant_id="tenant-a", job_type="rrugc_research_vision",
+        entity_type="rrugc_research_signal", entity_id=signal.id,
+        idempotency_key="research-vision-test",
+        payload_json={"vision_reason": "initial"},
+        status="completed", priority=2,
+    )
+    session.add(job)
+    session.commit()
+    result = list_signals(session, tenant_id="tenant-a")
+    assert result[0]["vision_status"] == "completed"
+    assert result[0]["vision_reason"] == "initial"
+
+    factory = lambda: Session(session.get_bind())
+    context = SimpleNamespace(job=SimpleNamespace(id=job.id),
+                              dependencies=SimpleNamespace(session_factory=factory))
+    record_vision_evidence(context, vision_reason="image_verified")
+    session.expire(job)
+    result = list_signals(session, tenant_id="tenant-a")
+    assert result[0]["vision_reason"] == "image_verified"
+
+
 def test_auto_approve_route_preserves_ambiguous_candidates(session):
     from types import SimpleNamespace
     from app.modules.realistic_review_ugc.research_router import approve_clear_research_keywords
