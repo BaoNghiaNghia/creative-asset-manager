@@ -34,6 +34,7 @@ describe("Branding DNA worker control plane preview", () => {
     expect(overview).toContain("SHOPS SAVED");
     expect(overview).not.toContain("+ Thêm shop");
     expect(library).toContain("+ Thêm shop");
+    expect(library).toContain('<button type="button">+ Thêm shop</button>');
     expect(library).toContain("Shop Registry");
   });
 

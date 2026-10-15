@@ -8,7 +8,7 @@ type Shop = {
 type Status = {phase:string;shop_count:number;registered_workers:number;scanner_ready:boolean;scan_enabled:boolean;blockers:string[]};
 
 async function jsonRequest<T>(url:string, init?:RequestInit):Promise<T> {
- const response = await fetch(url, {credentials:"same-origin", cache:"no-store", ...init});
+ const response = await fetch(url, {credentials:"same-origin", cache:"no-store", ...init, signal: init?.signal ?? (!init?.method || init.method === "GET" ? AbortSignal.timeout(12000) : undefined)});
  const data = await response.json().catch(()=>null);
  if(!response.ok) throw new Error(typeof data?.detail==="string" ? data.detail : response.status===403 ? "Không đủ quyền cấu hình shop." : `API error ${response.status}`);
  return data as T;
@@ -51,7 +51,7 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
  return <section className="bdna-live-section" aria-label="Branding DNA real shop registry">
   <div className="bdna-live-heading">
    <div><strong>Shop Registry</strong><small>Production data · tenant-scoped · no automatic scanning</small></div>
-   {compact ? <button type="button" onClick={onOpenShops}>Mở Shop Library →</button> : <button type="button" disabled={busy} onClick={()=>{setOpen(x=>!x);setError("");}}>{open?"Đóng biểu mẫu":"+ Thêm shop"}</button>}
+   {compact ? <button type="button" onClick={onOpenShops}>Mở Shop Library →</button> : <button type="button" onClick={()=>{setOpen(x=>!x);setError("");}}>{open?"Đóng biểu mẫu":"+ Thêm shop"}</button>}
   </div>
   <div className="bdna-live-summary" aria-label="Branding DNA live statistics">
    <article><small>SHOPS SAVED</small><strong>{busy?"…":status?.shop_count??0}</strong><span>Shop được lưu theo tenant</span></article>

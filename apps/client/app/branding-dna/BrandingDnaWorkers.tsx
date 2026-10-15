@@ -6,7 +6,7 @@ type Enrollment = {id:string;label:string;agent_token:string};
 const endpoint="/api/v1/branding-dna/workers";
 
 async function call<T>(url:string, init?:RequestInit):Promise<T>{
- const r=await fetch(url,{credentials:"same-origin",cache:"no-store",...init});
+ const r=await fetch(url,{credentials:"same-origin",cache:"no-store",...init,signal:init?.signal??(!init?.method||init.method==="GET"?AbortSignal.timeout(12000):undefined)});
  const data=await r.json().catch(()=>null);
  if(!r.ok)throw new Error(typeof data?.detail==="string" ? data.detail : r.status===403 ?
   "Bạn cần quyền cấu hình để quản lý worker.":"API "+r.status);
@@ -56,7 +56,7 @@ export function BrandingDnaWorkers({ compact = false, onOpenScanner }: { compact
   {!compact && <form className="bdna-worker-enroll" onSubmit={enroll}>
    <label>Tên agent Windows<input required minLength={3} maxLength={90} value={label}
      onChange={e=>setLabel(e.target.value)} placeholder="Branding DNA Worker - Windows PC"/></label>
-   <button disabled={busy||loading||!label.trim()} type="submit">{busy?"Đang xử lý…":"Đăng ký worker"}</button>
+   <button disabled={busy||!label.trim()} type="submit">{busy?"Đang xử lý…":"Đăng ký worker"}</button>
   </form>}
   {error&&<p role="alert" className="bdna-worker-error">{error}</p>}
   {!compact && secret && <div className="bdna-worker-token" role="status">
