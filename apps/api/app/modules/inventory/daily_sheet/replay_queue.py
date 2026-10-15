@@ -7,6 +7,7 @@ Morning Reset recovery remains a separate preview/apply workflow.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Callable, Any
@@ -242,6 +243,75 @@ class HistoricalReplayQueue:
                     tenant_id, day, str(error),
                 )
         return enqueued
+
+    def recent_failure_reasons(
+        self, allowed_tenant_ids: frozenset[str] | None,
+        *, now: datetime | None = None,
+    ) -> list[dict[str, str]]:
+        """Safe read-only diagnostics from original Gemini replay audit jobs.
+
+        Only stable machine-like error tokens appear in operations logs; Google
+        Sheet contents, credentials, IDs and free-form provider responses do not.
+        """
+        if allowed_tenant_ids is not None and not allowed_tenant_ids:
+            return []
+        since = (now or datetime.now(timezone.utc)) - timedelta(days=AUTO_REPLAY_LOOKBACK_DAYS)
+        with self.session_factory() as session:
+            query = select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v4_historical_replay",
+                InventoryJobModel.status == "failed",
+                InventoryJobModel.created_at >= since,
+            ).order_by(InventoryJobModel.created_at.desc(), InventoryJobModel.entity_id.desc()).limit(30)
+            if allowed_tenant_ids is not None:
+                query = query.where(InventoryJobModel.tenant_id.in_(allowed_tenant_ids))
+            result: list[dict[str, str]] = []
+            seen: set[tuple[str, str]] = set()
+            for job in session.scalars(query):
+                key = (job.tenant_id, job.entity_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                reason = str(job.last_error_message or "").strip()
+                safe_reason = (
+                    reason if re.fullmatch(r"[a-z][a-z0-9_]{2,99}", reason)
+                    else "unstructured_error"
+                )
+                result.append({
+                    "business_date": job.entity_id,
+                    "error_code": str(job.last_error_code or "unknown")[:100],
+                    "reason": safe_reason,
+                })
+            return result
+
+    def recent_replay_results(
+        self, allowed_tenant_ids: frozenset[str] | None,
+        *, now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Summarize durable queue outcomes without workbook content."""
+        if allowed_tenant_ids is not None and not allowed_tenant_ids:
+            return []
+        since = (now or datetime.now(timezone.utc)) - timedelta(days=AUTO_REPLAY_LOOKBACK_DAYS)
+        with self.session_factory() as session:
+            query = select(InventoryJobModel).where(
+                InventoryJobModel.job_type == REPLAY_REQUEST_TYPE,
+                InventoryJobModel.created_at >= since,
+            ).order_by(InventoryJobModel.created_at.desc()).limit(20)
+            if allowed_tenant_ids is not None:
+                query = query.where(InventoryJobModel.tenant_id.in_(allowed_tenant_ids))
+            results = []
+            for job in session.scalars(query):
+                payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+                result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+                results.append({
+                    "business_date": job.entity_id,
+                    "status": job.status,
+                    "attempt_count": job.attempt_count,
+                    "result_status": str(result.get("status") or "none")[:35],
+                    "verification_status": str(result.get("verification_status") or "none")[:35],
+                    "promoted": bool(result.get("promoted")),
+                    "error_code": str(job.last_error_code or "none")[:100],
+                })
+            return results
 
     def run_once(self, allowed_tenant_ids: frozenset[str] | None) -> int:
         """Process one durable request; V5J timer calls this once each tick."""

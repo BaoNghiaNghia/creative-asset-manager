@@ -28,6 +28,8 @@ def test_replay_queue_oneshot_runs_without_creating_lifecycle_scheduler(capsys):
     queue.run_once.return_value = 1
     queue.enqueue_failed_evening_days.return_value = 2
     queue.last_auto_scan = {"v4_tenants": 1, "eligible": 2}
+    queue.recent_failure_reasons.return_value = []
+    queue.recent_replay_results.return_value = []
     settings = Mock(inventory_tenant_allowlist=frozenset({"tenant-a"}))
     with patch.object(_MODULE, "get_settings", return_value=settings), patch.object(
         _MODULE, "HistoricalReplayQueue", return_value=queue

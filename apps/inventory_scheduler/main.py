@@ -379,6 +379,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         count = queue.run_once(settings.inventory_tenant_allowlist)
         print(f"INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued={discovered} executions={count} scan={json.dumps(queue.last_auto_scan, sort_keys=True)}")
+        failures = queue.recent_failure_reasons(settings.inventory_tenant_allowlist)
+        if failures:
+            print(f"INVENTORY_REPLAY_DIAGNOSTICS failures={json.dumps(failures, sort_keys=True)}")
+        outcomes = queue.recent_replay_results(settings.inventory_tenant_allowlist)
+        if outcomes:
+            print(f"INVENTORY_REPLAY_RESULTS items={json.dumps(outcomes, sort_keys=True)}")
         return 0
     scheduler = InventoryDailyScheduler(
         SessionLocal,

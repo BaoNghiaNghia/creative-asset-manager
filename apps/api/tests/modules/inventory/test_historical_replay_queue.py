@@ -61,6 +61,12 @@ def test_historical_replay_queue_deduplicates_and_completes_without_live_workboo
         result = queue.status("tenant-a", one["job_id"])
         assert result["status"] == "completed"
         assert result["result"]["promoted"] is True
+        outcomes = queue.recent_replay_results(
+            frozenset({"tenant-a"}), now=datetime.now(timezone.utc)
+        )
+        assert outcomes[0]["business_date"] == "2030-08-09"
+        assert outcomes[0]["promoted"] is True
+        assert queue.recent_replay_results(frozenset({"other-tenant"})) == []
         assert calls == [("tenant-a", day, "fresh_copy", True)]
         assert queue.enqueue("tenant-a", day, "fresh_copy", True)["job_id"] != one["job_id"]
     finally:
@@ -167,6 +173,40 @@ def test_auto_waits_for_previous_day_lifecycle_cutoff_before_copying():
         assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=before_cutoff) == 0
         assert queue.last_auto_scan["before_safe_boundary"] == 1
         assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=after_cutoff) == 1
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+
+def test_recent_replay_failure_diagnostics_exposes_only_safe_reason_tokens():
+    tmp, engine, sessions = _sessions()
+    try:
+        with sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v4_historical_replay",
+                entity_type="daily_sheet_snapshot", entity_id="2030-08-09",
+                idempotency_key="history-a", status="failed",
+                last_error_code="inventory_sheet_agent_v4_safety_error",
+                last_error_message="configured_sheet_not_found",
+                created_at=datetime(2030, 8, 10, tzinfo=timezone.utc),
+            ))
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v4_historical_replay",
+                entity_type="daily_sheet_snapshot", entity_id="2030-08-08",
+                idempotency_key="history-b", status="failed",
+                last_error_code="unknown",
+                last_error_message="token=my-secret-sensitive-value",
+                created_at=datetime(2030, 8, 10, tzinfo=timezone.utc),
+            ))
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        info = queue.recent_failure_reasons(
+            frozenset({"tenant-a"}), now=datetime(2030, 8, 10, 10, tzinfo=timezone.utc)
+        )
+        assert [item["reason"] for item in info] == [
+            "configured_sheet_not_found", "unstructured_error",
+        ]
+        assert queue.recent_failure_reasons(frozenset({"other-tenant"}), now=datetime(2030, 8, 10, 10, tzinfo=timezone.utc)) == []
     finally:
         engine.dispose()
         tmp.cleanup()
