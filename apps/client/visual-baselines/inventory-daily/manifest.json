@@ -7,6 +7,16 @@
       "height": 900
     },
     {
+      "name": "compact",
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "name": "tabletLandscape",
+      "width": 1024,
+      "height": 768
+    },
+    {
       "name": "tabletPortrait",
       "width": 768,
       "height": 1024
@@ -15,6 +25,11 @@
       "name": "mobile",
       "width": 390,
       "height": 844
+    },
+    {
+      "name": "mobileSmall",
+      "width": 320,
+      "height": 700
     }
   ],
   "states": [
@@ -26,11 +41,11 @@
   "pixelThreshold": 0.1,
   "maxDiffRatio": 0.001,
   "governance": {
-    "lastAcceptedProposalId": "20261015T170254Z-521c2fa8-inventory-daily",
-    "task": "Bootstrap the approved Inventory Daily pipeline baseline after six-viewport functional QA and safe fixture review",
-    "acceptanceReason": "User approved continuing Inventory rollout; bootstrap new dedicated fixture-backed Inventory Daily baseline only, without replacing older Materials baseline; 12 screenshots from three viewports, zero runtime issues",
-    "sourceHead": "521c2fa807ebe08e0e3e2f861355a6cea77eacd3",
-    "workspaceFingerprint": "c358f47dfbb6b969ed6628928b2d29164fdf165d1ceb5bda968bfdfa2033d1e7",
-    "acceptedAt": "2026-10-15T17:03:41.539060+00:00"
+    "lastAcceptedProposalId": "20261015T170759Z-a679bf27-inventory-daily",
+    "task": "Approved Inventory Daily accessibility status and additive visual coverage for six responsive viewports",
+    "acceptanceReason": "User approved continuing six-device Inventory QA; additive three viewports only, 24 fixture-backed screenshots inspected for nonempty valid dimensions, zero runtime issues, old Materials baseline unchanged",
+    "sourceHead": "a679bf276b1eabdd4e8284b1e89482ef6ad9acbc",
+    "workspaceFingerprint": "5c9138984a8e65c59fada796ff6ca329d4a64fd37f6666a8a5371b5cafeb29de",
+    "acceptedAt": "2026-10-15T17:08:53.270216+00:00"
   }
 }

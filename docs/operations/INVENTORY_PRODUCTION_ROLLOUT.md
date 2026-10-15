@@ -190,6 +190,32 @@ Disable Drive polling first, then INVENTORY_WORKER_ENABLED, scheduler, and INVEN
 
 The API/provider gateway remains disabled without any permitted Inventory or same-tenant shared Gemini credential. Shared Image/Video keys require INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED and retain their own project quotas; never copy decrypted keys into Inventory configuration.
 
+## Read-only production observations — 16 October 2026
+
+The production Inventory replay timer was observed running every minute and
+reported a stable successful replay for **2026-10-14**:
+`result_status=completed`, `verification_status=verified`, and
+`promoted=true` (six attempts). This is evidence of the replay's verified
+promotion, not direct evidence that 2026-10-15 Morning Reset was applied.
+
+Historical replay observations for **2026-10-13** and **2026-10-08** remained
+`review_required` / `not_executed` / `promoted=false`, despite legacy
+stored jobs showing `completed`. Do not label them as verified or automatically
+override their review state. The preexisting safety/protocol failure code for
+08 October was `unknown_tool`; the original 13 October error was a provider
+request failure. Inspect their current snapshots and learning evidence before
+issuing any fresh manually authorized replay. An old Morning Reset must never
+be applied to a live current-day workbook without a fresh, date-scoped
+Preview → Review → Apply.
+
+The unauthenticated CAM Inventory configuration endpoint returned HTTP 401.
+This is expected access control, **not** proof of broken Sheets access. The
+connected Google Drive search did not identify the operational Inventory
+workbook. Neither response constitutes a successful disposable Writeback QA.
+The production Sheets write/readback gate remains open until an Inventory
+Control principal executes the designated throwaway-copy verification and
+all three independent evidence flags pass. Keep the Shared Sheet untouched.
+
 ## Overnight Gemini outage / Inventory Daily recovery (15 October 2026)
 
 When the V4 Evening Reconcile Gemini call returns a retryable provider error,
