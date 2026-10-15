@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.core.database import SessionLocal
 from app.modules.processing.model import ProcessingJobModel
@@ -17,7 +17,11 @@ from app.modules.realistic_review_ugc.model import RrugcStage2JobModel
 from app.modules.realistic_review_ugc.stage2 import RrugcStage2Service
 
 LOGGER = logging.getLogger(__name__)
-AUTO_REPLAY_ERRORS = frozenset({"codex_image_output_missing"})
+AUTO_REPLAY_ERRORS = frozenset({"codex_image_output_missing", "codex_account_pool_busy", "managed_storage_unavailable", "stage2_generation_internal_error", "TimeoutError", "ConnectionError", "codex_image_generation_failed", "gemini_model_pool_temporarily_unavailable"})
+
+# Limit automated recovery to three extra processing runs per image. Permanent
+# validation/source/skill failures never qualify; repeated failures stay visible.
+MAX_AUTO_PROCESSING_RUNS = 4
 
 
 
@@ -92,8 +96,12 @@ def reconcile_stage4_terminal(*, limit: int = 12, dry_run: bool = False) -> dict
     with SessionLocal() as session:
         candidates = list(session.execute(
             select(RrugcStage2JobModel.id, RrugcStage2JobModel.tenant_id)
-            .where(RrugcStage2JobModel.status.in_(("queued", "running")))
-            .order_by(RrugcStage2JobModel.queued_at.asc())
+            .where(or_(
+                RrugcStage2JobModel.status.in_(("queued", "running")),
+                and_(RrugcStage2JobModel.status == "failed",
+                     RrugcStage2JobModel.last_error_code.in_(AUTO_REPLAY_ERRORS)),
+            ))
+            .order_by(RrugcStage2JobModel.queued_at.desc())
             .limit(max(1, min(limit * 8, 200)))
         ))
     for job_id, tenant_id in candidates:
@@ -105,7 +113,9 @@ def reconcile_stage4_terminal(*, limit: int = 12, dry_run: bool = False) -> dict
                 .where(
                     RrugcStage2JobModel.id == job_id,
                     RrugcStage2JobModel.tenant_id == tenant_id,
-                    RrugcStage2JobModel.status.in_(("queued", "running")),
+                    or_(RrugcStage2JobModel.status.in_(("queued", "running")),
+                        and_(RrugcStage2JobModel.status == "failed",
+                             RrugcStage2JobModel.last_error_code.in_(AUTO_REPLAY_ERRORS))),
                 )
                 .with_for_update(skip_locked=True)
             )
@@ -113,6 +123,8 @@ def reconcile_stage4_terminal(*, limit: int = 12, dry_run: bool = False) -> dict
                 continue
             processing = session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
             if processing is not None and processing.status not in ("failed", "completed"):
+                continue
+            if row.status == "failed" and (processing is None or processing.status != "failed"):
                 continue
             if processing is not None and processing.status == "completed":
                 # Do not infer successful output from processing status alone.
@@ -126,6 +138,7 @@ def reconcile_stage4_terminal(*, limit: int = 12, dry_run: bool = False) -> dict
             if dry_run:
                 continue
             error_code = processing.last_error_code if processing else "stage4_processing_job_missing"
+            was_failed = row.status == "failed"
             row.status = "failed"
             row.last_error_code = error_code or "stage4_processing_failed"
             row.last_error_message = (
@@ -133,19 +146,20 @@ def reconcile_stage4_terminal(*, limit: int = 12, dry_run: bool = False) -> dict
                 "Use Retry after checking the Skill logs."
             )
             session.commit()
-            report["failed_synced"] += 1
+            if processing is not None and not was_failed:
+                report["failed_synced"] += 1
 
             if not processing or error_code not in AUTO_REPLAY_ERRORS:
                 continue
-            # Only original runs qualify. Once the first automatic replay
-            # exists it cannot recursively trigger another replay.
+            # Recover transient failures only while the bounded retry budget
+            # remains. The service creates a fresh durable processing job.
             total = int(session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
                 ProcessingJobModel.tenant_id == tenant_id,
                 ProcessingJobModel.job_type == "rrugc_stage2_generate",
                 ProcessingJobModel.entity_type == "rrugc_stage2_job",
                 ProcessingJobModel.entity_id == job_id,
             )) or 0)
-            if total != 1 or processing.attempt_count < processing.max_attempts:
+            if total >= MAX_AUTO_PROCESSING_RUNS or processing.attempt_count < processing.max_attempts:
                 continue
             try:
                 RrugcStage2Service(session).retry_failed_job(
