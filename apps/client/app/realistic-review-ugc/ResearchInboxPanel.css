@@ -110,6 +110,7 @@
 .rrugc-research-inbox button{min-height:30px;padding:6px 9px;font-size:10px;border-radius:7px;gap:5px}
 .rrugc-research-inbox button.rrugc-research-modal-close{min-width:28px;width:28px;height:28px;min-height:28px;flex-basis:28px}
 .rrugc-research-actions{gap:6px;margin-bottom:8px}
+.rrugc-research-actions button{min-height:36px;padding-block:8px}
 .rrugc-research-section-heading{margin:9px 0 7px}
 .rrugc-research-signal-list{gap:6px}
 .rrugc-research-signal{grid-template-columns:minmax(0,1fr) minmax(170px,215px);gap:10px;padding:10px 11px;border-radius:9px}

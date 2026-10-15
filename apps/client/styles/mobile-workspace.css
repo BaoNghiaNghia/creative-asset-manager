@@ -298,3 +298,21 @@
   .mobile-workspace-more-panel,
   .mobile-workspace-more-scrim { animation: none !important; transition: none !important; }
 }
+
+/* Keep wide operational tables inside their own scroller on narrow phones.
+   Neither Access Management nor Video Generation may widen the page. */
+@media (max-width: 680px) {
+  .access-shell { grid-template-columns: minmax(0, 1fr) !important; max-width: 100%; }
+  .access-main,.access-content { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .access-table-wrap { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+  .access-content .role-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .access-content .role-grid > article { min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+  .video-generation-card,.video-generation-references,.video-reference-grid {
+    min-width: 0; max-width: 100%; box-sizing: border-box;
+  }
+  .video-reference-grid { grid-template-columns: repeat(auto-fit,minmax(min(100%, 130px), 1fr)); }
+  .video-reference-asset { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .video-reference-order,.video-reference-order li { box-sizing: border-box; min-width: 0; max-width: 100%; }
+  .video-reference-order li > span:first-child { box-sizing: border-box; max-width: 100%; width: 100%; }
+  .video-reference-order-actions { max-width: 100%; flex-wrap: wrap; }
+}

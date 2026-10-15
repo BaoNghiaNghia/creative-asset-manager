@@ -7,6 +7,7 @@
 export const REQUIRED_QA_PERMISSIONS = Object.freeze({
   "/ai-operations": "ai_operations.read",
   "/job-queue": "ai_operations.read",
+  "/branding-dna": "ai_operations.read",
   "/inventory": "inventory.read",
   "/realistic-review-ugc": "realistic_review_ugc.read",
   "/settings/access": "tenant_members.read",

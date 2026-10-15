@@ -28,3 +28,16 @@ test("never hide other request failures or unexpected aborted mutations", () => 
     { method: "GET", url: "http://other-host.invalid/api/v1/realistic-review-ugc/stage4/completions", error: "net::ERR_ABORTED" },
   ]) assert.equal(isExpectedQaRequestAbort(request, "normal", "http://127.0.0.1:49000/realistic-review-ugc"), false);
 });
+
+test("aborted same-origin font loads on viewport teardown do not fail UI QA", () => {
+  const site = "http://127.0.0.1:49000/realistic-review-ugc";
+  assert.equal(isExpectedQaRequestAbort({
+    method: "GET", url: "http://127.0.0.1:49000/assets/be-vietnam-pro-vietnamese-700-normal.woff2",
+    error: "net::ERR_ABORTED",
+  }, "normal", site), true);
+  for (const failure of [
+    { method:"GET", url:"http://other.example/assets/font.woff2", error:"net::ERR_ABORTED" },
+    { method:"GET", url:"http://127.0.0.1:49000/assets/font.woff2", error:"net::ERR_CONNECTION_REFUSED" },
+    { method:"POST", url:"http://127.0.0.1:49000/assets/font.woff2", error:"net::ERR_ABORTED" },
+  ]) assert.equal(isExpectedQaRequestAbort(failure,"normal",site), false);
+});

@@ -48,6 +48,12 @@ test("fixture and plan changes select their matching profile", () => {
   );
 });
 
+test("Branding DNA UI changes select a dedicated responsive QA profile", () => {
+  const result = selectUiQaProfiles(["apps/client/app/branding-dna/BrandingDnaPage.tsx"]);
+  assert.deepEqual(result.profiles, ["branding-dna"]);
+  assert.equal(UI_QA_PROFILES["branding-dna"]?.route, "/branding-dna");
+});
+
 test("unmapped frontend work falls back to the explorer profile", () => {
   const result = selectUiQaProfiles(["apps/client/app/utils/textPreview.ts"]);
   assert.equal(result.mode, "default");

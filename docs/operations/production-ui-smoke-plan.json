@@ -175,6 +175,62 @@
       ]
     },
     {
+      "name": "branding-dna",
+      "path": "/branding-dna",
+      "public": false,
+      "requiresAuth": true,
+      "ready": ".bdna-stage-tabs",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        {
+          "name": "overview",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".bdna-stage-panel"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
+        },
+        {
+          "name": "shop-library",
+          "click": "#bdna-stage-shops",
+          "waitFor": "#bdna-panel-shops .bdna-live-section",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#bdna-panel-shops .bdna-live-section"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
+        },
+        {
+          "name": "scanner",
+          "click": "#bdna-stage-scanner",
+          "waitFor": "#bdna-panel-scanner .bdna-worker-manager"
+        },
+        {
+          "name": "product-explorer",
+          "click": "#bdna-stage-products",
+          "waitFor": "#bdna-panel-products .bdna-future-panel"
+        },
+        {
+          "name": "dna",
+          "click": "#bdna-stage-dna",
+          "waitFor": "#bdna-panel-dna .bdna-future-panel"
+        }
+      ]
+    },
+    {
       "name": "realistic-review-ugc",
       "path": "/realistic-review-ugc",
       "public": false,

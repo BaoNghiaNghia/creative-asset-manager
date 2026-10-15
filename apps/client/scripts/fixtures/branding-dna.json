@@ -1,0 +1,100 @@
+{
+  "name": "branding-dna",
+  "identity": {
+    "user_id": "qa-branding-operator",
+    "actor_id": "qa-branding-operator",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [
+      {
+        "id": "qa-tenant",
+        "name": "QA Studio",
+        "slug": "qa-studio"
+      }
+    ],
+    "roles": [
+      "processing_admin"
+    ],
+    "permissions": [
+      "assets.read",
+      "ai_operations.read",
+      "ai_operations.manage"
+    ],
+    "is_processing_admin": true,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Branding Operator",
+    "email": "qa.branding@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {
+      "id": "qa-google-branding",
+      "name": "QA Branding Operator",
+      "email": "qa.branding@example.test"
+    }
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/status",
+      "body": {
+        "phase": "foundation",
+        "shop_count": 2,
+        "registered_workers": 1,
+        "scanner_ready": false,
+        "scan_enabled": false,
+        "blockers": [
+          "scanner_not_connected"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops",
+      "body": {
+        "items": [
+          {
+            "id": "qa-shop-1",
+            "display_name": "QA Shop Alpha",
+            "platform": "etsy",
+            "region": "US",
+            "storefront_url": "https://www.etsy.com/shop/QAShopAlpha",
+            "access_mode": "public",
+            "status": "draft",
+            "created_at": "2026-10-15T00:00:00Z"
+          },
+          {
+            "id": "qa-shop-2",
+            "display_name": "QA Shop Beta Long Name for Responsive Layout Validation",
+            "platform": "amazon",
+            "region": "US",
+            "storefront_url": "https://www.amazon.com/stores/QAShopBeta",
+            "access_mode": "public",
+            "status": "draft",
+            "created_at": "2026-10-15T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/workers",
+      "body": {
+        "items": [
+          {
+            "id": "qa-worker-1",
+            "label": "QA Windows Worker - Not Connected",
+            "status": "offline",
+            "enabled": true,
+            "online": false,
+            "agent_version": null,
+            "last_heartbeat": null
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "viewports": [
+    "desktop",
+    "compact",
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
+  "qualityBudgets": {
+    "desktop": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "compact": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletLandscape": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobile": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobileSmall": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    }
+  },
+  "steps": [
+    {
+      "name": "overview-loaded",
+      "waitFor": ".bdna-stage-tabs",
+      "waitMs": 300,
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": "#bdna-stage-overview",
+          "name": "aria-selected",
+          "value": "true"
+        },
+        {
+          "type": "count",
+          "selector": ".bdna-stage-tabs [role=tab]",
+          "value": 5
+        },
+        {
+          "type": "visible",
+          "selector": ".bdna-live-section"
+        },
+        {
+          "type": "visible",
+          "selector": ".bdna-worker-manager"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "shops-open",
+      "click": "#bdna-stage-shops",
+      "waitFor": ".bdna-shop-cards",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": "#bdna-stage-shops",
+          "name": "aria-selected",
+          "value": "true"
+        },
+        {
+          "type": "visible",
+          "selector": ".bdna-live-section"
+        },
+        {
+          "type": "count",
+          "selector": ".bdna-shop-card",
+          "value": 2
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "add-shop-form",
+      "click": ".bdna-live-heading button",
+      "waitFor": ".bdna-shop-form",
+      "assertions": [
+        {
+          "type": "count",
+          "selector": ".bdna-shop-form select",
+          "value": 1
+        },
+        {
+          "type": "count",
+          "selector": ".bdna-shop-form input[type=url]",
+          "value": 1
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "close-shop-form",
+      "click": ".bdna-live-heading button",
+      "assertions": [
+        {
+          "type": "hidden",
+          "selector": ".bdna-shop-form"
+        }
+      ]
+    },
+    {
+      "name": "scanner-registry",
+      "click": "#bdna-stage-scanner",
+      "waitFor": ".bdna-worker-enroll",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": "#bdna-stage-scanner",
+          "name": "aria-selected",
+          "value": "true"
+        },
+        {
+          "type": "visible",
+          "selector": ".bdna-worker-manager"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "products-empty-state",
+      "click": "#bdna-stage-products",
+      "waitFor": ".bdna-future-panel",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".bdna-future-panel",
+          "value": "Awaiting scanned products"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "dna-empty-state",
+      "click": "#bdna-stage-dna",
+      "waitFor": ".bdna-future-panel",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".bdna-future-panel",
+          "value": "Awaiting verified evidence"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "return-overview",
+      "click": "#bdna-stage-overview",
+      "waitFor": ".bdna-workflow-overview",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": "#bdna-stage-overview",
+          "name": "aria-selected",
+          "value": "true"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    }
+  ]
+}

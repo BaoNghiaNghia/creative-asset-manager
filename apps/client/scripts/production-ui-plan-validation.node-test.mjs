@@ -50,14 +50,14 @@ test("production Browser QA separates Products and Reviews stage navigation", as
   }
 });
 
-test("authenticated Products QA inspects managed upload-time Skill versions read-only", async () => {
+test("authenticated Products QA inspects Skill Manager layout read-only", async () => {
   const plan = JSON.parse(await fs.readFile(
     new URL("../../../docs/operations/production-ui-smoke-plan.json", import.meta.url), "utf8"));
   const products = plan.routes.find(route => route.name === "realistic-review-ugc");
   const state = products?.states.find(item => item.name === "skill-manager-upload-versions");
   assert.equal(state?.click, 'button.rrugc-global-management-button:has-text("Manage skills")');
   assert.equal(state?.waitFor, '.rrugc-skill-modal[role="dialog"]');
-  assert.ok(state.assertions.some(item => item.type === "skill-upload-versions"));
+  assert.ok(state.assertions.some(item => item.selector === ".rrugc-skill-modal .rrugc-skill-catalog-toolbar" && item.type === "visible"));
   assert.ok(state.assertions.some(item => item.type === "no-viewport-overflow"));
   assert.deepEqual(validateProductionUiPlan(plan), []);
 });
@@ -81,6 +81,12 @@ test("current production smoke stage bindings are valid", async () => {
   assert.equal(inventory.ready, "main.inventory-workspace");
   assert.ok(ai.states[0].assertions.some((assertion) => assertion.type === "no-viewport-overflow"),
     "AI Operations production smoke must check responsive viewport overflow");
+  const branding = plan.routes.find((route) => route.name === "branding-dna");
+  assert.ok(branding?.requiresAuth, "Branding DNA must have authenticated production coverage");
+  for (const tab of ["shops", "scanner", "products", "dna"]) {
+    assert.ok(branding.states.some(state => state.click === "#bdna-stage-" + tab),
+      "Branding DNA production smoke must test " + tab);
+  }
   const ugc = plan.routes.find((route) => route.name === "realistic-review-ugc");
   assert.ok(ugc, "authenticated UGC route must be present");
   for (let stage = 0; stage <= 2; stage += 1) {

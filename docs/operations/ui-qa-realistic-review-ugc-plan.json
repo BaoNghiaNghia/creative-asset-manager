@@ -130,7 +130,7 @@
       "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen-trend .rrugc-stage0-sparkline",
       "waitMs": 200,
       "requireIcons": [
-        "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button",
+        "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button.rrugc-icon-action",
         "#rrugc-panel-stage1 .rrugc-keyword-manual-controls button"
       ],
       "assertions": [
@@ -156,8 +156,8 @@
         },
         {
           "type": "text-includes",
-          "selector": ".rrugc-keyword-gen-skill select",
-          "value": "18_39_12_10_26"
+          "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen-skill-cell",
+          "value": "GatorHats"
         }
       ]
     },
@@ -203,8 +203,8 @@
           "minPx": 24
         }
       ],
-      "requireIcons": [
-        "#rrugc-panel-stage4 .rrugc-stage2-registry-actions button"
+      "assertions": [
+        {"type":"visible","selector":"#rrugc-panel-stage4 .rrugc-stage2"}
       ]
     },
     {

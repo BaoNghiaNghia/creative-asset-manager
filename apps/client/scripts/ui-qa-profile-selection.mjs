@@ -95,6 +95,9 @@ export function selectUiQaProfiles(changedFiles = []) {
     if (file.includes("/job-queue/")) {
       add(selected, "job-queue");
     }
+    if (file.includes("/branding-dna/") || file.includes("/branding-dna-preview/")) {
+      add(selected, "branding-dna");
+    }
     if (
       file.includes("/public-review/")
       || file === "apps/client/styles/public-review.css"

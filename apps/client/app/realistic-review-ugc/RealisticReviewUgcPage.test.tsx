@@ -1474,9 +1474,9 @@ describe("Realistic Review UGC source-first workspace", () => {
         onExportReviews={async () => undefined} />,
     );
     expect(exportMarkup).toContain("rrugc-stage5-toolbar");
-    expect(exportMarkup).toContain("AI Concepts CSV");
-    expect(exportMarkup).toContain("Draft Excel");
-    expect(exportMarkup).toContain("Excel");
+    expect(exportMarkup).toContain("Internal CSV");
+    expect(exportMarkup).not.toContain("AI Concepts CSV");
+    expect(exportMarkup).not.toContain("Draft Excel");
     expect(exportMarkup).toContain("Analyze all");
     expect(exportMarkup).toContain("Refresh");
     expect(exportMarkup).not.toContain("Export all · Loox XLSX");

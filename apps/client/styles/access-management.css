@@ -22,7 +22,7 @@
 .access-tabs{justify-content:flex-start;align-items:flex-end;min-height:54px;overflow-x:auto;scrollbar-width:thin}.access-tabs button{flex:0 0 auto;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:16px 14px 13px;box-shadow:none}.access-tabs button:hover,.access-tabs button:focus-visible{background:#f3f6ff;color:#294fb0}.access-tabs button.active{background:transparent;border-color:#4169e1;color:#294fb0}
 
 /* Role and access cards should follow their content, not the tallest neighbour. */
-.role-grid,.my-access{align-items:start}.role-grid>article,.my-access>section{height:max-content}.access-permissions-card{grid-column:1/-1}.role-chips .danger-link{margin-left:2px;padding:3px 6px!important;background:transparent!important;text-decoration:underline;text-underline-offset:2px}.member-actions .danger-link{padding:6px 8px!important}.member-actions select+button{min-width:66px}
+.role-grid,.my-access{align-items:start}.role-grid>article,.my-access>section{height:max-content}.access-permissions-card{grid-column:1/-1}.role-chips .danger-link{margin-left:2px;padding:3px 6px!important;background:transparent!important;text-decoration:underline;text-underline-offset:2px}.member-actions .danger-link{min-height:30px;padding:6px 8px!important}.member-actions select+button{min-width:66px}
 @media(max-width:650px){.access-tabs{min-height:50px;gap:2px}.access-tabs button{padding:14px 12px 11px}.access-permissions-card{grid-column:auto}}
 
 /* Match the shared workspace navigation used by AI Operations. */

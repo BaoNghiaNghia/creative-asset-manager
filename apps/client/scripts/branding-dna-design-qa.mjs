@@ -4,7 +4,7 @@ import { resolve, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 
 const client = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const file = resolve(client, "public/branding-dna/index.html");
+const file = resolve(client, "public/branding-dna-preview/index.html");
 const screenshots = resolve(client, "../../docs/features/branding-dna/screenshots");
 await mkdir(screenshots, {recursive: true});
 const checks = [];

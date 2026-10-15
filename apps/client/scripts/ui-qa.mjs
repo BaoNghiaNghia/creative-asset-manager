@@ -654,10 +654,26 @@ try {
             className: String(el.className || "").slice(0, 95),
             width: Math.round(box.width), height: Math.round(box.height) };
         });
-        const viewportOverflowPx = Math.max(0, document.documentElement.scrollWidth - window.innerWidth);
-        const overflowingElements = (viewportOverflowPx > 0 ? [...document.querySelectorAll("body *")] : [])
+        // The root scrollWidth includes descendants of independently scrollable
+        // tables in Firefox/Chromium, even when body clips that offscreen content.
+        // Only flag content outside the visual viewport without a containing
+        // scroll/clip ancestor; preserve the genuine overflow signal.
+        const exposed = [...document.querySelectorAll("body *")]
           .filter(visible).map(el => ({ el, box: el.getBoundingClientRect() }))
           .filter(({box}) => box.right > window.innerWidth + 1 && box.left < window.innerWidth)
+          .filter(({el}) => {
+            for (let parent = el.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+              const overflow = getComputedStyle(parent).overflowX;
+              const rect = parent.getBoundingClientRect();
+              if (["auto", "scroll", "hidden", "clip"].includes(overflow)
+                  && rect.left >= -1 && rect.right <= window.innerWidth + 1) return false;
+            }
+            return true;
+          });
+        const viewportOverflowPx = Math.max(0,
+          document.body.getBoundingClientRect().right - window.innerWidth,
+          ...exposed.map(({box}) => box.right - window.innerWidth));
+        const overflowingElements = exposed
           .slice(0, 18).map(({el, box}) => ({
             tag: el.tagName.toLowerCase(), id: el.id || null,
             className: typeof el.className === "string" ? el.className.slice(0, 100) : "",

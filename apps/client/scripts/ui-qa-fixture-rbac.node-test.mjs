@@ -20,6 +20,7 @@ test("fixture preflight blocks incorrect RBAC instead of waiting for hidden page
     { identity: { permissions: ["inventory.read"] } }).status, "pass");
   assert.equal(checkFixturePermissions("/privacy-policy", { identity }).status, "pass");
   assert.equal(requiredQaPermission("/job-queue"), "ai_operations.read");
+  assert.equal(requiredQaPermission("/branding-dna"), "ai_operations.read");
 });
 
 test("preflight permission mapping is consistent with AppRoute policy", async () => {

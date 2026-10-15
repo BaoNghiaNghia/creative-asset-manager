@@ -87,8 +87,22 @@ describe("Stage 1 manual keyword generation", () => {
     const root = createRoot(host);
     await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Keyword generation Skill"]')!;
-    expect(select.value).toBe("local:hanh-redesign-8869-ver-3");
+    // Stage 1 now uses the configured default Skill without a per-job select.
+    // Verify the actual request, not the removed selector.
+    const input = host.querySelector<HTMLInputElement>("#rrugc-stage1-manual-keyword")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "BEACH PLEASE");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      host.querySelector<HTMLFormElement>("form.rrugc-keyword-manual")!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(createManualKeywordImage).toHaveBeenLastCalledWith("BEACH PLEASE", expect.objectContaining({
+      skill_name: "hanh-redesign-8869-ver-3",
+    }));
     await act(async () => root.unmount());
   });
 
@@ -110,8 +124,9 @@ describe("Stage 1 manual keyword generation", () => {
     const root = createRoot(host);
     await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Keyword generation Skill"]')!;
-    expect(select.options[select.selectedIndex].textContent).toContain("18_39_12_10_26");
+    // The Stage 1 Skill is pinned centrally; runtime IDs are never inferred
+    // from the optional display label in the retired per-job selector.
+    expect(host.querySelector("form.rrugc-keyword-manual")).not.toBeNull();
     const input = host.querySelector<HTMLInputElement>("#rrugc-stage1-manual-keyword")!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "BEACH PLEASE");

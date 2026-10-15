@@ -15,7 +15,7 @@ describe("responsive mobile workspace navigation", () => {
       "public_review.read", "tenant_members.read",
     ]);
     expect(admin.map(item => item.id)).toEqual([
-      "assets", "operations", "realistic-review-ugc", "review-board",
+      "assets", "operations", "realistic-review-ugc", "branding-dna", "review-board",
       "generation", "queue", "access",
     ]);
   });
@@ -28,7 +28,7 @@ describe("responsive mobile workspace navigation", () => {
     const split = splitMobileDestinations(admin);
     expect(split.tabs).toHaveLength(4);
     expect(split.tabs[0].shortTitle).toBe("Assets");
-    expect(split.more.map(item => item.shortTitle)).toEqual(["Video", "Queue", "Access"]);
+    expect(split.more.map(item => item.shortTitle)).toEqual(["Reviews", "Video", "Queue", "Access"]);
     expect(splitMobileDestinations(availableMobileDestinations([])).more).toEqual([]);
   });
 

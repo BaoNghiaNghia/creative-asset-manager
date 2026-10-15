@@ -15,6 +15,7 @@ describe("WorkspacePageHeader", () => {
       "inventory",
       "operations",
       "realistic-review-ugc",
+      "branding-dna",
       "queue",
       "generation",
       "review-board",

@@ -58,6 +58,13 @@ export const UI_QA_PROFILES = Object.freeze({
     plan: "docs/operations/ui-qa-job-queue-plan.json",
     baseline: "apps/client/visual-baselines/job-queue",
   },
+  "branding-dna": {
+    scope: "branding-dna",
+    route: "/branding-dna",
+    fixture: "apps/client/scripts/fixtures/branding-dna.json",
+    plan: "docs/operations/ui-qa-branding-dna-plan.json",
+    baseline: "apps/client/visual-baselines/branding-dna",
+  },
   "public-review": {
     scope: "public-review",
     route: "/share/qa-review",

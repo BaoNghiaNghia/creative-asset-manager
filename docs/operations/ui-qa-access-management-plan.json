@@ -1,15 +1,68 @@
 {
-  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "viewports": [
+    "desktop",
+    "compact",
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
   "qualityBudgets": {
-    "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0}
+    "desktop": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "compact": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletLandscape": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobile": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobileSmall": {
+      "maxViewportOverflowPx": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    }
   },
   "steps": [
-    {"name":"default","waitFor":".access-content","waitMs":300,
-     "mobileAssertions":[{"type":"scrollable-x","selector":".access-table-wrap"}]},
-    {"name":"member-row-hover","hover":".access-table tbody tr"},
-    {"name":"member-search-focus","focus":"form[aria-label='Member filters'] input"},
-    {"name":"roles-tab","click":"#access-tab-roles","waitFor":".role-grid"}
+    {
+      "name": "default",
+      "waitFor": ".access-content",
+      "waitMs": 300,
+      "mobileAssertions": [
+        {
+          "type": "scrollable-x",
+          "selector": ".access-table-wrap"
+        }
+      ]
+    },
+    {
+      "name": "member-row-hover",
+      "hover": ".access-table tbody tr"
+    },
+    {
+      "name": "member-search-focus",
+      "focus": "form[aria-label='Member filters'] input"
+    },
+    {
+      "name": "roles-tab",
+      "click": "#access-tab-roles",
+      "waitFor": ".role-grid"
+    }
   ]
 }
