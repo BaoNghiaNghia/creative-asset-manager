@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import {
   listStage2Skills,
+  listAllStage4ActiveJobs,
   getStage4QueueControl,
   setStage4QueuePaused,
   type Stage4QueueControl,
@@ -746,6 +747,10 @@ export function Stage2JobTable({
   const [skillMessage, setSkillMessage] = useState("");
   const [queueControl, setQueueControl] = useState<Stage4QueueControl | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
+  const [activeQueueOpen, setActiveQueueOpen] = useState(false);
+  const [activeQueueJobs, setActiveQueueJobs] = useState<Stage2Job[]>([]);
+  const [activeQueueLoading, setActiveQueueLoading] = useState(false);
+  const [activeQueueError, setActiveQueueError] = useState("");
   const [queueMessage, setQueueMessage] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [outputReview, setOutputReview] = useState<{
@@ -842,6 +847,30 @@ export function Stage2JobTable({
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeQueueOpen) return;
+    const controller = new AbortController();
+    async function refresh() {
+      if (controller.signal.aborted || document.hidden) return;
+      setActiveQueueLoading(true);
+      try {
+        const result = await listAllStage4ActiveJobs(controller.signal);
+        if (!controller.signal.aborted) {
+          setActiveQueueJobs(result);
+          setActiveQueueError("");
+        }
+      } catch (reason) {
+        if (!controller.signal.aborted) setActiveQueueError(
+          reason instanceof Error ? reason.message : "Could not load active jobs.");
+      } finally {
+        if (!controller.signal.aborted) setActiveQueueLoading(false);
+      }
+    }
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [activeQueueOpen]);
 
   async function toggleStage4Queue() {
     if (queueBusy || !queueControl) return;
@@ -970,9 +999,13 @@ export function Stage2JobTable({
       <article><span>Source images</span><strong>{overview.source_images}</strong></article>
       <article><span>Drive-ready refs</span><strong>{overview.stage2_drive_ready_refs}</strong></article>
       <article className="rrugc-stage4-active-jobs">
-        <span>Active jobs</span>
-        <div className="rrugc-stage4-active-controls">
+        <button type="button" className="rrugc-stage4-active-open" onClick={() => setActiveQueueOpen(true)}
+          aria-label="View all Stage 4 jobs in queue">
+          <span>Active jobs in Queue</span>
           <strong>{overview.stage2_active_jobs}</strong>
+          <span className="rrugc-stage4-active-view">View queue →</span>
+        </button>
+        <div className="rrugc-stage4-active-controls">
           <button type="button" className={"rrugc-stage4-pause-button" + (queueControl?.paused ? " is-paused" : "")}
             disabled={!queueControl || queueBusy}
             aria-label={queueControl?.paused ? "Resume Stage 4 active jobs" : "Pause Stage 4 active jobs"}
@@ -987,6 +1020,33 @@ export function Stage2JobTable({
         </small>}
       </article>
     </div>
+
+    {activeQueueOpen && <div className="rrugc-stage4-queue-backdrop" role="presentation"
+      onMouseDown={event => { if (event.target === event.currentTarget) setActiveQueueOpen(false); }}>
+      <section className="rrugc-stage4-queue-dialog" role="dialog" aria-modal="true" aria-labelledby="rrugc-stage4-queue-title">
+        <header>
+          <div><h2 id="rrugc-stage4-queue-title">Active jobs in Queue</h2>
+            <p>All queued and running Stage 4 jobs across embroidery groups. Auto-refreshes every 10 seconds.</p></div>
+          <button type="button" onClick={() => setActiveQueueOpen(false)} aria-label="Close active jobs queue">✕</button>
+        </header>
+        <div className="rrugc-stage4-queue-summary">
+          <strong>{activeQueueJobs.length} active</strong>
+          <span>{activeQueueJobs.filter(job => job.status === "running").length} running</span>
+          <span>{activeQueueJobs.filter(job => job.status === "queued").length} queued</span>
+        </div>
+        {activeQueueError && <p role="alert" className="rrugc-stage4-queue-error">{activeQueueError}</p>}
+        {activeQueueLoading && activeQueueJobs.length === 0 ? <p>Loading queue…</p> :
+          activeQueueJobs.length === 0 ? <p>No active jobs in queue.</p> :
+          <div className="rrugc-stage4-queue-scroll"><table><thead><tr>
+            <th>Job</th><th>Skill</th><th>Status</th><th>Queued at</th>
+          </tr></thead><tbody>{activeQueueJobs.map(job => <tr key={job.id}>
+            <td><code title={job.id}>{job.id.slice(0, 12)}…</code></td>
+            <td>{job.skill_name}</td>
+            <td><span className={"rrugc-stage4-queue-status is-" + job.status}>{job.status}</span></td>
+            <td>{job.queued_at ? new Date(job.queued_at).toLocaleString() : "—"}</td>
+          </tr>)}</tbody></table></div>}
+      </section>
+    </div>}
 
     <div className="rrugc-stage-search-toolbar rrugc-stage3-search-toolbar">
       <RrugcSmartSearchInput

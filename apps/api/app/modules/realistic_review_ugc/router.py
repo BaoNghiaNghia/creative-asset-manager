@@ -6039,6 +6039,24 @@ def list_stage4_completions(
     }
 
 
+@router.get("/stage4/active-jobs", response_model=list[Stage2JobResponse])
+def list_stage4_active_jobs(
+    cursor: str | None = Query(default=None, max_length=36),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Tenant-scoped active queue across every source group (not just the current page)."""
+    query = select(RrugcStage2JobModel).where(
+        RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+        RrugcStage2JobModel.status.in_(("queued", "running")),
+    )
+    if cursor:
+        query = query.where(RrugcStage2JobModel.id > cursor)
+    rows = session.scalars(query.order_by(RrugcStage2JobModel.id).limit(limit)).all()
+    return [_stage2_job(row, current_user_id=principal.user_id) for row in rows]
+
+
 @router.get("/stage2-jobs", response_model=list[Stage2JobResponse])
 def list_stage2_jobs(
     source_plan_id: list[str] | None = Query(default=None),

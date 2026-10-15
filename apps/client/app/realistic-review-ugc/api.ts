@@ -544,6 +544,23 @@ export const listStage4Completions = (cursor?: string, signal?: AbortSignal) =>
     { signal },
   );
 
+export async function listAllStage4ActiveJobs(signal?: AbortSignal): Promise<Stage2Job[]> {
+  const results: Stage2Job[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 100; page += 1) {
+    const params = new URLSearchParams({ limit: "200" });
+    if (cursor) params.set("cursor", cursor);
+    const batch = await request<Stage2Job[]>(
+      "/api/v1/realistic-review-ugc/stage4/active-jobs?" + params.toString(),
+      { signal },
+    );
+    results.push(...batch);
+    if (batch.length < 200) return results;
+    cursor = batch[batch.length - 1].id;
+  }
+  throw new Error("Active job list exceeded the supported paging limit.");
+}
+
 export const listStage2Jobs = (
   sourcePlanIds: string[] = [],
   signal?: AbortSignal,
