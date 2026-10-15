@@ -166,7 +166,36 @@ def list_signals(session: Session, *, tenant_id: str, status: str = "pending",
     if status != "all":
         statement = statement.where(RrugcResearchSignalModel.status == status)
     statement = statement.order_by(RrugcResearchSignalModel.created_at.desc()).limit(limit)
-    return [row_dict(row) for row in session.scalars(statement).all()]
+    rows = session.scalars(statement).all()
+    values = [row_dict(row) for row in rows]
+    if not rows:
+        return values
+    from sqlalchemy import inspect
+    if not inspect(session.get_bind()).has_table("processing_jobs"):
+        return values
+    from app.modules.processing.model import ProcessingJobModel
+    jobs = session.scalars(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant_id,
+        ProcessingJobModel.job_type == "rrugc_research_vision",
+        ProcessingJobModel.entity_id.in_([row.id for row in rows]),
+    ).order_by(ProcessingJobModel.created_at.desc())).all()
+    by_signal = {}
+    for job in jobs:
+        if job.entity_id not in by_signal:
+            by_signal[job.entity_id] = job
+    for value in values:
+        job = by_signal.get(value["id"])
+        if job is None:
+            continue
+        payload = job.payload or {}
+        value["vision_status"] = job.status
+        value["vision_reason"] = str(payload.get("vision_reason") or "")[:100]
+        image_url = payload.get("vision_image_url")
+        if isinstance(image_url, str):
+            from app.modules.realistic_review_ugc.research_vision import permitted_image_url
+            if permitted_image_url(image_url, value["source"]):
+                value["vision_image_url"] = image_url
+    return values
 
 
 def _insert_stage0_pending_keyword(
@@ -192,7 +221,8 @@ def _insert_stage0_pending_keyword(
             "research_source": row.source,
             "research_source_url": row.url,
             "research_unverified": True,
-            **({"research_auto_extracted": EXTRACTOR_VERSION} if (row.reviewed_by_user_id or "").startswith("auto:agent-reach") else {}),
+            **({"research_auto_extracted": row.reviewed_by_user_id.split("auto:agent-reach:", 1)[-1]}
+               if (row.reviewed_by_user_id or "").startswith("auto:agent-reach:") else {}),
         },
     )
     dialect = session.get_bind().dialect.name

@@ -24,6 +24,7 @@ from app.modules.realistic_review_ugc.research_intelligence import (
     review_signal, stage0_export, apply_approved_to_stage0,
     backfill_auto_discover_candidates,
 )
+from app.modules.realistic_review_ugc.research_vision import enqueue_research_vision
 
 router = APIRouter(prefix="/api/v1/realistic-review-ugc/research",
                    tags=["realistic-review-ugc", "research-intelligence"])
@@ -107,9 +108,13 @@ def approve_clear_research_keywords(
     Ambiguous titles remain pending; no AEBrowse, LLM or arbitrary approvals.
     """
     enabled()
-    return backfill_auto_discover_candidates(
+    result = backfill_auto_discover_candidates(
         session, tenant_id=principal.active_tenant_id, limit=2000,
     )
+    queued = enqueue_research_vision(session, principal.active_tenant_id)
+    if queued:
+        result["vision_queued"] = queued
+    return result
 
 
 @router.get("/auto-discover/status")

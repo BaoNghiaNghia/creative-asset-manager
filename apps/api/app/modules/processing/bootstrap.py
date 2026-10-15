@@ -69,6 +69,7 @@ from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerate
 from app.modules.realistic_review_ugc.colorways import ColorwayGenerateHandler
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3AnalyzeJobHandler
 from app.modules.realistic_review_ugc.cap_stack_analysis import RrugcCapStackAnalyzeHandler
+from app.modules.realistic_review_ugc.research_vision import ResearchVisionJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
 from app.modules.realistic_review_ugc.delivery_automation import (
     RrugcDeliveryMaintenanceJobHandler,
@@ -146,6 +147,9 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
     "rrugc_cap_stack_analyze": (
         "PROCESSING_JOBS_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED",
     ),
+    "rrugc_research_vision": (
+        "PROCESSING_JOBS_ENABLED", "DYNAMIC_AI_METADATA_ENABLED", "AI_SINGLE_ANALYSIS_ENABLED",
+    ),
     "rrugc_stage3_analyze": (
         "PROCESSING_JOBS_ENABLED",
         "DYNAMIC_AI_METADATA_ENABLED",
@@ -199,6 +203,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
             "rrugc_candidate_analyze",
             "rrugc_stage3_analyze",
             "rrugc_cap_stack_analyze",
+            "rrugc_research_vision",
             "rrugc_supervisor_qa",
         }
 
@@ -209,7 +214,7 @@ def globally_enabled_job_types(settings: Settings) -> tuple[str, ...]:
             settings.AI_EMERGENCY_STOP_ENABLED
             and (
                 job_type.startswith(("asset_analyze", "video_analyze", "ai_batch_"))
-                or job_type in {"rrugc_candidate_analyze", "rrugc_stage3_analyze", "rrugc_cap_stack_analyze", "rrugc_generate", "rrugc_supervisor_qa"}
+                or job_type in {"rrugc_candidate_analyze", "rrugc_stage3_analyze", "rrugc_cap_stack_analyze", "rrugc_research_vision", "rrugc_generate", "rrugc_supervisor_qa"}
             )
         )
         and not (
@@ -420,6 +425,7 @@ def build_worker_runtime(
                 ("rrugc_colorway_generate", ColorwayGenerateHandler(settings)),
                 ("rrugc_stage3_analyze", RrugcStage3AnalyzeJobHandler()),
                 ("rrugc_cap_stack_analyze", RrugcCapStackAnalyzeHandler()),
+                ("rrugc_research_vision", ResearchVisionJobHandler()),
                 ("rrugc_supervisor_qa", RrugcSupervisorQaJobHandler(settings)),
                 (
                     "rrugc_delivery_maintenance",

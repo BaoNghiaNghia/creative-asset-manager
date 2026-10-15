@@ -32,6 +32,7 @@ import "./ResearchInboxPanel.css";
 export type ResearchSignal = {
   id: string; source: string; platform?: string; channel: string; title: string; excerpt: string;
   url: string; status: string; keyword: string | null; created_at: string;
+  vision_status?: string; vision_reason?: string; vision_image_url?: string;
 };
 
 export type AutoDiscoverStatus = {
@@ -253,11 +254,12 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
     setError("");
     setNotice("");
     try {
-      const result = await researchRequest<{ checked: number; auto_promoted: number; needs_review: number }>(
+      const result = await researchRequest<{ checked: number; auto_promoted: number; needs_review: number; vision_queued?: number }>(
         "/auto-discover/auto-approve", { method: "POST" },
       );
-      setNotice("Tự duyệt " + result.auto_promoted + " quote rõ ràng. " +
-        result.needs_review + " tín hiệu mơ hồ vẫn chờ duyệt. Không gọi AEBrowse.");
+      setNotice("Tự duyệt " + result.auto_promoted + " quote rõ ràng · " +
+        (result.vision_queued || 0) + " nguồn chuyển vào queue Gemini · " +
+        result.needs_review + " nguồn tiếp tục chờ xác minh. Không gọi AEBrowse.");
       if (result.auto_promoted) onKeywordApproved?.();
       await refresh();
     } catch (e) {
@@ -420,6 +422,16 @@ export function ResearchInboxPanel({ open, onClose, onKeywordApproved }: {
               <small>{row.channel} · {row.platform && row.platform !== "other" ? row.platform.charAt(0).toUpperCase() + row.platform.slice(1) : row.source} · Chưa xác minh</small>
               <strong>{row.title}</strong>
               {row.excerpt && <p>{row.excerpt}</p>}
+              {row.vision_status && <div className="rrugc-research-vision-evidence">
+                {row.vision_image_url && <img loading="lazy" referrerPolicy="no-referrer" src={row.vision_image_url} alt="Ảnh sản phẩm được dùng để kiểm tra chữ thêu" />}
+                <span title={row.vision_reason || ""}>
+                  Gemini vision · {row.vision_status === "processing" ? "Đang đọc chữ trên mũ"
+                    : row.vision_status === "pending" || row.vision_status === "retry" ? "Đang chờ xử lý"
+                    : row.vision_reason === "needs_human_review" ? "Chưa đủ tin cậy · cần duyệt"
+                    : row.vision_status === "completed" ? "Đã kiểm tra nguồn"
+                    : "Sẽ thử lại khi khả dụng"}
+                </span>
+              </div>}
               <a href={row.url} target="_blank" rel="noopener noreferrer"><ResearchGlyph name="external" size={14}/>Xem nguồn gốc</a>
             </div>
             <div className="rrugc-research-signal-review">

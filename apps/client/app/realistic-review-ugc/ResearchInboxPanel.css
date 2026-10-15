@@ -72,6 +72,9 @@
 .rrugc-research-signal-main p{margin:0;color:#697e96;font-size:11px;line-height:1.65}
 .rrugc-research-signal-main a{display:inline-flex;align-items:center;gap:5px;justify-self:start;color:#3a68b8;font-size:11px;font-weight:750;text-decoration:none;overflow-wrap:anywhere}
 .rrugc-research-signal-main a:hover{text-decoration:underline}
+.rrugc-research-vision-evidence{display:flex;align-items:center;gap:9px;min-width:0;color:#4c668a;font-size:11px;font-weight:700}
+.rrugc-research-vision-evidence img{width:48px;height:48px;border-radius:7px;object-fit:cover;border:1px solid #dde5ef;background:#f6f8fc}
+.rrugc-research-vision-evidence span{line-height:1.35;overflow-wrap:anywhere}
 .rrugc-research-signal-review{display:grid;gap:8px;min-width:0}
 .rrugc-research-signal-review>div{display:flex;gap:7px}
 .rrugc-research-signal-review>div button{flex:1;white-space:nowrap}

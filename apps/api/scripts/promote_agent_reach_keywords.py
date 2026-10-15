@@ -19,6 +19,7 @@ from app.core.database import SessionLocal
 from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
 from app.modules.realistic_review_ugc.research_discovery import AGENT_NAME
 from app.modules.realistic_review_ugc.research_intelligence import backfill_auto_discover_candidates
+from app.modules.realistic_review_ugc.research_vision import enqueue_research_vision
 
 
 def main() -> int:
@@ -29,7 +30,7 @@ def main() -> int:
         tenants = session.scalars(select(RrugcScoutAgentModel.tenant_id).where(
             RrugcScoutAgentModel.name == AGENT_NAME,
         ).distinct()).all()
-    totals = {"tenants": len(tenants), "checked": 0, "auto_promoted": 0, "needs_review": 0}
+    totals = {"tenants": len(tenants), "checked": 0, "auto_promoted": 0, "needs_review": 0, "vision_queued": 0}
     for tenant_id in tenants:
         with SessionLocal() as session:
             result = backfill_auto_discover_candidates(
@@ -37,6 +38,8 @@ def main() -> int:
             )
             for key in ("checked", "auto_promoted", "needs_review"):
                 totals[key] += result[key]
+            if args.apply:
+                totals["vision_queued"] += enqueue_research_vision(session, tenant_id)
     print(json.dumps({"mode": "apply" if args.apply else "dry-run", **totals}, sort_keys=True))
     return 0
 

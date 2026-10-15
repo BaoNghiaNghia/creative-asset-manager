@@ -42,6 +42,7 @@ AI_JOB_TYPES = (
     "rrugc_stage2_generate", "rrugc_keyword_image_generate", "rrugc_colorway_generate",
     "rrugc_stage3_analyze",
     "rrugc_cap_stack_analyze",
+    "rrugc_research_vision",
     "rrugc_supervisor_qa",
 )
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_scan")
@@ -53,6 +54,7 @@ RRUGC_GEMINI_ANALYZE_JOB_TYPES = (
     "rrugc_candidate_analyze",
     "rrugc_stage3_analyze",
     "rrugc_cap_stack_analyze",
+    "rrugc_research_vision",
 )
 MODEL_GATED_AI_JOB_TYPES = ("asset_analyze", *RRUGC_GEMINI_ANALYZE_JOB_TYPES)
 RRUGC_GEMINI_LANE_PROVIDER = "gemini_rrugc_lane"
@@ -102,6 +104,7 @@ STARVATION_PREVENTION_EXCLUDED_JOB_TYPES = (
     "source_asset_download",
     "rrugc_source_plan_analyze",
     "rrugc_cap_stack_analyze",
+    "rrugc_research_vision",
 )
 
 STAGE_POLICY = {
@@ -140,6 +143,7 @@ STAGE_POLICY = {
     "rrugc_keyword_image_generate": "pipeline_enabled",
     "rrugc_stage3_analyze": "ai_analysis_enabled",
     "rrugc_cap_stack_analyze": "ai_analysis_enabled",
+    "rrugc_research_vision": "ai_analysis_enabled",
     "rrugc_supervisor_qa": "ai_analysis_enabled",
     "rrugc_delivery_maintenance": "pipeline_enabled",
 }

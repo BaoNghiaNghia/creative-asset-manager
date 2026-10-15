@@ -23,11 +23,11 @@ UMask=0077
 UNIT
 cat > /etc/systemd/system/cam-research-auto-approve.timer <<'UNIT'
 [Unit]
-Description=Hourly CAM safe quote approval
+Description=CAM automated quote screening and visual review
 [Timer]
 OnBootSec=5min
-OnUnitInactiveSec=1h
-RandomizedDelaySec=4min
+OnUnitInactiveSec=15min
+RandomizedDelaySec=2min
 Persistent=true
 [Install]
 WantedBy=timers.target
