@@ -1083,6 +1083,8 @@ class Stage3ReviewImageResponse(BaseModel):
     star_rating: int | None = Field(default=None, ge=1, le=5)
     review_text: str | None = None
     review_generated_at: datetime | None = None
+    sample_email: str | None = None
+    sample_review_date: str | None = None
     reject_reasons: list[str] = Field(default_factory=list)
     last_error_code: str | None = None
 

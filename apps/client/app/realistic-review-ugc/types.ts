@@ -524,6 +524,8 @@ export type Stage3ReviewImage = {
   star_rating: number | null;
   review_text: string | null;
   review_generated_at: string | null;
+  sample_email?: string | null;
+  sample_review_date?: string | null;
   reject_reasons: string[];
   last_error_code: string | null;
 };

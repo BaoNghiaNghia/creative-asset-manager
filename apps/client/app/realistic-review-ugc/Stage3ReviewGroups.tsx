@@ -15,6 +15,7 @@ import type {
   Stage3ReviewImage,
 } from "./types";
 import "./Stage3ReviewGroups.css";
+import "./Stage5ReviewIdentity.css";
 import "./Stage5SourceTree.css";
 import "./Stage5Toolbar.css";
 import "./StageSortControls.css";
@@ -324,6 +325,11 @@ export function Stage3ReviewModal({
           <small>{image.scene_type || image.framing_type || "Lifestyle review"}</small>
         </div>
 
+        <div className="rrugc-stage5-sample-identity" aria-label="Synthetic review fixture fields">
+          {image.sample_email && <div><small>Sample email</small><span>{image.sample_email}</span></div>}
+          {image.sample_review_date && <div><small>Sample review date</small><span>{image.sample_review_date}</span></div>}
+          <small>Fictional preview data · not a customer submission</small>
+        </div>
         <blockquote>{image.review_text}</blockquote>
 
         <div className="rrugc-stage3-review-modal-scores" aria-label="Review image scores">

@@ -6168,6 +6168,7 @@ def list_stage3_review_groups(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
+    from app.modules.realistic_review_ugc.loox_review_export import stage5_sample_email, stage5_sample_review_date
     # Keyset pagination: the previous 5,000-record cap hid old outputs and
     # loaded thousands of rows on every 5-second UI refresh.
     # (created_at, id) gives an immutable, deterministic ordering.
@@ -6340,6 +6341,8 @@ def list_stage3_review_groups(
                 review_generated_at=(
                     analysis.review_generated_at if analysis else None
                 ),
+                sample_email=(stage5_sample_email(job.id, analysis.reviewer_name) if analysis and analysis.reviewer_name and analysis.review_text else None),
+                sample_review_date=(stage5_sample_review_date(job.id, analysis.review_generated_at or job.completed_at) if analysis and analysis.reviewer_name and analysis.review_text else None),
                 reject_reasons=(
                     list(analysis.reject_reasons_json or [])
                     if analysis
