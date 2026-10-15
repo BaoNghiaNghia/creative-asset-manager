@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./BrandingDnaPage.css";
 import "./BrandingDnaWorkspace.css";
 import "./BrandingDnaOpsStyle.css";
+import "./BrandingDnaStageTabs.css";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
@@ -36,11 +37,22 @@ export function BrandingDnaPage() {
       Shop Registry và quản lý Worker kết nối PostgreSQL. Phía dưới: UI prototype dùng dữ liệu mô phỏng; các nút Scan, Add Shop, Approve, Export chưa kết nối dữ liệu thật;
       chưa kết nối Browser Scanner, Gemini hoặc nguồn evidence thật.
     </div>
-    <nav className="bdna-navigation ops-tabs" aria-label="Branding DNA workspace" role="tablist">
-      {tabs.map(item => <button key={item.id} type="button" onClick={() => setActiveTab(item.id)} aria-current={activeTab === item.id ? "page" : undefined}>
-        <strong>{item.title}</strong><small>{item.note}</small>
-      </button>)}
-    </nav>
+    <div className="bdna-stage-shell">
+      <nav className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
+        const index = tabs.findIndex(item => item.id === activeTab);
+        const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
+        if (next < 0) return;
+        event.preventDefault();
+        setActiveTab(tabs[next].id);
+        window.requestAnimationFrame(() => document.getElementById("bdna-stage-" + tabs[next].id)?.focus());
+      }}>
+        {tabs.map((item, index) => <button key={item.id} id={"bdna-stage-" + item.id} type="button" role="tab" aria-selected={activeTab === item.id} aria-controls={"bdna-panel-" + item.id} tabIndex={activeTab === item.id ? 0 : -1} className={activeTab === item.id ? "active" : ""} onClick={() => setActiveTab(item.id)}>
+          <span className="bdna-stage-number" aria-hidden="true">{index}</span>
+          <span className="bdna-stage-copy"><strong>{item.title}</strong><small>{item.note}</small></span>
+        </button>)}
+      </nav>
+    </div>
+    <section id={"bdna-panel-" + activeTab} role="tabpanel" aria-labelledby={"bdna-stage-" + activeTab} className="bdna-stage-panel">
     <div className="bdna-workspace-heading">
       <div><span>WORKSPACE / {activeTab.toUpperCase()}</span><h2>{tabs.find(item => item.id === activeTab)?.title}</h2>
         <p>{activeTab === "overview" ? "Production foundation, worker status và lộ trình triển khai." : activeTab === "shops" ? "Quản lý các shop được lưu theo tenant bằng dữ liệu thật." : activeTab === "scanner" ? "Lớp điều phối trình duyệt sẽ chỉ hoạt động sau khi worker và evidence pipeline đạt yêu cầu." : activeTab === "products" ? "Sản phẩm sẽ hiển thị tại đây khi đã có dữ liệu quét có thể kiểm chứng." : "Brand identity và insights sẽ hình thành từ evidence sản phẩm đã được kiểm chứng."}</p></div>
@@ -55,6 +67,7 @@ export function BrandingDnaPage() {
       <div className="bdna-future-steps"><span>1 · Add Shop</span><span>2 · Connect Worker</span><span>3 · Verify Evidence</span><span>4 · Generate Insights</span></div>
       <button type="button" onClick={() => setActiveTab("shops")}>Đi đến Shop Library →</button>
     </section>}
+    </section>
     <section className="branding-dna-preview-link" aria-label="Branding DNA design preview">
       <div>
         <strong>UI Prototype · dữ liệu mô phỏng</strong>
