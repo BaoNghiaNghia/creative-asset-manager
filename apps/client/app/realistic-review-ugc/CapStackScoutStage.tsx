@@ -3,7 +3,7 @@ import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import {
-  listCapStackImages, setCapStackEnabled, setCapStackImageFeedback,
+  listCapStackImages, setCapStackEnabled, setCapStackImageFeedback, retryCapStackVision,
   type CapStackImage, type CapStackLabel, type CapStackPage,
 } from "./api";
 import "./CapStackScoutStage.css";
@@ -13,6 +13,12 @@ const LABELS = [
   { id: "good", name: "Approved" }, { id: "bad", name: "Rejected" },
   { id: "ai", name: "AI images" },
 ];
+
+const VISION_STATUS_OPTIONS = [
+  ["all", "Any Gemini status"], ["pending", "Gemini pending"], ["analyzing", "Gemini analyzing"],
+  ["ready", "Count ready"], ["needs_review", "Low confidence"],
+  ["not_cap_stack", "Not a Cap Stack"], ["error", "Gemini error"],
+] as const;
 
 const DEFAULT_PAGE: CapStackPage = {
   items: [], total: 0, page: 1, page_size: 40,
@@ -29,6 +35,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [label, setLabel] = useState("all");
+  const [visionStatus, setVisionStatus] = useState("all");
   const [count, setCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
@@ -52,7 +59,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       inflight = true;
       setLoading(true);
       try {
-        const next = await listCapStackImages({ page, pageSize: 40, q: debouncedQuery, label, capsCount: count });
+        const next = await listCapStackImages({ page, pageSize: 40, q: debouncedQuery, label, capsCount: count, visionStatus });
         if (mounted) { setData(next); setError(""); }
       } catch (reason) {
         if (mounted) setError(reason instanceof Error ? reason.message : "Cap Stack Library could not load.");
@@ -66,7 +73,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       if (!document.hidden && !busy && !selected) void refresh();
     }, 15000);
     return () => { mounted = false; window.clearInterval(timer); };
-  }, [active, page, label, count, debouncedQuery, busy, selected]);
+  }, [active, page, label, visionStatus, count, debouncedQuery, busy, selected]);
 
   async function updateImage(image: CapStackImage, body: { label?: "good" | "bad" | "ai" | "clear"; caps_count?: number }) {
     if (busy) return;
@@ -96,6 +103,19 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save Cap Stack feedback.");
+    } finally { setBusy(""); }
+  }
+
+  async function retryVision(image: CapStackImage) {
+    if (busy) return;
+    setBusy(image.id);
+    try {
+      const response = await retryCapStackVision(image.id);
+      setData(current => ({ ...current, items: current.items.map(item => item.id === image.id ? response.image : item) }));
+      setSelected(current => current?.id === image.id ? response.image : current);
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to retry Gemini vision analysis.");
     } finally { setBusy(""); }
   }
 
@@ -136,7 +156,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     <RrugcStageHeader
       kicker="GATORHATS REVIEWS · STAGE 1"
       title="Cap Stack Scout"
-      description="One shared Pinterest library for stacked caps. No embroidery groups or per-product folders. Human decisions train Cap Stack query priorities."
+      description="Shared Pinterest library. Gemini pool counts visible caps and highlights uncertain photos; human feedback remains authoritative."
       actions={<div className="rrugc-cap-stack-top">
         <span className={"rrugc-cap-stack-state " + (data.scout.enabled ? "enabled" : "")}>
           <span aria-hidden="true">●</span> {data.scout.running ? "Scanning" : data.scout.enabled ? "Enabled · waiting" : "Paused"}
@@ -161,6 +181,16 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       </div>
     </div>
 
+    <div className="rrugc-cap-stack-vision" aria-label="Shared Gemini pool analysis status">
+      <strong>Gemini pool · Image Analysis</strong>
+      <span>Count ready: {data.vision?.ready ?? 0}</span>
+      <span>Waiting: {(data.vision?.pending ?? 0) + (data.vision?.analyzing ?? 0)}</span>
+      <span>Review count: {data.vision?.needs_review ?? 0}</span>
+      <span>Not Cap Stack: {data.vision?.not_cap_stack ?? 0}</span>
+      <span>Suspected AI: {data.vision?.ai_suspected ?? 0}</span>
+      <span>Errors: {data.vision?.error ?? 0}</span>
+    </div>
+
     <div className="rrugc-cap-stack-toolbar">
       <div className="rrugc-cap-stack-search">
         <RrugcActionIcon name="scan"/>
@@ -169,6 +199,9 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       </div>
       <label>Status<select value={label} onChange={event => { setLabel(event.target.value); setPage(1); }}>
         {LABELS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select></label>
+      <label>Gemini status<select value={visionStatus} onChange={event => { setVisionStatus(event.target.value); setPage(1); }}>
+        {VISION_STATUS_OPTIONS.map(([key, label]) => <option value={key} key={key}>{label}</option>)}
       </select></label>
       <label>Caps detected<select value={count ?? ""} onChange={event => { setCount(event.target.value ? Number(event.target.value) : null); setPage(1); }}>
         <option value="">Any number</option>
@@ -188,7 +221,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       <p>{data.stats.discovered
         ? "Change the status, number of caps or search text to view other images."
         : "Enable Cap Stack Scout here, then start Cap Stack Scout in Windows Scout Manager. Images will arrive here when Pinterest discovery finds new Pins."}</p>
-      <small>Keyword: Cap Stack · Auto cap counting awaits the vision-analysis worker. No unverified AI estimates are shown.</small>
+      <small>Keyword: Cap Stack · Gemini runs through CAM shared pool; image processing retries when capacity is available.</small>
     </div>}
     <div className={"rrugc-cap-stack-gallery view-" + view} aria-label="Cap Stack image library">
       {data.items.map(item => <article key={item.id} className="rrugc-cap-stack-card">
@@ -203,6 +236,10 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
           <div className="rrugc-cap-stack-card-title"><strong>{item.source_query || "Cap Stack"}</strong>
             <span className={"label-" + (item.manual_label || "pending")}>{actionLabel(item.manual_label)}</span></div>
           <p>{item.alt_text || "Pinterest reference · pending verification"}</p>
+          <div className="rrugc-cap-stack-ai-status">
+            <span className={"status-" + item.count_status}>{item.count_status === "ready" ? "Gemini: counted" : item.count_status === "needs_review" ? "Gemini: low confidence" : item.count_status === "not_cap_stack" ? "Not a Cap Stack" : item.count_status === "error" ? "Gemini error" : item.count_status === "analyzing" ? "Gemini: analyzing" : "Gemini: queued"}</span>
+            {item.ai_suspected === true && <span className="suspected">AI suspected · review</span>}
+          </div>
           <div className="rrugc-cap-stack-card-footer">{buttons(item)}
             <a href={item.pin_url} target="_blank" rel="noreferrer noopener" aria-label="Open original Pinterest Pin">Pinterest ↗</a></div>
         </div>
@@ -229,7 +266,17 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
               onChange={event => setEditableCount(event.target.value)} /></label>
             <button type="button" disabled={Boolean(busy) || !Number.isInteger(Number(editableCount)) || Number(editableCount) < 1 || Number(editableCount) > 50}
               onClick={() => void updateImage(selected, { caps_count: Number(editableCount) })}>Save cap count</button>
-            <small>AI count: {selected.count_status === "pending" ? "Pending verified image analysis" : selected.caps_detected ?? "Not available"}</small>
+            <div className="rrugc-cap-stack-ai-details">
+              <strong>Gemini vision · {selected.count_status.replace(/_/g, " ")}</strong>
+              <span>Visible caps: {selected.caps_detected ?? "Not analyzed"} · Confidence: {selected.count_confidence == null ? "—" : Math.round(selected.count_confidence * 100) + "%"}</span>
+              <span>Stack detected: {selected.is_cap_stack == null ? "Unknown" : selected.is_cap_stack ? "Yes" : "No"}</span>
+              <span>AI-generated suspicion: {selected.ai_suspected == null ? "Not assessed" : selected.ai_suspected ? "Possible — human review required" : "No obvious signs"}</span>
+              {selected.visual_summary && <p>{selected.visual_summary}</p>}
+              {selected.analysis_model && <small>Gemini model: {selected.analysis_model}</small>}
+              {selected.analysis_error_code && <small>Analysis error: {selected.analysis_error_code}</small>}
+            </div>
+            {selected.count_status !== "analyzing" && selected.count_status !== "pending" &&
+              <button type="button" disabled={Boolean(busy)} onClick={() => void retryVision(selected)}>Retry Gemini analysis</button>}
             {buttons(selected)}
             <a href={selected.pin_url} target="_blank" rel="noreferrer noopener">Open original Pinterest Pin ↗</a>
           </div>

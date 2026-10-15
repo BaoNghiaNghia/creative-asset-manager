@@ -16,8 +16,8 @@
 .rrugc-cap-stack-toolbar{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid #e0e7f0;border-radius:11px;background:#fafcff;min-width:0}
 .rrugc-cap-stack-search{display:flex;align-items:center;gap:7px;width:clamp(220px,30%,380px);min-width:0;padding:0 10px;height:40px;box-sizing:border-box;border:1px solid #d2dfed;background:#fff;border-radius:9px;color:#91a0b3}
 .rrugc-cap-stack-search input{width:100%;min-width:0;border:0;outline:0;font:inherit;font-size:12px;color:#1f3654;background:transparent}
-.rrugc-cap-stack-toolbar label{display:grid;gap:4px;min-width:126px;color:#6d8098;font-size:10px;font-weight:750}
-.rrugc-cap-stack-toolbar select{height:40px;max-width:210px;padding:0 30px 0 10px;box-sizing:border-box;border:1px solid #d2dfed;border-radius:8px;background:#fff;color:#29415f;font:inherit;font-size:12px;font-weight:650}
+.rrugc-cap-stack-toolbar label{display:grid;gap:4px;min-width:126px;max-width:100%;color:#6d8098;font-size:10px;font-weight:750}
+.rrugc-cap-stack-toolbar select{height:40px;width:100%;min-width:0;max-width:100%;padding:0 30px 0 10px;box-sizing:border-box;border:1px solid #d2dfed;border-radius:8px;background:#fff;color:#29415f;font:inherit;font-size:12px;font-weight:650}
 .rrugc-cap-stack-toolbar>span{margin-left:auto;align-self:center;color:#74859a;font-size:11px;white-space:nowrap}
 .rrugc-cap-stack-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:15px;min-width:0}
 .rrugc-cap-stack-gallery.view-list{grid-template-columns:minmax(0,1fr)}
@@ -69,6 +69,21 @@
 .rrugc-cap-stack-modal-aside input{height:37px;padding:7px 11px;border:1px solid #cedbeb;border-radius:8px}
 .rrugc-cap-stack-modal-aside>button{height:37px;border:0;border-radius:8px;background:#254f8b;color:#fff;cursor:pointer}
 .rrugc-cap-stack-modal-aside small{font-size:10px;color:#8895aa;line-height:1.6}
+
+.rrugc-cap-stack-vision{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 12px;border:1px solid #d8e7f5;background:#f3f8ff;border-radius:10px;color:#3c628b}
+.rrugc-cap-stack-vision strong{font-size:12px;margin-right:auto;color:#244d7a}
+.rrugc-cap-stack-vision span{font-size:10px;font-weight:650;padding:5px 7px;border-radius:6px;background:#fff;border:1px solid #e2e9f3;white-space:nowrap}
+.rrugc-cap-stack-ai-status{display:flex;align-items:center;flex-wrap:wrap;gap:5px;font-size:10px;font-weight:700}
+.rrugc-cap-stack-ai-status span{padding:4px 6px;border:1px solid #dce7f3;border-radius:5px;color:#57759a;background:#f5f8fd}
+.rrugc-cap-stack-ai-status .status-ready{background:#e9f7ed;border-color:#cae7d1;color:#2e7e4b}
+.rrugc-cap-stack-ai-status .status-error,.rrugc-cap-stack-ai-status .status-not_cap_stack{background:#fff3ee;border-color:#eed6c8;color:#a8583c}
+.rrugc-cap-stack-ai-status .status-needs_review,.rrugc-cap-stack-ai-status .suspected{background:#fbf0ff;border-color:#e6c9f2;color:#834aa4}
+.rrugc-cap-stack-ai-details{display:grid;gap:8px;padding:12px;border:1px solid #dce7f6;border-radius:9px;background:#f7faff;color:#536b88;font-size:11px}
+.rrugc-cap-stack-ai-details strong{color:#2b4f79;font-size:12px}
+.rrugc-cap-stack-ai-details p{margin:0;line-height:1.5;color:#60799a}
+.rrugc-cap-stack-ai-details small{overflow-wrap:anywhere}
+@media(max-width:760px){.rrugc-cap-stack-vision strong{width:100%}}
+
 @media(max-width:1060px){.rrugc-cap-stack-summary{grid-template-columns:repeat(5,minmax(0,1fr))}.rrugc-cap-stack-learning{grid-column:1/-1}}
 @media(max-width:760px){.rrugc-cap-stack-top{justify-content:flex-start}.rrugc-cap-stack-summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.rrugc-cap-stack-summary>div{padding:11px}.rrugc-cap-stack-summary strong{font-size:19px}.rrugc-cap-stack-search{width:100%}.rrugc-cap-stack-toolbar label{flex:1;min-width:110px}.rrugc-cap-stack-toolbar>span{margin:0}.rrugc-cap-stack-gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.rrugc-cap-stack-card-body{padding:8px}.rrugc-cap-stack-card-title{flex-wrap:wrap}.rrugc-cap-stack-card-footer{flex-wrap:wrap}.rrugc-cap-stack-modal-content{grid-template-columns:1fr}.rrugc-cap-stack-modal-aside{max-width:100%}}
 @media(max-width:390px){.rrugc-cap-stack-gallery{grid-template-columns:minmax(0,1fr)}.rrugc-cap-stack-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.rrugc-cap-stack-gallery.view-list .rrugc-cap-stack-preview{width:115px}}

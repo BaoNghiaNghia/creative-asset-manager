@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.realistic_review_ugc.cap_stack_model import RrugcCapStackControlModel, RrugcCapStackImageModel
+from app.modules.realistic_review_ugc.cap_stack_analysis import enqueue_cap_stack_pending
 from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
 from app.modules.realistic_review_ugc.service import RrugcError
 
@@ -82,6 +83,12 @@ def image_dict(row: RrugcCapStackImageModel) -> dict:
         "alt_text": row.alt_text, "source_query": row.source_query,
         "caps_detected": row.caps_detected, "count_status": row.count_status,
         "count_confidence": row.count_confidence,
+        "is_cap_stack": row.is_cap_stack, "ai_suspected": row.ai_suspected,
+        "ai_suspicion_confidence": row.ai_suspicion_confidence,
+        "visual_summary": row.visual_summary,
+        "analysis_model": row.analysis_model,
+        "analysis_error_code": row.analysis_error_code,
+        "analyzed_at": row.analyzed_at,
         "manual_caps_count": row.manual_caps_count, "manual_label": row.manual_label,
         "created_at": row.created_at,
     }
@@ -121,6 +128,7 @@ def list_cap_stack(
     q: str = Query(default="", max_length=160),
     label: str = Query(default="all", pattern="^(all|pending|good|bad|ai)$"),
     caps_count: int | None = Query(default=None, ge=1, le=50),
+    vision_status: str = Query(default="all", pattern="^(all|pending|analyzing|ready|needs_review|not_cap_stack|error)$"),
     page: int = Query(default=1, ge=1, le=10000),
     page_size: int = Query(default=40, ge=1, le=100),
     session: Session = Depends(get_db),
@@ -138,6 +146,8 @@ def list_cap_stack(
         stmt = stmt.where(RrugcCapStackImageModel.manual_label.is_(None))
     elif label != "all":
         stmt = stmt.where(RrugcCapStackImageModel.manual_label == label)
+    if isinstance(vision_status, str) and vision_status != "all":
+        stmt = stmt.where(RrugcCapStackImageModel.count_status == vision_status)
     if caps_count is not None:
         stmt = stmt.where(
             func.coalesce(RrugcCapStackImageModel.manual_caps_count,
@@ -156,7 +166,24 @@ def list_cap_stack(
         )
     )
     control = get_control(session, tenant)
+    vision_counts = Counter(
+        status for status in session.scalars(
+            select(RrugcCapStackImageModel.count_status).where(
+                RrugcCapStackImageModel.tenant_id == tenant
+            )
+        )
+    )
+    suspected_ai = int(session.scalar(select(func.count(RrugcCapStackImageModel.id)).where(
+        RrugcCapStackImageModel.tenant_id == tenant,
+        RrugcCapStackImageModel.ai_suspected.is_(True),
+    )) or 0)
     return {
+        "vision": {
+            "ready": vision_counts["ready"], "analyzing": vision_counts["analyzing"],
+            "pending": vision_counts["pending"], "needs_review": vision_counts["needs_review"],
+            "not_cap_stack": vision_counts["not_cap_stack"], "error": vision_counts["error"],
+            "ai_suspected": suspected_ai,
+        },
         "items": [image_dict(row) for row in rows], "total": total,
         "page": page, "page_size": page_size,
         "stats": {"discovered": sum(totals.values()), "approved": totals["good"],
@@ -212,6 +239,32 @@ def set_cap_stack_feedback(
         row.manual_caps_count = body.caps_count
     session.commit()
     return image_dict(row)
+
+
+
+@router.post("/{image_id}/analyze")
+def retry_cap_stack_vision(
+    image_id: str, session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Reanalyze a photo while preserving human labels and count overrides."""
+    tenant = principal.active_tenant_id
+    row = session.scalar(select(RrugcCapStackImageModel).where(
+        RrugcCapStackImageModel.tenant_id == tenant,
+        RrugcCapStackImageModel.id == image_id,
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(404, "Cap Stack image not found.")
+    if row.count_status in ("analyzing", "pending"):
+        raise HTTPException(409, "Cap Stack vision is already pending.")
+    row.analysis_revision += 1
+    row.count_status = "pending"
+    row.analysis_error_code = None
+    row.analyzed_at = None
+    session.flush()
+    queued = enqueue_cap_stack_pending(session, tenant, limit=6)
+    session.commit()
+    return {"image": image_dict(row), "vision_queued": queued}
 
 
 def cap_stack_learning_queries(session: Session, tenant: str) -> list[str]:
@@ -305,9 +358,14 @@ def submit_cap_stack(
     control = control_for_run(session, agent.tenant_id, agent_id, run_id)
     created = 0
     existing = 0
+    seen_keys: set[str] = set()
     for item in body.items:
         key = pin_key(item.pin_url)
         validate_image_url(item.image_url)
+        if key in seen_keys:
+            existing += 1
+            continue
+        seen_keys.add(key)
         if session.scalar(select(RrugcCapStackImageModel.id).where(
             RrugcCapStackImageModel.tenant_id == agent.tenant_id,
             RrugcCapStackImageModel.pin_key == key,
@@ -323,9 +381,11 @@ def submit_cap_stack(
         created += 1
     control.run_created += created
     control.lease_expires_at = utc_now() + timedelta(minutes=LEASE_MINUTES)
+    session.flush()
+    queued = enqueue_cap_stack_pending(session, agent.tenant_id)
     session.commit()
     return {
-        "created": created, "existing": existing, "progress": control.run_created,
+        "created": created, "existing": existing, "vision_queued": queued, "progress": control.run_created,
         "pipeline_count": control.run_created, "target_count": LANE_TARGET,
         "campaign_status": "running" if control.run_created < LANE_TARGET else "complete",
     }

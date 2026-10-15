@@ -48,8 +48,22 @@
         {"type":"text-includes","selector":"#rrugc-panel-reviews-stage1","value":"Cap Stack Scout"},
         {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-summary"},
         {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-gallery"},
-        {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-toolbar"}
+        {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-toolbar"},
+        {"type":"visible","selector":"#rrugc-panel-reviews-stage1 .rrugc-cap-stack-vision"}
       ]
+    },
+    {
+      "name": "cap-stack-gemini-details",
+      "click": "#rrugc-panel-reviews-stage1 .rrugc-cap-stack-preview",
+      "waitFor": "#rrugc-panel-reviews-stage1 .rrugc-cap-stack-modal",
+      "assertions": [
+        {"type":"text-includes","selector":".rrugc-cap-stack-ai-details","value":"Gemini"}
+      ]
+    },
+    {
+      "name": "cap-stack-close-details",
+      "click": "#rrugc-panel-reviews-stage1 .rrugc-cap-stack-modal header button",
+      "waitFor": "#rrugc-panel-reviews-stage1 .rrugc-cap-stack-gallery"
     },
     {
       "name": "default",

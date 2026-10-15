@@ -60,6 +60,43 @@ describe("Cap Stack Scout Stage 1", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows Gemini suggestions separately and allows reanalysis without changing human feedback", async () => {
+    const analyzed: api.CapStackPage = {
+      ...sample,
+      items: [{
+        ...sample.items[0], count_status: "needs_review", caps_detected: 3,
+        count_confidence: 0.52, manual_caps_count: 4, manual_label: "good",
+        is_cap_stack: true, ai_suspected: true,
+        visual_summary: "Several trucker caps overlap; a rear cap is obscured.",
+        analysis_model: "gemini-pool-qa",
+      }],
+      vision: {
+        ready: 0, analyzing: 0, pending: 0, needs_review: 1,
+        not_cap_stack: 0, error: 0, ai_suspected: 1,
+      },
+    };
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue(analyzed);
+    const retry = vi.spyOn(api, "retryCapStackVision").mockResolvedValue({
+      image: { ...analyzed.items[0], count_status: "pending" }, vision_queued: 1,
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+    expect(host.textContent).toContain("Gemini: low confidence");
+    expect(host.textContent).toContain("Suspected AI: 1");
+    await act(async () => { host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-preview")!.click(); });
+    expect(host.textContent).toContain("Visible caps: 3");
+    expect(host.textContent).toContain("Gemini model: gemini-pool-qa");
+    const action = Array.from(host.querySelectorAll<HTMLButtonElement>(".rrugc-cap-stack-modal button"))
+      .find(button => button.textContent?.includes("Retry Gemini"));
+    await act(async () => { action!.click(); await Promise.resolve(); });
+    expect(retry).toHaveBeenCalledWith("one");
+    expect(host.textContent).toContain("Gemini vision · pending");
+    expect(host.textContent).toContain("Approved");
+    await act(async () => root.unmount());
+  });
+
   it("does not poll while the panel is inactive", async () => {
     const loader = vi.spyOn(api, "listCapStackImages");
     const host = document.createElement("div");

@@ -45,13 +45,26 @@ the production Windows workstation.
   image. These labels are scoped to this shared library only.
 - The next Cap Stack query ranking favors keywords with a better approval
   yield. This **query ranking is live** and does not require a model retrain.
-- `caps_detected` is **unknown** until an image-analysis model verifies
-  the number of stacked caps. Human corrections are stored separately as
-  `manual_caps_count` and override any later AI count.
-- This initial rollout **does not yet include the computer vision cap
-  detector**, visual deduplication, or automated classification of whether
-  the image actually shows a Cap Stack. Such images remain pending human
-  feedback. Do not show guessed counts or claim a learned CV model.
+- **Gemini pool vision (revision 0155)**: each newly ingested Cap Stack image
+  is queued through `rrugc_cap_stack_analyze`, using the SAME Gemini
+  credential selection, quota coordinator, per-model start gates and shared
+  RRUGC concurrency reservation as candidate/source/UGC analysis. No new key,
+  external vision provider, or separate quota is used.
+- A bounded maintenance backfill (max 6 active queued jobs per tenant,
+  priority 4, no starvation boost) processes old pending images too. Existing
+  Stage 3 candidate and source jobs take precedence. Quota/cooldown errors
+  defer without consuming retries; hard failures are recorded with a safe
+  error code and a manual **Retry Gemini analysis** action.
+- Vision returns `is_cap_stack`, count of *visually distinct* target caps
+  (0–50), confidence (0–1), uncertain AI suspicion (NOT definitive AI
+  provenance), and a short pixel-grounded summary. A count under 66%
+  confidence is flagged `needs_review` and non-stacked imagery is flagged
+  `not_cap_stack`. This is an AI estimate, **not a verified ground truth**.
+- Human corrections are stored separately as `manual_caps_count`,
+  prioritized over the AI suggestion and never overwritten by regeneration.
+  Likewise ✓ / × / AI manual labels are independent from Gemini suggestions.
+- Automated image similarity grouping/visual deduplication is still not
+  implemented. Pinterest numeric Pin IDs are deduplicated exactly.
 - The source picture is an original Pinterest image URL, not a rehosted
   R2 image CDN item; future ingestion should cache compliant thumbnail
   renditions privately with authorization and size quotas.

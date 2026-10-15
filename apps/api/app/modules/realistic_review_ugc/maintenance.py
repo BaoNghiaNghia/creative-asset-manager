@@ -15,6 +15,8 @@ from app.core.config import Settings
 from app.modules.ai_governance.gemini_quota import GeminiProjectQuotaRepository
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.cap_stack_model import RrugcCapStackImageModel
+from app.modules.realistic_review_ugc.cap_stack_analysis import enqueue_cap_stack_pending
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
@@ -397,6 +399,7 @@ class RrugcMaintenanceScheduler:
             ids.update(
                 session.scalars(select(RrugcScoutAgentModel.tenant_id).distinct())
             )
+            ids.update(session.scalars(select(RrugcCapStackImageModel.tenant_id).distinct()))
             return tuple(sorted(item for item in ids if item))
 
     def tick(self) -> dict[str, dict[str, int]]:
@@ -408,6 +411,18 @@ class RrugcMaintenanceScheduler:
                 counts = RrugcMaintenanceService(session, self.settings).repair_tenant(
                     tenant_id
                 )
+                # Low-priority Cap Stack Gemini backfill shares the existing
+                # quota gate. Never queue an unbounded historical backlog.
+                if (
+                    self.settings.DYNAMIC_AI_METADATA_ENABLED
+                    and self.settings.AI_SINGLE_ANALYSIS_ENABLED
+                    and not self.settings.GEMINI_EMERGENCY_STOP_ENABLED
+                    and not self.settings.AI_EMERGENCY_STOP_ENABLED
+                ):
+                    counts["cap_stack_vision_enqueued"] = enqueue_cap_stack_pending(
+                        session, tenant_id
+                    )
+                    session.commit()
             results[tenant_id] = counts
             if any(counts.values()):
                 self.logger.info(

@@ -64,19 +64,23 @@ export type CapStackImage = {
   source_query: string | null; caps_detected: number | null;
   count_status: string; count_confidence: number | null;
   manual_caps_count: number | null; manual_label: CapStackLabel; created_at: string;
+  is_cap_stack?: boolean | null; ai_suspected?: boolean | null;
+  ai_suspicion_confidence?: number | null; visual_summary?: string | null;
+  analysis_model?: string | null; analysis_error_code?: string | null; analyzed_at?: string | null;
 };
 export type CapStackPage = {
   items: CapStackImage[]; total: number; page: number; page_size: number;
   stats: { discovered: number; approved: number; rejected: number; ai: number; pending: number };
+  vision?: { ready: number; analyzing: number; pending: number; needs_review: number; not_cap_stack: number; error: number; ai_suspected: number };
   scout: { enabled: boolean; running: boolean; last_result: string | null; next_scan_at: string | null };
 };
 const CAP_STACK_PATH = "/api/v1/realistic-review-ugc/cap-stack";
 export function listCapStackImages(params: {
-  page?: number; pageSize?: number; q?: string; label?: string; capsCount?: number | null;
+  page?: number; pageSize?: number; q?: string; label?: string; capsCount?: number | null; visionStatus?: string;
 }, signal?: AbortSignal): Promise<CapStackPage> {
   const query = new URLSearchParams({
     page: String(params.page || 1), page_size: String(params.pageSize || 40),
-    q: params.q || "", label: params.label || "all",
+    q: params.q || "", label: params.label || "all", vision_status: params.visionStatus || "all",
   });
   if (params.capsCount) query.set("caps_count", String(params.capsCount));
   return request<CapStackPage>(CAP_STACK_PATH + "?" + query.toString(), { signal });
@@ -93,6 +97,10 @@ export function setCapStackImageFeedback(
   return request(CAP_STACK_PATH + "/" + encodeURIComponent(imageId) + "/feedback", {
     method: "POST", body: JSON.stringify(body),
   });
+}
+
+export function retryCapStackVision(imageId: string): Promise<{ image: CapStackImage; vision_queued: number }> {
+  return request(CAP_STACK_PATH + "/" + encodeURIComponent(imageId) + "/analyze", { method: "POST" });
 }
 
 export class RrugcApiError extends Error {

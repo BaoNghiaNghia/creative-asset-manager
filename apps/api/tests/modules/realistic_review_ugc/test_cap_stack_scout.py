@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.modules.processing.model import ProcessingJobModel
+from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.cap_stack_model import (
     RrugcCapStackControlModel, RrugcCapStackImageModel,
 )
@@ -21,6 +23,8 @@ def session(monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     RrugcCapStackControlModel.__table__.create(engine)
     RrugcCapStackImageModel.__table__.create(engine)
+    ProcessingJobModel.__table__.create(engine)
+    TenantProcessingPolicyModel.__table__.create(engine)
     monkeypatch.setattr(r, "agent_auth", lambda _session, _agent_id, _header: SimpleNamespace(tenant_id="tenant-a"))
     with Session(engine) as db:
         yield db
@@ -86,6 +90,55 @@ def test_library_deduplicates_by_tenant_and_trains_on_human_feedback(session):
     r.complete_cap_stack("agent-one", run, r.CompleteRequest(status="completed"), "Bearer test", session)
     assert claim(session) is None
 
+
+
+
+def test_retry_gemini_after_low_confidence_keeps_manual_feedback(session):
+    r.set_cap_stack_settings(r.SettingsRequest(enabled=True), session, user())
+    run = claim(session)["run"]["id"]
+    r.submit_cap_stack("agent-one", run, candidate(), "Bearer test", session)
+    from app.modules.processing.model import ProcessingJobModel
+    first = list(session.query(ProcessingJobModel).all())
+    assert len(first) == 1
+    image = session.query(RrugcCapStackImageModel).first()
+    image.count_status = "needs_review"
+    image.caps_detected = 3
+    image.manual_caps_count = 4
+    image.manual_label = "good"
+    session.commit()
+    response = r.retry_cap_stack_vision(image.id, session, user())
+    assert response["image"]["count_status"] == "pending"
+    assert response["image"]["manual_caps_count"] == 4
+    assert response["image"]["manual_label"] == "good"
+    assert response["vision_queued"] == 1
+    assert len(list(session.query(ProcessingJobModel).all())) == 2
+    with pytest.raises(HTTPException) as error:
+        r.retry_cap_stack_vision(image.id, session, user())
+    assert error.value.status_code == 409
+
+
+def test_gemini_analysis_fields_are_tenant_isolated(session):
+    r.set_cap_stack_settings(r.SettingsRequest(enabled=True), session, user())
+    run = claim(session)["run"]["id"]
+    r.submit_cap_stack("agent-one", run, candidate(), "Bearer test", session)
+    image = session.query(RrugcCapStackImageModel).first()
+    image.count_status = "ready"
+    image.is_cap_stack = True
+    image.caps_detected = 4
+    image.count_confidence = 0.99
+    image.ai_suspected = True
+    image.visual_summary = "A pile of four trucker caps with overlapping brims."
+    session.commit()
+    view = r.list_cap_stack(q="", label="all", caps_count=None, vision_status="ready", page=1, page_size=20,
+                            session=session, principal=user())
+    assert view["vision"]["ready"] == 1
+    assert view["vision"]["ai_suspected"] == 1
+    assert view["items"][0]["caps_detected"] == 4
+    assert view["items"][0]["ai_suspected"] is True
+    other = r.list_cap_stack(q="", label="all", caps_count=None, vision_status="ready", page=1, page_size=20,
+                             session=session, principal=user("tenant-b"))
+    assert other["total"] == 0
+    assert other["vision"]["ready"] == 0
 
 def test_urls_fail_closed_and_wrong_tenant_cannot_see_library(session):
     for url in ("http://www.pinterest.com/pin/123/", "https://evil.test/pin/123/",
