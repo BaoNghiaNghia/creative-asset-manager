@@ -4,6 +4,7 @@ import "./BrandingDnaWorkspace.css";
 import "./BrandingDnaOpsStyle.css";
 import "./BrandingDnaStageTabs.css";
 import "./BrandingDnaUnified.css";
+import "./BrandingDnaFullWidth.css";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
