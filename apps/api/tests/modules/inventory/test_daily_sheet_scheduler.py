@@ -194,9 +194,17 @@ class DailySheetSchedulerTest(unittest.TestCase):
         sheets = Sheets()
         scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
-        self.assertEqual(1, scheduler.run_once(moment))
+        # A Gemini plan that needs review is not a verified closing balance.
+        # Never mark its evening slot complete or unblock the next Morning Reset.
+        self.assertEqual(0, scheduler.run_once(moment))
         self.assertEqual(0, scheduler.run_once(moment))
         self.assertEqual(1, sheets.calls)
+        with self.sessions() as session:
+            evening = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
+            ))
+            self.assertEqual("failed", evening.status)
+            self.assertEqual("inventory_v5_result_review_required", evening.last_error_code)
 
     def _enable_v4(self):
         with self.sessions.begin() as session:
@@ -385,6 +393,170 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 RuntimeError("inventory_morning_reset_missed_safe_window")
             )
         )
+
+
+    def test_v4_previous_day_reconcile_retries_after_midnight_before_morning_reset(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 9, 17, 10, tzinfo=timezone.utc)  # 00:10 local, Aug 10
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_snapshot_time_local = "23:50"
+            settings.daily_reconcile_time_local = "23:55"
+            settings.daily_carry_forward_time_local = "05:00"
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:evening_reconcile",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:evening_reconcile",
+                payload_json={"business_date":"2030-08-09","slot_kind":"evening_reconcile"},
+                status="retry", attempt_count=3, max_attempts=12,
+                next_attempt_at=moment - timedelta(minutes=1),
+                last_error_code="inventory_gemini_request_failed",
+            ))
+
+        class Sheets:
+            def __init__(self):
+                self.calls = []
+            def run_agent_v4(self, _tenant, business_date, *, slot_kind=None):
+                self.calls.append((business_date.isoformat(),slot_kind))
+                return SimpleNamespace(status="completed")
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        self.assertEqual(1, scheduler.run_once(moment))
+        self.assertEqual([("2030-08-09","evening_reconcile")], sheets.calls)
+        self.assertEqual(0, scheduler.run_once(moment + timedelta(minutes=1)))
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.entity_id == "2030-08-09:evening_reconcile"
+            ))
+            self.assertEqual("completed", job.status)
+
+    def test_v4_previous_day_reconcile_never_starts_without_a_previous_slot_or_after_reset(self):
+        self._enable_v4()
+        local_midnight = datetime(2030, 8, 9, 17, 10, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_snapshot_time_local = "23:50"
+            settings.daily_reconcile_time_local = "23:55"
+            settings.daily_carry_forward_time_local = "05:00"
+        class Sheets:
+            def run_agent_v4(self, *_args, **_kwargs):
+                raise AssertionError("prior-day Gemini must not run")
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=Sheets(), carry_forward_service=SimpleNamespace(
+            run=lambda *_args: SimpleNamespace(status="retryable_failure",error_code="previous_day_gemini_not_verified")
+        ))
+        # No previous evening job: never retroactively create one.
+        self.assertEqual(0, scheduler.run_once(local_midnight))
+        with self.sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot", entity_id="2030-08-09:evening_reconcile",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:evening_reconcile",
+                status="failed", attempt_count=12, max_attempts=12,
+                last_error_code="inventory_gemini_auth_or_permission_error",
+                next_attempt_at=local_midnight,
+            ))
+        # Permanent provider auth errors must not be replayed.
+        self.assertEqual(0, scheduler.run_once(local_midnight))
+        # Outside the prior-day catch-up window, never touch the old copy.
+        self.assertEqual(0, scheduler.run_once(local_midnight + timedelta(hours=8)))
+
+
+    def test_v4_previous_day_recovers_legacy_exhausted_transient_retry(self):
+        self._enable_v4()
+        midnight = datetime(2030, 8, 9, 17, 10, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_snapshot_time_local = "23:50"
+            settings.daily_reconcile_time_local = "23:55"
+            settings.daily_carry_forward_time_local = "05:00"
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:evening_reconcile",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:evening_reconcile",
+                status="failed", attempt_count=12, max_attempts=12,
+                last_error_code="inventory_gemini_request_failed",
+                next_attempt_at=midnight, completed_at=midnight,
+            ))
+        class Sheets:
+            def __init__(self):
+                self.calls = 0
+            def run_agent_v4(self, *_args, **_kwargs):
+                self.calls += 1
+                return SimpleNamespace(status="completed")
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        self.assertEqual(1, scheduler.run_once(midnight))
+        self.assertEqual(1, sheets.calls)
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.entity_id == "2030-08-09:evening_reconcile"
+            ))
+            self.assertEqual("completed", job.status)
+            self.assertGreater(job.max_attempts, 12)
+
+    def test_v4_evening_gemini_transport_backoff_avoids_rapid_retry(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 9, 16, 55, tzinfo=timezone.utc)
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        job_id, worker_id = scheduler._claim_v4_slot(
+            tenant_id="tenant-a", business_date=date(2030, 8, 9),
+            slot_kind="evening_reconcile", now=moment,
+        )
+        scheduler._fail_v4_slot(
+            tenant_id="tenant-a", job_id=job_id, worker_id=worker_id,
+            error=InventoryAiGatewayError("inventory_gemini_request_failed", retryable=True, provider_status=503),
+            retryable=True, now=moment,
+        )
+        with self.sessions() as session:
+            job = session.get(InventoryJobModel, job_id)
+            next_attempt = job.next_attempt_at.replace(tzinfo=timezone.utc)
+            self.assertEqual("retry", job.status)
+            self.assertGreaterEqual(next_attempt, moment + timedelta(minutes=5))
+            self.assertGreater(job.max_attempts, 12)
+
+
+    def test_v4_nonretryable_gemini_http_error_remains_terminal_after_budget_upgrade(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 9, 16, 55, tzinfo=timezone.utc)
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        job_id, worker_id = scheduler._claim_v4_slot(
+            tenant_id="tenant-a", business_date=date(2030, 8, 9),
+            slot_kind="evening_reconcile", now=moment,
+        )
+        error = InventoryAiGatewayError(
+            "inventory_gemini_request_failed", retryable=False, provider_status=422
+        )
+        scheduler._fail_v4_slot(
+            tenant_id="tenant-a", job_id=job_id, worker_id=worker_id,
+            error=error, retryable=scheduler._retryable_v4_error(error), now=moment,
+        )
+        with self.sessions() as session:
+            job = session.get(InventoryJobModel, job_id)
+            self.assertEqual("failed", job.status)
+            self.assertEqual("inventory_gemini_provider_rejected", job.last_error_code)
+        self.assertEqual(
+            frozenset(),
+            scheduler._v4_due_slot_candidates(
+                tenant_id="tenant-a", business_date=date(2030, 8, 9),
+                slot_kinds=("evening_reconcile",),
+                now=moment + timedelta(minutes=10),
+            ),
+        )
+
+    def test_v4_provider_explicit_nonretryable_error_is_not_retried(self):
+        self.assertFalse(InventoryDailyScheduler._retryable_v4_error(
+            InventoryAiGatewayError("inventory_gemini_request_failed", retryable=False, provider_status=422)
+        ))
 
     def test_v4_due_gate_self_heals_legacy_transient_terminal_failure(self):
         self._enable_v4()

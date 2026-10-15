@@ -25,6 +25,8 @@ V4_SLOT_JOB_TYPES = {
 }
 V4_SETTLED_RESULTS = frozenset({"completed", "shadow", "review_required"})
 V4_SLOT_MAX_ATTEMPTS = 12
+# Keep transient Gemini outages retryable through the pre-reset night only.
+V4_EVENING_RECONCILE_MAX_ATTEMPTS = 72
 V4_SLOT_LEASE_SECONDS = 15 * 60
 V4_RATE_LIMIT_RETRY_SECONDS = 5 * 60
 V4_MANUAL_RECOVERY_ERROR_CODES = frozenset({
@@ -83,6 +85,11 @@ class InventoryDailyScheduler:
         self._completed_v3_plans: set[tuple[str, date]] = set()
 
     @staticmethod
+    def _slot_attempt_budget(slot_kind: str) -> int:
+        return (V4_EVENING_RECONCILE_MAX_ATTEMPTS
+                if slot_kind == "evening_reconcile" else V4_SLOT_MAX_ATTEMPTS)
+
+    @staticmethod
     def _local_business_date(settings: InventorySettingsModel, moment: datetime) -> date:
         try:
             local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
@@ -109,10 +116,74 @@ class InventoryDailyScheduler:
                 selected.append(row)
             return selected
 
+    def _retry_previous_day_reconcile(
+        self, *, settings: InventorySettingsModel, local: datetime, now: datetime,
+    ) -> int:
+        """Continue last night's persisted Gemini-copy job before today's reset.
+
+        Never create a historical slot, refresh a shared Sheet, or attempt a
+        previous-day write after the configured Morning Reset time. The V4
+        service additionally checks that its snapshot source is unchanged.
+        """
+        reset_time = _configured_time(
+            settings.daily_carry_forward_time_local, time(5, 0)
+        )
+        if local.time() >= reset_time:
+            return 0
+        previous_day = local.date() - timedelta(days=1)
+        with self.session_factory() as session:
+            snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == settings.tenant_id,
+                InventoryDailySheetSnapshotModel.business_date == previous_day,
+            ))
+            previous_job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.tenant_id == settings.tenant_id,
+                InventoryJobModel.job_type == V4_SLOT_JOB_TYPES["evening_reconcile"],
+                InventoryJobModel.entity_id == f"{previous_day.isoformat()}:evening_reconcile",
+            ))
+            if (
+                snapshot is None
+                or snapshot.status != "completed"
+                or not snapshot.gemini_file_id
+                or not snapshot.snapshot_file_id
+                or previous_job is None
+                or previous_job.status == "completed"
+                or (
+                    snapshot.gemini_reconcile_status == "completed"
+                    and snapshot.gemini_reconcile_verified_at is not None
+                )
+            ):
+                return 0
+
+        if "evening_reconcile" not in self._v4_due_slot_candidates(
+            tenant_id=settings.tenant_id,
+            business_date=previous_day,
+            slot_kinds=("evening_reconcile",),
+            now=now,
+        ):
+            return 0
+        try:
+            return self._execute_v4_reconcile_after_snapshot(
+                settings=settings, business_date=previous_day, moment=now,
+            )
+        except Exception:
+            # This is a bounded job retry; leave failed/review-required jobs
+            # visible in the persisted queue and let other tenants proceed.
+            logger.exception(
+                "inventory_daily_scheduler_previous_day_reconcile_failed",
+                extra={"tenant_id": settings.tenant_id,
+                       "business_date": previous_day.isoformat()},
+            )
+            return 0
+
     @staticmethod
     def _retryable_v4_error(error: Exception) -> bool:
-        if bool(getattr(error, "retryable", False)):
-            return True
+        # A Gemini provider error carries the authoritative retryability bit.
+        # A 4xx rejection can share the generic inventory_gemini_request_failed
+        # string with a transient 5xx; never override explicit non-retryable.
+        provider_retryable = getattr(error, "retryable", None)
+        if isinstance(provider_retryable, bool):
+            return provider_retryable
         code = str(error).strip().lower()
         name = type(error).__name__.lower()
         metadata = inventory_error_metadata(code)
@@ -168,7 +239,7 @@ class InventoryDailyScheduler:
                 if job.status == "failed":
                     # Preserve true terminal failures, but self-heal retryable
                     # rows created with an older, smaller bounded-attempt budget.
-                    effective_max_attempts = max(job.max_attempts, V4_SLOT_MAX_ATTEMPTS)
+                    effective_max_attempts = max(job.max_attempts, self._slot_attempt_budget(slot_kind))
                     transient_legacy_failure = (
                         job.attempt_count < effective_max_attempts
                         and bool(inventory_error_metadata(job.last_error_code)["retryable"])
@@ -233,7 +304,7 @@ class InventoryDailyScheduler:
                 entity_id=f"{business_date.isoformat()}:{slot_kind}",
                 idempotency_key=f"inventory-v5-slot:{tenant_id}:{business_date.isoformat()}:{slot_kind}",
                 payload={"business_date": business_date.isoformat(), "slot_kind": slot_kind},
-                max_attempts=V4_SLOT_MAX_ATTEMPTS,
+                max_attempts=self._slot_attempt_budget(slot_kind),
             )
             query = select(InventoryJobModel).where(
                 InventoryJobModel.tenant_id == tenant_id,
@@ -266,10 +337,10 @@ class InventoryDailyScheduler:
                     job.updated_at = now
                     session.flush()
                 return None
-            if job.max_attempts < V4_SLOT_MAX_ATTEMPTS:
+            if job.max_attempts < self._slot_attempt_budget(slot_kind):
                 # Raise the bounded budget for rows created before the current
                 # retry policy without resetting the number of attempts used.
-                job.max_attempts = V4_SLOT_MAX_ATTEMPTS
+                job.max_attempts = self._slot_attempt_budget(slot_kind)
                 job.updated_at = now
             if (
                 job.status == "failed"
@@ -344,18 +415,31 @@ class InventoryDailyScheduler:
             if job is None:
                 raise RuntimeError("inventory_v5_slot_missing")
             message = str(error).strip() or type(error).__name__
+            error_code = message if len(message) <= 100 else type(error).__name__
+            if (
+                not retryable
+                and message == "inventory_gemini_request_failed"
+                and getattr(error, "retryable", None) is False
+            ):
+                # Do not later reopen an explicit provider 4xx rejection through
+                # generic transport-error string matching in the legacy gate.
+                error_code = "inventory_gemini_provider_rejected"
             can_retry = InventoryJobRepository(
                 session, tuple(V4_SLOT_JOB_TYPES.values())
             ).fail(
                 job,
                 worker_id,
-                error_code=message if len(message) <= 100 else type(error).__name__,
+                error_code=error_code,
                 error_message=message,
                 retryable=retryable,
                 now=now,
             )
-            if can_retry and job.last_error_code == "inventory_gemini_rate_limited":
-                # Avoid hammering a provider quota every scheduler minute.
+            if can_retry and job.last_error_code in {
+                "inventory_gemini_rate_limited",
+                "inventory_gemini_request_failed",
+                "inventory_gemini_transport_error",
+            }:
+                # Avoid hammering provider quota or a broken transport every minute.
                 job.next_attempt_at = max(
                     job.next_attempt_at or now,
                     now + timedelta(seconds=V4_RATE_LIMIT_RETRY_SECONDS),
@@ -379,7 +463,12 @@ class InventoryDailyScheduler:
             result = self.sheet_service.run_agent_v4(
                 settings.tenant_id, business_date, slot_kind=slot_kind
             )
-            if result.status not in V4_SETTLED_RESULTS:
+            if (
+                result.status not in V4_SETTLED_RESULTS
+                or (slot_kind == "evening_reconcile" and result.status != "completed")
+            ):
+                # Review-required or shadow assessments contain no verified
+                # closing balance and cannot satisfy tomorrow's Morning Reset.
                 raise RuntimeError(f"inventory_v5_result_{result.status}")
             self._complete_v4_slot(
                 tenant_id=settings.tenant_id,
@@ -783,6 +872,10 @@ class InventoryDailyScheduler:
                         isinstance(settings.daily_sheet_config_json, dict)
                         and settings.daily_sheet_config_json.get("version") == 4
                     )
+                    if is_v4:
+                        count += self._retry_previous_day_reconcile(
+                            settings=settings, local=local, now=moment,
+                        )
                     carry_forward_due = local.time() >= _configured_time(
                         settings.daily_carry_forward_time_local, time(5, 0)
                     )

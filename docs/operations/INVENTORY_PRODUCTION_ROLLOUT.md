@@ -175,3 +175,43 @@ Disable Drive polling first, then INVENTORY_WORKER_ENABLED, scheduler, and INVEN
 ## Limitations
 
 The API/provider gateway remains disabled without any permitted Inventory or same-tenant shared Gemini credential. Shared Image/Video keys require INVENTORY_GEMINI_SHARED_FALLBACK_ENABLED and retain their own project quotas; never copy decrypted keys into Inventory configuration.
+
+## Overnight Gemini outage / Inventory Daily recovery (15 October 2026)
+
+When the V4 Evening Reconcile Gemini call returns a retryable provider error,
+the scheduler retains the existing persisted slot and retries at a **minimum
+5-minute interval**. The evening slot has a bounded **72-attempt budget**
+(instead of the 12-attempt general slot budget). On the next local business day,
+the minute timer may continue that **existing previous-day Evening Reconcile
+slot only before the configured Morning Reset time**. It must find a completed
+previous-day snapshot with an existing Gemini copy and an already-created
+reconciliation job. The live source workbook must still match the captured
+Drive modification timestamp; otherwise the existing safety gate fails closed.
+There is no retroactive creation of missing historic jobs, no automatic rewrite
+of a shared working workbook, and no replay after the daily cutoff.
+
+A `review_required` or `shadow` result is **not** proof of verified closing
+inventory; the Evening Reconcile job now remains terminal with an explicit error
+rather than incorrectly becoming `completed`. Provider errors with
+`retryable=False` remain terminal even if a generic provider error name
+otherwise resembles a transport outage. Human review of identity/ambiguous
+cells, OAuth permissions, Gemini model configuration and verified evidence
+remains necessary for those cases.
+
+**Important:** On 2026-10-15, the previous day's Gemini reconciliation was not
+verified, so the Morning Reset failed with
+`previous_day_gemini_not_verified`. After the one-hour Morning Reset safety
+window, **do not automatically backfill 2026-10-15**. The controlled manual
+opening-only recovery process must first obtain verified prior-day evidence,
+preview the exact changes and validate that current operational inputs and
+formulas will be preserved. The deploy never directly edits the shared Sheet.
+
+For operations, inspect the V5J minute timer and its journal and correlate
+`inventory_daily_scheduler_previous_day_reconcile_failed`,
+`inventory_daily_scheduler_morning_reset_failed`,
+`inventory_gemini_request_failed` and
+`previous_day_gemini_not_verified`. An `INVENTORY_V5J_ONESHOT executions=0`
+line **does not prove that Inventory is healthy**; it can mean idle,
+retry-delayed, review-blocked or missed safe window. Inspect the persisted
+inventory slot jobs, carry-forward status, previous-day snapshot verification
+and provider credentials to distinguish them.
