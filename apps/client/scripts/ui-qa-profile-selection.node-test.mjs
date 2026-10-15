@@ -27,7 +27,18 @@ test("Inventory changes also cover the embedded AI Operations inventory view", (
   const result = selectUiQaProfiles([
     "apps/client/app/inventory/InventoryDailyPipeline.tsx",
   ]);
-  assert.deepEqual(result.profiles, ["ai-operations", "inventory"]);
+  assert.deepEqual(result.profiles, ["ai-operations", "inventory", "inventory-daily"]);
+});
+
+test("Inventory Daily pipeline uses its own fixture-backed visual baseline", () => {
+  const profile = UI_QA_PROFILES["inventory-daily"];
+  assert.equal(profile?.route, "/inventory/pipeline");
+  assert.equal(profile?.fixture, "apps/client/scripts/fixtures/inventory-daily.json");
+  assert.equal(profile?.baseline, "apps/client/visual-baselines/inventory-daily");
+  assert.deepEqual(
+    selectUiQaProfiles(["apps/client/app/inventory/InventoryDailyPipeline.tsx"]).profiles,
+    ["ai-operations", "inventory", "inventory-daily"],
+  );
 });
 
 test("RichAnnotation changes cover Public Review and Review Board", () => {

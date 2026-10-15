@@ -37,6 +37,13 @@ export const UI_QA_PROFILES = Object.freeze({
     plan: "docs/operations/ui-qa-inventory-plan.json",
     baseline: "apps/client/visual-baselines/inventory",
   },
+  "inventory-daily": {
+    scope: "inventory-daily",
+    route: "/inventory/pipeline",
+    fixture: "apps/client/scripts/fixtures/inventory-daily.json",
+    plan: "docs/operations/ui-qa-inventory-daily-plan.json",
+    baseline: "apps/client/visual-baselines/inventory-daily",
+  },
   "access-management": {
     scope: "access-management",
     route: "/settings/access",

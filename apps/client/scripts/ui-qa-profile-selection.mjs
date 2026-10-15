@@ -80,7 +80,7 @@ export function selectUiQaProfiles(changedFiles = []) {
       file.includes("/inventory/")
       || file === "apps/client/styles/inventory.css"
     ) {
-      add(selected, "inventory", "ai-operations");
+      add(selected, "inventory", "inventory-daily", "ai-operations");
     }
     if (
       file.includes("/access-management/")
