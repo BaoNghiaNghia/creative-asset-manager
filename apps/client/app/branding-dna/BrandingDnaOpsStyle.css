@@ -1,0 +1,16 @@
+/* Branding DNA inherits AI Operations visual rhythm: full-width header, compact horizontal tabs, flat workspace cards. */
+.branding-dna-page{padding:0 0 34px;background:#f5f7fb;min-height:100vh}
+.branding-dna-page .bdna-ops-header{max-width:none;margin:0;padding:22px 30px;background:#fff;border-bottom:1px solid #e3e9f3;box-sizing:border-box}
+.bdna-header-runtime{font-size:11px;font-weight:700;color:#8a6419;background:#fff6e5;border:1px solid #f2e3c1;border-radius:6px;padding:8px 11px;white-space:nowrap}
+.branding-dna-page .branding-dna-preview-notice{margin:16px 28px 12px;max-width:none;font-size:11px;background:#f0f5ff}
+.branding-dna-page .bdna-navigation{box-sizing:border-box;display:flex;max-width:none;margin:0;padding:0 24px;gap:2px;overflow-x:auto;scrollbar-width:thin;scroll-snap-type:x proximity;min-height:50px;background:#fff;border-bottom:1px solid #e0e7f0}
+.branding-dna-page .bdna-navigation button{flex:none;display:flex;align-items:center;gap:9px;min-height:50px;min-width:0;padding:11px 16px;text-align:center;border:0;border-radius:0;background:transparent;box-shadow:none;color:#66758c;scroll-snap-align:start}
+.branding-dna-page .bdna-navigation button strong{font-size:12px;font-weight:750}
+.branding-dna-page .bdna-navigation button small{display:none}
+.branding-dna-page .bdna-navigation button[aria-current=page]{border:0;border-bottom:3px solid #4b6ee0;background:#eef3ff;box-shadow:none;color:#2854ba}
+.branding-dna-page .bdna-workspace-heading{max-width:none;margin:0;padding:20px 28px 15px}
+.branding-dna-page .bdna-workspace-heading h2{font-size:19px;margin:3px 0 4px}
+.branding-dna-page .bdna-live-section,.branding-dna-page .bdna-worker-section,.branding-dna-page .bdna-future-panel{max-width:none;margin-left:28px;margin-right:28px;box-shadow:none}
+.branding-dna-page .branding-dna-preview-link{max-width:none;margin:12px 28px;border-style:solid;background:#fff}
+@media(max-width:1024px){.branding-dna-page .bdna-ops-header{padding:18px 20px}.branding-dna-page .bdna-workspace-heading{padding:16px 20px}.branding-dna-page .branding-dna-preview-notice{margin:12px 20px}.branding-dna-page .bdna-live-section,.branding-dna-page .bdna-worker-section,.branding-dna-page .bdna-future-panel{margin-left:20px;margin-right:20px}.branding-dna-page .branding-dna-preview-link{margin:12px 20px}}
+@media(max-width:620px){.branding-dna-page .bdna-ops-header{padding:15px 14px;gap:10px}.bdna-header-runtime{font-size:10px}.branding-dna-page .bdna-navigation{padding:0 8px}.branding-dna-page .bdna-navigation button{padding:9px 13px;min-height:46px}.branding-dna-page .bdna-workspace-heading{padding:16px 14px 12px}.branding-dna-page .branding-dna-preview-notice{margin:10px 12px}.branding-dna-page .bdna-live-section,.branding-dna-page .bdna-worker-section,.branding-dna-page .bdna-future-panel{margin-left:12px;margin-right:12px}.branding-dna-page .branding-dna-preview-link{margin:10px 12px}}

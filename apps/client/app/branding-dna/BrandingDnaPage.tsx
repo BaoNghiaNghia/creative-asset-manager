@@ -1,8 +1,10 @@
 import { useState } from "react";
 import "./BrandingDnaPage.css";
 import "./BrandingDnaWorkspace.css";
+import "./BrandingDnaOpsStyle.css";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
+import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 
 const DEMO_TABS = ["overview", "shops", "scanner", "products", "dna"] as const;
 type DemoTab = typeof DEMO_TABS[number];
@@ -28,19 +30,13 @@ export function BrandingDnaPage() {
     { id: "dna", title: "Brand DNA", note: "Chờ phân tích" },
   ];
   return <main className="branding-dna-page">
-    <header className="branding-dna-heading">
-      <div className="branding-dna-heading-copy">
-        <span className="branding-dna-eyebrow">SHOP INTELLIGENCE · DESIGN PREVIEW</span>
-        <h1>Branding DNA</h1>
-        <p>Shop Library · Browser Scanner · Product Explorer · Brand DNA</p>
-      </div>
-      <span className="branding-dna-demo-label" role="status">Worker control plane · Scanner disabled</span>
-    </header>
+    <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header"
+      actions={<><span className="bdna-header-runtime">Scanner not connected</span><WorkspaceBackToAssets /></>} />
     <div className="branding-dna-preview-notice">
       Shop Registry và quản lý Worker kết nối PostgreSQL. Phía dưới: UI prototype dùng dữ liệu mô phỏng; các nút Scan, Add Shop, Approve, Export chưa kết nối dữ liệu thật;
       chưa kết nối Browser Scanner, Gemini hoặc nguồn evidence thật.
     </div>
-    <nav className="bdna-navigation" aria-label="Branding DNA workspace">
+    <nav className="bdna-navigation ops-tabs" aria-label="Branding DNA workspace" role="tablist">
       {tabs.map(item => <button key={item.id} type="button" onClick={() => setActiveTab(item.id)} aria-current={activeTab === item.id ? "page" : undefined}>
         <strong>{item.title}</strong><small>{item.note}</small>
       </button>)}
