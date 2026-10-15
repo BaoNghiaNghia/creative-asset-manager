@@ -306,7 +306,15 @@ apps/api/.venv/bin/python apps/inventory_scheduler/main.py \
 ```
 
 Run this only with the approved Inventory service principal; do not copy
-production credentials into a terminal or bypass file permissions. The extra
+production credentials into a terminal or bypass file permissions. For users
+with `inventory.read` and an authenticated CAM session, the corresponding
+**GET-only** API also supports the same date-scoped diagnosis:
+`GET /api/inventory/daily-sheet/gemini/replay/diagnostics?dates=2026-10-08,2026-10-13,2026-10-14,2026-10-15`.
+The API enforces 1–8 distinct canonical dates, scopes the query to the
+authenticated tenant and rejects malformed inputs (HTTP 422). No Inventory
+Control/write permission, historical job creation or Gemini call is needed.
+This route is included in source releases; it is not available on older
+production builds until they are safely deployed. The extra
 `INVENTORY_DATE_INSPECTION` JSON line reads persisted snapshots, Evening
 slots, replay requests, configured `agent.apply_mode`, verification flags and
 the selected day's Morning Reset/carry-forward status. It returns neither

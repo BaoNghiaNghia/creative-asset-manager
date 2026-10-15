@@ -323,6 +323,43 @@ def test_historical_promoting_replay_returns_controlled_conflict_when_apply_mode
     assert response.json()["detail"]["code"] == "inventory_historical_replay_requires_auto_apply_mode"
 
 
+def test_replay_date_inspection_requires_inventory_read_and_scopes_tenant():
+    path = "/api/inventory/daily-sheet/gemini/replay/diagnostics"
+    no_access = client_for(principal(set()))
+    assert no_access.get(path, params={"dates": "2026-10-08"}).status_code == 403
+    reader = client_for(principal({"inventory.read"}))
+    queue = Mock()
+    queue.inspect_dates.return_value = [
+        {"business_date": "2026-10-08", "profiles": [{"gemini_verified": False}]}
+    ]
+    with patch("app.modules.inventory.daily_sheet.router.HistoricalReplayQueue", return_value=queue):
+        response = reader.get(path, params={"dates": "2026-10-08,2026-10-13"})
+    assert response.status_code == 200
+    assert response.json()["items"][0]["business_date"] == "2026-10-08"
+    queue.inspect_dates.assert_called_once_with(
+        frozenset({"tenant-a"}), (date(2026, 10, 8), date(2026, 10, 13)),
+    )
+
+
+def test_replay_date_inspection_rejects_unbounded_or_invalid_dates():
+    reader = client_for(principal({"inventory.read"}))
+    path = "/api/inventory/daily-sheet/gemini/replay/diagnostics"
+    invalid = (
+        None,
+        "",
+        "2026-10-08,2026-10-08",
+        "2026-10-08,2026-02-30",
+        "2026-10-08,abc",
+        ",".join(f"2026-10-{n:02d}" for n in range(1, 10)),
+    )
+    with patch("app.modules.inventory.daily_sheet.router.HistoricalReplayQueue") as queue:
+        for dates in invalid:
+            response = reader.get(path, params={} if dates is None else {"dates": dates})
+            assert response.status_code == 422, dates
+            assert response.json()["detail"]["code"] == "inventory_replay_diagnostic_dates_invalid"
+        queue.assert_not_called()
+
+
 def test_morning_reset_rerun_requires_control_permission_and_calls_scheduler():
     denied = client_for(principal({"inventory.read"}))
     assert denied.post("/api/inventory/daily-sheet/lifecycle-history/2030-08-10/morning-reset/rerun").status_code == 403

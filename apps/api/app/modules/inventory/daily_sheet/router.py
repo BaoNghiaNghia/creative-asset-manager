@@ -503,6 +503,32 @@ def enqueue_historical_gemini(
         raise HTTPException(409, detail={"code": str(exc)}) from exc
 
 
+@router.get("/gemini/replay/diagnostics")
+def inspect_historical_gemini_dates(
+    dates: str | None = None,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Date-scoped, tenant-confined SELECT-only replay and Reset evidence."""
+    parts = dates.split(",") if dates else ()
+    if (
+        not 1 <= len(parts) <= 8
+        or len(set(parts)) != len(parts)
+        or any(len(part) != 10 for part in parts)
+    ):
+        raise HTTPException(422, detail={"code": "inventory_replay_diagnostic_dates_invalid"})
+    try:
+        parsed = tuple(date.fromisoformat(part) for part in parts)
+        if any(day.isoformat() != part for day, part in zip(parsed, parts)):
+            raise ValueError("non-canonical date")
+    except ValueError as exc:
+        raise HTTPException(
+            422, detail={"code": "inventory_replay_diagnostic_dates_invalid"}
+        ) from exc
+    return {"items": HistoricalReplayQueue(SessionLocal).inspect_dates(
+        frozenset({principal.active_tenant_id}), parsed,
+    )}
+
+
 @router.get("/gemini/replay/jobs")
 def active_historical_gemini_jobs(
     principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
