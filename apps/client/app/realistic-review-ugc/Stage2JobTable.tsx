@@ -615,7 +615,7 @@ export function Stage2OutputReviewModal({
           <h3 id="rrugc-stage4-regenerate-title">Regenerate this image?</h3>
           <p id="rrugc-stage4-regenerate-description">
             Generate one new image using this job's saved hat, Pinterest references,
-            prompt and Skill version. All previous outputs will remain available.
+            prompt and the latest installed version of its selected Skill. All previous outputs will remain available.
           </p>
           {versionError && <p role="alert" className="rrugc-stage4-regenerate-error">{versionError}</p>}
           <footer>

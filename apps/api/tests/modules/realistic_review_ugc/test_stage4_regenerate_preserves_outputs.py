@@ -21,7 +21,7 @@ def generation(monkeypatch):
     monkeypatch.setattr(stage2, "assert_skill_enabled", lambda *args, **kwargs: None)
     monkeypatch.setattr(stage2, "resolve_stage2_skill", lambda **kwargs: SimpleNamespace(
         source="local", skill_name="qa-stage4-skill", skill_id=None,
-        skill_version=kwargs["skill_version"],
+        skill_version="20_00_15_10_26" if kwargs["skill_version"] is None else kwargs["skill_version"],
     ))
     expected_hash = "a" * 64
     monkeypatch.setattr(stage2, "installed_stage2_skill_sha256",
@@ -83,7 +83,7 @@ def test_regeneration_keeps_all_outputs_and_saved_skill_snapshot(generation):
     assert created.selected_reference_snapshot_json == original.selected_reference_snapshot_json
     assert created.selected_candidate_ids_json == original.selected_candidate_ids_json
     assert created.prompt_text == original.prompt_text
-    assert created.skill_version == original.skill_version
+    assert created.skill_version == "20_00_15_10_26"
     assert created.skill_bundle_sha256 == original.skill_bundle_sha256
     assert created.processing_job_id is not None
     assert session.get(RrugcStage2JobModel, original.id).output_remote_file_id == "original-generated-output"
@@ -108,18 +108,19 @@ def test_regeneration_keeps_all_outputs_and_saved_skill_snapshot(generation):
     )} == {"original-generated-output", "new-generated-output"}
 
 
-def test_regeneration_refuses_changed_skill_or_source(generation):
+def test_regeneration_uses_latest_skill_but_refuses_changed_source(generation):
     session, original, plan, monkeypatch, module = generation
     service = RrugcStage2Service(session)
     monkeypatch.setattr(module, "installed_stage2_skill_sha256",
                         lambda *args, **kwargs: "b" * 64)
-    with pytest.raises(RrugcStage2Error) as changed_skill:
-        service.regenerate_completed_job(
-            tenant_id="tenant-a", user_id="operator", job_id=original.id,
-        )
-    assert changed_skill.value.code == "stage4_skill_version_changed"
-    monkeypatch.setattr(module, "installed_stage2_skill_sha256",
-                        lambda *args, **kwargs: "a" * 64)
+    created = service.regenerate_completed_job(
+        tenant_id="tenant-a", user_id="operator", job_id=original.id,
+    )
+    assert created.skill_bundle_sha256 == "b" * 64
+    assert created.skill_version == "20_00_15_10_26"
+    assert original.skill_bundle_sha256 == "a" * 64
+    created.status = "completed"
+    created.output_remote_file_id = "regenerated-output"
     plan.source_revision = "changed"
     session.commit()
     with pytest.raises(RrugcStage2Error) as changed_source:
@@ -127,4 +128,4 @@ def test_regeneration_refuses_changed_skill_or_source(generation):
             tenant_id="tenant-a", user_id="operator", job_id=original.id,
         )
     assert changed_source.value.code == "stage4_source_changed"
-    assert len(list(session.scalars(select(RrugcStage2JobModel)))) == 1
+    assert len(list(session.scalars(select(RrugcStage2JobModel)))) == 2

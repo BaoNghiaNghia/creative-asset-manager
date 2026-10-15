@@ -395,7 +395,7 @@ class RrugcStage2Service:
     def regenerate_completed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
     ) -> RrugcStage2JobModel:
-        """Generate a new output from saved job inputs, without changing older outputs."""
+        """Generate from saved inputs using the latest installed version of this job skill."""
         original = self.session.scalar(select(RrugcStage2JobModel).where(
             RrugcStage2JobModel.tenant_id == tenant_id,
             RrugcStage2JobModel.id == job_id,
@@ -457,7 +457,7 @@ class RrugcStage2Service:
                 skill_source=original.skill_source,
                 skill_id=original.skill_id,
                 skill_name=original.skill_name,
-                skill_version=original.skill_version,
+                skill_version=None,  # Regeneration uses the latest installed version.
                 fallback_skill_name=DEFAULT_STAGE2_SKILL,
             )
         except Stage2SkillRegistryError as exc:
@@ -465,12 +465,6 @@ class RrugcStage2Service:
         current_bundle_sha256 = installed_stage2_skill_sha256(
             current_skill.skill_name, settings=self.settings
         )
-        if original.skill_bundle_sha256 and current_bundle_sha256 != original.skill_bundle_sha256:
-            raise RrugcStage2Error(
-                "stage4_skill_version_changed",
-                "The original Skill bundle is no longer installed. Restore its saved version to regenerate the same job.",
-                status_code=409,
-            )
         now = datetime.now(timezone.utc)
         row = RrugcStage2JobModel(
             tenant_id=tenant_id, source_plan_id=original.source_plan_id,
