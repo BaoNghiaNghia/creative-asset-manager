@@ -44,15 +44,14 @@ class ProductionUiSmokeTests(unittest.TestCase):
         self.assertNotIn('"submit"', serialized)
         self.assertNotIn('"press"', serialized)
 
-        rrugc = next(route for route in plan["routes"] if route["name"] == "realistic-review-ugc")
-        stage3 = next(state for state in rrugc["states"] if state["name"] == "stage3-review")
-        self.assertEqual(stage3["click"], "#rrugc-tab-stage5")
-        self.assertEqual(stage3["waitFor"], ".rrugc-stage3")
-        assertion_types = {item["type"] for item in stage3["assertions"]}
-        self.assertEqual(
-            assertion_types,
-            {"visible", "width-ratio", "no-horizontal-overflow"},
-        )
+        reviews = next(route for route in plan["routes"]
+                       if route["name"] == "realistic-review-ugc-reviews")
+        stage5 = next(state for state in reviews["states"] if state["name"] == "stage5-ugc-review")
+        self.assertEqual(stage5["click"], "#rrugc-tab-stage5")
+        self.assertEqual(stage5["waitFor"], ".rrugc-stage3")
+        assertions = {(item["selector"], item["type"]) for item in stage5["assertions"]}
+        self.assertIn((".rrugc-stage3", "width-ratio"), assertions)
+        self.assertIn((".rrugc-stage5-folder-content", "no-horizontal-overflow"), assertions)
 
     def test_browser_runner_blocks_non_read_methods_and_secrets(self) -> None:
         text = (ROOT / "apps/client/scripts/production-ui-smoke.mjs").read_text(

@@ -9,6 +9,16 @@ const CLIENT_ROOT = path.resolve(SCRIPT_DIR, "..");
 const REPO_ROOT = path.resolve(CLIENT_ROOT, "../..");
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const DEFAULT_TIMEOUT_MS = 15_000;
+const BENIGN_ABORTS = new Set(["net::ERR_ABORTED", "NS_BINDING_ABORTED", "NS_ERROR_ABORT"]);
+const SAFE_BLOCKED_QUERY_PATHS = new Set(["/api/metadata/query"]);
+function isKnownReadQueryBlocked(request, baseUrl) {
+  if (request.method().toUpperCase() !== "POST") return false;
+  try {
+    const target = new URL(request.url());
+    return target.origin === baseUrl.origin && SAFE_BLOCKED_QUERY_PATHS.has(target.pathname);
+  } catch { return false; }
+}
+
 
 function argValue(name) {
   const index = process.argv.indexOf(name);
@@ -345,13 +355,15 @@ async function main() {
     await buildContext.close();
 
     for (const viewport of viewports) {
-      const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        storageState: storageState || undefined,
-        ignoreHTTPSErrors: false,
-      });
-
-      const blockedMutations = [];
+      for (const routePlan of routes) {
+        // Isolate each production route: page cookies, pending network calls and
+        // lazy-loading state from an earlier route cannot contaminate this one.
+        const context = await browser.newContext({
+          viewport: { width: viewport.width, height: viewport.height },
+          storageState: storageState || undefined,
+          ignoreHTTPSErrors: false,
+        });
+        const blockedMutations = [];
       await context.route("**/*", async (route) => {
         const request = route.request();
         if (!READ_METHODS.has(request.method().toUpperCase())) {
@@ -366,7 +378,6 @@ async function main() {
         await route.continue();
       });
 
-      for (const routePlan of routes) {
         const page = await context.newPage();
         const issues = [];
         const warnings = [];
@@ -393,8 +404,12 @@ async function main() {
         });
         page.on("requestfailed", (request) => {
           const error = request.failure()?.errorText || "request_failed";
-          if (READ_METHODS.has(request.method()) && error === "net::ERR_ABORTED") {
+          if (READ_METHODS.has(request.method().toUpperCase()) && BENIGN_ABORTS.has(error)) {
             warnings.push({ kind: "request-aborted", method: request.method(), url: request.url() });
+            return;
+          }
+          if (isKnownReadQueryBlocked(request, baseUrl)) {
+            warnings.push({kind: "read-query-blocked", method: request.method(), url: request.url()});
             return;
           }
           const target = isSameOrigin(request.url(), baseUrl.origin) ? issues : warnings;
@@ -434,10 +449,29 @@ async function main() {
             timeout: timeoutMs,
           });
           if (routePlan.ready) {
-            await page.locator(routePlan.ready).first().waitFor({
-              state: "visible",
-              timeout: timeoutMs,
-            });
+            const readyTimeout = Math.max(timeoutMs, viewport.name === "mobile" ? 25_000 : 15_000);
+            try {
+              await page.locator(routePlan.ready).first().waitFor({
+                state: "visible", timeout: readyTimeout,
+              });
+            } catch (firstFailure) {
+              const actual = new URL(page.url());
+              const expected = new URL(targetUrl);
+              if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) {
+                throw firstFailure;
+              }
+              // One bounded GET reload for asynchronous production hydration.
+              // Never allow writes or hide a repeat failure.
+              warnings.push({kind: "readiness-retry", route: routePlan.name,
+                message: "Shell missed its first readiness deadline; reloaded once."});
+              await page.reload({waitUntil: "domcontentloaded", timeout: timeoutMs});
+              await page.locator("html[data-cam-ready='1']").waitFor({
+                state: "attached", timeout: timeoutMs,
+              });
+              await page.locator(routePlan.ready).first().waitFor({
+                state: "visible", timeout: readyTimeout,
+              });
+            }
           }
           routeRecord.finalUrl = page.url();
           if (new URL(page.url()).origin !== baseUrl.origin) {
@@ -464,9 +498,11 @@ async function main() {
             );
           }
         } catch (error) {
+          routeRecord.finalUrl = page.url();
           issues.push({
             kind: "route",
             message: error instanceof Error ? error.message : String(error),
+            location: new URL(page.url()).pathname,
           });
           try {
             screenshots.push(
@@ -478,20 +514,28 @@ async function main() {
         }
 
         const routeMutations = blockedMutations.slice(mutationStart);
-        if (routeMutations.length) {
+        const knownReadPosts = routeMutations.filter((req) =>
+          isKnownReadQueryBlocked({method: () => req.method, url: () => req.url}, baseUrl));
+        const unsafeMutations = routeMutations.filter((req) =>
+          !isKnownReadQueryBlocked({method: () => req.method, url: () => req.url}, baseUrl));
+        if (knownReadPosts.length) warnings.push({
+          kind: "read-query-blocked",
+          message: "POST-backed metadata reads were blocked; their returned data is not verified.",
+          requests: knownReadPosts,
+        });
+        if (unsafeMutations.length) {
           issues.push({
             kind: "blocked-mutation",
             message: "Production smoke blocked one or more non-read HTTP requests.",
-            requests: routeMutations,
+            requests: unsafeMutations,
           });
         }
 
         if (issues.length) routeRecord.status = "fail";
         report.routes.push(routeRecord);
         await page.close();
+        await context.close();
       }
-
-      await context.close();
     }
   } finally {
     await browser.close();

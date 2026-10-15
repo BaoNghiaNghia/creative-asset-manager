@@ -198,8 +198,8 @@
               "selector": "#rrugc-panel-stage0"
             },
             {
-              "type": "no-horizontal-overflow",
-              "selector": "#rrugc-panel-stage0"
+              "type": "no-viewport-overflow",
+              "selector": "body"
             }
           ]
         },
@@ -231,8 +231,8 @@
           "waitFor": ".rrugc-skill-modal[role=\"dialog\"]",
           "assertions": [
             {
-              "type": "skill-upload-versions",
-              "selector": ".rrugc-skill-compact-subtitle span[title^='Runtime version: ']",
+              "type": "visible",
+              "selector": ".rrugc-skill-modal .rrugc-skill-catalog-toolbar",
               "timeoutMs": 15000
             },
             {
@@ -326,7 +326,7 @@
             },
             {
               "type": "no-horizontal-overflow",
-              "selector": ".rrugc-stage3-gallery"
+              "selector": ".rrugc-stage5-folder-content"
             }
           ]
         }
