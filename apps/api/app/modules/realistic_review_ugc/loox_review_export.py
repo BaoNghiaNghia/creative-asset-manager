@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+from datetime import datetime, timedelta, timezone
 import re
 import unicodedata
 from uuid import UUID
@@ -64,6 +65,25 @@ def stage5_sample_email(stage2_job_id: str, reviewer_name: str | None = None) ->
         hashlib.sha256(stable_id.encode("ascii")).digest()[:8], "big"
     ) % 10_000_000_000
     return f"{safe_name}{digits:010d}@example.invalid"
+
+
+def stage5_sample_review_date(stage2_job_id: str, generated_at: datetime | None = None) -> str:
+    """Stable fictitious date for internal synthetic-review fixture previews.
+
+    This is not the DB created_at or evidence of a customer review. It should
+    never replace real event timestamps or be used in a public review import.
+    """
+    try:
+        stable_id = str(UUID(str(stage2_job_id)))
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    end = generated_at or datetime.now(timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    end = end.astimezone(timezone.utc)
+    seconds = int.from_bytes(hashlib.sha256((stable_id + ':fixture-date').encode()).digest()[:8], 'big') % (730 * 24 * 3600)
+    date = end - timedelta(seconds=seconds)
+    return f"{date.month}/{date.day}/{date.year} {date.hour}:{date.minute:02d}"
 
 
 def clean_concept_copy(value: str | None, *, author: bool = False) -> str:
@@ -163,6 +183,8 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
         "AI-GENERATED CONCEPTS ONLY — not real customer reviews or verified purchases.",
         "Review author names and copy are synthetic drafts, not customer testimonials.",
         "The email field contains name-based sample addresses @example.invalid, never real customer inboxes.",
+        "XLSX created_at is a fictional sample date in the past 2 years, NOT the time of an actual customer review.",
+        "CSV created_at remains the actual AI generation date, NOT a customer review date.",
         "verified_purchase remains blank until actual customer order proof exists.",
         "Only publish confirmed customer submissions with documented consent.",
         "Public photo links expose original AI-generated images while concepts are ready.",
