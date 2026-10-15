@@ -964,25 +964,7 @@ export function Stage2JobTable({
       kicker="STAGE 4 · EMBROIDERY GROUP → PINTEREST REFS → SKILL"
       title="Pinterest references → image generation"
       description={<>Stage 3 grouping is preserved. Select any number of Drive-ready references; generation queues a separate job for each selected reference plus 1 random hat input until the selection is queued.</>}
-      actions={<div className="rrugc-stage2-registry-actions">
-        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} ref + 1 random hat / job</span>
-        <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
-          <i aria-hidden="true" />
-          {catalog.openai_status === "connected"
-            ? "OpenAI + local skills"
-            : catalog.openai_status === "error"
-              ? "OpenAI unavailable · local fallback"
-              : "Local skills"}
-        </span>
-        <button
-          type="button"
-          className="rrugc-stage2-refresh rrugc-icon-action"
-          disabled={refreshingSkills}
-          onClick={() => void refreshSkills()}
-        >
-          <RrugcActionIcon name="refresh" />{refreshingSkills ? "Refreshing…" : "Refresh skills"}
-        </button>
-      </div>}
+      actions={null}
     />
 
     {jobs.some(stage4QuotaPaused) && <div className="rrugc-stage4-quota-notice" role="status">
@@ -1055,21 +1037,38 @@ export function Stage2JobTable({
       </section>
     </div>}
 
-    <div className="rrugc-stage-search-toolbar rrugc-stage3-search-toolbar">
-      <RrugcSmartSearchInput
-        stageId="stage4"
-        query={query}
-        onQueryChange={onQueryChange}
-        suggestions={searchSuggestions}
-        placeholder="Search embroidery group, folder, or Pinterest query…"
-        label="Search Stage 4 generation groups"
-      />
-      <span>{stage2Total.toLocaleString()} groups</span>
-    </div>
-    <div className="rrugc-stage4-sort-bar">
-      <StageSortControls stage="Stage 4 groups" sortBy={sortBy} direction={sortDirection}
-        options={["source", "active_jobs", "outputs", "refs", "group_size", "updated", "status"]}
-        onChange={onSortChange} />
+    <div className="rrugc-stage4-unified-toolbar">
+      <div className="rrugc-stage4-search-group">
+        <RrugcSmartSearchInput
+          stageId="stage4"
+          query={query}
+          onQueryChange={onQueryChange}
+          suggestions={searchSuggestions}
+          placeholder="Search embroidery group, folder, or Pinterest query…"
+          label="Search Stage 4 generation groups"
+        />
+        <span className="rrugc-stage4-group-count">{stage2Total.toLocaleString()} groups</span>
+      </div>
+      <div className="rrugc-stage4-toolbar-actions">
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{REFS_PER_RUN} ref + 1 random hat / job</span>
+        <span className={"rrugc-source-auto-badge " + (catalog.openai_status === "error" ? "is-warning" : "")}>
+          <i aria-hidden="true" />
+          {catalog.openai_status === "connected"
+            ? "OpenAI + local skills"
+            : catalog.openai_status === "error"
+              ? "OpenAI unavailable · local fallback"
+              : "Local skills"}
+        </span>
+        <button type="button" className="rrugc-stage2-refresh rrugc-icon-action"
+          disabled={refreshingSkills} onClick={() => void refreshSkills()}>
+          <RrugcActionIcon name="refresh" />{refreshingSkills ? "Refreshing…" : "Refresh skills"}
+        </button>
+      </div>
+      <div className="rrugc-stage4-sort-bar">
+        <StageSortControls stage="Stage 4 groups" sortBy={sortBy} direction={sortDirection}
+          options={["source", "active_jobs", "outputs", "refs", "group_size", "updated", "status"]}
+          onChange={onSortChange} />
+      </div>
     </div>
 
     <div className="rrugc-source-plan-table-wrap">
