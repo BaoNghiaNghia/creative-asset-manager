@@ -12,7 +12,7 @@ async function call<T>(url:string, init?:RequestInit):Promise<T>{
   "Bạn cần quyền cấu hình để quản lý worker.":"API "+r.status);
  return data as T;
 }
-export function BrandingDnaWorkers(){
+export function BrandingDnaWorkers({ compact = false, onOpenScanner }: { compact?: boolean; onOpenScanner?: () => void } = {}) {
  const [items,setItems]=useState<Worker[]>([]);
  const [loading,setLoading]=useState(true);
  const [label,setLabel]=useState("");
@@ -51,15 +51,15 @@ export function BrandingDnaWorkers(){
  return <section className="bdna-worker-manager" aria-label="Branding DNA dedicated worker registry">
   <div className="bdna-worker-header"><div><strong>Dedicated Windows Worker</strong>
    <small>Đăng ký agent · Heartbeat · Thu hồi token · profile độc lập Pinterest Scout</small></div>
-   <span className="bdna-worker-availability">{items.filter(x=>x.online).length} online / {items.length} registered</span>
+   <div className="bdna-worker-actions-header"><span className="bdna-worker-availability"><b>{items.filter(x=>x.online).length}</b> online / {items.length} registered</span>{compact && <button type="button" onClick={onOpenScanner}>Mở Browser Scanner →</button>}</div>
   </div>
-  <form className="bdna-worker-enroll" onSubmit={enroll}>
+  {!compact && <form className="bdna-worker-enroll" onSubmit={enroll}>
    <label>Tên agent Windows<input required minLength={3} maxLength={90} value={label}
      onChange={e=>setLabel(e.target.value)} placeholder="Branding DNA Worker - Windows PC"/></label>
    <button disabled={busy||loading||!label.trim()} type="submit">{busy?"Đang xử lý…":"Đăng ký worker"}</button>
-  </form>
+  </form>}
   {error&&<p role="alert" className="bdna-worker-error">{error}</p>}
-  {secret&&<div className="bdna-worker-token" role="status">
+  {!compact && secret && <div className="bdna-worker-token" role="status">
    <strong>Token cho {secret.label} — chỉ hiển thị một lần</strong>
    <p>Không gửi token vào chat, GitHub hoặc log. Cấu hình trên Windows bằng secret store.</p>
    <label>Agent ID<input readOnly value={secret.id}/></label>
@@ -68,14 +68,14 @@ export function BrandingDnaWorkers(){
      <button type="button" onClick={()=>{setSecret(null);setCopyStatus("");}}>Đã lưu · Ẩn token</button></div>
    {copyStatus&&<small>{copyStatus}</small>}
   </div>}
-  <div className="bdna-worker-list">
+  {!compact && <div className="bdna-worker-list">
    {loading?<span>Đang tải worker…</span>:items.length===0?<span>Chưa đăng ký worker. Scan vẫn bị khóa.</span>:
    items.map(agent=><div className="bdna-worker-entry" key={agent.id}>
     <div><strong>{agent.label}</strong><small>Agent {agent.id.slice(0,8)} · {agent.agent_version??"Chưa kết nối"} · {agent.last_heartbeat?new Date(agent.last_heartbeat).toLocaleString():"Chưa có heartbeat"}</small></div>
     <span className={agent.online?"bdna-worker-online":"bdna-worker-offline"}>{agent.enabled?(agent.online?"Online":agent.status==="unhealthy"?"Unhealthy":"Offline"):"Disabled"}</span>
     {agent.enabled&&<button type="button" disabled={busy} onClick={()=>void disable(agent)}>Disable</button>}
    </div>)}
-  </div>
+  </div>}
   <p className="bdna-worker-caution">Đăng ký worker không tự bật Scan. Chỉ bắt đầu khi adapter được cấp quyền, lease bảo mật và evidence pipeline đã được kiểm chứng.</p>
  </section>;
 }

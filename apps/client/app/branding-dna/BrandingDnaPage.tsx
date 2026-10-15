@@ -3,6 +3,7 @@ import "./BrandingDnaPage.css";
 import "./BrandingDnaWorkspace.css";
 import "./BrandingDnaOpsStyle.css";
 import "./BrandingDnaStageTabs.css";
+import "./BrandingDnaUnified.css";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
@@ -33,10 +34,6 @@ export function BrandingDnaPage() {
   return <main className="branding-dna-page">
     <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header"
       actions={<><span className="bdna-header-runtime">Scanner not connected</span><WorkspaceBackToAssets /></>} />
-    <div className="branding-dna-preview-notice">
-      Shop Registry và quản lý Worker kết nối PostgreSQL. Phía dưới: UI prototype dùng dữ liệu mô phỏng; các nút Scan, Add Shop, Approve, Export chưa kết nối dữ liệu thật;
-      chưa kết nối Browser Scanner, Gemini hoặc nguồn evidence thật.
-    </div>
     <div className="bdna-stage-shell">
       <nav className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
         const index = tabs.findIndex(item => item.id === activeTab);
@@ -54,12 +51,18 @@ export function BrandingDnaPage() {
     </div>
     <section id={"bdna-panel-" + activeTab} role="tabpanel" aria-labelledby={"bdna-stage-" + activeTab} className="bdna-stage-panel">
     <div className="bdna-workspace-heading">
-      <div><span>WORKSPACE / {activeTab.toUpperCase()}</span><h2>{tabs.find(item => item.id === activeTab)?.title}</h2>
+      <div><span>BRANDING DNA / STAGE {tabs.findIndex(item => item.id === activeTab)}</span><h2>{tabs.find(item => item.id === activeTab)?.title}</h2>
         <p>{activeTab === "overview" ? "Production foundation, worker status và lộ trình triển khai." : activeTab === "shops" ? "Quản lý các shop được lưu theo tenant bằng dữ liệu thật." : activeTab === "scanner" ? "Lớp điều phối trình duyệt sẽ chỉ hoạt động sau khi worker và evidence pipeline đạt yêu cầu." : activeTab === "products" ? "Sản phẩm sẽ hiển thị tại đây khi đã có dữ liệu quét có thể kiểm chứng." : "Brand identity và insights sẽ hình thành từ evidence sản phẩm đã được kiểm chứng."}</p></div>
       <span className="bdna-workspace-state">{activeTab === "overview" || activeTab === "shops" ? "LIVE REGISTRY" : "NOT CONNECTED"}</span>
     </div>
-    {(activeTab === "overview" || activeTab === "shops") && <BrandingDnaFoundation />}
-    {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers />}
+    {activeTab === "overview" && <div className="bdna-workflow-overview" aria-label="Branding DNA workflow">
+      <div><span>01</span><strong>Register shops</strong><small>Shop Registry · dữ liệu tenant thật</small></div>
+      <div><span>02</span><strong>Connect browser worker</strong><small>Dedicated Windows Agent</small></div>
+      <div><span>03</span><strong>Collect product evidence</strong><small>Chờ scanner được kiểm chứng</small></div>
+      <div><span>04</span><strong>Build Brand DNA</strong><small>Phân tích dựa trên evidence</small></div>
+    </div>}
+    {(activeTab === "overview" || activeTab === "shops") && <BrandingDnaFoundation compact={activeTab === "overview"} onOpenShops={() => setActiveTab("shops")} />}
+    {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers compact={activeTab === "overview"} onOpenScanner={() => setActiveTab("scanner")} />}
     {(activeTab === "products" || activeTab === "dna") && <section className="bdna-future-panel">
       <div className="bdna-future-illustration" aria-hidden="true"><span>01</span><span>02</span><span>03</span></div>
       <strong>{activeTab === "products" ? "Product Explorer · Awaiting scanned products" : "Brand DNA · Awaiting verified evidence"}</strong>
@@ -68,12 +71,6 @@ export function BrandingDnaPage() {
       <button type="button" onClick={() => setActiveTab("shops")}>Đi đến Shop Library →</button>
     </section>}
     </section>
-    <section className="branding-dna-preview-link" aria-label="Branding DNA design preview">
-      <div>
-        <strong>UI Prototype · dữ liệu mô phỏng</strong>
-        <p>Khám phá giao diện Browser Scanner, Product Explorer và Brand DNA bằng dữ liệu mẫu. Trang này mở riêng để giữ nguyên chính sách bảo mật của CAM.</p>
-      </div>
-      <a href={`/branding-dna-preview/index.html?view=${encodeURIComponent(activeTab)}`} target="_blank" rel="noopener noreferrer">Mở giao diện mẫu ↗</a>
-    </section>
+    <details className="branding-dna-preview-link" aria-label="Branding DNA design preview"><summary>Giao diện prototype · dữ liệu mô phỏng <span>Chi tiết</span></summary><div><p>Shop Registry và Worker Registry sử dụng dữ liệu tenant thực. Browser Scanner, Product Explorer và Brand DNA chưa có evidence thật; prototype mở trong trang độc lập.</p><a href={`/branding-dna-preview/index.html?view=${encodeURIComponent(activeTab)}`} target="_blank" rel="noopener noreferrer">Xem prototype ↗</a></div></details>
   </main>;
 }

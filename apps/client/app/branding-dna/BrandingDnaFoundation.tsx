@@ -13,7 +13,7 @@ async function jsonRequest<T>(url:string, init?:RequestInit):Promise<T> {
  if(!response.ok) throw new Error(typeof data?.detail==="string" ? data.detail : response.status===403 ? "Không đủ quyền cấu hình shop." : `API error ${response.status}`);
  return data as T;
 }
-export function BrandingDnaFoundation() {
+export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compact?: boolean; onOpenShops?: () => void } = {}) {
  const [status,setStatus]=useState<Status|null>(null);
  const [shops,setShops]=useState<Shop[]>([]);
  const [busy,setBusy]=useState(true);
@@ -51,19 +51,19 @@ export function BrandingDnaFoundation() {
  return <section className="bdna-live-section" aria-label="Branding DNA real shop registry">
   <div className="bdna-live-heading">
    <div><strong>Shop Registry</strong><small>Production data · tenant-scoped · no automatic scanning</small></div>
-   <button type="button" disabled={busy} onClick={()=>{setOpen(x=>!x);setError("");}}>{open?"Đóng":"Thêm shop thật"}</button>
+   {compact ? <button type="button" onClick={onOpenShops}>Mở Shop Library →</button> : <button type="button" disabled={busy} onClick={()=>{setOpen(x=>!x);setError("");}}>{open?"Đóng biểu mẫu":"+ Thêm shop"}</button>}
   </div>
-  <div className="bdna-live-summary">
-   <span><strong>{busy?"…":status?.shop_count??0}</strong> Shops saved</span>
-   <span><strong>{status?.registered_workers??0}</strong> Connected agents in registry</span>
-   <span className="bdna-live-not-ready">Scanner <strong>Not connected</strong></span>
+  <div className="bdna-live-summary" aria-label="Branding DNA live statistics">
+   <article><small>SHOPS SAVED</small><strong>{busy?"…":status?.shop_count??0}</strong><span>Shop được lưu theo tenant</span></article>
+   <article><small>WINDOWS WORKERS</small><strong>{busy?"…":status?.registered_workers??0}</strong><span>Agent đã đăng ký</span></article>
+   <article className="bdna-live-not-ready"><small>SCANNER STATUS</small><strong>{status?.scanner_ready && status?.scan_enabled ? "Ready" : "Not connected"}</strong><span>{status?.scanner_ready && status?.scan_enabled ? "Đã bật trên server" : "Chờ worker và evidence pipeline"}</span></article>
   </div>
   <p className="bdna-live-info">
    <strong>Phase 1 · Foundation.</strong> Bạn có thể lưu shop vào database CAM. Tính năng Scan vẫn bị khóa trên server
    cho đến khi Browser Worker chuyên dụng, quyền truy cập và pipeline evidence được kiểm chứng.
   </p>
   {error&&<div className="bdna-live-error" role="alert">{error}</div>}
-  {open&&<form className="bdna-shop-form" onSubmit={createShop}>
+  {!compact && open && <form className="bdna-shop-form" onSubmit={createShop}>
    <label>Tên shop<input required minLength={2} maxLength={90} value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Example Hats"/></label>
    <label>Nền tảng<select value={platform} onChange={e=>setPlatform(e.target.value)}>
     <option value="etsy">Etsy</option><option value="amazon">Amazon</option><option value="shopify">Shopify</option>
@@ -76,14 +76,14 @@ export function BrandingDnaFoundation() {
    <label className="bdna-shop-form-url">Storefront HTTPS URL<input required inputMode="url" type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder={platform==="etsy"?"https://www.etsy.com/shop/ShopName":platform==="amazon"?"https://www.amazon.com/stores/BrandName/page/...":"https://yourshop.myshopify.com"}/></label>
    <div className="bdna-shop-form-footer"><small>Tạo shop ở trạng thái draft, không tự mở browser.</small><button type="submit" disabled={saving}>{saving?"Đang lưu…":"Lưu shop"}</button></div>
   </form>}
-  {shops.length>0?<div className="bdna-shop-cards">{shops.map(shop=><article key={shop.id} className="bdna-shop-card">
+  {!compact && (shops.length>0?<div className="bdna-shop-cards">{shops.map(shop=><article key={shop.id} className="bdna-shop-card">
    <div><strong>{shop.display_name}</strong><small>{shop.platform.toUpperCase()} · {shop.region} · {shop.access_mode}</small></div>
    <a href={shop.storefront_url} target="_blank" rel="noopener noreferrer" title="Open storefront in new tab">Nguồn gốc ↗</a>
    <span className="bdna-shop-draft">{shop.status}</span>
-  </article>)}</div>:<p className="bdna-empty">{busy?"Đang tải dữ liệu shop…":"Chưa có shop thật. Nhấn “Thêm shop thật” để bắt đầu."}</p>}
-  <details className="bdna-preview-explainer"><summary>UI prototype phía dưới hoạt động thế nào?</summary>
-   Các số liệu, shop và thao tác Scan/Approve trong phần xem trước chỉ là mô phỏng để duyệt thiết kế;
-   dữ liệu shop thật chỉ được ghi khi dùng form Shop Registry ở trên.
+  </article>)}</div>:<p className="bdna-empty">{busy?"Đang tải dữ liệu shop…":"Chưa có shop thật. Nhấn “Thêm shop” để bắt đầu."}</p>)}
+  <details className="bdna-preview-explainer"><summary>Trạng thái dữ liệu và kết nối</summary>
+   Shop Registry sử dụng dữ liệu thực theo tenant. Browser Scanner và pipeline evidence chưa kết nối;
+   phần prototype độc lập chỉ dùng dữ liệu mô phỏng để duyệt thiết kế.
   </details>
  </section>;
 }
