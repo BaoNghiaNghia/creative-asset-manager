@@ -1,0 +1,24 @@
+.bdna-live-section{max-width:1600px;margin:0 auto 14px;padding:13px 15px;border:1px solid #d6e3f3;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(30,58,90,.05);font-family:"Be Vietnam Pro",system-ui,sans-serif;color:#273d59}
+.bdna-live-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.bdna-live-heading>div{display:grid;gap:4px}.bdna-live-heading strong{font-size:14px}
+.bdna-live-heading small{font-size:10px;color:#7184a0}
+.bdna-live-section button{min-height:33px;border:1px solid #bcd0eb;border-radius:8px;background:#476ce3;color:#fff;font:inherit;font-size:11px;font-weight:750;cursor:pointer;padding:7px 12px}
+.bdna-live-section button:disabled{opacity:.55;cursor:wait}
+.bdna-live-summary{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+.bdna-live-summary span{background:#f2f6fc;padding:8px 10px;border-radius:8px;font-size:10px;color:#506a8e}
+.bdna-live-summary strong{font-size:12px;color:#2c4a7f}
+.bdna-live-summary .bdna-live-not-ready{background:#fff5e8;color:#916124}
+.bdna-live-info{font-size:10px;line-height:1.6;color:#5d7190;margin:11px 0 0}
+.bdna-live-error{font-size:11px;color:#a32f3c;background:#fff0f0;border-radius:6px;padding:9px 11px;margin-top:8px}
+.bdna-shop-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px;background:#f6f9fe;border:1px solid #e2eaf5;border-radius:10px;padding:12px}
+.bdna-shop-form label{display:grid;gap:4px;font-size:10px;font-weight:700;color:#4e6584}
+.bdna-shop-form :is(input,select){box-sizing:border-box;min-width:0;width:100%;height:34px;border:1px solid #cddbeb;border-radius:7px;padding:6px 9px;background:white;font:inherit;font-size:12px;color:#253a5b}
+.bdna-shop-form-url{grid-column:span 4}.bdna-shop-form-footer{grid-column:span 4;display:flex;justify-content:space-between;align-items:center;gap:10px}.bdna-shop-form-footer small{font-size:10px;color:#667d9a}
+.bdna-shop-cards{display:grid;gap:6px;margin-top:10px}.bdna-shop-card{display:flex;gap:9px;align-items:center;justify-content:space-between;min-width:0;border:1px solid #e1e9f4;border-radius:8px;padding:9px 11px}
+.bdna-shop-card>div{display:grid;gap:3px;min-width:0}.bdna-shop-card strong{font-size:11px;overflow-wrap:anywhere}
+.bdna-shop-card small{font-size:10px;color:#7487a3}.bdna-shop-card a{font-size:10px;color:#476ce3}
+.bdna-shop-draft{border-radius:99px;background:#eaf1ff;color:#5b77ac;padding:5px 8px;font-size:9px;font-weight:750}
+.bdna-empty{margin:12px 0 0;font-size:11px;color:#8294a9}
+.bdna-preview-explainer{margin-top:10px;font-size:10px;color:#7284a2}.bdna-preview-explainer summary{cursor:pointer;font-weight:700}
+@media(max-width:1000px){.bdna-shop-form{grid-template-columns:repeat(2,minmax(0,1fr))}.bdna-shop-form-url,.bdna-shop-form-footer{grid-column:span 2}}
+@media(max-width:580px){.bdna-live-section{padding:10px}.bdna-shop-form{grid-template-columns:1fr}.bdna-shop-form-url,.bdna-shop-form-footer{grid-column:span 1}.bdna-shop-form input,.bdna-shop-form select{font-size:16px;height:40px}.bdna-live-summary span{flex:1}.bdna-shop-card{flex-wrap:wrap}}

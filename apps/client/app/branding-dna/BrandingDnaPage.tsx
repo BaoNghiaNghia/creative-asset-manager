@@ -1,4 +1,5 @@
 import "./BrandingDnaPage.css";
+import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 
 const DEMO_TABS = ["overview", "shops", "scanner", "products", "dna"] as const;
 type DemoTab = typeof DEMO_TABS[number];
@@ -22,12 +23,13 @@ export function BrandingDnaPage() {
         <h1>Branding DNA</h1>
         <p>Shop Library · Browser Scanner · Product Explorer · Brand DNA</p>
       </div>
-      <span className="branding-dna-demo-label" role="status">Prototype · dữ liệu mô phỏng</span>
+      <span className="branding-dna-demo-label" role="status">Foundation active · Scanner disabled</span>
     </header>
     <div className="branding-dna-preview-notice">
-      Bản UI để duyệt thiết kế. Các nút Scan, Add Shop, Approve và Export đang chạy thử trên dữ liệu mẫu;
-      chưa kết nối tài khoản shop, Gemini hoặc database thật.
+      Phía trên: Shop Registry lưu thật trong PostgreSQL. Phía dưới: UI prototype dùng dữ liệu mô phỏng; các nút Scan, Add Shop, Approve, Export chưa kết nối dữ liệu thật;
+      chưa kết nối Browser Scanner, Gemini hoặc nguồn evidence thật.
     </div>
+    <BrandingDnaFoundation />
     <iframe className="branding-dna-preview-frame"
       title="Branding DNA interactive design preview"
       src={`/branding-dna/index.html?embed=1&view=${encodeURIComponent(tab)}`}

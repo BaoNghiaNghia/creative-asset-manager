@@ -1,6 +1,6 @@
 # Branding DNA — CAM
 
-**Current state:** Stage 0 UI prototype integrated into the CAM frontend source. No live shop scan, storage, Gemini analysis or Brand DNA approval is enabled. This repository content is not a production crawler.
+**Current state:** Phase 1 Foundation implementation: tenant-scoped real Shop Registry (PostgreSQL + API), guarded create/list endpoints, status and worker registry read API. Browser scanning, agent enrollment, image evidence, Gemini processing and profile approval remain intentionally disabled. The design prototype is not a production crawler.
 
 ## What is committed
 
@@ -16,11 +16,11 @@
 
 ## Access
 
-- On a local CAM build, `/branding-dna` and tabs under it display an **isolated mock preview** behind the existing `ai_operations.read` permission.
+- In CAM `/branding-dna`, the **Shop Registry is real** and stores tenant-scoped draft shops; the lower iframe is an **isolated mock UI preview**. Reading requires `ai_operations.read`; creating a shop currently requires `ai_provider.configure` pending dedicated branding permissions.
 - The former `/branding-character` route is retained as a **compatibility redirect** to `/branding-dna` (also for nested tab paths). New links and documentation use the new name.
 - Branding Character is the deprecated design label; the product and all user-facing navigation are named **Branding DNA**.
 - Browser frame has `sandbox="allow-scripts allow-downloads"` **without same-origin or form submission privileges**.
-- Actions are examples only. Shop names, products, scan progress and Profile approvals are not connected to API data.
+- Only the Shop Registry Add Shop action above the iframe writes real shop records. All actions **inside the iframe** remain examples. Scanning, listing/product evidence, profile aggregation, approval and worker enrollment are disabled.
 - Mobile and desktop navigation show this destination only to authorized users.
 - Do not claim shop intelligence works in production until data APIs, browser workers, platform eligibility, Gemini jobs, QA and opt-in activation are complete.
 
@@ -36,8 +36,15 @@ npm run build
 
 ## Rollout
 
-1. UI + documentation merged on `main` without enabling browser scans.
-2. Foundation: migrations, tenant-scoped entities and API RBAC plus audit logs.
+1. UI and first production Foundation: shop registry, guarded API routes and migration; no browser scans enabled.
+2. Complete Foundation: dedicated Branding DNA permissions, worker registration/enrollment and audit logs, pagination and store-identity verification.
 3. Controlled single-shop browser pilot using an **isolated Windows browser worker**, verified storefront URL and explicit user approval.
 4. Ingest product image evidence and aggregate versioned profiles using existing Gemini capacity, with checkpoint/retry and review gates.
 5. Connect approved profiles to skills/workflows (no automatic cross-shop style mixing).
+
+## Phase 1 production foundation (2026-10-15)
+
+- Migration `0157_branding_dna_foundation` adds `bc_shops` and `bc_browser_agents`.
+- Tenant-scoped API endpoints: `/api/v1/branding-dna/status`, `/shops`, `/workers` and disabled `POST /shops/{id}/scan-runs`.
+- Shop creation is initially admin-scoped via existing `ai_provider.configure`, until dedicated Branding DNA roles are introduced.
+- Scanner is **not enrolled** and bulk crawling remains disabled; the registry has real persistence, but product evidence/Brand Profiles are still future work.

@@ -7,4 +7,48 @@
 .branding-dna-preview-notice{max-width:1600px;margin:0 auto 10px;padding:9px 12px;background:#eaf1ff;border:1px solid #d7e5ff;border-radius:9px;color:#385a94;font-size:11px;line-height:1.6}
 .branding-dna-preview-frame{display:block;box-sizing:border-box;width:100%;max-width:1600px;margin:0 auto;min-height:650px;height:calc(100dvh - 170px);border:1px solid #dce6f3;background:#fff;border-radius:13px}
 @media(max-width:800px){.branding-dna-page{padding:9px 10px 18px}.branding-dna-heading-copy h1{font-size:20px}.branding-dna-preview-frame{height:calc(100dvh - 185px);min-height:560px}}
+
+.branding-dna-tabs{display:flex;gap:5px;overflow-x:auto;max-width:1600px;margin:0 auto 12px;padding:4px 0 6px;scrollbar-width:thin}
+.branding-dna-tabs button{white-space:nowrap;padding:8px 12px;border-radius:8px;border:1px solid transparent;background:transparent;color:#5b7192;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+.branding-dna-tabs button[aria-current="page"]{border-color:#ccdbf8;background:#e9f0ff;color:#4365c9}
+.branding-dna-workspace{max-width:1600px;margin:auto;display:grid;gap:12px}
+.branding-dna-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.branding-dna-stats>div,.branding-dna-panel{background:white;border:1px solid #dce6f3;border-radius:12px;padding:14px}
+.branding-dna-stats>div{display:grid;gap:6px}
+.branding-dna-stats small,.branding-dna-scanner small{color:#7789a5;font-size:10px}
+.branding-dna-stats strong{font-size:22px}
+.branding-dna-panel{min-width:0}
+.branding-dna-panel h2,.branding-dna-modal h2{font-size:15px;margin:0 0 5px}
+.branding-dna-panel p{font-size:11px;color:#667c99;margin:5px 0 12px}
+.branding-dna-panel-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.branding-dna-panel-title p{margin:0}
+.branding-dna-page button{font:inherit;font-size:11px;cursor:pointer}
+.branding-dna-page button:disabled{opacity:.6;cursor:not-allowed}
+.branding-dna-primary{padding:9px 14px;border:1px solid #466cdb;border-radius:8px;color:white;background:#476ce3;font-weight:750!important;white-space:nowrap}
+.branding-dna-shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:9px}
+.branding-dna-shop{min-width:0;background:#fff;display:grid;text-align:left;gap:6px;border:1px solid #e1e8f4;border-radius:10px;padding:12px;color:#304864}
+.branding-dna-shop:focus-visible,.branding-dna-tabs button:focus-visible{outline:2px solid #476ce3;outline-offset:2px}
+.branding-dna-shop[aria-pressed="true"]{border-color:#7293df}
+.branding-dna-shop strong{font-size:13px}
+.branding-dna-shop small,.branding-dna-muted{font-size:11px;color:#7288a6;overflow-wrap:anywhere}
+.branding-dna-platform{justify-self:start;border-radius:7px;padding:3px 6px;background:#f0f4ff;text-transform:capitalize}
+.branding-dna-shop-state{font-size:10px;color:#936b2d;background:#fff6e5;border-radius:6px;padding:5px}
+.branding-dna-empty{padding:32px 14px;text-align:center;border:1px dashed #cfdbee;border-radius:10px;color:#788ba3;font-size:12px}
+.branding-dna-scanner{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.branding-dna-scanner>div{display:grid;gap:5px;background:#f5f8fc;border-radius:9px;padding:12px}
+.branding-dna-scanner strong{font-size:12px}
+.branding-dna-panel ul{color:#7b8899;font-size:11px}
+.branding-dna-profile-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+.branding-dna-profile-list>div{display:grid;gap:8px;padding:14px;background:#f6f8fc;border:1px solid #e0e9f4;border-radius:9px;font-size:12px}
+.branding-dna-profile-list small{color:#96a3b8}
+.branding-dna-error{max-width:1600px;margin:0 auto 10px;padding:10px;border:1px solid #f0c2c2;border-radius:9px;background:#fff1f1;color:#a12c2c;font-size:11px}
+.branding-dna-modal-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:12px;background:rgba(14,27,51,.58)}
+.branding-dna-modal{box-sizing:border-box;background:white;color:#253c59;width:min(470px,100%);max-height:90dvh;overflow-y:auto;padding:18px;border-radius:14px;box-shadow:0 22px 70px rgba(0,0,0,.2)}
+.branding-dna-modal label{display:grid;gap:5px;margin:11px 0;color:#4e6584;font-weight:650;font-size:11px}
+.branding-dna-modal input,.branding-dna-modal select{box-sizing:border-box;width:100%;min-height:38px;padding:8px 10px;border:1px solid #cddbf0;border-radius:8px;background:white;color:#263c5b;font:inherit;font-size:13px}
+.branding-dna-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.branding-dna-modal-actions button{padding:8px 14px;border-radius:8px;border:1px solid #cddbf0}
+.branding-dna-modal-actions .branding-dna-primary{border-color:#466cdb}
+@media(max-width:720px){.branding-dna-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.branding-dna-scanner{grid-template-columns:1fr}.branding-dna-tabs button{min-height:40px}}
+
 @media(max-width:560px){.branding-dna-page{padding:8px 6px 12px}.branding-dna-heading{padding:0 5px}.branding-dna-preview-frame{height:calc(100dvh - 215px);min-height:490px;border-radius:9px}.branding-dna-preview-notice{font-size:10px}}

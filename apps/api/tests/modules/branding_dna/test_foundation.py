@@ -1,0 +1,62 @@
+from types import SimpleNamespace
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from app.core.database import Base
+from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel
+from app.modules.branding_dna.router import (
+    ShopCreate, add_shop, list_shops, list_workers, status,
+    disabled_scan, normalize_shop_url,
+)
+
+@pytest.fixture
+def db():
+    engine = create_engine('sqlite+pysqlite:///:memory:')
+    Base.metadata.create_all(engine, tables=[BrandShopModel.__table__, BrandWorkerModel.__table__])
+    with Session(engine) as session:
+        yield session
+    engine.dispose()
+
+def principal(tenant='tenant-a'):
+    return SimpleNamespace(active_tenant_id=tenant, actor_id='user-a')
+
+def shop():
+    return ShopCreate(display_name='Actual Hats', platform='etsy', region='US',
+        storefront_url='https://www.etsy.com/shop/ActualHats', access_mode='public_observation')
+
+def test_tenant_registration_duplicate_and_ownership(db):
+    row = add_shop(shop(), session=db, principal=principal())
+    assert row['status'] == 'draft'
+    assert list_shops(session=db, principal=principal())['count'] == 1
+    assert list_shops(session=db, principal=principal('other'))['count'] == 0
+    with pytest.raises(HTTPException) as err:
+        add_shop(shop(), session=db, principal=principal())
+    assert err.value.status_code == 409
+    assert list_workers(session=db, principal=principal())['items'] == []
+    with pytest.raises(HTTPException) as err:
+        disabled_scan(row['id'], session=db, principal=principal('other'))
+    assert err.value.status_code == 404
+
+@pytest.mark.parametrize(('platform','url'), [
+    ('etsy','https://www.etsy.com/listing/123456'),
+    ('etsy','https://www.etsy.com.evil.com/shop/Test'),
+    ('etsy','https://localhost/shop/Hat'),
+    ('etsy','https://user:pass@www.etsy.com/shop/Hat'),
+    ('amazon','http://www.amazon.com/stores/Hat'),
+    ('amazon','https://www.amazon.com/dp/B012345678'),
+    ('shopify','https://malicious.site/shop'),
+    ('shopify','https://myshopify.com'),
+    ('shopify','https://hat.myshopify.com:8443'),
+])
+def test_invalid_url_rejected(platform,url):
+    with pytest.raises(ValueError):normalize_shop_url(platform,url)
+
+def test_scanner_blocked_until_worker_available(db):
+    row = add_shop(shop(), session=db, principal=principal())
+    assert status(session=db,principal=principal())['scanner_ready'] is False
+    with pytest.raises(HTTPException) as err:
+        disabled_scan(row['id'],session=db,principal=principal())
+    assert err.value.status_code == 409
+    assert err.value.detail['code'] == 'scanner_not_enrolled'
+    assert status(session=db,principal=principal())['scan_enabled'] is False

@@ -14,8 +14,8 @@ describe("Branding DNA Stage 0 preview", () => {
 
   it("isolates sample actions and does not grant mock access to same-origin CAM cookies", () => {
     const html = renderToStaticMarkup(<BrandingDnaPage />);
-    expect(html).toContain("dữ liệu mô phỏng");
-    expect(html).toContain("chưa kết nối tài khoản shop");
+    expect(html).toContain("Foundation active");
+    expect(html).toContain("Shop Registry lưu thật");
     expect(html).toContain("sandbox=\"allow-scripts allow-downloads\"");
     expect(html).not.toContain("allow-same-origin");
     expect(html).not.toContain("allow-forms");
