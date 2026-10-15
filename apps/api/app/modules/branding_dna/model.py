@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
-from sqlalchemy import DateTime, Index, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
@@ -37,5 +37,8 @@ class BrandWorkerModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     label: Mapped[str] = mapped_column(String(90), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="unregistered")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    token_hash: Mapped[str | None] = mapped_column(String(64))
+    agent_version: Mapped[str | None] = mapped_column(String(64))
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_utc)

@@ -47,4 +47,16 @@ npm run build
 - Migration `0157_branding_dna_foundation` adds `bc_shops` and `bc_browser_agents`.
 - Tenant-scoped API endpoints: `/api/v1/branding-dna/status`, `/shops`, `/workers` and disabled `POST /shops/{id}/scan-runs`.
 - Shop creation is initially admin-scoped via existing `ai_provider.configure`, until dedicated Branding DNA roles are introduced.
-- Scanner is **not enrolled** and bulk crawling remains disabled; the registry has real persistence, but product evidence/Brand Profiles are still future work.
+- Dedicated worker enrollment, revocable one-time Bearer tokens, 60-second heartbeat and a deliberately empty lease endpoint are implemented in Phase 2. Agent is not a crawler.
+- Worker package: `apps/branding-dna-worker/` (Node.js LTS, heartbeat only; **not installed on a Windows host automatically**).
+- Migration `0158_branding_dna_agent_auth` adds per-agent token hashes, enabled/revocation state, and agent version.
+- API: admin `POST /api/v1/branding-dna/workers`, `POST /workers/{id}/disable`; agent `POST /workers/{id}/heartbeat`, `POST /workers/{id}/lease` (no jobs until adapters are ready).
+- Scan remains **disabled** until platform authorization, durable job leasing, evidence, and Gemini aggregation are implemented and tested.
+
+## Phase 2 worker control plane (heartbeat-only)
+
+- Migration `0158_branding_dna_agent_auth`: enabled, token hash and version metadata on `bc_browser_agents`.
+- Tenant-admin enrollment and disable operations, one-time token, Bearer heartbeat and a no-op lease endpoint that **always returns no scan job**.
+- UI shows online/offline/disabled worker states. Dedicated Windows program in `apps/branding-dna-worker/` communicates via HTTPS without Playwright/shop crawling.
+- The old iframe preview is a standalone link at `/branding-dna-preview/` to respect CSP `frame-ancestors none` globally. The operational `/branding-dna` SPA URL never collides with a static directory.
+- A Windows host must be explicitly connected and provisioned before it can heartbeat. Zero agents is an expected Phase 2 initial state.

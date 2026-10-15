@@ -84,10 +84,16 @@ def status(session: Session = Depends(get_db),
     tenant = principal.active_tenant_id
     shops = session.scalar(select(func.count()).select_from(BrandShopModel).where(BrandShopModel.tenant_id == tenant)) or 0
     agents = session.scalar(select(func.count()).select_from(BrandWorkerModel).where(BrandWorkerModel.tenant_id == tenant)) or 0
+    from app.modules.branding_dna.worker_router import worker_online
+    online_agents = sum(worker_online(row) for row in session.scalars(
+        select(BrandWorkerModel).where(BrandWorkerModel.tenant_id == tenant,
+                                     BrandWorkerModel.enabled.is_(True))
+    ))
     return {
-        "phase": "foundation", "shop_count": shops, "registered_workers": agents,
+        "phase": "worker_control_plane", "shop_count": shops, "registered_workers": agents,
+        "online_workers": online_agents,
         "scanner_ready": False, "scan_enabled": False,
-        "blockers": ["worker_protocol_not_deployed", "marketplace_access_not_verified",
+        "blockers": ["scan_task_dispatch_not_deployed", "marketplace_access_not_verified",
                      "profile_pipeline_not_deployed"],
     }
 
@@ -131,8 +137,12 @@ def list_workers(session: Session = Depends(get_db),
     rows = session.scalars(select(BrandWorkerModel).where(
         BrandWorkerModel.tenant_id == principal.active_tenant_id
     ).limit(100)).all()
+    from app.modules.branding_dna.worker_router import worker_online
     return {"items": [
-        {"id": row.id, "label": row.label, "status": row.status,
+        {"id": row.id, "label": row.label,
+         "status": row.status if worker_online(row) or not row.enabled else "offline",
+         "enabled": row.enabled, "online": worker_online(row),
+         "agent_version": row.agent_version,
          "last_heartbeat": row.last_heartbeat.isoformat() if row.last_heartbeat else None}
         for row in rows
     ]}
