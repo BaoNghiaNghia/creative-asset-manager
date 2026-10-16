@@ -62,7 +62,7 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
   {error&&<div className="bdna-live-error" role="alert">{error}</div>}
   {!compact && open && <form className="bdna-shop-form" onSubmit={createShop}>
       <label>Nền tảng<select value={platform} onChange={e=>setPlatform(e.target.value)}>
-    <option value="etsy">Etsy</option><option value="amazon">Amazon</option><option value="shopify">Shopify</option>
+    <option value="etsy">Etsy</option><option value="amazon">Amazon</option>
    </select></label>
          <label className="bdna-shop-form-url">Storefront HTTPS URL<input required inputMode="url" type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder={platform==="etsy"?"https://www.etsy.com/shop/ShopName":platform==="amazon"?"https://www.amazon.com/stores/BrandName/page/...":"https://yourshop.myshopify.com"}/></label>
    <div className="bdna-shop-form-footer"><small>Tạo shop ở trạng thái draft, không tự mở browser.</small><button type="submit" disabled={saving}>{saving?"Đang lưu…":"Lưu shop"}</button></div>

@@ -4,7 +4,7 @@ import { BrandingDnaPage, brandingDnaTabForPath } from "./BrandingDnaPage";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
-import { BrandingDnaShopifyPreview } from "./BrandingDnaShopifyPreview";
+import { BrandingDnaMarketplacePreview } from "./BrandingDnaMarketplacePreview";
 
 describe("Branding DNA worker control plane preview", () => {
   it("maps supported nested routes while rejecting arbitrary tab names", () => {
@@ -49,9 +49,11 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("offers Shopify CSV dry-run without marking it as a live scanner", () => {
-    const html = renderToStaticMarkup(<BrandingDnaShopifyPreview shopId="sample-shop"/>);
-    expect(html).toContain("Shopify CSV · Kiểm tra nguồn");
+  it("offers Etsy and Amazon dry-run without marking it as a live scanner", () => {
+    const etsy = renderToStaticMarkup(<BrandingDnaMarketplacePreview shopId="sample-shop" platform="etsy"/>);
+    expect(etsy).toContain("Etsy Listings CSV");
+    const html = renderToStaticMarkup(<BrandingDnaMarketplacePreview shopId="sample-shop" platform="amazon"/>);
+    expect(html).toContain("Amazon Inventory CSV/TSV");
     expect(html).toContain('type="file"');
     expect(html).toContain("Không quét website");
     expect(html).not.toContain("Start Scan");

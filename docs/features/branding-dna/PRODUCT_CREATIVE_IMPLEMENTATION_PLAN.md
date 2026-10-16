@@ -67,6 +67,14 @@
 - Etsy/Amazon source adapter and their OAuth/seller-access gates are **not implemented**. A Shopify CSV export does not prove origin or authorization, even for a shop registered as `owned`/`authorized`. No API token is required or accepted, no new task is activated, and `/workers/{agent_id}/lease` remains `job:null`.
 - This step makes no database migration and does not deploy services. Real source verification, signed media evidence with byte hashes, approved platform adapters, eligible pilot shop + browser/security QA, and production safety preflight remain required before enabling scanner functionality.
 
+## Checkpoint BD-01 — Amazon & Etsy export-first pilot, 2026-10-16
+
+- User-owned operational scope is **Amazon and Etsy only**. New-shop UI offers those two platforms, and Product Explorer previews Amazon inventory reports (CSV/TSV) or Etsy Shop Manager listing CSV. Prior Shopify records/legacy preview API remain for backward compatibility, but Shopify is no longer a new implementation priority; no destructive deletion.
+- New read-only adapter `marketplace_export_adapter.py`: Etsy listing titles, optional SKU, IMAGE1..IMAGE99 ordering, optional listing ID; Amazon Seller Central inventory SKU, optional ASIN, product title, grouping same-ASIN seller offers. Missing Etsy listing IDs are marked **provisional_not_canonical**, missing Amazon ASIN is **seller_sku_only_unverified**. No generated sales/Best Seller ranking, no full-shop coverage claims.
+- Platform + tenant scoped API `POST /api/v1/branding-dna/shops/{shop_id}/source-preview` accepts `etsy_listings_csv` or `amazon_inventory_report` (legacy Shopify remains). User-provided CSV/TSV is parsed in memory under 2 MB / 1,000 rows / 250 products, with strict header/row validation and capped report issues. Image URLs are not fetched and only approved Etsy CDN HTTPS locators are hashed; URL hashes are **not image byte hashes**.
+- All responses explicitly set `source_identity_verified=false`, `rights_verified=false`, `sales_verified=false`, `evidence_committed=false`, `scan_enabled=false`, `coverage_state=unknown`. No task activation, external HTTP/OAuth calls or database migration.
+- Follow-up for **Etsy**: obtain authorized Etsy Open API v3 key + seller OAuth scope (per platform policy), then build paginated listing/image adapter with rate-limit handling, no CAPTCHA bypass. For **Amazon**: seller authorization via SP-API, explicit marketplace and seller identity, then permitted Listings Items/Reports integration. Preview uploads do **not** grant those API permissions. Do not start the scanner until live authorization, lease/result outbox and security/restore gates pass.
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts

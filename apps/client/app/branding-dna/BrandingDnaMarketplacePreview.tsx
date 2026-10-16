@@ -1,8 +1,9 @@
 import {useEffect, useRef, useState} from "react";
-import "./BrandingDnaShopifyPreview.css";
+import "./BrandingDnaMarketplacePreview.css";
 
 type PreviewProduct = {
   listing_key: string;
+  identity_quality?: string;
   title: string;
   category: string | null;
   variant_count: number;
@@ -24,7 +25,7 @@ type PreviewReport = {
   blockers: string[];
 };
 
-export function BrandingDnaShopifyPreview({shopId}: {shopId: string}) {
+export function BrandingDnaMarketplacePreview({shopId, platform}: {shopId: string; platform: "amazon" | "etsy"}) {
   const [report, setReport] = useState<PreviewReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,7 +42,7 @@ export function BrandingDnaShopifyPreview({shopId}: {shopId: string}) {
       current.current += 1;
       activeAbort.current?.abort();
     };
-  }, [shopId]);
+  }, [shopId, platform]);
 
   async function previewFile(file: File | undefined) {
     if (!file) return;
@@ -49,8 +50,8 @@ export function BrandingDnaShopifyPreview({shopId}: {shopId: string}) {
     activeAbort.current?.abort();
     setReport(null);
     setError("");
-    if (!file.name.toLowerCase().endsWith(".csv") || file.size > 2_000_000 || file.size === 0) {
-      setError("Chỉ hỗ trợ tệp .csv hợp lệ, dung lượng không quá 2 MB.");
+    if (!/\.(csv|tsv|txt)$/i.test(file.name) || file.size > 2_000_000 || file.size === 0) {
+      setError("Chỉ hỗ trợ CSV/TSV/TXT, dung lượng không quá 2 MB.");
       return;
     }
     setBusy(true);
@@ -65,7 +66,7 @@ export function BrandingDnaShopifyPreview({shopId}: {shopId: string}) {
           credentials: "same-origin",
           cache: "no-store",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({format: "shopify_products_csv", csv_text: csv}),
+          body: JSON.stringify({format: platform === "etsy" ? "etsy_listings_csv" : "amazon_inventory_report", csv_text: csv}),
           signal: controller.signal,
         },
       );
@@ -90,16 +91,16 @@ export function BrandingDnaShopifyPreview({shopId}: {shopId: string}) {
     }
   }
 
-  return <section className="bdna-source-preview" aria-label="Shopify CSV source preview">
+  return <section className="bdna-source-preview" aria-label="Amazon Etsy source preview">
     <div className="bdna-source-preview-header">
       <div>
-        <h4>Shopify CSV · Kiểm tra nguồn</h4>
+        <h4>{platform === "etsy" ? "Etsy Listings CSV" : "Amazon Inventory CSV/TSV"} · Kiểm tra nguồn</h4>
         <p>Đọc trước bản export sản phẩm. Không quét website, không lưu ảnh hoặc tạo job.</p>
       </div>
       <label>
-        Chọn tệp Shopify CSV (tối đa 2 MB)
-        <input type="file" accept=".csv,text/csv" disabled={busy}
-          aria-label="Chọn Shopify CSV để xem trước"
+        Chọn tệp {platform === "etsy" ? "Etsy CSV" : "Amazon CSV/TSV"} (tối đa 2 MB)
+        <input type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" disabled={busy}
+          aria-label="Chọn Amazon hoặc Etsy export để xem trước"
           onChange={e => {
             const file = e.currentTarget.files?.[0];
             e.currentTarget.value = "";
@@ -122,7 +123,7 @@ export function BrandingDnaShopifyPreview({shopId}: {shopId: string}) {
         {report.items.slice(0, 30).map(item =>
           <div key={item.listing_key} className="bdna-source-preview-item">
             <strong>{item.title || "(Thiếu tên trong export)"}</strong>
-            <span>{item.listing_key} · {item.variant_count} biến thể · {item.image_count} URL ảnh</span>
+            <span>{item.listing_key} · {item.variant_count} SKU · {item.image_count} URL ảnh · {item.identity_quality === "provisional_not_canonical" ? "ID tạm" : "ID chưa xác minh"}</span>
             {item.warnings.length > 0 && <small>Cảnh báo: {item.warnings.join(", ")}</small>}
           </div>
         )}

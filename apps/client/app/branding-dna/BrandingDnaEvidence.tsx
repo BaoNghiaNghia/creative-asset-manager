@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "./BrandingDnaEvidence.css";
-import { BrandingDnaShopifyPreview } from "./BrandingDnaShopifyPreview";
+import { BrandingDnaMarketplacePreview } from "./BrandingDnaMarketplacePreview";
 
 type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
@@ -104,8 +104,8 @@ export function BrandingDnaEvidence() {
       </label>
     </header>
     {error && <p className="bdna-evidence-error" role="alert">{error}</p>}
-    {shops.find(shop => shop.id === shopId)?.platform === "shopify" && canStage &&
-      <BrandingDnaShopifyPreview key={shopId} shopId={shopId}/>}
+    {(shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") && canStage &&
+      <BrandingDnaMarketplacePreview key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)?.platform as "amazon" | "etsy"}/>}
     {loading ? <p className="bdna-evidence-empty" role="status">Đang tải danh sách shop…</p> :
       !shopId ? <p className="bdna-evidence-empty">Chưa có shop được đăng ký. Hãy thêm shop trong Shop Library.</p> :
       listLoading ? <p className="bdna-evidence-empty" role="status">Đang tải bằng chứng…</p> :
