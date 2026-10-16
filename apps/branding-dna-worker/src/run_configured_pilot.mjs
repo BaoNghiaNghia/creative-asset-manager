@@ -61,7 +61,7 @@ function nextReportFile(dir){
   return join(dir,"branding-dna-"+time+"-"+randomUUID().slice(0,8)+".json");
 }
 export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROOT}={}){
-  const {approval}=validateConfiguredApproval(config,root);
+  const {shop,approval}=validateConfiguredApproval(config,root);
   const result=await runner({
     platform:config.platform,
     shopUrl:config.shop_url,
@@ -78,6 +78,9 @@ export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROO
   const output=nextReportFile(config.report_dir);
   const manifest={
     ...result,
+    platform:shop.platform,
+    shop_url_sha256:createHash("sha256").update(shop.url).digest("hex"),
+    observed_at:result.observed_at??new Date().toISOString(),
     pilot_version:VERSION,
     mode:"local_browser_dom_only",
     local_approval_sha256:createHash("sha256").update(JSON.stringify(approval)).digest("hex"),

@@ -8,9 +8,9 @@ Máy Windows dùng sẵn thư mục:
 Sau khi cập nhật checkout lên main và bản build Windows đạt, chạy
 `UPDATE_SCOUT_MANAGER_RELEASE.cmd` ngay tại thư mục `scan_pinterest`.
 Launcher gọi `scripts/install_scout_manager_release.ps1`, tải 2 file:
-`RRUGC_Scout_Manager_0.1.24_x64_Setup.exe`,
-`RRUGC_Scout_Manager_0.1.24_x64_Portable.exe`, và file SHA-256 của đúng
-release `scout-manager-v0.1.24`. Kiểm tra toàn bộ SHA-256 trước khi cài,
+`RRUGC_Scout_Manager_0.1.25_x64_Setup.exe`,
+`RRUGC_Scout_Manager_0.1.25_x64_Portable.exe`, và file SHA-256 của đúng
+release `scout-manager-v0.1.25`. Kiểm tra toàn bộ SHA-256 trước khi cài,
 không ghi đè binary khác hash, không xóa file release cũ, profile hay
 `scout.local.env`. Launch Tauri bằng `START_SCOUT_TAURI.cmd` sau khi copy.
 
@@ -18,7 +18,24 @@ Các binary do workflow GitHub Actions Windows build và xuất bản qua GitHub
 Releases **sau khi tất cả quality gates đạt**. Máy Windows offline sẽ không tự
 nhận file; thao tác tải trong CMD phải chạy ở máy đó khi có kết nối.
 
-## Branding DNA shop configuration in the Tauri UI (v0.1.24)
+## Local Branding DNA pilot results (Scout Manager v0.1.25)
+
+The Branding DNA card now includes a **read-only local pilot result viewer**.
+It lists up to eight recent reports for the currently configured shop, with
+the observed timestamp, preview status, blocker reason, product title/ID,
+image-reference counts and parser errors. Reports are selected by a SHA-256
+digest of the exact normalized shop URL and platform. Other shops' reports
+are never displayed, including on old installations that used a shared
+report directory.
+
+New shop configurations store reports in distinct per-shop directories
+under `%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\reports`.
+Re-editing an existing shop preserves its previous report path. Blocked
+pilots (needs_operator) now save a shop-hashed, locally identifiable report;
+the UI does not expose raw image URLs or transfer any report to CAM.
+These are partial unverified DOM observations, **not confirmed brand DNA**.
+
+## Branding DNA shop configuration in the Tauri UI (v0.1.25)
 
 The Branding DNA card now includes a native in-app shop editor. Operators set
 **Platform (Amazon/Etsy), exact storefront URL, 1–5 preview product pages and
@@ -44,7 +61,7 @@ per-shop profile separation, stable re-edits and preservation of approvals.
 A real permissioned storefront test on the specific Windows machine remains
 outstanding.
 
-## Integrated Branding DNA Browser Agent — Manager v0.1.24
+## Integrated Branding DNA Browser Agent — Manager v0.1.25
 
 **One checkout/tool:** `D:\Bot_Tool_Auto_Game\scan_pinterest` hosts Review,
 Keyword, Cap Stack and **Branding DNA · Browser Agent** in the same Tauri Scout

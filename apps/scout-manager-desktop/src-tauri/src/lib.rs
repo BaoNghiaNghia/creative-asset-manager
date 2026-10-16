@@ -943,6 +943,10 @@ fn branding_pilot_status(state: tauri::State<'_, Arc<Controller>>) -> Result<bra
     Ok(pilot.status(&state.repo))
 }
 #[tauri::command]
+fn branding_pilot_reports(state: tauri::State<'_, Arc<Controller>>) -> Result<Vec<branding_pilot::PilotReportCard>,String> {
+    branding_pilot::list_local_reports(&state.repo)
+}
+#[tauri::command]
 fn branding_pilot_load_shop(state: tauri::State<'_, Arc<Controller>>) -> Result<branding_pilot::ShopConfigView,String> {
     let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
     pilot.load_shop(&state.repo)
@@ -1231,6 +1235,7 @@ pub fn run() {
             branding_pilot_status,
             branding_pilot_action,
             branding_pilot_load_shop,
+            branding_pilot_reports,
             branding_pilot_save_shop,
             branding_pilot_edit_approval,
             branding_pilot_edit_config,

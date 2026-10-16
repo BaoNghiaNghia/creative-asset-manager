@@ -1,4 +1,5 @@
 import test from "node:test";
+import {createHash} from "node:crypto";
 import assert from "node:assert/strict";
 import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,readdirSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -85,7 +86,24 @@ test("manual runner reports only local unverified evidence and never overwrites 
    assert.equal(report.scan_enabled,false);
    assert.equal(report.items.length,1);
    assert.equal(report.mode,"local_browser_dom_only");
+   assert.equal(report.shop_url_sha256,createHash("sha256").update(SHOP).digest("hex"));
+   assert.match(report.observed_at,/^\d{4}-\d\d-\d\dT/);
    assert.ok(!readFileSync(first.output,"utf8").includes("browser_access_approved"));
+ }finally{rmSync(base,{recursive:true,force:true})}
+});
+test("blocked pilot report retains shop identity without enabling scans",async()=>{
+ const {base,config}=setup();
+ try{
+   const saved=await runConfiguredPilot(config,{
+     root:resolve(base,"worker"),
+     runner:async()=>({status:"needs_operator",reason:"captcha",items:[],scan_enabled:false}),
+   });
+   const body=JSON.parse(readFileSync(saved.output,"utf8"));
+   assert.equal(body.status,"needs_operator");
+   assert.equal(body.scan_enabled,false);
+   assert.equal(body.evidence_committed,false);
+   assert.equal(body.shop_url_sha256,createHash("sha256").update(SHOP).digest("hex"));
+   assert.ok(body.observed_at);
  }finally{rmSync(base,{recursive:true,force:true})}
 });
 test("runner fails closed on unexpected worker result",async()=>{

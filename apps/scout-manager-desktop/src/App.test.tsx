@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import App from "./App";
+import { BrandingDnaReports } from "./BrandingDnaReports";
 describe("Tauri Scout Manager dashboard", () => {
   it("renders both pipelines and monitoring UI without enabling native controls in browser preview", () => {
     const html = renderToStaticMarkup(<App />);
@@ -46,6 +47,13 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Pairing");
     expect(html).toContain("Branding DNA Agent");
     expect(html).toContain('disabled=""');
+  });
+  it("shows only a read-only local reports surface when a shop is selected", () => {
+    const html = renderToStaticMarkup(<BrandingDnaReports nativeAvailable={false} shopUrl="https://www.etsy.com/shop/TestCaps" scanRunning={false}/>);
+    expect(html).toContain("Local pilot results");
+    expect(html).toContain("not uploaded to CAM");
+    expect(html).toContain("No saved pilot results for this shop");
+    expect(html).not.toContain("Download All");
   });
   it("does not interpolate Scout tokens or synthetic running PIDs into server markup", () => {
     const html = renderToStaticMarkup(<App />);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { BrandingDnaReports } from "./BrandingDnaReports";
 import { CircleAlert, FileCog, FolderSearch, Globe2, Pause, Play, Save, Settings2, ShieldCheck, Wrench } from "lucide-react";
 
 type PilotStatus = {
@@ -160,6 +161,7 @@ export function BrandingDnaPilotCard({
    </div>
    {(error||status.lastError)&&<p className="branding-pilot-error" role="alert"><CircleAlert size={14}/>{error||status.lastError}</p>}
    {notice&&<p className="branding-pilot-notice" role="status">{notice}</p>}
+   <BrandingDnaReports nativeAvailable={nativeAvailable} shopUrl={shop.configured?shop.shopUrl:""} scanRunning={status.running}/>
    <small className="branding-pilot-footer">Etsy requires express written authorization; Amazon requires Agent Policy compliance. CAPTCHA/login blocks stop the pilot. No seller API, third-party scraping service or production scan dispatch.</small>
  </section>;
 }

@@ -1,6 +1,7 @@
 //! Manual Amazon/Etsy pilot attached to the existing Scout Manager.
 //! It is NOT part of Run automation and never auto-restarts.
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -111,8 +112,8 @@ fn pilot_config_for(
     Ok(PilotShopConfig{
         platform:platform.into(),shop_url:url,
         approval_file:base.join("secrets").join(format!("{id}.approval.json")).to_string_lossy().to_string(),
-        profile_dir:base.join("profiles").join(id).to_string_lossy().to_string(),
-        report_dir:base.join("reports").to_string_lossy().to_string(),
+        profile_dir:base.join("profiles").join(&id).to_string_lossy().to_string(),
+        report_dir:base.join("reports").join(id).to_string_lossy().to_string(),
         max_products,minimum_delay_ms:5000,headless,
     })
 }
@@ -202,6 +203,81 @@ fn ensure_default_deny_approval(config:&PilotShopConfig)->Result<PathBuf,String>
         file.write_all(text.as_bytes()).map_err(|_|"Cannot write approval file.")?;
     }
     Ok(path)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct PilotObservation {
+    pub listing_key: String,
+    pub title: String,
+    pub image_count: u64,
+    pub error_code: Option<String>,
+}
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct PilotReportCard {
+    pub file_name: String,
+    pub status: String,
+    pub observed_at: String,
+    pub observed_count: usize,
+    pub reason: Option<String>,
+    pub items: Vec<PilotObservation>,
+}
+// Read-only and strictly local: no external calls, no raw source/image URLs,
+// no secrets, no acceptance of another shop's report.
+pub fn list_local_reports(repo:&Path)->Result<Vec<PilotReportCard>,String>{
+    let Some(config)=load_config(repo)? else{return Ok(Vec::new())};
+    let dir=Path::new(&config.report_dir);
+    if !dir.exists(){return Ok(Vec::new())}
+    let metadata=fs::symlink_metadata(dir).map_err(|_|"Cannot inspect local report directory.")?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir(){
+        return Err("Unsafe local report directory.".into());
+    }
+    let shop_sha=format!("{:x}",Sha256::digest(config.shop_url.as_bytes()));
+    let mut files=Vec::new();
+    for entry in fs::read_dir(dir).map_err(|_|"Cannot read local report directory.")?.take(2000){
+        let entry=entry.map_err(|_|"Cannot inspect local report entry.")?;
+        let name=entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("branding-dna-") || !name.ends_with(".json")
+            || name.len()>110 || !name.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'-' || b==b'.'){
+            continue;
+        }
+        let meta=entry.metadata().map_err(|_|"Cannot inspect local report.")?;
+        if !meta.is_file() || meta.len()>1024*1024 || meta.len()<10 || entry.path().symlink_metadata()
+            .map_err(|_|"Cannot inspect local report.")?.file_type().is_symlink(){continue}
+        files.push((name,entry.path()));
+    }
+    files.sort_by(|a,b|b.0.cmp(&a.0));
+    let mut reports=Vec::new();
+    for (file_name,path) in files {
+        if reports.len()>=8{break}
+        let Ok(content)=fs::read(&path) else{continue};
+        let Ok(doc)=serde_json::from_slice::<serde_json::Value>(&content) else{continue};
+        if doc["shop_url_sha256"].as_str()!=Some(shop_sha.as_str())
+            || doc["platform"].as_str()!=Some(config.platform.as_str())
+            || doc["scan_enabled"].as_bool()!=Some(false)
+            || doc["evidence_committed"].as_bool()!=Some(false)
+            || !matches!(doc["status"].as_str(),Some("preview_completed"|"needs_operator")){
+            continue;
+        }
+        let items=doc["items"].as_array().map(|arr|arr.iter().take(5).map(|item|{
+            PilotObservation{
+                listing_key:item["listing_key"].as_str().unwrap_or("").chars().take(60).collect(),
+                title:item["title"].as_str().unwrap_or("").chars().take(180).collect(),
+                image_count:item["image_count"].as_u64().unwrap_or(0).min(12),
+                error_code:item["error_code"].as_str().map(|s|s.chars().take(100).collect()),
+            }
+        }).collect()).unwrap_or_default();
+        reports.push(PilotReportCard{
+            file_name,
+            status:doc["status"].as_str().unwrap_or("").to_string(),
+            observed_at:doc["observed_at"].as_str().unwrap_or("").chars().take(40).collect(),
+            observed_count:doc["observed_count"].as_u64().unwrap_or(items.len() as u64).min(5) as usize,
+            reason:doc["reason"].as_str().map(|s|s.chars().take(100).collect()),
+            items,
+        });
+    }
+    Ok(reports)
 }
 
 pub struct BrandPilot {
@@ -402,6 +478,41 @@ mod tests{
         assert_ne!(updated.approval_file,first.approval_file);
         assert!(!updated.approval_file_present);
         assert_eq!(fs::read_to_string(&p).unwrap(),"preserve original operator authorization file");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn local_reports_are_read_only_and_isolated_by_shop_hash(){
+        let root=fake_root();
+        let repo=root.join("repo");
+        let local=root.join("local");
+        let mut agent=BrandPilot::new();
+        let shop=agent.save_shop(&repo,&local,"etsy","https://www.etsy.com/shop/HappyCaps",3,false).unwrap();
+        let dir=PathBuf::from(&shop.report_dir);
+        fs::create_dir_all(&dir).unwrap();
+        let hash=format!("{:x}",Sha256::digest(shop.shop_url.as_bytes()));
+        let matching=serde_json::json!({
+            "platform":"etsy","shop_url_sha256":hash,
+            "status":"preview_completed","observed_at":"2026-10-16T12:00:00Z",
+            "observed_count":1,"scan_enabled":false,"evidence_committed":false,
+            "items":[{"listing_key":"etsy:12345678","title":"Cotton Cap","image_count":2}],
+        });
+        fs::write(dir.join("branding-dna-20261016-120000Z-abc12345.json"),
+            serde_json::to_string(&matching).unwrap()).unwrap();
+        let unrelated=serde_json::json!({
+            "platform":"etsy","shop_url_sha256":"different_shop_hash",
+            "status":"preview_completed","observed_at":"2026-10-16T13:00:00Z",
+            "scan_enabled":false,"evidence_committed":false,
+            "items":[{"title":"Hidden competitor","listing_key":"etsy:999"}],
+        });
+        fs::write(dir.join("branding-dna-20261016-130000Z-def23456.json"),
+            serde_json::to_string(&unrelated).unwrap()).unwrap();
+        let reports=list_local_reports(&repo).unwrap();
+        assert_eq!(reports.len(),1);
+        assert_eq!(reports[0].items[0].title,"Cotton Cap");
+        assert_eq!(reports[0].observed_count,1);
+        let other=agent.save_shop(&repo,&local,"etsy","https://www.etsy.com/shop/DifferentCaps",2,false).unwrap();
+        assert_ne!(shop.report_dir,other.report_dir);
+        assert!(list_local_reports(&repo).unwrap().is_empty());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
