@@ -253,7 +253,7 @@ jobs:
           mkdir -p ../../artifacts/postgres
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
       - name: Repository and migration integration tests
         working-directory: apps/api

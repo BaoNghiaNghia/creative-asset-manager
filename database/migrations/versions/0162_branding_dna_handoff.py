@@ -4,6 +4,7 @@ Revision ID: 0162_branding_dna_handoff
 Revises: 0161_branding_dna_worker_events
 No existing data is changed. This does NOT enable scans or evidence import.
 """
+import os
 from alembic import op
 import sqlalchemy as sa
 
@@ -44,5 +45,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Never drop review/audit records implicitly.
-    raise RuntimeError("Handoff review history requires an approved manual retention procedure")
+    # Production must never erase operator review history by accident.
+    # Disposable integration test databases may opt in explicitly.
+    bind = op.get_bind()
+    url = bind.engine.url
+    disposable_database = (
+        (url.get_backend_name() == "postgresql" and url.database == "cam_integration")
+        or (url.get_backend_name() == "sqlite" and (url.database or "").replace("\\\\", "/").rsplit("/", 1)[-1] == "handoff.db")
+    )
+    if os.environ.get("CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST") != "1" or not disposable_database:
+        raise RuntimeError("Handoff review history is protected; rollback is limited to opted-in disposable CI/test databases.")
+    op.drop_index("ix_bc_handoff_tenant_shop", table_name="bc_handoff_candidates")
+    op.drop_table("bc_handoff_candidates")

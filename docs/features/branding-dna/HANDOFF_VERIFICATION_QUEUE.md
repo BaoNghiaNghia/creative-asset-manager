@@ -34,6 +34,6 @@ API tests: python -m pytest tests/modules/branding_dna tests/migrations/test_bra
 
 Client tests: npm run typecheck, and vitest BrandingDnaPage.test.tsx
 
-Migration: additive Alembic 0162_branding_dna_handoff. A downgrade cannot silently delete operator queue records.
+Migration: additive Alembic 0162_branding_dna_handoff. Production downgrade refuses to drop operator queue records. Only disposable CI PostgreSQL database `cam_integration` or isolated SQLite test file `handoff.db` can opt into destructive rollback using `CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1`; the flag is scoped exclusively to the CI migration downgrade step. This preserves the CI upgrade/rollback/re-upgrade test without granting a generic production deletion route.
 
 Do not deploy to production without a verified database backup, sufficient disk headroom, staging tests and authenticated browser QA.
