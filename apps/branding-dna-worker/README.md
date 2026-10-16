@@ -1,6 +1,6 @@
-# Branding DNA Windows Worker (control-plane bootstrap)
+# Branding DNA Windows Worker — Heartbeat + manual Browser Pilot
 
-This process sends signed **heartbeats and restricted lifecycle telemetry**. A durable SQLite outbox retains operational events across outages/restarts and replays them until an exact server ACK. The scanner remains disabled: no product scans, browser navigation, image processing or real job leasing.
+The default process sends signed **heartbeats and restricted lifecycle telemetry** with a durable SQLite outbox. A separate **manual local browser pilot** can navigate an individually approved Amazon/Etsy shop with Chromium/Playwright. `npm start` does not run it. Production scanner dispatch remains disabled; the pilot does not upload evidence to CAM.
 
 ## Setup (on an authorized dedicated Windows machine)
 
@@ -9,9 +9,11 @@ This process sends signed **heartbeats and restricted lifecycle telemetry**. A d
 3. Inject the three environment variables only into the worker process: `BRANDING_DNA_SERVER_URL`, `BRANDING_DNA_AGENT_ID`, `BRANDING_DNA_AGENT_TOKEN`. Do not place secrets in the .cmd, repository or public configuration.
 4. Run `npm test`, then `npm start` or the .cmd. CAM should show heartbeat/online within ~1 minute. To stop immediately revoke the token via Disable in CAM.
 
-## What is not installed/enabled
+## Browser pilot — opt-in, local only
 
-There is **no Playwright/browser binary dependency yet** in this control-plane package. Node 22 marks `node:sqlite` experimental; validate the pinned runtime on the dedicated machine before a production worker upgrade. Pin and install Playwright in the isolated worker during the authorized adapter phase after platform permissions and task leases are implemented. Do not interpret heartbeat success as a full-store scan.
+The package now pins Playwright **1.56.1**. On a dedicated authorized Windows host run `npm ci` and `npx playwright install chromium`; no browser binary is shipped or installed by the production heartbeat command. Launch manually via `node src/browser_pilot.mjs` only with an exact-shop, freshly approved authorization file and a dedicated profile. **Etsy requires express written authorization; Amazon requires Agent Policy compliance and agent identification.** Bounded to 5 product pages, no login/CAPTCHA bypass, no marketplace API calls. See `docs/features/branding-dna/BROWSER_AGENT_PILOT.md` for permission requirements, setup and example.
+
+Node 22 marks `node:sqlite` experimental; validate the pinned runtime on the dedicated machine. Heartbeat success does not imply a productive scanner.
 
 ## Durable lifecycle telemetry (not scanner evidence)
 
@@ -24,4 +26,4 @@ There is **no Playwright/browser binary dependency yet** in this control-plane p
 
 ## Required upgrades for scanning
 
-Tenant-bound lease-to-worker dispatch, versioned parser adapters, per-shop profile lock, limited gallery evidence, CAPTCHA/manual blocker states, signed upload and controls to stop/pause. The local SQLite **lifecycle** outbox is now implemented, but task/result outbox and verified marketplace adapters are not. See `docs/features/branding-dna/WORKER_ARCHITECTURE.md`.
+Tenant-bound lease-to-worker dispatch, browser selector fixtures against permitted live sources, task/result SQLite outbox, media rights and signed upload, operator pause/kill, retention, Windows Browser QA and canary rollback. The browser pilot and lifecycle outbox are implemented separately, but production job dispatch is intentionally disabled. See `docs/features/branding-dna/WORKER_ARCHITECTURE.md`.

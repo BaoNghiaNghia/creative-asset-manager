@@ -1,4 +1,4 @@
-# Branding DNA — Dedicated Worker Architecture (pre-implementation ADR)
+# Branding DNA — Dedicated Worker Architecture (browser-first ADR, partial implementation)
 
 **Decision:** Build a dedicated **Branding DNA Scanner** process with its own Playwright runtime and browser profiles, hosted on a separate authorized Windows machine (or isolated Windows VM). **Reuse Scout Manager's deployment/monitoring patterns, not its Pinterest scraping code or Chrome profiles.** CAM VPS stays the central API, database, queue, Gemini and profile aggregator. No live scanner has been installed yet.
 
@@ -21,7 +21,7 @@ flowchart LR
   CAM[CAM UI and RBAC] --> API[CAM API / PostgreSQL]
   API --> Jobs[Durable jobs + per-shop lease]
   W[Dedicated Windows Branding DNA Worker] -->|TLS long-poll, scoped token| Jobs
-  W -->|Allowed API or Browser / checkpoints| Sites[Authorized marketplace sources]
+  W -->|DOM navigation with explicit platform approval| Sites[Amazon and Etsy shop pages]
   W -->|Evidence manifest + hashes| API
   API -->|Bounded enqueue| G[Existing Gemini pool]
   G --> A[Profile aggregation + evidence claims]
@@ -29,7 +29,7 @@ flowchart LR
   Review --> Skills[CAM Skills / generation binding]
 ```
 
-**New package:** `apps/branding-dna-worker/` (planned; currently absent), using pinned Node LTS + Playwright Chromium. Separate lockfile, test fixtures and Windows release artifact. Use a shared `worker-management` protocol adapter only for heartbeat, version/update display and log transport. Never import Pinterest site selectors, queries or history.
+**Worker package:** `apps/branding-dna-worker/` exists, with pinned Node 22.13+ and Playwright Chromium as an optional installed runtime on the Windows host. Local browser pilot runs separately from the heartbeat; central task dispatch is still disabled. Separate lockfile, test fixtures and Windows release artifact. Use a shared `worker-management` protocol adapter only for heartbeat, version/update display and log transport. Never import Pinterest site selectors, queries or history.
 
 **Machine baseline for pilot (planning assumption, not benchmark):** 4–8 physical CPU cores, 16 GiB RAM, SSD/NVMe with 30 GiB free *dedicated* to worker, reliable network. Prefer 32 GiB if concurrent browser jobs and gallery captures are planned. Start at **one browser context / one active shop / one listing navigation at a time** with memory/CPU ceilings. Increase toward 2–3 contexts only after 48-hour profiling; there is no promise of a fixed number of concurrent products based on RAM alone. Browser binaries, logs and captures must have disk quotas.
 
@@ -47,23 +47,36 @@ flowchart LR
 - **Manual block handling:** `needs_operator` for CAPTCHA/login/rate limit restrictions; no challenge bypass, stealth plugins, proxy rotation to evade policy, automated login or headless detection evasion.
 - **Idempotency:** `tenant_id + platform + canonical_shop_id + listing_id + variant_id + source_revision + task_type + model_version`; exactly-once **effects** through server idempotency, not claims that delivery never duplicates.
 
-## 4. Source adapter strategy — API first, Browser as permitted fallback
+## 4. Source adapter strategy — Browser-first, no marketplace APIs (2026-10-16 decision)
 
-| Platform/source | Primary | Browser fallback | Eligibility |
+The user supports **Amazon and Etsy only** and explicitly chooses a dedicated
+browser agent rather than marketplace APIs or third-party scraping services.
+Shopify CSV/legacy API remains for backward compatibility but is not the path
+for further development. CAM's **own API** is retained for internal RBAC,
+heartbeat and audit, not for accessing marketplace data.
+
+| Source | Browser method | Mandatory boundary | State |
 |---|---|---|---|
-| Shopify **owned/authorized** | GraphQL Admin API cursor pagination and products/media; webhooks where authorized | UI only for presentation/visual layout not represented in API | Scoped app + token |
-| Etsy **owned/authorized** | Etsy Open API v3 shop/listing/images using authorized key and OAuth scopes where needed | Public gallery UI if allowed | Respect API QPS/QPD, `retry-after` |
-| Amazon **owned/authorized seller** | Amazon SP-API Listings Items and Catalog Items for suitable catalog/account data | Only allowed UI elements not in API | Seller authorization, marketplace selection |
-| Other shops / competitors | Allowed public pages or authorized export/feed; manual URL collection if API lacks access | Restricted, policy-aware browser scan | Never assume full enumeration or seller API access |
+| Amazon public storefront | Dedicated Playwright Chromium, DOM-visible shop cards and bounded product pages | Agent User-Agent, policy/robots review, explicitly approved shop; no challenge or block circumvention | Local 5-page pilot available, server dispatch OFF |
+| Etsy public shop | Dedicated Playwright Chromium, DOM-visible listings and bounded detail/gallery previews | **Express Etsy written authorization** and reference in addition to shop-specific approval | Local 5-page pilot available, server dispatch OFF unless authorized |
+| Private seller/account dashboards | Not included | Do not auto-login or access private pages through pilot | Unsupported |
+| Shopify | No new work | Preserve existing records and legacy CSV endpoint | Deprecated as pilot focus |
 
-Official reference links:
-- [Playwright persistent profiles](https://playwright.dev/docs/api/class-browsertype)
-- [Etsy authentication](https://developers.etsy.com/documentation/essentials/oauth2/)
-- [Etsy rate limits](https://developers.etsy.com/documentation/essentials/rate-limits/)
-- [Shopify GraphQL product pagination](https://shopify.dev/docs/api/usage/pagination-graphql)
-- [Amazon SP-API listings lifecycle](https://developer-docs.amazon.com/sp-api/lang-en_EN/docs/manage-product-listings-guide)
+Browser navigation runs with strict host/path allowlists, restricted resource
+hosts, an isolated profile/lock, and max five pages at fixed bounded pace.
+CAPTCHA or sign-in stops as `needs_operator`. No external data fetch services,
+proxy rotation, stealth or marketplace API calls are implemented in agent code.
+The visited site may issue its normal JavaScript requests as part of rendering.
 
-Every adapter must declare: supported geography, shop identity discovery, capabilities (listing feed/gallery/variations/images), access mode, terms confirmation, robots policy applicability, pagination, known blind spots and `next_retry_at`. Do not label external shop scans **100%** without an independent authoritative inventory.
+References:
+- [Playwright persistent browser contexts](https://playwright.dev/docs/api/class-browsertype)
+- [Etsy published restrictions on browser automation](https://www.etsy.com/legal/api/)
+- [Amazon Agent Policy](https://sellercentral.amazon.com/help/hub/reference/external/GS83KH2MA7HM69PH)
+- [Pilot implementation, setup and safety gates](./BROWSER_AGENT_PILOT.md)
+
+**Important:** All output is `browser_dom_observation`, rights/sales unknown,
+coverage partial. A browser pilot does not certify a marketplace's permission,
+a complete catalog, ownership, or Best Seller performance.
 
 ## 5. Suggested job contract
 
@@ -98,11 +111,11 @@ Health measures: heartbeat freshness (for liveness), **last successfully committ
 ## 7. Controlled rollout and promotion gates
 
 1. **Contract/mock mode:** fake fixture shops, no external network, tenant/RBAC/auth tests, idempotency + crash/replay tests, UI states and Browser QA.
-2. **One authorized Shopify or Etsy owned shop:** API adapter first; collect a baseline of known listing count for completeness verification. Operator must explicitly start pilot.
-3. **One authorized Amazon seller:** use approved SP-API; when unavailable, declare scope limitation instead of claiming complete storefront access.
+2. **One explicitly approved Amazon storefront:** dedicated Windows Chromium pilot; identify Agent in User-Agent, respect service restrictions; compare visible sample to a separately confirmed product list.
+3. **One Etsy shop with express written authorization:** then run restricted browser pilot; otherwise keep Etsy scan blocked. No Etsy marketplace API fallback.
 4. **Optional public storefront pilot:** only after platform-specific legal/policy and operational review; limited URLs, not unbounded enumeration.
 5. **Scale:** memory/CPU/browser session budgets, queue fairness, stress test and worker update rollback proven for at least 48 hours.
 
-### Do not install before Phase 2
+### Local pilot installation boundary
 
-Node/Playwright/browser on the dedicated Windows worker and optional platform API credentials are **future dependencies**, not prerequisites for UI/docs or `main` merge. No browser scanner was installed during this design review.
+Browser runner code and package lock are in Git, but a dedicated Windows machine must still install pinned Node/Playwright/Chromium and pass QA. CAM production does **not** automatically install browsers, grant rights, lease jobs or execute scans. No marketplace API credentials are required or accepted.

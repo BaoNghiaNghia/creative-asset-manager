@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "./BrandingDnaEvidence.css";
-import { BrandingDnaMarketplacePreview } from "./BrandingDnaMarketplacePreview";
+import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
 
 type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
@@ -95,7 +95,7 @@ export function BrandingDnaEvidence() {
   return <section className="bdna-evidence" aria-label="Product listing evidence">
     <header className="bdna-evidence-header">
       <div><h3>Product Explorer · Evidence</h3>
-        <p>Chỉ dữ liệu từ shop đã đăng ký. Import được đánh dấu chưa xác minh; scanner vẫn tắt.</p></div>
+        <p>Amazon/Etsy ưu tiên Browser Agent. Quan sát sản phẩm cần kiểm chứng; scanner production vẫn tắt.</p></div>
       <label>Shop
         <select aria-label="Chọn shop" value={shopId} onChange={e => {setShopId(e.target.value); setPage(0);}}>
           {!shopId && <option value="">Chọn shop</option>}
@@ -104,12 +104,12 @@ export function BrandingDnaEvidence() {
       </label>
     </header>
     {error && <p className="bdna-evidence-error" role="alert">{error}</p>}
-    {(shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") && canStage &&
-      <BrandingDnaMarketplacePreview key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)?.platform as "amazon" | "etsy"}/>}
+    {(shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") &&
+      <BrandingDnaBrowserPlan key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)?.platform as "amazon" | "etsy"}/>}
     {loading ? <p className="bdna-evidence-empty" role="status">Đang tải danh sách shop…</p> :
       !shopId ? <p className="bdna-evidence-empty">Chưa có shop được đăng ký. Hãy thêm shop trong Shop Library.</p> :
       listLoading ? <p className="bdna-evidence-empty" role="status">Đang tải bằng chứng…</p> :
-      !list?.items.length ? <p className="bdna-evidence-empty">Chưa có bản ghi listing. Hệ thống không tạo dữ liệu mô phỏng. Có thể nhập bản export được cấp quyền qua API sau khi cấu hình nguồn.</p> :
+      !list?.items.length ? <p className="bdna-evidence-empty">Chưa có evidence từ Browser Agent. Xem kế hoạch quét ở trên; hệ thống không tạo dữ liệu mô phỏng và không tự quét khi chưa đủ điều kiện.</p> :
       <>
         <div className="bdna-evidence-count">{list.count} snapshot đã nhập · Tình trạng quét toàn shop: chưa xác định</div>
         <div className="bdna-evidence-list">

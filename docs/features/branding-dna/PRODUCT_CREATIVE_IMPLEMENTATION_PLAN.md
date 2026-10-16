@@ -75,6 +75,13 @@
 - All responses explicitly set `source_identity_verified=false`, `rights_verified=false`, `sales_verified=false`, `evidence_committed=false`, `scan_enabled=false`, `coverage_state=unknown`. No task activation, external HTTP/OAuth calls or database migration.
 - Follow-up for **Etsy**: obtain authorized Etsy Open API v3 key + seller OAuth scope (per platform policy), then build paginated listing/image adapter with rate-limit handling, no CAPTCHA bypass. For **Amazon**: seller authorization via SP-API, explicit marketplace and seller identity, then permitted Listings Items/Reports integration. Preview uploads do **not** grant those API permissions. Do not start the scanner until live authorization, lease/result outbox and security/restore gates pass.
 
+## Checkpoint BD-01 — Browser Agent pilot, Amazon/Etsy only (2026-10-16)
+
+- **Business direction supersedes the previous CSV/API-first checkpoints:** the preferred collection method is a **self-hosted Chromium/Playwright browser agent** on a dedicated Windows host, not Amazon SP-API, Etsy API, Shopify integration or any third-party scraping service. Legacy CSV preview endpoints remain only for backward compatibility, and Product Explorer shows the Browser Agent plan instead of a CSV file picker.
+- Added `apps/branding-dna-worker/src/browser_pilot.mjs` and pinned Playwright dependency. The **manual local pilot** validates Amazon/Etsy storefront URL, strict same-platform listing URLs, allowed resource hosts, per-shop operator approval, separated profile lock and isolated Chromium, Agent identification, a hard limit of 5 product pages and 5-second minimum pauses. It reads visible DOM titles and image URL references, returns unverified JSON **only to a local file**; no direct platform API calls, no gallery download and no job claims.
+- Platform-specific gates: Amazon requires Agent Policy review and identifying User-Agent; Etsy requires express **written** permission plus an audit reference. CAPTCHA/login/rate limits cause a stop/operator review, never bypass. **No user authorization or platform rights have been verified by committing the code.**
+- Added tenant-scoped `GET /api/v1/branding-dna/shops/{shop_id}/browser-plan`, with steps and blockers. It never activates scans. `/workers/{agent_id}/lease` remains `job:null` / `scan_enabled:false`, no productive evidence promotion. Unit tests use mock browser; authorized Windows Chromium Browser QA and live-source pilot are still pending. See [Browser Agent Pilot](./BROWSER_AGENT_PILOT.md).
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts

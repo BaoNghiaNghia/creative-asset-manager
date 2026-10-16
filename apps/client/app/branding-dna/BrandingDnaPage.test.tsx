@@ -4,7 +4,7 @@ import { BrandingDnaPage, brandingDnaTabForPath } from "./BrandingDnaPage";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
-import { BrandingDnaMarketplacePreview } from "./BrandingDnaMarketplacePreview";
+import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
 
 describe("Branding DNA worker control plane preview", () => {
   it("maps supported nested routes while rejecting arbitrary tab names", () => {
@@ -49,13 +49,13 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("offers Etsy and Amazon dry-run without marking it as a live scanner", () => {
-    const etsy = renderToStaticMarkup(<BrandingDnaMarketplacePreview shopId="sample-shop" platform="etsy"/>);
-    expect(etsy).toContain("Etsy Listings CSV");
-    const html = renderToStaticMarkup(<BrandingDnaMarketplacePreview shopId="sample-shop" platform="amazon"/>);
-    expect(html).toContain("Amazon Inventory CSV/TSV");
-    expect(html).toContain('type="file"');
-    expect(html).toContain("Không quét website");
+  it("renders Amazon/Etsy browser agent plan, not CSV/API scrape controls", () => {
+    const etsy = renderToStaticMarkup(<BrandingDnaBrowserPlan shopId="sample-shop" platform="etsy"/>);
+    expect(etsy).toContain("Browser Agent · Etsy");
+    const html = renderToStaticMarkup(<BrandingDnaBrowserPlan shopId="sample-shop" platform="amazon"/>);
+    expect(html).toContain("Browser Agent · Amazon");
+    expect(html).toContain("Chưa bật quét");
+    expect(html).not.toContain('type="file"');
     expect(html).not.toContain("Start Scan");
     expect(html).not.toContain("<img");
   });

@@ -2,8 +2,13 @@
   "name": "@cam/branding-dna-worker",
   "private": true,
   "version": "0.1.0",
-  "description": "Isolated Windows heartbeat agent with durable lifecycle SQLite outbox. No crawler installed or enabled.",
+  "description": "Isolated Windows heartbeat worker and permission-gated local Amazon/Etsy browser pilot.",
   "type": "module",
   "engines": {"node": ">=22.13.0"},
-  "scripts": {"start": "node src/heartbeat.mjs", "test": "node --test tests/*.test.mjs"}
+  "scripts": {
+    "start": "node src/heartbeat.mjs",
+    "pilot:browser": "node src/browser_pilot.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {"playwright": "1.56.1"}
 }
