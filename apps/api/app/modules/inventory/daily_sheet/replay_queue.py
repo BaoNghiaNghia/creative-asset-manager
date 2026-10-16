@@ -325,6 +325,8 @@ class HistoricalReplayQueue:
         self,
         allowed_tenant_ids: frozenset[str] | None,
         business_dates: tuple[date, ...],
+        *,
+        now: datetime | None = None,
     ) -> list[dict[str, Any]]:
         """Read-only date-specific evidence, including days outside auto lookback.
 
@@ -336,7 +338,12 @@ class HistoricalReplayQueue:
         if allowed_tenant_ids is not None and not allowed_tenant_ids:
             return [{"business_date": day.isoformat(), "profiles": []} for day in business_dates]
 
+        from app.modules.inventory.daily.scheduler import (
+            V4_MANUAL_RECOVERY_ERROR_CODES, _configured_time,
+        )
+
         safe_code = _safe_diagnostic_code
+        moment = now or datetime.now(timezone.utc)
         reports: list[dict[str, Any]] = []
         with self.session_factory() as session:
             query = select(InventorySettingsModel).order_by(InventorySettingsModel.tenant_id)
@@ -361,6 +368,18 @@ class HistoricalReplayQueue:
                         InventoryDailyCarryForwardModel.tenant_id == settings.tenant_id,
                         InventoryDailyCarryForwardModel.target_business_date == day,
                     ))
+                    prior_day = day - timedelta(days=1)
+                    source_snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                        InventoryDailySheetSnapshotModel.tenant_id == settings.tenant_id,
+                        InventoryDailySheetSnapshotModel.business_date == prior_day,
+                    ))
+                    prior_verified = bool(
+                        source_snapshot
+                        and source_snapshot.status == "completed"
+                        and source_snapshot.gemini_reconcile_status == "completed"
+                        and source_snapshot.gemini_reconcile_verified_at is not None
+                        and source_snapshot.gemini_file_id
+                    )
                     replay = session.scalar(select(InventoryJobModel).where(
                         InventoryJobModel.tenant_id == settings.tenant_id,
                         InventoryJobModel.job_type == REPLAY_REQUEST_TYPE,
@@ -371,6 +390,40 @@ class HistoricalReplayQueue:
                         InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot",
                         InventoryJobModel.entity_id == f"{day.isoformat()}:evening_reconcile",
                     ).order_by(InventoryJobModel.created_at.desc()).limit(1))
+                    reset_job = session.scalar(select(InventoryJobModel).where(
+                        InventoryJobModel.tenant_id == settings.tenant_id,
+                        InventoryJobModel.job_type == "inventory_v5_morning_reset_slot",
+                        InventoryJobModel.entity_id == f"{day.isoformat()}:morning_reset",
+                    ).order_by(InventoryJobModel.created_at.desc()).limit(1))
+                    try:
+                        local = moment.astimezone(ZoneInfo(settings.timezone or "Asia/Ho_Chi_Minh"))
+                    except (KeyError, ValueError):
+                        local = moment.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
+                    if day != local.date():
+                        recovery_code = "inventory_morning_reset_recovery_current_day_only"
+                    elif not settings.daily_sheet_automation_enabled:
+                        recovery_code = "inventory_v4_morning_reset_unavailable"
+                    elif abs((
+                        local - datetime.combine(
+                            day, _configured_time(settings.daily_carry_forward_time_local, time(5, 0)),
+                            tzinfo=local.tzinfo,
+                        )
+                    ).total_seconds()) <= 3600:
+                        recovery_code = "inventory_morning_reset_recovery_use_normal_rerun"
+                    elif not prior_verified:
+                        recovery_code = "inventory_morning_reset_recovery_dependency_not_verified"
+                    elif reset_job is None:
+                        recovery_code = "inventory_morning_reset_recovery_not_scheduled"
+                    elif carry is None:
+                        recovery_code = "inventory_morning_reset_recovery_unavailable"
+                    elif (
+                        carry.status != "completed"
+                        and carry.error_code not in V4_MANUAL_RECOVERY_ERROR_CODES
+                        and reset_job.last_error_code != "inventory_morning_reset_missed_safe_window"
+                    ):
+                        recovery_code = "inventory_morning_reset_recovery_blocked_by_other_error"
+                    else:
+                        recovery_code = "preview_candidate"
                     payload = replay.payload_json if replay and isinstance(replay.payload_json, dict) else {}
                     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
                     issue_codes = result.get("review_issue_codes")
@@ -397,6 +450,9 @@ class HistoricalReplayQueue:
                         ] if isinstance(issue_codes, list) else [],
                         "morning_reset_status": safe_code(carry.status if carry else "missing"),
                         "morning_reset_error": safe_code(carry.error_code if carry else "none"),
+                        "previous_day_gemini_verified": prior_verified,
+                        "morning_recovery_preview_candidate": recovery_code == "preview_candidate",
+                        "morning_recovery_gate_code": recovery_code,
                     })
                 reports.append({"business_date": day.isoformat(), "profiles": profiles})
         return reports

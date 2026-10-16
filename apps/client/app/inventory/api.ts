@@ -275,6 +275,9 @@ export type InventoryDateInspectionProfile = {
   replay_status:string; replay_attempt_count:number;
   replay_verification:string; replay_promoted:boolean; review_issue_codes:string[];
   morning_reset_status:string; morning_reset_error:string;
+  previous_day_gemini_verified:boolean;
+  morning_recovery_preview_candidate:boolean;
+  morning_recovery_gate_code:string;
 };
 export type InventoryDateInspection = {business_date:string;profiles:InventoryDateInspectionProfile[]};
 export type InventoryLearningStatus = {

@@ -115,11 +115,62 @@ def test_date_inspection_reads_old_backlog_and_reset_without_leaking_identifiers
         assert backlog["review_issue_codes"] == ["no_actionable_assessment"]
         assert result[1]["profiles"][0]["morning_reset_status"] == "review_required"
         assert result[1]["profiles"][0]["morning_reset_error"] == "previous_day_gemini_not_verified"
+        assert result[1]["profiles"][0]["morning_recovery_preview_candidate"] is False
+        assert result[1]["profiles"][0]["morning_recovery_gate_code"] == "inventory_morning_reset_recovery_current_day_only"
+        assert result[1]["profiles"][0]["previous_day_gemini_verified"] is False
         assert queue.inspect_dates(frozenset({"other-tenant"}), (old_day,))[0]["profiles"] == []
         assert queue.inspect_dates(frozenset(), (old_day,))[0]["profiles"] == []
         assert "tenant-a" not in str(result)
         assert "immutable-2030" not in str(result)
         assert "TOKEN secret" not in str(result)
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
+def test_date_inspection_fail_closed_recovery_gate_on_current_day_and_verified_source():
+    tmp, engine, sessions = _sessions()
+    try:
+        yesterday, today = date(2030, 8, 9), date(2030, 8, 10)
+        _failed_evening(sessions, yesterday)
+        with sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a", job_type="inventory_v5_morning_reset_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id=f"{today}:morning_reset",
+                idempotency_key="morning-reset-eligible", status="failed",
+                last_error_code="inventory_morning_reset_missed_safe_window",
+            ))
+            session.add(InventoryDailyCarryForwardModel(
+                tenant_id="tenant-a", target_business_date=today,
+                previous_business_date=yesterday, idempotency_key="carry-eligible",
+                status="review_required", error_code="previous_day_gemini_not_verified",
+            ))
+        queue = HistoricalReplayQueue(sessions)
+        moment = datetime(2030, 8, 10, 10, tzinfo=timezone.utc)
+        blocked = queue.inspect_dates(frozenset({"tenant-a"}), (yesterday,today), now=moment)
+        assert blocked[0]["profiles"][0]["morning_recovery_gate_code"] == "inventory_morning_reset_recovery_current_day_only"
+        assert blocked[1]["profiles"][0]["morning_recovery_preview_candidate"] is False
+        assert blocked[1]["profiles"][0]["morning_recovery_gate_code"] == "inventory_morning_reset_recovery_dependency_not_verified"
+        with sessions.begin() as session:
+            source = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == "tenant-a",
+                InventoryDailySheetSnapshotModel.business_date == yesterday,
+            ))
+            source.gemini_reconcile_status = "completed"
+            source.gemini_reconcile_verified_at = moment
+        passed = queue.inspect_dates(frozenset({"tenant-a"}), (today,), now=moment)[0]["profiles"][0]
+        assert passed["previous_day_gemini_verified"] is True
+        assert passed["morning_recovery_preview_candidate"] is True
+        assert passed["morning_recovery_gate_code"] == "preview_candidate"
+        assert queue.inspect_dates(frozenset({"tenant-b"}), (today,), now=moment)[0]["profiles"] == []
+        assert "tenant-a" not in str(passed)
+        # The Read-Only API cannot run a preview or change the status of a job.
+        with sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.entity_id == f"{today}:morning_reset",
+            ))
+            assert job.status == "failed"
     finally:
         engine.dispose()
         tmp.cleanup()

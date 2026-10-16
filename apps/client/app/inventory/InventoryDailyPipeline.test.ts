@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult } from "./api";
-import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates } from "./InventoryDailyPipeline";
+import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates, isCurrentInventoryBusinessDate, inventoryMorningRecoveryGateMessage } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -16,6 +16,19 @@ const replayResult: InventoryHistoricalReplayResult = {
   plan_hash: "plan",
   writes: 3,
 };
+
+describe("Inventory date-scoped recovery guard", () => {
+  it("does not offer historic Reset recovery on the shared current-day workbook", () => {
+    const moment=new Date("2026-10-16T07:00:00.000Z");
+    expect(isCurrentInventoryBusinessDate("2026-10-15",moment)).toBe(false);
+    expect(isCurrentInventoryBusinessDate("2026-10-16",moment)).toBe(true);
+    expect(isCurrentInventoryBusinessDate("2026-10-17",moment)).toBe(false);
+    expect(inventoryMorningRecoveryGateMessage("inventory_morning_reset_recovery_current_day_only"))
+      .toContain("không được Apply Reset");
+    expect(inventoryMorningRecoveryGateMessage("preview_candidate"))
+      .toContain("Backend sẽ kiểm tra lại");
+  });
+});
 
 describe("Inventory incident evidence viewer", () => {
   it("accepts only 1–8 distinct real ISO dates and preserves requested order", () => {

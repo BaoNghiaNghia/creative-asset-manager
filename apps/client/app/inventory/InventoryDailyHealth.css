@@ -30,6 +30,7 @@
 .inventory-incident-date dt { color: #75859a; font-size: 10px; }
 .inventory-incident-date dd { margin: 0; overflow-wrap: anywhere; }
 .inventory-incident-warning { padding: 7px; border-radius: 6px; color: #865d19; background: #fff6e3; }
+.inventory-incident-info { padding: 7px; border-radius: 6px; color: #245b46; background: #edf9f2; }
 @media (max-width: 600px) { .inventory-incident-date dl { grid-template-columns: 1fr; } .inventory-incident-inspection { margin: 10px; } }
 /* Keep replay controls inside their own header row on narrow phones.
    Otherwise the header's higher stacking context can cover the first table row. */
