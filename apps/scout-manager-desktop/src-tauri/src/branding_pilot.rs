@@ -260,7 +260,7 @@ pub fn list_local_reports(repo:&Path)->Result<Vec<PilotReportCard>,String>{
             || !matches!(doc["status"].as_str(),Some("preview_completed"|"needs_operator")){
             continue;
         }
-        let items=doc["items"].as_array().map(|arr|arr.iter().take(5).map(|item|{
+        let items: Vec<PilotObservation>=doc["items"].as_array().map(|arr|arr.iter().take(5).map(|item|{
             PilotObservation{
                 listing_key:item["listing_key"].as_str().unwrap_or("").chars().take(60).collect(),
                 title:item["title"].as_str().unwrap_or("").chars().take(180).collect(),
