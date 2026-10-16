@@ -1,5 +1,7 @@
 # CAM · Branding DNA — UI/UX & Technical Blueprint
 
+> **2026-10-16 addendum:** For the approved end-to-end scope including **Brand Pick, Best Seller, Product Creative Studio, SMS vs Scout branches, Output Pick and Supervised Learning**, the [consolidated system spec](./PRODUCT_CREATIVE_SYSTEM_SPEC.md) and [implementation plan](./PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md) supersede earlier prototype-only assumptions. This file remains the detailed foundation UI spec. No new capabilities are activated by documentation.
+
 **Trạng thái:** Tài liệu thiết kế v1.0 — chưa triển khai vào CAM production.  
 **Prototype:** `./prototype/index.html` (bản gốc) và `apps/client/public/branding-dna-preview/index.html` (CSP-compatible preview trong CAM); dữ liệu mô phỏng, không quét website thật.
 **Điểm tham chiếu:** `creative-ai-hub` (Shop/Profile/Listing/Image/Platform Profile), `WorkspaceNavigation.tsx` và giao diện light-blue / Be Vietnam Pro của CAM.

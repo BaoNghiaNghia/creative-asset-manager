@@ -1,8 +1,11 @@
 # Branding DNA — CAM
 
-**Current state:** Phase 1 Foundation implementation: tenant-scoped real Shop Registry (PostgreSQL + API), guarded create/list endpoints, status and worker registry read API. Browser scanning, agent enrollment, image evidence, Gemini processing and profile approval remain intentionally disabled. The design prototype is not a production crawler.
+**Current state (source review 2026-10-16):** Tenant-scoped real Shop Registry (PostgreSQL + API) and dedicated worker **enrollment / revocation / heartbeat / empty lease control plane** are present. Browser scanning, listing/image evidence collection, Gemini DNA analysis, profile approval, SMS/Scout generation and supervised learning are **not yet operational**. The prototype is not a production crawler. The consolidated design below is documentation, not a release.
 
 ## What is committed
+
+- **[Consolidated product/system specification (2026-10-16)](./PRODUCT_CREATIVE_SYSTEM_SPEC.md)**: Brand DNA = All Products + Product/Image Pick + Best Seller, distinct DNA Core/Creative Playbook, 3 Team Inputs, **SMS-only A** and **Scout-only B**, 6 output groups and governed Output Supervised Learning.
+- **[Development plan & acceptance gates](./PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md)**: phase work packages, data/API interfaces, roles, dependency contracts, security, QA, source integrations and rollback.
 
 - [UI/UX and API blueprint](./BRANDING_DNA_UI_SPEC.md): screens, contract candidates, data model, status taxonomy, role/access model, responsive breakpoints and QA gates.
 - [Original standalone prototype](./prototype/index.html): editable reference HTML/CSS/JS from the approved UI design.
@@ -16,11 +19,11 @@
 
 ## Access
 
-- In CAM `/branding-dna`, the **Shop Registry is real** and stores tenant-scoped draft shops; the lower iframe is an **isolated mock UI preview**. Reading requires `ai_operations.read`; creating a shop currently requires `ai_provider.configure` pending dedicated branding permissions.
+- In CAM `/branding-dna`, the **Shop Registry and worker control-plane UI are real** (tenant-scoped draft shops, enrollment/heartbeat/disable). Scanner, Product Explorer and Brand DNA intelligence remain non-operational. Reading currently uses `ai_operations.read`; configuring shops/workers uses `ai_provider.configure` pending dedicated branding permissions.
 - The former `/branding-character` route is retained as a **compatibility redirect** to `/branding-dna` (also for nested tab paths). New links and documentation use the new name.
 - Branding Character is the deprecated design label; the product and all user-facing navigation are named **Branding DNA**.
-- Browser frame has `sandbox="allow-scripts allow-downloads"` **without same-origin or form submission privileges**.
-- Only the Shop Registry Add Shop action above the iframe writes real shop records. All actions **inside the iframe** remain examples. Scanning, listing/product evidence, profile aggregation, approval and worker enrollment are disabled.
+- The static HTML prototype remains isolated at `/branding-dna-preview/`; no user action there triggers production scans or AI processing.
+- Shop Add and Worker Enroll/Disable are real authenticated actions. The separate prototype contains examples only; scanning, listing/product evidence, profile aggregation and approvals remain disabled.
 - Mobile and desktop navigation show this destination only to authorized users.
 - Do not claim shop intelligence works in production until data APIs, browser workers, platform eligibility, Gemini jobs, QA and opt-in activation are complete.
 

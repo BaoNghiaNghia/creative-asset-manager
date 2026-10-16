@@ -2836,3 +2836,11 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - CAM API import uses PostgreSQL/SQLite ON CONFLICT on `(tenant_id, fingerprint)` instead of a race-prone read-before-write, preserving existing approved/rejected signals and protecting tenant isolation.
 - Verification: 12 adapter unit tests and 6 API/security/migration tests passed; two real allowlisted public feeds succeeded, 51 received, 1 new, 50 duplicate. No new migrations, production credential changes, auto-AEBrowse calls or source-data deletions.
 - Remaining: dedicated Scout token provisioning and authenticated production browser QA are unavailable without an authorized operator session; scheduled background syncing stays off. Code rollback via previous release; additive research table and approved keywords remain unchanged. See `docs/operations/CAM_AI_QA_RESEARCH_INTEGRATION.md`.
+
+## 2026-10-16 — Consolidated Branding DNA & Product Creative development contract
+
+- Scope: User-approved direction for six-layer Brand DNA + Product/Image Brand Pick + provenance-based Best Seller; Brand DNA Core separate from Creative Playbook, Output Pick and supervised learning.
+- Two explicit image-generation routes: SMS embroidered/product multi-angle mockups for Studio/Detail/Information/Variations; source-permitted Scout reference + inpaint for Lifestyle/UGC only. Three Team Inputs, 10-shot configurable gallery, per-shot QA, candidate history and human learning approvals.
+- Artifacts: `docs/features/branding-dna/PRODUCT_CREATIVE_SYSTEM_SPEC.md`, `PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md`, README and UI spec cross-links, ROADMAP status.
+- Documentation-only change: no migration, dependencies, secrets, worker/scanner activation, new queue, image generation, runtime deployment or live model training. Existing tenant/SSRF/rights gates remain mandatory; rollback by reverting this documentation commit.
+- Validation: links, content invariants and `git diff --check` are planned for the commit; no production Browser QA is asserted for this docs-only change.

@@ -186,3 +186,10 @@
 - [x] RRUGC-ALWAYS-ON-DISCOVERY-V1: independent Exa MCP VPS hourly worker with quota/cooldown and SQLite outbox; existing paired-agent tenant-scoped import; read-only Windows Manager v0.1.18 VPS status, best-effort graceful local lease release; CAM Research status/pause controls, responsive UI. Production timer/pairing verification tracked separately; `docs/operations/RRUGC_AUTO_DISCOVER_DEPLOYMENT.md`.
 - [ ] RRUGC-ALWAYS-ON-DISCOVERY-V2: dedicated agent credential auto-provisioning via vetted secret channel, verified automatic Stage 0 quote+volume enrichment, cross-platform keyword/evidence association and provider fallback under approved terms.
 - [ ] CAM-RESEARCH-SYNC-OPERATIONS: pair dedicated Research Scout Agent with operator-managed secret, verify authenticated production Research Inbox, then enable a non-root reviewed collection/sync schedule. Do not infer authenticated PASS from public-only smoke.
+
+## Branding DNA & Product Creative Studio (2026-10-16)
+
+- [x] BD-PC-SPEC-V1: consolidated approved system design and gated implementation plan (`docs/features/branding-dna/PRODUCT_CREATIVE_SYSTEM_SPEC.md` and `PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md`). **Documentation only, not an operational release.**
+- [ ] BD-01..03: permitted product/gallery evidence → Product/Image Pick & source-verified Best Seller → versioned approved Brand DNA Core and Creative Playbook; never auto-promote inference or equate Pick with sales.
+- [ ] PC-00..03: 3 Team Inputs → validated Product Master → editable 10-shot plan → SMS multi-angle mockup for Studio/Detail/Info/Variations **only**, approved Reference Scout for Lifestyle/UGC **only**, separate jobs/QA/final gallery.
+- [ ] PC-04..06: Output Pick/Reject with neutral Unreviewed state; controlled supervised rule proposals, offline evaluation, human approval/canary/rollback; tenant permission & multi-device QA gates. See implementation plan for complete work packages.

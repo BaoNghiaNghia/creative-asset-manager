@@ -1,0 +1,116 @@
+# CAM — Branding DNA & Product Creative Studio
+## Kế hoạch triển khai theo giai đoạn (v1.0)
+
+**Ngày lập:** 2026-10-16
+**Gắn với:** [Product Creative System Spec](./PRODUCT_CREATIVE_SYSTEM_SPEC.md) (source of truth cho nghiệp vụ mới) và [Branding DNA Readiness Audit](./READINESS_AUDIT.md).
+**Tình trạng tại thời điểm lập:** CAM đã có Shop Registry theo tenant, worker registry/heartbeat và lease trả no-job; Scanner thực tế, listing evidence, Brand Pick/Best Seller, image generation theo 2 nhánh và supervised learning **chưa được chứng minh đang chạy production**. Tài liệu này là kế hoạch phát triển, không phải xác nhận release.
+
+## Nguyên tắc delivery
+
+- Mỗi phase phải có regression tests **trước hoặc cùng với code**, migrations non-destructive, RBAC server-side, idempotency, feature flag mặc định off và rollback.
+- Pilot dùng shop có quyền, SKU và quyền sử dụng hình ảnh rõ ràng; dữ liệu không đủ phải hiển thị unknown, không fake record.
+- Dùng PostgreSQL authoritative; R2 chỉ lưu media được phép; search/index là derived; giữ nguồn, revision và lineage.
+- Không dùng một model/một prompt cho tất cả loại ảnh: shot adapter theo group, có QA contract và version.
+- Chỉ promote khi tất cả gate của phase được xác minh, không nhầm UI/demo/heartbeat với capability đã sẵn sàng.
+
+## Work packages / thứ tự bắt buộc
+
+| ID | Phase | Deliverables | Acceptance gate | Rủi ro / Rollback |
+|---|---|---|---|---|
+| BD-00 | Contracts & fixtures | schemas Brand Pick, Best Seller, Product Master, Shot Plan, source manifest, candidate, label; mock data + contract tests | Source kind, version, tenant IDs rõ; fixtures đúng A/B; no frontend placeholder called live | Docs/schema only; revert commit |
+| BD-01 | Shop evidence + access | approved platform source adapters, canonical identity, listing discovery, gallery order and variant snapshots; isolated scanner agent lease/checkpoints | Authorized 1 Etsy/Shopify pilot, 1 Amazon pilot khi đủ quyền; coverage thực và unknown rõ; no policy bypass | Flag off, drain agent, preserve evidence snapshots |
+| BD-02 | Pick & Best Seller | Product/Image Pick actions+reasons+audit; sales/API/import or team-reported observation; source-quality taxonomy; cohort UI | Independent product/image picks; non-picked != rejected; sales rank != volume; tenants isolated | Hide feature; retain audit and observations |
+| BD-03 | DNA & Playbook aggregation | 6 DNA layers, evidence/contradiction, confidence/coverage, cohort comparisons, draft/approved diff + immutable versions | 100% approved claims trace to permitted sources; no auto-approval; unknown preserved | Unbind draft/revert to last approved |
+| PC-00 | Three Input & Product Master | Input wizard, artwork/SKU/placement/variants/context/requirements, validation, category packs | Blocks shots depending on missing factual source; Product Master immutable; correct platform and SKU | Disable creative flag, leave source assets untouched |
+| PC-01 | SMS integration (A) | SMS mockup manifest adapter, multi-angle SKU mapping, hard router Studio/Detail/Information/Variations; text/layout rendering | A job sends **zero Scout requests**, missing angle => needs_input, no altered embroidery/false specs | Roll back adapter version; retain existing candidates |
+| PC-02 | Reference Scout integration (B) | query planning per context, legal/right checks, Gemini classification, human ✓/×/AI, approved ref library; inpaint/replace | Only Lifestyle/UGC consume Scout refs; no approved/rights ref => needs_reference; protected product features intact | Disable B branch; refs/history retained by policy |
+| PC-03 | Shot orchestration & gallery | configurable shot count (10 default), per-task lease, retry, pause, QA, immutable candidate history, final slot approval, ZIP/manifest | At least one full 10-shot pilot by category, no lost prior candidate on retry; partial failure visible | Stop queue, revert router, keep product masters |
+| PC-04 | Output supervision | ✓ Pick, × Reject + reason, Unreviewed, compare candidates, filter by group, full audit, export feedback dataset | Unreviewed != Negative, separate Brand Pick vs Output Pick, no auto-DNA update | Disable labeling; preserve audit/labels |
+| PC-05 | Learning governance | label quality, offline evaluation splits, rule proposals, review, canary, rollback | Candidate improvement beats baseline on holdout without lowering product fidelity; promotion approved; rollback tested | Withdraw rule release; pin old Playbook |
+| PC-06 | Scale & governance | queue fairness, Gemini quotas, worker telemetry, billing/latency, platform/right retention, responsive/device QA | Verified canary, failure recovery, zero cross-tenant leaks, no unbounded storage or retries | Kill switch, drain queues, rollback release |
+
+## Interface contracts trước khi thực thi
+
+### Source / data contracts
+
+**SMS:** coordinate owner API/export format, image licensing, store/SKU/variant canonical ID, design hash, angle taxonomy (front/back/side/45/macro), color/material, placement, source timestamps and SHA256, TTL/storage. If SMS lacks a required view, stop specific shot rather than synthesize unknown product geometry.
+
+**Scout:** explicit distinction between existing Pinterest Scout product-ref learning and Branding DNA's realistic-reference search. Source policy, image rights, non-AI confidence, face/privacy handling, no-repeat, negative training tags, approved evidence IDs. Scout may only serve Lifestyle and UGC/Human. Shop Scanner remains separate Windows worker.
+
+**Sales:** authorization per provider, storefront/market/period, SKU mapping, category-specific ranking, verified vs proxy vs team-reported; default unknown, no fabricating order counts. No use of private metrics without shop consent.
+
+**Platform:** marketplace role/format and content constraints versioned separately from aesthetic DNA; Etsy/Amazon/Shopify access permissions independently approved.
+
+### Data & API security contracts
+
+- Proposed bc_ tables: brand_picks, best_seller_observations, cohort_analyses, creative_playbook_versions; proposed pc_ entities in [spec](./PRODUCT_CREATIVE_SYSTEM_SPEC.md). Schema/migrations require validation against production heads before coding.
+- Add proper permissions and tenant predicates on every read/write. Test tenant A cannot infer shop B/SKU/media/labels, including signed object URLs.
+- Store secrets in scoped backend/agent credential stores, never in prompt/manifest/response logs; external URL ingestion retains SSRF guards, type/size limits, source URL redaction.
+- Immutable approved profile versions and creative jobs pin all versions; no migration must destroy earlier approved profiles or generated images.
+- Replay-safe job task identity and lease fencing; duplicated callbacks cannot issue double output labels/overwrites.
+- Media retention/licensing by tenant and source; explicit deletion and export pathways, avoid retaining unrelated private faces.
+
+## Required test matrix (must be implemented with each phase)
+
+| Test suite | Cases |
+|---|---|
+| Brand Pick | product vs image Pick, unlike; toggle history; no-pick neutral; cross-tenant denied |
+| Best Seller | verified sales / proxy rank / reported / unknown; historical period; null counts, same-category comparisons |
+| DNA aggregation | source lineage, sample bias, duplicate variants, contradiction/unknown; immutable approvals |
+| Input validation | missing artwork, SKU, placement, angle, claim source; valid category-specific variant |
+| Branch routing | A four groups SMS-only; B two groups Scout-only; invalid group/permission denied |
+| SMS & Scout adapters | denied image rights, missing asset, variant hash mismatch; 403/429/CAPTCHA needs operator |
+| Generation | model failure, retries, duplicate submit, crash/restart, partial 10-shot job, cancel, no output loss |
+| Quality | exact artwork/text, color, geometry, hands/occlusion and platform compliance; golden fixtures per category |
+| Learning | output labels separate from brand Pick; unreviewed neutral; holdout leak checks; rollback rule |
+| UI | 1440 desktop, 1024/tablet, 768 iPad, 430/390/360/320 phones; touch/keyboard node drag, pan vs drag, focus, no horizontal body overflow |
+| Security | source URL spoofing/redirect SSRF, prompt injection in scraped copy, signed media scope, RBAC/tenant leak, secret redaction |
+
+**Pilot metrics (targets, not measured):**
+- Branding evidence: carry forward ≥95% eligible listing identity and ≥95% gallery order fixture accuracy; 100% approved claim provenance.
+- Generation: 100% required shot source-branch routing; 0 invalid unverified measurements in Info; 0 lost candidates on retry; all exported images have manifest lineage.
+- Learning: positive/negative labels complete with provenance; 0 implicit negatives; 0 auto-promotions; offline evaluation score established against baseline, not guessed.
+- Operational: 0 cross-tenant leaks; bounded queue, quota, retry; correct stop/drain and alerts.
+
+## UI navigation và work ownership
+
+**Branding DNA** owns evidence, Pick, Best Seller, DNA/Playbook draft+approval. **Product Creative Studio** owns 3 Team Inputs, Product Master, shot planner, SMS/Scout branch execution, output candidates, team QA/picks and learning proposals. Shared objects are **versioned IDs**, never mutable global style state.
+
+Roles (proposal):
+- Shop Admin: authorize shop, managed integration, Best Seller import/source policy.
+- Brand Curator: Brand Pick, review interpretations, propose/approve DNA/Playbook.
+- Creative Lead: 3 Input, shot plan review, final output selection.
+- Output Group Reviewer: Pick/Reject own image group, rationale.
+- ML/QA Reviewer: evaluate proposed learning rules and canary outcome.
+- Viewer: read-only, no scan/generate/pick/approve by default.
+
+Place UI layouts in responsive workspace shell, with pinned breadcrumb and horizontal overflow only inside dense tables. No mobile actions hidden without alternative.
+
+## Rollout sequence
+
+1. Review contracts with Product Owner, SMS owner, Scout operator, Brand Curator and Security reviewer; freeze v1 schema + example manifests.
+2. Build RBAC + tenant models + migrations and fixtures in staging, with no live scans.
+3. Enable one **owned/authorized shop** as source of real DNA evidence; Add Pick/Best Seller with provenance.
+4. Validate approved DNA + Playbook on held-out gallery images.
+5. Enable Product Master and SMS-only outputs for 1 SKU/variant; inspect and manually approve.
+6. Enable Scout branch only for approved eligible source references and 1 Lifestyle + 1 UGC task; manual rights/QA gate.
+7. Pilot complete 10-shot gallery and supervised Pick/Reject; generate rule proposals only.
+8. Canary new approved rules on small authorized shop subset; compare quality and rollback before expansion to more product categories and shops.
+
+## Release / rollback checklist
+
+- Verify schema head, negative RBAC tests, worker version, SSRF/download tests, gallery lineage, SMS/Scout routing and tenant object permissions.
+- Ship feature flags **off**; activate only after evidence + platform consent + source manifest and QA gate.
+- Record deployed commit, flagged tenants, migration version and last known working model/prompt/skill/Playbook versions.
+- Roll back by disabling flags and agent leases, draining in-flight jobs at checkpoints, pinning last approved DNA/Playbook and old method rules; **do not delete source media, approved profiles or prior candidate history**.
+- Downgrade additive tables only by a separately reviewed retention-safe migration; for production incidents prefer disabling/ignoring new writes until repair.
+- Production QA must show last committed product/task, not heartbeat-only; do not claim complete scan for unknown denominator.
+
+## Open questions for implementation phase (not blockers for documentation)
+
+1. Stable SMS SDK/API path and machine/service credentials, licensing, multi-angle completeness.
+2. Marketplace accounts/shops for authorized testing and whether Best Seller verified order data is available by provider.
+3. Role owners for Brand Pick, DNA approval and learning rule promotion.
+4. Default preset choices and platform-specific role requirements for different categories.
+5. Model/provider budget and quality acceptance thresholds for product fidelity/realism.
+6. Dataset rights and whether an eventual actual model fine-tuning phase is approved (v1 is rule/ranking learning only).
