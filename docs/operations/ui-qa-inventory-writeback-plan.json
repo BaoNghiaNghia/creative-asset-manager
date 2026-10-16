@@ -9,19 +9,30 @@
   ],
   "steps": [
     {
-      "name": "writeback-button-visible",
+      "name": "writeback-preflight-control",
       "waitFor": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)",
-      "waitMs": 250,
+      "waitMs": 200,
       "assertions": [
         {
           "type": "text-includes",
-          "selector": ".inventory-settings-actions-card",
-          "value": "Kiểm tra ghi trên bản sao"
+          "selector": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)",
+          "value": "Kiểm tra quyền bản sao"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".inventory-settings-actions-card .inventory-actions button:nth-child(4)",
+          "value": "Chạy QA ghi trên bản sao"
+        },
+        {
+          "type": "attribute",
+          "selector": ".inventory-settings-actions-card .inventory-actions button:nth-child(4)",
+          "name": "disabled",
+          "value": ""
         }
       ]
     },
     {
-      "name": "writeback-focus",
+      "name": "writeback-preflight-focus",
       "focus": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)",
       "assertions": [
         {
@@ -32,6 +43,12 @@
           "type": "no-viewport-overflow",
           "selector": "html",
           "maxPx": 0
+        },
+        {
+          "type": "attribute",
+          "selector": ".inventory-settings-actions-card .inventory-actions button:nth-child(4)",
+          "name": "disabled",
+          "value": ""
         }
       ]
     }

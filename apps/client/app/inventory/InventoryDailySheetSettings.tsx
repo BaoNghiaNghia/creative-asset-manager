@@ -7,6 +7,7 @@ import {
   type InventoryDailySheetDiscovery,
   type InventoryDailySheetStatus,
   type InventoryDailySheetValidation,
+  type InventoryWritebackQaPreflight,
   type InventoryGeminiPrompt,
 } from "./api";
 
@@ -74,6 +75,7 @@ export function InventoryDailySheetSettings() {
   const [validation, setValidation] = useState<InventoryDailySheetValidation | null>(null);
   const [discovery, setDiscovery] = useState<InventoryDailySheetDiscovery | null>(null);
   const [message, setMessage] = useState("");
+  const [qaPreflight, setQaPreflight] = useState<InventoryWritebackQaPreflight | null>(null);
   const [busy, setBusy] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [prompts, setPrompts] = useState<InventoryGeminiPrompt[]>([]);
@@ -88,6 +90,7 @@ export function InventoryDailySheetSettings() {
     ]);
     const value = saved || emptyConfiguration;
     setConfiguration(value);
+    setQaPreflight(null);
     setConfigJson(JSON.stringify(value.config || {}, null, 2));
     setStatus(currentStatus);
     setPrompts(promptState.prompts); setPromptDrafts(Object.fromEntries(promptState.prompts.map((item)=>[item.prompt_type,item.draft?.content||item.active_content||item.builtin_content])));
@@ -97,8 +100,10 @@ export function InventoryDailySheetSettings() {
     reload().catch((error) => setMessage(error instanceof Error ? error.message : "Unable to load settings."));
   }, []);
 
-  const update = <K extends keyof InventoryDailySheetConfiguration>(key: K, value: InventoryDailySheetConfiguration[K]) =>
+  const update = <K extends keyof InventoryDailySheetConfiguration>(key: K, value: InventoryDailySheetConfiguration[K]) => {
+    setQaPreflight(null);
     setConfiguration((current) => ({ ...current, [key]: value }));
+  };
 
   const config = configuration.config as any;
   const configurationMode = inventorySettingsMode(config);
@@ -150,6 +155,19 @@ export function InventoryDailySheetSettings() {
       setMessage("Workbook scan completed. Review detected columns before saving.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Workbook scan failed."); }
     finally { setBusy(false); }
+  };
+
+  const preflightWritebackQa = async () => {
+    setBusy(true); setMessage(""); setQaPreflight(null);
+    try {
+      const result = await inventoryDailySheetApi.inspectWritebackQaPreflight();
+      setQaPreflight(result);
+      setMessage(result.ready
+        ? "Quyền đọc/copy và thư mục đã đạt preflight. Chỉ bài thử trên bản sao mới chứng minh quyền ghi/đọc lại."
+        : "Chưa đủ quyền hoặc bằng chứng cho QA bản sao. Xem từng kiểm tra bên dưới.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không kiểm tra được quyền Google Sheets.");
+    } finally { setBusy(false); }
   };
 
   const validate = async () => {
@@ -238,7 +256,21 @@ export function InventoryDailySheetSettings() {
 
     <section className="inventory-settings-section inventory-settings-actions-card">
       <div className="inventory-settings-section-heading"><div><h3>Lưu và kiểm tra</h3><p>Luôn kiểm tra cấu hình trước khi bật tự động.</p></div></div>
-      <div className="inventory-actions"><button disabled={busy} onClick={()=>void save()}>{busy ? "Đang xử lý…" : "Lưu cấu hình"}</button><button disabled={busy} className="secondary" onClick={()=>void validate()}>Kiểm tra an toàn</button><button type="button" disabled={busy || !configuration.working_spreadsheet_file_id} className="secondary" onClick={()=>window.confirm("Chạy QA quyền ghi trên BẢN SAO Google Sheets mới? Hệ thống chỉ ghi tab thử nghiệm, xác minh rồi chuyển bản sao vào thùng rác. File gốc không bị sửa.") && void execute(async()=>{const proof=await inventoryDailySheetApi.verifyWritebackQA(); requireVerifiedDisposableWriteback(proof);},"Google Sheets QA thành công: đã ghi/đọc lại trên bản sao, xác nhận bản sao đã dọn và file gốc không đổi.")}>Kiểm tra ghi trên bản sao</button><button disabled={busy} className="secondary" onClick={()=>void execute(()=>inventoryDailySheetApi.runReconciliation(true),"Đã tạo bản xem trước; không ghi Google Sheet.")}>Xem trước báo cáo</button>{actionVisibility.runReport ? <button disabled={busy} className="secondary" onClick={()=>void execute(()=>inventoryDailySheetApi.runReconciliation(false),"Đã tạo báo cáo; không ghi bảng đích.")}>Chạy báo cáo</button> : null}</div>
+      <div className="inventory-actions"><button disabled={busy} onClick={()=>void save()}>{busy ? "Đang xử lý…" : "Lưu cấu hình"}</button><button disabled={busy} className="secondary" onClick={()=>void validate()}>Kiểm tra an toàn</button><button type="button" disabled={busy || !configuration.working_spreadsheet_file_id} className="secondary" onClick={()=>void preflightWritebackQa()}>Kiểm tra quyền bản sao (chỉ đọc)</button><button type="button" disabled={busy || qaPreflight?.ready !== true} className="secondary" onClick={()=>window.confirm("Preflight chỉ xác nhận quyền đọc/copy dự kiến, không bảo đảm ghi thành công. Chạy QA trên BẢN SAO Google Sheets mới? Hệ thống chỉ ghi tab thử nghiệm, xác minh rồi chuyển bản sao vào Trash. File gốc không được sửa.") && void execute(async()=>{const fresh=await inventoryDailySheetApi.inspectWritebackQaPreflight(); if(!fresh.ready){setQaPreflight(fresh);throw new Error("Google Sheets preflight không còn hợp lệ; đã dừng trước khi tạo bản sao.");} const proof=await inventoryDailySheetApi.verifyWritebackQA(); requireVerifiedDisposableWriteback(proof);},"Google Sheets QA thành công: đã ghi/đọc lại trên bản sao, xác nhận bản sao đã dọn và file gốc không đổi.")}>Chạy QA ghi trên bản sao</button><button disabled={busy} className="secondary" onClick={()=>void execute(()=>inventoryDailySheetApi.runReconciliation(true),"Đã tạo bản xem trước; không ghi Google Sheet.")}>Xem trước báo cáo</button>{actionVisibility.runReport ? <button disabled={busy} className="secondary" onClick={()=>void execute(()=>inventoryDailySheetApi.runReconciliation(false),"Đã tạo báo cáo; không ghi bảng đích.")}>Chạy báo cáo</button> : null}</div>
+      {qaPreflight ? <div className="inventory-settings-section" aria-label="Bằng chứng preflight Google Sheets">
+        <strong>{qaPreflight.ready ? "Preflight chỉ đọc: đủ quyền dự kiến" : "Preflight chỉ đọc: chưa đủ bằng chứng"}</strong>
+        <p>Kiểm tra cấu hình đã lưu, chỉ sử dụng Google Drive GET. Không tạo file, ghi ô hoặc thay đổi dữ liệu. Kết quả này chưa chứng minh Writeback QA thành công.</p>
+        <div className="inventory-setting-switches">
+          {([
+            ["native_source","Google Sheet native"],
+            ["source_revision_available","Mốc sửa đổi file gốc"],
+            ["source_copy_allowed","Quyền tạo bản sao"],
+            ["destination_folder_valid","Thư mục QA hợp lệ"],
+            ["destination_folder_can_add","Quyền tạo file trong thư mục QA"],
+          ] as const).map(([key,label])=><p key={key}>{qaPreflight.checks[key] ? "✓" : "×"} {label}</p>)}
+        </div>
+        {!qaPreflight.ready ? <p role="alert" className="inventory-warning">Chặn QA: {qaPreflight.blockers.join(", ")}</p> : null}
+      </div> : null}
       <ActionMessageToast message={message} tone={message.includes("failed")||message.includes("Unable")||message.includes("blocking") ? "error" : "success"} />
     </section>
 

@@ -85,6 +85,17 @@ export type InventoryDailySheetStatus = {
   lifecycle?:{business_date:string;morning_reset:{status:string;scheduled_time:string;source_business_date:string;source_gemini_file_id:string|null;error_code?:string|null;error_message?:string|null;error_category?:string|null;retryable?:boolean;attempt_count?:number|null;max_attempts?:number|null;last_attempt_at?:string|null;next_attempt_at?:string|null;self_healed?:boolean};afternoon_snapshot:{status:string;scheduled_time:string;snapshot_file_id:string|null;gemini_file_id:string|null;error_code?:string|null;error_message?:string|null;error_category?:string|null;retryable?:boolean;attempt_count?:number|null;max_attempts?:number|null;last_attempt_at?:string|null;next_attempt_at?:string|null;self_healed?:boolean};evening_reconcile:{status:string;scheduled_time:string;verified:boolean;run_id:string|null;plan_hash:string|null;prompt_version:string|null;prompt_hash:string|null;error_code?:string|null;error_message?:string|null;error_category?:string|null;retryable?:boolean;attempt_count?:number|null;max_attempts?:number|null;last_attempt_at?:string|null;next_attempt_at?:string|null;self_healed?:boolean}};
   as_of_business_date:string|null;
 };
+export type InventoryWritebackQaPreflight = {
+  ready:boolean;
+  checks:{
+    native_source:boolean;
+    source_revision_available:boolean;
+    source_copy_allowed:boolean;
+    destination_folder_valid:boolean;
+    destination_folder_can_add:boolean;
+  };
+  blockers:string[];
+};
 export type InventoryDailySheetValidation = {
   valid:boolean;
   errors:Array<Record<string,unknown>>;
@@ -119,6 +130,7 @@ export const inventoryDailySheetApi = {
   updateConfiguration:(body:InventoryDailySheetConfiguration)=>request<InventoryDailySheetConfiguration>("/daily-sheet/configuration",{method:"PUT",body:JSON.stringify(body)}),
   getStatus:()=>request<InventoryDailySheetStatus>("/daily-sheet/status"),
   validateConfiguration:()=>request<InventoryDailySheetValidation>("/daily-sheet/validate-config",{method:"POST"}),
+  inspectWritebackQaPreflight:()=>request<InventoryWritebackQaPreflight>("/daily-sheet/writeback-qa/preflight"),
   verifyWritebackQA:()=>request<{verified:boolean;disposable_copy_trashed:boolean;source_file_unchanged_by_qa:boolean}>("/daily-sheet/writeback-qa",{method:"POST"}),
   discover:(working_spreadsheet_file_id:string)=>request<InventoryDailySheetDiscovery>("/daily-sheet/discover",{method:"POST",body:JSON.stringify({working_spreadsheet_file_id})}),
   runSnapshot:(business_date?:string)=>request<Record<string,unknown>>("/daily-sheet/snapshot/run",{method:"POST",body:JSON.stringify({business_date:business_date||null})}),

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "routes": [
+    {
+      "name": "inventory-writeback-preflight-readonly",
+      "path": "/inventory/settings",
+      "public": false,
+      "requiresAuth": true,
+      "ready": ".inventory-settings-actions-card",
+      "forbiddenText": [
+        "This workspace is not available for your role.",
+        "Sign in required"
+      ],
+      "states": [
+        {
+          "name": "before-preflight",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)"
+            }
+          ]
+        },
+        {
+          "name": "read-google-drive-capabilities",
+          "click": ".inventory-settings-actions-card .inventory-actions button:nth-child(3)",
+          "waitFor": ".inventory-settings-section[aria-label='Bằng chứng preflight Google Sheets']",
+          "timeoutMs": 25000,
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".inventory-settings-section[aria-label='Bằng chứng preflight Google Sheets']"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

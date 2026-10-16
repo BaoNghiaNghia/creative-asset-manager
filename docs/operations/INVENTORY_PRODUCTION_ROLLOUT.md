@@ -35,7 +35,23 @@ correct. Gemini still selects corrections and the backend validates target
 identity, formula safety, current evidence hashes, and write readback.
 
 Writeback QA is an explicit, permission-controlled action available from
-Inventory → Configuration. It uses the *saved* source and archive folder
+Inventory → Configuration. Before enabling its action button, the operator
+must run `GET /api/inventory/daily-sheet/writeback-qa/preflight` (requires
+`inventory.read`). It inspects the **saved** source and selected destination
+with Google Drive metadata GET requests only: native spreadsheet identity,
+source modified-time evidence, explicit `capabilities.canCopy`, destination
+folder identity and explicit `capabilities.canAddChildren`. The response
+contains only five Boolean checks, a readiness Boolean and stable blocker
+codes—no file IDs, cell values, tokens or workbook contents. Absent permission
+capability evidence blocks the test rather than assuming access. The UI rechecks
+this evidence before invoking any QA copy/write operation and invalidates it
+after configuration changes. The POST endpoint independently repeats the
+preflight in the saved tenant context, refusing with
+`inventory_qa_preflight_blocked` before copying if any check is missing.
+Preflight is **not** proof of real writeback,
+Trash cleanup, verified readback, or a valid Closing → Opening state.
+
+The original POST action uses the *saved* source and archive folder
 (or, if no Archive is configured, the source file parent folder),
 creates a uniquely named fresh Drive copy tagged `cam_inventory_qa_disposable`,
 adds a hidden QA tab **inside the copy**, writes a random marker, reads it

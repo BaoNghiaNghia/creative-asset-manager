@@ -16,6 +16,9 @@ describe("InventoryDailySheetSettings", () => {
     expect(markup).toContain("Pipeline hình ảnh");
     expect(markup).toContain("Tự động xử lý Google Sheets");
     expect(markup).toContain("Xem trước báo cáo");
+    expect(markup).toContain("Kiểm tra quyền bản sao (chỉ đọc)");
+    expect(markup).toContain("Chạy QA ghi trên bản sao");
+    expect(markup).toMatch(/disabled=""[^>]*>Chạy QA ghi trên bản sao<\/button>/);
     expect(markup).toContain("Kho/SKU cũ");
     expect(markup).toContain("Kiểm kho hằng ngày");
     expect(markup).toContain("Quét workbook");

@@ -118,7 +118,7 @@ class GoogleSheetsInventoryClient:
 
     def drive_file(self, file_id: str) -> dict[str, Any]:
         return self._request("GET", f"{self.DRIVE}/files/{file_id}", params={
-            "fields": "id,name,mimeType,modifiedTime,parents,webViewLink,appProperties,capabilities(canAddChildren,canEdit)",
+            "fields": "id,name,mimeType,modifiedTime,parents,webViewLink,appProperties,capabilities(canAddChildren,canEdit,canCopy)",
             "supportsAllDrives": "true",
         })
 
@@ -191,6 +191,67 @@ class GoogleSheetsInventoryClient:
                 **({"cam_inventory_copy_key": str(copy_key)} if copy_key else {}),
             },
         })
+
+    def preflight_disposable_writeback(
+        self, source_id: str, *, folder_id: str | None,
+    ) -> dict[str, Any]:
+        """Read-only Drive capability probe; never copy, write or trash a file.
+
+        Capabilities are advisory and cannot replace actual disposable QA.
+        Missing proof is a blocker, not an inferred permission.
+        """
+        if not source_id:
+            return {
+                "ready": False,
+                "checks": {
+                    "native_source": False,
+                    "source_revision_available": False,
+                    "source_copy_allowed": False,
+                    "destination_folder_valid": False,
+                    "destination_folder_can_add": False,
+                },
+                "blockers": ["inventory_qa_source_not_configured"],
+            }
+        try:
+            source = self.drive_file(source_id)
+        except DailySheetNotFound:
+            return {
+                "ready": False,
+                "checks": {
+                    "native_source": False,
+                    "source_revision_available": False,
+                    "source_copy_allowed": False,
+                    "destination_folder_valid": False,
+                    "destination_folder_can_add": False,
+                },
+                "blockers": ["inventory_qa_source_not_found"],
+            }
+        native = source.get("id") == source_id and source.get("mimeType") == NATIVE_SPREADSHEET_MIME
+        revision = bool(source.get("modifiedTime"))
+        source_copy = source.get("capabilities", {}).get("canCopy") is True if isinstance(source.get("capabilities"), dict) else False
+        parents = source.get("parents") if isinstance(source.get("parents"), list) else []
+        destination_id = folder_id or next((parent for parent in parents if isinstance(parent, str) and parent), None)
+        folder_is_valid = False
+        folder_can_add = False
+        if destination_id and destination_id != source_id:
+            try:
+                folder = self.drive_file(destination_id)
+            except DailySheetNotFound:
+                folder = {}
+            folder_is_valid = folder.get("id") == destination_id and folder.get("mimeType") == GOOGLE_DRIVE_FOLDER_MIME
+            folder_can_add = folder_is_valid and (
+                isinstance(folder.get("capabilities"), dict)
+                and folder["capabilities"].get("canAddChildren") is True
+            )
+        checks = {
+            "native_source": native,
+            "source_revision_available": revision,
+            "source_copy_allowed": source_copy,
+            "destination_folder_valid": folder_is_valid,
+            "destination_folder_can_add": folder_can_add,
+        }
+        blockers = [f"inventory_qa_{name}_blocked" for name, passed in checks.items() if not passed]
+        return {"ready": not blockers, "checks": checks, "blockers": blockers}
 
     def verify_disposable_writeback(
         self, source_id: str, *, folder_id: str | None, tenant_id: str,

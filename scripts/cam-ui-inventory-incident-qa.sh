@@ -32,8 +32,8 @@ done
 curl --fail --silent --max-time 3 "$BASE/" >/dev/null
 CAM_UI_QA_KEEP=8 npm run ui:qa -- \
   --mode inventory-incident \
-  --url "$BASE/inventory/pipeline" \
+  --url "$BASE${CAM_UI_QA_ROUTE:-/inventory/pipeline}" \
   --fixture "$ROOT/apps/client/scripts/fixtures/inventory-daily.json" \
-  --plan "$ROOT/docs/operations/ui-qa-inventory-incident-plan.json" \
+  --plan "$ROOT/${CAM_UI_QA_PLAN:-docs/operations/ui-qa-inventory-incident-plan.json}" \
   --viewports "${CAM_UI_VIEWPORTS:-desktop,compact,tabletLandscape,tabletPortrait,mobile,mobileSmall}" \
   --strict

@@ -9,7 +9,8 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.inventory.daily_sheet.config import GeminiToolSheetAgentConfig, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeError, InventoryKnowledgeService
-from app.modules.inventory.daily_sheet.service import InventoryDailySheetService, inventory_error_metadata
+from app.modules.inventory.daily_sheet.service import InventoryDailySheetService, DailySheetConfigurationError, inventory_error_metadata
+from app.modules.inventory.daily_sheet.google_client import DailySheetProviderError
 from app.modules.inventory.daily_sheet.semantic import build_daily_sheet_semantic_analyzer
 from app.modules.inventory.permissions import INVENTORY_CONTROL_PERMISSION, INVENTORY_FINALIZE_PERMISSION, INVENTORY_READ_PERMISSION
 from app.modules.inventory.persistence_model import InventorySettingsModel
@@ -139,6 +140,24 @@ def _settings_view(row):
         "timezone": row.timezone,
         "config": row.daily_sheet_config_json,
     }
+
+@router.get("/writeback-qa/preflight")
+def inspect_disposable_inventory_writeback(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Only GET Drive/Sheets configuration and capabilities. No copy/write/trash."""
+    try:
+        return _service().preflight_disposable_writeback(principal.active_tenant_id)
+    except DailySheetConfigurationError as exc:
+        raise HTTPException(422, detail={"code": "inventory_qa_configuration_unavailable"}) from exc
+    except DailySheetProviderError as exc:
+        code = exc.code if exc.code in {
+            "authorization", "scope_missing", "not_found", "invalid_file_type",
+            "rate_limited", "transient_provider_error",
+        } else "permanent_provider_error"
+        status = 503 if code in {"rate_limited", "transient_provider_error"} else 422
+        raise HTTPException(status, detail={"code": f"inventory_qa_{code}"}) from exc
+
 
 @router.post("/writeback-qa")
 def verify_disposable_inventory_writeback(

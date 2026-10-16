@@ -8,6 +8,69 @@ from app.modules.inventory.daily_sheet.google_client import (
 )
 
 
+def test_disposable_writeback_preflight_get_only_and_fails_closed_without_capabilities():
+    requests = []
+    def handler(request):
+        requests.append((request.method, request.url.path))
+        assert request.method == "GET", "Preflight must not mutate Google Drive or Sheets."
+        path = request.url.path
+        if path.endswith("/files/source"):
+            return httpx.Response(200, json={
+                "id": "source", "mimeType": "application/vnd.google-apps.spreadsheet",
+                "modifiedTime": "2026-10-16T06:00:00Z",
+                "parents": ["fallback-folder"], "capabilities": {"canCopy": True},
+            })
+        if path.endswith("/files/target-folder"):
+            return httpx.Response(200, json={
+                "id": "target-folder", "mimeType": "application/vnd.google-apps.folder",
+                "capabilities": {"canAddChildren": True},
+            })
+        if path.endswith("/files/fallback-folder"):
+            return httpx.Response(200, json={
+                "id": "fallback-folder", "mimeType": "application/vnd.google-apps.folder",
+                "capabilities": {},
+            })
+        return httpx.Response(404)
+
+    client = GoogleSheetsInventoryClient(
+        "token", client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_attempts=1,
+    )
+    ready = client.preflight_disposable_writeback("source", folder_id="target-folder")
+    assert ready["ready"] is True
+    assert all(ready["checks"].values())
+    assert ready["blockers"] == []
+    blocked = client.preflight_disposable_writeback("source", folder_id=None)
+    assert blocked["ready"] is False
+    assert blocked["checks"]["destination_folder_valid"] is True
+    assert blocked["checks"]["destination_folder_can_add"] is False
+    assert blocked["blockers"] == ["inventory_qa_destination_folder_can_add_blocked"]
+    assert requests == [
+        ("GET", "/drive/v3/files/source"), ("GET", "/drive/v3/files/target-folder"),
+        ("GET", "/drive/v3/files/source"), ("GET", "/drive/v3/files/fallback-folder"),
+    ]
+
+
+def test_disposable_writeback_preflight_missing_source_returns_sanitized_blocker_without_write():
+    requests = []
+    def handler(request):
+        requests.append(request.method)
+        return httpx.Response(404)
+    client = GoogleSheetsInventoryClient(
+        "token", client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_attempts=1,
+    )
+    result = client.preflight_disposable_writeback("missing-source", folder_id="folder")
+    assert result["ready"] is False
+    assert result["blockers"] == ["inventory_qa_source_not_found"]
+    assert not any(result["checks"].values())
+    assert requests == ["GET"]
+    missing = client.preflight_disposable_writeback("", folder_id=None)
+    assert missing["ready"] is False
+    assert missing["blockers"] == ["inventory_qa_source_not_configured"]
+    assert requests == ["GET"]
+
+
 def test_disposable_google_writeback_only_mutates_and_trashes_a_new_copy():
     from urllib.parse import unquote
     import json

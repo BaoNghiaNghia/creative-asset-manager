@@ -24,6 +24,25 @@ def client_for(current):
     return TestClient(app)
 
 
+def test_disposable_writeback_preflight_requires_read_and_uses_get_only():
+    service = Mock()
+    service.preflight_disposable_writeback.return_value = {
+        "ready": False,
+        "checks": {"native_source": True, "source_copy_allowed": False},
+        "blockers": ["inventory_qa_source_copy_allowed_blocked"],
+    }
+    forbidden = client_for(principal(set()))
+    assert forbidden.get("/api/inventory/daily-sheet/writeback-qa/preflight").status_code == 403
+    reader = client_for(principal({"inventory.read"}))
+    with patch("app.modules.inventory.daily_sheet.router._service", return_value=service):
+        response = reader.get("/api/inventory/daily-sheet/writeback-qa/preflight")
+        assert reader.post("/api/inventory/daily-sheet/writeback-qa").status_code == 403
+    assert response.status_code == 200
+    assert response.json()["ready"] is False
+    service.preflight_disposable_writeback.assert_called_once_with("tenant-a")
+    service.verify_disposable_writeback.assert_not_called()
+
+
 def test_daily_sheet_manual_routes_require_finalize_permission():
     client = client_for(principal({"inventory.read"}))
     assert client.post("/api/inventory/daily-sheet/validate-config").status_code == 403

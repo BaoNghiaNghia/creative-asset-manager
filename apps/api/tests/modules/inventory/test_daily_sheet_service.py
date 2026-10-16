@@ -41,11 +41,59 @@ def test_inventory_error_categories_distinguish_review_and_model_protocol_from_t
     assert inventory_error_metadata("inventory_gemini_transport_error") == {"category": "TRANSPORT", "retryable": True}
 
 
+def test_disposable_writeback_preflight_uses_saved_source_and_never_writes(monkeypatch):
+    from contextlib import nullcontext
+    observed = []
+    class ReadOnly:
+        def preflight_disposable_writeback(self, source_id, **kwargs):
+            observed.append((source_id, kwargs))
+            return {"ready": False, "checks": {}, "blockers": ["inventory_qa_source_copy_allowed_blocked"]}
+
+    service = InventoryDailySheetService(
+        session_factory=lambda: None,
+        client_factory=lambda *_: nullcontext(ReadOnly()),
+        token_resolver=lambda _: "test-token",
+    )
+    monkeypatch.setattr(service, "_context", lambda tenant, require_enabled: SimpleNamespace(
+        connection_id="saved-google", configured_source_file_id="configured-master",
+        archive_root_id="saved-archive",
+    ))
+    result = service.preflight_disposable_writeback("tenant-a")
+    assert result["ready"] is False
+    assert observed == [("configured-master", {"folder_id": "saved-archive"})]
+
+
+def test_disposable_writeback_post_rejects_unready_preflight_without_creating_copy(monkeypatch):
+    from contextlib import nullcontext
+    calls = []
+    class DeniedGoogle:
+        def preflight_disposable_writeback(self, source_id, **kwargs):
+            calls.append("get_capabilities")
+            return {"ready": False, "blockers": ["inventory_qa_source_copy_allowed_blocked"]}
+        def verify_disposable_writeback(self, *_args, **_kwargs):
+            raise AssertionError("no disposable Google Drive copy may be created")
+    service = InventoryDailySheetService(
+        session_factory=lambda: None,
+        client_factory=lambda *_: nullcontext(DeniedGoogle()),
+        token_resolver=lambda _: "test-token",
+    )
+    monkeypatch.setattr(service, "_context", lambda tenant, require_enabled: SimpleNamespace(
+        connection_id="saved-google", configured_source_file_id="configured-master",
+        archive_root_id="saved-archive",
+    ))
+    with pytest.raises(ValueError, match="inventory_qa_preflight_blocked"):
+        service.verify_disposable_writeback("tenant-a")
+    assert calls == ["get_capabilities"]
+
+
 def test_disposable_writeback_service_uses_saved_source_not_runtime_copy(monkeypatch):
     from contextlib import nullcontext
 
     observed = []
     class VerifiedCopy:
+        def preflight_disposable_writeback(self, source_id, **kwargs):
+            observed.append(("preflight", source_id, kwargs))
+            return {"ready": True}
         def verify_disposable_writeback(self, source_id, **kwargs):
             observed.append((source_id, kwargs))
             return {"verified": True, "disposable_copy_trashed": True,
@@ -63,13 +111,18 @@ def test_disposable_writeback_service_uses_saved_source_not_runtime_copy(monkeyp
     monkeypatch.setattr(service, "_context", lambda tenant, require_enabled: context)
     result = service.verify_disposable_writeback("tenant-a")
     assert result["verified"] and result["disposable_copy_trashed"]
-    assert observed == [("source-master", {"folder_id": "archive", "tenant_id": "tenant-a"})]
+    assert observed == [
+        ("preflight", "source-master", {"folder_id": "archive"}),
+        ("source-master", {"folder_id": "archive", "tenant_id": "tenant-a"}),
+    ]
 
 
 def test_disposable_writeback_allows_missing_archive_for_source_parent_fallback(monkeypatch):
     from contextlib import nullcontext
     targets = []
     class Google:
+        def preflight_disposable_writeback(self, source_id, **kwargs):
+            return {"ready": True}
         def verify_disposable_writeback(self, source_id, **kwargs):
             targets.append((source_id, kwargs))
             return {"verified": True, "disposable_copy_trashed": True}

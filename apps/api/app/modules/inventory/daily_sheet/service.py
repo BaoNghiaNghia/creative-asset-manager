@@ -132,6 +132,15 @@ class InventoryDailySheetService:
         self.agent_service = agent_service
         self.agent_v4_service = agent_v4_service
 
+    def preflight_disposable_writeback(self, tenant_id: str) -> dict[str, Any]:
+        """GET-only capability/readiness inspection using saved Inventory config."""
+        context = self._context(tenant_id, require_enabled=False)
+        with self.client_factory(self._token(context.connection_id)) as google:
+            return google.preflight_disposable_writeback(
+                context.configured_source_file_id,
+                folder_id=context.archive_root_id or None,
+            )
+
     def verify_disposable_writeback(self, tenant_id: str) -> dict[str, Any]:
         """Explicit operator-invoked Google writeback QA on a fresh disposable copy.
 
@@ -140,6 +149,14 @@ class InventoryDailySheetService:
         """
         context = self._context(tenant_id, require_enabled=False)
         with self.client_factory(self._token(context.connection_id)) as google:
+            # Enforce the same read-only capability gate at the API boundary.
+            # A direct POST may not bypass a disabled/stale UI preflight.
+            preflight = google.preflight_disposable_writeback(
+                context.configured_source_file_id,
+                folder_id=context.archive_root_id or None,
+            )
+            if preflight.get("ready") is not True:
+                raise ValueError("inventory_qa_preflight_blocked")
             result = google.verify_disposable_writeback(
                 context.configured_source_file_id,
                 folder_id=context.archive_root_id or None,
