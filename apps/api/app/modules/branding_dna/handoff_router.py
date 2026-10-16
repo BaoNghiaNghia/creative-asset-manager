@@ -203,6 +203,8 @@ def stage_handoff(
         ))
         if existing is not None:
             if (existing.listing_key != item.listing_key or existing.report_sha256 != item.report_sha256
+                    or existing.report_file != item.report_file or existing.item_index != item.item_index
+                    or existing.image_reference_count != item.image_reference_count
                     or existing.title != item.title or existing.operator_note != item.operator_note):
                 raise HTTPException(409, detail="Source identity already staged with different content")
             rows.append(existing)

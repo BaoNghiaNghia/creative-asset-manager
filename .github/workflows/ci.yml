@@ -180,6 +180,11 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest tests/modules/public_review tests/modules/authorization tests/test_app_smoke.py -q
+      - name: Branding DNA API and handoff migration regression tests
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          python -m pytest tests/modules/branding_dna tests/migrations/test_branding_dna_handoff_migration.py -q
       - name: Deployment-template tests
         run: |
           bash -n deploy/tools/prepare_dola_runtime.sh

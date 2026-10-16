@@ -183,6 +183,18 @@ def test_staged_same_source_cannot_be_mutated_with_reused_identity(db):
     assert queue(db, shop["id"])["count"] == 1
 
 
+def test_image_reference_count_change_rejected_on_replay(db):
+    shop = add(db)
+    body = packet()
+    stage_handoff(shop["id"], model(body), Response(), session=db, principal=identity())
+    body["candidates"][0]["imageReferenceCount"] = 3
+    with pytest.raises(HTTPException) as error:
+        stage_handoff(shop["id"], model(body), Response(), session=db, principal=identity())
+    assert error.value.status_code == 409
+    rows = queue(db, shop["id"])["items"]
+    assert len(rows) == 1 and rows[0]["image_reference_count"] == 2
+
+
 def test_review_cannot_set_verified_status():
     with pytest.raises(ValidationError):
         HandoffReviewInput(status="verified", review_note="I said so")
