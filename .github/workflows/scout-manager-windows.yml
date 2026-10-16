@@ -134,11 +134,68 @@ jobs:
           }
           [IO.File]::WriteAllText($hashPath, (($checks -join [char]10) + [char]10), [Text.Encoding]::ASCII)
           $assets = @((Join-Path $out $names[0]), (Join-Path $out $names[1]), $hashPath)
+          # Never mutate a published release: keep historical installer hashes
+          # stable for machines already using the same tag.
           & gh release view $tag --json tagName 2>$null
           if ($LASTEXITCODE -eq 0) {
-            & gh release upload $tag @assets --clobber
-          } else {
-            & gh release create $tag @assets --target $env:GITHUB_SHA --title ("RRUGC Scout Manager " + $version + " with Branding DNA") --notes "Windows NSIS installer and portable EXE for the existing Scan Pinterest tool. Includes manually gated Amazon/Etsy Branding DNA pilot. Existing Scout profiles and pairing are preserved; no automatic marketplace scans. SHA-256 hashes included."
+            throw ("Release already exists: " + $tag + ". Bump the app version before publishing another binary.")
           }
+          & gh release create $tag @assets --target $env:GITHUB_SHA --title ("RRUGC Scout Manager " + $version + " with Branding DNA") --notes "Windows NSIS installer and portable EXE for the existing Scan Pinterest tool. Includes manually gated Amazon/Etsy Branding DNA pilot. Existing Scout profiles and pairing are preserved; no automatic marketplace scans. SHA-256 hashes included."
           if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed" }
-          Write-Host ("Published " + $tag + " with checksums")
+          Write-Host ("Published immutable " + $tag + " with checksums")
+      - name: Windows release install / idempotence / corruption smoke
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = [string]((Get-Content "apps/scout-manager-desktop/package.json" -Raw | ConvertFrom-Json).version)
+          $destination = Join-Path $env:RUNNER_TEMP "scout-manager-releases-test"
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          $legacy = Join-Path $destination "RRUGC_Scout_Manager_0.1.0_x64_Portable.exe"
+          [IO.File]::WriteAllText($legacy, "Do not delete old Scout versions")
+          $installer = "scripts/install_scout_manager_release.ps1"
+          & $installer -DestinationDir $destination
+          $portable = Join-Path $destination ("RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe")
+          $setup = Join-Path $destination ("RRUGC_Scout_Manager_" + $version + "_x64_Setup.exe")
+          $marker = Join-Path $destination "RRUGC_Scout_Manager_Active_Version.txt"
+          if (-not (Test-Path $portable) -or -not (Test-Path $setup) -or
+              -not (Test-Path $legacy) -or
+              (Get-Content -LiteralPath $marker -Raw).Trim() -ne $version) {
+            throw "Downloaded release files or active marker are incorrect"
+          }
+          & $installer -DestinationDir $destination
+          if (-not (Test-Path -LiteralPath $legacy)) { throw "Legacy release was removed" }
+          [IO.File]::AppendAllText($portable, "tamper-test")
+          $blocked = $false
+          try {
+            & $installer -DestinationDir $destination
+          } catch {
+            if ($_.Exception.Message -match 'Refusing overwrite') { $blocked = $true }
+            else { throw }
+          }
+          if (-not $blocked) { throw "Installer accepted tampered existing portable" }
+          if ((Get-Content -LiteralPath $marker -Raw).Trim() -ne $version) {
+            throw "Installer corrupted active release marker"
+          }
+          Write-Host "Windows release smoke passed: download, checksum, active version, idempotence, tamper refusal and legacy preservation"
+      - name: Verify Scout launcher selects active release over timestamps
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = [string]((Get-Content "apps/scout-manager-desktop/package.json" -Raw | ConvertFrom-Json).version)
+          $downloads = Join-Path $env:RUNNER_TEMP "scout-manager-releases-test"
+          $local = Join-Path $env:GITHUB_WORKSPACE "scout-manager-releases"
+          New-Item -ItemType Directory -Force -Path $local | Out-Null
+          $portable = "RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe"
+          Copy-Item -LiteralPath (Join-Path $downloads $portable) -Destination (Join-Path $local $portable)
+          $older = Join-Path $local "RRUGC_Scout_Manager_0.0.1_x64_Portable.exe"
+          [IO.File]::WriteAllText($older, "legacy marker only; never execute")
+          (Get-Item -LiteralPath $older).LastWriteTime = (Get-Date).AddDays(2)
+          [IO.File]::WriteAllText((Join-Path $local "RRUGC_Scout_Manager_Active_Version.txt"), ($version + [char]10))
+          $env:CAM_SCOUT_MANAGER_RESOLVE_ONLY = "1"
+          $result = & cmd.exe /D /C "START_SCOUT_TAURI.cmd"
+          if ($LASTEXITCODE -ne 0 -or ($result -join " ") -notlike ("*RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe*")) {
+            throw ("Incorrect Scout executable chosen: " + ($result -join " "))
+          }
+          Write-Host ("Correct verified Scout Manager release selected: " + $version)

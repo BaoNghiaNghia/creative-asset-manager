@@ -8,9 +8,9 @@ Máy Windows dùng sẵn thư mục:
 Sau khi cập nhật checkout lên main và bản build Windows đạt, chạy
 `UPDATE_SCOUT_MANAGER_RELEASE.cmd` ngay tại thư mục `scan_pinterest`.
 Launcher gọi `scripts/install_scout_manager_release.ps1`, tải 2 file:
-`RRUGC_Scout_Manager_0.1.21_x64_Setup.exe`,
-`RRUGC_Scout_Manager_0.1.21_x64_Portable.exe`, và file SHA-256 của đúng
-release `scout-manager-v0.1.21`. Kiểm tra toàn bộ SHA-256 trước khi cài,
+`RRUGC_Scout_Manager_0.1.22_x64_Setup.exe`,
+`RRUGC_Scout_Manager_0.1.22_x64_Portable.exe`, và file SHA-256 của đúng
+release `scout-manager-v0.1.22`. Kiểm tra toàn bộ SHA-256 trước khi cài,
 không ghi đè binary khác hash, không xóa file release cũ, profile hay
 `scout.local.env`. Launch Tauri bằng `START_SCOUT_TAURI.cmd` sau khi copy.
 
@@ -18,7 +18,7 @@ Các binary do workflow GitHub Actions Windows build và xuất bản qua GitHub
 Releases **sau khi tất cả quality gates đạt**. Máy Windows offline sẽ không tự
 nhận file; thao tác tải trong CMD phải chạy ở máy đó khi có kết nối.
 
-## Integrated Branding DNA Browser Agent — Manager v0.1.21
+## Integrated Branding DNA Browser Agent — Manager v0.1.22
 
 **One checkout/tool:** `D:\Bot_Tool_Auto_Game\scan_pinterest` hosts Review,
 Keyword, Cap Stack and **Branding DNA · Browser Agent** in the same Tauri Scout

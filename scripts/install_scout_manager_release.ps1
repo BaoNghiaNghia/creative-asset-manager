@@ -58,7 +58,13 @@ try {
     $source = Join-Path $temp $name
     $dest = Join-Path $DestinationDir $name
     if (Test-Path -LiteralPath $dest) {
-      if ($name -eq $hashFile) { continue }
+      if ($name -eq $hashFile) {
+        $currentHash = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToUpperInvariant()
+        $expectedHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToUpperInvariant()
+        if ($currentHash -ne $expectedHash) { throw ("Existing checksum manifest differs. Refusing overwrite: " + $dest) }
+        Write-Host ("Existing checksum manifest verified: " + $name) -ForegroundColor Green
+        continue
+      }
       $existing = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToUpperInvariant()
       if ($existing -ne $checksums[$name]) {
         throw ("Existing release differs. Refusing overwrite: " + $dest)
@@ -82,8 +88,20 @@ try {
     }
   }
 
-  # The launcher prefers newest versioned Portable.exe, so no alias or
-  # currently-running EXE has to be replaced.
+  # Write the selected release only AFTER all files are installed and
+  # checksums pass. The active marker is not a binary and may be replaced;
+  # running EXEs, browser profiles and previous versioned files are untouched.
+  $marker = Join-Path $DestinationDir "RRUGC_Scout_Manager_Active_Version.txt"
+  $markerStage = $marker + ".incoming-" + [guid]::NewGuid().ToString("N")
+  try {
+    [IO.File]::WriteAllText($markerStage, ($version + [Environment]::NewLine), [Text.Encoding]::ASCII)
+    Move-Item -LiteralPath $markerStage -Destination $marker -Force -ErrorAction Stop
+  } finally {
+    if (Test-Path -LiteralPath $markerStage) { Remove-Item -LiteralPath $markerStage -Force -ErrorAction SilentlyContinue }
+  }
+
+  # Active-version marker is consulted first by START_SCOUT_TAURI.cmd;
+  # old versions and currently running processes remain unaffected.
   Write-Host ""
   Write-Host ("Scout Manager " + $version + " release copied successfully.") -ForegroundColor Green
   Write-Host "Old versions and active Scout processes were preserved."
