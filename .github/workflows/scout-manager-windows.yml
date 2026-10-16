@@ -64,6 +64,26 @@ jobs:
             exit 1
           }
           Write-Host "PowerShell installer parser passed"
+      - name: Windows preflight for release downloader (previous immutable release)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = (Resolve-Path "scripts/install_scout_manager_release.ps1").Path
+          $directory = Join-Path $env:RUNNER_TEMP "scout-previous-release-preflight"
+          Write-Host "::group::Download and install known-good 0.1.22 fixture"
+          try {
+            & $installer -DestinationDir $directory -ReleaseVersion "0.1.22"
+            & $installer -DestinationDir $directory -ReleaseVersion "0.1.22"
+            if ((Get-Content (Join-Path $directory "RRUGC_Scout_Manager_Active_Version.txt") -Raw).Trim() -ne "0.1.22") {
+              throw "Active marker not written or not idempotent"
+            }
+            Write-Host "Windows installer preflight PASSED"
+          } catch {
+            Write-Host ("::error::Windows installer preflight: " + $_.Exception.Message.Replace("%","%25"))
+            throw
+          } finally {
+            Write-Host "::endgroup::"
+          }
       - name: Rust native regression tests
         shell: pwsh
         run: |
@@ -153,7 +173,7 @@ jobs:
           New-Item -ItemType Directory -Path $destination -Force | Out-Null
           $legacy = Join-Path $destination "RRUGC_Scout_Manager_0.1.0_x64_Portable.exe"
           [IO.File]::WriteAllText($legacy, "Do not delete old Scout versions")
-          $installer = "scripts/install_scout_manager_release.ps1"
+          $installer = (Resolve-Path "scripts/install_scout_manager_release.ps1").Path
           & $installer -DestinationDir $destination
           $portable = Join-Path $destination ("RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe")
           $setup = Join-Path $destination ("RRUGC_Scout_Manager_" + $version + "_x64_Setup.exe")

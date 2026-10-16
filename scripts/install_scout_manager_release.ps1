@@ -2,20 +2,23 @@
 # the EXISTING Scan Pinterest release folder. Never deletes old releases,
 # scout.local.env or Pinterest/Branding DNA profiles.
 param(
-  [string]$DestinationDir = "D:\Bot_Tool_Auto_Game\scan_pinterest\scout-manager-releases"
+  [string]$DestinationDir = "D:\Bot_Tool_Auto_Game\scan_pinterest\scout-manager-releases",
+  [string]$ReleaseVersion = ""
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $manifestPath = Join-Path $repoRoot "apps\scout-manager-desktop\package.json"
-$version = [string]((Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).version)
+$version = if ($ReleaseVersion) { $ReleaseVersion } else {
+  [string]((Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).version)
+}
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid Scout Manager release version." }
 $tag = "scout-manager-v" + $version
 $origin = "https://github.com/BaoNghiaNghia/creative-asset-manager/releases/download/" + $tag
 $files = @(
-  "RRUGC_Scout_Manager_" + $version + "_x64_Setup.exe",
-  "RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe"
+  ("RRUGC_Scout_Manager_" + $version + "_x64_Setup.exe"),
+  ("RRUGC_Scout_Manager_" + $version + "_x64_Portable.exe")
 )
 $hashFile = "RRUGC_Scout_Manager_" + $version + "_SHA256.txt"
 $allNames = @($files) + @($hashFile)
@@ -95,7 +98,16 @@ try {
   $markerStage = $marker + ".incoming-" + [guid]::NewGuid().ToString("N")
   try {
     [IO.File]::WriteAllText($markerStage, ($version + [Environment]::NewLine), [Text.Encoding]::ASCII)
-    Move-Item -LiteralPath $markerStage -Destination $marker -Force -ErrorAction Stop
+    # Avoid replacing the active marker when the same verified version is
+    # already selected. This also makes repeated installs idempotent on PS 5.1.
+    if (Test-Path -LiteralPath $marker) {
+      $selected = (Get-Content -LiteralPath $marker -Raw -ErrorAction Stop).Trim()
+      if ($selected -ne $version) {
+        Copy-Item -LiteralPath $markerStage -Destination $marker -Force -ErrorAction Stop
+      }
+    } else {
+      Move-Item -LiteralPath $markerStage -Destination $marker -ErrorAction Stop
+    }
   } finally {
     if (Test-Path -LiteralPath $markerStage) { Remove-Item -LiteralPath $markerStage -Force -ErrorAction SilentlyContinue }
   }
