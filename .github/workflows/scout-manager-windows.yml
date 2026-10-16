@@ -12,6 +12,7 @@ on:
       - "UPDATE_SCOUT_MANAGER_RELEASE.cmd"
       - "scripts/build_scout_manager_tauri.ps1"
       - "scripts/install_scout_manager_release.ps1"
+      - "scripts/check_scout_manager_versions.py"
       - ".github/workflows/scout-manager-windows.yml"
 
 permissions:
@@ -31,6 +32,9 @@ jobs:
           node-version: "22.14.0"
           cache: npm
           cache-dependency-path: apps/scout-manager-desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -84,6 +88,9 @@ jobs:
           } finally {
             Write-Host "::endgroup::"
           }
+      - name: Validate Scout Manager manifest and dependency lockfile
+        shell: pwsh
+        run: python scripts/check_scout_manager_versions.py
       - name: Rust native regression tests
         shell: pwsh
         run: |
