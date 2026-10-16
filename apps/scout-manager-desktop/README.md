@@ -8,9 +8,9 @@ Máy Windows dùng sẵn thư mục:
 Sau khi cập nhật checkout lên main và bản build Windows đạt, chạy
 `UPDATE_SCOUT_MANAGER_RELEASE.cmd` ngay tại thư mục `scan_pinterest`.
 Launcher gọi `scripts/install_scout_manager_release.ps1`, tải 2 file:
-`RRUGC_Scout_Manager_0.1.25_x64_Setup.exe`,
-`RRUGC_Scout_Manager_0.1.25_x64_Portable.exe`, và file SHA-256 của đúng
-release `scout-manager-v0.1.25`. Kiểm tra toàn bộ SHA-256 trước khi cài,
+`RRUGC_Scout_Manager_0.1.26_x64_Setup.exe`,
+`RRUGC_Scout_Manager_0.1.26_x64_Portable.exe`, và file SHA-256 của đúng
+release `scout-manager-v0.1.26`. Kiểm tra toàn bộ SHA-256 trước khi cài,
 không ghi đè binary khác hash, không xóa file release cũ, profile hay
 `scout.local.env`. Launch Tauri bằng `START_SCOUT_TAURI.cmd` sau khi copy.
 
@@ -18,7 +18,30 @@ Các binary do workflow GitHub Actions Windows build và xuất bản qua GitHub
 Releases **sau khi tất cả quality gates đạt**. Máy Windows offline sẽ không tự
 nhận file; thao tác tải trong CMD phải chạy ở máy đó khi có kết nối.
 
-## Local Branding DNA pilot results (Scout Manager v0.1.25)
+## Branding DNA Shop Library (Scout Manager v0.1.26)
+
+The existing Scout Manager now retains up to **50 manually configured
+Amazon/Etsy shop pilots** in a local per-user shop library. Operators can
+switch between saved shops without retyping their URLs. Switching changes
+only the active local pilot config: it **does not launch Chromium, fetch
+marketplaces, upload anything to CAM, or enable job dispatch**.
+
+Each saved shop preserves the exact previous config, including its dedicated
+profile, local report folder, bounded preview size and separate approval
+document path. Existing custom/legacy configurations are added to the
+library on first subsequent save or switch. Records live outside Git under
+`%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\shop-library`;
+none of the shop files or approvals are embedded in a release. Files are
+bounded, ID-bound and validated before selection; corrupt or mismatched
+records are skipped/refused. No deletion or automatic scan of saved shops.
+Closing/reopening Scout Manager preserves the library selection via the
+existing `pilot.local.json` active configuration. Changing shop while a
+pilot is running is blocked.
+
+Shop URL and platform authorization are checked independently at launch by
+the Node agent; a saved shop does **not imply marketplace permission**.
+
+## Local Branding DNA pilot results (Scout Manager v0.1.26)
 
 The Branding DNA card now includes a **read-only local pilot result viewer**.
 It lists up to eight recent reports for the currently configured shop, with
@@ -35,7 +58,7 @@ pilots (needs_operator) now save a shop-hashed, locally identifiable report;
 the UI does not expose raw image URLs or transfer any report to CAM.
 These are partial unverified DOM observations, **not confirmed brand DNA**.
 
-## Branding DNA shop configuration in the Tauri UI (v0.1.25)
+## Branding DNA shop configuration in the Tauri UI (v0.1.26)
 
 The Branding DNA card now includes a native in-app shop editor. Operators set
 **Platform (Amazon/Etsy), exact storefront URL, 1–5 preview product pages and
@@ -61,7 +84,7 @@ per-shop profile separation, stable re-edits and preservation of approvals.
 A real permissioned storefront test on the specific Windows machine remains
 outstanding.
 
-## Integrated Branding DNA Browser Agent — Manager v0.1.25
+## Integrated Branding DNA Browser Agent — Manager v0.1.26
 
 **One checkout/tool:** `D:\Bot_Tool_Auto_Game\scan_pinterest` hosts Review,
 Keyword, Cap Stack and **Branding DNA · Browser Agent** in the same Tauri Scout

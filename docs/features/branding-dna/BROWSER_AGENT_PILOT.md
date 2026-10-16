@@ -38,7 +38,7 @@ Official policy references (reconfirm at execution time):
 
 ## Windows release location and verified installer
 
-The Scout Manager v0.1.25 Windows CI now publishes a **versioned GitHub Release**
+The Scout Manager v0.1.26 Windows CI now publishes a **versioned GitHub Release**
 with portable and NSIS executables plus SHA256 list after all tests/build
 pass. On the authorized Windows machine, run
 `UPDATE_SCOUT_MANAGER_RELEASE.cmd` from the existing
@@ -48,7 +48,23 @@ pass. On the authorized Windows machine, run
 It preserves all previous versions, profiles, reports and tokens.
 Windows hosts that are offline are not silently modified.
 
-## Inspect local DOM pilot evidence (Scout Manager v0.1.25)
+## Multi-shop library (Scout Manager v0.1.26)
+
+Operators may save up to fifty Amazon/Etsy storefront pilot configurations and
+switch using **Saved shop library** in the same Scout Manager window. Per-shop
+Chromium profiles, reports and operator-maintained authorization files remain
+isolated and are not reset when changing shops. The active shop config is
+also retained in `config/pilot.local.json`; the per-shop library lives at
+`%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\shop-library`.
+When a prior legacy config is encountered it is added to the library on the
+next shop switch/save; it is not silently edited on application launch.
+
+No shop is scanned automatically, and switching does not bypass the runtime's
+per-shop approval validation or start the browser pilot. Shop library entries
+are **not CAM database shops** and cannot be ingested, approved or dispatched
+without a separately developed, tenant-scoped manual-review workflow.
+
+## Inspect local DOM pilot evidence (Scout Manager v0.1.26)
 
 The integrated Manager shows the eight most recent **read-only local**
 pilot results for the selected shop. Data is accepted only from a bounded
@@ -60,7 +76,7 @@ exposed. Results for another shop cannot appear in this view. New shops
 get separate local report folders. Existing report paths are retained.
 This is **not** a source-of-truth Brand DNA result or a production upload.
 
-## GUI-based local shop setup (Scout Manager v0.1.25)
+## GUI-based local shop setup (Scout Manager v0.1.26)
 
 In the Branding DNA card, choose Amazon or Etsy, paste the exact storefront
 URL, set the preview size (1–5 product pages) and choose whether Chromium is
@@ -80,7 +96,7 @@ scanning has been verified from the user's Windows PC.
 ## Integrated Scout Manager mode (2026-10-16)
 
 Branding DNA Browser Agent is available in the **existing Pinterest Scout
-Manager** (`apps/scout-manager-desktop` v0.1.25) from the same
+Manager** (`apps/scout-manager-desktop` v0.1.26) from the same
 `D:\Bot_Tool_Auto_Game\scan_pinterest` checkout. Buttons: Install runtime,
 Edit shop config, Check, Run pilot, Stop, and Live logs. This does not change
 the three Pinterest modes' global Run automation behavior. Branding DNA

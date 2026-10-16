@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BrandingDnaReports } from "./BrandingDnaReports";
-import { CircleAlert, FileCog, FolderSearch, Globe2, Pause, Play, Save, Settings2, ShieldCheck, Wrench } from "lucide-react";
+import { CircleAlert, FileCog, FolderSearch, Globe2, Pause, Play, Plus, Save, Settings2, ShieldCheck, Wrench } from "lucide-react";
 
 type PilotStatus = {
   state:string; pid:number|null; version:string; configured:boolean;
   setupAvailable:boolean; running:boolean; lastError:string|null;
   approvalFilePresent:boolean;
 };
+type SavedShop = {id:string;platform:string;shopUrl:string;active:boolean;approvalFilePresent:boolean};
 type ShopView = {
   configured:boolean; platform:string; shopUrl:string;
   maxProducts:number; headless:boolean; approvalFile:string;
@@ -29,6 +30,7 @@ export function BrandingDnaPilotCard({
 }) {
  const [status,setStatus]=useState<PilotStatus>(INITIAL);
  const [shop,setShop]=useState<ShopView>(EMPTY_SHOP);
+ const [library,setLibrary]=useState<SavedShop[]>([]);
  const [form,setForm]=useState({platform:"amazon",shopUrl:"",maxProducts:3,headless:false});
  const [editing,setEditing]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -38,6 +40,10 @@ export function BrandingDnaPilotCard({
    if(!nativeAvailable)return;
    const result=await invoke<PilotStatus>("branding_pilot_status");
    setStatus(result);
+ },[nativeAvailable]);
+ const reloadLibrary=useCallback(async()=>{
+   if(!nativeAvailable)return;
+   setLibrary(await invoke<SavedShop[]>("branding_pilot_list_saved_shops"));
  },[nativeAvailable]);
  const reloadShop=useCallback(async()=>{
    if(!nativeAvailable)return;
@@ -50,11 +56,12 @@ export function BrandingDnaPilotCard({
    if(!nativeAvailable)return;
    void refresh().catch(()=>setError("Cannot read Branding DNA pilot status."));
    void reloadShop().catch(()=>setError("Cannot read shop configuration."));
+   void reloadLibrary().catch(()=>setError("Cannot read saved shop library."));
    const interval=window.setInterval(()=>{
      if(!document.hidden)void refresh().catch(()=>undefined);
    },3000);
    return ()=>window.clearInterval(interval);
- },[nativeAvailable,refresh,reloadShop]);
+ },[nativeAvailable,refresh,reloadShop,reloadLibrary]);
  const disabled=!nativeAvailable||!controllerAvailable||managerBusy||busy;
  const act=async(command:"install"|"check"|"run"|"stop"|"config"|"approval")=>{
    if(command==="run" && !window.confirm(
@@ -68,6 +75,7 @@ export function BrandingDnaPilotCard({
      if(command==="approval")setNotice("Opened a default-deny approval document. Do not mark any permission as granted without real authorization.");
      await refresh();
      if(command==="approval"||command==="config")await reloadShop();
+     if(command==="config")await reloadLibrary();
      if(command!=="config"&&command!=="approval")onSelectLogs();
    }catch(e){
      setError(typeof e==="string"?e:e instanceof Error?e.message:"Branding DNA action failed");
@@ -87,8 +95,24 @@ export function BrandingDnaPilotCard({
      setEditing(false);
      setNotice("Shop saved locally. Set up the authorization document before starting a browser pilot.");
      await refresh();
+     await reloadLibrary();
    }catch(e){
      setError(typeof e==="string"?e:e instanceof Error?e.message:"Could not save shop config");
+   }finally{setBusy(false)}
+ };
+ const chooseSaved=async(id:string)=>{
+   if(!id)return;
+   setBusy(true);setError("");setNotice("");
+   try{
+     const result=await invoke<ShopView>("branding_pilot_select_shop",{id});
+     setShop(result);
+     setForm({platform:result.platform,shopUrl:result.shopUrl,maxProducts:result.maxProducts,headless:result.headless});
+     setEditing(false);
+     setNotice("Selected saved shop. Browser pilot remains stopped until manually started.");
+     await reloadLibrary();
+     await refresh();
+   }catch(e){
+     setError(typeof e==="string"?e:e instanceof Error?e.message:"Unable to switch saved shop");
    }finally{setBusy(false)}
  };
  return <section className="branding-pilot-panel" aria-label="Branding DNA Amazon Etsy browser agent">
@@ -108,6 +132,23 @@ export function BrandingDnaPilotCard({
    <p className="branding-pilot-note"><ShieldCheck size={15}/>
      Manual pilot only: global Run automation and Pinterest Gemini jobs never start this browser. Each pilot observes at most 5 public product pages; no CAM upload or auto-retry.
    </p>
+   <div className="branding-library-bar" aria-label="Saved shop library">
+     <label>Saved shop library · {library.length}/50
+       <select value={library.find(entry=>entry.active)?.id??""}
+         disabled={disabled||status.running||library.length===0}
+         onChange={e=>void chooseSaved(e.target.value)}>
+         <option value="">Select saved shop</option>
+         {library.map(entry=><option value={entry.id} key={entry.id}>
+           {entry.platform.toUpperCase()} · {entry.shopUrl}{entry.approvalFilePresent?" · approval file":""}
+         </option>)}
+       </select>
+     </label>
+     <button className="button secondary slim" type="button" disabled={disabled||status.running||library.length>=50}
+       onClick={()=>{
+         setForm({platform:"amazon",shopUrl:"",maxProducts:3,headless:false});
+         setEditing(true);setError("");
+       }}><Plus size={15}/> Add shop</button>
+   </div>
    {editing ? <div className="branding-shop-editor" aria-label="Configure Amazon or Etsy shop">
      <div className="branding-form-grid">
        <label>Platform

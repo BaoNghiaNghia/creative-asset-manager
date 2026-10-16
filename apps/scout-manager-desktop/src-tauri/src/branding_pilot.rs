@@ -171,6 +171,135 @@ fn save_config(repo:&Path,config:&PilotShopConfig)->Result<(),String>{
     }
     Ok(())
 }
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct SavedShop {
+    pub id: String,
+    pub platform: String,
+    pub shop_url: String,
+    pub active: bool,
+    pub approval_file_present: bool,
+}
+
+fn library_dir(local_data:&Path)->Result<PathBuf,String>{
+    if !local_data.is_absolute(){return Err("LOCALAPPDATA path must be absolute.".into())}
+    let base=local_data.join("CreativeAssetManager/BrandingDNA/shop-library");
+    if base.exists(){
+        let m=fs::symlink_metadata(&base).map_err(|_|"Cannot inspect shop library.")?;
+        if !m.is_dir() || m.file_type().is_symlink(){return Err("Shop library directory is unsafe.".into())}
+    }
+    Ok(base)
+}
+fn library_id(config:&PilotShopConfig)->String{
+    let hash=format!("{:x}",Sha256::digest(format!("{}:{}",config.platform,config.shop_url).as_bytes()));
+    format!("{}-{}",&config.platform,&hash[..24])
+}
+fn ensure_library_config(config:&PilotShopConfig,id:&str,repo:&Path)->Result<(),String>{
+    let canonical=normalize_shop_url(&config.platform,&config.shop_url)?;
+    if canonical!=config.shop_url || library_id(config)!=id
+        || !(1..=5).contains(&config.max_products)
+        || !(5000..=60000).contains(&config.minimum_delay_ms){
+        return Err("Invalid saved shop metadata.".into());
+    }
+    let repo=repo.canonicalize().map_err(|_|"Scout checkout not found.")?;
+    for location in [&config.approval_file,&config.profile_dir,&config.report_dir]{
+        let path=Path::new(location);
+        if !path.is_absolute() || path.starts_with(&repo)
+            || path.to_string_lossy().to_ascii_lowercase().contains("pinterest-profile"){
+            return Err("Saved shop path is unsafe.".into());
+        }
+        if path.exists() && fs::symlink_metadata(path).map_err(|_|"Cannot inspect saved shop path.")?.file_type().is_symlink(){
+            return Err("Saved shop path symlink is forbidden.".into());
+        }
+    }
+    Ok(())
+}
+fn library_record_path(local_data:&Path,id:&str)->Result<PathBuf,String>{
+    if !((id.starts_with("amazon-") && id.len()==31)
+       || (id.starts_with("etsy-") && id.len()==29))
+       || !id.rsplit('-').next().unwrap_or("").bytes().all(|b|b.is_ascii_hexdigit()){
+        return Err("Invalid saved shop identifier.".into());
+    }
+    Ok(library_dir(local_data)?.join(format!("{id}.json")))
+}
+fn read_library_record(repo:&Path,local_data:&Path,id:&str)->Result<PilotShopConfig,String>{
+    let p=library_record_path(local_data,id)?;
+    let m=fs::symlink_metadata(&p).map_err(|_|"Saved shop not found.")?;
+    if !m.is_file() || m.file_type().is_symlink() || m.len()>8192{
+        return Err("Saved shop file is unsafe.".into());
+    }
+    let config:PilotShopConfig=serde_json::from_slice(&fs::read(&p).map_err(|_|"Cannot read saved shop.")?)
+        .map_err(|_|"Invalid saved shop JSON.")?;
+    ensure_library_config(&config,id,repo)?;
+    Ok(config)
+}
+fn save_library_record(repo:&Path,local_data:&Path,config:&PilotShopConfig)->Result<(),String>{
+    let id=library_id(config);
+    ensure_library_config(config,&id,repo)?;
+    let dir=library_dir(local_data)?;
+    fs::create_dir_all(&dir).map_err(|_|"Cannot prepare shop library.")?;
+    // Never create an unbounded collection of shop profiles by accident.
+    let entries=fs::read_dir(&dir).map_err(|_|"Cannot list shop library.")?;
+    let count=entries.flatten().take(100).filter(|x|{
+        x.file_name().to_string_lossy().ends_with(".json")
+            && !x.file_name().to_string_lossy().contains(".previous.")
+    }).count();
+    let target=library_record_path(local_data,&id)?;
+    if count>=50 && !target.is_file(){return Err("Shop library limit is 50. Review saved shops first.".into())}
+    if target.exists() && fs::symlink_metadata(&target).map_err(|_|"Cannot inspect saved shop.")?.file_type().is_symlink(){
+        return Err("Saved shop symlink is forbidden.".into());
+    }
+    let body=serde_json::to_vec_pretty(config).map_err(|_|"Cannot serialize saved shop.")?;
+    let stage=dir.join(format!("{id}.{}.pending",std::process::id()));
+    fs::write(&stage,body).map_err(|_|"Cannot write saved shop metadata.")?;
+    let backup=dir.join(format!("{id}.previous.json"));
+    if target.is_file(){
+        if backup.exists() && fs::symlink_metadata(&backup).map_err(|_|"Cannot inspect shop backup.")?.file_type().is_symlink(){
+            let _=fs::remove_file(&stage);
+            return Err("Saved shop backup symlink is forbidden.".into());
+        }
+        if let Err(err)=fs::copy(&target,&backup).and_then(|_|fs::remove_file(&target)){
+            let _=fs::remove_file(&stage);
+            return Err(format!("Cannot back up saved shop: {err}"));
+        }
+    }
+    if let Err(err)=fs::rename(&stage,&target){
+        if backup.is_file() && !target.exists(){let _=fs::copy(backup,target);}
+        let _=fs::remove_file(stage);
+        return Err(format!("Cannot activate saved shop: {err}"));
+    }
+    Ok(())
+}
+pub fn list_saved_shops(repo:&Path,local_data:&Path)->Result<Vec<SavedShop>,String>{
+    let dir=library_dir(local_data)?;
+    if !dir.exists(){return Ok(Vec::new())}
+    let active=load_config(repo)?;
+    let mut shops=Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|_|"Cannot read shop library.")?.take(200){
+        let entry=entry.map_err(|_|"Cannot inspect shop entry.")?;
+        let name=entry.file_name().to_string_lossy().into_owned();
+        let Some(id)=name.strip_suffix(".json") else{continue};
+        if id.contains(".previous."){continue}
+        let Ok(config)=read_library_record(repo,local_data,id) else{continue};
+        shops.push(SavedShop{
+            id:id.into(),platform:config.platform.clone(),shop_url:config.shop_url.clone(),
+            active:active.as_ref().is_some_and(|x|x.platform==config.platform && x.shop_url==config.shop_url),
+            approval_file_present:Path::new(&config.approval_file).is_file(),
+        });
+        if shops.len()>=50{break}
+    }
+    if let Some(current)=active {
+        let id=library_id(&current);
+        if !shops.iter().any(|s|s.id==id) && ensure_library_config(&current,&id,repo).is_ok(){
+            shops.push(SavedShop{id,platform:current.platform.clone(),shop_url:current.shop_url.clone(),
+                active:true,approval_file_present:Path::new(&current.approval_file).is_file()});
+        }
+    }
+    shops.sort_by(|a,b|a.platform.cmp(&b.platform).then_with(||a.shop_url.cmp(&b.shop_url)));
+    shops.truncate(50);
+    Ok(shops)
+}
+
 fn approval_template(config:&PilotShopConfig)->serde_json::Value{
     serde_json::json!({
         "platform":config.platform,
@@ -349,11 +478,50 @@ impl BrandPilot {
         self.check_status();
         if self.child.is_some(){return Err("Stop Branding DNA pilot before editing its shop.".into())}
         let old=load_config(repo)?;
-        let cfg=pilot_config_for(platform,shop_url,max_products,headless,local_data,old.as_ref())?;
+        let desired=pilot_config_for(platform,shop_url,max_products,headless,local_data,None)?;
+        let id=library_id(&desired);
+        let existing=if old.as_ref().is_some_and(|c|c.platform==desired.platform && c.shop_url==desired.shop_url){
+            old.as_ref()
+        } else if library_record_path(local_data,&id)?.is_file() {
+            let saved=read_library_record(repo,local_data,&id)?;
+            // Select from a previously saved shop instead of allocating a new profile.
+            return self.activate_saved_shop(repo,local_data,saved,max_products,headless);
+        } else { None };
+        let cfg=pilot_config_for(platform,shop_url,max_products,headless,local_data,existing)?;
+        if let Some(previous)=old.as_ref(){
+            if previous.shop_url!=cfg.shop_url || previous.platform!=cfg.platform {
+                save_library_record(repo,local_data,previous)?;
+            }
+        }
+        save_library_record(repo,local_data,&cfg)?;
         save_config(repo,&cfg)?;
-        self.state="Shop configured · approval required".into();
+        self.state="Shop configured · manual pilot only".into();
         self.last_error=None;
         Ok(view(Some(&cfg)))
+    }
+    fn activate_saved_shop(&mut self,repo:&Path,local_data:&Path,
+        saved:PilotShopConfig,max_products:u8,headless:bool)->Result<ShopConfigView,String>{
+        if self.child.is_some(){return Err("Stop Branding DNA pilot before switching shops.".into())}
+        let old=load_config(repo)?;
+        let cfg=pilot_config_for(&saved.platform,&saved.shop_url,max_products,headless,local_data,Some(&saved))?;
+        if let Some(previous)=old.as_ref(){
+            if previous.platform!=cfg.platform || previous.shop_url!=cfg.shop_url {
+                save_library_record(repo,local_data,previous)?;
+            }
+        }
+        save_library_record(repo,local_data,&cfg)?;
+        save_config(repo,&cfg)?;
+        self.state="Shop selected · manual pilot only".into();
+        self.last_error=None;
+        Ok(view(Some(&cfg)))
+    }
+    pub fn select_shop(&mut self,repo:&Path,local_data:&Path,id:&str)->Result<ShopConfigView,String>{
+        self.check_status();
+        if self.child.is_some(){return Err("Stop Branding DNA pilot before switching shops.".into())}
+        let saved=read_library_record(repo,local_data,id)?;
+        let max_products=saved.max_products;
+        let headless=saved.headless;
+        self.activate_saved_shop(repo,local_data,saved,max_products,headless)
     }
     pub fn prepare_approval(&mut self,repo:&Path)->Result<PathBuf,String>{
         self.check_status();
@@ -478,6 +646,56 @@ mod tests{
         assert_ne!(updated.approval_file,first.approval_file);
         assert!(!updated.approval_file_present);
         assert_eq!(fs::read_to_string(&p).unwrap(),"preserve original operator authorization file");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn saved_shop_library_switches_without_losing_approval_or_profiles(){
+        let root=fake_root();
+        let repo=root.join("repo");
+        let local=root.join("local");
+        let mut agent=BrandPilot::new();
+        let first=agent.save_shop(&repo,&local,"etsy","https://www.etsy.com/shop/StoreOne",3,false).unwrap();
+        let first_profile=first.profile_dir.clone();
+        let approval=agent.prepare_approval(&repo).unwrap();
+        fs::write(&approval,"operator-supplied-test-payload").unwrap();
+        let second=agent.save_shop(&repo,&local,"amazon","https://www.amazon.com/stores/AnotherStore",2,true).unwrap();
+        assert_ne!(first.profile_dir,second.profile_dir);
+        assert_ne!(first.report_dir,second.report_dir);
+        let shops=list_saved_shops(&repo,&local).unwrap();
+        assert_eq!(shops.len(),2);
+        assert_eq!(shops.iter().filter(|s|s.active).count(),1);
+        assert!(shops.iter().find(|s|s.shop_url==first.shop_url).unwrap().approval_file_present);
+        let id=library_id(&PilotShopConfig{
+            platform:"etsy".into(),shop_url:first.shop_url.clone(),
+            approval_file:first.approval_file.clone(),profile_dir:first.profile_dir.clone(),
+            report_dir:first.report_dir.clone(),max_products:3,minimum_delay_ms:5000,headless:false,
+        });
+        let back=agent.select_shop(&repo,&local,&id).unwrap();
+        assert_eq!(back.shop_url,first.shop_url);
+        assert_eq!(back.profile_dir,first_profile);
+        assert_eq!(back.report_dir,first.report_dir);
+        assert_eq!(fs::read_to_string(&approval).unwrap(),"operator-supplied-test-payload");
+        assert!(back.approval_file_present);
+        assert_eq!(list_saved_shops(&repo,&local).unwrap().iter().filter(|s|s.active).count(),1);
+        assert!(agent.select_shop(&repo,&local,"etsy-../../other").is_err());
+        assert_eq!(agent.load_shop(&repo).unwrap().shop_url,first.shop_url);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn tampered_library_record_cannot_switch_active_shop(){
+        let root=fake_root();
+        let repo=root.join("repo");
+        let local=root.join("local");
+        let mut agent=BrandPilot::new();
+        let first=agent.save_shop(&repo,&local,"etsy","https://www.etsy.com/shop/SafetyShop",3,false).unwrap();
+        let active=load_config(&repo).unwrap().unwrap();
+        let id=library_id(&active);
+        let file=library_record_path(&local,&id).unwrap();
+        let mut poisoned=active;
+        poisoned.shop_url="https://www.etsy.com/shop/OtherSeller".into();
+        fs::write(&file,serde_json::to_vec(&poisoned).unwrap()).unwrap();
+        assert!(agent.select_shop(&repo,&local,&id).is_err());
+        assert_eq!(agent.load_shop(&repo).unwrap().shop_url,first.shop_url);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

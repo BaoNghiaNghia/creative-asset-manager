@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "cam-scout-manager"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "reqwest",
  "serde",
@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "libredox"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [

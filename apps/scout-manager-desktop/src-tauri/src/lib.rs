@@ -951,6 +951,21 @@ fn branding_pilot_load_shop(state: tauri::State<'_, Arc<Controller>>) -> Result<
     let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
     pilot.load_shop(&state.repo)
 }
+fn branding_pilot_local_data() -> Result<PathBuf,String>{
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).ok_or("Windows LOCALAPPDATA is missing.".into())
+}
+#[tauri::command]
+fn branding_pilot_list_saved_shops(state: tauri::State<'_, Arc<Controller>>) -> Result<Vec<branding_pilot::SavedShop>,String>{
+    branding_pilot::list_saved_shops(&state.repo,&branding_pilot_local_data()?)
+}
+#[tauri::command]
+fn branding_pilot_select_shop(state: tauri::State<'_, Arc<Controller>>,id:String) -> Result<branding_pilot::ShopConfigView,String>{
+    state.require_manager_lock()?;
+    if state.updating.load(Ordering::SeqCst){return Err("Source update in progress.".into())}
+    let local_data=branding_pilot_local_data()?;
+    let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
+    pilot.select_shop(&state.repo,&local_data,&id)
+}
 #[tauri::command]
 fn branding_pilot_save_shop(state: tauri::State<'_, Arc<Controller>>,
     platform:String,shop_url:String,max_products:u8,headless:bool) -> Result<branding_pilot::ShopConfigView,String> {
@@ -1237,6 +1252,8 @@ pub fn run() {
             branding_pilot_load_shop,
             branding_pilot_reports,
             branding_pilot_save_shop,
+            branding_pilot_list_saved_shops,
+            branding_pilot_select_shop,
             branding_pilot_edit_approval,
             branding_pilot_edit_config,
             keyword_summary,

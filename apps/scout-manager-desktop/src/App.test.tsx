@@ -16,6 +16,9 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Run pilot");
     expect(html).toContain("Install runtime");
     expect(html).toContain("Advanced JSON");
+    expect(html).toContain("Saved shop library");
+    expect(html).toContain("Select saved shop");
+    expect(html).toContain("Add shop");
     expect(html).toContain("Authorization file missing");
     expect(html).toContain("dedicated profile per shop");
     expect(html).toContain("Manual pilot only");
