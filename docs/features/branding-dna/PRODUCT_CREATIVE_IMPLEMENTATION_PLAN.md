@@ -52,6 +52,13 @@
 - Còn thiếu để BD-01 hoàn tất: platform policy/access grant có kiểm chứng độc lập; chính thức Etsy/Shopify/Amazon adapter; source/redirect/DNS allowlist, signed media, durable worker outbox, adapter-to-lease gating, scanner QA và xác minh coverage thực. Do not promote to production scanner until gates pass.
 - Release migration 0160 chỉ sau khi production hiện tại đã ở revision 0159, có backup/recovery drill, non-destructive preflight và post-deploy health gates. **Push main không đồng nghĩa migration production đã chạy.**
 
+## Checkpoint BD-01 — Worker Lifecycle Outbox (partial), 2026-10-16
+
+- Added `bc_worker_events` and migration `0161_branding_dna_worker_events`, additive after `0160_branding_dna_scan_tasks`; this stores only tenant/agent-scoped lifecycle event receipts, NOT listing contents or worker command payloads. API `POST /api/v1/branding-dna/workers/{agent_id}/events` accepts fixed enums and timestamps; supports replay ACK/sha256 conflict rejection, revoked-token rejection, 50 events/request, and a per-agent cap of 1,000 new events/day.
+- Dedicated worker (Node 22.13+) has local SQLite WAL outbox (`synchronous=FULL`, 2,000-row maximum, 50 per batch), persists events before sending and deletes only after a complete/verified server ACK. Network failures, incomplete ACK and restarts do not erase pending rows. Outbox contains no token, URL, image, product metadata or arbitrary text.
+- Source ingestion still requires separate authorization/policy review. No Playwright installed, no platform adapters, no scanner job dispatch, no pending activation, no real claim/checkpoint HTTP API, and no productive evidence uploads. `/workers/{agent_id}/lease` continues to return `job=null`, `scan_enabled=false`.
+- Windows rollout needs pinned Node.js runtime QA, service permission/storage verification, server-side telemetry retention approval, per-task result outbox, authenticated adapter/policy gating, prod backup/schema check and a rollback drill. This is a code checkpoint, **not production scanner readiness or a production migration claim**.
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts
