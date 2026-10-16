@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod branding_pilot;
 mod branding_pilot_review;
+mod branding_pilot_handoff;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
@@ -948,6 +949,14 @@ fn branding_pilot_reports(state: tauri::State<'_, Arc<Controller>>) -> Result<Ve
     branding_pilot::list_local_reports(&state.repo)
 }
 #[tauri::command]
+fn branding_pilot_handoff_prepare(state: tauri::State<'_, Arc<Controller>>) -> Result<branding_pilot_handoff::HandoffResult,String> {
+    state.require_manager_lock()?;
+    if state.updating.load(Ordering::SeqCst) {return Err("Source update in progress.".into())}
+    let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
+    if pilot.status(&state.repo).running {return Err("Stop the pilot before preparing a handoff.".into())}
+    branding_pilot_handoff::prepare_local_handoff(&state.repo,&branding_pilot_local_data()?)
+}
+#[tauri::command]
 fn branding_pilot_review_list(state: tauri::State<'_, Arc<Controller>>) -> Result<Vec<branding_pilot_review::ReviewRecord>,String> {
     let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
     let selected=pilot.load_shop(&state.repo)?;
@@ -1274,6 +1283,7 @@ pub fn run() {
             branding_pilot_reports,
             branding_pilot_review_list,
             branding_pilot_review_set,
+            branding_pilot_handoff_prepare,
             branding_pilot_save_shop,
             branding_pilot_list_saved_shops,
             branding_pilot_select_shop,

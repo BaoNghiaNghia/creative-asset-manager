@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, FileSearch, RefreshCw, RotateCcw, X } from "lucide-react";
+import { Check, FileSearch, FileOutput, RefreshCw, RotateCcw, X } from "lucide-react";
 
 type Observation = {listingKey:string;title:string;imageCount:number;errorCode:string|null};
 type PilotReport = {
@@ -8,6 +8,7 @@ type PilotReport = {
   observedCount:number;reason:string|null;items:Observation[];
 };
 type ReviewChoice = {itemIndex:number;listingKey:string;decision:string;note:string};
+type HandoffResult = {outputPath:string;candidateCount:number;status:string};
 type ReviewRecord = {
   fileName:string;reportSha256:string;shopUrlSha256:string;
   decisions:ReviewChoice[];scope:string;
@@ -22,10 +23,12 @@ export function BrandingDnaReports({nativeAvailable, shopUrl, scanRunning}:{
   const [loadedShop,setLoadedShop]=useState("");
   const [loading,setLoading]=useState(false);
   const [saving,setSaving]=useState("");
+  const [handoff,setHandoff]=useState<HandoffResult|null>(null);
   const [error,setError]=useState("");
   const [notes,setNotes]=useState<Record<string,string>>({});
   const selectedShop=useRef(shopUrl);
   selectedShop.current=shopUrl;
+  useEffect(()=>{setHandoff(null)},[shopUrl]);
   const refresh=useCallback(async()=>{
     if(!nativeAvailable||!shopUrl){
       setReports([]);setReviews([]);setLoadedShop("");return;
@@ -62,16 +65,31 @@ export function BrandingDnaReports({nativeAvailable, shopUrl, scanRunning}:{
       setError(typeof e==="string"?e:e instanceof Error?e.message:"Unable to save local review");
     }finally{setSaving("")}
   };
+  const prepareHandoff=async()=>{
+    if(!nativeAvailable||scanRunning||saving)return;
+    if(!window.confirm("Create a local shortlist handoff for manual source and rights checks? This does not upload to CAM or approve image reuse."))return;
+    setSaving("handoff");setError("");setHandoff(null);
+    try{setHandoff(await invoke<HandoffResult>("branding_pilot_handoff_prepare"))}
+    catch(e){setError(typeof e==="string"?e:e instanceof Error?e.message:"Cannot prepare local handoff")}
+    finally{setSaving("")}
+  };
   if(!shopUrl)return null;
   const visible=loadedShop===shopUrl?reports:[];
+  const pickedCount=loadedShop===shopUrl?reviews.reduce((sum,r)=>sum+r.decisions.filter(d=>d.decision==="picked").length,0):0;
   return <section className="branding-reports" aria-label="Local Branding DNA pilot results">
     <div className="branding-reports-header">
       <div><h3><FileSearch size={16}/> Local pilot results & review</h3>
         <p>Pick / Reject shortlist · source-hash bound · rights unverified · not uploaded to CAM</p></div>
-      <button type="button" className="button secondary slim" disabled={!nativeAvailable||loading||Boolean(saving)}
-        onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh reports</button>
+      <div className="branding-reports-controls">
+        <button type="button" className="button secondary slim" disabled={!nativeAvailable||loading||Boolean(saving)}
+          onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh reports</button>
+        <button type="button" className="button primary slim"
+          disabled={!nativeAvailable||scanRunning||loading||Boolean(saving)||pickedCount===0}
+          onClick={()=>void prepareHandoff()}><FileOutput size={14}/> Prepare handoff ({pickedCount})</button>
+      </div>
     </div>
     {error&&<div className="branding-pilot-error" role="alert">{error}</div>}
+    {handoff&&<p className="branding-handoff-result" role="status">Local verification packet created ({handoff.candidateCount} candidates). Not imported to CAM. <code>{handoff.outputPath}</code></p>}
     {!loading&&!error&&visible.length===0&&<p className="branding-report-empty">No saved pilot results for this shop. Configure authorization and run a limited pilot to create a local report.</p>}
     <div className="branding-report-list">
       {visible.map((report,index)=>{
