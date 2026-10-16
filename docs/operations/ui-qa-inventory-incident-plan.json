@@ -1,0 +1,150 @@
+{
+  "viewports": [
+    "desktop",
+    "compact",
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
+  "qualityBudgets": {
+    "desktop": {
+      "maxUnnamedControls": 0
+    },
+    "mobile": {
+      "maxUnnamedControls": 0
+    },
+    "mobileSmall": {
+      "maxUnnamedControls": 0
+    }
+  },
+  "steps": [
+    {
+      "name": "incident-row",
+      "waitFor": ".inventory-pipeline table tbody tr",
+      "assertions": [
+        {
+          "type": "count",
+          "selector": ".inventory-pipeline table tbody tr",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "incident-open-details",
+      "click": ".inventory-pipeline table tbody tr:first-child td:first-child b",
+      "waitFor": ".inventory-pipeline-details",
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": ".inventory-incident-inspection .inventory-audit-toggle"
+        },
+        {
+          "type": "attribute",
+          "selector": ".inventory-incident-inspection .inventory-audit-toggle",
+          "name": "aria-expanded",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "name": "incident-expand",
+      "click": ".inventory-incident-inspection .inventory-audit-toggle",
+      "waitFor": ".inventory-incident-body input",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".inventory-incident-inspection .inventory-audit-toggle",
+          "name": "aria-expanded",
+          "value": "true"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "incident-invalid-date",
+      "fill": {
+        "selector": ".inventory-incident-body input",
+        "value": "2026-02-30"
+      },
+      "waitFor": ".inventory-incident-body input"
+    },
+    {
+      "name": "incident-invalid-submit",
+      "click": ".inventory-incident-body > button",
+      "waitFor": ".inventory-incident-body [role='alert']",
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".inventory-incident-body [role='alert']",
+          "value": "YYYY-MM-DD"
+        },
+        {
+          "type": "count",
+          "selector": ".inventory-incident-date",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "name": "incident-valid-dates",
+      "fill": {
+        "selector": ".inventory-incident-body input",
+        "value": "2026-10-08,2026-10-13,2026-10-14,2026-10-15"
+      }
+    },
+    {
+      "name": "incident-read-evidence",
+      "click": ".inventory-incident-body > button",
+      "waitFor": ".inventory-incident-date",
+      "waitMs": 250,
+      "assertions": [
+        {
+          "type": "count",
+          "selector": ".inventory-incident-date",
+          "value": 4
+        },
+        {
+          "type": "text-includes",
+          "selector": ".inventory-incident-date:nth-of-type(1)",
+          "value": "Chưa xác minh"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".inventory-incident-date:nth-of-type(1)",
+          "value": "review_required"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".inventory-incident-date:nth-of-type(4)",
+          "value": "Morning Reset"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "incident-collapse",
+      "click": ".inventory-incident-inspection .inventory-audit-toggle",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".inventory-incident-inspection .inventory-audit-toggle",
+          "name": "aria-expanded",
+          "value": "false"
+        },
+        {
+          "type": "hidden",
+          "selector": ".inventory-incident-body"
+        }
+      ]
+    }
+  ]
+}

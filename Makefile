@@ -1,4 +1,4 @@
-.PHONY: api client integration-test ui-check ui-browser-install ui-staging-qa ui-profile-matrix ui-qa-headless ui-qa-visual ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke research-runtime-setup
+.PHONY: ui-inventory-incident-qa api client integration-test ui-check ui-browser-install ui-staging-qa ui-profile-matrix ui-qa-headless ui-qa-visual ui-repair-check ui-autofix ui-smart-tests ui-visual-propose ui-visual-accept ui-visual-update production-ui-smoke research-runtime-setup
 
 api:
 	bash scripts/dev-api.sh
@@ -23,6 +23,9 @@ ui-profile-matrix:
 
 # One-command, no-login UI regression checks. Fixture-only, headless, strict.
 # Defaults to all workspaces; override CAM_UI_QA_PROFILES and CAM_UI_VIEWPORTS.
+ui-inventory-incident-qa:
+	@bash scripts/cam-ui-inventory-incident-qa.sh
+
 ui-qa-headless:
 	@CAM_UI_QA_PROFILES="$${CAM_UI_QA_PROFILES:-explorer-viewer,review-board,realistic-review-ugc,ai-operations,inventory,access-management,video-generation,job-queue,branding-dna,public-review}" \
 	 CAM_UI_VIEWPORTS="$${CAM_UI_VIEWPORTS:-desktop,tabletPortrait,mobile}" \

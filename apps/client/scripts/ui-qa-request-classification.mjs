@@ -7,7 +7,8 @@ export function isExpectedQaRequestAbort(failure, qaMode, appUrl) {
     const request = new URL(failure.url);
     const app = new URL(appUrl);
     return request.origin === app.origin
-      && ((request.pathname.startsWith("/assets/") && /\.woff2?$/.test(request.pathname))
+      && ((qaMode === "inventory-incident" && request.pathname === "/api/v1/auth/identity")
+        || (request.pathname.startsWith("/assets/") && /\.woff2?$/.test(request.pathname))
         || request.pathname === "/api/v1/realistic-review-ugc/stage4/completions"
         || (request.pathname === "/api/v1/realistic-review-ugc/source-plans"
           && request.searchParams.has("sort_by") && request.searchParams.has("sort_dir")));

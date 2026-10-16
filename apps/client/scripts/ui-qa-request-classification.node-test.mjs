@@ -19,6 +19,20 @@ test("read-only source-plan sorting request cancelled by workflow navigation is 
     error:"net::ERR_ABORTED"}, "normal", "http://127.0.0.1:49000/realistic-review-ugc"), false);
 });
 
+test("inventory incident QA ignores only fixture identity GET cancellations", () => {
+  const site = "http://127.0.0.1:49000/inventory/pipeline";
+  const same = "http://127.0.0.1:49000/api/v1/auth/identity";
+  const identityAbort = { method: "GET", url: same, error: "net::ERR_ABORTED" };
+  assert.equal(isExpectedQaRequestAbort(identityAbort, "inventory-incident", site), true);
+  assert.equal(isExpectedQaRequestAbort(identityAbort, "normal", site), false);
+  for (const request of [
+    {method:"POST",url:same,error:"net::ERR_ABORTED"},
+    {method:"GET",url:same,error:"net::ERR_CONNECTION_REFUSED"},
+    {method:"GET",url:same.replace("identity","permissions"),error:"net::ERR_ABORTED"},
+    {method:"GET",url:"http://other-host.invalid/api/v1/auth/identity",error:"net::ERR_ABORTED"},
+  ]) assert.equal(isExpectedQaRequestAbort(request,"inventory-incident",site),false);
+});
+
 test("never hide other request failures or unexpected aborted mutations", () => {
   const base = "http://127.0.0.1:49000/api/v1/realistic-review-ugc/stage4/completions";
   for (const request of [

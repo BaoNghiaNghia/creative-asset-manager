@@ -325,9 +325,15 @@ GET endpoint above, distinguishes verified Closing from promoted replay,
 and displays persisted Morning Reset state. It makes no mutations and does
 not treat DB status as independent Google Sheets readback. HTTP 404 means
 the endpoint is not deployed on the active backend yet; a UI build alone
-does not expose an unavailable backend route. Functional tests, read-only
-request tests and six-viewport Inventory Daily visual QA must pass before
-release.
+does not expose an unavailable backend route. The dedicated fixture-backed interaction gate is
+`make ui-inventory-incident-qa`. It clicks through the real detail drawer,
+validates invalid dates, reads the four simulated October 8/13/14/15 incident
+days and checks mobile overflow at six widths (1440–320px). No production
+API or Google Drive credential is involved. Strict QA ignores only same-origin
+fixture `GET /api/v1/auth/identity` cancellations in `inventory-incident`
+mode; aborted POST requests, cross-origin traffic and transport failures
+remain test failures. Functional tests, read-only request tests, and governed
+Inventory Daily visual QA must pass before release.
 
 The extra
 `INVENTORY_DATE_INSPECTION` JSON line reads persisted snapshots, Evening

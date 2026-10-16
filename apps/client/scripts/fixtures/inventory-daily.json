@@ -213,6 +213,100 @@
       "body": {
         "items": []
       }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/gemini/replay/diagnostics",
+      "body": {
+        "items": [
+          {
+            "business_date": "2026-10-08",
+            "profiles": [
+              {
+                "apply_mode": "auto",
+                "snapshot_status": "completed",
+                "immutable_snapshot_ready": true,
+                "gemini_status": "failed",
+                "gemini_verified": false,
+                "evening_slot_status": "completed",
+                "evening_slot_error": "none",
+                "replay_status": "review_required",
+                "replay_attempt_count": 2,
+                "replay_verification": "not_executed",
+                "replay_promoted": false,
+                "review_issue_codes": [],
+                "morning_reset_status": "completed",
+                "morning_reset_error": "none"
+              }
+            ]
+          },
+          {
+            "business_date": "2026-10-13",
+            "profiles": [
+              {
+                "apply_mode": "auto",
+                "snapshot_status": "completed",
+                "immutable_snapshot_ready": true,
+                "gemini_status": "failed",
+                "gemini_verified": false,
+                "evening_slot_status": "completed",
+                "evening_slot_error": "none",
+                "replay_status": "review_required",
+                "replay_attempt_count": 2,
+                "replay_verification": "not_executed",
+                "replay_promoted": false,
+                "review_issue_codes": [
+                  "no_actionable_assessment"
+                ],
+                "morning_reset_status": "completed",
+                "morning_reset_error": "none"
+              }
+            ]
+          },
+          {
+            "business_date": "2026-10-14",
+            "profiles": [
+              {
+                "apply_mode": "auto",
+                "snapshot_status": "completed",
+                "immutable_snapshot_ready": true,
+                "gemini_status": "completed",
+                "gemini_verified": true,
+                "evening_slot_status": "completed",
+                "evening_slot_error": "none",
+                "replay_status": "completed",
+                "replay_attempt_count": 6,
+                "replay_verification": "verified",
+                "replay_promoted": true,
+                "review_issue_codes": [],
+                "morning_reset_status": "completed",
+                "morning_reset_error": "none"
+              }
+            ]
+          },
+          {
+            "business_date": "2026-10-15",
+            "profiles": [
+              {
+                "apply_mode": "auto",
+                "snapshot_status": "missing",
+                "immutable_snapshot_ready": false,
+                "gemini_status": "missing",
+                "gemini_verified": false,
+                "evening_slot_status": "missing",
+                "evening_slot_error": "none",
+                "replay_status": "missing",
+                "replay_attempt_count": 0,
+                "replay_verification": "none",
+                "replay_promoted": false,
+                "review_issue_codes": [],
+                "morning_reset_status": "review_required",
+                "morning_reset_error": "previous_day_gemini_not_verified"
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
