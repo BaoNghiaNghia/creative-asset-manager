@@ -373,6 +373,48 @@ def test_recent_replay_failure_diagnostics_exposes_only_safe_reason_tokens():
 
 
 
+def test_historical_replay_diagnostics_fail_closed_on_unsafe_codes_and_promoted_text():
+    """An untrusted provider response cannot become a 'promoted' audit or leak."""
+    tmp, engine, sessions = _sessions()
+    try:
+        queue = HistoricalReplayQueue(sessions)
+        day = date(2030, 8, 9)
+        request = queue.enqueue("tenant-a", day, promote=True)
+        with sessions.begin() as session:
+            job = session.get(InventoryJobModel, request["job_id"])
+            job.status = "completed"
+            job.last_error_code = "Bearer SECRET marker from provider"
+            job.payload_json = {**job.payload_json, "promote": "false", "result": {
+                "status": "completed; private cell A9",
+                "verification_status": "verified; bearer token",
+                "promoted": "false",
+            }}
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v4_historical_replay",
+                entity_type="daily_sheet_snapshot",
+                entity_id=day.isoformat(),
+                idempotency_key="test-untrusted-historical-code",
+                status="failed",
+                last_error_code="Bearer SECRET marker from provider",
+                last_error_message="private cell payload",
+            ))
+        outcome = queue.recent_replay_results(frozenset({"tenant-a"}))[0]
+        assert outcome["status"] == "review_required"
+        assert outcome["promoted"] is False
+        assert outcome["result_status"] == "unstructured_error"
+        assert outcome["verification_status"] == "unstructured_error"
+        assert outcome["error_code"] == "unstructured_error"
+        assert "SECRET" not in str(outcome)
+        failures = queue.recent_failure_reasons(frozenset({"tenant-a"}))
+        assert failures[0]["error_code"] == "unstructured_error"
+        assert failures[0]["reason"] == "unstructured_error"
+        assert "SECRET" not in str(failures)
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
 def test_v2_automatically_retries_once_after_unknown_tool_safety_failure():
     tmp, engine, sessions = _sessions()
     try:

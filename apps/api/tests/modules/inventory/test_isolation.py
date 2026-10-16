@@ -26,6 +26,7 @@ from app.modules.inventory.jobs.repository import InventoryJobRepository
 from app.modules.inventory.model import InventoryProcessingControlModel
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.realistic_review_ugc.model import RrugcStage4QueueControlModel
 from app.modules.processing_policy.model import (
     TenantProcessingPolicyModel,
     TenantProviderPolicyModel,
@@ -49,6 +50,9 @@ class InventoryIsolationTest(unittest.TestCase):
         TenantProcessingPolicyModel.__table__.create(self.engine)
         TenantProviderPolicyModel.__table__.create(self.engine)
         AiRuntimeControlModel.__table__.create(self.engine)
+        # Creative claim's priority policy consults this shared Stage 4 control.
+        # The isolated SQLite fixture must provide the same read-only table.
+        RrugcStage4QueueControlModel.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions() as session:
             session.add(TenantModel(id="tenant-a", name="Tenant A", slug="tenant-a"))

@@ -41,6 +41,12 @@ AUTO_RETRYABLE_ERRORS = frozenset({
 logger = logging.getLogger("cam.inventory.historical_replay_queue")
 
 
+def _safe_diagnostic_code(value: Any, *, fallback: str = "unstructured_error") -> str:
+    """Never print provider/error text or arbitrary job payloads in operator logs."""
+    code = str(value or "none")
+    return code if re.fullmatch(r"[a-z][a-z0-9_]{2,99}", code) else fallback
+
+
 class HistoricalReplayQueue:
     def __init__(
         self,
@@ -63,7 +69,7 @@ class HistoricalReplayQueue:
         """Do not present legacy unverified promotion replays as successful."""
         payload = job.payload_json if isinstance(job.payload_json, dict) else {}
         result = payload.get("result")
-        if job.status == "completed" and bool(payload.get("promote", True)):
+        if job.status == "completed" and payload.get("promote", True) is not False:
             if not isinstance(result, dict) or not (
                 result.get("status") == "completed"
                 and result.get("verification_status") == "verified"
@@ -81,7 +87,7 @@ class HistoricalReplayQueue:
             "status": HistoricalReplayQueue._effective_status(job),
             "stored_status": job.status,
             "mode": payload.get("mode", "fresh_copy"),
-            "promote": bool(payload.get("promote", True)),
+            "promote": payload.get("promote", True) is not False,
             "attempt_count": job.attempt_count,
             "max_attempts": job.max_attempts,
             "next_attempt_at": job.next_attempt_at.isoformat() if job.next_attempt_at else None,
@@ -330,10 +336,7 @@ class HistoricalReplayQueue:
         if allowed_tenant_ids is not None and not allowed_tenant_ids:
             return [{"business_date": day.isoformat(), "profiles": []} for day in business_dates]
 
-        def safe_code(value: Any) -> str:
-            code = str(value or "none")
-            return code if re.fullmatch(r"[a-z][a-z0-9_]{2,99}", code) else "unstructured_error"
-
+        safe_code = _safe_diagnostic_code
         reports: list[dict[str, Any]] = []
         with self.session_factory() as session:
             query = select(InventorySettingsModel).order_by(InventorySettingsModel.tenant_id)
@@ -432,7 +435,7 @@ class HistoricalReplayQueue:
                 )
                 result.append({
                     "business_date": job.entity_id,
-                    "error_code": str(job.last_error_code or "unknown")[:100],
+                    "error_code": _safe_diagnostic_code(job.last_error_code or "unknown"),
                     "reason": safe_reason,
                 })
             return result
@@ -461,8 +464,8 @@ class HistoricalReplayQueue:
                     "status": self._effective_status(job),
                     "stored_status": job.status,
                     "attempt_count": job.attempt_count,
-                    "result_status": str(result.get("status") or "none")[:35],
-                    "verification_status": str(result.get("verification_status") or "none")[:35],
+                    "result_status": _safe_diagnostic_code(result.get("status")),
+                    "verification_status": _safe_diagnostic_code(result.get("verification_status")),
                     "apply_mode": (
                         result.get("apply_mode") if result.get("apply_mode") in {"auto", "shadow", "review"}
                         else "unknown"
@@ -471,8 +474,8 @@ class HistoricalReplayQueue:
                         code for code in (result.get("review_issue_codes") or [])[:8]
                         if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{2,79}", code)
                     ] if isinstance(result.get("review_issue_codes"), list) else [],
-                    "promoted": bool(result.get("promoted")),
-                    "error_code": str(job.last_error_code or "none")[:100],
+                    "promoted": result.get("promoted") is True,
+                    "error_code": _safe_diagnostic_code(job.last_error_code),
                 })
             return results
 
