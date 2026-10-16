@@ -4,6 +4,7 @@ import { BrandingDnaPage, brandingDnaTabForPath } from "./BrandingDnaPage";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
+import { BrandingDnaShopifyPreview } from "./BrandingDnaShopifyPreview";
 
 describe("Branding DNA worker control plane preview", () => {
   it("maps supported nested routes while rejecting arbitrary tab names", () => {
@@ -44,6 +45,15 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).toContain("Product Explorer · Evidence");
     expect(html).toContain("Đang tải danh sách shop");
     expect(html).toContain("scanner vẫn tắt");
+    expect(html).not.toContain("Start Scan");
+    expect(html).not.toContain("<img");
+  });
+
+  it("offers Shopify CSV dry-run without marking it as a live scanner", () => {
+    const html = renderToStaticMarkup(<BrandingDnaShopifyPreview shopId="sample-shop"/>);
+    expect(html).toContain("Shopify CSV · Kiểm tra nguồn");
+    expect(html).toContain('type="file"');
+    expect(html).toContain("Không quét website");
     expect(html).not.toContain("Start Scan");
     expect(html).not.toContain("<img");
   });

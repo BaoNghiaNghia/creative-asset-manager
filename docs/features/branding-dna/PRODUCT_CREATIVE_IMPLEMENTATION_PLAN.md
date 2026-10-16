@@ -59,6 +59,14 @@
 - Source ingestion still requires separate authorization/policy review. No Playwright installed, no platform adapters, no scanner job dispatch, no pending activation, no real claim/checkpoint HTTP API, and no productive evidence uploads. `/workers/{agent_id}/lease` continues to return `job=null`, `scan_enabled=false`.
 - Windows rollout needs pinned Node.js runtime QA, service permission/storage verification, server-side telemetry retention approval, per-task result outbox, authenticated adapter/policy gating, prod backup/schema check and a rollback drill. This is a code checkpoint, **not production scanner readiness or a production migration claim**.
 
+## Checkpoint BD-01 — Shopify offline CSV Source Preview (partial), 2026-10-16
+
+- Added **read-only Shopify product CSV adapter** `offline_shopify_csv_v1` at `apps/api/app/modules/branding_dna/shopify_csv_adapter.py` and scoped endpoint `POST /api/v1/branding-dna/shops/{shop_id}/source-preview`. No marketplace browser/API access or media download; CSV is parsed in memory, not stored as a snapshot.
+- Source previews accept merchant-supplied Shopify product-export columns `Handle`, `Title`, `Variant SKU`, `Image Src`, `Image Position`, optionally `Type`. Max **2 MB, 1,000 CSV rows, 250 products**; detect malformed headers, SKU/gallery discrepancies and invalid media URLs. Image links are only hashed after exact HTTPS `cdn.shopify.com/s/files/` allowlist; hashes are URL locators, **not media asset hashes**. Preserve actual export gallery positions without inventing missing photos.
+- Product Explorer includes a Shopify CSV file picker and shows preview product/variant/image-reference counts and validation issues. This is **not import into verified listings**. All previews always return `source_identity_verified=false`, `rights_verified=false`, `evidence_committed=false`, `scan_enabled=false`.
+- Etsy/Amazon source adapter and their OAuth/seller-access gates are **not implemented**. A Shopify CSV export does not prove origin or authorization, even for a shop registered as `owned`/`authorized`. No API token is required or accepted, no new task is activated, and `/workers/{agent_id}/lease` remains `job:null`.
+- This step makes no database migration and does not deploy services. Real source verification, signed media evidence with byte hashes, approved platform adapters, eligible pilot shop + browser/security QA, and production safety preflight remain required before enabling scanner functionality.
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts
