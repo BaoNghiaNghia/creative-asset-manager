@@ -8,9 +8,9 @@ Máy Windows dùng sẵn thư mục:
 Sau khi cập nhật checkout lên main và bản build Windows đạt, chạy
 `UPDATE_SCOUT_MANAGER_RELEASE.cmd` ngay tại thư mục `scan_pinterest`.
 Launcher gọi `scripts/install_scout_manager_release.ps1`, tải 2 file:
-`RRUGC_Scout_Manager_0.1.23_x64_Setup.exe`,
-`RRUGC_Scout_Manager_0.1.23_x64_Portable.exe`, và file SHA-256 của đúng
-release `scout-manager-v0.1.23`. Kiểm tra toàn bộ SHA-256 trước khi cài,
+`RRUGC_Scout_Manager_0.1.24_x64_Setup.exe`,
+`RRUGC_Scout_Manager_0.1.24_x64_Portable.exe`, và file SHA-256 của đúng
+release `scout-manager-v0.1.24`. Kiểm tra toàn bộ SHA-256 trước khi cài,
 không ghi đè binary khác hash, không xóa file release cũ, profile hay
 `scout.local.env`. Launch Tauri bằng `START_SCOUT_TAURI.cmd` sau khi copy.
 
@@ -18,7 +18,33 @@ Các binary do workflow GitHub Actions Windows build và xuất bản qua GitHub
 Releases **sau khi tất cả quality gates đạt**. Máy Windows offline sẽ không tự
 nhận file; thao tác tải trong CMD phải chạy ở máy đó khi có kết nối.
 
-## Integrated Branding DNA Browser Agent — Manager v0.1.23
+## Branding DNA shop configuration in the Tauri UI (v0.1.24)
+
+The Branding DNA card now includes a native in-app shop editor. Operators set
+**Platform (Amazon/Etsy), exact storefront URL, 1–5 preview product pages and
+visible/headless Chromium**, then click **Save shop**. The Rust backend validates
+the marketplace host/path before writing a machine-local, Git-ignored JSON
+config. Each distinct shop gets a stable separate Chromium profile and a
+default-deny approval-document path under
+`%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA`; reports stay local.
+Existing approval/profile/report paths are retained when editing settings
+for the same shop.
+
+**Edit approval** opens a default-deny document in Notepad. It does not mark
+any rights reviewed or authorize scanning. Etsy requires actual written
+authorization and Amazon an applicable Agent Policy/rights review. Run pilot
+is unavailable until the document exists; Node additionally validates its
+contents/age at launch. These are self-reported operator approvals, **not
+independently verified permission**. The UI never starts the pilot on save,
+never sends marketplace data to any third-party scraping API, and never
+shares Pinterest profiles. Advanced JSON remains for existing custom setups.
+
+Native Windows Rust regression tests cover storefront URL restrictions,
+per-shop profile separation, stable re-edits and preservation of approvals.
+A real permissioned storefront test on the specific Windows machine remains
+outstanding.
+
+## Integrated Branding DNA Browser Agent — Manager v0.1.24
 
 **One checkout/tool:** `D:\Bot_Tool_Auto_Game\scan_pinterest` hosts Review,
 Keyword, Cap Stack and **Branding DNA · Browser Agent** in the same Tauri Scout

@@ -10,7 +10,7 @@
 **/.venv-rrugc/
 
 # Branding DNA local Windows browser pilot (private, machine-specific)
-apps/branding-dna-worker/config/pilot.local.json
+apps/branding-dna-worker/config/pilot.local.*
 apps/branding-dna-worker/config/approval.local.json
 apps/branding-dna-worker/reports/
 apps/branding-dna-worker/profiles/

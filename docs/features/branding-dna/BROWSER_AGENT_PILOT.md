@@ -38,7 +38,7 @@ Official policy references (reconfirm at execution time):
 
 ## Windows release location and verified installer
 
-The Scout Manager v0.1.23 Windows CI now publishes a **versioned GitHub Release**
+The Scout Manager v0.1.24 Windows CI now publishes a **versioned GitHub Release**
 with portable and NSIS executables plus SHA256 list after all tests/build
 pass. On the authorized Windows machine, run
 `UPDATE_SCOUT_MANAGER_RELEASE.cmd` from the existing
@@ -48,10 +48,27 @@ pass. On the authorized Windows machine, run
 It preserves all previous versions, profiles, reports and tokens.
 Windows hosts that are offline are not silently modified.
 
+## GUI-based local shop setup (Scout Manager v0.1.24)
+
+In the Branding DNA card, choose Amazon or Etsy, paste the exact storefront
+URL, set the preview size (1–5 product pages) and choose whether Chromium is
+visible. Save creates **only** a local per-shop configuration: approval,
+profiles and reports live under the Windows user's LOCALAPPDATA outside of
+the source checkout. Existing paths for an already configured shop are
+preserved, and changing shop creates a new profile and approval path.
+The Edit approval action creates a **default-deny** file if one is absent.
+The operator must have genuine platform authorization/rights and manually
+document it; presence of a JSON file **does not imply permission**.
+The browser worker verifies the required approval fields at run time.
+
+The "Run automation" global control continues to affect Pinterest scouts only;
+a deliberate click on Run pilot is still required. No live marketplace
+scanning has been verified from the user's Windows PC.
+
 ## Integrated Scout Manager mode (2026-10-16)
 
 Branding DNA Browser Agent is available in the **existing Pinterest Scout
-Manager** (`apps/scout-manager-desktop` v0.1.23) from the same
+Manager** (`apps/scout-manager-desktop` v0.1.24) from the same
 `D:\Bot_Tool_Auto_Game\scan_pinterest` checkout. Buttons: Install runtime,
 Edit shop config, Check, Run pilot, Stop, and Live logs. This does not change
 the three Pinterest modes' global Run automation behavior. Branding DNA

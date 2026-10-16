@@ -14,9 +14,12 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Amazon + Etsy storefronts");
     expect(html).toContain("Run pilot");
     expect(html).toContain("Install runtime");
-    expect(html).toContain("Edit shop config");
-    expect(html).toContain("only when started here");
-    expect(html).toContain("Global Run automation");
+    expect(html).toContain("Advanced JSON");
+    expect(html).toContain("Authorization file missing");
+    expect(html).toContain("dedicated profile per shop");
+    expect(html).toContain("Manual pilot only");
+    expect(html).toContain("Manual pilot only");
+    expect(html).toContain("global Run automation");
     expect(html).toContain("Shared Cap Stack library");
     expect(html).toContain("Stage 0 keywords");
     expect(html).toContain("Agent-Reach · VPS Auto Discover");
