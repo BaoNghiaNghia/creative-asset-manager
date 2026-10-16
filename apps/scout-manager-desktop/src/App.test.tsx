@@ -10,6 +10,13 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Review Scout");
     expect(html).toContain("Keyword Scout");
     expect(html).toContain("Cap Stack Scout");
+    expect(html).toContain("Branding DNA · Browser Agent");
+    expect(html).toContain("Amazon + Etsy storefronts");
+    expect(html).toContain("Run pilot");
+    expect(html).toContain("Install runtime");
+    expect(html).toContain("Edit shop config");
+    expect(html).toContain("only when started here");
+    expect(html).toContain("Global Run automation");
     expect(html).toContain("Shared Cap Stack library");
     expect(html).toContain("Stage 0 keywords");
     expect(html).toContain("Agent-Reach · VPS Auto Discover");
@@ -34,6 +41,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Run automation");
     expect(html).toContain("Live activity");
     expect(html).toContain("Pairing");
+    expect(html).toContain("Branding DNA Agent");
     expect(html).toContain('disabled=""');
   });
   it("does not interpolate Scout tokens or synthetic running PIDs into server markup", () => {

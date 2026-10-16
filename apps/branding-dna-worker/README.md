@@ -1,5 +1,13 @@
 # Branding DNA Windows Worker — Windows Portable v0.2.0
 
+## Recommended: use the existing Scan Pinterest tool
+
+This worker is now **integrated in Scout Manager v0.1.21** using the
+`D:\Bot_Tool_Auto_Game\scan_pinterest` checkout. Do not install a second
+tool. Open `START_SCOUT_TAURI.cmd`, use the Branding DNA card's
+Install/Config/Check/Run/Stop and dedicated Live logs. All Pinterest modes
+remain unaffected. The v0.2.0 ZIP is retained only as a fallback.
+
 ## Release / build mới (Windows)
 
 **Bản Windows Portable Bootstrap v0.2.0**, file được build tại

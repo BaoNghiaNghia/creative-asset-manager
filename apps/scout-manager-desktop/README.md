@@ -1,4 +1,34 @@
-# RRUGC Scout Manager — Tauri v2 / React
+# RRUGC Scout Manager
+
+## Integrated Branding DNA Browser Agent — Manager v0.1.21
+
+**One checkout/tool:** `D:\Bot_Tool_Auto_Game\scan_pinterest` hosts Review,
+Keyword, Cap Stack and **Branding DNA · Browser Agent** in the same Tauri Scout
+Manager. No separate Branding DNA ZIP installation is needed.
+Build/launch via `scripts/build_scout_manager_tauri.ps1` and
+`START_SCOUT_TAURI.cmd`. The Windows CI workflow builds an installer and
+portable EXE, and runs Browser Agent package tests.
+
+Branding DNA has its own Install runtime, Edit shop config, Check,
+Run pilot, Stop and Live logs. It calls the checked-in
+`apps/branding-dna-worker` and uses separate Chromium profiles and reports.
+It never shares Pinterest profiles, Scout pair tokens or Gemini processing.
+
+**Important:** Global `Run automation` and automatic recovery still affect
+Pinterest modes only. Branding DNA does **not auto-launch, auto-retry or claim
+production jobs**. Explicit pilot start requires an exact shop configuration
+and actual platform approval. `Quit and stop` terminates its Windows Job
+Object; source updates wait while a pilot or installer is running.
+`START_SCOUT_BRANDING_DNA.cmd` is a compatibility launcher in the same
+repository for legacy Manager users.
+
+For first use, press Install runtime (Node 22.13+ needed), then Edit shop
+config, Check, and Run pilot only if authorized. The local config is
+Git-ignored and the platform authorization file must stay outside the repo.
+See `docs/features/branding-dna/BROWSER_AGENT_PILOT.md`.
+Real Windows browser QA remains pending.
+
+ — Tauri v2 / React
 
 This is the Windows native successor to PowerShell WinForms Scout Manager. **Do not remove** START_SCOUT_MANAGER.cmd or scripts/start_scout_manager.ps1 during migration.
 

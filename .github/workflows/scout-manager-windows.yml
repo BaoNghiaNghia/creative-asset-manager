@@ -7,6 +7,8 @@ on:
     paths:
       - "apps/scout-manager-desktop/**"
       - "apps/rrugc_scout/**"
+      - "apps/branding-dna-worker/**"
+      - "START_SCOUT_BRANDING_DNA.cmd"
       - "scripts/build_scout_manager_tauri.ps1"
       - ".github/workflows/scout-manager-windows.yml"
 
@@ -37,6 +39,15 @@ jobs:
       - name: React UI regression tests
         working-directory: apps/scout-manager-desktop
         run: npm test
+      - name: Branding DNA browser agent package tests (no live scanning)
+        working-directory: apps/branding-dna-worker
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python scripts/build_windows_release.py --verify ../../releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.0-win-x64.zip
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Rust native regression tests
         shell: pwsh
         run: |

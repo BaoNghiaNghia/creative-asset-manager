@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod branding_pilot;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
@@ -172,6 +173,7 @@ struct Controller {
     repo: PathBuf,
     log_root: PathBuf,
     modes: Mutex<Vec<Scout>>,
+    branding_pilot: Mutex<branding_pilot::BrandPilot>,
     #[cfg(windows)]
     manager_lock: Option<winjob::ManagerLock>,
     update_state: Mutex<String>,
@@ -347,6 +349,7 @@ impl Controller {
             repo,
             log_root,
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
+            branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             #[cfg(windows)]
             manager_lock: winjob::ManagerLock::acquire()?,
             update_state: Mutex::new("Idle - press Run automation".into()),
@@ -649,6 +652,9 @@ impl Controller {
     }
     fn check_update(&self) -> Result<(), String> {
         self.require_manager_lock()?;
+        if self.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?.status(&self.repo).running {
+            return Err("Stop Branding DNA installation/pilot before updating source.".into());
+        }
         if self.shutdown_requested.load(Ordering::SeqCst) {
             return Err("Scout Manager is shutting down.".into());
         }
@@ -750,6 +756,7 @@ impl Controller {
     }
     fn shutdown(&self) {
         self.shutdown_requested.store(true, Ordering::SeqCst);
+        if let Ok(mut brand) = self.branding_pilot.lock() { brand.stop(); }
         self.automation_enabled.store(false, Ordering::SeqCst);
         if let Ok(mut modes) = self.lock_modes() {
             for scout in modes.iter_mut() {
@@ -931,6 +938,45 @@ async fn operations_summary(
 }
 
 #[tauri::command]
+fn branding_pilot_status(state: tauri::State<'_, Arc<Controller>>) -> Result<branding_pilot::BrandPilotStatus,String> {
+    let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
+    Ok(pilot.status(&state.repo))
+}
+#[tauri::command]
+fn branding_pilot_edit_config(state: tauri::State<'_, Arc<Controller>>) -> Result<(),String> {
+    state.require_manager_lock()?;
+    let root=state.repo.join("apps/branding-dna-worker/config");
+    let example=root.join("pilot.example.json");
+    let target=root.join("pilot.local.json");
+    if !example.is_file() {return Err("Branding DNA config example missing. Update Scout source.".into());}
+    if !target.exists(){
+        fs::copy(example,&target).map_err(|_|"Unable to create local Branding DNA config.".to_string())?;
+    }
+    if !target.is_file() || target.symlink_metadata().map_err(|_|"Invalid config file.")?.file_type().is_symlink(){
+        return Err("Branding DNA config must be a regular file.".into());
+    }
+    #[cfg(windows)]
+    {
+        let mut editor=Command::new("notepad.exe");
+        editor.arg(&target);
+        hide_console(&mut editor);
+        editor.spawn().map_err(|_|"Cannot open Notepad for Branding DNA config.".to_string())?;
+    }
+    #[cfg(not(windows))]
+    { let _=target; }
+    Ok(())
+}
+#[tauri::command]
+async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command: String) -> Result<(),String> {
+    let controller=state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.require_manager_lock()?;
+        if controller.updating.load(Ordering::SeqCst) { return Err("Source update in progress.".into()); }
+        let mut pilot=controller.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
+        pilot.action(&controller.repo,&controller.log_root,&command)
+    }).await.map_err(|_|"Branding DNA launcher failed unexpectedly.".to_string())?
+}
+#[tauri::command]
 fn dashboard(state: tauri::State<'_, Arc<Controller>>) -> Dashboard {
     state.dashboard()
 }
@@ -940,8 +986,18 @@ fn log_tail(
     mode: String,
     max_lines: usize,
 ) -> Result<String, String> {
-    if mode != "review" && mode != "keyword" && mode != "cap_stack" {
+    if mode != "review" && mode != "keyword" && mode != "cap_stack" && mode != "branding_dna" {
         return Err("Unknown log source.".into());
+    }
+    if mode == "branding_dna" {
+        let out=file_tail(&log_file(&state.log_root, &mode),max_lines.min(90));
+        let err=file_tail(&state.log_root.join("branding_dna.stderr.log"),max_lines.min(30));
+        return Ok(match (out.is_empty(),err.is_empty()) {
+            (true,true)=>String::new(),
+            (false,true)=>out,
+            (true,false)=>format!("Errors / operator actions:\n{}",err),
+            (false,false)=>format!("{}\n\nErrors / operator actions:\n{}",out,err),
+        });
     }
     Ok(file_tail(
         &log_file(&state.log_root, &mode),
@@ -1145,6 +1201,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dashboard,
+            branding_pilot_status,
+            branding_pilot_action,
+            branding_pilot_edit_config,
             keyword_summary,
             operations_summary,
             log_tail,
@@ -1224,6 +1283,7 @@ mod tests {
             repo: shell_friendly_path(scratch.canonicalize().unwrap()),
             log_root: logs.clone(),
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
+            branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
             updating: AtomicBool::new(false),

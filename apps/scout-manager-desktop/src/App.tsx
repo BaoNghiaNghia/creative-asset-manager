@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { BrandingDnaPilotCard } from "./BrandingDnaPilotCard";
 import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, Copy, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, Settings2, ShieldCheck, Terminal, X } from "lucide-react";
 
 type ModeName = "review" | "keyword" | "cap_stack";
+type LogMode = ModeName | "branding_dna";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type OperationsSummary = {
@@ -144,7 +146,7 @@ function Pairing({ paired, busy, onSave, onClose }: { paired: boolean; busy: boo
 
 export default function App() {
   const [state, setState] = useState<Dashboard>(EMPTY);
-  const [mode, setMode] = useState<ModeName>("review");
+  const [mode, setMode] = useState<LogMode>("review");
   const [logs, setLogs] = useState("");
   const [keywordSummary, setKeywordSummary] = useState<KeywordSummary | null>(null);
   const [keywordError, setKeywordError] = useState<string | null>(null);
@@ -228,7 +230,7 @@ export default function App() {
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword + Cap Stack, with managed recovery.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword + Cap Stack, plus a manual Amazon/Etsy Browser Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
@@ -256,8 +258,9 @@ export default function App() {
       <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={capStack} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
     </section>
+    <BrandingDnaPilotCard nativeAvailable={isNative} controllerAvailable={state.controllerAvailable} managerBusy={busy||state.updating} onSelectLogs={()=>setMode("branding_dna")}/>
     <section className="terminal-panel">
-      <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as ModeName)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option><option value="cap_stack">Cap Stack Scout</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
+      <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as LogMode)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option><option value="cap_stack">Cap Stack Scout</option><option value="branding_dna">Branding DNA Agent</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
       <pre className="log-pre" ref={scrollRef}>{logs || (isNative ? "Waiting for Scout activity…" : "Browser preview — logs appear in the Windows desktop application.")}</pre>
       <div className="terminal-footer"><span><span className="live-dot"/> Monitor refreshes every 2 seconds</span><span>Manager v{state.managerVersion} · Scout {state.version}</span></div>
     </section>

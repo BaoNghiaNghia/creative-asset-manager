@@ -36,6 +36,21 @@ Official policy references (reconfirm at execution time):
 - https://developers.etsy.com/
 - https://sellercentral.amazon.com/help/hub/reference/external/GS83KH2MA7HM69PH
 
+## Integrated Scout Manager mode (2026-10-16)
+
+Branding DNA Browser Agent is available in the **existing Pinterest Scout
+Manager** (`apps/scout-manager-desktop` v0.1.21) from the same
+`D:\Bot_Tool_Auto_Game\scan_pinterest` checkout. Buttons: Install runtime,
+Edit shop config, Check, Run pilot, Stop, and Live logs. This does not change
+the three Pinterest modes' global Run automation behavior. Branding DNA
+remains **manual and local only**, without auto-restart or production result
+upload. Its Chromium profile, reports and logs are isolated.
+
+The Scout Manager Windows CI workflow builds the installer and portable EXE.
+Existing `scout.local.env` and Pinterest profiles must be retained during
+upgrades. A real Windows Chromium integration test and authorized live
+storefront pilot are still pending.
+
 ## Windows Portable release v0.2.0
 
 The repository now publishes a deterministic Windows bootstrap archive:
