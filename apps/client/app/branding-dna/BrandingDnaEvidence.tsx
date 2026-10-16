@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./BrandingDnaEvidence.css";
 import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
+import { BrandingDnaHandoffReview } from "./BrandingDnaHandoffReview";
 
 type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
@@ -95,7 +96,7 @@ export function BrandingDnaEvidence() {
   return <section className="bdna-evidence" aria-label="Product listing evidence">
     <header className="bdna-evidence-header">
       <div><h3>Product Explorer · Evidence</h3>
-        <p>Amazon/Etsy ưu tiên Browser Agent. Quan sát sản phẩm cần kiểm chứng; scanner production vẫn tắt.</p></div>
+        <p>Amazon/Etsy ưu tiên Browser Agent. Quan sát sản phẩm cần kiểm chứng; scanner vẫn tắt trên production.</p></div>
       <label>Shop
         <select aria-label="Chọn shop" value={shopId} onChange={e => {setShopId(e.target.value); setPage(0);}}>
           {!shopId && <option value="">Chọn shop</option>}
@@ -106,6 +107,7 @@ export function BrandingDnaEvidence() {
     {error && <p className="bdna-evidence-error" role="alert">{error}</p>}
     {(shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") &&
       <BrandingDnaBrowserPlan key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)?.platform as "amazon" | "etsy"}/>}
+    {shopId && (shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") && <BrandingDnaHandoffReview key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)!.platform} accessMode={shops.find(shop => shop.id === shopId)!.access_mode}/>}
     {loading ? <p className="bdna-evidence-empty" role="status">Đang tải danh sách shop…</p> :
       !shopId ? <p className="bdna-evidence-empty">Chưa có shop được đăng ký. Hãy thêm shop trong Shop Library.</p> :
       listLoading ? <p className="bdna-evidence-empty" role="status">Đang tải bằng chứng…</p> :

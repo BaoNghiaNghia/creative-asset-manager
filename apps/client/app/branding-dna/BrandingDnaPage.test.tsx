@@ -5,6 +5,7 @@ import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
+import { BrandingDnaHandoffReview } from "./BrandingDnaHandoffReview";
 
 describe("Branding DNA worker control plane preview", () => {
   it("maps supported nested routes while rejecting arbitrary tab names", () => {
@@ -58,6 +59,16 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).not.toContain('type="file"');
     expect(html).not.toContain("Start Scan");
     expect(html).not.toContain("<img");
+  });
+
+  it("renders tenant-bound handoff staging without any auto-approval or scan action", () => {
+    const html = renderToStaticMarkup(<BrandingDnaHandoffReview shopId="shop-1" platform="etsy" accessMode="authorized" />);
+    expect(html).toContain("Handoff · Kiểm chứng nguồn");
+    expect(html).toContain('type="file"');
+    expect(html).toContain("Stage");
+    expect(html).toContain("Verification Queue");
+    expect(html).not.toContain("Verified</button>");
+    expect(html).not.toContain("Start Scan");
   });
 
   it("shows full worker enrollment only on the Browser Scanner stage", () => {
