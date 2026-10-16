@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { routeForPath } from "../AppRoute";
 import { inventoryApi, inventoryMaterialApi } from "./api";
-import { InventoryApp, formatInventoryMaterialDate, inventoryMaterialDraftReady } from "./InventoryApp";
+import { InventoryApp, formatInventoryMaterialDate, inventoryMaterialDraftReady, inventoryReadinessBlockerLabel, loadInventoryMaterialWorkspace } from "./InventoryApp";
 
 describe("Inventory routes and API boundary", () => {
   it("renders Inventory navigation as embedded modal content without the standalone header", () => {
@@ -52,6 +52,38 @@ describe("Inventory routes and API boundary", () => {
     expect(markup).toContain("Hàng đợi xem xét");
     expect(markup).toContain("Tìm theo tên, nhóm hoặc mã");
     expect(markup).not.toContain("Canonical materials");
+  });
+  it("retains materials when only readiness fails and never claims carry-forward is safe", async () => {
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/readiness")
+      ? { ok: false, status: 503, json: async () => ({detail:{code:"temporary_inventory_readiness_failure"}}) }
+      : { ok: true, json: async () => ({items: url.endsWith("/candidates") ? [{id:"pending"}] : [{material_id:"cotton"}]}) });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const state = await loadInventoryMaterialWorkspace();
+      expect(state.items).toEqual([{material_id:"cotton"}]);
+      expect(state.candidates).toEqual([{id:"pending"}]);
+      expect(state.readiness).toBeNull();
+      expect(state.readinessFailed).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it("does not hide failures for required materials or candidate data", async () => {
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/materials")
+      ? {ok:false,status:403,json:async()=>({detail:{code:"forbidden"}})}
+      : {ok:true,json:async()=>({items:[]})});
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(loadInventoryMaterialWorkspace()).rejects.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it("labels readiness blockers without disguising unknown codes as missing materials", () => {
+    expect(inventoryReadinessBlockerLabel("missing_material_registry")).toBe("Chưa có danh mục vật tư chuẩn");
+    expect(inventoryReadinessBlockerLabel("missing_warehouse_registry")).toBe("Chưa xác nhận danh mục kho");
+    expect(inventoryReadinessBlockerLabel("unresolved_material_candidates")).toBe("Có vật tư đang chờ duyệt");
+    expect(inventoryReadinessBlockerLabel("new_provider_check")).toBe("Có điều kiện đối soát chưa được xác minh");
   });
   it("formats material timestamps for Vietnamese users", () => {
     expect(formatInventoryMaterialDate(null)).toBe("Chưa có dữ liệu");

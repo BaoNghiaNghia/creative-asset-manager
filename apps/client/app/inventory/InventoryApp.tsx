@@ -20,10 +20,23 @@ export function formatInventoryMaterialDate(value:string|null){if(!value)return 
 type InventoryMaterialDraft={canonicalDimension:string;preferredUnit:string};
 const INVENTORY_DIMENSION_DEFAULT_UNITS:Record<string,string>={mass:"g",volume:"ml",count:"count"};
 export function inventoryMaterialDraftReady(draft:InventoryMaterialDraft|undefined){return Boolean(draft?.canonicalDimension&&draft.preferredUnit.trim())}
+export function inventoryReadinessBlockerLabel(code:string){
+  return code==="missing_material_registry"?"Chưa có danh mục vật tư chuẩn":
+    code==="missing_warehouse_registry"?"Chưa xác nhận danh mục kho":
+    code==="unresolved_material_candidates"?"Có vật tư đang chờ duyệt":
+    "Có điều kiện đối soát chưa được xác minh";
+}
+export async function loadInventoryMaterialWorkspace(){
+  const [materials,pending,registry]=await Promise.all([
+    inventoryMaterialApi.list(),inventoryMaterialApi.candidates(),
+    inventoryMaterialApi.readiness().then(data=>({data,failed:false}),()=>({data:null,failed:true})),
+  ]);
+  return {items:materials.items,candidates:pending.items,readiness:registry.data,readinessFailed:registry.failed};
+}
 export function MaterialsPage(){
-  const [readiness,setReadiness]=useState<InventoryRegistryReadiness|null>(null),[warehouseCode,setWarehouseCode]=useState(""),[warehouseName,setWarehouseName]=useState("");
+  const [readiness,setReadiness]=useState<InventoryRegistryReadiness|null>(null),[readinessFailed,setReadinessFailed]=useState(false),[warehouseCode,setWarehouseCode]=useState(""),[warehouseName,setWarehouseName]=useState("");
   const [items,setItems]=useState<InventoryMaterial[]>([]),[candidates,setCandidates]=useState<InventoryMaterialCandidate[]>([]),[error,setError]=useState(""),[loading,setLoading]=useState(true),[busyId,setBusyId]=useState<string|null>(null),[query,setQuery]=useState(""),[candidateMappings,setCandidateMappings]=useState<Record<string,string>>({}),[batchMappings,setBatchMappings]=useState<Record<string,string>>({}),[candidateDefinitions,setCandidateDefinitions]=useState<Record<string,InventoryMaterialDraft>>({});
-  const load=async()=>{setError("");try{const [materials,pending,registry]=await Promise.all([inventoryMaterialApi.list(),inventoryMaterialApi.candidates(),inventoryMaterialApi.readiness()]);setItems(materials.items);setCandidates(pending.items);setReadiness(registry)}catch(e){setError(e instanceof Error?e.message:"Không thể tải danh mục vật tư")}finally{setLoading(false)}};
+  const load=async()=>{setError("");try{const workspace=await loadInventoryMaterialWorkspace();setItems(workspace.items);setCandidates(workspace.candidates);setReadiness(workspace.readiness);setReadinessFailed(workspace.readinessFailed)}catch(e){setError(e instanceof Error?e.message:"Không thể tải danh mục vật tư")}finally{setLoading(false)}};
   useEffect(()=>{void load()},[]);
   useEffect(()=>{setCandidateDefinitions(current=>{let changed=false;const next={...current};for(const candidate of candidates){const evidence=candidate.review_evidence;if(next[candidate.id]||!evidence?.suggested_preferred_unit||!evidence.suggested_canonical_dimension)continue;next[candidate.id]={canonicalDimension:evidence.suggested_canonical_dimension,preferredUnit:evidence.suggested_preferred_unit};changed=true}return changed?next:current})},[candidates]);
   const perform=async(id:string,operation:()=>Promise<unknown>)=>{setBusyId(id);setError("");try{await operation();await load()}catch(e){setError(e instanceof Error?e.message:"Không thể cập nhật vật tư")}finally{setBusyId(null)}};
@@ -72,6 +85,7 @@ export function MaterialsPage(){
   return <section className="inventory-materials inventory-materials-redesign">
     <div className="inventory-materials-hero"><div><p className="inventory-kicker">DANH MỤC INVENTORY</p><h2>Nguyên vật liệu</h2><p>Quản lý tên chuẩn, tên gọi khác và dữ liệu nhận diện từ workbook kiểm kho.</p></div><span>{items.length} vật tư</span></div>
     <div className="inventory-material-summary" aria-label="Tóm tắt danh mục vật tư"><article><span>Đang hoạt động</span><strong>{items.filter(item=>item.active).length}</strong><small>Vật tư được phép đối soát</small></article><article><span>Tên gọi khác</span><strong>{aliasCount}</strong><small>Alias đã được xác nhận</small></article><article><span>Cần xem xét</span><strong>{candidates.length}</strong><small>Vật tư mới hoặc có thể đổi tên</small></article></div>
+    {readinessFailed ? <p className="inventory-warning" role="status">Chưa kiểm tra được điều kiện ghi Inventory Daily. Danh sách vật tư vẫn có thể xem; không được coi là đã sẵn sàng đối soát. <button type="button" onClick={()=>void load()}>Thử lại</button></p>:null}
     {readiness ? <section className="inventory-registry-readiness" aria-label="Trạng thái sẵn sàng đối soát">
       <h3>Điều kiện ghi Inventory Daily</h3>
       <p role="status">{readiness.ready_for_carry_forward?"Danh mục sẵn sàng kiểm tra kế hoạch chuyển tồn.":"Chưa đủ điều kiện ghi tự động: cần xác nhận danh mục."}</p>
@@ -79,7 +93,7 @@ export function MaterialsPage(){
         <article><span>Kho hợp lệ</span><strong>{readiness.active_warehouses}</strong><small>Phải có kho được xác nhận</small></article>
         <article><span>Tên vật tư chưa duyệt</span><strong>{readiness.distinct_candidate_names}</strong><small>{readiness.pending_candidates} dòng · {readiness.duplicate_candidate_rows} dòng trùng tên</small></article>
       </div>
-      {readiness.blockers.length>0 ? <p className="inventory-warning">{readiness.blockers.map(code=>code==="missing_warehouse_registry"?"Thiếu danh mục kho":code==="unresolved_material_candidates"?"Có vật tư chưa duyệt":"Thiếu vật tư chuẩn").join(" · ")}</p>:null}
+      {readiness.blockers.length>0 ? <p className="inventory-warning">{readiness.blockers.map(inventoryReadinessBlockerLabel).join(" · ")}</p>:null}
       <div className="inventory-warehouse-editor">
         <h4>Danh mục kho (xác nhận thủ công)</h4>
         {readiness.warehouses.map(location=><span key={location.id}>{location.name} ({location.code}) · </span>)}
