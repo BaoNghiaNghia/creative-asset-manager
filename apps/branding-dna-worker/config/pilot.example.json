@@ -1,0 +1,10 @@
+{
+  "platform": "amazon",
+  "shop_url": "https://www.amazon.com/stores/ExampleCaps/page/EXAMPLE",
+  "approval_file": "C:\\CAM\\BrandingDNA\\secrets\\approval.json",
+  "profile_dir": "C:\\CAM\\BrandingDNA\\profiles\\example-shop",
+  "report_dir": "C:\\CAM\\BrandingDNA\\reports",
+  "max_products": 3,
+  "minimum_delay_ms": 5000,
+  "headless": false
+}

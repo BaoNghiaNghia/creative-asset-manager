@@ -1,0 +1,13 @@
+{
+  "platform": "amazon",
+  "shop_url": "https://www.amazon.com/stores/ExampleCaps/page/EXAMPLE",
+  "browser_access_approved": false,
+  "source_rights_reviewed": false,
+  "platform_terms_reviewed": false,
+  "robots_policy_reviewed": false,
+  "approved_by": "",
+  "approved_at": "",
+  "amazon_agent_policy_reviewed": false,
+  "etsy_written_authorization": false,
+  "etsy_authorization_reference": ""
+}

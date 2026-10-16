@@ -82,6 +82,20 @@
 - Platform-specific gates: Amazon requires Agent Policy review and identifying User-Agent; Etsy requires express **written** permission plus an audit reference. CAPTCHA/login/rate limits cause a stop/operator review, never bypass. **No user authorization or platform rights have been verified by committing the code.**
 - Added tenant-scoped `GET /api/v1/branding-dna/shops/{shop_id}/browser-plan`, with steps and blockers. It never activates scans. `/workers/{agent_id}/lease` remains `job:null` / `scan_enabled:false`, no productive evidence promotion. Unit tests use mock browser; authorized Windows Chromium Browser QA and live-source pilot are still pending. See [Browser Agent Pilot](./BROWSER_AGENT_PILOT.md).
 
+## Checkpoint BD-01 — Windows Portable v0.2.0 packaging
+
+- Added one-click Windows `INSTALL_TOOL.cmd`, `CHECK_TOOL.cmd`,
+  `START_BROWSER_PILOT.cmd`, separate manual-config launcher, sample config
+  and default-deny approval template. Includes version-pinned Playwright,
+  local browser readiness check and isolated profile/report paths.
+- Built reproducible artifact `releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.0-win-x64.zip`
+  and `.zip.sha256`; source-restricted archive manifest hashes every file,
+  excludes tokens and real user profiles, and supports checksum verification.
+- Regression covers manual config validation, policy approval fail-closed,
+  distinct local JSON reports without overwrite, tamper/reproducibility QA,
+  and extracted archive smoke. No production database migrations or
+  automatic browser scans. Windows host validation remains outstanding.
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts

@@ -36,6 +36,24 @@ Official policy references (reconfirm at execution time):
 - https://developers.etsy.com/
 - https://sellercentral.amazon.com/help/hub/reference/external/GS83KH2MA7HM69PH
 
+## Windows Portable release v0.2.0
+
+The repository now publishes a deterministic Windows bootstrap archive:
+`releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.0-win-x64.zip`.
+This is **not a bundled native EXE**. It contains the source, pinned lockfile,
+CMD launchers, default-deny example configs, QA tests and this guide.
+Install official Node.js 22.13+ first, then run `INSTALL_TOOL.cmd` to
+download Playwright's Chromium to the dedicated local app-data directory.
+`CHECK_TOOL.cmd` is an offline readiness check; `START_BROWSER_PILOT.cmd`
+runs only an expressly approved shop from `config/pilot.local.json`.
+The installer preserves an existing `pilot.local.json`, and user credentials,
+cookie profiles, real approval files and reports must remain outside the ZIP
+and repo. `QUICK_START_VI.txt` has concise Vietnamese setup instructions.
+
+Linux release QA has exercised `npm ci` and all Node unit tests from a
+freshly extracted ZIP. **Windows CMD/Chromium and real storefront operation
+have not been verified on the target Windows machine yet.**
+
 ## Worker package
 
 `apps/branding-dna-worker/` is the only browser pilot runtime. It uses pinned

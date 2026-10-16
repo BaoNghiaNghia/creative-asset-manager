@@ -1,3 +1,36 @@
+# Branding DNA Windows Worker — Windows Portable v0.2.0
+
+## Release / build mới (Windows)
+
+**Bản Windows Portable Bootstrap v0.2.0**, file được build tại
+`releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.0-win-x64.zip`. Đây là
+gói cài + launcher `.cmd`, **không phải EXE đã kèm Node/Chromium**. Đọc
+`QUICK_START_VI.txt` trong ZIP trước khi cài. GitHub main chứa archive cùng
+file `.zip.sha256` để kiểm tra toàn vẹn.
+
+- Giải nén ZIP vào thư mục Windows riêng; không trộn với Pinterest Scout.
+- Cài **Node.js 22.13+**, chạy `INSTALL_TOOL.cmd` (lần đầu tải đúng
+  Playwright 1.56.1 và Chromium, kiểm tra runtime). Đây là hoạt động cài
+  phần mềm, không truy cập marketplace hoặc kích hoạt scan.
+- Sửa file `config/pilot.local.json` từ bản mẫu; chỉ chứa shop URL, nền tảng,
+  đường dẫn *tuyệt đối* tới file quyền riêng, profile và reports ở **bên ngoài**
+  thư mục tool. `config/approval.example.json` chỉ là mẫu tất cả các quyền
+  đều tắt, tuyệt đối không nhầm với giấy phép của Etsy/Amazon.
+- `CHECK_TOOL.cmd` kiểm tra máy, không duyệt web; `START_BROWSER_PILOT.cmd`
+  chỉ chạy sau khi xác minh đủ điều kiện đúng shop, bản phê duyệt còn hiệu lực.
+  Mỗi job pilot tối đa 5 trang sản phẩm, dừng khi có CAPTCHA/login/block.
+- `START_BRANDING_DNA_WORKER.cmd` giữ nguyên chế độ **heartbeat only**. Không
+  có phát job production hay kết nối API của Etsy/Amazon.
+- Nâng cấp: giải nén bản mới trong thư mục riêng. Đừng xóa profile, reports,
+  quyền và cấu hình cũ; sao chép cấu hình cần thiết thủ công, không copy token
+  hoặc file quyền vào Git/release.
+
+Build reproducible từ Linux/Windows có Python 3:
+`python3 apps/branding-dna-worker/scripts/build_windows_release.py`.
+Lệnh tự verify SHA-256 từng member. Có thể kiểm lại bằng `--verify ZIP_PATH`.
+Bản đóng gói từ Linux cần thêm **Browser QA thực tế trên Windows** trước khi
+coi là bản chạy production.
+
 # Branding DNA Windows Worker — Heartbeat + manual Browser Pilot
 
 The default process sends signed **heartbeats and restricted lifecycle telemetry** with a durable SQLite outbox. A separate **manual local browser pilot** can navigate an individually approved Amazon/Etsy shop with Chromium/Playwright. `npm start` does not run it. Production scanner dispatch remains disabled; the pilot does not upload evidence to CAM.

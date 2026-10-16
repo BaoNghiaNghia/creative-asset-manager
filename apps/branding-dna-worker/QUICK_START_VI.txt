@@ -1,0 +1,28 @@
+BRANDING DNA BROWSER AGENT - WINDOWS v0.2.0
+==========================================
+Type: Windows portable bootstrap ZIP, not a standalone EXE.
+Sites: Amazon and Etsy only. Uses Chromium browser, no marketplace API
+or third-party scraping service.
+
+1. Extract ZIP to an isolated directory, e.g. D:\CAM\BrandingDNA-BrowserAgent.
+2. Install official Node.js 22.13+ (includes npm) if not already installed.
+3. Double-click INSTALL_TOOL.cmd once. It downloads pinned Playwright
+   dependencies and Chromium. Does not run any shop scan.
+4. Edit config\pilot.local.json. Set exact shop URL, platform, profile,
+   report directory and an ABSOLUTE approval_file path outside the tool.
+5. The approval file must reflect actual permission and source rights review.
+   Etsy automation requires express written authorization from Etsy.
+   Keep approvals, profiles, cookies and reports outside the tool directory.
+6. Double-click CHECK_TOOL.cmd to validate local Node/Chromium readiness.
+7. Only for an explicitly approved shop: double-click START_BROWSER_PILOT.cmd.
+   Pilot browses up to 5 public product pages, saves a local JSON result.
+8. START_BRANDING_DNA_WORKER.cmd is heartbeat-only. It never starts scanning.
+
+If a site requests CAPTCHA, login or denies access, stop and review manually.
+Do not work around challenges or rate limits. No production job dispatch,
+gallery upload, Best Seller inference or automatic full-shop crawling yet.
+
+Release checksum: see .zip.sha256 adjacent to ZIP. To verify on Windows:
+  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.0-win-x64.zip" SHA256
+
+More details: README.md and docs\BROWSER_AGENT_PILOT.md
