@@ -36,6 +36,18 @@ Official policy references (reconfirm at execution time):
 - https://developers.etsy.com/
 - https://sellercentral.amazon.com/help/hub/reference/external/GS83KH2MA7HM69PH
 
+## Windows release location and verified installer
+
+The Scout Manager v0.1.21 Windows CI now publishes a **versioned GitHub Release**
+with portable and NSIS executables plus SHA256 list after all tests/build
+pass. On the authorized Windows machine, run
+`UPDATE_SCOUT_MANAGER_RELEASE.cmd` from the existing
+`D:\Bot_Tool_Auto_Game\scan_pinterest` checkout. The download script is
+`scripts/install_scout_manager_release.ps1`, and it saves release files in
+`scout-manager-releases` with per-file SHA-256 checking before any copy.
+It preserves all previous versions, profiles, reports and tokens.
+Windows hosts that are offline are not silently modified.
+
 ## Integrated Scout Manager mode (2026-10-16)
 
 Branding DNA Browser Agent is available in the **existing Pinterest Scout
