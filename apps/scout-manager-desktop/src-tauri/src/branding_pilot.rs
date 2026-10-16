@@ -350,8 +350,10 @@ impl BrandPilot {
 mod tests{
     use super::*;
     fn fake_root()->PathBuf{
-        let root=std::env::temp_dir().join(format!("brand-pilot-config-test-{}-{}",
-            std::process::id(),std::thread::current().name().unwrap_or("thread")));
+        let nonce=std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root=std::env::temp_dir().join(format!("brand-pilot-config-test-{}-{nonce}",
+            std::process::id()));
         let _=fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("repo/apps/branding-dna-worker/config")).unwrap();
         fs::create_dir_all(root.join("local")).unwrap();
