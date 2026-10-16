@@ -314,7 +314,22 @@ The API enforces 1–8 distinct canonical dates, scopes the query to the
 authenticated tenant and rejects malformed inputs (HTTP 422). No Inventory
 Control/write permission, historical job creation or Gemini call is needed.
 This route is included in source releases; it is not available on older
-production builds until they are safely deployed. The extra
+production builds until they are safely deployed.
+
+**Operator UI, read-only (16 October):** In Inventory → Tiến trình,
+select a dated row and expand "Bằng chứng trạng thái DB (chỉ đọc)" in
+the details drawer. The default query includes the selected day and its
+preceding day; operators may input up to eight distinct ISO dates to inspect
+older backlog such as 2026-10-08 and 2026-10-13. The panel calls only the
+GET endpoint above, distinguishes verified Closing from promoted replay,
+and displays persisted Morning Reset state. It makes no mutations and does
+not treat DB status as independent Google Sheets readback. HTTP 404 means
+the endpoint is not deployed on the active backend yet; a UI build alone
+does not expose an unavailable backend route. Functional tests, read-only
+request tests and six-viewport Inventory Daily visual QA must pass before
+release.
+
+The extra
 `INVENTORY_DATE_INSPECTION` JSON line reads persisted snapshots, Evening
 slots, replay requests, configured `agent.apply_mode`, verification flags and
 the selected day's Morning Reset/carry-forward status. It returns neither

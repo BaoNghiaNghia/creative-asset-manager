@@ -16,6 +16,21 @@
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
+.inventory-incident-inspection { margin: 12px 14px; }
+.inventory-incident-body { display: grid; gap: 10px; margin-top: 10px; padding: 12px; background: #f8fbff; border: 1px solid #dfe7f1; border-radius: 8px; color: #34465e; font-size: 12px; }
+.inventory-incident-body p { margin: 0; line-height: 1.5; }
+.inventory-incident-body label { display: grid; gap: 5px; min-width: 0; font-weight: 650; }
+.inventory-incident-body input { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; border: 1px solid #cbd8e8; border-radius: 7px; background: #fff; color: #253951; }
+.inventory-incident-body > button { justify-self: start; padding: 8px 12px; border: 1px solid #3159b8; border-radius: 7px; background: #3159b8; color: #fff; font-weight: 700; cursor: pointer; }
+.inventory-incident-body > button:disabled { opacity: .55; cursor: wait; }
+.inventory-incident-date { display: grid; gap: 8px; min-width: 0; border: 1px solid #e0e7f0; border-radius: 8px; background: #fff; padding: 10px; }
+.inventory-incident-date h4 { margin: 0; }
+.inventory-incident-date dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; }
+.inventory-incident-date dl > div { display: grid; gap: 3px; min-width: 0; }
+.inventory-incident-date dt { color: #75859a; font-size: 10px; }
+.inventory-incident-date dd { margin: 0; overflow-wrap: anywhere; }
+.inventory-incident-warning { padding: 7px; border-radius: 6px; color: #865d19; background: #fff6e3; }
+@media (max-width: 600px) { .inventory-incident-date dl { grid-template-columns: 1fr; } .inventory-incident-inspection { margin: 10px; } }
 @media (max-width: 768px) {
   .inventory-daily-health-inline {
     padding: 10px;

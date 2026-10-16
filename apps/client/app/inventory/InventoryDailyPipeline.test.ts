@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { InventoryApiError, type InventoryHistoricalReplayResult } from "./api";
-import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery } from "./InventoryDailyPipeline";
+import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult } from "./api";
+import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -16,6 +16,33 @@ const replayResult: InventoryHistoricalReplayResult = {
   plan_hash: "plan",
   writes: 3,
 };
+
+describe("Inventory incident evidence viewer", () => {
+  it("accepts only 1–8 distinct real ISO dates and preserves requested order", () => {
+    expect(parseInventoryDiagnosticDates("2026-10-08, 2026-10-13,2026-10-15")).toEqual([
+      "2026-10-08", "2026-10-13", "2026-10-15",
+    ]);
+    for (const text of [
+      "", "2026-10-08,", "2026-02-30", "2026-10-08,2026-10-08",
+      "2026-10-08,random", "08/10/2026",
+      Array.from({length: 9}, (_,i)=>`2026-10-${String(i+1).padStart(2,"0")}`).join(","),
+    ]) expect(() => parseInventoryDiagnosticDates(text)).toThrow();
+  });
+  it("uses the tenant-authenticated read-only endpoint without posting or copying Sheets", async () => {
+    const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({items:[{business_date:"2026-10-08",profiles:[]}]})});
+    vi.stubGlobal("fetch",fetcher);
+    try{
+      const result=await inventoryLifecycleApi.inspectHistoricalDates(["2026-10-08","2026-10-13"]);
+      expect(result.items[0].business_date).toBe("2026-10-08");
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher.mock.calls[0][0]).toBe(
+        "/api/inventory/daily-sheet/gemini/replay/diagnostics?dates=2026-10-08%2C2026-10-13"
+      );
+      expect(fetcher.mock.calls[0][1].method).toBeUndefined();
+      expect(fetcher.mock.calls[0][1].credentials).toBe("include");
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
 
 describe("Inventory Morning Reset manual recovery routing", () => {
   it("routes recoverable post-window carry-forward failures to manual recovery", () => {

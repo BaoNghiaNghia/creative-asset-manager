@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { AiOperationsActionIcon } from "../ai-operations/AiOperationsActionIcon";
 import "./InventoryDailyHealth.css";
-import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryMorningResetRecoveryPreview, type InventoryStageDetail } from "./api";
+import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult, type InventoryLifecycleHistoryItem, type InventoryLifecycleStage, type InventoryLifecycleStageStatus, type InventoryMorningResetRecoveryPreview, type InventoryStageDetail, type InventoryDateInspection } from "./api";
 
 const labels: Record<string, string> = { morning_reset: "Reset đầu ngày", afternoon_snapshot: "Đang snapshot", evening_reconcile: "Đang đối soát", verified: "Cần xác minh", completed: "Hoàn tất" };
 const symbols: Record<InventoryLifecycleStageStatus, string> = { pending: "○", scheduled: "◌", running: "●", completed: "✓", blocked: "!", review_required: "!", failed: "×", stale: "×" };
@@ -28,6 +28,66 @@ export async function retryFreshHistoricalReplay(
     }
   }
   throw lastError;
+}
+
+export function parseInventoryDiagnosticDates(value:string):string[]{
+  const values=value.split(",").map(day=>day.trim());
+  if(values.length<1||values.length>8||new Set(values).size!==values.length)throw new Error("Chỉ chọn 1–8 ngày không trùng nhau.");
+  for(const day of values){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||Number.isNaN(Date.parse(day+"T00:00:00.000Z"))||
+      new Date(day+"T00:00:00.000Z").toISOString().slice(0,10)!==day){
+      throw new Error("Ngày phải đúng định dạng YYYY-MM-DD.");
+    }
+  }
+  return values;
+}
+function InventoryIncidentInspection({businessDate}:{businessDate:string}){
+  const [expanded,setExpanded]=useState(false);
+  const [dateInput,setDateInput]=useState(()=>previousInventoryBusinessDate(businessDate)+","+businessDate);
+  const [reports,setReports]=useState<InventoryDateInspection[]|null>(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const inspect=async()=>{
+    setLoading(true);setError("");setReports(null);
+    try{const dates=parseInventoryDiagnosticDates(dateInput);
+      const response=await inventoryLifecycleApi.inspectHistoricalDates(dates);
+      setReports(response.items);
+    }catch(cause){
+      setError(cause instanceof InventoryApiError&&cause.status===404
+        ?"API chẩn đoán chưa được phát hành lên production."
+        :cause instanceof Error?cause.message:"Không đọc được trạng thái lịch sử.");
+    }finally{setLoading(false)}
+  };
+  return <section className="inventory-audit-disclosure inventory-incident-inspection">
+    <button type="button" className="inventory-audit-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>
+      <span>Bằng chứng trạng thái DB (chỉ đọc)</span><b aria-hidden="true">{expanded?"−":"+"}</b>
+    </button>
+    {expanded?<div className="inventory-incident-body">
+      <p>Kiểm tra Replay Gemini và Morning Reset theo ngày. Không tạo job, không Apply và không đọc nội dung Shared Sheet.</p>
+      <label>Ngày kiểm tra, phân cách bằng dấu phẩy (tối đa 8)
+        <input type="text" aria-label="Ngày kiểm tra lịch sử" value={dateInput} onChange={event=>setDateInput(event.target.value)} placeholder="2026-10-08,2026-10-15"/>
+      </label>
+      <button type="button" disabled={loading} onClick={()=>void inspect()}>{loading?"Đang kiểm tra…":"Đọc trạng thái"}</button>
+      {error?<p role="alert" className="inventory-pipeline-log-error">{error}</p>:null}
+      {reports?.map(day=><div className="inventory-incident-date" key={day.business_date}>
+        <h4>{day.business_date}</h4>
+        {!day.profiles.length?<p>Không có cấu hình Inventory V4 cho ngày này trong tenant hiện tại.</p>:day.profiles.map((profile,index)=><div key={index}>
+          {day.profiles.length>1?<b>Luồng {index+1}</b>:null}
+          <dl>
+            <div><dt>Gemini Closing</dt><dd>{profile.gemini_verified?"Đã xác minh":"Chưa xác minh"} · {profile.gemini_status}</dd></div>
+            <div><dt>Replay</dt><dd>{profile.replay_status} · {profile.replay_verification} · {profile.replay_promoted?"Đã promote":"Chưa promote"}</dd></div>
+            <div><dt>Snapshot bất biến</dt><dd>{profile.immutable_snapshot_ready?"Sẵn sàng":"Chưa đủ bằng chứng"} · {profile.snapshot_status}</dd></div>
+            <div><dt>Evening slot</dt><dd>{profile.evening_slot_status} · {profile.evening_slot_error}</dd></div>
+            <div><dt>Morning Reset</dt><dd>{profile.morning_reset_status} · {profile.morning_reset_error}</dd></div>
+            <div><dt>Chế độ Agent</dt><dd>{profile.apply_mode}</dd></div>
+          </dl>
+          {profile.review_issue_codes.length?<p>Cần kiểm tra: {profile.review_issue_codes.join(", ")}</p>:null}
+          {!profile.gemini_verified||profile.morning_reset_status!=="completed"?<p className="inventory-incident-warning">Chưa thể xác nhận chuỗi Closing → Opening đã hoàn tất.</p>:null}
+        </div>)}
+      </div>)}
+      {reports?<small>Chỉ là trạng thái lưu trong DB. Xác nhận writeback Google Sheets cần bài QA bản sao riêng.</small>:null}
+    </div>:null}
+  </section>;
 }
 
 function Stage({ stage, onClick, onMenu }: { stage: InventoryLifecycleStage; onClick: () => void; onMenu: (event: MouseEvent<HTMLButtonElement>) => void }) {
@@ -181,6 +241,7 @@ function Details({ item, onClose, onReplay, onReplayPrevious, onReset, onRecover
       <b>Lifecycle invariant ({item.invariants.length})</b>
       {item.invariants.map((invariant) => <div key={invariant.code}><code>{invariant.code}</code><p>{invariant.message}</p></div>)}
     </section> : null}
+    <InventoryIncidentInspection key={item.business_date} businessDate={item.business_date} />
     <div className="inventory-pipeline-detail-list">{item.stages.map((stage) => {
       const message = stage.error_message || (stage.error_code ? errorHints[stage.error_code] : null);
       return <section key={stage.key} className={"inventory-pipeline-detail-stage " + stage.status}>

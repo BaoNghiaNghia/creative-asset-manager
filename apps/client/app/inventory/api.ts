@@ -254,7 +254,17 @@ export const inventoryLifecycleApi = {
   queueHistoricalGemini:(businessDate:string,promote=true)=>request<InventoryReplayQueueJob>(`/daily-sheet/lifecycle-history/${encodeURIComponent(businessDate)}/gemini/replay/queue`,{method:"POST",body:JSON.stringify({mode:"fresh_copy",promote})}),
   getHistoricalReplayJob:(jobId:string)=>request<InventoryReplayQueueJob>(`/daily-sheet/gemini/replay/jobs/${encodeURIComponent(jobId)}`),
   getActiveHistoricalReplayJobs:()=>request<{items:InventoryReplayQueueJob[]}>(`/daily-sheet/gemini/replay/jobs`),
+  inspectHistoricalDates:(dates:string[])=>request<{items:InventoryDateInspection[]}>(`/daily-sheet/gemini/replay/diagnostics?dates=${encodeURIComponent(dates.join(","))}`),
 };
+export type InventoryDateInspectionProfile = {
+  apply_mode:string; snapshot_status:string; immutable_snapshot_ready:boolean;
+  gemini_status:string; gemini_verified:boolean;
+  evening_slot_status:string; evening_slot_error:string;
+  replay_status:string; replay_attempt_count:number;
+  replay_verification:string; replay_promoted:boolean; review_issue_codes:string[];
+  morning_reset_status:string; morning_reset_error:string;
+};
+export type InventoryDateInspection = {business_date:string;profiles:InventoryDateInspectionProfile[]};
 export type InventoryLearningStatus = {
   health:{ status:"healthy"|"watching"|"warning"|"critical"; issue_codes:string[]; conflicting_proposals:number; consistent_proposals:number; last_verified_age_days:number|null; unverified_noop_streak?:number };
   verified_days:number;
