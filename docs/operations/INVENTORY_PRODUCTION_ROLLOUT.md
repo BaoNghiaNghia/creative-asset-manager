@@ -305,6 +305,17 @@ apps/api/.venv/bin/python apps/inventory_scheduler/main.py \
   --inspect-dates 2026-10-08,2026-10-13,2026-10-14,2026-10-15
 ```
 
+The CLI now fails closed with exit code `2` and
+`INVENTORY_DATE_INSPECTION status=unverified reason=no_accessible_v4_tenants`
+when the supplied runtime has **no accessible V4 tenant/profile at all**.
+This is evidence of an unsuitable/incomplete runtime connection or allowlist,
+not evidence that production Closing and Reset are complete. Do not
+substitute an unconfigured checkout or empty test DB for the approved
+production service environment. Only `status=evidence_available` with
+nonempty tenant-scoped profiles proves the query reached relevant persisted
+Inventory V4 records; even then, any `verified/promoted` flags must be read
+separately from live Google Sheets readback evidence.
+
 Run this only with the approved Inventory service principal; do not copy
 production credentials into a terminal or bypass file permissions. For users
 with `inventory.read` and an authenticated CAM session, the corresponding

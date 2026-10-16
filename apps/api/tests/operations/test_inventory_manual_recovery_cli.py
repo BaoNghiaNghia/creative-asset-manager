@@ -99,6 +99,32 @@ def test_diagnostic_date_inspection_is_strictly_read_only(capsys):
     assert "INVENTORY_DATE_INSPECTION" in capsys.readouterr().out
 
 
+def test_date_inspection_fails_closed_without_accessible_v4_tenant(capsys):
+    queue = Mock()
+    queue.recent_failure_reasons.return_value = []
+    queue.recent_replay_results.return_value = []
+    queue.inspect_dates.return_value = [
+        {"business_date": "2026-10-08", "profiles": []},
+        {"business_date": "2026-10-13", "profiles": []},
+    ]
+    settings = Mock(inventory_tenant_allowlist=frozenset())
+    with patch.object(_MODULE, "get_settings", return_value=settings), patch.object(
+        _MODULE, "HistoricalReplayQueue", return_value=queue
+    ), patch.object(_MODULE, "InventoryDailyScheduler") as scheduler:
+        result = _MODULE.main([
+            "--replay-diagnostics",
+            "--inspect-dates", "2026-10-08,2026-10-13",
+        ])
+    assert result == 2
+    output = capsys.readouterr().out
+    assert "INVENTORY_DATE_INSPECTION status=unverified" in output
+    assert "reason=no_accessible_v4_tenants" in output
+    assert "status=evidence_available" not in output
+    scheduler.assert_not_called()
+    queue.enqueue_failed_evening_days.assert_not_called()
+    queue.run_once.assert_not_called()
+
+
 def test_diagnostic_date_list_is_validated_without_service_access():
     import pytest
     for argv in (

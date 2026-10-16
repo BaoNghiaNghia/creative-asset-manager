@@ -404,7 +404,20 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.inspect_dates:
             requested_dates = tuple(date.fromisoformat(item) for item in arguments.inspect_dates.split(","))
             inspections = queue.inspect_dates(settings.inventory_tenant_allowlist, requested_dates)
-            print(f"INVENTORY_DATE_INSPECTION items={json.dumps(inspections, sort_keys=True)}")
+            # An empty tenant/profile set can mean this CLI was launched
+            # against the wrong DB or without the authorized pilot allowlist.
+            # Do not report a successful production investigation without
+            # at least one accessible V4 settings record.
+            if not any(item.get("profiles") for item in inspections):
+                print(
+                    "INVENTORY_DATE_INSPECTION status=unverified "
+                    "reason=no_accessible_v4_tenants"
+                )
+                return 2
+            print(
+                "INVENTORY_DATE_INSPECTION status=evidence_available "
+                f"items={json.dumps(inspections, sort_keys=True)}"
+            )
         return 0
     if arguments.replay_queue:
         queue = HistoricalReplayQueue(SessionLocal)
