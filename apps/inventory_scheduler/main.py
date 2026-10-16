@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
+import os
 import signal
 import sys
+import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -36,6 +39,108 @@ from app.modules.inventory.persistence_model import (
 
 logger = logging.getLogger(__name__)
 _stop = False
+_REPLAY_AUDIT_HEARTBEAT_SECONDS = 6 * 60 * 60
+
+
+def _replay_audit_state_file() -> Path | None:
+    """The systemd-managed state directory is writable despite ProtectSystem=strict.
+
+    Local CLIs without STATE_DIRECTORY retain explicit per-run log output.
+    """
+    value = os.environ.get("STATE_DIRECTORY", "").strip()
+    return Path(value.split(":")[0]) / "replay-audit-state.json" if value else None
+
+
+def _emit_replay_audit(
+    queue: HistoricalReplayQueue,
+    *,
+    allowed_tenant_ids: frozenset[str] | None,
+    auto_enqueued: int,
+    executions: int,
+    now: datetime | None = None,
+    state_file: Path | None = None,
+) -> bool:
+    """Log only a changed replay state, work done, or six-hour heartbeat.
+
+    This is a logging-only optimization: no queue state, scheduling or
+    verification decision depends on the optional cache file.
+    """
+    failures = queue.recent_failure_reasons(allowed_tenant_ids)
+    outcomes = queue.recent_replay_results(allowed_tenant_ids)
+    scan = queue.last_auto_scan
+    snapshot = {"scan": scan, "failures": failures, "outcomes": outcomes}
+    fingerprint = hashlib.sha256(
+        json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+    current = now or datetime.now(timezone.utc)
+    target = state_file if state_file is not None else _replay_audit_state_file()
+    changed = True
+    reason = "changed"
+    if target is not None:
+        try:
+            state = json.loads(target.read_text(encoding="utf-8"))
+            previous = datetime.fromisoformat(state["last_emitted_at"])
+            age = (current - previous).total_seconds()
+            if (
+                state.get("fingerprint") == fingerprint
+                and 0 <= age < _REPLAY_AUDIT_HEARTBEAT_SECONDS
+            ):
+                changed = False
+            elif state.get("fingerprint") == fingerprint:
+                reason = "heartbeat"
+        except (OSError, ValueError, KeyError, TypeError):
+            # Missing/corrupt state must never suppress audit evidence.
+            pass
+    if not changed and auto_enqueued == 0 and executions == 0:
+        return False
+    if auto_enqueued or executions:
+        reason = "activity"
+    print(
+        "INVENTORY_REPLAY_QUEUE_ONESHOT "
+        f"auto_enqueued={auto_enqueued} executions={executions} "
+        f"reason={reason} scan={json.dumps(scan, sort_keys=True)}"
+    )
+    if failures:
+        print(f"INVENTORY_REPLAY_DIAGNOSTICS failures={json.dumps(failures, sort_keys=True)}")
+    if outcomes:
+        print(f"INVENTORY_REPLAY_RESULTS items={json.dumps(outcomes, sort_keys=True)}")
+    review_count = sum(
+        str(item.get("status")) in {"review_required", "failed"}
+        for item in outcomes
+    )
+    blocked = scan.get("slot_not_retryable", 0) + scan.get("already_requested", 0)
+    if review_count or blocked:
+        print(
+            "INVENTORY_REPLAY_ATTENTION "
+            f"review_jobs={review_count} blocked_candidates={blocked} reason={reason}"
+        )
+    if target is not None:
+        temporary_path = None
+        try:
+            # StateDirectory is owned by the service's isolated OS user.
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=target.parent,
+                prefix=".replay-audit-", delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                json.dump(
+                    {"fingerprint": fingerprint, "last_emitted_at": current.isoformat()},
+                    temporary, sort_keys=True,
+                )
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, target)
+        except OSError as error:
+            # Fail open: next timer tick still emits evidence.
+            logger.warning("inventory_replay_audit_state_unavailable type=%s", type(error).__name__)
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    return True
+
 
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inventory scheduler runtime")
@@ -425,13 +530,12 @@ def main(argv: list[str] | None = None) -> int:
             settings.inventory_tenant_allowlist,
         )
         count = queue.run_once(settings.inventory_tenant_allowlist)
-        print(f"INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued={discovered} executions={count} scan={json.dumps(queue.last_auto_scan, sort_keys=True)}")
-        failures = queue.recent_failure_reasons(settings.inventory_tenant_allowlist)
-        if failures:
-            print(f"INVENTORY_REPLAY_DIAGNOSTICS failures={json.dumps(failures, sort_keys=True)}")
-        outcomes = queue.recent_replay_results(settings.inventory_tenant_allowlist)
-        if outcomes:
-            print(f"INVENTORY_REPLAY_RESULTS items={json.dumps(outcomes, sort_keys=True)}")
+        _emit_replay_audit(
+            queue,
+            allowed_tenant_ids=settings.inventory_tenant_allowlist,
+            auto_enqueued=discovered,
+            executions=count,
+        )
         return 0
     scheduler = InventoryDailyScheduler(
         SessionLocal,

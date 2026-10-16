@@ -379,9 +379,28 @@ copies from the immutable Snapshot into a **new** Gemini spreadsheet and only
 promotes if the Gemini result is verified. It does not write or reset the live
 Shared workbook. Midday opening correction remains an explicit manual
 Preview → Review → Apply operation. The timer logs
-`INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=... executions=... scan={...}`
+`INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=... executions=... reason=... scan={...}`
 with aggregate eligibility reasons and no spreadsheet content, allowing
 operators to distinguish an idle timer from a missing snapshot or hard failure.
+
+**Replay audit heartbeat (16 October):** The systemd service provisions
+`StateDirectory=creative-asset-manager/inventory-replay-queue`
+(mode `0700`). Each one-minute oneshot writes *only* a SHA-256 digest and
+the last emitted timestamp in that state directory (atomic replace).
+The first tick, a change in scan/error/replay state, or any enqueue/execution
+emits the summary and bounded code-only diagnostic details. An unchanged idle
+state remains silent until the six-hour heartbeat. Existing review-required
+or non-retryable blockers emit `INVENTORY_REPLAY_ATTENTION` on those same
+boundaries, including review/blocked counts; no workbook/tenant/provider text
+is persisted in the digest file. File corruption, restart or inability to
+persist the digest **fails open for logging**, never changes queue eligibility,
+and never permits a Sheet operation. Standalone operator CLI without a
+systemd-provided `STATE_DIRECTORY` prints its usual full readout.
+
+Monitor using the unit journal, not by treating silence as proof of healthy
+Inventory data:
+`journalctl -u creative-asset-manager-inventory-replay-queue.service --since today --no-pager | grep INVENTORY_REPLAY_`.
+A six-hour heartbeat is not an independent sheet readback.
 
 ### V4 Gemini tool-protocol recovery
 

@@ -11,6 +11,10 @@ WorkingDirectory=/opt/creative-asset-manager/current
 EnvironmentFile=/etc/creative-asset-manager/production.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+# Persist only a digest/timestamp of the last emitted diagnostics across
+# minute-spaced oneshots; no workbook content or tenant secrets are stored.
+StateDirectory=creative-asset-manager/inventory-replay-queue
+StateDirectoryMode=0700
 ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/apps/inventory_scheduler/main.py --replay-queue
 TimeoutStartSec=30min
 UMask=0027

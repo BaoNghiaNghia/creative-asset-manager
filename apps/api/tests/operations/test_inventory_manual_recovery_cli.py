@@ -41,6 +41,72 @@ def test_replay_queue_oneshot_runs_without_creating_lifecycle_scheduler(capsys):
     assert "INVENTORY_REPLAY_QUEUE_ONESHOT auto_enqueued=2 executions=1" in capsys.readouterr().out
 
 
+def test_replay_timer_emits_only_change_activity_or_six_hour_heartbeat(tmp_path, capsys):
+    queue = Mock(last_auto_scan={
+        "v4_tenants": 1, "snapshots": 7, "verified": 4,
+        "slot_not_retryable": 1, "already_requested": 1,
+    })
+    queue.recent_failure_reasons.return_value = [
+        {"business_date": "2026-10-13", "error_code": "inventory_gemini_request_failed",
+         "reason": "inventory_gemini_request_failed"},
+    ]
+    queue.recent_replay_results.return_value = [
+        {"business_date": "2026-10-13", "status": "review_required",
+         "verification_status": "not_executed", "promoted": False},
+    ]
+    state_file = tmp_path / "replay-audit-state.json"
+    allowlist = frozenset({"tenant-a"})
+    now = datetime(2030, 8, 10, 8, tzinfo=timezone.utc)
+    def tick(*, minutes=0, enqueued=0, executed=0):
+        from datetime import timedelta
+        return _MODULE._emit_replay_audit(
+            queue, allowed_tenant_ids=allowlist,
+            auto_enqueued=enqueued, executions=executed,
+            now=now + timedelta(minutes=minutes), state_file=state_file,
+        )
+
+    assert tick() is True
+    first = capsys.readouterr().out
+    assert "INVENTORY_REPLAY_ATTENTION review_jobs=1 blocked_candidates=2" in first
+    assert "INVENTORY_REPLAY_RESULTS" in first
+    state = state_file.read_text()
+    assert "inventory_gemini_request_failed" not in state
+    assert "tenant-a" not in state
+    assert tick(minutes=1) is False
+    assert capsys.readouterr().out == ""
+
+    queue.last_auto_scan = {**queue.last_auto_scan, "eligible": 1}
+    assert tick(minutes=2) is True
+    assert "reason=changed" in capsys.readouterr().out
+    assert tick(minutes=3) is False
+    assert capsys.readouterr().out == ""
+    assert tick(minutes=362) is True
+    assert "reason=heartbeat" in capsys.readouterr().out
+    assert tick(minutes=363, executed=1) is True
+    assert "reason=activity" in capsys.readouterr().out
+    queue.recent_replay_results.assert_called_with(allowlist)
+    queue.recent_failure_reasons.assert_called_with(allowlist)
+
+
+def test_replay_timer_corrupt_or_unwritable_digest_state_never_hides_errors(tmp_path, capsys):
+    queue = Mock(last_auto_scan={"v4_tenants": 1})
+    queue.recent_failure_reasons.return_value = [{"reason": "inventory_gemini_request_failed"}]
+    queue.recent_replay_results.return_value = []
+    now = datetime(2030, 8, 10, 8, tzinfo=timezone.utc)
+    state = tmp_path / "replay-audit-state.json"
+    state.write_text('{"fingerprint": "broken", "last_emitted_at": "not-a-date"}')
+    args = dict(
+        queue=queue, allowed_tenant_ids=frozenset({"tenant-a"}),
+        auto_enqueued=0, executions=0, now=now,
+    )
+    assert _MODULE._emit_replay_audit(**args, state_file=state) is True
+    assert "INVENTORY_REPLAY_DIAGNOSTICS" in capsys.readouterr().out
+    assert _MODULE._emit_replay_audit(
+        **args, state_file=tmp_path / "missing-subdirectory" / "state.json",
+    ) is True
+    assert "INVENTORY_REPLAY_DIAGNOSTICS" in capsys.readouterr().out
+
+
 def test_replay_diagnostics_is_read_only_and_never_processes_jobs(capsys):
     queue = Mock()
     queue.recent_failure_reasons.return_value = [
