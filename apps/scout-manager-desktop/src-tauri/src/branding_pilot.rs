@@ -117,7 +117,7 @@ fn pilot_config_for(
         max_products,minimum_delay_ms:5000,headless,
     })
 }
-fn load_config(repo:&Path)->Result<Option<PilotShopConfig>,String>{
+pub(crate) fn load_config(repo:&Path)->Result<Option<PilotShopConfig>,String>{
     let p=config_path(repo);
     if !p.exists(){return Ok(None)}
     if p.symlink_metadata().map_err(|_|"Cannot inspect shop configuration.")?.file_type().is_symlink(){
@@ -346,6 +346,7 @@ pub struct PilotObservation {
 #[serde(rename_all="camelCase")]
 pub struct PilotReportCard {
     pub file_name: String,
+    pub report_sha256: String,
     pub status: String,
     pub observed_at: String,
     pub observed_count: usize,
@@ -399,6 +400,7 @@ pub fn list_local_reports(repo:&Path)->Result<Vec<PilotReportCard>,String>{
         }).collect()).unwrap_or_default();
         reports.push(PilotReportCard{
             file_name,
+            report_sha256:format!("{:x}",Sha256::digest(&content)),
             status:doc["status"].as_str().unwrap_or("").to_string(),
             observed_at:doc["observed_at"].as_str().unwrap_or("").chars().take(40).collect(),
             observed_count:doc["observed_count"].as_u64().unwrap_or(items.len() as u64).min(5) as usize,

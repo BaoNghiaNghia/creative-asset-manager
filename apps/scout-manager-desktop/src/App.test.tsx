@@ -53,7 +53,8 @@ describe("Tauri Scout Manager dashboard", () => {
   });
   it("shows only a read-only local reports surface when a shop is selected", () => {
     const html = renderToStaticMarkup(<BrandingDnaReports nativeAvailable={false} shopUrl="https://www.etsy.com/shop/TestCaps" scanRunning={false}/>);
-    expect(html).toContain("Local pilot results");
+    expect(html).toContain("Local pilot results &amp; review");
+    expect(html).toContain("Pick / Reject shortlist");
     expect(html).toContain("not uploaded to CAM");
     expect(html).toContain("No saved pilot results for this shop");
     expect(html).not.toContain("Download All");

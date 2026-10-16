@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod branding_pilot;
+mod branding_pilot_review;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
@@ -947,6 +948,26 @@ fn branding_pilot_reports(state: tauri::State<'_, Arc<Controller>>) -> Result<Ve
     branding_pilot::list_local_reports(&state.repo)
 }
 #[tauri::command]
+fn branding_pilot_review_list(state: tauri::State<'_, Arc<Controller>>) -> Result<Vec<branding_pilot_review::ReviewRecord>,String> {
+    let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
+    let selected=pilot.load_shop(&state.repo)?;
+    if !selected.configured{return Ok(Vec::new())}
+    branding_pilot_review::list_reviews(&state.repo,&branding_pilot_local_data()?,&selected.shop_url)
+}
+#[tauri::command]
+fn branding_pilot_review_set(state: tauri::State<'_, Arc<Controller>>,
+    report_file:String,report_sha256:String,item_index:u8,decision:String,note:String)
+    -> Result<branding_pilot_review::ReviewRecord,String> {
+    state.require_manager_lock()?;
+    if state.updating.load(Ordering::SeqCst) {return Err("Source update in progress.".into())}
+    let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
+    if pilot.status(&state.repo).running {return Err("Stop the active pilot before reviewing saved evidence.".into())}
+    let selected=pilot.load_shop(&state.repo)?;
+    if !selected.configured {return Err("Select a shop before reviewing.".into())}
+    branding_pilot_review::set_review(&state.repo,&branding_pilot_local_data()?,&selected.shop_url,
+        &report_file,&report_sha256,item_index,&decision,&note)
+}
+#[tauri::command]
 fn branding_pilot_load_shop(state: tauri::State<'_, Arc<Controller>>) -> Result<branding_pilot::ShopConfigView,String> {
     let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
     pilot.load_shop(&state.repo)
@@ -1251,6 +1272,8 @@ pub fn run() {
             branding_pilot_action,
             branding_pilot_load_shop,
             branding_pilot_reports,
+            branding_pilot_review_list,
+            branding_pilot_review_set,
             branding_pilot_save_shop,
             branding_pilot_list_saved_shops,
             branding_pilot_select_shop,
