@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { BrandingDnaPage, brandingDnaTabForPath } from "./BrandingDnaPage";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
+import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 
 describe("Branding DNA worker control plane preview", () => {
   it("maps supported nested routes while rejecting arbitrary tab names", () => {
@@ -36,6 +37,15 @@ describe("Branding DNA worker control plane preview", () => {
     expect(library).toContain("+ Thêm shop");
     expect(library).toContain('<button type="button">+ Thêm shop</button>');
     expect(library).toContain("Shop Registry");
+  });
+
+  it("renders a real evidence reader without mock listing cards or scan controls", () => {
+    const html = renderToStaticMarkup(<BrandingDnaEvidence />);
+    expect(html).toContain("Product Explorer · Evidence");
+    expect(html).toContain("Đang tải danh sách shop");
+    expect(html).toContain("scanner vẫn tắt");
+    expect(html).not.toContain("Start Scan");
+    expect(html).not.toContain("<img");
   });
 
   it("shows full worker enrollment only on the Browser Scanner stage", () => {

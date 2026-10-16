@@ -35,6 +35,14 @@
 - Fixture 10 shot mặc định và unit/contract tests: `apps/api/tests/modules/branding_dna/fixtures/balanced_10_shots.json`, `test_contracts.py`.
 - Contract-only: **không có** endpoint mới, migrations, shop scanning, SMS/Scout remote calls, generation queue, hay learning auto-promotion. BD-01 đến PC-06 và kiểm thử production theo từng phase vẫn pending; trạng thái tài liệu không xác nhận production live.
 
+## Checkpoint triển khai BD-01 (partial) — 2026-10-16
+
+- Đã có metadata-only authorized-export ingest, revision-idempotent listing snapshots, gallery image order/hash/rights placeholder, Alembic additive schema, tenant-scoped GET list/gallery API và Product Explorer đọc dữ liệu thật.
+- API mới: `POST /api/v1/branding-dna/shops/{shop_id}/listings/import` (quyền cấu hình, chỉ shop owned/authorized), `GET /shops/{shop_id}/listings` và `GET /shops/{shop_id}/listings/{snapshot_id}/gallery` dưới prefix `/api/v1/branding-dna`. Snapshot bắt buộc `listing_key`, `source_revision`, `export_reference`, `title`, `category`, `captured_at` có timezone và `images` chỉ metadata SHA256, index từ 0 liên tục. Không gửi URL thật, raw bytes hoặc tenant ID; không network-fetch.
+- Mọi record nhập có `source_kind=authorized_export`, `evidence_state=imported_unverified`, `coverage_state=unknown`, `media_available=false`. Quyền ảnh mặc định **unknown**, không được tự khẳng định permitted từ import. Các dữ liệu này **không** tự tạo Brand DNA claim, Bestseller, thumbnail hay cấp reference cho image generation.
+- Chưa xong BD-01: source adapter chính thức Etsy/Shopify/Amazon, explicit platform authorization + legal gate, scanner dispatch, lease fencing, safe redirect/DNS policy, data/media verification, signed media storage, coverage audit, worker local browser. Worker heartbeat/lease vẫn giữ scan disabled.
+- Production migration phải qua schema-head preflight + bảo toàn dữ liệu và safety gate; không chạy migration/downgrade destructive một cách tự động. Nếu chỉ push mã nguồn thì **không** xem như production đã được bật.
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts
