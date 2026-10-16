@@ -18,6 +18,10 @@
 .bdna-evidence-pager button:disabled{opacity:.5}
 .bdna-evidence-gallery{border-top:1px solid #e2e9f2;margin-top:18px;padding-top:12px}
 .bdna-evidence-gallery h4{font-size:13px;margin:0 0 5px}
+.bdna-evidence-stage-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
+.bdna-evidence-stage-control button{padding:9px 12px;border-radius:8px;border:1px solid #c5d5f4;background:#eff4ff;color:#3155a0;font-weight:700}
+.bdna-evidence-stage-control small{color:#72839b;font-size:10px}
+.bdna-evidence-stage-result{padding:9px 10px;border:1px solid #d5e2f6;border-radius:8px;background:#f7faff;color:#41628f}
 .bdna-evidence-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(180px,100%),1fr));gap:8px;margin-top:12px}
 .bdna-evidence-image{display:grid;gap:6px;border:1px solid #e2eaf3;border-radius:8px;padding:12px;background:#f7f9fd;font-size:11px}
 .bdna-evidence-image small{font-size:10px;color:#6d7d97}

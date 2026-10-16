@@ -43,6 +43,15 @@
 - Chưa xong BD-01: source adapter chính thức Etsy/Shopify/Amazon, explicit platform authorization + legal gate, scanner dispatch, lease fencing, safe redirect/DNS policy, data/media verification, signed media storage, coverage audit, worker local browser. Worker heartbeat/lease vẫn giữ scan disabled.
 - Production migration phải qua schema-head preflight + bảo toàn dữ liệu và safety gate; không chạy migration/downgrade destructive một cách tự động. Nếu chỉ push mã nguồn thì **không** xem như production đã được bật.
 
+## Checkpoint BD-01 queue staging & lease fencing (partial) — 2026-10-16
+
+- Thêm `bc_scan_tasks` (migration `0160_branding_dna_scan_tasks`) dạng non-destructive/additive; mỗi task tham chiếu bằng FK theo tenant/shop đến snapshot thật, idempotency theo snapshot + kind, mặc định **staged**. Không sửa dữ liệu Inventory/RRUGC.
+- API `POST /api/v1/branding-dna/shops/{shop_id}/scan-tasks` chỉ chuẩn bị job cho snapshot đã nhập tại shop owned/authorized; `GET /shops/{shop_id}/scan-tasks` xem queue; `POST /shops/{shop_id}/scan-tasks/{task_id}/cancel` chỉ hủy staged. Product Explorer có nút **Chuẩn bị kiểm chứng · Không quét**. RBAC và tenant predicate áp dụng server-side.
+- `task_service.py` có *internal-only* lease generation/fencing, checkpoint monotonic, revoke guard, bounded retry/backoff và thu hồi lease hết hạn. Không có public activation từ staged sang pending; các chức năng claim/checkpoint/retry được kiểm thử bằng task fixture nhưng chưa nối HTTP worker.
+- Worker `POST /workers/{agent_id}/lease` vẫn trả `job=null, scan_enabled=false`. Không cài Playwright, không điều hướng URL, không fetch ảnh, không khai thác nguồn bên ngoài, không đổi quyền truy cập shop. Các task staged **không chạy** và không được tính là tiến độ scan.
+- Còn thiếu để BD-01 hoàn tất: platform policy/access grant có kiểm chứng độc lập; chính thức Etsy/Shopify/Amazon adapter; source/redirect/DNS allowlist, signed media, durable worker outbox, adapter-to-lease gating, scanner QA và xác minh coverage thực. Do not promote to production scanner until gates pass.
+- Release migration 0160 chỉ sau khi production hiện tại đã ở revision 0159, có backup/recovery drill, non-destructive preflight và post-deploy health gates. **Push main không đồng nghĩa migration production đã chạy.**
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts

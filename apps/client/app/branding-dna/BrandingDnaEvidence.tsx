@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./BrandingDnaEvidence.css";
 
-type Shop = {id: string; display_name: string; platform: string};
+type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
   category: string; captured_at: string; image_count: number;
   evidence_state: string; coverage_state: string; source_kind: string};
@@ -25,6 +25,9 @@ export function BrandingDnaEvidence() {
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState("");
+  const [staging, setStaging] = useState(false);
+  const [stageResult, setStageResult] = useState("");
+  const canStage = shops.some(shop => shop.id === shopId && (shop.access_mode === "owned" || shop.access_mode === "authorized"));
   useEffect(() => {
     const controller = new AbortController();
     void loadJson<{items: Shop[]}>("/api/v1/branding-dna/shops", controller.signal)
@@ -64,6 +67,30 @@ export function BrandingDnaEvidence() {
     return () => controller.abort();
   }, [shopId, selected]);
 
+  async function stageSelected() {
+    if (!selected || !canStage || staging) return;
+    setStaging(true);
+    setStageResult("");
+    setError("");
+    try {
+      const response = await fetch("/api/v1/branding-dna/shops/" + encodeURIComponent(shopId) + "/scan-tasks", {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({snapshot_id: selected.id}),
+      });
+      const data = await response.json().catch(() => null) as
+        {item?: {status?: string}; detail?: string} | null;
+      if (!response.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "Không thể chuẩn bị job (" + response.status + ").");
+      setStageResult(data?.item?.status === "staged"
+        ? "Đã lưu vào danh sách chờ kiểm chứng. Scanner vẫn tắt, chưa chạy job."
+        : "Job hiện ở trạng thái " + (data?.item?.status || "không xác định") + ", không tự khởi chạy.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể tạo job chờ.");
+    } finally {
+      setStaging(false);
+    }
+  }
+
   return <section className="bdna-evidence" aria-label="Product listing evidence">
     <header className="bdna-evidence-header">
       <div><h3>Product Explorer · Evidence</h3>
@@ -85,7 +112,7 @@ export function BrandingDnaEvidence() {
         <div className="bdna-evidence-list">
           {list.items.map(item => <button key={item.id} type="button"
             className={selected?.id === item.id ? "bdna-evidence-row selected" : "bdna-evidence-row"}
-            aria-pressed={selected?.id === item.id} onClick={() => setSelected(item)}>
+            aria-pressed={selected?.id === item.id} onClick={() => {setSelected(item); setStageResult("");}}>
             <strong>{item.title}</strong>
             <span>{item.listing_key} · {item.category}</span>
             <span>{item.image_count} ảnh · revision {item.source_revision}</span>
@@ -101,6 +128,13 @@ export function BrandingDnaEvidence() {
     {selected && <section className="bdna-evidence-gallery" aria-label="Listing gallery evidence">
       <h4>Gallery · {selected.title}</h4>
       <p>Metadata-only: chưa lưu ảnh, không thể dùng trực tiếp để suy luận Brand DNA hoặc tạo output.</p>
+      {canStage ? <div className="bdna-evidence-stage-control">
+        <button type="button" onClick={() => {void stageSelected();}} disabled={staging}>
+          {staging ? "Đang lưu…" : "Chuẩn bị kiểm chứng · Không quét"}
+        </button>
+        <small>Chỉ tạo staged job. Không phát lệnh tới Browser Worker.</small>
+      </div> : <p>Chỉ shop owned/authorized mới được chuẩn bị job kiểm chứng.</p>}
+      {stageResult && <p className="bdna-evidence-stage-result" role="status">{stageResult}</p>}
       <div className="bdna-evidence-gallery-grid">
         {gallery.map(image => <div key={image.sequence_index} className="bdna-evidence-image">
           <strong>Ảnh {image.sequence_index + 1}</strong>
