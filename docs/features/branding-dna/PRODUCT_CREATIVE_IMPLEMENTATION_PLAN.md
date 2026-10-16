@@ -17,7 +17,7 @@
 
 | ID | Phase | Deliverables | Acceptance gate | Rủi ro / Rollback |
 |---|---|---|---|---|
-| BD-00 | Contracts & fixtures | schemas Brand Pick, Best Seller, Product Master, Shot Plan, source manifest, candidate, label; mock data + contract tests | Source kind, version, tenant IDs rõ; fixtures đúng A/B; no frontend placeholder called live | Docs/schema only; revert commit |
+| BD-00 | Contracts & fixtures | schemas Brand Pick, Best Seller, Product Master, Shot Plan, source manifest, candidate, label; mock data + contract tests | Source kind, version, tenant IDs rõ; fixtures đúng A/B; no frontend placeholder called live | Flagless, import-only code; revert commit |
 | BD-01 | Shop evidence + access | approved platform source adapters, canonical identity, listing discovery, gallery order and variant snapshots; isolated scanner agent lease/checkpoints | Authorized 1 Etsy/Shopify pilot, 1 Amazon pilot khi đủ quyền; coverage thực và unknown rõ; no policy bypass | Flag off, drain agent, preserve evidence snapshots |
 | BD-02 | Pick & Best Seller | Product/Image Pick actions+reasons+audit; sales/API/import or team-reported observation; source-quality taxonomy; cohort UI | Independent product/image picks; non-picked != rejected; sales rank != volume; tenants isolated | Hide feature; retain audit and observations |
 | BD-03 | DNA & Playbook aggregation | 6 DNA layers, evidence/contradiction, confidence/coverage, cohort comparisons, draft/approved diff + immutable versions | 100% approved claims trace to permitted sources; no auto-approval; unknown preserved | Unbind draft/revert to last approved |
@@ -28,6 +28,12 @@
 | PC-04 | Output supervision | ✓ Pick, × Reject + reason, Unreviewed, compare candidates, filter by group, full audit, export feedback dataset | Unreviewed != Negative, separate Brand Pick vs Output Pick, no auto-DNA update | Disable labeling; preserve audit/labels |
 | PC-05 | Learning governance | label quality, offline evaluation splits, rule proposals, review, canary, rollback | Candidate improvement beats baseline on holdout without lowering product fidelity; promotion approved; rollback tested | Withdraw rule release; pin old Playbook |
 | PC-06 | Scale & governance | queue fairness, Gemini quotas, worker telemetry, billing/latency, platform/right retention, responsive/device QA | Verified canary, failure recovery, zero cross-tenant leaks, no unbounded storage or retries | Kill switch, drain queues, rollback release |
+
+## Checkpoint triển khai BD-00 — 2026-10-16
+
+- Đã thêm các hợp đồng dữ liệu **chưa được nối API/DB** tại `apps/api/app/modules/branding_dna/contracts.py`: tenant-scoped Brand Pick, Best Seller (unknown/proxy/verified phân biệt), Product Master, versioned Source Manifest, 6-group Shot Plan, routing SMS/Scout, Candidate lineage, Output Label và Learning Rule Proposal có manual-approval gate.
+- Fixture 10 shot mặc định và unit/contract tests: `apps/api/tests/modules/branding_dna/fixtures/balanced_10_shots.json`, `test_contracts.py`.
+- Contract-only: **không có** endpoint mới, migrations, shop scanning, SMS/Scout remote calls, generation queue, hay learning auto-promotion. BD-01 đến PC-06 và kiểm thử production theo từng phase vẫn pending; trạng thái tài liệu không xác nhận production live.
 
 ## Interface contracts trước khi thực thi
 

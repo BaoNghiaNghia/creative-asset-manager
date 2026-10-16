@@ -1,0 +1,37 @@
+{
+  "contract_version": "1.0",
+  "tenant_id": "tenant-A",
+  "shop_id": "shop-1",
+  "product_master_id": "master-1",
+  "product_revision": 1,
+  "plan_revision": 1,
+  "dna_version_id": "dna-approved-1",
+  "playbook_version_id": "playbook-approved-1",
+  "groups": [
+    {
+      "group": "studio",
+      "count": 2
+    },
+    {
+      "group": "detail",
+      "count": 2
+    },
+    {
+      "group": "information",
+      "count": 1
+    },
+    {
+      "group": "variations",
+      "count": 1
+    },
+    {
+      "group": "lifestyle",
+      "count": 2
+    },
+    {
+      "group": "ugc_human",
+      "count": 2
+    }
+  ],
+  "total": 10
+}
