@@ -10,6 +10,7 @@ Status: Tenant-scoped manual verification intake. This is not Brand DNA evidence
 4. Preview validates schema, platform, exact canonical shop URL hash, identifiers and explicit unverified flags. Preview never writes to the DB.
 5. Stage requires ai_provider.configure and an owned/authorized shop. Each candidate is stored in bc_handoff_candidates with status pending_source_review.
 6. Reviewer may select needs_authorized_export, rejected or pending_source_review. None of these status values assert rights or evidence verification.
+7. Verification Queue supports **20 candidates per page** and server-side filter by review status (All / Pending source review / Needs authorized export / Rejected). Pagination keeps older candidates accessible without expanding the DOM indefinitely. Filters are constrained to the three unverified review states.
 
 ## API
 

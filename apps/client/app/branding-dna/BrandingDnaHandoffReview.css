@@ -30,4 +30,8 @@
 .bdna-handoff-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
 .bdna-handoff-actions input{border:1px solid #d0ddeb;border-radius:7px;padding:8px;font-size:11px;flex:1 1 200px;min-width:0}
 .bdna-handoff footer{border-top:1px solid #e1e9f4;padding-top:10px}
-@media(max-width:600px){.bdna-handoff{padding:11px}.bdna-handoff-actions input{flex-basis:100%}.bdna-handoff-actions button{flex:1}}
+.bdna-handoff-filter{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:#587291}
+.bdna-handoff-filter select{font-size:11px;min-height:34px;padding:6px;border:1px solid #cfdaeb;border-radius:7px;color:#284669;background:#fff;max-width:100%}
+.bdna-handoff-pages{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;font-size:11px;color:#667f99}
+.bdna-handoff-pages span{white-space:nowrap}
+@media(max-width:600px){.bdna-handoff{padding:11px}.bdna-handoff-actions input{flex-basis:100%}.bdna-handoff-actions button{flex:1}.bdna-handoff-filter{width:100%}.bdna-handoff-pages{justify-content:center}}

@@ -113,6 +113,40 @@ def test_http_cross_tenant_404_and_unknown_fields_fail_closed(app_client):
     assert client.post(base + "/preview", json=forged).status_code == 422
 
 
+def test_http_queue_status_filter_and_pagination(app_client):
+    app, client, shop_id, _ = app_client
+    app.dependency_overrides[require_authenticated_principal] = lambda: principal(
+        "ai_operations.read", "ai_provider.configure",
+    )
+    base = f"/api/v1/branding-dna/shops/{shop_id}/handoffs"
+    item = packet()
+    first = client.post(base + "/stage", json=item)
+    assert first.status_code == 201
+    second_packet = packet()
+    second_packet["candidates"][0]["listingKey"] = "etsy:9990001"
+    second_packet["candidates"][0]["reportSha256"] = "b" * 64
+    second = client.post(base + "/stage", json=second_packet)
+    assert second.status_code == 201, second.text
+    first_id = first.json()["items"][0]["id"]
+    rejected = client.patch(base + "/" + first_id, json={
+        "status": "rejected", "review_note": "Not licensed",
+    })
+    assert rejected.status_code == 200
+    filtered = client.get(base + "?status=rejected&limit=1&offset=0")
+    assert filtered.status_code == 200, filtered.text
+    assert filtered.json()["count"] == 1
+    assert filtered.json()["items"][0]["id"] == first_id
+    pending = client.get(base + "?status=pending_source_review")
+    assert pending.status_code == 200
+    assert pending.json()["count"] == 1
+    assert pending.json()["items"][0]["id"] != first_id
+    all_items = client.get(base + "?limit=1&offset=1")
+    assert all_items.status_code == 200
+    assert all_items.json()["count"] == 2
+    assert len(all_items.json()["items"]) == 1
+    assert client.get(base + "?status=verified").status_code == 422
+
+
 def test_http_anonymous_is_rejected(app_client):
     app, client, shop_id, _ = app_client
     def anonymous():

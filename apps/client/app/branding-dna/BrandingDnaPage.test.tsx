@@ -67,6 +67,9 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).toContain('type="file"');
     expect(html).toContain("Stage");
     expect(html).toContain("Verification Queue");
+    expect(html).toContain("handoff-status-filter");
+    expect(html).toContain("Chờ kiểm chứng");
+    expect(html).toContain("Cần nguồn chính thức");
     expect(html).not.toContain("Verified</button>");
     expect(html).not.toContain("Start Scan");
   });

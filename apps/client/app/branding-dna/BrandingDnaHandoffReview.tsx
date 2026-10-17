@@ -6,6 +6,8 @@ type Preview={candidate_count:number;platform:string;can_stage:boolean;blockers:
 type Queued={id:string;listing_key:string;title:string;image_reference_count:number;operator_note:string;
   review_note:string;status:"pending_source_review"|"needs_authorized_export"|"rejected"};
 type Queue={items:Queued[];count:number};
+type StatusFilter="all"|Queued["status"];
+const PAGE_SIZE=20;
 
 async function request<T>(path:string,init?:RequestInit):Promise<T>{
  const response=await fetch(path,{credentials:"same-origin",cache:"no-store",...init});
@@ -26,25 +28,31 @@ export function BrandingDnaHandoffReview({shopId,platform,accessMode}:{
  const [error,setError]=useState("");
  const [notice,setNotice]=useState("");
  const [notes,setNotes]=useState<Record<string,string>>({});
+ const [page,setPage]=useState(0);
+ const [statusFilter,setStatusFilter]=useState<StatusFilter>("all");
  const currentShop=useRef(shopId);currentShop.current=shopId;
  const api="/api/v1/branding-dna/shops/"+encodeURIComponent(shopId)+"/handoffs";
+ const queueUrl=api+"?limit="+PAGE_SIZE+"&offset="+(page*PAGE_SIZE)
+   +(statusFilter==="all"?"":"&status="+encodeURIComponent(statusFilter));
  const authorized=accessMode==="owned"||accessMode==="authorized";
 
  const reload=useCallback(async()=>{
   if(!shopId)return;
   const expected=shopId;
-  const result=await request<Queue>(api+"?limit=50&offset=0");
-  if(currentShop.current===expected)setQueue(result);
- },[shopId,api]);
+  const result=await request<Queue>(queueUrl);
+  if(currentShop.current!==expected)return;
+  if(page>0&&result.count<=page*PAGE_SIZE){setPage(Math.max(0,Math.ceil(result.count/PAGE_SIZE)-1));return}
+  setQueue(result);
+ },[shopId,queueUrl,page]);
  useEffect(()=>{
-  setFileName("");setPayload(null);setPreview(null);setQueue(null);setError("");setNotice("");setNotes({});
   if(!shopId)return;
   const controller=new AbortController();
-  void request<Queue>(api+"?limit=50&offset=0",{signal:controller.signal})
+  setQueue(null);
+  void request<Queue>(queueUrl,{signal:controller.signal})
     .then(result=>{if(!controller.signal.aborted)setQueue(result)})
     .catch(reason=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:"Queue unavailable")});
   return()=>controller.abort();
- },[shopId,api]);
+ },[shopId,queueUrl]);
 
  async function readFile(event:ChangeEvent<HTMLInputElement>){
   const file=event.target.files?.[0];event.target.value="";
@@ -109,8 +117,15 @@ export function BrandingDnaHandoffReview({shopId,platform,accessMode}:{
      {!preview.can_stage&&<small>Shop cần access_mode owned/authorized trước khi Stage.</small>}
    </div>}
    <div className="bdna-handoff-queue-title"><strong>Verification Queue</strong>
-      <button type="button" disabled={busy} onClick={()=>{void reload().catch(e=>setError(String(e)))}}>Làm mới</button></div>
-   {!queue?.items.length?<p className="bdna-handoff-empty">Chưa có ứng viên. Chọn file để Preview, sau đó Stage thủ công.</p>:
+      <div className="bdna-handoff-filter"><label htmlFor="handoff-status-filter">Trạng thái</label>
+        <select id="handoff-status-filter" value={statusFilter} disabled={busy} onChange={event=>{setPage(0);setStatusFilter(event.target.value as StatusFilter)}}>
+          <option value="all">Tất cả</option><option value="pending_source_review">Chờ kiểm chứng</option>
+          <option value="needs_authorized_export">Cần nguồn chính thức</option><option value="rejected">Đã loại</option>
+        </select>
+        <button type="button" disabled={busy} onClick={()=>{void reload().catch(e=>setError(String(e)))}}>Làm mới</button>
+      </div></div>
+   {!queue?<p className="bdna-handoff-empty" role="status">Đang tải hàng chờ kiểm chứng…</p>:
+    !queue.items.length?<p className="bdna-handoff-empty">Không có ứng viên phù hợp. Thử trạng thái khác hoặc chọn file để Preview.</p>:
     <div className="bdna-handoff-list">{queue.items.map(item=><article key={item.id}>
       <div><b>{item.title}</b><span>{item.status.replaceAll("_"," ")}</span></div>
       <small>{item.listing_key} · {item.image_reference_count} tham chiếu ảnh · nguồn và quyền chưa xác minh</small>
@@ -124,7 +139,12 @@ export function BrandingDnaHandoffReview({shopId,platform,accessMode}:{
         <button type="button" disabled={busy} onClick={()=>{void mark(item,"pending_source_review")}}>Chờ kiểm tra</button>
       </div>
     </article>)}</div>}
-   {Boolean(queue&&queue.count>50)&&<small>Hiển thị 50 mục mới nhất; các mục khác có thể truy xuất qua API phân trang.</small>}
+   {queue&&queue.count>0&&<nav className="bdna-handoff-pages" aria-label="Phân trang ứng viên Handoff">
+     <span>Hiển thị {page*PAGE_SIZE+1}–{Math.min((page+1)*PAGE_SIZE,queue.count)} / {queue.count}</span>
+     <button type="button" disabled={busy||page===0} onClick={()=>setPage(current=>Math.max(0,current-1))}>Trang trước</button>
+     <span>Trang {page+1} / {Math.ceil(queue.count/PAGE_SIZE)}</span>
+     <button type="button" disabled={busy||(page+1)*PAGE_SIZE>=queue.count} onClick={()=>setPage(current=>current+1)}>Trang sau</button>
+   </nav>}
    <footer>Gói browser handoff không thể được nhập như metadata export. Scanner vẫn tắt; quyền ảnh và lineage cần được kiểm chứng độc lập.</footer>
  </section>;
 }

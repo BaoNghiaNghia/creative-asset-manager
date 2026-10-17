@@ -241,6 +241,7 @@ def stage_handoff(
 def list_handoffs(
     shop_id: str, response: Response,
     limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=100000),
+    status: Literal["pending_source_review", "needs_authorized_export", "rejected"] | None = Query(None),
     session: Session = Depends(get_db), principal: CurrentPrincipal = Depends(READ),
 ):
     shop_for_tenant(session, principal.active_tenant_id, shop_id)
@@ -248,6 +249,8 @@ def list_handoffs(
         BrandHandoffCandidateModel.tenant_id == principal.active_tenant_id,
         BrandHandoffCandidateModel.shop_id == shop_id,
     )
+    if isinstance(status, str):
+        criteria += (BrandHandoffCandidateModel.status == status,)
     total = session.scalar(select(func.count()).select_from(BrandHandoffCandidateModel).where(*criteria)) or 0
     rows = session.scalars(select(BrandHandoffCandidateModel).where(*criteria).order_by(
         BrandHandoffCandidateModel.created_at.desc(), BrandHandoffCandidateModel.id.desc(),
