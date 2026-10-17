@@ -1,5 +1,18 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-17 Agent-only Windows UI, no local shop setup
+
+Scout Manager 0.1.34 replaces the manual pilot configuration screen with
+agent Start/Stop, CAM connection, shop count, dispatch gate and logs only.
+CAM Shop Library is authoritative; no shop or approval is selected or edited
+locally by this screen. Worker runtime 0.2.4 uses existing Scout pairing and
+the tenant-scoped CAM shop endpoint for a read-only connection health loop.
+**This is NOT automatic shop scanning**: production lease is explicitly
+disabled and the runner refuses unexpected dispatch readiness; scan execution
+requires a separate vetted tenant-scoped job lease and authorization policy.
+Legacy local profiles and checkpoint data are preserved for rollback.
+
+
 ## Scout Manager v0.1.32 — Native Rust config compatibility
 
 Rust `PilotShopConfig` now explicitly recognizes the Node runner's optional

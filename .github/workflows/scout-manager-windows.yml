@@ -60,17 +60,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           python scripts/build_windows_release.py
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          python scripts/build_windows_release.py --verify ../../releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.3-win-x64.zip
+          python scripts/build_windows_release.py --verify ../../releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.4-win-x64.zip
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Upload current Branding DNA Windows bootstrap package
         uses: actions/upload-artifact@v4
         with:
-          name: BrandingDNA-BrowserAgent-v0.2.3-Windows
+          name: BrandingDNA-BrowserAgent-v0.2.4-Windows
           if-no-files-found: error
           retention-days: 14
           path: |
-            releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.3-win-x64.zip
-            releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.3-win-x64.zip.sha256
+            releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.4-win-x64.zip
+            releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.4-win-x64.zip.sha256
       - name: Validate Windows release installer script
         shell: pwsh
         run: |

@@ -1128,7 +1128,21 @@ async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command
         controller.require_manager_lock()?;
         if controller.updating.load(Ordering::SeqCst) { return Err("Source update in progress.".into()); }
         let mut pilot=controller.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
-        pilot.action(&controller.repo,&controller.log_root,&command)
+        if command=="agent_start" {
+            let settings=config_values(&controller.repo);
+            let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
+            let id=get("RRUGC_AGENT_ID").ok_or("CAM Scout pairing missing.")?;
+            let token=get("RRUGC_SCOUT_TOKEN").ok_or("CAM Scout token missing.")?;
+            let base=get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+            pilot.run_cam_agent(&controller.repo,&controller.log_root,id,token,base)
+        } else if command=="stop" {
+            pilot.stop();
+            Ok(())
+        } else {
+            // Manual per-shop pilot remains in legacy code for rollback only.
+            // This UI must never trigger it as a replacement for CAM jobs.
+            Err("Manual shop configuration is managed in CAM, not Browser Agent.".into())
+        }
     }).await.map_err(|_|"Branding DNA launcher failed unexpectedly.".to_string())?
 }
 #[tauri::command]
@@ -1358,17 +1372,7 @@ pub fn run() {
             dashboard,
             branding_pilot_status,
             branding_pilot_action,
-            branding_pilot_load_shop,
-            branding_pilot_reports,
-            branding_pilot_review_list,
-            branding_pilot_review_set,
-            branding_pilot_handoff_prepare,
-            branding_pilot_save_shop,
-            branding_pilot_list_saved_shops,
             branding_pilot_cam_shops,
-            branding_pilot_select_shop,
-            branding_pilot_edit_approval,
-            branding_pilot_edit_config,
             keyword_summary,
             operations_summary,
             log_tail,

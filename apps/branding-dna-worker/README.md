@@ -1,4 +1,4 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.3
+# Branding DNA Windows Worker — Windows Portable v0.2.4
 
 ## Recommended: use the existing Scan Pinterest tool
 
@@ -7,14 +7,14 @@ This worker is now **integrated in Scout Manager v0.1.21** using the
 tool. Open `START_SCOUT_TAURI.cmd`, use the Branding DNA card's
 Install/Config/Check/Run/Stop and dedicated Live logs. All Pinterest modes
 remain unaffected. The v0.2.0 ZIP is retained only as a fallback.
-The v0.2.3 source adds optional visible UI clicks and per-shop durable
+The v0.2.4 source adds optional visible UI clicks and per-shop durable
 SQLite progress to the same Manager,
 without installing any Chromium/Scout runtime on CAM's VPS.
 
 ## Release / build mới (Windows)
 
-**Bản Windows Portable Bootstrap v0.2.3**, dự kiến GitHub Windows CI build
-`BrandingDNA-BrowserAgent-v0.2.3-win-x64.zip`. Chưa được cài trên máy Windows. Đây là
+**Bản Windows Portable Bootstrap v0.2.4**, dự kiến GitHub Windows CI build
+`BrandingDNA-BrowserAgent-v0.2.4-win-x64.zip`. Chưa được cài trên máy Windows. Đây là
 gói cài + launcher `.cmd`, **không phải EXE đã kèm Node/Chromium**. Đọc
 `QUICK_START_VI.txt` trong ZIP trước khi cài. ZIP và file `.zip.sha256`
 chỉ có thể dùng khi workflow build/release trên GitHub hoàn thành;
@@ -54,7 +54,7 @@ The default process sends signed **heartbeats and restricted lifecycle telemetry
 3. Inject the three environment variables only into the worker process: `BRANDING_DNA_SERVER_URL`, `BRANDING_DNA_AGENT_ID`, `BRANDING_DNA_AGENT_TOKEN`. Do not place secrets in the .cmd, repository or public configuration.
 4. Run `npm test`, then `npm start` or the .cmd. CAM should show heartbeat/online within ~1 minute. To stop immediately revoke the token via Disable in CAM.
 
-## Browser pilot v0.2.3 — Conservative bounded navigation cooldown
+## Browser pilot v0.2.4 — Conservative bounded navigation cooldown
 
 The agent uses **traffic pacing**, not human impersonation: configure
 `minimum_delay_ms: 10000` and `maximum_delay_ms: 18000` for a
@@ -67,7 +67,7 @@ Do not automate keystroke patterns, movement, CAPTCHA or throttling
 circumvention. The Agent user-agent stays disclosed and HTTP 403/429
 stops the pilot for manual review.
 
-## Browser pilot v0.2.3 — Visible UI + durable local resume, Windows only
+## Browser pilot v0.2.4 — Visible UI + durable local resume, Windows only
 
 Repeated **explicitly started**, individually authorized pilots resume via a
 per-shop SQLite checkpoint in `<report_dir>/.bdna-local-progress/`. Each

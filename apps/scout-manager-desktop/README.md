@@ -1,5 +1,26 @@
 # RRUGC Scout Manager
 
+## Branding DNA Agent-only panel — Scout Manager v0.1.34 (2026-10-17)
+
+The Windows Branding DNA section is now only an **agent lifecycle control**:
+Start Agent, Stop Agent, Agent Logs, Refresh CAM and a read-only CAM status
+summary (connected, shop count, backend dispatch gate). Shop Library,
+approval policy, job queue, scan parameters and product choices belong to
+CAM, not the local Manager. Local shop selectors, Add/Change Shop, Run Pilot,
+manual approval editing, JSON editing and local report review are removed
+from this UI. Existing profile/checkpoint files remain on the machine for
+possible migration; this change does not delete them.
+
+Start Agent launches `apps/branding-dna-worker/src/agent_cam.mjs` in a
+dedicated Windows Job using the *existing paired Scout token* passed via
+process environment, never command-line args. This process polls authenticated
+CAM Shop Library metadata and logs only bounded non-sensitive health details.
+Current production /work lease endpoint deliberately returns
+`scan_enabled:false`; consequently an active agent is **connected but
+not scanning**. No user-chosen shop will be scanned and no provider challenge
+will be bypassed. Proper job leasing must be implemented and audited on the
+CAM backend separately before automated browsing can begin.
+
 ## Compact operations dashboard — Scout Manager v0.1.33 (2026-10-17)
 
 The main window uses a condensed header, five-item status strip and three

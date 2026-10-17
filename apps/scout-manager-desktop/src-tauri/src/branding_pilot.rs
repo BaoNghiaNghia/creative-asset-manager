@@ -457,6 +457,7 @@ impl BrandPilot {
                 let final_state=if exit.success(){
                     match self.action {
                         Some("run") => "Pilot ended · review local report",
+                        Some("agent") => "Agent stopped",
                         Some("install") => "Installed · configure shop",
                         Some("check") => "Ready",
                         _ => "Stopped",
@@ -491,7 +492,7 @@ impl BrandPilot {
         BrandPilotStatus{
             state,
             pid:self.child.as_ref().map(Child::id),
-            version:"0.2.3",
+            version:"0.2.4",
             configured,
             setup_available:root.join("INSTALL_TOOL.cmd").is_file() && root.join("START_BROWSER_PILOT.cmd").is_file(),
             running:self.child.is_some(),
@@ -605,6 +606,48 @@ impl BrandPilot {
         }
         self.action=match command{"install"=>Some("install"),"check"=>Some("check"),_=>Some("run")};
         self.state=match command{"install"=>"Installing Chromium","check"=>"Checking runtime",_=>"Pilot running"}.into();
+        self.last_error=None;
+        self.child=Some(child);
+        Ok(())
+    }
+    /// Starts a dedicated CAM-connected agent, never a selected local shop.
+    /// A paired Scout token is injected only through the child environment,
+    /// not shell arguments or logs. The current server has no scan dispatcher.
+    pub fn run_cam_agent(&mut self,repo:&Path,log_root:&Path,
+        agent_id:&str,token:&str,server:&str)->Result<(),String>{
+        self.check_status();
+        if self.child.is_some(){return Err("Branding DNA agent already active.".into())}
+        if !agent_id.chars().all(|c|c.is_ascii_hexdigit()||c=='-')||agent_id.len()!=36
+          || token.len()<20 {return Err("Pair Scout Manager with CAM first.".into())}
+        let parsed=reqwest::Url::parse(server).map_err(|_|"Invalid CAM server origin.")?;
+        if parsed.scheme()!="https"||parsed.host_str().is_none()||parsed.port().is_some()
+          || parsed.path()!="/"||parsed.query().is_some()||parsed.fragment().is_some()
+          || !parsed.username().is_empty()||parsed.password().is_some(){
+            return Err("Branding DNA requires an HTTPS CAM origin.".into());
+        }
+        let root=repo.join("apps/branding-dna-worker");
+        let script=root.join("src/agent_cam.mjs");
+        if !script.is_file(){return Err("Agent runtime missing. Update Branding DNA worker on this computer.".into())}
+        let stdout=crate::open_log(&log_root.join("branding_dna.stdout.log"))?;
+        let stderr=crate::open_log(&log_root.join("branding_dna.stderr.log"))?;
+        let mut process=Command::new("node");
+        process.arg(&script).current_dir(&root)
+            .env("RRUGC_AGENT_ID",agent_id)
+            .env("RRUGC_SCOUT_TOKEN",token)
+            .env("BRANDING_DNA_SERVER_URL",server)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr));
+        crate::hide_console(&mut process);
+        let mut child=process.spawn().map_err(|_|"Cannot launch Node agent. Check Node.js runtime.".to_string())?;
+        #[cfg(windows)]{
+            match winjob::Job::attach(&child){
+                Ok(job)=>self.job=Some(job),
+                Err(error)=>{let _=child.kill();let _=child.wait();return Err(error)}
+            }
+        }
+        self.action=Some("agent");
+        self.state="Agent active · waiting for CAM dispatch".into();
         self.last_error=None;
         self.child=Some(child);
         Ok(())

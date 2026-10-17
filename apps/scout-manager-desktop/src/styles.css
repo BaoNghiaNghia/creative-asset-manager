@@ -108,6 +108,17 @@
 .scout-jobs-error{color:#a65a40;font-size:10px;line-height:1.4}
 @media(max-width:1200px){.scout-jobs-grid,.keyword-health{grid-template-columns:repeat(2,minmax(0,1fr))}.scout-job b{font-size:16px}.scout-identity{gap:8px}.scout-card .meta-row{grid-template-columns:1fr 1.2fr;row-gap:8px}.scout-card .meta-row>div:nth-child(3){grid-column:1/-1;padding-left:0;border:0}.scout-card .meta-row>div:nth-child(2){border:0}}
 
+/* Agent-only CAM control pane; shop management remains on CAM. */
+.branding-agent-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:13px 0}
+.branding-agent-overview>div{background:#f7fafd;border:1px solid #e0e8f3;border-radius:9px;padding:10px 12px;display:grid;gap:6px;min-width:0}
+.branding-agent-overview small{font-size:10px;color:#8090a8}
+.branding-agent-overview strong{color:#2a466b;font-size:12px}
+.branding-agent-overview strong span{color:#8a98aa;font-weight:500;font-size:10px}
+.branding-agent-note{display:flex;align-items:flex-start;gap:8px;color:#6e8097;font-size:11px;line-height:1.5;margin:10px 0 0}
+.branding-agent-note svg{flex-shrink:0;margin-top:2px}
+@media(max-width:900px){.branding-agent-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:530px){.branding-agent-overview>div{padding:8px}.branding-agent-overview strong{font-size:11px}}
+
 /* Compact operational layout v0.1.33: detailed monitoring remains expandable. */
 body{min-width:360px;zoom:1}
 .shell{max-width:1500px;padding:15px 20px 14px}
