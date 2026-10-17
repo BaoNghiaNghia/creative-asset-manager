@@ -193,7 +193,8 @@ mod tests {
             platform:view.platform.clone(),shop_url:view.shop_url.clone(),
             approval_file:view.approval_file,profile_dir:view.profile_dir,
             report_dir:view.report_dir.clone(),max_products:view.max_products,
-            minimum_delay_ms:5000,headless:view.headless,
+            minimum_delay_ms:5000,maximum_delay_ms:None,
+            interaction_mode:None,headless:view.headless,
         };
         let dir=Path::new(&view.report_dir);
         fs::create_dir_all(dir).unwrap();
