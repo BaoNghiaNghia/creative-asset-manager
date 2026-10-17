@@ -21,7 +21,7 @@ export async function heartbeatOnce(config, requester=fetch) {
   const response=await requester(
     config.url + "/api/v1/branding-dna/workers/" + encodeURIComponent(config.agentId) + "/heartbeat",
     {method:"POST",headers:{"Authorization":"Bearer "+config.token,"Content-Type":"application/json"},
-     body:JSON.stringify({status:"idle",agent_version:"0.2.2"}),redirect:"error",signal:AbortSignal.timeout(15000)}
+     body:JSON.stringify({status:"idle",agent_version:"0.2.3"}),redirect:"error",signal:AbortSignal.timeout(15000)}
   );
   if(response.status===401 || response.status===403) throw new Error("enrollment_revoked");
   if(!response.ok) throw new Error("heartbeat_http_" + response.status);

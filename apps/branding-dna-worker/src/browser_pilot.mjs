@@ -2,7 +2,7 @@
  * No proxy rotation, challenge bypass, stealth plugins, login automation,
  * bulk enumeration, private dashboard access or remote job polling.
  */
-import {createHash} from "node:crypto";
+import {createHash,randomInt as secureRandomInt} from "node:crypto";
 import {openSync, closeSync, unlinkSync, mkdirSync, readFileSync, writeFileSync, existsSync, lstatSync} from "node:fs";
 import {resolve, dirname} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -15,6 +15,16 @@ const MAX_PRODUCT_PAGES=5;
 const USER_AGENT = "Agent/CreativeAssetManagerBrandDNA (BrowserPilot; +https://creative-assets.ddns.net)";
 const normalizePath=(p)=>{try{return decodeURIComponent(p)}catch{throw new Error("unsafe_path")}};
 const digest=(text)=>createHash("sha256").update(text).digest("hex");
+
+// Bounded randomized cooldown is for conservative traffic pacing, never to
+// impersonate human navigation, mask the Agent UA, or bypass rate limits.
+export function boundedCooldownMs(minimumMs,maximumMs,random=secureRandomInt){
+  if(!Number.isInteger(minimumMs) || minimumMs<5000 || minimumMs>60000 ||
+     !Number.isInteger(maximumMs) || maximumMs<minimumMs || maximumMs>60000)
+    throw new Error("invalid_navigation_cooldown_range");
+  if(minimumMs===maximumMs)return minimumMs;
+  return minimumMs+random(maximumMs-minimumMs+1);
+}
 
 export function assertShopUrl(raw, platform) {
   let url;
@@ -166,9 +176,10 @@ async function collectDetail(page,shop,link) {
 }
 
 export async function runBrowserPilot({shopUrl,platform,authorization,profileDir,
-          maxProducts=3,minimumDelayMs=5000,headless=false,interactionMode="direct",
-          skipProductKeys=[]},
-          {launchPersistentContext,wait=delay}={}) {
+          maxProducts=3,minimumDelayMs=5000,
+          maximumDelayMs=Math.min(60000,minimumDelayMs+8000),
+          headless=false,interactionMode="direct",skipProductKeys=[]},
+          {launchPersistentContext,wait=delay,random=secureRandomInt}={}) {
   const shop=assertShopUrl(shopUrl,platform);
   validateBrowserPermission(shop,authorization);
   // Actual Chromium runs only on authorized Windows hosts; tests may inject
@@ -186,8 +197,9 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
   const skipKeys=new Set(skipProductKeys);
   if(!Number.isInteger(maxProducts)||maxProducts<1||maxProducts>MAX_PRODUCT_PAGES)
     throw new Error("invalid_product_limit");
-  if(!Number.isInteger(minimumDelayMs)||minimumDelayMs<5000)
-    throw new Error("scan_pace_too_fast");
+  // Validate the cooldown window before launching any browser or saving state.
+  boundedCooldownMs(minimumDelayMs,maximumDelayMs,()=>0);
+  const pauseNavigation=async()=>wait(boundedCooldownMs(minimumDelayMs,maximumDelayMs,random));
   if(!profileDir || typeof profileDir!=="string")throw new Error("dedicated_profile_dir_required");
   const dir=resolve(profileDir);
   const normalized=dir.replaceAll("\\","/").toLowerCase();
@@ -220,7 +232,10 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     });
     const page=await context.newPage();
     page.setDefaultTimeout(10000);
-    await page.goto(shop.url,{waitUntil:"domcontentloaded",timeout:30000});
+    await pauseNavigation();
+    const shopResponse=await page.goto(shop.url,{waitUntil:"domcontentloaded",timeout:30000});
+    if([403,429].includes(shopResponse?.status?.()))
+      return {status:"needs_operator",platform,reason:"marketplace_access_limited",items:[],scan_enabled:false};
     if(page.url().replace(/\/$/,"")!==shop.url)throw new Error("unexpected_shop_redirect");
     const summary=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
     const blocker=isBlockingPage(await page.title(),summary);
@@ -233,19 +248,25 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     };
     const records=[];
     for(const [index,link] of links.slice(0,maxProducts).entries()){
-      await wait(minimumDelayMs);
       if(interactionMode==="visible_click"){
         if(index>0){
-          await page.goBack({waitUntil:"domcontentloaded",timeout:30000});
+          await pauseNavigation();
+          const backResponse=await page.goBack({waitUntil:"domcontentloaded",timeout:30000});
+          if([403,429].includes(backResponse?.status?.()))
+            return {status:"needs_operator",platform,reason:"marketplace_access_limited_on_return",items:records,scan_enabled:false};
           if(page.url().replace(/\/$/,"")!==shop.url)
             throw new Error("shop_back_navigation_mismatch");
           const returnedBody=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
           if(isBlockingPage(await page.title(),returnedBody))
             return {status:"needs_operator",platform,reason:"page_blocked_on_return",items:records,scan_enabled:false};
         }
+        await pauseNavigation();
         await clickVisibleProductLink(page,shop,link);
       }else{
-        await page.goto(link.url,{waitUntil:"domcontentloaded",timeout:30000});
+        await pauseNavigation();
+        const productResponse=await page.goto(link.url,{waitUntil:"domcontentloaded",timeout:30000});
+        if([403,429].includes(productResponse?.status?.()))
+          return {status:"needs_operator",platform,reason:"marketplace_access_limited",items:records,scan_enabled:false};
       }
       const finalProduct=assertProductLink(page.url(),shop);
       if(finalProduct.key!==link.key)throw new Error("product_redirect_mismatch");

@@ -37,6 +37,9 @@ test("config validation rejects arbitrary automation arguments and worker tree p
      {...config,platform:"shopify"},
      {...config,max_products:50},
      {...config,minimum_delay_ms:250},
+     {...config,maximum_delay_ms:1000},
+     {...config,maximum_delay_ms:60001},
+     {...config,maximum_delay_ms:9000,minimum_delay_ms:10000},
      {...config,headless:"true"},
      {...config,interaction_mode:"stealth"},
      {...config,interaction_mode:"visible_click",headless:true},
@@ -72,6 +75,7 @@ test("manual runner reports only local unverified evidence and never overwrites 
      if(calls===2)assert.deepEqual(options.skipProductKeys,["amazon:B012345678"]);
      assert.equal(options.maxProducts,2);
      assert.equal(options.minimumDelayMs,5000);
+     assert.equal(options.maximumDelayMs,13000);
      assert.equal(options.interactionMode,"direct");
      return {status:"preview_completed",platform:"amazon",items:[{
        listing_key:"amazon:B012345678",title:"Canvas Cap",

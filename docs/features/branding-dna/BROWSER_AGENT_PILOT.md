@@ -1,5 +1,17 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## v0.2.3 — Traffic pacing, not stealth automation
+
+Windows visual pilot uses bounded navigation cooldowns before opening the
+shop, each actual product click and return-to-shop. Defaults are
+`minimum_delay_ms=10000` and `maximum_delay_ms=18000` for new
+Scout Manager shops; CLI config may pin explicit values. Old configs without
+a maximum are assigned `minimum + 8000` (up to 60 seconds).
+Sampling only spreads requests to reduce bursts and server load: it must
+not mimic human keystrokes/cursor patterns, alter Agent UA, evade throttling
+or bypass challenges. 403/429 and blocking pages stop for operator review.
+No external marketplace pilot is permitted without separate shop approval.
+
 ## v0.2.2 — Local SQLite product checkpoint after every manual pilot
 
 Every permitted manual run reconciles earlier immutable JSON reports into

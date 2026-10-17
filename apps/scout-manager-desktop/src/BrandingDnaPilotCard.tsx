@@ -15,7 +15,7 @@ type ShopView = {
   approvalFilePresent:boolean; profileDir:string; reportDir:string;
 };
 const INITIAL:PilotStatus = {
-  state:"Checking…",pid:null,version:"0.2.2",configured:false,
+  state:"Checking…",pid:null,version:"0.2.3",configured:false,
   setupAvailable:false,running:false,lastError:null,approvalFilePresent:false,
 };
 const EMPTY_SHOP:ShopView={

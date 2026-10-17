@@ -5,7 +5,8 @@
   "profile_dir": "C:\\CAM\\BrandingDNA\\profiles\\example-shop",
   "report_dir": "C:\\CAM\\BrandingDNA\\reports",
   "max_products": 3,
-  "minimum_delay_ms": 5000,
+  "minimum_delay_ms": 10000,
+  "maximum_delay_ms": 18000,
   "headless": false,
   "interaction_mode": "visible_click"
 }

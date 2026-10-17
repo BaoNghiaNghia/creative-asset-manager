@@ -114,7 +114,7 @@ fn pilot_config_for(
         approval_file:base.join("secrets").join(format!("{id}.approval.json")).to_string_lossy().to_string(),
         profile_dir:base.join("profiles").join(&id).to_string_lossy().to_string(),
         report_dir:base.join("reports").join(id).to_string_lossy().to_string(),
-        max_products,minimum_delay_ms:5000,headless,
+        max_products,minimum_delay_ms:10000,headless,
     })
 }
 pub(crate) fn load_config(repo:&Path)->Result<Option<PilotShopConfig>,String>{
@@ -463,7 +463,7 @@ impl BrandPilot {
         BrandPilotStatus{
             state:self.state.clone(),
             pid:self.child.as_ref().map(Child::id),
-            version:"0.2.2",
+            version:"0.2.3",
             configured:root.join("config/pilot.local.json").is_file(),
             setup_available:root.join("INSTALL_TOOL.cmd").is_file() && root.join("START_BROWSER_PILOT.cmd").is_file(),
             running:self.child.is_some(),

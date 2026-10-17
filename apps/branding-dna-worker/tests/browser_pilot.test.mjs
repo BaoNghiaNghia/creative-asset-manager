@@ -5,7 +5,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {
   assertShopUrl,assertProductLink,validateBrowserPermission,
-  resourceAllowed,navigationAllowed,isBlockingPage,runBrowserPilot,
+  resourceAllowed,navigationAllowed,isBlockingPage,runBrowserPilot,boundedCooldownMs,
 } from "../src/browser_pilot.mjs";
 
 const AMAZON="https://www.amazon.com/stores/AcmeCaps/page/NEW0123";
@@ -20,6 +20,14 @@ function authorization(platform,url) {
   etsy_written_authorization:true,etsy_authorization_reference:"Etsy consent #12345",
   amazon_agent_policy_reviewed:true};
 }
+
+test("bounded navigation cooldown has hard lower and upper limits",()=>{
+ assert.equal(boundedCooldownMs(10000,18000,()=>0),10000);
+ assert.equal(boundedCooldownMs(10000,18000,span=>span-1),18000);
+ assert.equal(boundedCooldownMs(12000,12000,()=>0),12000);
+ for(const [min,max] of [[4999,5000],[10000,9999],[10000,60001],[10000,NaN],[-1,30000]])
+  assert.throws(()=>boundedCooldownMs(min,max),/invalid_navigation_cooldown_range/);
+});
 
 test("strict marketplace shop URL allowlists reject login, redirects, userinfo and SSRF",()=>{
  assert.equal(assertShopUrl(ETSY,"etsy").platform,"etsy");
@@ -159,7 +167,7 @@ test("approved Amazon browser pilot navigates DOM, emits only unverified evidenc
   const report=await runBrowserPilot({
     shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
     profileDir:join(dir,"profile"),maxProducts:1,minimumDelayMs:5000,headless:true,
-  },{launchPersistentContext:browser.launchPersistentContext,wait:async(ms)=>{waited+=ms}});
+  },{launchPersistentContext:browser.launchPersistentContext,wait:async(ms)=>{waited+=ms},random:()=>0});
   assert.equal(report.status,"preview_completed");
   assert.equal(report.items.length,1);
   assert.equal(report.items[0].listing_key,"amazon:B012345678");
@@ -169,7 +177,7 @@ test("approved Amazon browser pilot navigates DOM, emits only unverified evidenc
   assert.equal(report.items[0].sales_state,"unknown");
   assert.equal(report.scan_enabled,false);
   assert.equal(report.evidence_committed,false);
-  assert.equal(waited,5000);
+  assert.equal(waited,10000);
   assert.equal(browser.getVisits(),2);
   assert.equal(browser.getClosed(),true);
   const r=browser.getRoute();
@@ -218,6 +226,25 @@ test("visible UI mode uses accessible link clicks and returns to shop for next p
   assert.equal(browser.getClicks(),2);
   assert.equal(browser.getBacks(),1);
   assert.ok(browser.getClosed());
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
+test("visible UI rate limits shop entry, product clicks and return navigation",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-paced-click-"));
+ try{
+  const second="https://www.amazon.com/dp/B012345679";
+  const browser=fakeBrowser(AMAZON,AMAZON_LINK,{uiLinks:[AMAZON_LINK,second]});
+  const waits=[];
+  const report=await runBrowserPilot({
+    shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+    profileDir:join(dir,"paced"),interactionMode:"visible_click",
+    maxProducts:2,minimumDelayMs:10000,maximumDelayMs:18000,
+  },{launchPersistentContext:browser.launchPersistentContext,
+      wait:async ms=>{waits.push(ms)},random:span=>span-1});
+  assert.equal(report.status,"preview_completed");
+  assert.deepEqual(waits,[18000,18000,18000,18000]);
+  assert.equal(browser.getClicks(),2);
+  assert.equal(browser.getBacks(),1);
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
 

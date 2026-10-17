@@ -8,11 +8,11 @@ import {pathToFileURL,fileURLToPath} from "node:url";
 import {assertShopUrl,validateBrowserPermission,runBrowserPilot} from "./browser_pilot.mjs";
 import {openShopProgress} from "./local_scan_progress.mjs";
 
-export const VERSION="0.2.2";
+export const VERSION="0.2.3";
 const ROOT=resolve(fileURLToPath(new URL("..",import.meta.url)));
 const KEYS=new Set([
   "platform","shop_url","approval_file","profile_dir","report_dir",
-  "max_products","minimum_delay_ms","headless","interaction_mode",
+  "max_products","minimum_delay_ms","maximum_delay_ms","headless","interaction_mode",
 ]);
 
 function isChild(path,parent){
@@ -43,6 +43,11 @@ export function validatePilotConfig(config,root=ROOT){
     throw new Error("max_products_range_1_to_5");
   if(!Number.isInteger(config.minimum_delay_ms) || config.minimum_delay_ms<5000 || config.minimum_delay_ms>60000)
     throw new Error("minimum_delay_ms_range_5000_to_60000");
+  if(config.maximum_delay_ms!==undefined && (
+    !Number.isInteger(config.maximum_delay_ms) ||
+    config.maximum_delay_ms<config.minimum_delay_ms ||
+    config.maximum_delay_ms>60000))
+    throw new Error("maximum_delay_ms_range_invalid");
   if(typeof config.headless!=="boolean")throw new Error("headless_boolean_required");
   if(config.interaction_mode!==undefined && !["direct","visible_click"].includes(config.interaction_mode))
     throw new Error("interaction_mode_invalid");
@@ -88,6 +93,7 @@ export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROO
     profileDir:config.profile_dir,
     maxProducts:config.max_products,
     minimumDelayMs:config.minimum_delay_ms,
+    maximumDelayMs:config.maximum_delay_ms??Math.min(60000,config.minimum_delay_ms+8000),
     headless:config.headless,
     skipProductKeys:completedKeys,
     // Existing Scout Manager config already exposes "Show Chromium". Use

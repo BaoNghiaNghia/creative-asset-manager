@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "cam-scout-manager"
-version = "0.1.29"
+version = "0.1.30"
 dependencies = [
  "reqwest",
  "serde",
@@ -2920,7 +2920,7 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.29"
+version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
 dependencies = [
