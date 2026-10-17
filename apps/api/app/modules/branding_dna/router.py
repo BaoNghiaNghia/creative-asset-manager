@@ -133,8 +133,18 @@ def list_shops_for_paired_scout(
         BrandShopModel.tenant_id == scout.tenant_id,
         BrandShopModel.platform.in_(("amazon", "etsy")),
     ).order_by(BrandShopModel.created_at.desc()).limit(200)).all()
+    # This is an informational control-plane contract, NOT authorization to
+    # crawl. A shop's access_mode is self-declared, not independent evidence of
+    # marketplace permission. A connected Scout must not infer job readiness.
     return {"items": [present(row) for row in rows], "count": len(rows),
-            "scan_enabled": False}
+            "scan_enabled": False,
+            "dispatch": {
+                "state": "disabled",
+                "reason": "scan_task_dispatch_not_deployed",
+                "active_scan_jobs": 0,
+                "rights_verification_required": True,
+                "marketplace_authorization_verified": False,
+            }}
 
 
 @router.post("/shops", status_code=201)

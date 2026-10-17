@@ -4,7 +4,13 @@ import {CircleAlert,FolderSearch,Globe2,Pause,Play,RefreshCcw,ShieldCheck} from 
 
 type AgentStatus={state:string;pid:number|null;version:string;running:boolean;lastError:string|null;};
 type CamShop={id:string;displayName:string;platform:string;shopUrl:string;status:string;accessMode:string};
+type CamSync={shops:CamShop[];dispatchState:"disabled";dispatchReason:string};
 const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.4",running:false,lastError:null};
+
+/** An empty Shop Library is still an authenticated, connected CAM session. */
+export function camConnectionState(acknowledged:boolean, shops:CamShop[]){
+ return {connected:acknowledged,shopCount:acknowledged?shops.length:null};
+}
 
 /** Agent-only control plane: all shops, rights, task priorities and dispatch
  * are owned by CAM. No local Shop selector, authorization form or pilot runner. */
@@ -13,6 +19,8 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
 }){
  const [status,setStatus]=useState<AgentStatus>(INITIAL);
  const [shops,setShops]=useState<CamShop[]>([]);
+ const [camConnected,setCamConnected]=useState(false);
+ const [dispatchReason,setDispatchReason]=useState("scan_task_dispatch_not_deployed");
  const [camError,setCamError]=useState("");
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
@@ -25,11 +33,15 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
    if(!nativeAvailable)return;
    setRefreshing(true);
    try{
-     const data=await invoke<CamShop[]>("branding_pilot_cam_shops");
-     setShops(data);setCamError("");
+     const data=await invoke<CamSync>("branding_pilot_cam_shops");
+     if(data.dispatchState!=="disabled"||!Array.isArray(data.shops)){
+       throw new Error("CAM job contract changed. Update the Scout Manager before scanning.");
+     }
+     setShops(data.shops);setCamConnected(true);
+     setDispatchReason(data.dispatchReason);setCamError("");
    }catch(e){
      setCamError(typeof e==="string"?e:e instanceof Error?e.message:"CAM connection unavailable.");
-     setShops([]);
+     setShops([]);setCamConnected(false);
    }finally{setRefreshing(false)}
  },[nativeAvailable]);
  useEffect(()=>{
@@ -51,7 +63,11 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
  };
  const amazon=shops.filter(x=>x.platform==="amazon").length;
  const etsy=shops.filter(x=>x.platform==="etsy").length;
- const connected=!camError&&shops.length>0;
+ const {connected:acknowledged}=camConnectionState(camConnected,shops);
+ const connected=acknowledged&&!camError;
+ const dispatchLabel=dispatchReason==="scan_task_dispatch_not_deployed"
+   ?"Chưa mở cấp job": "Đang xác minh trạng thái";
+
  return <section className="branding-pilot-panel branding-agent-only" aria-label="Branding DNA Browser Agent">
    <div className="branding-pilot-top">
      <div className="branding-pilot-icon"><Globe2 size={22}/></div>
@@ -59,13 +75,13 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
        <h2>Branding DNA · Browser Agent</h2>
        <p>Shop Library, quyền truy cập và điều phối job được quản lý trên CAM.</p>
      </div>
-     <span className={"status-pill "+(status.running?"success":"neutral")}><span className="status-dot"/>{status.running?"Agent running":"Agent stopped"}</span>
+     <span className={"status-pill "+(status.running?"success":"neutral")}><span className="status-dot"/>{status.running?"Agent process running":"Agent stopped"}</span>
    </div>
    <div className="branding-agent-overview">
      <div><small>Kết nối CAM</small><strong>{connected?"Connected":camError?"Connection error":refreshing?"Connecting…":"Not connected"}</strong></div>
      <div><small>Shop từ CAM</small><strong>{connected?shops.length:"—"} <span>({amazon} Amazon · {etsy} Etsy)</span></strong></div>
-     <div><small>Agent</small><strong>{status.running?"Active":"Stopped"} <span>· PID {status.pid??"—"}</span></strong></div>
-     <div><small>Điều phối</small><strong>Chưa mở cấp job <span>· CAM</span></strong></div>
+     <div><small>Agent</small><strong>{status.running?"Chờ CAM":"Stopped"} <span>· PID {status.pid??"—"}</span></strong></div>
+     <div><small>Điều phối</small><strong>{dispatchLabel} <span>· CAM</span></strong></div>
    </div>
    <div className="branding-pilot-actions branding-main-actions">
      <button type="button" className="button primary slim" disabled={disabled||status.running||!connected}

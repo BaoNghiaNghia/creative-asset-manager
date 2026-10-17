@@ -951,9 +951,17 @@ struct CamBrandShop {
     access_mode:String,
 }
 #[derive(Deserialize)]
+struct CamBrandDispatch {
+    state:String,
+    reason:String,
+    active_scan_jobs:u32,
+}
+#[derive(Deserialize)]
 struct CamBrandShopsResponse {
     items:Vec<CamBrandShop>,
     scan_enabled:bool,
+    #[serde(default)]
+    dispatch:Option<CamBrandDispatch>,
 }
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
@@ -965,10 +973,25 @@ struct CamBrandShopView {
     status:String,
     access_mode:String,
 }
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct CamBrandSyncView {
+    shops:Vec<CamBrandShopView>,
+    dispatch_state:String,
+    dispatch_reason:String,
+}
+fn cam_dispatch_is_safe(payload:&CamBrandShopsResponse)->bool {
+    // A future dispatchable contract requires a separately audited client.
+    !payload.scan_enabled && payload.items.len()<=200
+        && payload.dispatch.as_ref().is_none_or(|d|
+            d.state=="disabled" && d.reason=="scan_task_dispatch_not_deployed"
+                && d.active_scan_jobs==0)
+}
+
 #[tauri::command]
 async fn branding_pilot_cam_shops(
     state: tauri::State<'_, Arc<Controller>>,
-) -> Result<Vec<CamBrandShopView>,String> {
+) -> Result<CamBrandSyncView,String> {
     let settings=config_values(&state.repo);
     let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
     let agent_id=get("RRUGC_AGENT_ID").filter(|s|!s.is_empty())
@@ -992,7 +1015,8 @@ async fn branding_pilot_cam_shops(
         .build().map_err(|_|"Unable to initialize CAM client.")?
         .get(&url).bearer_auth(token).timeout(Duration::from_secs(12))
         .send().await.map_err(|_|"Cannot reach CAM Shop Library. Check connection.".to_string())?;
-    if response.status()==reqwest::StatusCode::UNAUTHORIZED {
+    if response.status()==reqwest::StatusCode::UNAUTHORIZED
+        || response.status()==reqwest::StatusCode::FORBIDDEN {
         return Err("Scout pairing expired or revoked. Re-pair with CAM.".into());
     }
     if !response.status().is_success() {
@@ -1000,9 +1024,12 @@ async fn branding_pilot_cam_shops(
     }
     let parsed=response.json::<CamBrandShopsResponse>().await
         .map_err(|_|"CAM returned an invalid Shop Library response.".to_string())?;
-    if parsed.scan_enabled || parsed.items.len()>200 {
+    if !cam_dispatch_is_safe(&parsed) {
         return Err("Unsafe CAM Shop Library response.".into());
     }
+    let dispatch_reason=parsed.dispatch.as_ref()
+        .map(|d| d.reason.clone())
+        .unwrap_or_else(|| "scan_task_dispatch_not_deployed".into());
     let mut shops=Vec::new();
     for entry in parsed.items {
         if !["amazon","etsy"].contains(&entry.platform.as_str()) {continue}
@@ -1015,7 +1042,11 @@ async fn branding_pilot_cam_shops(
             platform:entry.platform,shop_url:entry.storefront_url,
             status:entry.status,access_mode:entry.access_mode});
     }
-    Ok(shops)
+    Ok(CamBrandSyncView{
+        shops,
+        dispatch_state:"disabled".into(),
+        dispatch_reason,
+    })
 }
 
 #[tauri::command]
@@ -1407,6 +1438,34 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cam_sync_accepts_zero_shops_but_rejects_unreviewed_dispatch() {
+        let base=serde_json::json!({
+            "items":[], "scan_enabled":false,
+            "dispatch":{"state":"disabled","reason":"scan_task_dispatch_not_deployed",
+                        "active_scan_jobs":0}
+        });
+        let parsed:CamBrandShopsResponse=serde_json::from_value(base.clone()).unwrap();
+        assert!(cam_dispatch_is_safe(&parsed)); // Empty Shop Library is still connected.
+        let previous:CamBrandShopsResponse=serde_json::from_value(
+            serde_json::json!({"items":[],"scan_enabled":false})
+        ).unwrap();
+        assert!(cam_dispatch_is_safe(&previous)); // Old server contract is supported.
+
+        let mut enabled=base.clone();
+        enabled["scan_enabled"]=serde_json::json!(true);
+        let unexpected:CamBrandShopsResponse=serde_json::from_value(enabled).unwrap();
+        assert!(!cam_dispatch_is_safe(&unexpected));
+        let mut issued=base.clone();
+        issued["dispatch"]["active_scan_jobs"]=serde_json::json!(1);
+        let active:CamBrandShopsResponse=serde_json::from_value(issued).unwrap();
+        assert!(!cam_dispatch_is_safe(&active));
+        let mut incompatible=base;
+        incompatible["dispatch"]["reason"]=serde_json::json!("unknown_execution");
+        let changed:CamBrandShopsResponse=serde_json::from_value(incompatible).unwrap();
+        assert!(!cam_dispatch_is_safe(&changed));
+    }
+
     #[test]
     fn pairing_needs_both_fields() {
         let scratch = std::env::temp_dir().join(format!("cam-scout-test-{}", std::process::id()));

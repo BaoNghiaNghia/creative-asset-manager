@@ -1,5 +1,19 @@
 # RRUGC Scout Manager
 
+## Agent-only CAM synchronization — v0.1.36 (2026-10-17)
+
+The native Branding DNA panel treats a **successfully authenticated empty Shop
+Library as connected** (0 shops), so its Start Agent control is no longer
+incorrectly disabled. Native CAM response handling reads the explicit
+non-dispatchable API state, rejects any unexpected active lease/dispatch
+contract, and treats HTTP 401/403 as revoked pairing. Agent process status
+is labelled waiting on CAM rather than implying Amazon/Etsy scans are running.
+Shop settings remain exclusively in CAM; no new local shop configuration.
+The API contract adds read-only dispatch blockers and zero active scan jobs.
+No automatic marketplace browsing or rights verification is enabled by this
+release.
+
+
 ## Simplified Scout Manager window — v0.1.35 (2026-10-17)
 
 Removed the **Update** and **Pairing** toolbar buttons, the redundant

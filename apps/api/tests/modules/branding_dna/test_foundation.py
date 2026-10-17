@@ -99,6 +99,22 @@ def test_paired_scout_sees_only_own_tenant_marketplace_shops(db):
     assert output["items"][0]["id"] == own["id"]
     assert output["items"][0]["id"] != other["id"]
     assert output["scan_enabled"] is False
+    assert output["dispatch"] == {
+        "state": "disabled",
+        "reason": "scan_task_dispatch_not_deployed",
+        "active_scan_jobs": 0,
+        "rights_verification_required": True,
+        "marketplace_authorization_verified": False,
+    }
+
+    # A valid Scout pairing stays connected even with an empty Shop Library.
+    db.delete(db.get(BrandShopModel, own["id"]))
+    db.commit()
+    empty = list_shops_for_paired_scout(scout.id,
+        authorization="Bearer testing-scout-token-very-long-safe-secret", session=db)
+    assert empty["items"] == []
+    assert empty["count"] == 0
+    assert empty["dispatch"]["state"] == "disabled"
 
     scout.active = False
     db.commit()

@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import App from "./App";
 import { BrandingDnaReports } from "./BrandingDnaReports";
+import {camConnectionState} from "./BrandingDnaPilotCard";
 describe("Tauri Scout Manager dashboard", () => {
+  it("keeps CAM connected even when no shops have been configured",()=>{
+    expect(camConnectionState(true,[])).toEqual({connected:true,shopCount:0});
+    expect(camConnectionState(false,[])).toEqual({connected:false,shopCount:null});
+    expect(camConnectionState(true,[{id:"a",displayName:"Shop",platform:"amazon",
+      shopUrl:"https://www.amazon.com/stores/Test",status:"draft",accessMode:"public_observation"}]))
+      .toEqual({connected:true,shopCount:1});
+  });
   it("renders both pipelines and monitoring UI without enabling native controls in browser preview", () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain("RRUGC Scout Manager");
