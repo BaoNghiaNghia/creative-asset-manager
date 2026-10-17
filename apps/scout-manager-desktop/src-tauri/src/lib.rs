@@ -1544,23 +1544,28 @@ mod tests {
             .launch(&mut mock)
             .expect("fixture Scout must launch into a Windows Job");
         assert!(mock.child.as_mut().unwrap().try_wait().unwrap().is_none());
-        // Cold GitHub Windows runners may take several seconds to bootstrap
-        // PowerShell. Poll the real output instead of assuming a 700ms start.
-        let deadline = Instant::now() + Duration::from_secs(12);
+        // Cold or resource-constrained GitHub Windows runners may take much
+        // longer than 12 seconds to initialize PowerShell and antivirus.
+        // Fail only after a bounded 30-second readiness check. Production
+        // processes use their own watchdog, not this test-only deadline.
+        let deadline = Instant::now() + Duration::from_secs(30);
         let mut started = false;
+        let mut early_exit = None;
         while Instant::now() < deadline {
             if file_tail(&log_file(&logs, "review"), 10).contains("FAKE_SCOUT_STARTED") {
                 started = true;
                 break;
             }
-            if mock.child.as_mut().unwrap().try_wait().unwrap().is_some() {
+            if let Some(status) = mock.child.as_mut().unwrap().try_wait().unwrap() {
+                early_exit = Some(status);
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
         let stderr = file_tail(&logs.join("review.stderr.log"), 30);
+        let stdout_tail = file_tail(&log_file(&logs, "review"), 30);
         controller.terminate(&mut mock);
-        assert!(started, "Windows smoke Scout did not boot: {stderr}");
+        assert!(started, "Windows smoke Scout did not boot; exit={early_exit:?}; stderr={stderr}; stdout={stdout_tail}");
         assert!(mock.child.is_none());
         assert_eq!(mock.state, "Stopped");
         fs::remove_dir_all(scratch).unwrap();
