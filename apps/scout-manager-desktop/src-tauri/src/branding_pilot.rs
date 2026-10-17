@@ -31,6 +31,10 @@ pub struct PilotShopConfig {
     pub report_dir: String,
     pub max_products: u8,
     pub minimum_delay_ms: u32,
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub maximum_delay_ms: Option<u32>,
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub interaction_mode: Option<String>,
     pub headless: bool,
 }
 #[derive(Serialize)]
@@ -104,7 +108,9 @@ fn pilot_config_for(
                 approval_file:old.approval_file.clone(),
                 profile_dir:old.profile_dir.clone(),
                 report_dir:old.report_dir.clone(),
-                minimum_delay_ms:old.minimum_delay_ms});
+                minimum_delay_ms:old.minimum_delay_ms,
+                maximum_delay_ms:old.maximum_delay_ms,
+                interaction_mode:old.interaction_mode.clone()});
         }
     }
     let id=format!("{platform}-{}",fingerprint(&url));
@@ -114,7 +120,8 @@ fn pilot_config_for(
         approval_file:base.join("secrets").join(format!("{id}.approval.json")).to_string_lossy().to_string(),
         profile_dir:base.join("profiles").join(&id).to_string_lossy().to_string(),
         report_dir:base.join("reports").join(id).to_string_lossy().to_string(),
-        max_products,minimum_delay_ms:10000,headless,
+        max_products,minimum_delay_ms:10000,maximum_delay_ms:Some(18000),
+        interaction_mode:Some(if headless {"direct"} else {"visible_click"}.into()),headless,
     })
 }
 pub(crate) fn load_config(repo:&Path)->Result<Option<PilotShopConfig>,String>{
@@ -198,7 +205,10 @@ fn ensure_library_config(config:&PilotShopConfig,id:&str,repo:&Path)->Result<(),
     let canonical=normalize_shop_url(&config.platform,&config.shop_url)?;
     if canonical!=config.shop_url || library_id(config)!=id
         || !(1..=5).contains(&config.max_products)
-        || !(5000..=60000).contains(&config.minimum_delay_ms){
+        || !(5000..=60000).contains(&config.minimum_delay_ms)
+        || config.maximum_delay_ms.is_some_and(|max|
+            max<config.minimum_delay_ms || max>60000)
+        || !matches!(config.interaction_mode.as_deref(),None|Some("direct")|Some("visible_click")) {
         return Err("Invalid saved shop metadata.".into());
     }
     let repo=repo.canonicalize().map_err(|_|"Scout checkout not found.")?;
@@ -606,6 +616,41 @@ mod tests{
         root
     }
     #[test]
+    fn accepts_visible_browser_config_and_preserves_profile_and_pacing(){
+        let root=fake_root();
+        let repo=root.join("repo");
+        let local=root.join("local");
+        let config_file=config_path(&repo);
+        let original=serde_json::json!({
+            "platform":"amazon",
+            "shop_url":"https://www.amazon.com/stores/EMBROLY/page/58852A28-5FA6-42D7-92C4-1BF3A4CF6CC4",
+            "approval_file":local.join("secrets/embroly.json"),
+            "profile_dir":local.join("profiles/amazon-embroly"),
+            "report_dir":local.join("reports/amazon-embroly"),
+            "max_products":5,"minimum_delay_ms":10000,
+            "maximum_delay_ms":18000,"headless":false,
+            "interaction_mode":"visible_click"
+        });
+        fs::write(&config_file,serde_json::to_vec_pretty(&original).unwrap()).unwrap();
+        let current=load_config(&repo).unwrap().unwrap();
+        assert_eq!(current.interaction_mode.as_deref(),Some("visible_click"));
+        assert_eq!(current.maximum_delay_ms,Some(18000));
+        let mut agent=BrandPilot::new();
+        let selected=agent.save_shop(&repo,&local,"amazon",
+            original["shop_url"].as_str().unwrap(),5,false).unwrap();
+        assert!(selected.configured);
+        let rewritten=load_config(&repo).unwrap().unwrap();
+        assert_eq!(rewritten.profile_dir,current.profile_dir);
+        assert_eq!(rewritten.report_dir,current.report_dir);
+        assert_eq!(rewritten.approval_file,current.approval_file);
+        assert_eq!(rewritten.interaction_mode.as_deref(),Some("visible_click"));
+        assert_eq!(rewritten.maximum_delay_ms,Some(18000));
+        let mut malicious=original.clone();
+        malicious["unknown_runtime_field"]=serde_json::json!(true);
+        assert!(serde_json::from_value::<PilotShopConfig>(malicious).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn rejects_non_store_and_unsafe_urls(){
         let invalid=[
             ("etsy","https://www.etsy.com/listing/100"),
@@ -670,7 +715,8 @@ mod tests{
         let id=library_id(&PilotShopConfig{
             platform:"etsy".into(),shop_url:first.shop_url.clone(),
             approval_file:first.approval_file.clone(),profile_dir:first.profile_dir.clone(),
-            report_dir:first.report_dir.clone(),max_products:3,minimum_delay_ms:5000,headless:false,
+            report_dir:first.report_dir.clone(),max_products:3,minimum_delay_ms:5000,
+            maximum_delay_ms:None,interaction_mode:None,headless:false,
         });
         let back=agent.select_shop(&repo,&local,&id).unwrap();
         assert_eq!(back.shop_url,first.shop_url);

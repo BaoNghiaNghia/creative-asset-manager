@@ -1,5 +1,17 @@
 # RRUGC Scout Manager
 
+## Branding DNA local config compatibility — Scout Manager v0.1.32 (2026-10-17)
+
+Fixed a mismatch between the Node Browser Agent and Rust Scout Manager:
+legacy `PilotShopConfig` used `deny_unknown_fields` and rejected valid
+`interaction_mode: visible_click` and `maximum_delay_ms` config keys.
+The new native reader accepts these optional, bounded keys and preserves them,
+alongside profile/report/approval paths, when selecting a shop. Unknown fields
+remain denied and local scan approval remains default-deny. The startup UI
+now surfaces the underlying configuration error rather than a generic failure.
+Regression test covers a real-format Amazon EMBROLY config and round-trip
+preservation without activating the pilot.
+
 ## Branding DNA CAM Shop Library sync — Scout Manager v0.1.31 (2026-10-17)
 
 The Browser Agent used to display only locally saved Windows shop records.

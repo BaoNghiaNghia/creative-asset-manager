@@ -69,7 +69,7 @@ export function BrandingDnaPilotCard({
  useEffect(()=>{
    if(!nativeAvailable)return;
    void refresh().catch(()=>setError("Cannot read Branding DNA pilot status."));
-   void reloadShop().catch(()=>setError("Cannot read shop configuration."));
+   void reloadShop().catch(e=>setError("Cannot read shop configuration: "+(typeof e==="string"?e:e instanceof Error?e.message:"Unknown error")));
    void reloadLibrary().catch(()=>setError("Cannot read saved shop library."));
    void reloadCamShops();
    const interval=window.setInterval(()=>{
