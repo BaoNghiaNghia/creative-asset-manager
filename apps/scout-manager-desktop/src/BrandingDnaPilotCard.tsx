@@ -15,7 +15,7 @@ type ShopView = {
   approvalFilePresent:boolean; profileDir:string; reportDir:string;
 };
 const INITIAL:PilotStatus = {
-  state:"Checking…",pid:null,version:"0.2.1",configured:false,
+  state:"Checking…",pid:null,version:"0.2.2",configured:false,
   setupAvailable:false,running:false,lastError:null,approvalFilePresent:false,
 };
 const EMPTY_SHOP:ShopView={
@@ -130,7 +130,7 @@ export function BrandingDnaPilotCard({
      <span>{status.approvalFilePresent?"Approval document present · not independently verified":"Authorization file missing"}</span>
    </div>
    <p className="branding-pilot-note"><ShieldCheck size={15}/>
-     Manual pilot only: global Run automation and Pinterest Gemini jobs never start this browser. Each pilot observes at most 5 public product pages; no CAM upload or auto-retry.
+     Manual pilot only: global Run automation and Pinterest Gemini jobs never start this browser. Each pilot observes up to 5 public product pages and records local per-shop progress; run again manually to skip previously observed products. No CAM upload or auto-retry.
    </p>
    <div className="branding-library-bar" aria-label="Saved shop library">
      <label>Saved shop library · {library.length}/50

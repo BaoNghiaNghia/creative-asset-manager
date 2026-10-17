@@ -15,7 +15,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKER = ROOT / "apps" / "branding-dna-worker"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 BASENAME = f"BrandingDNA-BrowserAgent-v{VERSION}-win-x64"
 STAMP = (2026, 10, 16, 0, 0, 0)
 
@@ -35,10 +35,12 @@ PACKAGE_FILES = (
     "src/check_setup.mjs",
     "src/heartbeat.mjs",
     "src/outbox.mjs",
+    "src/local_scan_progress.mjs",
     "tests/browser_pilot.test.mjs",
     "tests/configured_pilot.test.mjs",
     "tests/heartbeat.test.mjs",
     "tests/outbox.test.mjs",
+    "tests/local_scan_progress.test.mjs",
 )
 DOC_PATH = ROOT / "docs/features/branding-dna/BROWSER_AGENT_PILOT.md"
 

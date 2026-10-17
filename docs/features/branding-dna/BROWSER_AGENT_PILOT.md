@@ -1,5 +1,23 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## v0.2.2 — Local SQLite product checkpoint after every manual pilot
+
+Every permitted manual run reconciles earlier immutable JSON reports into
+a per-shop SQLite ledger under `<report_dir>/.bdna-local-progress/`. The
+browser receives a bounded list of previously successful product keys and
+skips them during visible-link discovery. Reports are written first and
+recorded second; after a crash between these steps the next **manual**
+launch restores state from the locally saved, shop-hash-bound report. The
+ledger uses WAL and durable SQLite commits, handles cross-shop isolation
+even when reports share a folder, and rejects symlinks/tampered reports.
+
+The count means **locally observed products**, not verified rights,
+sales/bestsellers or full-shop coverage. Failed details/CAPTCHA do not count
+as successfully observed. On the initial visible shop page, if no new links
+remain the pilot ends in `needs_operator` for further review; it does not
+paginate or scrape additional pages automatically. No auto-run, VPS media,
+CAM evidence import, cloud storage or hidden headless human impersonation.
+
 ## v0.2.1 — Windows visible UI pilot and VPS release size
 
 The pilot supports `visible_click` via `getByRole("link")`, UI

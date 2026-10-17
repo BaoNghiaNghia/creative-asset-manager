@@ -1,7 +1,7 @@
 import test from "node:test";
 import {createHash} from "node:crypto";
 import assert from "node:assert/strict";
-import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,readdirSync,rmSync} from "node:fs";
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,readdirSync,rmSync,existsSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {validatePilotConfig,validateConfiguredApproval,readPilotConfig,runConfiguredPilot,cliArgs,VERSION} from "../src/run_configured_pilot.mjs";
@@ -69,19 +69,20 @@ test("manual runner reports only local unverified evidence and never overwrites 
    let calls=0;
    const runner=async options=>{
      calls++;
+     if(calls===2)assert.deepEqual(options.skipProductKeys,["amazon:B012345678"]);
      assert.equal(options.maxProducts,2);
      assert.equal(options.minimumDelayMs,5000);
      assert.equal(options.interactionMode,"direct");
      return {status:"preview_completed",platform:"amazon",items:[{
        listing_key:"amazon:B012345678",title:"Canvas Cap",
-       source_kind:"browser_dom_observation",sales_state:"unknown",
+       source_kind:"browser_dom_observation",source_verification:"unverified",sales_state:"unknown",
      }],scan_enabled:false,rights_verified:false};
    };
    const first=await runConfiguredPilot(config,{root:resolve(base,"worker"),runner});
    const second=await runConfiguredPilot(config,{root:resolve(base,"worker"),runner});
    assert.equal(calls,2);
    assert.notEqual(first.output,second.output);
-   assert.equal(readdirSync(config.report_dir).length,2);
+   assert.equal(readdirSync(config.report_dir).filter(name=>name.endsWith(".json")).length,2);
    const report=JSON.parse(readFileSync(first.output,"utf8"));
    assert.equal(report.pilot_version,VERSION);
    assert.equal(report.evidence_committed,false);
@@ -94,6 +95,28 @@ test("manual runner reports only local unverified evidence and never overwrites 
    assert.ok(!readFileSync(first.output,"utf8").includes("browser_access_approved"));
  }finally{rmSync(base,{recursive:true,force:true})}
 });
+test("local multi-run checkpoint preserves progress across separate pilot starts",async()=>{
+ const {base,config}=setup();
+ try {
+  let visit=0;
+  const observed=[];
+  const runner=async options=>{
+    observed.push(options.skipProductKeys);
+    const key=visit++===0?"amazon:B012345678":"amazon:B012345679";
+    return {status:"preview_completed",scan_enabled:false,items:[{
+      listing_key:key,title:"Test Cap "+key,
+      source_kind:"browser_dom_observation",source_verification:"unverified",
+    }]};
+  };
+  const first=await runConfiguredPilot(config,{root:resolve(base,"worker"),runner});
+  const second=await runConfiguredPilot(config,{root:resolve(base,"worker"),runner});
+  assert.equal(first.totalObserved,1);
+  assert.equal(second.previouslySeen,1);
+  assert.equal(second.totalObserved,2);
+  assert.deepEqual(observed,[[],["amazon:B012345678"]]);
+ }finally{rmSync(base,{recursive:true,force:true})}
+});
+
 test("Scout Manager visible browser defaults to real UI link clicks without config migration",async()=>{
  const {base,config}=setup();
  try{
@@ -126,6 +149,15 @@ test("blocked pilot report retains shop identity without enabling scans",async()
    assert.ok(body.observed_at);
  }finally{rmSync(base,{recursive:true,force:true})}
 });
+test("production CLI refuses Linux/VPS before creating local browser progress",async()=>{
+ if(process.platform==="win32")return;
+ const {base,config}=setup();
+ try{
+  await assert.rejects(()=>runConfiguredPilot(config,{root:resolve(base,"worker")}),/windows_browser_runtime_only/);
+  assert.equal(existsSync(config.report_dir),false);
+ }finally{rmSync(base,{recursive:true,force:true})}
+});
+
 test("runner fails closed on unexpected worker result",async()=>{
  const {base,config}=setup();
  try{

@@ -6,8 +6,9 @@ import {readFileSync,writeFileSync,existsSync,lstatSync,mkdirSync} from "node:fs
 import {isAbsolute,relative,resolve,join} from "node:path";
 import {pathToFileURL,fileURLToPath} from "node:url";
 import {assertShopUrl,validateBrowserPermission,runBrowserPilot} from "./browser_pilot.mjs";
+import {openShopProgress} from "./local_scan_progress.mjs";
 
-export const VERSION="0.2.1";
+export const VERSION="0.2.2";
 const ROOT=resolve(fileURLToPath(new URL("..",import.meta.url)));
 const KEYS=new Set([
   "platform","shop_url","approval_file","profile_dir","report_dir",
@@ -66,6 +67,20 @@ function nextReportFile(dir){
 }
 export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROOT}={}){
   const {shop,approval}=validateConfiguredApproval(config,root);
+  // On Linux/VPS, even a misconfigured manual CLI cannot create browser
+  // progress files: only explicitly injected mock runners can run in QA.
+  if(runner===runBrowserPilot && process.platform!=="win32")
+    throw new Error("windows_browser_runtime_only");
+  mkdirSync(config.report_dir,{recursive:true,mode:0o700});
+  if(lstatSync(config.report_dir).isSymbolicLink())throw new Error("report_dir_symlink_forbidden");
+  // Read per-shop progress before browsing. A crash after report write but
+  // before checkpoint commit is recovered from that immutable local report.
+  let completedKeys;
+  const before=openShopProgress(config.report_dir,shop);
+  try{
+    before.reconcile();
+    completedKeys=before.completedKeys();
+  }finally{before.close()}
   const result=await runner({
     platform:config.platform,
     shopUrl:config.shop_url,
@@ -74,14 +89,15 @@ export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROO
     maxProducts:config.max_products,
     minimumDelayMs:config.minimum_delay_ms,
     headless:config.headless,
+    skipProductKeys:completedKeys,
     // Existing Scout Manager config already exposes "Show Chromium". Use
     // semantic UI clicks in visible mode, without changing saved shop records.
     interactionMode:config.interaction_mode??(config.headless?"direct":"visible_click"),
   });
   if(!result || !["preview_completed","needs_operator"].includes(result.status)
-    || result.scan_enabled!==false)throw new Error("invalid_local_pilot_result");
-  mkdirSync(config.report_dir,{recursive:true,mode:0o700});
-  if(lstatSync(config.report_dir).isSymbolicLink())throw new Error("report_dir_symlink_forbidden");
+    || result.scan_enabled!==false || !Array.isArray(result.items)
+    || result.items.length>config.max_products)
+    throw new Error("invalid_local_pilot_result");
   const output=nextReportFile(config.report_dir);
   const manifest={
     ...result,
@@ -96,9 +112,21 @@ export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROO
     rights_verified:false,
     sales_verified:false,
     scan_enabled:false,
+    coverage_state:"partial",
   };
-  writeFileSync(output,JSON.stringify(manifest,null,2)+"\n",{mode:0o600,flag:"wx"});
-  return {output,status:manifest.status,count:manifest.items?.length??0};
+  const bytes=Buffer.from(JSON.stringify(manifest,null,2)+"\n");
+  if(bytes.length>262144)throw new Error("local_report_too_large");
+  writeFileSync(output,bytes,{mode:0o600,flag:"wx",flush:true});
+  // The durable report is authoritative. Never delete it on checkpoint error:
+  // the following manual run will reconcile from the immutable report.
+  const progress=openShopProgress(config.report_dir,shop);
+  let totalCompleted;
+  try {
+    progress.record(output.split(/[\\/]/).pop(),bytes,manifest);
+    totalCompleted=progress.count();
+  }finally{progress.close()}
+  return {output,status:manifest.status,count:manifest.items.length,
+    previouslySeen:completedKeys.length,totalObserved:totalCompleted};
 }
 
 export function cliArgs(args){
@@ -111,7 +139,8 @@ if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).
     const config=readPilotConfig(configPath);
     const outcome=await runConfiguredPilot(config);
     process.stdout.write("Branding DNA "+VERSION+" | "+outcome.status+
-      " | "+outcome.count+" partial items | local report: "+outcome.output+"\n");
+      " | "+outcome.count+" partial items | locally seen: "+outcome.totalObserved+
+      " | local report: "+outcome.output+"\n");
   }catch(error){
     // No approval JSON, full shop URL, token or page HTML in error output.
     process.stderr.write("Browser pilot blocked: "+(error instanceof Error?error.message:"unknown")+"\n");

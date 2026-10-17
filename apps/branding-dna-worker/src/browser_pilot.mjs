@@ -93,7 +93,7 @@ export function isBlockingPage(title,body){
   return null;
 }
 
-async function collectVisibleLinks(page,shop,interactionMode="direct"){
+async function collectVisibleLinks(page,shop,interactionMode="direct",skipKeys=new Set()){
   const selectors=shop.platform==="etsy"?'a[href*="/listing/"]':'a[href*="/dp/"],a[href*="/gp/product/"]';
   const anchors=interactionMode==="visible_click" ? page.getByRole("link") : page.locator(selectors);
   await anchors.first().waitFor({state:"attached",timeout:10000}).catch(()=>{});
@@ -106,7 +106,7 @@ async function collectVisibleLinks(page,shop,interactionMode="direct"){
     if(!href)continue;
     try{
       const link=assertProductLink(href,shop);
-      if(seen.has(link.key))continue;
+      if(seen.has(link.key) || skipKeys.has(link.key))continue;
       seen.add(link.key);
       found.push(link);
     }catch{/* skip unrelated and unsafe links */}
@@ -166,7 +166,8 @@ async function collectDetail(page,shop,link) {
 }
 
 export async function runBrowserPilot({shopUrl,platform,authorization,profileDir,
-          maxProducts=3,minimumDelayMs=5000,headless=false,interactionMode="direct"},
+          maxProducts=3,minimumDelayMs=5000,headless=false,interactionMode="direct",
+          skipProductKeys=[]},
           {launchPersistentContext,wait=delay}={}) {
   const shop=assertShopUrl(shopUrl,platform);
   validateBrowserPermission(shop,authorization);
@@ -178,6 +179,11 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     throw new Error("unsupported_interaction_mode");
   if(interactionMode==="visible_click" && headless)
     throw new Error("visible_click_requires_visible_browser");
+  if(!Array.isArray(skipProductKeys) || skipProductKeys.length>10000 ||
+    skipProductKeys.some(key=>typeof key!=="string" ||
+      !(platform==="amazon" ? /^amazon:[A-Z0-9]{10}$/ : /^etsy:[0-9]{1,20}$/).test(key)))
+    throw new Error("invalid_completed_product_keys");
+  const skipKeys=new Set(skipProductKeys);
   if(!Number.isInteger(maxProducts)||maxProducts<1||maxProducts>MAX_PRODUCT_PAGES)
     throw new Error("invalid_product_limit");
   if(!Number.isInteger(minimumDelayMs)||minimumDelayMs<5000)
@@ -219,9 +225,10 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     const summary=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
     const blocker=isBlockingPage(await page.title(),summary);
     if(blocker)return {status:"needs_operator",platform,reason:blocker,items:[],scan_enabled:false};
-    const links=await collectVisibleLinks(page,shop,interactionMode);
+    const links=await collectVisibleLinks(page,shop,interactionMode,skipKeys);
     if(links.length===0)return {
-      status:"needs_operator",platform,reason:"no_visible_listings_or_parser_changed",
+      status:"needs_operator",platform,
+      reason:skipKeys.size ? "no_new_visible_listings_review_shop_page" : "no_visible_listings_or_parser_changed",
       items:[],scan_enabled:false,
     };
     const records=[];

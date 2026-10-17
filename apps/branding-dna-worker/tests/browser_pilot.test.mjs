@@ -221,6 +221,33 @@ test("visible UI mode uses accessible link clicks and returns to shop for next p
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
 
+test("visible UI mode skips previously recorded products and does not falsely claim full-shop coverage",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-resume-click-"));
+ try{
+  const second="https://www.amazon.com/dp/B012345679";
+  const browser=fakeBrowser(AMAZON,AMAZON_LINK,{uiLinks:[AMAZON_LINK,second]});
+  const report=await runBrowserPilot({
+    shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+    profileDir:join(dir,"shop-a"),interactionMode:"visible_click",maxProducts:1,
+    skipProductKeys:["amazon:B012345678"],
+  },{launchPersistentContext:browser.launchPersistentContext,wait:async()=>{}});
+  assert.equal(report.status,"preview_completed");
+  assert.deepEqual(report.items.map(item=>item.listing_key),["amazon:B012345679"]);
+  assert.equal(browser.getVisits(),1);
+  assert.equal(browser.getClicks(),1);
+
+  const noNew=fakeBrowser(AMAZON,AMAZON_LINK,{uiLinks:[AMAZON_LINK,second]});
+  const exhaustedVisible=await runBrowserPilot({
+    shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+    profileDir:join(dir,"shop-b"),interactionMode:"visible_click",maxProducts:2,
+    skipProductKeys:["amazon:B012345678","amazon:B012345679"],
+  },{launchPersistentContext:noNew.launchPersistentContext,wait:async()=>{}});
+  assert.equal(exhaustedVisible.status,"needs_operator");
+  assert.equal(exhaustedVisible.reason,"no_new_visible_listings_review_shop_page");
+  assert.equal(noNew.getClicks(),0);
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
 test("visible UI mode refuses invisible browser before launching",async()=>{
  let launched=false;
  await assert.rejects(()=>runBrowserPilot({

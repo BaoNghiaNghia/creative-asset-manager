@@ -1,4 +1,4 @@
-BRANDING DNA BROWSER AGENT - WINDOWS v0.2.1
+BRANDING DNA BROWSER AGENT - WINDOWS v0.2.2
 ==========================================
 Type: Windows portable bootstrap ZIP, not a standalone EXE.
 Sites: Amazon and Etsy only. Uses Chromium browser, no marketplace API
@@ -18,6 +18,10 @@ or third-party scraping service.
 6. Double-click CHECK_TOOL.cmd to validate local Node/Chromium readiness.
 7. Only for an explicitly approved shop: double-click START_BROWSER_PILOT.cmd.
    Pilot browses up to 5 public product pages, saves a local JSON result.
+   Run again manually to skip successfully observed products in the first
+   shop page. Progress is stored in <report_dir>\\.bdna-local-progress\\,
+   separately for each shop. Keep this folder during upgrades.
+   No claim of full-shop coverage; no automatic repeating scans.
 8. START_BRANDING_DNA_WORKER.cmd is heartbeat-only. It never starts scanning.
 
 If a site requests CAPTCHA, login or denies access, stop and review manually.
@@ -25,6 +29,6 @@ Do not work around challenges or rate limits. No production job dispatch,
 gallery upload, Best Seller inference or automatic full-shop crawling yet.
 
 Release checksum: see .zip.sha256 adjacent to ZIP. To verify on Windows:
-  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.1-win-x64.zip" SHA256
+  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.2-win-x64.zip" SHA256
 
 More details: README.md and docs\BROWSER_AGENT_PILOT.md

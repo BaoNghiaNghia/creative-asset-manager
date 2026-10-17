@@ -1,4 +1,4 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.1
+# Branding DNA Windows Worker — Windows Portable v0.2.2
 
 ## Recommended: use the existing Scan Pinterest tool
 
@@ -7,13 +7,14 @@ This worker is now **integrated in Scout Manager v0.1.21** using the
 tool. Open `START_SCOUT_TAURI.cmd`, use the Branding DNA card's
 Install/Config/Check/Run/Stop and dedicated Live logs. All Pinterest modes
 remain unaffected. The v0.2.0 ZIP is retained only as a fallback.
-The v0.2.1 source adds optional visible UI clicks to the same Manager,
+The v0.2.2 source adds optional visible UI clicks and per-shop durable
+SQLite progress to the same Manager,
 without installing any Chromium/Scout runtime on CAM's VPS.
 
 ## Release / build mới (Windows)
 
-**Bản Windows Portable Bootstrap v0.2.1**, dự kiến GitHub Windows CI build
-`BrandingDNA-BrowserAgent-v0.2.1-win-x64.zip`. Chưa được cài trên máy Windows. Đây là
+**Bản Windows Portable Bootstrap v0.2.2**, dự kiến GitHub Windows CI build
+`BrandingDNA-BrowserAgent-v0.2.2-win-x64.zip`. Chưa được cài trên máy Windows. Đây là
 gói cài + launcher `.cmd`, **không phải EXE đã kèm Node/Chromium**. Đọc
 `QUICK_START_VI.txt` trong ZIP trước khi cài. ZIP và file `.zip.sha256`
 chỉ có thể dùng khi workflow build/release trên GitHub hoàn thành;
@@ -52,6 +53,24 @@ The default process sends signed **heartbeats and restricted lifecycle telemetry
 2. In CAM Branding DNA → Dedicated Windows Worker, register an agent. The API shows an **agent ID and token once**. Store them in an OS-protected secret vault. Do not commit or log the token.
 3. Inject the three environment variables only into the worker process: `BRANDING_DNA_SERVER_URL`, `BRANDING_DNA_AGENT_ID`, `BRANDING_DNA_AGENT_TOKEN`. Do not place secrets in the .cmd, repository or public configuration.
 4. Run `npm test`, then `npm start` or the .cmd. CAM should show heartbeat/online within ~1 minute. To stop immediately revoke the token via Disable in CAM.
+
+## Browser pilot v0.2.2 — Visible UI + durable local resume, Windows only
+
+Repeated **explicitly started**, individually authorized pilots resume via a
+per-shop SQLite checkpoint in `<report_dir>/.bdna-local-progress/`. Each
+pilot remains limited to 1–5 product pages on the *visible landing page*.
+A valid saved report is written before recording its product keys. A restart
+reconciles immutable reports and skips successfully observed product keys.
+Blocked pages and failed product details are **not** counted as completed;
+a missing new visible link prompts operator review, not a false claim of
+complete shop coverage. The local ledger holds IDs and hashes, never image
+bytes, credentials, cookies, or training rights. Separate shops stay isolated
+even when legacy configurations use one report folder.
+
+Do not delete `%LOCALAPPDATA%\\CreativeAssetManager\\BrandingDNA` during
+updates. The existing Scout Manager remains the single interface. No
+scheduled scanning, multi-page pagination or CAM production dispatcher is
+enabled; Amazon/Etsy authorization is checked again **each** manual run.
 
 ## Browser pilot v0.2.1 — Visible UI agent, Windows only
 
