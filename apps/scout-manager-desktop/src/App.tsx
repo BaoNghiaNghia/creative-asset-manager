@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BrandingDnaPilotCard } from "./BrandingDnaPilotCard";
-import { Activity, Check, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, Copy, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, Settings2, ShieldCheck, Terminal, X } from "lucide-react";
+import { Activity, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, ShieldCheck, X } from "lucide-react";
 
 type ModeName = "review" | "keyword" | "cap_stack";
-type LogMode = ModeName | "branding_dna";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type OperationsSummary = {
@@ -117,7 +116,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
           <div className="scout-jobs-foot">Priority suggestions: {operations?.keyword.suggestions_pending ?? "—"} · Active priority leases (this machine): {operations?.keyword.active_priority_tasks ?? "—"} · New keywords (tenant): {operations?.keyword.new_keywords_1h ?? "—"} / hour · {operations?.keyword.new_keywords_24h ?? "—"} / 24h · Last completed agent cycle (24h): {operations?.keyword.last_cycle_at ? new Date(operations.keyword.last_cycle_at).toLocaleTimeString() : "none"}</div>
           <div className="scout-jobs-foot">Done/failed cycles count only the dynamic query pool; saved keywords include all discovery sources.</div>
           {active && operations?.keyword.active_searches === 0 && (operations.keyword.active_priority_tasks || 0) === 0 && (operations.keyword.ready_queries || 0) > 0 &&
-            <div className="scout-jobs-foot">No active query or priority lease in this snapshot, despite eligible queries. The Scout may be between scans or waiting on Gemini/Pinterest; check Live activity if prolonged.</div>}
+            <div className="scout-jobs-foot">No active query or priority lease in this snapshot, despite eligible queries. The Scout may be between scans or waiting on Gemini/Pinterest; check local Scout logs if prolonged.</div>}
           {active && operations?.keyword.active_searches === 0 && (operations.keyword.active_priority_tasks || 0) === 0 && operations.keyword.ready_queries === 0 &&
             (operations.keyword.cooling_queries || 0) > 0 &&
             <div className="scout-jobs-foot">Query pool is cooling down. Running means the process is alive; the next scan must wait until a query becomes eligible.</div>}
@@ -147,48 +146,24 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
   </article>;
 }
 
-function Pairing({ paired, busy, onSave, onClose }: { paired: boolean; busy: boolean; onSave: (agentId: string, token: string) => void; onClose: () => void }) {
-  const [agentId, setAgentId] = useState("");
-  const [token, setToken] = useState("");
-  return <div className="modal-layer" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className="modal" role="dialog" aria-modal="true" aria-label="Scout pairing">
-      <div className="modal-title"><div><h2>Scout pairing</h2><p>Credentials remain on this computer in scout.local.env.</p></div><button className="icon-button" onClick={onClose} aria-label="Close pairing"><X size={20}/></button></div>
-      <form onSubmit={e => { e.preventDefault(); onSave(agentId.trim(), token.trim()); }}>
-        <label>Agent ID<input maxLength={128} required value={agentId} onChange={e => setAgentId(e.target.value)} placeholder="Paste Agent ID"/></label>
-        <label>{paired ? "New token (leave empty to preserve current pairing)" : "Scout token"}<input autoComplete="off" type="password" maxLength={1024} required={!paired} value={token} onChange={e => setToken(e.target.value)} placeholder="Token is stored locally"/></label>
-        <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" type="submit" disabled={busy}><Check size={16}/> Save pairing</button></div>
-      </form>
-    </div>
-  </div>;
-}
-
 export default function App() {
   const [state, setState] = useState<Dashboard>(EMPTY);
-  const [mode, setMode] = useState<LogMode>("review");
-  const [logs, setLogs] = useState("");
   const [keywordSummary, setKeywordSummary] = useState<KeywordSummary | null>(null);
   const [keywordError, setKeywordError] = useState<string | null>(null);
   const [operations, setOperations] = useState<OperationsSummary | null>(null);
   const [operationsError, setOperationsError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pairing, setPairing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLPreElement>(null);
   const refreshInFlight = useRef(false);
   const refresh = useCallback(async () => {
     if (!isNative || refreshInFlight.current) return;
     refreshInFlight.current = true;
     try {
-      const [dashboard, tail] = await Promise.all([
-        invoke<Dashboard>("dashboard"),
-        invoke<string>("log_tail", { mode, maxLines: 80 }),
-      ]);
-      setState(dashboard);
-      setLogs(tail);
+      setState(await invoke<Dashboard>("dashboard"));
     } finally {
       refreshInFlight.current = false;
     }
-  }, [mode]);
+  }, []);
   useEffect(() => {
     let alive = true;
     if (!isNative) { setToast("Browser preview — controls require the Windows desktop app."); return; }
@@ -197,7 +172,6 @@ export default function App() {
     const interval = window.setInterval(poll, 2000);
     return () => { alive = false; window.clearInterval(interval); };
   }, [refresh]);
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [logs, mode]);
   useEffect(() => {
     if (!isNative) return;
     let active = true;
@@ -244,25 +218,15 @@ export default function App() {
   const review = state.modes.find(m => m.mode === "review") ?? EMPTY.modes[0];
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
   const capStack = state.modes.find(m => m.mode === "cap_stack") ?? EMPTY.modes[2];
-  const updateProblem = /error|paused|fail/i.test(state.updateState);
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword + Cap Stack, plus a manual Amazon/Etsy Browser Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword + Cap Stack, plus a CAM-connected Branding DNA Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
-        <button className="button secondary" disabled={controlBlocked} onClick={() => void act("check_update")}><RefreshCcw size={18}/> Update</button>
-        <button className="button secondary" onClick={() => setPairing(true)} disabled={!isNative || !state.controllerAvailable}><Settings2 size={18}/> Pairing</button>
       </div>
     </header>
-    <div className="summary">
-      <div className="summary-item"><span className={"sum-icon " + (review.state === "Running" ? "ok" : "off")}><Check size={19}/></span><div><span className="sum-title">Review Scout</span><strong className={review.state === "Running" ? "ok-text" : ""}>{review.state}</strong></div></div>
-      <div className="summary-item"><span className={"sum-icon " + (keyword.state === "Running" ? "ok" : "off")}><Check size={19}/></span><div><span className="sum-title">Keyword Scout</span><strong className={keyword.state === "Running" ? "ok-text" : ""}>{keyword.state}</strong></div></div>
-      <div className="summary-item"><span className={"sum-icon " + (capStack.state === "Running" ? "ok" : "off")}><Layers3 size={19}/></span><div><span className="sum-title">Cap Stack Scout</span><strong className={capStack.state === "Running" ? "ok-text" : ""}>{capStack.state}</strong></div></div>
-      <div className="summary-item"><span className={"sum-icon " + (updateProblem ? "off" : "ok")}><RefreshCcw size={19}/></span><div><span className="sum-title">Auto update</span><strong className={updateProblem ? "warn-text" : ""}>{state.updateState}</strong></div></div>
-      <div className="summary-item"><span className="sum-icon ok"><Search size={19}/></span><div><span className="sum-title">Stage 0 keywords</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") + " saved · +" + keywordSummary.added_24h + " / 24h" : keywordError ? "Stats unavailable" : "Checking server..."}</strong></div></div>
-    </div>
     <section className="server-discovery-strip" aria-label="Agent-Reach VPS discovery status" role="status">
       <Cloud size={20} aria-hidden="true"/>
       <div><strong>Agent-Reach · VPS Auto Discover</strong><small>Independent server search · unaffected by Windows Run / Pause / Quit</small></div>
@@ -276,14 +240,8 @@ export default function App() {
       <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={capStack} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
     </section>
-    <BrandingDnaPilotCard nativeAvailable={isNative} controllerAvailable={state.controllerAvailable} managerBusy={busy||state.updating} onSelectLogs={()=>setMode("branding_dna")}/>
-    <section className="terminal-panel">
-      <div className="terminal-header"><div className="terminal-title"><span className="terminal-icon"><Terminal size={19}/></span><div><strong>Live activity</strong><small>Latest output from the selected Scout</small></div></div><div className="terminal-controls"><label className="sr-only" htmlFor="logMode">Scout logs</label><select id="logMode" value={mode} onChange={e => setMode(e.target.value as LogMode)}><option value="review">Review Scout</option><option value="keyword">Keyword Scout</option><option value="cap_stack">Cap Stack Scout</option><option value="branding_dna">Branding DNA Agent</option></select><button className="log-button" onClick={() => { navigator.clipboard?.writeText(logs).then(() => setToast("Logs copied.")).catch(() => setToast("Clipboard unavailable.")); }} title="Copy visible logs"><Copy size={16}/> Copy</button></div></div>
-      <pre className="log-pre" ref={scrollRef}>{logs || (isNative ? "Waiting for Scout activity…" : "Browser preview — logs appear in the Windows desktop application.")}</pre>
-      <div className="terminal-footer"><span><span className="live-dot"/> Monitor refreshes every 2 seconds</span><span>Manager v{state.managerVersion} · Scout {state.version}</span></div>
-    </section>
+    <BrandingDnaPilotCard nativeAvailable={isNative} controllerAvailable={state.controllerAvailable} managerBusy={busy||state.updating}/>
     <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop all Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>
   </div>
-  {pairing && <Pairing paired={state.paired} busy={busy} onClose={() => setPairing(false)} onSave={(agentId, token) => { void (async () => { if (await act("save_pairing", { agentId, token })) { setPairing(false); setToast("Pairing saved. Press Run automation to start."); } })(); }}/>}
   </main>;
 }

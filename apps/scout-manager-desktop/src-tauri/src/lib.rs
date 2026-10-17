@@ -1146,6 +1146,24 @@ async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command
     }).await.map_err(|_|"Branding DNA launcher failed unexpectedly.".to_string())?
 }
 #[tauri::command]
+fn branding_pilot_open_log_folder(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
+    // Fixed local path, no browser-controlled file or shell argument.
+    let folder = &state.log_root;
+    if !folder.is_dir() {
+        return Err("Scout Manager log folder is not available.".into());
+    }
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("explorer.exe");
+        command.arg(folder);
+        hide_console(&mut command);
+        command.spawn().map_err(|_| "Cannot open the local log folder.".to_string())?;
+    }
+    #[cfg(not(windows))]
+    { let _ = folder; return Err("Log folder is available in the Windows app.".into()); }
+    Ok(())
+}
+#[tauri::command]
 fn dashboard(state: tauri::State<'_, Arc<Controller>>) -> Dashboard {
     state.dashboard()
 }
@@ -1373,6 +1391,7 @@ pub fn run() {
             branding_pilot_status,
             branding_pilot_action,
             branding_pilot_cam_shops,
+            branding_pilot_open_log_folder,
             keyword_summary,
             operations_summary,
             log_tail,

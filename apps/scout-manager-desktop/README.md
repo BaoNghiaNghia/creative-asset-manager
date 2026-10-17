@@ -1,5 +1,22 @@
 # RRUGC Scout Manager
 
+## Simplified Scout Manager window — v0.1.35 (2026-10-17)
+
+Removed the **Update** and **Pairing** toolbar buttons, the redundant
+five-metric Review/Keyword/Cap Stack/Auto update/Stage 0 overview, and the
+entire inline **Live activity** terminal. The existing Scout cards and CAM
+Branding DNA Agent remain visible with their actions and diagnostics.
+Background auto-update, saved pairing and native logging **still work**;
+removing the buttons does not delete credentials, queued Scout tasks, or
+the local log files. The Agent's log action now opens the fixed Windows
+log directory through Explorer rather than targeting a deleted log panel.
+Native dashboard refresh no longer calls `log_tail` every two seconds,
+reducing unnecessary IO. The separate Agent-Reach server discovery status
+remains because it is not one of the specified three removed areas.
+
+Only the Windows Scout Manager executable changes. No CAM API, database,
+marketplace scan policy or VPS backend deployment is required.
+
 ## Branding DNA Agent-only panel — Scout Manager v0.1.34 (2026-10-17)
 
 The Windows Branding DNA section is now only an **agent lifecycle control**:

@@ -8,8 +8,8 @@ const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.4",ru
 
 /** Agent-only control plane: all shops, rights, task priorities and dispatch
  * are owned by CAM. No local Shop selector, authorization form or pilot runner. */
-export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,managerBusy,onSelectLogs}:{
- nativeAvailable:boolean;controllerAvailable:boolean;managerBusy:boolean;onSelectLogs:()=>void;
+export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,managerBusy}:{
+ nativeAvailable:boolean;controllerAvailable:boolean;managerBusy:boolean;
 }){
  const [status,setStatus]=useState<AgentStatus>(INITIAL);
  const [shops,setShops]=useState<CamShop[]>([]);
@@ -46,7 +46,6 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
    try{
      await invoke("branding_pilot_action",{command});
      await refreshStatus();
-     onSelectLogs();
    }catch(e){setError(typeof e==="string"?e:e instanceof Error?e.message:"Agent command failed")}
    finally{setBusy(false)}
  };
@@ -73,7 +72,7 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
        onClick={()=>void action("agent_start")}><Play size={15}/> Start agent</button>
      <button type="button" className="button secondary slim" disabled={disabled||!status.running}
        onClick={()=>void action("stop")}><Pause size={15}/> Stop agent</button>
-     <button type="button" className="button secondary slim" onClick={onSelectLogs}><FolderSearch size={15}/> Agent logs</button>
+     <button type="button" className="button secondary slim" disabled={!nativeAvailable} onClick={()=>void invoke("branding_pilot_open_log_folder").catch(e=>setError(typeof e==="string"?e:"Cannot open Agent log folder."))}><FolderSearch size={15}/> Open log folder</button>
      <button type="button" className="button secondary slim" disabled={disabled||refreshing}
        onClick={()=>void refreshCam()}><RefreshCcw size={15}/> {refreshing?"Connecting…":"Refresh CAM"}</button>
    </div>

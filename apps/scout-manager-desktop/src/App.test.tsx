@@ -31,7 +31,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).not.toContain("Select shop from CAM");
     expect(html).not.toContain('class="branding-library-grid"');
     expect(html).toContain('branding-main-actions');
-    expect(html).toContain("Stage 0 keywords");
+    expect(html).not.toContain("Stage 0 keywords");
     expect(html).toContain("Agent-Reach · VPS Auto Discover");
     expect(html).toContain("unaffected by Windows Run / Pause / Quit");
     expect(html).not.toContain("Pause VPS");
@@ -52,8 +52,12 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Gemini");
     expect(html).toContain("Checking Gemini key pool");
     expect(html).toContain("Run automation");
-    expect(html).toContain("Live activity");
-    expect(html).toContain("Pairing");
+    expect(html).not.toContain("Live activity");
+    expect(html).not.toContain("> Pairing</button>");
+    expect(html).not.toContain("> Update</button>");
+    expect(html).not.toContain('class="summary"');
+    expect(html).not.toContain('class="terminal-panel"');
+    expect(html).toContain("Open log folder");
     expect(html).toContain("Branding DNA Agent");
     expect(html).toContain('disabled=""');
   });
