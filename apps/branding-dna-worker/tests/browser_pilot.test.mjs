@@ -91,8 +91,8 @@ test("page blockers halt scan without CAPTCHA solving",()=>{
  assert.equal(isBlockingPage("Handmade Caps","Shop all our caps"),null);
 });
 
-function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false}={}){
- let closed=false,routed=null,visitCount=0;
+function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLinks=[productUrl]}={}){
+ let closed=false,routed=null,visitCount=0,clickCount=0,backCount=0;
  const current={url:shopUrl};
  const page={
   setDefaultTimeout(){},
@@ -101,6 +101,19 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false}={}){
     current.url=redirect && visitCount===2 ? shopUrl:url;
   },
   url(){return current.url},
+  async goBack(){backCount++;current.url=shopUrl;},
+  async waitForLoadState(){},
+  getByRole(role){
+    assert.equal(role,"link");
+    return {
+      first(){return {waitFor:async()=>undefined}},
+      count:async()=>current.url===shopUrl?uiLinks.length:0,
+      nth(i){return {
+        isVisible:async()=>true,getAttribute:async()=>uiLinks[i],
+        click:async()=>{clickCount++;current.url=uiLinks[i]},
+      }},
+    };
+  },
   async title(){return challenge?"Robot Check":current.url===shopUrl?"AcmeCaps":"Product details"},
   locator(selector){
     if(selector==="body")return {innerText:async()=>challenge?"Verify you are human":"Welcome to Caps"};
@@ -133,6 +146,8 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false}={}){
   getClosed:()=>closed,
   getRoute:()=>routed,
   getVisits:()=>visitCount,
+  getClicks:()=>clickCount,
+  getBacks:()=>backCount,
  };
 }
 
@@ -186,6 +201,33 @@ test("Etsy and Amazon manual challenge and redirect fail closed",async()=>{
   },{launchPersistentContext:redirected.launchPersistentContext,wait:async()=>{}}),/non_product_link/);
   assert.ok(redirected.getClosed());
  }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
+test("visible UI mode uses accessible link clicks and returns to shop for next product",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-visible-click-"));
+ try{
+  const second="https://www.amazon.com/dp/B012345679";
+  const browser=fakeBrowser(AMAZON,AMAZON_LINK,{uiLinks:[AMAZON_LINK,second]});
+  const report=await runBrowserPilot({
+    shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+    profileDir:join(dir,"visual"),interactionMode:"visible_click",maxProducts:2,
+  },{launchPersistentContext:browser.launchPersistentContext,wait:async()=>{}});
+  assert.equal(report.status,"preview_completed");
+  assert.equal(report.items.length,2);
+  assert.equal(browser.getVisits(),1,"only shop landing uses page.goto()");
+  assert.equal(browser.getClicks(),2);
+  assert.equal(browser.getBacks(),1);
+  assert.ok(browser.getClosed());
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
+test("visible UI mode refuses invisible browser before launching",async()=>{
+ let launched=false;
+ await assert.rejects(()=>runBrowserPilot({
+   shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+   profileDir:"unused",interactionMode:"visible_click",headless:true,
+ },{launchPersistentContext:async()=>{launched=true}}),/visible_click_requires_visible_browser/);
+ assert.equal(launched,false);
 });
 
 test("exclusive profile lock prevents a concurrent shop browser",async()=>{

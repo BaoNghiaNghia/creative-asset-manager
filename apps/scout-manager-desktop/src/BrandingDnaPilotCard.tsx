@@ -15,7 +15,7 @@ type ShopView = {
   approvalFilePresent:boolean; profileDir:string; reportDir:string;
 };
 const INITIAL:PilotStatus = {
-  state:"Checking…",pid:null,version:"0.2.0",configured:false,
+  state:"Checking…",pid:null,version:"0.2.1",configured:false,
   setupAvailable:false,running:false,lastError:null,approvalFilePresent:false,
 };
 const EMPTY_SHOP:ShopView={
@@ -120,7 +120,7 @@ export function BrandingDnaPilotCard({
      <div className="branding-pilot-icon"><Globe2 size={24}/></div>
      <div className="branding-pilot-title">
        <h2>Branding DNA · Browser Agent</h2>
-       <p>Amazon + Etsy storefronts · Chromium pilot · dedicated profile per shop</p>
+       <p>Amazon + Etsy storefronts · visual browser link clicks · dedicated profile per shop</p>
      </div>
      <span className={"status-pill "+(status.running?"success":"neutral")}><span className="status-dot"/>{status.state}</span>
    </div>
@@ -169,7 +169,7 @@ export function BrandingDnaPilotCard({
        </label>
        <label className="branding-form-checkbox"><input type="checkbox" checked={!form.headless}
          disabled={disabled||status.running} onChange={e=>setForm({...form,headless:!e.target.checked})}/>
-         Show Chromium browser
+         Show Chromium browser + click product links
        </label>
      </div>
      <div className="branding-pilot-actions">
@@ -180,7 +180,7 @@ export function BrandingDnaPilotCard({
      </div>
      <small>Saving a shop creates a local configuration only. It does not grant permission or launch a browser.</small>
    </div> : shop.configured ? <div className="branding-shop-summary">
-     <div><small>Selected storefront</small><strong>{shop.platform.toUpperCase()} · {shop.shopUrl}</strong><small>Up to {shop.maxProducts} pages · {shop.headless?"Headless":"Visible browser"}</small></div>
+     <div><small>Selected storefront</small><strong>{shop.platform.toUpperCase()} · {shop.shopUrl}</strong><small>Up to {shop.maxProducts} pages · {shop.headless?"Headless / direct navigation":"Visible browser / actual UI clicks"}</small></div>
      <button type="button" className="button secondary slim" disabled={disabled||status.running}
        onClick={()=>setEditing(true)}><FileCog size={15}/> Change shop</button>
    </div> : null}

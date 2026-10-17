@@ -93,9 +93,9 @@ export function isBlockingPage(title,body){
   return null;
 }
 
-async function collectVisibleLinks(page,shop){
+async function collectVisibleLinks(page,shop,interactionMode="direct"){
   const selectors=shop.platform==="etsy"?'a[href*="/listing/"]':'a[href*="/dp/"],a[href*="/gp/product/"]';
-  const anchors=page.locator(selectors);
+  const anchors=interactionMode==="visible_click" ? page.getByRole("link") : page.locator(selectors);
   await anchors.first().waitFor({state:"attached",timeout:10000}).catch(()=>{});
   const seen=new Set(), found=[];
   const count=Math.min(await anchors.count(),150);
@@ -112,6 +112,28 @@ async function collectVisibleLinks(page,shop){
     }catch{/* skip unrelated and unsafe links */}
   }
   return found;
+}
+
+// Click the actual visible link in the browser's accessibility tree instead
+// of navigating to its URL programmatically. This is a UI interaction mode,
+// NOT human impersonation: the browser still identifies itself as an Agent.
+async function clickVisibleProductLink(page,shop,link){
+  const anchors=page.getByRole("link");
+  const count=Math.min(await anchors.count(),150);
+  for(let i=0;i<count;i++){
+    const node=anchors.nth(i);
+    if(!(await node.isVisible().catch(()=>false)))continue;
+    const href=await node.getAttribute("href");
+    if(!href)continue;
+    let observed;
+    try{observed=assertProductLink(href,shop)}catch{continue}
+    if(observed.key!==link.key || observed.url!==link.url)continue;
+    await node.click({timeout:10000});
+    await page.waitForLoadState("domcontentloaded",{timeout:30000});
+    return;
+  }
+  // Fail closed instead of bypassing the interface with page.goto().
+  throw new Error("visible_product_link_not_found");
 }
 
 async function collectDetail(page,shop,link) {
@@ -144,10 +166,18 @@ async function collectDetail(page,shop,link) {
 }
 
 export async function runBrowserPilot({shopUrl,platform,authorization,profileDir,
-          maxProducts=3,minimumDelayMs=5000,headless=false},
+          maxProducts=3,minimumDelayMs=5000,headless=false,interactionMode="direct"},
           {launchPersistentContext,wait=delay}={}) {
   const shop=assertShopUrl(shopUrl,platform);
   validateBrowserPermission(shop,authorization);
+  // Actual Chromium runs only on authorized Windows hosts; tests may inject
+  // a mock launch function on Linux without opening a browser.
+  if(!launchPersistentContext && process.platform!=="win32")
+    throw new Error("windows_browser_runtime_only");
+  if(!["direct","visible_click"].includes(interactionMode))
+    throw new Error("unsupported_interaction_mode");
+  if(interactionMode==="visible_click" && headless)
+    throw new Error("visible_click_requires_visible_browser");
   if(!Number.isInteger(maxProducts)||maxProducts<1||maxProducts>MAX_PRODUCT_PAGES)
     throw new Error("invalid_product_limit");
   if(!Number.isInteger(minimumDelayMs)||minimumDelayMs<5000)
@@ -189,15 +219,27 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     const summary=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
     const blocker=isBlockingPage(await page.title(),summary);
     if(blocker)return {status:"needs_operator",platform,reason:blocker,items:[],scan_enabled:false};
-    const links=await collectVisibleLinks(page,shop);
+    const links=await collectVisibleLinks(page,shop,interactionMode);
     if(links.length===0)return {
       status:"needs_operator",platform,reason:"no_visible_listings_or_parser_changed",
       items:[],scan_enabled:false,
     };
     const records=[];
-    for(const link of links.slice(0,maxProducts)){
+    for(const [index,link] of links.slice(0,maxProducts).entries()){
       await wait(minimumDelayMs);
-      await page.goto(link.url,{waitUntil:"domcontentloaded",timeout:30000});
+      if(interactionMode==="visible_click"){
+        if(index>0){
+          await page.goBack({waitUntil:"domcontentloaded",timeout:30000});
+          if(page.url().replace(/\/$/,"")!==shop.url)
+            throw new Error("shop_back_navigation_mismatch");
+          const returnedBody=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
+          if(isBlockingPage(await page.title(),returnedBody))
+            return {status:"needs_operator",platform,reason:"page_blocked_on_return",items:records,scan_enabled:false};
+        }
+        await clickVisibleProductLink(page,shop,link);
+      }else{
+        await page.goto(link.url,{waitUntil:"domcontentloaded",timeout:30000});
+      }
       const finalProduct=assertProductLink(page.url(),shop);
       if(finalProduct.key!==link.key)throw new Error("product_redirect_mismatch");
       const text=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);

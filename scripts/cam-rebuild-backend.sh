@@ -1714,6 +1714,7 @@ if [[ ! -e "$TARGET" ]]; then
 
   #
   # rsync has its own real transfer percentage.
+  # Do not ship Scout Manager or Branding DNA Windows browser runtimes to VPS.
   #
   rsync \
     -a \
@@ -1728,6 +1729,9 @@ if [[ ! -e "$TARGET" ]]; then
     --exclude=__pycache__ \
     --exclude=.pytest_cache \
     --exclude='*.pyc' \
+    --exclude=/apps/scout-manager-desktop/ \
+    --exclude=/apps/branding-dna-worker/ \
+    --exclude=/releases/branding-dna/ \
     "$SOURCE_DIR/" \
     "$STAGE/"
 

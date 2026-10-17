@@ -1,5 +1,19 @@
 # RRUGC Scout Manager
 
+## Branding DNA Visual UI pilot — worker v0.2.1 (2026-10-17)
+
+On the existing Scout Manager's Branding DNA card, **Show Chromium browser**
+uses `visible_click` mode for product pages, with semantic, observable
+Playwright link clicks. The Node Browser Agent opens the initial shop and
+returns to it for each subsequent product. No stealth/human impersonation,
+CAPTCHA bypass, marketplace API, bulk scan, or auto-CAM import.
+All profiles and local reports stay in Windows LOCALAPPDATA, not on CAM VPS.
+
+This is source-level functionality pending Windows build/runtime QA; existing
+installed Manager binaries do not gain it until updated. Etsy requires Etsy's
+express written authorization. Amazon requires an identified Agent and
+compliance with the applicable Agent Policy.
+
 ## Tải bản release mới vào thư mục Scan Pinterest
 
 Máy Windows dùng sẵn thư mục:

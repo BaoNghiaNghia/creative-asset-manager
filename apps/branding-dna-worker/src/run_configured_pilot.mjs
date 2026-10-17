@@ -7,11 +7,11 @@ import {isAbsolute,relative,resolve,join} from "node:path";
 import {pathToFileURL,fileURLToPath} from "node:url";
 import {assertShopUrl,validateBrowserPermission,runBrowserPilot} from "./browser_pilot.mjs";
 
-export const VERSION="0.2.0";
+export const VERSION="0.2.1";
 const ROOT=resolve(fileURLToPath(new URL("..",import.meta.url)));
 const KEYS=new Set([
   "platform","shop_url","approval_file","profile_dir","report_dir",
-  "max_products","minimum_delay_ms","headless",
+  "max_products","minimum_delay_ms","headless","interaction_mode",
 ]);
 
 function isChild(path,parent){
@@ -43,6 +43,10 @@ export function validatePilotConfig(config,root=ROOT){
   if(!Number.isInteger(config.minimum_delay_ms) || config.minimum_delay_ms<5000 || config.minimum_delay_ms>60000)
     throw new Error("minimum_delay_ms_range_5000_to_60000");
   if(typeof config.headless!=="boolean")throw new Error("headless_boolean_required");
+  if(config.interaction_mode!==undefined && !["direct","visible_click"].includes(config.interaction_mode))
+    throw new Error("interaction_mode_invalid");
+  if(config.interaction_mode==="visible_click" && config.headless)
+    throw new Error("visible_click_requires_visible_browser");
   return shop;
 }
 export function validateConfiguredApproval(config,root=ROOT){
@@ -70,6 +74,9 @@ export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROO
     maxProducts:config.max_products,
     minimumDelayMs:config.minimum_delay_ms,
     headless:config.headless,
+    // Existing Scout Manager config already exposes "Show Chromium". Use
+    // semantic UI clicks in visible mode, without changing saved shop records.
+    interactionMode:config.interaction_mode??(config.headless?"direct":"visible_click"),
   });
   if(!result || !["preview_completed","needs_operator"].includes(result.status)
     || result.scan_enabled!==false)throw new Error("invalid_local_pilot_result");
@@ -83,6 +90,7 @@ export async function runConfiguredPilot(config,{runner=runBrowserPilot,root=ROO
     observed_at:result.observed_at??new Date().toISOString(),
     pilot_version:VERSION,
     mode:"local_browser_dom_only",
+    interaction_mode:config.interaction_mode??(config.headless?"direct":"visible_click"),
     local_approval_sha256:createHash("sha256").update(JSON.stringify(approval)).digest("hex"),
     evidence_committed:false,
     rights_verified:false,

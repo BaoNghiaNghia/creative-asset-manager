@@ -1,4 +1,4 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.0
+# Branding DNA Windows Worker — Windows Portable v0.2.1
 
 ## Recommended: use the existing Scan Pinterest tool
 
@@ -7,14 +7,17 @@ This worker is now **integrated in Scout Manager v0.1.21** using the
 tool. Open `START_SCOUT_TAURI.cmd`, use the Branding DNA card's
 Install/Config/Check/Run/Stop and dedicated Live logs. All Pinterest modes
 remain unaffected. The v0.2.0 ZIP is retained only as a fallback.
+The v0.2.1 source adds optional visible UI clicks to the same Manager,
+without installing any Chromium/Scout runtime on CAM's VPS.
 
 ## Release / build mới (Windows)
 
-**Bản Windows Portable Bootstrap v0.2.0**, file được build tại
-`releases/branding-dna/BrandingDNA-BrowserAgent-v0.2.0-win-x64.zip`. Đây là
+**Bản Windows Portable Bootstrap v0.2.1**, dự kiến GitHub Windows CI build
+`BrandingDNA-BrowserAgent-v0.2.1-win-x64.zip`. Chưa được cài trên máy Windows. Đây là
 gói cài + launcher `.cmd`, **không phải EXE đã kèm Node/Chromium**. Đọc
-`QUICK_START_VI.txt` trong ZIP trước khi cài. GitHub main chứa archive cùng
-file `.zip.sha256` để kiểm tra toàn vẹn.
+`QUICK_START_VI.txt` trong ZIP trước khi cài. ZIP và file `.zip.sha256`
+chỉ có thể dùng khi workflow build/release trên GitHub hoàn thành;
+source code và phiên bản trong repo không tự chứng minh artefact đã xuất bản.
 
 - Giải nén ZIP vào thư mục Windows riêng; không trộn với Pinterest Scout.
 - Cài **Node.js 22.13+**, chạy `INSTALL_TOOL.cmd` (lần đầu tải đúng
@@ -49,6 +52,26 @@ The default process sends signed **heartbeats and restricted lifecycle telemetry
 2. In CAM Branding DNA → Dedicated Windows Worker, register an agent. The API shows an **agent ID and token once**. Store them in an OS-protected secret vault. Do not commit or log the token.
 3. Inject the three environment variables only into the worker process: `BRANDING_DNA_SERVER_URL`, `BRANDING_DNA_AGENT_ID`, `BRANDING_DNA_AGENT_TOKEN`. Do not place secrets in the .cmd, repository or public configuration.
 4. Run `npm test`, then `npm start` or the .cmd. CAM should show heartbeat/online within ~1 minute. To stop immediately revoke the token via Disable in CAM.
+
+## Browser pilot v0.2.1 — Visible UI agent, Windows only
+
+- Trong Scout Manager hiện tại, bật **Show Chromium browser + click product links**.
+  Node pilot tự chọn `visible_click` khi `headless=false` (không sửa config cũ).
+- Nếu chạy gói portable trực tiếp, đặt `"headless": false` và
+  `"interaction_mode": "visible_click"` trong file config riêng trên Windows.
+- Agent quan sát các link sản phẩm hiển thị qua accessibility tree, bấm
+  link bằng Playwright, quay lại trang shop và tiếp tục; không gọi trang
+  chi tiết bằng `page.goto` trong chế độ này.
+- Không tạo delay ngẫu nhiên hay giả lập thao tác con người để tránh phát
+  hiện; giữ định danh `Agent/CreativeAssetManagerBrandDNA`, không bypass CAPTCHA.
+- Windows lưu Chromium, profile, session và báo cáo dưới
+  `%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA`; CAM VPS chỉ giữ
+  Shop Registry, heartbeat và dữ liệu đã kiểm chứng. Backend release bỏ
+  toàn bộ thư mục ứng dụng Windows; GitHub giữ source/CI.
+- Không chạy browser thật trên Linux VPS; chỉ cho phép test mock browser.
+  Một pilot vẫn tối đa 5 sản phẩm, không có full-shop dispatch.
+- **Etsy**: cần quyền tự động hóa bằng văn bản của Etsy; **Amazon**: tuân thủ
+  Agent Policy, công khai danh tính và dừng khi bị hạn chế truy cập.
 
 ## Browser pilot — opt-in, local only
 

@@ -463,7 +463,7 @@ impl BrandPilot {
         BrandPilotStatus{
             state:self.state.clone(),
             pid:self.child.as_ref().map(Child::id),
-            version:"0.2.0",
+            version:"0.2.1",
             configured:root.join("config/pilot.local.json").is_file(),
             setup_available:root.join("INSTALL_TOOL.cmd").is_file() && root.join("START_BROWSER_PILOT.cmd").is_file(),
             running:self.child.is_some(),

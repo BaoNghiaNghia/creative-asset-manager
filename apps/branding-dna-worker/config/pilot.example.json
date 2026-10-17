@@ -6,5 +6,6 @@
   "report_dir": "C:\\CAM\\BrandingDNA\\reports",
   "max_products": 3,
   "minimum_delay_ms": 5000,
-  "headless": false
+  "headless": false,
+  "interaction_mode": "visible_click"
 }

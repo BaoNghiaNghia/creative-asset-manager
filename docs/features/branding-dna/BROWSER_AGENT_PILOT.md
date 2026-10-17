@@ -1,5 +1,26 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## v0.2.1 — Windows visible UI pilot and VPS release size
+
+The pilot supports `visible_click` via `getByRole("link")`, UI
+`click()`, and validated `goBack()` to the shop for subsequent products.
+Existing Scout Manager shops use this mode whenever **Show Chromium** is on;
+a hidden-headless legacy run continues using direct bounded navigation.
+No attempt is made to impersonate human timings or bypass Agent Policy.
+Browser sessions and approvals are local to Windows; only the Git source,
+not the Windows browser runtime, may exist in backend development checkouts.
+The production backend release script excludes
+`apps/scout-manager-desktop`, `apps/branding-dna-worker`, and
+`releases/branding-dna` from every *new* immutable backend release.
+
+Do not infer Windows deployment from this source change. The Windows
+Scout device is offline until the user starts it; browser pilot remains
+operator-approved and local. Production scanner lease remains disabled.
+Existing backend releases still require a separate audited cleanup after
+verifying no service uses those directory trees.
+
+
+
 Status: **local pilot code available, production dispatch disabled**, 2026-10-16.
 
 ## Architecture and scope

@@ -13,7 +13,7 @@ function setup(){
  const config={
    platform:"amazon",shop_url:SHOP,approval_file:join(base,"secrets","approval.json"),
    profile_dir:join(base,"profiles","amazon-a"),report_dir:join(base,"reports"),
-   max_products:2,minimum_delay_ms:5000,headless:true,
+   max_products:2,minimum_delay_ms:5000,headless:true,interaction_mode:"direct",
  };
  mkdirSync(join(base,"secrets"),{recursive:true});
  const approved={
@@ -38,6 +38,8 @@ test("config validation rejects arbitrary automation arguments and worker tree p
      {...config,max_products:50},
      {...config,minimum_delay_ms:250},
      {...config,headless:"true"},
+     {...config,interaction_mode:"stealth"},
+     {...config,interaction_mode:"visible_click",headless:true},
      {...config,dispatch:true},
      {...config,approval_file:"secrets/approval.json"},
      {...config,report_dir:base},
@@ -69,6 +71,7 @@ test("manual runner reports only local unverified evidence and never overwrites 
      calls++;
      assert.equal(options.maxProducts,2);
      assert.equal(options.minimumDelayMs,5000);
+     assert.equal(options.interactionMode,"direct");
      return {status:"preview_completed",platform:"amazon",items:[{
        listing_key:"amazon:B012345678",title:"Canvas Cap",
        source_kind:"browser_dom_observation",sales_state:"unknown",
@@ -91,6 +94,23 @@ test("manual runner reports only local unverified evidence and never overwrites 
    assert.ok(!readFileSync(first.output,"utf8").includes("browser_access_approved"));
  }finally{rmSync(base,{recursive:true,force:true})}
 });
+test("Scout Manager visible browser defaults to real UI link clicks without config migration",async()=>{
+ const {base,config}=setup();
+ try{
+  const visible={...config,headless:false};
+  delete visible.interaction_mode; // Legacy Scout Manager config without new key
+  let observed="";
+  const runner=async options=>{
+    observed=options.interactionMode;
+    return {status:"preview_completed",items:[],scan_enabled:false};
+  };
+  const saved=await runConfiguredPilot(visible,{root:resolve(base,"worker"),runner});
+  const report=JSON.parse(readFileSync(saved.output,"utf8"));
+  assert.equal(observed,"visible_click");
+  assert.equal(report.interaction_mode,"visible_click");
+ }finally{rmSync(base,{recursive:true,force:true})}
+});
+
 test("blocked pilot report retains shop identity without enabling scans",async()=>{
  const {base,config}=setup();
  try{
