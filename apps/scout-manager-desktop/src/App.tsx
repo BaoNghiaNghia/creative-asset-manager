@@ -65,7 +65,24 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
       <div className="scout-identity"><div className={"mode-icon " + info.mode}><Icon size={24}/></div><div><h2>{info.mode === "review" ? "Review Scout" : info.mode === "keyword" ? "Keyword Scout" : "Cap Stack Scout"}</h2><p>{info.mode === "review" ? "Monitors image references and review contexts" : info.mode === "keyword" ? "Discovers quotes and keyword opportunities" : "Shared Cap Stack library · initial query Cap Stack"}</p></div></div>
       <span className={"status-pill " + (active ? "success" : failed ? "danger" : "neutral")}><span className="status-dot"/>{info.state}</span>
     </div>
-    <div className="meta-row"><div><span>PID</span><b>{info.pid ?? "—"}</b></div><div><span>Scout version</span><b>{version}</b></div><div><span>Commit</span><b>{commit}</b></div></div>
+    <div className="scout-compact-kpis" aria-label="Scout quick status">
+      {info.mode === "review" ? <>
+        <span>Queued <strong>{operations?.review.stage1_pending ?? "—"}</strong></span>
+        <span>Processing <strong>{operations?.review.stage1_running ?? "—"}</strong></span>
+        <span>Done 24h <strong>{operations?.review.stage1_completed_24h ?? "—"}</strong></span>
+      </> : info.mode === "keyword" ? <>
+        <span>Total saved <strong>{keywordSummary?.total_keywords.toLocaleString("en-US") ?? "—"}</strong></span>
+        <span>Added 24h <strong>+{keywordSummary?.added_24h ?? "—"}</strong></span>
+        <span>Eligible <strong>{operations?.keyword.ready_queries ?? "—"}</strong></span>
+      </> : <>
+        <span>Library <strong>Shared</strong></span>
+        <span>Claims <strong>45 min</strong></span>
+        <span>Source <strong>Pinterest</strong></span>
+      </>}
+    </div>
+    <details className="scout-advanced">
+      <summary>Details &amp; diagnostics <span>PID {info.pid ?? "—"} · Scout version {version}</span></summary>
+      <div className="meta-row"><div><span>PID</span><b>{info.pid ?? "—"}</b></div><div><span>Scout version</span><b>{version}</b></div><div><span>Commit</span><b>{commit}</b></div></div>
     {info.mode === "keyword" && <div className="keyword-health">
       <div className="keyword-metric"><span>Total saved</span><strong>{keywordSummary ? keywordSummary.total_keywords.toLocaleString("en-US") : "—"}</strong></div>
       <div className="keyword-metric"><span>Added 24h</span><strong>+{keywordSummary?.added_24h ?? "—"}</strong></div>
@@ -120,6 +137,7 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
     </div>}
     {operationsError && info.mode !== "cap_stack" && <div className="scout-jobs-error">{operationsError}</div>}
     <div className="chips"><div><RefreshCcw/><span>Auto restart</span></div><div><ShieldCheck/><span>Browser watchdog</span></div><div><LockKeyhole/><span>Isolated profile</span></div></div>
+    </details>
     {info.lastError && <div className="inline-error" title={info.lastError}><CircleAlert size={15}/><span>{info.lastError}</span></div>}
     <div className="card-actions">
       <button className="button secondary slim" disabled={busy || !automationEnabled} title={!automationEnabled ? "Press Run automation first" : undefined} onClick={() => onAction(info.desired ? "stop" : "start", info.mode)}>{info.desired ? <Pause size={16}/> : <Play size={16}/>} {info.desired ? "Pause" : "Start"}</button>

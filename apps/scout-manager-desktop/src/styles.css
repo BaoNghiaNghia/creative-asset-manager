@@ -107,3 +107,98 @@
 .gemini-status-indicator.limited{background:#d6983e}
 .scout-jobs-error{color:#a65a40;font-size:10px;line-height:1.4}
 @media(max-width:1200px){.scout-jobs-grid,.keyword-health{grid-template-columns:repeat(2,minmax(0,1fr))}.scout-job b{font-size:16px}.scout-identity{gap:8px}.scout-card .meta-row{grid-template-columns:1fr 1.2fr;row-gap:8px}.scout-card .meta-row>div:nth-child(3){grid-column:1/-1;padding-left:0;border:0}.scout-card .meta-row>div:nth-child(2){border:0}}
+
+/* Compact operational layout v0.1.33: detailed monitoring remains expandable. */
+body{min-width:360px;zoom:1}
+.shell{max-width:1500px;padding:15px 20px 14px}
+.top{gap:12px;margin-bottom:13px}
+.eyebrow{font-size:9px;margin-bottom:5px}
+.product-title{gap:8px;margin-bottom:5px}
+.heading h1{font-size:23px}
+.heading>p{font-size:11px;margin-bottom:6px}
+.submeta{font-size:10px;gap:8px;flex-wrap:wrap}
+.manager-version{font-size:10px;padding:4px 8px}
+.toolbar{gap:6px;flex-wrap:wrap}
+.toolbar .button{min-height:36px;padding:8px 11px;font-size:11px}
+.toolbar .button svg{width:15px;height:15px}
+.summary{padding:8px 11px;gap:0;margin-bottom:10px;grid-template-columns:repeat(5,minmax(0,1fr))}
+.summary-item{gap:8px;padding:3px 9px}
+.sum-icon{width:29px;height:29px}
+.sum-icon svg{width:15px;height:15px}
+.sum-title{font-size:10px;margin-bottom:2px}
+.summary-item strong{font-size:10px}
+.server-discovery-strip{padding:8px 12px;gap:8px;margin-bottom:10px}
+.server-discovery-strip>div{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:120px}
+.server-discovery-strip>div strong{font-size:11px}
+.server-discovery-strip>div small{font-size:10px}
+.server-discovery-strip>svg{width:16px;height:16px}
+.mode-grid{gap:10px;margin-bottom:12px}
+.scout-card{padding:14px;display:flex;flex-direction:column;gap:9px}
+.scout-top{padding:0;border:0;gap:6px}
+.scout-identity{gap:9px}
+.mode-icon{width:36px;height:36px;border-radius:10px}
+.mode-icon svg{width:19px;height:19px}
+.scout-identity h2{font-size:14px;margin:0 0 2px}
+.scout-identity p{font-size:10px;line-height:1.3}
+.status-pill{padding:5px 8px;font-size:10px}
+.status-dot{height:6px;width:6px}
+.scout-compact-kpis{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.scout-compact-kpis span{display:inline-flex;align-items:center;gap:5px;border:1px solid #e1eaf5;background:#f8fafd;color:#69809c;border-radius:6px;padding:6px 8px;font-size:10px}
+.scout-compact-kpis strong{color:#264466;font-size:11px;font-variant-numeric:tabular-nums}
+.scout-advanced{border-top:1px solid #e9eef4;padding-top:7px}
+.scout-advanced>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;font-weight:700;color:#426da7;cursor:pointer}
+.scout-advanced>summary::-webkit-details-marker{display:none}
+.scout-advanced>summary::before{content:"▸";font-size:10px;color:#7094c1;margin-right:4px}
+.scout-advanced[open]>summary::before{content:"▾"}
+.scout-advanced>summary span{font-size:9px;font-weight:500;color:#8a9aaf;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scout-advanced[open]{padding-bottom:8px}
+.scout-advanced .meta-row{padding:11px 0 8px}
+.scout-advanced .chips{margin:10px 0}
+.scout-advanced .cap-stack-manager-details{min-height:0;padding:9px 0}
+.scout-advanced .scout-jobs{margin-top:9px}
+.card-actions{margin-top:auto;gap:6px}
+.card-actions .button{min-height:31px;padding:6px 10px;font-size:10px}
+.card-actions .button svg{width:13px;height:13px}
+.recovery{font-size:9px}
+.branding-pilot-panel{margin-top:0;padding:14px 16px}
+.branding-pilot-top{gap:9px;margin-bottom:6px}
+.branding-pilot-icon{width:35px;height:35px}
+.branding-pilot-icon svg{width:19px;height:19px}
+.branding-pilot-title h2{font-size:15px}
+.branding-pilot-title p{font-size:10px}
+.branding-pilot-meta{gap:6px;margin:6px 0 8px}
+.branding-pilot-meta span{font-size:9px;padding:3px 6px}
+.branding-library-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.branding-library-grid .branding-library-bar{margin:0;display:flex;gap:6px;align-items:end;min-width:0}
+.branding-library-grid .branding-library-bar label{flex:1 1 165px;font-size:10px}
+.branding-library-grid .branding-library-bar select{height:33px;font-size:10px}
+.branding-library-grid .branding-library-bar .button{height:33px;min-height:33px;padding:6px 9px;font-size:10px}
+.branding-shop-summary{padding:9px 11px;margin:9px 0}
+.branding-shop-summary>div{gap:3px}
+.branding-shop-summary strong{font-size:11px}
+.branding-shop-summary .button{min-height:32px;padding:6px 10px;font-size:10px}
+.branding-shop-editor{margin:10px 0}
+.branding-pilot-actions{margin:9px 0;gap:7px;flex-wrap:wrap}
+.branding-main-actions .button{min-height:33px;padding:6px 11px;font-size:11px}
+.branding-settings,.branding-results-collapse{border-top:1px solid #e8eef6;padding:9px 0 0;margin-top:7px}
+.branding-settings>summary,.branding-results-collapse>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;font-size:11px;color:#385a84;font-weight:700}
+.branding-settings>summary span,.branding-results-collapse>summary span{font-size:10px;color:#8294ab;font-weight:500}
+.branding-settings .branding-pilot-note{margin:9px 0;padding:8px 11px;font-size:10px}
+.branding-settings .branding-shop-approval{margin:9px 0}
+.branding-settings .branding-pilot-footer{display:block;margin-top:8px}
+.branding-results-collapse .branding-reports{margin-top:9px;padding-top:9px}
+.terminal-panel{height:min(31vh,290px);min-height:180px}
+.terminal-header{padding:9px 12px}
+.terminal-icon{width:30px;height:30px}
+.foot{padding:10px 0 0}
+@media(max-width:1150px){.top{flex-wrap:wrap}.summary{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:7px}.summary-item:nth-child(3){border:0}}
+@media(max-width:900px){.branding-library-grid{grid-template-columns:1fr}}
+@media(max-width:980px){.mode-grid{grid-template-columns:1fr 1fr}.summary-item{border:0}}
+@media(max-width:700px){
+.shell{padding:11px}.top{flex-direction:column;align-items:stretch}.toolbar{width:100%}.toolbar .button{flex:1 1 130px}
+.summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:8px}.summary-item{border:0}.mode-grid{grid-template-columns:1fr}
+.scout-compact-kpis span{flex:1 1 auto}.branding-pilot-panel{padding:12px}.branding-library-bar .button{width:auto}
+.branding-pilot-top{flex-wrap:wrap}.branding-pilot-title p{line-height:1.35}
+.branding-settings>summary span,.branding-results-collapse>summary span{display:none}
+.branding-main-actions .button{flex:1 1 125px}.terminal-controls{flex-wrap:wrap}.terminal-panel{min-height:170px}
+}

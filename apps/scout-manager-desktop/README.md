@@ -1,5 +1,19 @@
 # RRUGC Scout Manager
 
+## Compact operations dashboard — Scout Manager v0.1.33 (2026-10-17)
+
+The main window uses a condensed header, five-item status strip and three
+small Review/Keyword/Cap Stack cards (critical KPIs and control buttons always
+visible). PID, detailed queues, Gemini/backpressure and watchdog diagnostics
+are preserved in keyboard-accessible `Details & diagnostics` disclosures.
+Branding DNA puts the paired CAM Shop Library and local shop selector in a
+two-column row on desktop, while authorization, installer, JSON settings and
+saved reports remain available in explicit expandable panels. Run Pilot,
+Stop, Check and Live Logs stay visible. The three scout controls and overall
+Run/Pause are unchanged. Responsive CSS supports widths 390–1440px without
+horizontal overflow. HTML preview and browser layout QA never launch a real
+marketplace scan, while app-local authorization remains default-deny.
+
 ## Branding DNA local config compatibility — Scout Manager v0.1.32 (2026-10-17)
 
 Fixed a mismatch between the Node Browser Agent and Rust Scout Manager:

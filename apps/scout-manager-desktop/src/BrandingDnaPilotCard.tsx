@@ -165,9 +165,7 @@ export function BrandingDnaPilotCard({
      <span>{status.configured?"Shop configured":"Shop config required"}</span>
      <span>{status.approvalFilePresent?"Approval document present · not independently verified":"Authorization file missing"}</span>
    </div>
-   <p className="branding-pilot-note"><ShieldCheck size={15}/>
-     Manual pilot only: global Run automation and Pinterest Gemini jobs never start this browser. Each pilot observes up to 5 public product pages and records local per-shop progress; run again manually to skip previously observed products. No CAM upload or auto-retry.
-   </p>
+   <div className="branding-library-grid">
    <div className="branding-library-bar" aria-label="CAM production Shop Library">
      <label>CAM Shop Library · {camShops.length} shops
        <select value="" disabled={disabled||status.running||camLoading||camShops.length===0}
@@ -181,8 +179,6 @@ export function BrandingDnaPilotCard({
      <button className="button secondary slim" type="button" disabled={disabled||camLoading}
        onClick={()=>void reloadCamShops()}>{camLoading?"Syncing…":"Refresh CAM shops"}</button>
    </div>
-   {camError&&<p className="branding-pilot-error" role="alert"><CircleAlert size={14}/>{camError}</p>}
-   <small>CAM shops sync read-only using existing Scout pairing; select one to create or reuse a local profile. This does not authorize scanning.</small>
    <div className="branding-library-bar" aria-label="Saved shop library">
      <label>Saved shop library · {library.length}/50
        <select value={library.find(entry=>entry.active)?.id??""}
@@ -200,6 +196,8 @@ export function BrandingDnaPilotCard({
          setEditing(true);setError("");
        }}><Plus size={15}/> Add shop</button>
    </div>
+   </div>
+   {camError&&<p className="branding-pilot-error" role="alert"><CircleAlert size={14}/>{camError}</p>}
    {editing ? <div className="branding-shop-editor" aria-label="Configure Amazon or Etsy shop">
      <div className="branding-form-grid">
        <label>Platform
@@ -235,25 +233,37 @@ export function BrandingDnaPilotCard({
      <button type="button" className="button secondary slim" disabled={disabled||status.running}
        onClick={()=>setEditing(true)}><FileCog size={15}/> Change shop</button>
    </div> : null}
-   {shop.configured && <div className="branding-shop-approval">
-     <div><strong>Authorization document</strong><small>{shop.approvalFilePresent?"File exists. Actual platform permission is checked when the pilot starts.":"Missing. The document is created default-deny and must reflect actual permissions."}</small>
-       <code title={shop.approvalFile}>{shop.approvalFile}</code></div>
-     <button type="button" className="button secondary slim" disabled={disabled||status.running}
-       onClick={()=>void act("approval")}><FileCog size={15}/> Edit approval</button>
-   </div>}
-   <div className="branding-pilot-actions">
-     <button className="button secondary slim" type="button" disabled={disabled||status.running} onClick={()=>void act("install")}><Wrench size={15}/> Install runtime</button>
-     <button className="button secondary slim" type="button" disabled={disabled||status.running} onClick={()=>void act("check")}><Settings2 size={15}/> Check</button>
+   <div className="branding-pilot-actions branding-main-actions">
      <button className="button primary slim" type="button" disabled={disabled||status.running||!status.configured||!status.setupAvailable||!status.approvalFilePresent}
        onClick={()=>void act("run")}><Play size={15}/> Run pilot</button>
      <button className="button secondary slim" type="button" disabled={disabled||!status.running} onClick={()=>void act("stop")}><Pause size={15}/> Stop</button>
      <button className="button secondary slim" type="button" onClick={onSelectLogs}><FolderSearch size={15}/> Live logs</button>
-     <button className="button secondary slim" type="button" disabled={disabled||status.running}
-       onClick={()=>void act("config")} title="Advanced: open the JSON config in Notepad"><FileCog size={15}/> Advanced JSON</button>
+     <button className="button secondary slim" type="button" disabled={disabled||status.running} onClick={()=>void act("check")}><Settings2 size={15}/> Check</button>
    </div>
+   <details className="branding-settings">
+     <summary>Advanced tools &amp; authorization <span>Agent v{status.version} · PID {status.pid??"—"}</span></summary>
+     <p className="branding-pilot-note"><ShieldCheck size={15}/>
+       Manual pilot only: global Run automation and Pinterest Gemini jobs never start this browser. Each pilot observes up to 5 public product pages and records local per-shop progress; run again manually to skip previously observed products. No CAM upload or auto-retry.
+     </p>
+     <small>CAM shops sync read-only using existing Scout pairing; select one to create or reuse a local profile. This does not authorize scanning.</small>
+     {shop.configured && <div className="branding-shop-approval">
+       <div><strong>Authorization document</strong><small>{shop.approvalFilePresent?"File exists. Actual platform permission is checked when the pilot starts.":"Missing. The document is created default-deny and must reflect actual permissions."}</small>
+         <code title={shop.approvalFile}>{shop.approvalFile}</code></div>
+       <button type="button" className="button secondary slim" disabled={disabled||status.running}
+         onClick={()=>void act("approval")}><FileCog size={15}/> Edit approval</button>
+     </div>}
+     <div className="branding-pilot-actions">
+       <button className="button secondary slim" type="button" disabled={disabled||status.running} onClick={()=>void act("install")}><Wrench size={15}/> Install runtime</button>
+       <button className="button secondary slim" type="button" disabled={disabled||status.running}
+         onClick={()=>void act("config")} title="Advanced: open the JSON config in Notepad"><FileCog size={15}/> Advanced JSON</button>
+     </div>
+     <small className="branding-pilot-footer">Etsy requires express written authorization; Amazon requires Agent Policy compliance. CAPTCHA/login blocks stop the pilot. No seller API, third-party scraping service or production scan dispatch.</small>
+   </details>
    {(error||status.lastError)&&<p className="branding-pilot-error" role="alert"><CircleAlert size={14}/>{error||status.lastError}</p>}
    {notice&&<p className="branding-pilot-notice" role="status">{notice}</p>}
-   <BrandingDnaReports nativeAvailable={nativeAvailable} shopUrl={shop.configured?shop.shopUrl:""} scanRunning={status.running}/>
-   <small className="branding-pilot-footer">Etsy requires express written authorization; Amazon requires Agent Policy compliance. CAPTCHA/login blocks stop the pilot. No seller API, third-party scraping service or production scan dispatch.</small>
+   <details className="branding-results-collapse">
+     <summary>Local pilot results &amp; review <span>Open saved reports and shortlist</span></summary>
+     <BrandingDnaReports nativeAvailable={nativeAvailable} shopUrl={shop.configured?shop.shopUrl:""} scanRunning={status.running}/>
+   </details>
  </section>;
 }

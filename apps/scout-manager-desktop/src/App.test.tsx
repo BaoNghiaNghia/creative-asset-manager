@@ -25,6 +25,12 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Manual pilot only");
     expect(html).toContain("global Run automation");
     expect(html).toContain("Shared Cap Stack library");
+    expect(html).toContain('class="scout-compact-kpis"');
+    expect(html).toContain("Details &amp; diagnostics");
+    expect(html).toContain("Advanced tools &amp; authorization");
+    expect(html).toContain("Local pilot results &amp; review");
+    expect(html).toContain('class="branding-library-grid"');
+    expect(html).toContain('branding-main-actions');
     expect(html).toContain("Stage 0 keywords");
     expect(html).toContain("Agent-Reach · VPS Auto Discover");
     expect(html).toContain("unaffected by Windows Run / Pause / Quit");
