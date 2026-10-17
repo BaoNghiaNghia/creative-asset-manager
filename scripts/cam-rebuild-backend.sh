@@ -1729,6 +1729,7 @@ if [[ ! -e "$TARGET" ]]; then
     --exclude=__pycache__ \
     --exclude=.pytest_cache \
     --exclude='*.pyc' \
+    --exclude=/apps/rrugc_scout/ \
     --exclude=/apps/scout-manager-desktop/ \
     --exclude=/apps/branding-dna-worker/ \
     --exclude=/releases/branding-dna/ \
