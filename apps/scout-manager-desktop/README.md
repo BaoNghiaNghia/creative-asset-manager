@@ -1,5 +1,15 @@
 # RRUGC Scout Manager
 
+## v0.1.37 — CAM paired agent presence (2026-10-17)
+
+Branding DNA Browser Agent now sends a pairing-authenticated standby heartbeat
+once per minute, with no marketplace URL, source credentials, or scan commands.
+CAM records these heartbeats in a tenant-isolated table, separate from RRUGC
+Pinterest Scout status. Browser Scanner shows connected/waiting vs offline
+with a three-minute stale threshold and reports shop count from the CAM API.
+This does not enable scan leases, source access or Brand DNA inference.
+
+
 ## Agent-only CAM synchronization — v0.1.36 (2026-10-17)
 
 The native Branding DNA panel treats a **successfully authenticated empty Shop

@@ -21,6 +21,7 @@ from app.modules.retention import model as retention_models  # noqa: F401
 from app.modules.authorization import folder_scope as folder_scope_models  # noqa: F401
 from app.modules.inventory import model as inventory_models  # noqa: F401
 from app.modules.branding_dna import model as branding_dna_models  # noqa: F401
+from app.modules.branding_dna import scout_session_model as branding_dna_scout_session_models  # noqa: F401
 from app.modules.branding_dna import handoff_model as branding_dna_handoff_models  # noqa: F401
 from app.modules.inventory.jobs import model as inventory_job_models  # noqa: F401
 from app.modules.inventory import persistence_model as inventory_persistence_models  # noqa: F401

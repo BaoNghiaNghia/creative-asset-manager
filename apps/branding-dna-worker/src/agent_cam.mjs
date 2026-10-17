@@ -5,6 +5,8 @@
 import {setTimeout as sleep} from "node:timers/promises";
 import {pathToFileURL} from "node:url";
 
+export const AGENT_VERSION="0.2.5";
+
 export function settings(env=process.env){
  const u=new URL(env.BRANDING_DNA_SERVER_URL||"https://creative-assets.ddns.net");
  if(u.protocol!=="https:"||u.username||u.password||u.pathname!=="/"||u.search||u.hash||u.port)
@@ -28,7 +30,29 @@ export async function readCamControl(config,request=fetch){
  if(data.scan_enabled!==false)throw Error("dispatch_contract_not_audited");
  if(data.items.some(s=>!["amazon","etsy"].includes(s.platform)||typeof s.storefront_url!=="string"))
    throw Error("invalid_shop_metadata");
+ if(data.dispatch && (data.dispatch.state!=="disabled"||
+       data.dispatch.reason!=="scan_task_dispatch_not_deployed"||
+       data.dispatch.active_scan_jobs!==0))throw Error("dispatch_contract_not_audited");
  return {shopCount:data.items.length,dispatchEnabled:false};
+}
+
+export async function sendStandbyHeartbeat(config,request=fetch){
+ const resp=await request(config.origin+"/api/v1/branding-dna/scout-agents/"+
+   encodeURIComponent(config.id)+"/branding-heartbeat",{
+    method:"POST",headers:{Authorization:"Bearer "+config.token,
+      Accept:"application/json","Content-Type":"application/json"},
+    body:JSON.stringify({version:AGENT_VERSION,state:"connected_waiting",
+      scan_enabled:false,active_scan_jobs:0}),
+    redirect:"error",signal:AbortSignal.timeout(12000),
+   });
+ if(resp.status===401||resp.status===403)throw Error("scout_pairing_revoked");
+ if(!resp.ok)throw Error("cam_heartbeat_http_"+resp.status);
+ const data=await resp.json();
+ if(data.accepted!==true||data.state!=="connected_waiting"||
+    data.scan_enabled!==false||data.active_scan_jobs!==0||
+    !Number.isInteger(data.shop_count)||data.shop_count<0||data.shop_count>200)
+      throw Error("invalid_cam_heartbeat_contract");
+ return {shopCount:data.shop_count};
 }
 
 export async function run(config=settings(),{request=fetch,wait=sleep,log=console.log,onStop=()=>false}={}){
@@ -36,14 +60,16 @@ export async function run(config=settings(),{request=fetch,wait=sleep,log=consol
  while(!onStop()){
   try{
    const result=await readCamControl(config,request);
-   log(JSON.stringify({event:"cam_heartbeat",connected:true,shops:result.shopCount,
-     dispatch_enabled:false,reason:"scan_pipeline_not_deployed"}));
+   const receipt=await sendStandbyHeartbeat(config,request);
+   log(JSON.stringify({event:"cam_heartbeat",connected:true,shops:receipt.shopCount,
+     dispatch_enabled:false,reason:"scan_pipeline_not_deployed",
+     state:"connected_waiting"}));
    failures=0;
   }catch(error){
    const reason=error instanceof Error?error.message:"cam_unavailable";
    // Token never gets logged and authorization failures stop the process.
    log(JSON.stringify({event:"cam_connection_error",reason}));
-   if(["scout_pairing_revoked","dispatch_contract_not_audited","invalid_cam_contract","invalid_shop_metadata"].includes(reason))
+   if(["scout_pairing_revoked","dispatch_contract_not_audited","invalid_cam_contract","invalid_shop_metadata","invalid_cam_heartbeat_contract"].includes(reason))
      throw error;
    failures++;
   }

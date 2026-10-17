@@ -3,6 +3,7 @@ import "./BrandingDnaWorkers.css";
 
 type Worker = {id:string;label:string;status:string;enabled:boolean;online:boolean;agent_version:string|null;last_heartbeat:string|null};
 type Enrollment = {id:string;label:string;agent_token:string};
+type PairedPresence = {agent_id:string;version:string;shop_count:number;last_seen_at:string;online:boolean;state:"connected_waiting"|"offline"};
 const endpoint="/api/v1/branding-dna/workers";
 
 async function call<T>(url:string, init?:RequestInit):Promise<T>{
@@ -14,13 +15,23 @@ async function call<T>(url:string, init?:RequestInit):Promise<T>{
 }
 export function BrandingDnaWorkers({ compact = false, onOpenScanner }: { compact?: boolean; onOpenScanner?: () => void } = {}) {
  const [items,setItems]=useState<Worker[]>([]);
+ const [paired,setPaired]=useState<PairedPresence[]>([]);
  const [loading,setLoading]=useState(true);
  const [label,setLabel]=useState("");
  const [secret,setSecret]=useState<Enrollment|null>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
  const [copyStatus,setCopyStatus]=useState("");
- const refresh=useCallback(async()=>{const data=await call<{items:Worker[]}>(endpoint);setItems(data.items);},[]);
+ const refresh=useCallback(async()=>{
+   const [workers,sessions]=await Promise.all([
+     call<{items:Worker[]}>(endpoint),
+     call<{items:PairedPresence[];scan_enabled:false;dispatch_state:"disabled"}>("/api/v1/branding-dna/scout-agents/presence"),
+   ]);
+   if(sessions.scan_enabled!==false||sessions.dispatch_state!=="disabled"){
+     throw new Error("CAM dispatch contract is not approved for this Browser Agent.");
+   }
+   setItems(workers.items);setPaired(sessions.items);
+ },[]);
  useEffect(()=>{
   let alive=true;
   void refresh().catch(e=>{if(alive)setError(e instanceof Error?e.message:"Failed to load workers");})
@@ -52,6 +63,18 @@ export function BrandingDnaWorkers({ compact = false, onOpenScanner }: { compact
   <div className="bdna-worker-header"><div><strong>Dedicated Windows Worker</strong>
    <small>Đăng ký agent · Heartbeat · Thu hồi token · profile độc lập Pinterest Scout</small></div>
    <div className="bdna-worker-actions-header"><span className="bdna-worker-availability"><b>{items.filter(x=>x.online).length}</b> online / {items.length} registered</span>{compact && <button type="button" onClick={onOpenScanner}>Mở Browser Scanner →</button>}</div>
+  </div>
+  <div className="bdna-worker-list" aria-label="Paired Branding DNA Scout agent presence">
+    <div className="bdna-worker-entry">
+      <div><strong>Scout Manager · CAM-paired Browser Agents</strong>
+      <small>{paired.length} kết nối được ghi nhận · {paired.filter(x=>x.online).length} đang online · Scanner chưa cấp job</small></div>
+      <span className="bdna-worker-offline">Dispatch disabled</span>
+    </div>
+    {!compact && paired.map(session=><div className="bdna-worker-entry" key={session.agent_id}>
+      <div><strong>Scout {session.agent_id.slice(0,8)} · {session.version}</strong>
+      <small>{session.shop_count} shop từ CAM · Heartbeat: {new Date(session.last_seen_at).toLocaleString("vi-VN")} · không tự quét</small></div>
+      <span className={session.online?"bdna-worker-online":"bdna-worker-offline"}>{session.online?"Online · waiting":"Offline"}</span>
+    </div>)}
   </div>
   {!compact && <form className="bdna-worker-enroll" onSubmit={enroll}>
    <label>Tên agent Windows<input required minLength={3} maxLength={90} value={label}
