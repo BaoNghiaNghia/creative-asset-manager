@@ -7,7 +7,9 @@ Rust `PilotShopConfig` now explicitly recognizes the Node runner's optional
 `deny_unknown_fields`. Existing Windows configs with `visible_click` no
 longer fail native deserialization. Round-trip saving preserves those keys,
 the local browser profile, checkpoint paths and authorization-file path.
-Frontend shows the real reason for config read failures. No migrations,
+Frontend shows the real reason for config read failures. Saved Shop Library
+also lists the current valid legacy shop when no local library directory
+exists, and status reflects successful config parsing after startup. No migrations,
 remote sync writes, credential changes or marketplace scans are added.
 
 ## Scout Manager v0.1.31 — CAM Shop Library read-only sync

@@ -10,7 +10,10 @@ alongside profile/report/approval paths, when selecting a shop. Unknown fields
 remain denied and local scan approval remains default-deny. The startup UI
 now surfaces the underlying configuration error rather than a generic failure.
 Regression test covers a real-format Amazon EMBROLY config and round-trip
-preservation without activating the pilot.
+preservation without activating the pilot. Initial status derives from parsed
+local configuration rather than the "Not configured" constructor label,
+and saved-shop dropdown includes a valid active legacy config even before
+a shop-library directory has been created.
 
 ## Branding DNA CAM Shop Library sync — Scout Manager v0.1.31 (2026-10-17)
 

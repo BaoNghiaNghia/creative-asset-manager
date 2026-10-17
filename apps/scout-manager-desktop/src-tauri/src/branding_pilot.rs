@@ -282,8 +282,21 @@ fn save_library_record(repo:&Path,local_data:&Path,config:&PilotShopConfig)->Res
 }
 pub fn list_saved_shops(repo:&Path,local_data:&Path)->Result<Vec<SavedShop>,String>{
     let dir=library_dir(local_data)?;
-    if !dir.exists(){return Ok(Vec::new())}
     let active=load_config(repo)?;
+    if !dir.exists() {
+        // An older manually configured pilot has no saved-shop library yet.
+        // Surface that active shop without writing/moving any profile.
+        if let Some(current)=active {
+            let id=library_id(&current);
+            if ensure_library_config(&current,&id,repo).is_ok() {
+                return Ok(vec![SavedShop{
+                    id,platform:current.platform.clone(),shop_url:current.shop_url.clone(),
+                    active:true,approval_file_present:Path::new(&current.approval_file).is_file(),
+                }]);
+            }
+        }
+        return Ok(Vec::new());
+    }
     let mut shops=Vec::new();
     for entry in fs::read_dir(&dir).map_err(|_|"Cannot read shop library.")?.take(200){
         let entry=entry.map_err(|_|"Cannot inspect shop entry.")?;
@@ -468,13 +481,18 @@ impl BrandPilot {
     pub fn status(&mut self,repo:&Path)->BrandPilotStatus{
         self.check_status();
         let root=repo.join("apps/branding-dna-worker");
-        let approval_file_present=load_config(repo).ok().flatten()
-            .map(|c|Path::new(&c.approval_file).is_file()).unwrap_or(false);
+        let config=load_config(repo).ok().flatten();
+        let approval_file_present=config.as_ref()
+            .is_some_and(|c|Path::new(&c.approval_file).is_file());
+        let configured=config.is_some();
+        let state=if self.state=="Not configured" && configured {
+            "Shop configured · manual pilot only".to_string()
+        } else {self.state.clone()};
         BrandPilotStatus{
-            state:self.state.clone(),
+            state,
             pid:self.child.as_ref().map(Child::id),
             version:"0.2.3",
-            configured:root.join("config/pilot.local.json").is_file(),
+            configured,
             setup_available:root.join("INSTALL_TOOL.cmd").is_file() && root.join("START_BROWSER_PILOT.cmd").is_file(),
             running:self.child.is_some(),
             last_error:self.last_error.clone(),
@@ -634,6 +652,14 @@ mod tests{
         fs::write(&config_file,serde_json::to_vec_pretty(&original).unwrap()).unwrap();
         let current=load_config(&repo).unwrap().unwrap();
         assert_eq!(current.interaction_mode.as_deref(),Some("visible_click"));
+        let saved=list_saved_shops(&repo,&local).unwrap();
+        assert_eq!(saved.len(),1,"active legacy shop appears without a shop-library directory");
+        assert!(saved[0].active);
+        assert_eq!(saved[0].shop_url,current.shop_url);
+        let mut fresh=BrandPilot::new();
+        let initial=fresh.status(&repo);
+        assert!(initial.configured);
+        assert_eq!(initial.state,"Shop configured · manual pilot only");
         assert_eq!(current.maximum_delay_ms,Some(18000));
         let mut agent=BrandPilot::new();
         let selected=agent.save_shop(&repo,&local,"amazon",
