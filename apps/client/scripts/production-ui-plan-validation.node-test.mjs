@@ -87,6 +87,12 @@ test("current production smoke stage bindings are valid", async () => {
     assert.ok(branding.states.some(state => state.click === "#bdna-stage-" + tab),
       "Branding DNA production smoke must test " + tab);
   }
+  // Product Explorer is now a live evidence panel, not the old future placeholder.
+  assert.equal(
+    branding.states.find(state => state.click === "#bdna-stage-products")?.waitFor,
+    "#bdna-panel-products .bdna-evidence",
+    "Branding DNA Product Explorer QA must target the mounted evidence component",
+  );
   const ugc = plan.routes.find((route) => route.name === "realistic-review-ugc");
   assert.ok(ugc, "authenticated UGC route must be present");
   for (let stage = 0; stage <= 2; stage += 1) {

@@ -221,7 +221,7 @@
         {
           "name": "product-explorer",
           "click": "#bdna-stage-products",
-          "waitFor": "#bdna-panel-products .bdna-future-panel"
+          "waitFor": "#bdna-panel-products .bdna-evidence"
         },
         {
           "name": "dna",
