@@ -10,6 +10,7 @@ Makefile text eol=lf
 *.yaml text eol=lf
 
 # Committed production frontend artifacts must compare byte-for-byte in CI.
+# Generated JS/CSS/HTML is text. Never normalize binary payloads under dist.
 apps/client/dist/** text eol=lf
 
 # Binary media must never be line-ending normalized, including inside dist.
@@ -19,3 +20,18 @@ apps/client/dist/** text eol=lf
 *.gif -text -eol
 *.webp -text -eol
 *.ico -text -eol
+*.woff -text -eol
+*.woff2 -text -eol
+*.ttf -text -eol
+*.otf -text -eol
+*.eot -text -eol
+*.mp4 -text -eol
+*.webm -text -eol
+*.mov -text -eol
+*.m4v -text -eol
+*.mp3 -text -eol
+*.wav -text -eol
+*.ogg -text -eol
+*.avif -text -eol
+*.pdf -text -eol
+*.zip -text -eol

@@ -4,6 +4,11 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,16 +19,16 @@ env:
 jobs:
   frontend:
     name: Frontend checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/client
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.3"
           cache: npm
           cache-dependency-path: apps/client/package-lock.json
       - name: Install locked dependencies
@@ -48,7 +53,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all -- dist)"
       - name: Upload frontend failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: frontend-failure
           path: artifacts/frontend
@@ -57,14 +62,24 @@ jobs:
 
 
   ui-browser-fixtures:
-    name: Fixture-backed Browser QA (9 workspaces)
-    runs-on: ubuntu-latest
+    name: Fixture Browser QA (${{ matrix.group }})
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: creative
+            profiles: explorer-viewer,review-board,realistic-review-ugc
+          - group: operations
+            profiles: ai-operations,inventory,access-management
+          - group: media
+            profiles: video-generation,job-queue,branding-dna,public-review
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.3"
           cache: npm
           cache-dependency-path: apps/client/package-lock.json
       - name: Install locked frontend packages
@@ -89,33 +104,45 @@ jobs:
           CAM_UI_QA_BROWSER: chromium
           CAM_UI_QA_BROWSER_PREINSTALLED: "1"
           CAM_UI_VISUAL_SKIP: "1"
-          CAM_UI_QA_PROFILES: "explorer-viewer,review-board,realistic-review-ugc,ai-operations,inventory,access-management,video-generation,job-queue,branding-dna,public-review"
+          CAM_UI_QA_PROFILES: ${{ matrix.profiles }}
         run: bash scripts/cam-ui-profile-matrix.sh
       - name: Prepare UGC visual baseline review packet
+        if: matrix.group == 'creative'
         run: node apps/client/scripts/ui-qa-visual-review.mjs --profile realistic-review-ugc --latest
       - name: Upload Browser QA evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: browser-qa-evidence
+          name: browser-qa-evidence-${{ matrix.group }}
           path: |
             apps/client/.ui-qa/
             artifacts/ui-qa/
           if-no-files-found: ignore
           retention-days: 7
 
+  ui-browser-fixtures-gate:
+    name: Fixture-backed Browser QA (9 workspaces)
+    if: always()
+    needs: [ui-browser-fixtures]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All responsive fixture QA shards must pass
+        env:
+          QA_RESULT: ${{ needs.ui-browser-fixtures.result }}
+        run: test "$QA_RESULT" = success
+
   r2-video-worker:
     name: R2 video Worker checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
         working-directory: infrastructure/cloudflare/r2-video-worker
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.3"
           cache: npm
           cache-dependency-path: infrastructure/cloudflare/r2-video-worker/package-lock.json
       - name: Install locked Worker dependencies
@@ -126,12 +153,16 @@ jobs:
         run: npm run typecheck
 
   api-unit:
-    name: API, worker and provider unit tests
-    runs-on: ubuntu-latest
+    name: API unit shard ${{ matrix.shard }} / 4
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -143,68 +174,56 @@ jobs:
           bash -n scripts/dev-api.sh
           bash -n scripts/test-integration.sh
           python -m compileall -q apps/api/app apps/worker apps/inventory_worker
-      - name: API, worker and mocked-provider tests
-        working-directory: apps/api
+      - name: API unit shard with deterministic test coverage
         run: |
-          set -o pipefail
-          mkdir -p ../../artifacts/api-unit
-          timeout 10m python - <<'PY' 2>&1 | tee ../../artifacts/api-unit/tests.log
-          import unittest
-          import sys
-          sys.argv.append("unittest")
-          from app.core.test_bootstrap import activate_test_environment
-          activate_test_environment()
-
-          loader = unittest.defaultTestLoader
-          discovered = loader.discover("tests")
-
-          def flatten(suite):
-              for item in suite:
-                  if isinstance(item, unittest.TestSuite):
-                      yield from flatten(item)
-                  else:
-                      yield item
-
-          # Integration and migration suites run in their dedicated jobs. Keep
-          # this job bounded to API/worker/provider unit coverage instead of
-          # rerunning full Alembic histories without their services.
-          selected = [
-              test for test in flatten(discovered)
-              if not any(part in {"integration", "migrations"} for part in test.id().split("."))
-          ]
-          result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(selected))
-          raise SystemExit(0 if result.wasSuccessful() else 1)
-          PY
+          set -euo pipefail
+          mkdir -p artifacts/api-unit
+          timeout 11m python scripts/ci_api_unit_shard.py --index '${{ matrix.shard }}' --total 4 2>&1 | tee artifacts/api-unit/tests.log
       - name: Public Review and Review Board security suite
+        if: matrix.shard == 0
         working-directory: apps/api
         run: |
           set -o pipefail
           python -m pytest tests/modules/public_review tests/modules/authorization tests/test_app_smoke.py -q
       - name: Branding DNA API and handoff migration regression tests
+        if: matrix.shard == 0
         working-directory: apps/api
         run: |
           set -o pipefail
           python -m pytest tests/modules/branding_dna tests/migrations/test_branding_dna_handoff_migration.py -q
       - name: Deployment-template tests
+        if: matrix.shard == 0
         run: |
           bash -n deploy/tools/prepare_dola_runtime.sh
           python -m unittest deploy.tests.test_dola_gateway_deployment -v
           python -m unittest deploy.tests.test_r2_video_worker_deployment -v
       - name: Application import smoke test
+        if: matrix.shard == 0
         working-directory: apps/api
         run: python -c "from app.main import app; assert app.title == 'Creative Asset Manager API'"
       - name: Upload API failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: api-unit-failure
+          name: api-unit-failure-shard-${{ matrix.shard }}
           path: artifacts/api-unit
           if-no-files-found: ignore
           retention-days: 7
 
+  api-unit-gate:
+    name: API, worker and provider unit tests
+    if: always()
+    needs: [api-unit]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All API unit shards must pass
+        env:
+          SHARD_RESULT: ${{ needs.api-unit.result }}
+        run: test "$SHARD_RESULT" = success
+
   postgres-integration:
     name: PostgreSQL migrations and repositories
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -228,8 +247,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_integration
       INTEGRATION_DATABASE_URL: postgresql+psycopg://cam_test:cam_test@127.0.0.1:5432/cam_integration
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -251,15 +270,22 @@ jobs:
                       raise
                   time.sleep(1)
           PY
-      - name: Upgrade, verify one head, rollback and re-upgrade
+      - name: Fresh schema upgrade and bounded handoff rollback/re-upgrade
         working-directory: apps/api
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p ../../artifacts/postgres
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
+          # Exercise the entire migration chain once, on a disposable database.
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
-          CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          python -m alembic current | grep -F '0162_branding_dna_handoff'
+          # Roll back ONLY the newly introduced table. Downgrading to 0012
+          # removed unrelated historical schemas and exercised unrelated data
+          # destruction guards, so it was neither a useful nor safe CI gate.
+          CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0161_branding_dna_worker_events 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          python -m alembic current | grep -F '0161_branding_dna_worker_events'
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
+          python -m alembic current | grep -F '0162_branding_dna_handoff'
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |
@@ -268,7 +294,7 @@ jobs:
           timeout 10m python -m pytest tests/integration/test_public_review_postgresql.py -q 2>&1 | tee -a ../../artifacts/postgres/tests.log
       - name: Upload PostgreSQL failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: postgres-integration-failure
           path: artifacts/postgres
@@ -277,7 +303,7 @@ jobs:
 
   elasticsearch-integration:
     name: Elasticsearch v2 integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       elasticsearch:
@@ -297,8 +323,8 @@ jobs:
       ELASTICSEARCH_URL: http://127.0.0.1:9200
       INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -321,7 +347,7 @@ jobs:
           curl -fsS "$ELASTICSEARCH_URL/_cat/aliases?v" > artifacts/elasticsearch/aliases.txt || true
       - name: Upload Elasticsearch failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: elasticsearch-integration-failure
           path: artifacts/elasticsearch
@@ -330,7 +356,7 @@ jobs:
 
   pipeline-e2e:
     name: Durable pipeline end-to-end
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -365,8 +391,8 @@ jobs:
       ELASTICSEARCH_URL: http://127.0.0.1:9200
       INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -389,7 +415,7 @@ jobs:
           curl -fsS "$ELASTICSEARCH_URL/_cat/indices?v" > artifacts/pipeline-e2e/indices.txt || true
       - name: Upload pipeline failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pipeline-e2e-failure
           path: artifacts/pipeline-e2e
@@ -404,10 +430,10 @@ jobs:
       run:
         working-directory: apps/desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.3"
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - name: Install locked desktop dependencies
@@ -426,7 +452,7 @@ jobs:
           Write-Host "Windows unpacked size: $megabytes MB"
           if ($bytes -gt 250MB) { throw "Desktop package exceeded the 250 MB installed-size budget." }
       - name: Upload Windows update feed
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: creative-asset-manager-windows-update
           path: |
