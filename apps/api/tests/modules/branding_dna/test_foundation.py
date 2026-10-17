@@ -7,13 +7,17 @@ from app.core.database import Base
 from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel
 from app.modules.branding_dna.router import (
     ShopCreate, add_shop, list_shops, list_workers, status,
-    disabled_scan, normalize_shop_url,
+    disabled_scan, normalize_shop_url, list_shops_for_paired_scout,
 )
+from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
+from app.modules.realistic_review_ugc.service import token_digest
 
 @pytest.fixture
 def db():
     engine = create_engine('sqlite+pysqlite:///:memory:')
-    Base.metadata.create_all(engine, tables=[BrandShopModel.__table__, BrandWorkerModel.__table__])
+    Base.metadata.create_all(engine, tables=[
+        BrandShopModel.__table__, BrandWorkerModel.__table__, RrugcScoutAgentModel.__table__,
+    ])
     with Session(engine) as session:
         yield session
     engine.dispose()
@@ -68,3 +72,37 @@ def test_scanner_blocked_until_worker_available(db):
     assert err.value.status_code == 409
     assert err.value.detail['code'] == 'scanner_not_enrolled'
     assert status(session=db,principal=principal())['scan_enabled'] is False
+
+
+def test_paired_scout_sees_only_own_tenant_marketplace_shops(db):
+    own = add_shop(shop(), session=db, principal=principal())
+    other = add_shop(ShopCreate(
+        display_name="Other tenant cap", platform="amazon",
+        storefront_url="https://www.amazon.com/stores/OtherCaps",
+    ), session=db, principal=principal("tenant-b"))
+    scout = RrugcScoutAgentModel(
+        tenant_id="tenant-a", name="Windows Scout", active=True,
+        token_hash=token_digest("testing-scout-token-very-long-safe-secret"),
+        created_by_user_id="user-a",
+    )
+    db.add(scout)
+    db.commit()
+
+    for invalid in (None, "Bearer invalid"):
+        with pytest.raises(HTTPException) as failure:
+            list_shops_for_paired_scout(scout.id, authorization=invalid, session=db)
+        assert failure.value.status_code == 401
+
+    output = list_shops_for_paired_scout(scout.id,
+        authorization="Bearer testing-scout-token-very-long-safe-secret", session=db)
+    assert output["count"] == 1
+    assert output["items"][0]["id"] == own["id"]
+    assert output["items"][0]["id"] != other["id"]
+    assert output["scan_enabled"] is False
+
+    scout.active = False
+    db.commit()
+    with pytest.raises(HTTPException) as revoked:
+        list_shops_for_paired_scout(scout.id,
+            authorization="Bearer testing-scout-token-very-long-safe-secret", session=db)
+    assert revoked.value.status_code == 401
