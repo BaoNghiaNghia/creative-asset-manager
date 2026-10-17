@@ -16,6 +16,9 @@ class ReleaseBuilderTests(unittest.TestCase):
     def test_version_pin_sources_and_no_local_secrets(self):
         inputs = builder.release_inputs()
         self.assertIn("START_BROWSER_PILOT.cmd", inputs)
+        self.assertIn("START_CAM_AGENT.cmd", inputs)
+        self.assertIn(b"START_CAM_AGENT.cmd", inputs["START_BROWSER_PILOT.cmd"])
+        self.assertNotIn(b"pilot.local.json", inputs["START_BROWSER_PILOT.cmd"])
         self.assertIn("INSTALL_TOOL.cmd", inputs)
         self.assertIn("QUICK_START_VI.txt", inputs)
         self.assertIn("package-lock.json", inputs)
@@ -32,7 +35,7 @@ class ReleaseBuilderTests(unittest.TestCase):
             builder.build(output)
             first=output.read_bytes()
             report=builder.verify(output)
-            self.assertEqual(report["version"],"0.2.4")
+            self.assertEqual(report["version"],"0.2.5")
             self.assertFalse(report["production_scan_enabled"])
             self.assertFalse(report["automatic_scan_on_launch"])
             self.assertFalse(report["marketplace_api_used"])

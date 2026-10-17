@@ -98,13 +98,31 @@ class AiOperationsPostgreSqlTest(unittest.TestCase):
                         ]
                     )
                 session.flush()
-                # A second matching link previously multiplied the first storage row
-                # in the outer join and forced DISTINCT.
+                # The source-link uniqueness invariant forbids linking the
+                # same source_asset_id to another asset. Model the ambiguous
+                # collision with a *different* source registry carrying the
+                # same external_file_id, which is valid and still exercises
+                # candidate de-duplication plus fail-closed repair checks.
+                secondary_source = ExternalSourceModel(
+                    tenant_id=tenant_id,
+                    source_key=f"drive-secondary-{marker}",
+                    source_type="google_drive",
+                )
+                session.add(secondary_source)
+                session.flush()
+                alternate_managed = SourceAssetModel(
+                    tenant_id=tenant_id,
+                    external_source_id=secondary_source.id,
+                    external_asset_id=managed_sources[0].external_asset_id,
+                    source_metadata={"parents": ["managed-root"]},
+                )
+                session.add(alternate_managed)
+                session.flush()
                 session.add(
                     AssetSourceLinkModel(
                         tenant_id=tenant_id,
                         asset_id=assets[3].id,
-                        source_asset_id=managed_sources[0].id,
+                        source_asset_id=alternate_managed.id,
                     )
                 )
                 session.commit()
