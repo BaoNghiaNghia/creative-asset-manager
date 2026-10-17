@@ -6,7 +6,7 @@ starts scans. A dedicated agent/control protocol will be built in Phase 2.
 from __future__ import annotations
 import re
 from urllib.parse import urlsplit, urlunsplit, unquote
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
@@ -104,6 +104,38 @@ def list_shops(session: Session = Depends(get_db),
         BrandShopModel.tenant_id == principal.active_tenant_id
     ).order_by(BrandShopModel.created_at.desc()).limit(200)).all()
     return {"items": [present(row) for row in rows], "count": len(rows)}
+
+@router.get("/scout-agents/{agent_id}/shops")
+def list_shops_for_paired_scout(
+    agent_id: str,
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    """Read-only tenant-scoped Shop Library for a *paired* Windows Scout Manager.
+
+    Reuse its existing RRUGC Scout pairing; never expose shops across
+    tenants, create authorization documents or schedule scans.
+    """
+    from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
+    from app.modules.realistic_review_ugc.service import RrugcError
+
+    bearer = (authorization or "").split(" ", 1)
+    if len(bearer) != 2 or bearer[0].lower() != "bearer" or not bearer[1].strip():
+        raise HTTPException(401, detail="Paired Scout token required")
+    try:
+        scout = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id, raw_token=bearer[1].strip(),
+        )
+    except RrugcError:
+        raise HTTPException(401, detail="Invalid paired Scout credentials") from None
+
+    rows = session.scalars(select(BrandShopModel).where(
+        BrandShopModel.tenant_id == scout.tenant_id,
+        BrandShopModel.platform.in_(("amazon", "etsy")),
+    ).order_by(BrandShopModel.created_at.desc()).limit(200)).all()
+    return {"items": [present(row) for row in rows], "count": len(rows),
+            "scan_enabled": False}
+
 
 @router.post("/shops", status_code=201)
 def add_shop(body: ShopCreate, session: Session = Depends(get_db),

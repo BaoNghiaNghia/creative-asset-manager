@@ -939,6 +939,85 @@ async fn operations_summary(
         .map_err(|_| "Scout job API returned an invalid response.".into())
 }
 
+// Read-only remote CAM Shop Library, authenticated with the existing Scout
+// pairing. No cookie sharing, third-party marketplace calls or scan dispatch.
+#[derive(Deserialize)]
+struct CamBrandShop {
+    id:String,
+    display_name:String,
+    platform:String,
+    storefront_url:String,
+    status:String,
+    access_mode:String,
+}
+#[derive(Deserialize)]
+struct CamBrandShopsResponse {
+    items:Vec<CamBrandShop>,
+    scan_enabled:bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct CamBrandShopView {
+    id:String,
+    display_name:String,
+    platform:String,
+    shop_url:String,
+    status:String,
+    access_mode:String,
+}
+#[tauri::command]
+async fn branding_pilot_cam_shops(
+    state: tauri::State<'_, Arc<Controller>>,
+) -> Result<Vec<CamBrandShopView>,String> {
+    let settings=config_values(&state.repo);
+    let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
+    let agent_id=get("RRUGC_AGENT_ID").filter(|s|!s.is_empty())
+        .ok_or("Pair Scout Manager with CAM to load your Shop Library.")?;
+    let token=get("RRUGC_SCOUT_TOKEN").filter(|s|!s.is_empty())
+        .ok_or("Scout pairing token is missing.")?;
+    if agent_id.len()>128 || !agent_id.chars().all(|x|x.is_ascii_alphanumeric()||x=='-'){
+        return Err("Invalid Scout Agent ID.".into());
+    }
+    let base=get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+    let parsed=reqwest::Url::parse(base).map_err(|_|"Invalid CAM API origin.")?;
+    if parsed.scheme()!="https" || parsed.host_str().is_none() || !parsed.username().is_empty()
+      || parsed.password().is_some() || parsed.port().is_some()
+      || parsed.query().is_some() || parsed.fragment().is_some()
+      || parsed.path()!="/" {
+        return Err("Branding DNA requires an HTTPS CAM origin.".into());
+    }
+    let url=format!("{}/api/v1/branding-dna/scout-agents/{}/shops",
+        base.trim_end_matches('/'),agent_id);
+    let response=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+        .build().map_err(|_|"Unable to initialize CAM client.")?
+        .get(&url).bearer_auth(token).timeout(Duration::from_secs(12))
+        .send().await.map_err(|_|"Cannot reach CAM Shop Library. Check connection.".to_string())?;
+    if response.status()==reqwest::StatusCode::UNAUTHORIZED {
+        return Err("Scout pairing expired or revoked. Re-pair with CAM.".into());
+    }
+    if !response.status().is_success() {
+        return Err(format!("CAM Shop Library returned HTTP {}.",response.status().as_u16()));
+    }
+    let parsed=response.json::<CamBrandShopsResponse>().await
+        .map_err(|_|"CAM returned an invalid Shop Library response.".to_string())?;
+    if parsed.scan_enabled || parsed.items.len()>200 {
+        return Err("Unsafe CAM Shop Library response.".into());
+    }
+    let mut shops=Vec::new();
+    for entry in parsed.items {
+        if !["amazon","etsy"].contains(&entry.platform.as_str()) {continue}
+        // URL is normalized once more by local Pilot when selected.
+        if entry.id.len()>64 || entry.display_name.len()>90 || entry.status.len()>30
+          || entry.access_mode.len()>30 || entry.storefront_url.len()>2048 {
+          continue;
+        }
+        shops.push(CamBrandShopView{id:entry.id,display_name:entry.display_name,
+            platform:entry.platform,shop_url:entry.storefront_url,
+            status:entry.status,access_mode:entry.access_mode});
+    }
+    Ok(shops)
+}
+
 #[tauri::command]
 fn branding_pilot_status(state: tauri::State<'_, Arc<Controller>>) -> Result<branding_pilot::BrandPilotStatus,String> {
     let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
@@ -1286,6 +1365,7 @@ pub fn run() {
             branding_pilot_handoff_prepare,
             branding_pilot_save_shop,
             branding_pilot_list_saved_shops,
+            branding_pilot_cam_shops,
             branding_pilot_select_shop,
             branding_pilot_edit_approval,
             branding_pilot_edit_config,

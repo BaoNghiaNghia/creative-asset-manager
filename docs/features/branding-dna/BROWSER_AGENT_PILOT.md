@@ -1,5 +1,19 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## Scout Manager v0.1.31 — CAM Shop Library read-only sync
+
+The Windows browser panel now distinguishes CAM tenant Shop Library and
+local saved-shop library. The Tauri command authenticates with existing
+RRUGC Scout pairing credentials and calls
+`GET /api/v1/branding-dna/scout-agents/{id}/shops`. Backend validates
+the active Scout token and returns only the caller tenant's Amazon/Etsy
+shop metadata with `scan_enabled:false`. The command never returns tokens,
+does not import approval decisions, and never dispatches browser activity.
+An operator selection saves only the local scoped shop configuration
+and reuses the local profile if it already exists.
+Unpaired machines receive a clear error and can still use local shops.
+No product, image, screenshot or Chromium profile is stored on the VPS.
+
 ## v0.2.3 — Traffic pacing, not stealth automation
 
 Windows visual pilot uses bounded navigation cooldowns before opening the

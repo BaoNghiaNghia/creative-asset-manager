@@ -9,6 +9,7 @@ type PilotStatus = {
   approvalFilePresent:boolean;
 };
 type SavedShop = {id:string;platform:string;shopUrl:string;active:boolean;approvalFilePresent:boolean};
+type CamShop = {id:string;displayName:string;platform:string;shopUrl:string;status:string;accessMode:string};
 type ShopView = {
   configured:boolean; platform:string; shopUrl:string;
   maxProducts:number; headless:boolean; approvalFile:string;
@@ -31,6 +32,9 @@ export function BrandingDnaPilotCard({
  const [status,setStatus]=useState<PilotStatus>(INITIAL);
  const [shop,setShop]=useState<ShopView>(EMPTY_SHOP);
  const [library,setLibrary]=useState<SavedShop[]>([]);
+ const [camShops,setCamShops]=useState<CamShop[]>([]);
+ const [camLoading,setCamLoading]=useState(false);
+ const [camError,setCamError]=useState("");
  const [form,setForm]=useState({platform:"amazon",shopUrl:"",maxProducts:3,headless:false});
  const [editing,setEditing]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -45,6 +49,16 @@ export function BrandingDnaPilotCard({
    if(!nativeAvailable)return;
    setLibrary(await invoke<SavedShop[]>("branding_pilot_list_saved_shops"));
  },[nativeAvailable]);
+ const reloadCamShops=useCallback(async()=>{
+   if(!nativeAvailable)return;
+   setCamLoading(true);setCamError("");
+   try {
+     const shops=await invoke<CamShop[]>("branding_pilot_cam_shops");
+     setCamShops(shops);
+   }catch(e){
+     setCamError(typeof e==="string"?e:e instanceof Error?e.message:"CAM Shop Library unavailable.");
+   }finally{setCamLoading(false)}
+ },[nativeAvailable]);
  const reloadShop=useCallback(async()=>{
    if(!nativeAvailable)return;
    const result=await invoke<ShopView>("branding_pilot_load_shop");
@@ -57,11 +71,12 @@ export function BrandingDnaPilotCard({
    void refresh().catch(()=>setError("Cannot read Branding DNA pilot status."));
    void reloadShop().catch(()=>setError("Cannot read shop configuration."));
    void reloadLibrary().catch(()=>setError("Cannot read saved shop library."));
+   void reloadCamShops();
    const interval=window.setInterval(()=>{
      if(!document.hidden)void refresh().catch(()=>undefined);
    },3000);
    return ()=>window.clearInterval(interval);
- },[nativeAvailable,refresh,reloadShop,reloadLibrary]);
+ },[nativeAvailable,refresh,reloadShop,reloadLibrary,reloadCamShops]);
  const disabled=!nativeAvailable||!controllerAvailable||managerBusy||busy;
  const act=async(command:"install"|"check"|"run"|"stop"|"config"|"approval")=>{
    if(command==="run" && !window.confirm(
@@ -100,6 +115,27 @@ export function BrandingDnaPilotCard({
      setError(typeof e==="string"?e:e instanceof Error?e.message:"Could not save shop config");
    }finally{setBusy(false)}
  };
+ const chooseCamShop=async(id:string)=>{
+   const remote=camShops.find(entry=>entry.id===id);
+   if(!remote)return;
+   if(!["amazon","etsy"].includes(remote.platform))return;
+   setBusy(true);setError("");setNotice("");
+   try{
+     const result=await invoke<ShopView>("branding_pilot_save_shop",{
+       platform:remote.platform,shopUrl:remote.shopUrl,
+       maxProducts:Math.min(5,shop.configured?shop.maxProducts:3),
+       headless:false,
+     });
+     setShop(result);
+     setForm({platform:result.platform,shopUrl:result.shopUrl,maxProducts:result.maxProducts,headless:result.headless});
+     setEditing(false);
+     setNotice("Imported from CAM as a local shop. Permission is NOT automatically granted. Review its authorization before a manual pilot.");
+     await reloadLibrary();
+     await refresh();
+   }catch(e){
+     setError(typeof e==="string"?e:e instanceof Error?e.message:"Could not select CAM shop.");
+   }finally{setBusy(false)}
+ };
  const chooseSaved=async(id:string)=>{
    if(!id)return;
    setBusy(true);setError("");setNotice("");
@@ -132,6 +168,21 @@ export function BrandingDnaPilotCard({
    <p className="branding-pilot-note"><ShieldCheck size={15}/>
      Manual pilot only: global Run automation and Pinterest Gemini jobs never start this browser. Each pilot observes up to 5 public product pages and records local per-shop progress; run again manually to skip previously observed products. No CAM upload or auto-retry.
    </p>
+   <div className="branding-library-bar" aria-label="CAM production Shop Library">
+     <label>CAM Shop Library · {camShops.length} shops
+       <select value="" disabled={disabled||status.running||camLoading||camShops.length===0}
+         onChange={e=>void chooseCamShop(e.target.value)}>
+         <option value="">Select shop from CAM</option>
+         {camShops.map(entry=><option value={entry.id} key={entry.id}>
+           {entry.platform.toUpperCase()} · {entry.displayName} · {entry.status}
+         </option>)}
+       </select>
+     </label>
+     <button className="button secondary slim" type="button" disabled={disabled||camLoading}
+       onClick={()=>void reloadCamShops()}>{camLoading?"Syncing…":"Refresh CAM shops"}</button>
+   </div>
+   {camError&&<p className="branding-pilot-error" role="alert"><CircleAlert size={14}/>{camError}</p>}
+   <small>CAM shops sync read-only using existing Scout pairing; select one to create or reuse a local profile. This does not authorize scanning.</small>
    <div className="branding-library-bar" aria-label="Saved shop library">
      <label>Saved shop library · {library.length}/50
        <select value={library.find(entry=>entry.active)?.id??""}

@@ -1,5 +1,19 @@
 # RRUGC Scout Manager
 
+## Branding DNA CAM Shop Library sync — Scout Manager v0.1.31 (2026-10-17)
+
+The Browser Agent used to display only locally saved Windows shop records.
+Now **CAM Shop Library** is loaded read-only from the current CAM tenant using
+the Scout Manager's existing `RRUGC_AGENT_ID` / `RRUGC_SCOUT_TOKEN` pairing
+over HTTPS. No separate browser-worker token is necessary for *listing shops*.
+Select a remote Amazon/Etsy shop to create or reuse a local shop profile;
+local authorization stays default-deny and browser scanning is not started.
+The remote list is never silently replaced with the local list when pairing
+or network access fails; a visible error and Refresh action are provided.
+Shopify entries remain on the web; the current Browser Pilot supports only
+Amazon/Etsy. Profile data, media, SQLite checkpoints and reports remain local
+on Windows. No Amazon/Etsy marketplace request occurs during CAM shop sync.
+
 ## Branding DNA Visual UI pilot — worker v0.2.1 (2026-10-17)
 
 On the existing Scout Manager's Branding DNA card, **Show Chromium browser**
