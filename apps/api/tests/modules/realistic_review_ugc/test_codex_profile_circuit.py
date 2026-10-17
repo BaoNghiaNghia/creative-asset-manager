@@ -24,6 +24,13 @@ def test_stage4_circuit_quota_opens_five_hour_window(tmp_path):
     assert note_failure(home, "other_error", now=1010) >= 17990
 
 
+def test_stage4_circuit_stops_credit_exhaustion_immediately(tmp_path):
+    home = str(tmp_path / "account2")
+    assert note_failure(home, "codex_image_credit_exhausted", now=1000) == 1800
+    assert cooldown_remaining(home, now=1100) == 1700
+    assert cooldown_remaining(home, now=2801) == 0
+
+
 def test_stage4_circuit_timeout_window_resets_burst(tmp_path):
     home = str(tmp_path / "account2")
     assert note_failure(home, "codex_image_provider_error", now=1000) == 0

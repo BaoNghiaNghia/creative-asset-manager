@@ -48,7 +48,7 @@ def cooldown_remaining(codex_home: str, *, now: float | None = None) -> int:
 
 
 def note_failure(codex_home: str, code: str, *, now: float | None = None) -> int:
-    """After three rapid unexpected provider errors, allow one probe / 30 min."""
+    """Open immediately on workspace credit exhaustion; limit probes to one per 30 min."""
     clock = time.time() if now is None else now
     with _locked_state(codex_home) as state:
         start = float(state.get("start", 0) or 0)
@@ -60,6 +60,10 @@ def note_failure(codex_home: str, code: str, *, now: float | None = None) -> int
         state.update(start=start, count=count)
         if code in {"codex_image_usage_limited", "codex_image_auth_required"}:
             state["until"] = max(float(state.get("until", 0) or 0), clock + QUOTA_COOLDOWN_SECONDS)
+        elif code == "codex_image_credit_exhausted":
+            # Balance is external to CAM; check sparingly and recover after refill.
+            state["until"] = max(float(state.get("until", 0) or 0), clock + TRANSIENT_COOLDOWN_SECONDS)
+            state["start"], state["count"] = clock, 0
         elif code in {"codex_image_provider_error", "codex_image_output_missing"} and count >= FAILURES_TO_OPEN:
             state["until"] = max(float(state.get("until", 0) or 0), clock + TRANSIENT_COOLDOWN_SECONDS)
             # A probe failure after cooldown restarts the window.
