@@ -89,6 +89,26 @@ historical date until these independent gates are actually proven:
 7. Any eventual live write uses Preview -> human review -> exact revision
    compare-and-set -> mutation -> independent readback and idempotency.
 
+## P1 safeguard — Closing → Opening numeric evidence (2026-10-19)
+
+The trusted Morning Reset service and Gemini planning host now share
+`daily/closing_evidence.py`, a strict **read-only** numeric gate. Both
+independently refuse blank, slash, notes, formula-like expressions,
+booleans, negative stock, NaN/Infinity and locale-ambiguous grouping
+(e.g. `1,234`). Zero and unambiguous decimal comma remain supported.
+Review-required evidence must never generate a Shared Sheet mutation.
+
+This deliberately **does not** certify physical units, operator slash
+semantics, Closing completeness, spreadsheet copy provenance or historical
+Opening. Existing tenant catalog, source/target cell hashes, formula
+exclusions and date-scoped recovery constraints remain authoritative.
+No feature flag, DB migration, credential or production setting changes.
+
+Focused tests: `test_closing_evidence.py`, `test_carry_forward.py` and
+`test_inventory_catinat_golden.py`. Full Inventory regression remains a
+release prerequisite. Rollback: revert this isolated change; no DB or
+Sheets repair action is necessary because this change does not write data.
+
 ## Test / operational evidence
 
 Run `cd apps/api && .venv/bin/python -m pytest -q

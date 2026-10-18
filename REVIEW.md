@@ -19,6 +19,13 @@
 
 # Architecture Review
 
+## Inventory Daily 2026-10-19 — numeric carry-forward safety
+
+- Scope: shared pure Closing numeric gate consumed by the Gemini planner and trusted carry-forward service; negative/NaN/Infinity/ambiguous values require review before any write.
+- Security: existing tenant, evidence-hash, formula, and date restrictions unchanged. No migrations, dependencies, new flags, credential changes or Google Sheets writes.
+- Verification: focused Closing and carry-forward tests plus full Inventory suite; see docs/operations/INVENTORY_DAILY_REBUILD_20261018.md.
+- Rollback: revert isolated change on feature branch. Never replay historical Reset into active Shared Sheet as a rollback mechanism.
+
 ## Current completed step
 
 Step 20 — Resumable projection rebuild and Elasticsearch reindex operations.

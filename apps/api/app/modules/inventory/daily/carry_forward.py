@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.modules.inventory.daily.closing_evidence import parse_verified_closing_number
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.persistence_model import (
@@ -120,12 +121,10 @@ def _range_contains(cell: str, range_data: dict[str, Any]) -> bool:
 
 
 def _number(value: Any) -> Decimal:
-    if value is None or (isinstance(value, str) and not value.strip()):
-        raise CarryForwardReviewRequired("missing_closing_evidence")
     try:
-        return Decimal(str(value).replace(",", "."))
-    except (InvalidOperation, ValueError) as exc:
-        raise CarryForwardReviewRequired("non_numeric_closing_evidence") from exc
+        return parse_verified_closing_number(value)
+    except ValueError as exc:
+        raise CarryForwardReviewRequired(str(exc)) from exc
 
 
 

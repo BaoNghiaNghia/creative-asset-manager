@@ -1,5 +1,8 @@
 # Implementation Roadmap
 
+- [x] Inventory Daily 2026-10-19: block invalid/ambiguous Closing quantities in both carry-forward planning and trusted write validation; no live Sheets changes.
+- [ ] Inventory Daily: confirm configured apply mode and live read-only Google preflight; then disposable-copy readback, full-cycle shadow parity, and reviewed Opening/Closing before production activation.
+
 ## Foundation
 
 - [ ] 00 Codebase audit

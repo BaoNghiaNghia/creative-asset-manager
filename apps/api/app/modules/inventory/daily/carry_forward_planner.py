@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Mapping
 
 from sqlalchemy import func, or_, select
@@ -17,6 +17,7 @@ from app.core.config import Settings, get_settings
 from app.modules.inventory.ai.gateway import InventoryAiGatewayError, RuntimeInventoryGeminiGateway
 from app.modules.inventory.credentials import InventoryGeminiCredentialResolver
 from app.modules.inventory.daily.carry_forward import CarryForwardPlan, CarryForwardReviewRequired
+from app.modules.inventory.daily.closing_evidence import parse_verified_closing_number
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
 from app.modules.inventory.model import InventoryAiControlModel
@@ -116,9 +117,10 @@ class CarryForwardToolHost:
         return {"role": role, "cells": evidence}
 
     def _number(self, value: Any) -> Decimal:
-        if value is None or (isinstance(value, str) and not value.strip()): raise CarryForwardReviewRequired("missing_closing_evidence")
-        try: return Decimal(str(value).replace(",", "."))
-        except (InvalidOperation, ValueError) as exc: raise CarryForwardReviewRequired("non_numeric_closing_evidence") from exc
+        try:
+            return parse_verified_closing_number(value)
+        except ValueError as exc:
+            raise CarryForwardReviewRequired(str(exc)) from exc
 
     def _catalog(self, warehouse: bool, args: Mapping[str, Any] | None = None) -> dict[str, Any]:
         args = args or {}

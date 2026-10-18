@@ -2,6 +2,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 import tempfile
 
+import pytest
+
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
@@ -617,6 +619,31 @@ def test_zero_is_carried_but_blank_requires_review_without_write():
     result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(rows)).run("tenant-a", date(2030, 8, 10))
     assert result.status == "review_required"
     assert google.writes == []
+    engine.dispose(); temp.cleanup()
+
+
+@pytest.mark.parametrize("unsafe_value,expected_code", [
+    ("NaN", "non_numeric_closing_evidence"),
+    ("Infinity", "non_numeric_closing_evidence"),
+    ("/", "non_numeric_closing_evidence"),
+    (-2, "non_numeric_closing_evidence"),
+    ("1,234", "ambiguous_closing_number_format"),
+])
+def test_invalid_closing_never_mutates_shared_workbook(unsafe_value, expected_code):
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": unsafe_value}, target_values={"B14": 7})
+    planned = [row("material-a", "warehouse-a", "H14", "B14", unsafe_value, 7)]
+    result = InventorySharedCarryForwardService(
+        sessions,
+        client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner(planned),
+    ).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "review_required"
+    assert result.error_code == expected_code
+    assert google.writes == []
+    assert google.clears == []
+    assert google.target_values["B14"] == 7
     engine.dispose(); temp.cleanup()
 
 
