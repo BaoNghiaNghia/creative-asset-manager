@@ -27,6 +27,13 @@ An approved RAG document **does not establish** product fact correctness, galler
 - Uploaded text is always treated as untrusted content: it cannot instruct the system, invoke tools, alter permissions, authorize crawling or mutate the approved DNA.
 - v1 stores originals inside PostgreSQL under strict quotas to avoid adding a new cross-provider credential path; future object-store migration must have per-tenant encryption, retention and deletion policies.
 
+### BD-DNA-00 — Evidence Input Readiness (Read-only)
+The Brand DNA tab can inspect an individual shop's approved RAG corpus and imported listing statuses through `GET /api/v1/branding-dna/shops/{shop_id}/dna-inputs`. Output includes counts of approved/pending documents, listing snapshot and gallery manifest counts, approved RAG first-chunk citation excerpts, a stable hash of approved source identities, hard blockers and optional missing-signal notices.
+- Requires `ai_provider.configure` because approved shop RAG can be private.
+- No DNA inference, job dispatch, autosave or auto-approval, and **no claim that unverified listing exports are real observed product facts**.
+- A deterministic fingerprint is not a DNA version. Missing optional RAG does not block DNA drafting if product evidence is independently verified.
+- Brand Pick/Best Seller remain unavailable until their independently governed pipelines exist.
+
 ### Future BD-RAG-02 / BD-RAG-03 (NOT CURRENTLY DEPLOYED)
 1. **Full source governance**: dedicated `branding_dna.knowledge_* ` roles, document owner rights/licensing declaration, GDPR/privacy deletion/purge, upload AV/CDR, audit append-only change log, object store encryption, provenance versioning and stronger PDF parser sandbox/quarantine.
 2. **Semantic retrieval**: chunk embeddings (versioned, tenant isolated), hybrid BM25 + vector, citations, reranker quality evaluation, limits for data leakage, cost, and prompts.

@@ -241,7 +241,17 @@
         {
           "name": "dna",
           "click": "#bdna-stage-dna",
-          "waitFor": "#bdna-panel-dna .bdna-future-panel"
+          "waitFor": "#bdna-panel-dna .bdna-readiness",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#bdna-panel-dna .bdna-readiness"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
         }
       ]
     },
